@@ -530,7 +530,7 @@ we make both basis signals).
 
 
 \begin{widetext}
-\subsection{Stage 5: Marginalize over all extrinsic (*)}
+\subsection{Stage 5: Marginalize over all extrinsic }
 
 \noindent \textbf{Fast extrinsic evaluation}: Assume we have $\tilde{h}_{lm}(f|\lambda)$ (signal harmonics);
 $P_{k,lm}(t|\lambda),Q_{k,lm}(t|\lambda)$ (data versus signal for each detector and harmonic).  \textbf{We only need P,Q
@@ -559,21 +559,23 @@ Assuming $P,Q$ are interpolated off a small number of basis points, this express
    = \frac{1}{2}\left[
    F_k e^{-2i\psi_J} \tilde{h}_{\rm ref} +F_k^* e^{2i\psi_J}{\cal I}\tilde{h}_{\rm ref}
   \right] \\
-\ln L_{\rm model}(\lambda|\hat{n},\hat{k},\psi_J,d) &= -\frac{1}{2} \sum_k\qmstateproduct{H_k}{\hat{H}_k}_k 
+\ln L_{\rm model}(\lambda|\hat{n},\hat{k},\psi_J,d) &= -\frac{1}{2} \sum_k\qmstateproduct{H_k}{H_k}_k 
  \\
-&= -\frac{(d/d_{\rm ref})^2}{2}
+&= -\frac{(d_{\rm ref}/d)^2}{2}
 \left[ \frac{1}{2} [ \sum_k \qmstateproduct{h_{\rm    ref}}{h_{\rm ref}}_k F_k F_k ]
  +\frac{1}{2} e^{4i\psi_J} F_k^* F_k^* \qmstateproduct{h_{\rm ref}}{{\cal I}h_{\rm ref}}_k
  + \frac{1}{2} e^{-4i\psi_J} F_k F_k \qmstateproduct{{\cal I} h_{\rm ref}}{h_{\rm ref}}_k 
 \right] \\
 &= 
 {\color{blue}
--\frac{(d/d_{\rm ref})^2}{2}
+-\frac{(d_{\rm ref}/d)^2}{2}
 \left[ \frac{1}{2} [ \sum_k \qmstateproduct{h_{\rm    ref}}{h_{\rm ref}}_k F_k F_k ]
  + \text{Re} e^{-4i\psi_J} F_k F_k \qmstateproduct{{\cal I} h_{\rm ref}}{h_{\rm ref}}_k 
 \right]
 }
 \end{align}
+The last expression requires $2N_{\rm det}$ inner products to evaluate.  But it can be implemented as just
+one $O(N)$ loop over all frequency bins.
 
 \end{itemize}
 
@@ -585,8 +587,6 @@ Assuming $P,Q$ are interpolated off a small number of basis points, this express
 
 I recommend doing this 1d or 2d integral with raw quadrature -- particularly the 1d time case, which requires some care.
 
-This integral should require no trig operations !  (Maybe a few, to do $\psi_J$)  
-
 \begin{shaded}
 Since sky location and emission direction are fixed, we can preprocess and scale $Q_k$ and $P_k$ by their fixed
 prefactors, generating short fiducial timeseries (only needed over the window time)
@@ -596,13 +596,17 @@ prefactors, generating short fiducial timeseries (only needed over the window ti
 \ln L_{\rm data}(\lambda|t,\hat{n},\hat{k},\psi_J,d)  = (d_{\rm ref}/d)[e^{+i2\psi_J} \bar{Q}(t)  + e^{+i2\psi_J}
   \bar{Q}(t)] 
 \end{eqnarray}
-Computing $\rho^2$ by just changing $\psi_J$ is pretty fast, if we store $\tilde{h}_{lm}(f)$.  At a minimum we need at
-least one $O(N)$ evaluation (per evaluation of the easy extrinsic variable marginalization) to compute $\rho^2$ at
-all...so repeating that 4 times isn't much of an added cost.  Assume we can therefore reproduce
+The computation of $\rho^2$ (aka $-2\ln L_{\rm model}$) is $2+2N_{\rm det}$ $O(N)$ operations, assuming we store
+$\tilde{h}_{lm}(f)$: compute $\tilde{h}_{\rm ref}$ and ${\cal I} \tilde{h}_{\rm ref}$; then compute the two inner
+products at each detector.    This expression has the form
 \begin{eqnarray}
-\ln L_{\rm model}  = -\frac{1}{2}\rho^2 + \Delta \rho^2 \cos 4(\psi-\psi_0)
+\ln L_{\rm model}  = -\frac{(d_{\rm ref}/d)^2}{2}\left[ A  + B \cos 4(\psi-\psi_0) \right] \\
+B = |\sum_k F_k F_k \qmstateproduct{{\cal I}h_{\rm ref}}{h_{\rm ref}}_k|
 \end{eqnarray}
-Given these two terms, we compute an ``easy'' integral
+The value of $\psi_0$ is unimportant and marginalized away.  
+
+    Given these two terms, we compute an ``easy'' integral,
+where every term in the integrand can be computed from a quick interpolation over a well-sampled, low-dimensional function:
 \begin{eqnarray}
 L_{red,EZ} \equiv \int \frac{dt}{T_{\rm window}} \frac{d\psi}{\pi} \frac{dr}{r_{\rm max}^3/3}e^{\ln  L}
 \end{eqnarray}
@@ -613,6 +617,7 @@ L_{red,EZ} \equiv \int \frac{dt}{T_{\rm window}} \frac{d\psi}{\pi} \frac{dr}{r_{
   $\qmoperatorelement{h}{U}{h}$.    
 
 An integral over this 4d space can be done by monte carlo -- preferably using an intelligent sampling distribution.
+
 \end{itemize}
 
 
