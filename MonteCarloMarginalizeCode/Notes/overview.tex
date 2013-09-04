@@ -638,23 +638,28 @@ source and anything before 64 sec at a lower sample rate (256 Hz?).  Potentially
 
 \subsection{Routines needed}
 
-\noindent \textbf{Ldata and Lsignal}: 
-
-\noindent \textbf{Monte carlo integrator}
-
-* Monte carlo integrator with convergence test (i.e., threshold on $L_{\rm reduced}$ and error tolerance target,
-absolute and relative)
-
-** ideally ability to multithread
-
-\noindent \textbf{Sampling distribution infrastructure}:
+\noindent \textbf{Distribution infrastructure}: To evaluate $\int L p$ and $\int p_s L p/p_s$, we first need to define
+a distribution object and require certain features:
 
 * request bound on each parameter (e.g., could identify 'light ring normal' and 'light ring width'; 'time
 window.barycenter', etc. )
 
 * return random sample from each parameter
 
-* 
+* return PDF
+
+
+\noindent \textbf{Monte carlo integrator}: In terms of $p_s$
+
+* Monte carlo integrator with convergence test (i.e., threshold on $L_{\rm reduced}$ and error tolerance target,
+absolute and relative)
+
+** ideally ability to multithread
+
+
+\noindent \textbf{Ldata and Lsignal}: 
+
+
 
 \subsection{Code tests}
 
