@@ -1,8 +1,62 @@
-% $Id: overview.tex,v 1.3 2013/09/03 22:03:50 oshaughn Exp $
+% overview.tex
+% RICHARD NOTE:
+%   Original version:
+%      Planning/ShortProjectEvaluations/2013-08-MeBradyEtAl-MarginalizedPE/overview.tex
 \documentclass[twocolumn,prd,nofootinbib]{revtex4}
 \newcommand\ForRichardOnly[1]{#1}
 %\newcommand\ForRichardOnly[1]{}
-\input{refsheetLinks.tex}
+\usepackage{verbatim}
+\usepackage{color}     % color text
+\usepackage{framed}
+\definecolor{shadecolor}{gray}{0.95}
+\usepackage{amsmath}
+\usepackage{graphicx}  % extend graphics
+\usepackage{tabularx}
+\usepackage{wrapfig}   % wrap text around figures, if desired
+\usepackage{hyperref}
+
+% Standard LAL, LALAPPs links
+\newcommand\LALDocsMain{\href{http://www.lsc-group.phys.uwm.edu/lal/slug/nightly/doc/lsd-nightly.pdf}{LALDocs}}
+%\newcommand\LALappsDocsMain{\href{http://www.lsc-group.phys.uwm.edu/~saikat/doc/lalapps.pdf}{LALapps docs}}
+\newcommand\LALappsDocsMain{\href{http://www.lsc-group.phys.uwm.edu/lal/slug/nightly/doc/lalapps-nightly.pdf}{LALapps docs}}
+\newcommand\LALDocsSource[1]{\href{http://www.lsc-group.phys.uwm.edu/cgit/lalsuite/tree/#1}{#1}}
+\newcommand\LALDocsSourceInline[2]{\href{http://www.lsc-group.phys.uwm.edu/cgit/lalsuite/tree/#1}{{\tt #2}}}
+
+% BONUS TOOLS
+
+\newcommand\editremark[1]{{\color{red} #1}}
+
+\newcommand\unit[1]{\, {\rm #1}}
+\newcommand\aap{A\&A}
+\newcommand\apss{APSS}
+\newcommand\aaps{AAPS}
+\newcommand\apjs{ApJ S}
+\newcommand\aj{AJ}
+\newcommand\apjl{ApJL}
+\newcommand\mnras{MNRAS}
+\newcommand\pasp{PASP}
+\newcommand\araa{ARA\&A}
+\newcommand\physrep{Phys. Rep.}
+\newcommand\aapr{AAPR}
+\newcommand\nar{NAR}  % New astronomy reviews
+
+\newcommand\Y[1]{{{}_{#1}Y}}
+% GR tools
+\newcommand\prederiv[2]{{}^{(#1)}#2}
+\newcommand\dualBack{*}
+\newcommand\dualForward{\star}
+\newcommand\avL{\left< {\cal L}_{(a} {\cal L}_{b)} \right>}
+\newcommand\WeylScalar{{\psi_4}}
+\newcommand\WeylScalarFourier{{\tilde{\psi}_4}}
+\newcommand\mc{{{\cal M}_c}}
+% QM TOOLS
+\newcommand\qmstate[1]{\left|#1\right \rangle}
+\newcommand\qmstateKet[1]{\left\langle#1\right|}
+\newcommand\qmstateproduct[2]{\left\langle#1|#2\right\rangle}
+\newcommand\qmoperatorelement[3]{\left\langle#1\left|#2\right|#3\right\rangle}
+\newcommand\qmoperator[1]{{\bf #1}}
+
+
 \begin{document}
 
 \title{PE by Monte Carlo}
@@ -20,7 +74,7 @@ first read.
 
 \subsection{The reduced likelihood}
 \noindent \textbf{Gravitational wave signal}: Paramters $\lambda,\theta$ for $\lambda$ intrinsic parameters (slow) and
-$\theta$ intrinsic parameters (fast).  The code provides $h(t|\lambda,\theta)$ in the Earth's barycenter or, more
+$\theta$ extrinsic parameters (fast).  The code provides $h(t|\lambda,\theta)$ in the Earth's barycenter or, more
 usefeul, $h_{lm}$, a spin-weighted spherical harmonic decomposition relative to the emission direction $\hat{N}$
 \begin{shaded}
 \begin{itemize}
@@ -38,8 +92,11 @@ h' = h \exp(-2i \psi)
   onto the plane of the sky is $\psi_J$.  The spin-weighted
   spherical harmonic decomposition is 
 \begin{eqnarray}
-h = \sum_{lm} h_{lm}(t|\lambda,\theta) e^{-2i\psi_J}\Y{-2}_{lm}(\theta_{JN}\phi_{JN})
+\label{eq:def:hSpinWeightEmissionDirection}
+h(t|\lambda,\theta) = \sum_{lm} h_{lm}(t|\lambda) e^{-2i\psi_J}\Y{-2}_{lm}(\theta_{JN}\phi_{JN})
 \end{eqnarray}
+Note $h_{lm}$ depends only on intrinsic parameters.  (Implicitly, $h_{lm}$ also depends on our choice of reference
+frequency, typically 100 Hz.).
 \item The sky location is $\hat{n}=\hat{n}(\delta,\alpha)$ (i.e., RA and DEC angles).  we do not have to do sky location
   conversions ourselves.
 \item Fourier sign convention is as follows, consistent with \cite{gwastro-mergers-nr-Alignment-ROS-Polarization}
@@ -67,7 +124,7 @@ H_k(t) &=F_{+,k}(t) h_+(t-\vec{x}_k(t)\cdot \hat{k}) + F_\times(t) h_\times(t-\v
  &= \text{Re}(F_++i F_\times)_k h(t-\vec{x}_k(t)\cdot \hat{k}) \\
  &=  \frac{F h }{2} + \frac{F^*h^*}{2} \equiv (Fh  + F^*{\cal I} h)/2
 \end{align}
-where $-\hat{k}$ points toward the sky location, \emph{opposite} to the direction of propagation; where $F=F_++i F_\times$;
+where $-\hat{k}$ points toward the sky location, \emph{opposite} to the direction of propagation $\hat{k}$; where $F=F_++i F_\times$;
 where $F_{+,\times}$ are calculated as $F_+(t)=e_+^{ab}d_{ab}(t)/2$ and follow by contracting a unit tensor with the time-dependent geometry tensor of each
 interferometer; where self-evident dependence on $t$ and $t-\hat{k}\cdot \vec{x}_k$ has been suppressed; and
 where ${\cal I}$ is the (complex-antilinear!) complex conjugation operation in time.   
@@ -117,9 +174,25 @@ stationary, defining an inner product $\qmstateproduct{a}{b}_k \equiv 2 \int_{-\
 complex-valued functions $a,b$ of time.  Each detector has strain data $\hat{H}_k(t)$.  We evaluate the following likelihood ratio for each element
 \begin{eqnarray}
 -2\ln L_k &= \qmstateproduct{H_k-\hat{H}_k}{H_k-\hat{H}_k}_k - \qmstateproduct{\hat{H}_k}{\hat{H}_k}_k \\
-  &= \qmstateproduct{H_k}{H_k}_k - 2 \text{Re} \qmstateproduct{H_k}{\hat{H}_k}_k
+  &= \qmstateproduct{H_k}{H_k}_k - 2 \text{Re} \qmstateproduct{H_k}{\hat{H}_k}_k 
 \end{eqnarray}
-
+The total likelihood is the product of individual detectors' likelihoods:
+\begin{eqnarray}
+\ln L &\equiv \sum_k \ln L_k  = \ln L_{\rm model} + \ln L_{\rm data} \\
+\ln L_{\rm model} &\equiv -\frac{1}{2} \sum_k \qmstateproduct{H_k}{H_k}_k \\
+\ln L_{\rm data} &\equiv  \sum_k \qmstateproduct{H_k}{\hat{H}_k}_k 
+\end{eqnarray}
+\begin{shaded}
+\textbf{Efficiency of terms?}: As described below, the two terms in the log likelihood
+\begin{itemize}
+\item \emph{Model-only term}: This time-translation-independent $L_{\rm model}$ can be efficienly calculated from $\tilde{h}$ in the
+  barycenter, for any sky location [Eq. \editremark{X}], from an O(N) operation.  To get $\tilde{h}$ in the barycenter for
+  an arbitrary \emph{emission} direction, we need to sum over $\tilde{h}_{lm}(f)$ via
+  Eq. (\ref{eq:def:hSpinWeightEmissionDirection})
+\item \emph{Data term}: The other term can be efficiently computed for all times, sky locations, and emission directions
+  by archiving $\qmstateproduct{h_{lm}\exp(-i\omega t)}{\hat{H}_k}$ timeseries [Eq. (\ref{eq:IndividualDetectorLikelihoodTimeseries:ViaSpinWeightBasis})].
+\end{itemize}
+\end{shaded}
 
 \begin{widetext}
 \begin{shaded}
@@ -157,24 +230,34 @@ source is used.  The data from each detector is \emph{barycentered} by first app
 translation operation; then the beampattern response and detector PSD, as a weight.
 %
 
-Similarly, the signal amplitude can be expressed using barycentered quantities:
+Similarly, the signal amplitude can be expressed using barycentered quantities.  Taking care to allow for different PSDs
+in different detectors, we find
 \begin{align}
-\rho^2 \equiv \sum_k \qmstateproduct{H_k}{H_k}_k 
- =  \frac{1}{2}\qmstateproduct{h}{h}_{\rm ref} (\sum_k F_k^* F_k) 
- + \frac{1}{4}\qmstateproduct{h}{{\cal I} h}_{\rm ref} \sum_k F_k^* F_k^* + \frac{1}{4}\qmstateproduct{{\cal
-     I}h}{h}_{\rm ref}  \sum_k F_k
- F_k
-\equiv \sigma \qmstateproduct{h}{h}  + \frac{\text{Re}}{2}\zeta^* \qmstateproduct{h}{{\cal I} h}
+\label{eq:CalculateRhoFromBarycenterStrain}
+\rho^2& \equiv \sum_k \qmstateproduct{H_k}{H_k}_k 
+ =  \frac{1}{2}\qmoperatorelement{h}{\sum_k F_k^* F_k\frac{S_{\rm ref}}{S_k}}{h}_{\rm ref} 
+ + \frac{1}{4}\qmoperatorelement{h}{\sum_k F_k^* F_k^* \frac{S_{\rm ref}}{S_k}}{{\cal I} h}_{\rm ref}  
+ + \frac{1}{4}\qmoperatorelement{{\cal     I}h}{\sum_k F_k F_k \frac{S_{\rm ref}}{S_k}}{h}_{\rm ref}  \\
+&\equiv  \qmoperatorelement{h}{\sigma}{h}_{\rm ref}  + \frac{\text{Re}}{2} \qmoperatorelement{h}{\zeta^*}{{\cal I}
+   h}_{\rm ref}
 \end{align}
-where the last expression implicitly defines $\sigma, \zeta$:
+where the last expression implicitly defines the operators $\sigma(f|\hat{k}), \zeta(f|\hat{k})$:
 \begin{eqnarray}
-\sigma \equiv \frac{1}{2} \sum_k F_k^* F_k^* \qquad \zeta \equiv \sum_k F_k F_k 
+\sigma \equiv \frac{1}{2} \sum_k F_k^* F_k^* \frac{S_{\rm ref}(f)}{S_k(f)} 
+\qquad 
+\zeta \equiv \sum_k F_k F_k \frac{S_{\rm ref}(f)}{S_k(f)} 
 \end{eqnarray}
 
-\noindent \textbf{Why do we care?}: This operation allows us to quickly explore any individual sky location.  And to
+\noindent \textbf{Why do we care, mark 1}: This operation [Eq. (\ref{eq:def:BarycenteredInnerProductWithData})] allows us to quickly explore any individual sky location.  And to
 explore alternative sky locations (via all possible time translations of the raw data): just reconstruct ${\cal S}$ from
 the raw data streams slightly differently.   And to reduce the number of FFTs we need to perform for time translation:
 having constructed ${\cal S}$, it needs to be fourier transformed only once to make the network SNR timeseries.
+
+\noindent \textbf{Why do we care, mark 2}: Suppose we tabulate $\tilde{h}_{lm}(f)$. We can efficiently generate
+$\tilde{h}$ for any emission direction [Eq. (\ref{eq:def:hSpinWeightEmissionDirection})] via an order N operation
+($\tilde{h}$ depends only on emission direction, not sky position),
+then efficiently generate $\rho^2$ for any sky location via an O(N) operation [the inner product with these
+  sky-position-dependent operations].  
 \end{shaded}
 \end{widetext}
 
@@ -184,7 +267,7 @@ having constructed ${\cal S}$, it needs to be fourier transformed only once to m
 \noindent \textbf{Reduced likelihood}: The reduced likelihood combines all detectors and integrates over all prior
 volume:
 \begin{eqnarray}
-L_{\rm red} = \int p(\theta) d\theta \prod_k L_k = \int p_s(\theta) d\theta \frac{p}{p_s}\prod_k L_k 
+{\color{blue} L_{\rm red} = \int p(\theta) d\theta \prod_k L_k = \int p_s(\theta) d\theta \frac{p}{p_s}\prod_k L_k }
 \end{eqnarray}
 where $p_s$ is our sampling prior.  Specifically, if $d_{\rm max}$ is the maximum distance allowed and $T_{window}$ the
 time window, the reduced integral has the form (for \textbf{Euclidean cosmology})
@@ -263,7 +346,7 @@ F_\times F_+ & F_\times^2
 where $U$ is a unitary transformation that diagonalizes $C$.
 
 \noindent \textbf{Response against data}: By contrast, for a fixed data set, the second term in the likelihood
-necessarily transforms like $h$: purely sinusoidally in time
+necessarily transforms like $h$: purely sinusoidally in polarization angle
 \begin{eqnarray}
 \rho \hat{\rho} = A \cos 2\psi + B \cos 2 \psi
 \end{eqnarray}
@@ -355,6 +438,7 @@ If fourier transforms dominate our computational cost, this postprocessing-only 
 \noindent \emph{Longhand Implementation}: Explicit non-barycentered expressions allowing for timeshifts or sky position
 shifts have the form
 \begin{eqnarray}
+\label{eq:IndividualDetectorLikelihoodTimeseries:ViaSpinWeightBasis}
 \sum_k\qmstateproduct{e^{-i \omega t} H_k}{\hat{H}_k}_k
 = \sum_k (F_k \Y{-2}_{lm})^* {\color{blue} \qmstateproduct{ h_{lm}}{e^{i\omega t}\hat{H}_k}_k}
    + (F_k \Y{-2}_{lm}) {\color{blue}\qmstateproduct{{\cal I} h_{lm}}{e^{i\omega t}\hat{H}_k}_k} \\
@@ -434,27 +518,113 @@ This situation should be contrasted with the assumptions implicit in the F stati
 
 \subsection{Stage 4: Marginalize in time, phase, distance,  emission direction, and sky location  (*)}
 
+\noindent \textbf{Rationale}: As above
 
-\noindent \textbf{Method: Change sky location  in FFT domain}
-* ideally, just use time offsets to implement the sky recentering.  That SOU
+\noindent \textbf{Concept}:  Using a very small number of archived $Q_{k,lm},P_{k,lm}$ timeseries points, we can
+reconstruct $L_{\rm data}$ very quickly for any extrinsic parameters (much less than $O(N)$).  
+
+For each emission direction and/or sky position, I think we still need an O(N) operation to reconstruct $h$ and to
+evaluate $\rho^2$.  But $\rho^2$ is time-translation invariant and scales trivially with distance (and polarization, if
+we make both basis signals).
 
 
-\noindent \textbf{What should we compute?}: Take a basis signal. Compute the following:
-\begin{eqnarray}
-h_{lm}(f)
-\end{eqnarray}
 
-
+\begin{widetext}
 \subsection{Stage 5: Marginalize over all extrinsic (*)}
 
+\noindent \textbf{Fast extrinsic evaluation}: Assume we have $\tilde{h}_{lm}(f|\lambda)$ (signal harmonics);
+$P_{k,lm}(t|\lambda),Q_{k,lm}(t|\lambda)$ (data versus signal for each detector and harmonic).  \textbf{We only need P,Q
+  over a short window time.}  These calculations
+require a fixed distance scale; we adopt $d_{\rm ref}=100\unit{Mpc}$ by default.  We assume time-dependent quantities
+have been interpolated, to allow high resolution.  Using these quantities, we compute
+$L_{\rm data}$ and $L_{\rm model}$ for any event time via
+\begin{itemize}
+\item \emph{Data term}:  The scheme for computing $L_{\rm data}$ was outlined above:
+\begin{align}
+\ln L_{\rm data}(\lambda|t,\hat{n},\hat{k},\psi_J,d) &= \sum_k\qmstateproduct{H_k}{\hat{H}_k}_k \nonumber \\
+& =
+{\color{blue} (d_{\rm ref}/d) \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi_J} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot x_k)
+   + (F_k(-\hat{k}) \Y{-2}_{lm}(\hat{n}) e^{-2\psi_J}) P_{k,lm}(t-\hat{k}\cdot x_k) 
+}
+\end{align}
+Assuming $P,Q$ are interpolated off a small number of basis points, this expression can be evaluated ``analytically''.
+\item \emph{Signal term}:  The scheme for computing $L_{\rm model}$ was outlined in
+  Eq. \ref{eq:CalculateRhoFromBarycenterStrain}.     To minimize the number of re-evaluations, let's make any dependence on
+  $\psi_J$ and $d$ explicit
+\editremark{check coefficients and signs}
+\begin{align}
+\tilde{h}(f|\lambda,\hat{n},d_{\rm ref}) &\equiv \tilde{h}_{\rm ref}(f) = \sum_{lm} \tilde{h}_{lm}(f|\lambda) \Y{-2}_{lm}(\hat{n}) \\
+\tilde{h}(f|\lambda,\hat{n},\psi_J,d_{\rm ref})&= e^{-2i\psi_J} \tilde{h}_{\rm ref}(f) \\
+\tilde{H}_k(f)_{\text{no time shift}} &= \frac{(d_{\rm ref}/d)}{2}[F_k h + F^*_k {\cal I} h]
+   = \frac{1}{2}\left[
+   F_k e^{-2i\psi_J} \tilde{h}_{\rm ref} +F_k^* e^{2i\psi_J}{\cal I}\tilde{h}_{\rm ref}
+  \right] \\
+\ln L_{\rm model}(\lambda|\hat{n},\hat{k},\psi_J,d) &= -\frac{1}{2} \sum_k\qmstateproduct{H_k}{\hat{H}_k}_k 
+ \\
+&= -\frac{(d/d_{\rm ref})^2}{2}
+\left[ \frac{1}{2} [ \sum_k \qmstateproduct{h_{\rm    ref}}{h_{\rm ref}}_k F_k F_k ]
+ +\frac{1}{2} e^{4i\psi_J} F_k^* F_k^* \qmstateproduct{h_{\rm ref}}{{\cal I}h_{\rm ref}}_k
+ + \frac{1}{2} e^{-4i\psi_J} F_k F_k \qmstateproduct{{\cal I} h_{\rm ref}}{h_{\rm ref}}_k 
+\right] \\
+&= 
+{\color{blue}
+-\frac{(d/d_{\rm ref})^2}{2}
+\left[ \frac{1}{2} [ \sum_k \qmstateproduct{h_{\rm    ref}}{h_{\rm ref}}_k F_k F_k ]
+ + \text{Re} e^{-4i\psi_J} F_k F_k \qmstateproduct{{\cal I} h_{\rm ref}}{h_{\rm ref}}_k 
+\right]
+}
+\end{align}
+
+\end{itemize}
+
+\noindent \textbf{Marginalization scheme}: We want to evaluate $L_{\rm red} \equiv \int p(\theta)L(\lambda,\theta)$:
+
+\begin{itemize}
+\item \emph{Easy extrinsic first}: Marginalize over $t,d$ and perhaps $\psi_J$ first: these require no $O(N)$
+  operations.  For example, in the first case $L_{\rm model}=-\rho^2/2$ scales trivially as $1/d^2$.
+
+I recommend doing this 1d or 2d integral with raw quadrature -- particularly the 1d time case, which requires some care.
+
+This integral should require no trig operations !  (Maybe a few, to do $\psi_J$)  
+
+\begin{shaded}
+Since sky location and emission direction are fixed, we can preprocess and scale $Q_k$ and $P_k$ by their fixed
+prefactors, generating short fiducial timeseries (only needed over the window time)
+\begin{eqnarray}
+\bar{Q}(t) \equiv  \sum_{k,lm}(F_k(-\hat{k}) \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot x_k) \\
+\bar{P}(t)\equiv   \sum_{klm} (F_k(-\hat{k}) \Y{-2}_{lm}(\hat{n}) ) P_{k,lm}(t-\hat{k}\cdot x_k)  \\
+\ln L_{\rm data}(\lambda|t,\hat{n},\hat{k},\psi_J,d)  = (d_{\rm ref}/d)[e^{+i2\psi_J} \bar{Q}(t)  + e^{+i2\psi_J}
+  \bar{Q}(t)] 
+\end{eqnarray}
+Computing $\rho^2$ by just changing $\psi_J$ is pretty fast, if we store $\tilde{h}_{lm}(f)$.  At a minimum we need at
+least one $O(N)$ evaluation (per evaluation of the easy extrinsic variable marginalization) to compute $\rho^2$ at
+all...so repeating that 4 times isn't much of an added cost.  Assume we can therefore reproduce
+\begin{eqnarray}
+\ln L_{\rm model}  = -\frac{1}{2}\rho^2 + \Delta \rho^2 \cos 4(\psi-\psi_0)
+\end{eqnarray}
+Given these two terms, we compute an ``easy'' integral
+\begin{eqnarray}
+L_{red,EZ} \equiv \int \frac{dt}{T_{\rm window}} \frac{d\psi}{\pi} \frac{dr}{r_{\rm max}^3/3}e^{\ln  L}
+\end{eqnarray}
+\end{shaded}
+
+\item \emph{Slow extrinsic second}: Emission direction and sky position require O(N) operations to recompute compute
+  $\rho^2$, via recomputing $\tilde{h}$ from $\tilde{h}_{lm}$ or from evaluating an inner product of the form
+  $\qmoperatorelement{h}{U}{h}$.    
+
+An integral over this 4d space can be done by monte carlo -- preferably using an intelligent sampling distribution.
+\end{itemize}
 
 
+
+\end{widetext}
 \subsection{Discussion: what could we do for speed? (*)}
 
 * minimize the number of FFT evaluations -- for example, bootstrap the translation operation to each detector
 
 * clever likelihood evaluation (e.g., chunk the likeihood into time-frequency bins, and taper between bins? Good idea,
-LOTS of infrastructure: basically wavelet-basis idea)
+LOTS of infrastructure: basically wavelet-basis idea.  Or just use \textbf{two} time-frequency bins: 64 sec close to the
+source and anything before 64 sec at a lower sample rate (256 Hz?).  Potentially dangerous for higher harmonics)
 
 * Reject extremely low likelihoods early on: if the log likelihood is very close to zero at the FFT stage, don't bother
 
@@ -492,138 +662,6 @@ window.barycenter', etc. )
 * Construct intermediate transfer functions from complex methods paper.  Use a resummed complex quantity for each sky location
 
 
-\bibliography{textbooks,%
-LIGO-publications,%
-gw-astronomy-mergers-nr,gw-astronomy-pulsars,%
-popsyn,popsyn_gw-merger-rates,star-evolution-theory-binary,binary-evolution-theory,%
-astrophysics-theory,gw-astronomy,gw-astronomy-mergers}
-
-\clearpage\part{Richard's notes}
-\begin{widetext}
-\hypertarget{toc}{}
-\tableofcontents
-%\refinclude{Users/oshaughn/unixhome/Projects/Planning/ShortProjectEvaluations/2013-08-MeBradyEtAl-MarginalizedPE/index.TopicsAndExamplesBelow.tex}  % Update as needed
-\end{widetext}
-
-
-\noindent \textbf{See also}
-
-* \projectLinkWithLabelInline{LIGO-Development-UpdatedSpinningWaveforms/KISTI-MCMC/Paper2-MCMC-NoPrecession/paper-ComplexMethods-short}{PE ``complex methods'' draft}
-
-*
-\readingLinkWithLabelInline{GR/GravitationalWaveAstronomy/Binaries/SituationDependentDataAnalysis/LIGO-LowMassCompactObject/article.2010.HarryFairhurst.1012-4939.CoherentNonspinningPTFLike}{Harry 2010}
-
-\readingLinkWithLabelInline{GR/GravitationalWaveAstronomy/Binaries/SituationDependentDataAnalysis/LIGO-LowMassCompactObject/article.2010.HarryFairhurst.1101-1459.CoherentSingleSpinPTF}{Harry 2010b}
-
-
-\section{From another paper}
-
-
-Third and finally, sums of inner products can be reorganized and expressed as operators acting on $h$ and $h'$.  When
-comparing sources emanating from  two different sky locations $\hat{n}$ and $\hat{n}'$, the sums  over all inner
-products $\qmstateproduct{H_k}{H_k'}$ have the apparently complicated form
-\begin{align}
-\sum_k \qmstateproduct{H_k}{H_k'} &
-=
- \sum_k F_k^* F_k' \qmoperatorelement{h}{ e^{-i\omega \hat{x}_k\cdot(\hat{n}'-\hat{n})}}{h'}/4 
-\nonumber \\
-&  + \sum_k F_k (F_k')^*  \qmoperatorelement{{\cal I}h'}{ e^{+i\omega
-    \hat{x}_k\cdot(\hat{n}'-\hat{n})}}{{\cal I}h}/4 \nonumber \\
-&+ \frac{1}{4} 
-\qmoperatorelement{h}{\sum_k F_k^* (F_k')^* e^{-2i\omega \hat{n}\cdot x_k} }{{\cal I}h}
-\nonumber \\
-&+  \frac{1}{4}
-\qmoperatorelement{{\cal I}h}{ \sum_k F_k F_k'  e^{+2i\omega \hat{n}\cdot x_k}}{h}
-\end{align}
-Motivated by the form of this expression and by  \citet{CutlerFlanagan:1994}, we define the operators $\sigma(\hat{n},\hat{n'})$ and
-$\zeta(\hat{n},\hat{n'})$ by 
-\begin{align}
-\sigma(\hat{n},\hat{n})&\equiv   \sum_k  F_k^* F_k'  e^{-i\omega \hat{x}_k\cdot(\hat{n}'-\hat{n})}/2  \\
-\zeta(\hat{n},\hat{n}')& \equiv \sum_k F_k F_k' e^{i\omega (\hat{n} + \hat{n}')\cdot x_k}
-\end{align}
-In terms of these operators, we can re-express this inner product as 
-\begin{align}
-\sum_k \qmstateproduct{H_k}{H_k'} & = \frac{\qmoperatorelement{h}{\sigma}{h'} +\qmoperatorelement{h}{\sigma}{h}^* }{2}
-\nonumber \\ &
-+  \frac{\qmoperatorelement{h}{\zeta^{\dag}}{{\cal I}h'} +\qmoperatorelement{h}{\zeta^\dag}{{\cal I}h}^* }{4}
-\nonumber \\
-& =  \text{Re} \left[ \qmoperatorelement{h}{\sigma}{h'} + \frac{1}{2}  \qmoperatorelement{h}{\zeta^\dag}{{\cal I} h'} \right]
-\end{align} 
-% POINT: Relation to ``coherent network amplitude''
-The form of this expansion suggests that the following quantity can reasonably be called the ``complex network
-response'' to a signal $h$ in the Earth's barycenter:
-\begin{eqnarray}
-{\cal S} h \equiv [\sigma  + \frac{1}{2} \zeta^{\dag} {\cal I} ] h
-\end{eqnarray}
-%
- Similarly, the multidetector likelihood has the compact form
-\begin{align}
-\label{eq:LikelihoodViaComplexInnerProduct}
--2 \ln L &= \rho_N^2 + (\rho_N')^2 - 2 \text{Re}  \left[ \qmoperatorelement{h}{\sigma}{h'} + \frac{1}{2}
-  \qmoperatorelement{h}{\zeta}{{\cal I} h'} \right] \\
-\label{eq:def:NetworkSignalAmplitude:ViaComplex}
-\rho_N^2 &\equiv\qmoperatorelement{h}{\sigma}{h} + \frac{1}{4}
-  \qmoperatorelement{h}{\zeta^\dag}{{\cal I} h} 
-  +  \frac{1}{4} \qmoperatorelement{{\cal I}h}{\zeta}{ h}
-\end{align}
-The first and second terms provides the ``network signal to noise ratio'' $\rho^2_N$, for $h$ and $h'$ rexpectively:  a quadratic-order measure of the intrinsic
-strength of the signal in the network, including network geometrical factors and each detector's noise spectrum.  
-% POINT: Ambiguity function
-%% Finally, motivated by this expression, we can define a normalized ``complex inner product'' to quantify the amplitude
-%% and phase similarity of two signals, as seen in this network:
-%% \begin{align}
-%% {\cal O}(\lambda,\lambda') &\equiv \frac{\qmoperatorelement{h}{{\cal S}}{h'}}{\sqrt{|\qmoperatorelement{h}{{\cal S}}{h}||\qmoperatorelement{h'}{{\cal S}}{h'}|}
-%% \end{align}
-The third term quantifies the degree of similarity between the two signals.  
-
-
-
-\clearpage\section{Theoretical minimum}
-
-\subsection{V0: Pure Monte Carlo}
-
-\noindent \textbf{Signal parameters}: Signal parameters $\lambda = (\lambda_{fast},\lambda_{intrinsic})$
-
-\subsection{V1: Fast analytic integration}
-
-\section{Practical issues}
-
-\noindent \textbf{Propagating the source: Long-wavelength limit}: The beampattern functions $F_{s,k}$ and positions
-$x_k$ are weakly time dependent, as the earth rotates.  The injection code compensates for these effects by a
-time-dependent rotation $R(t)$.  
-
-If the signal were monochromatic, to a reasonable approximation the response could be performed
-
-
-\noindent \textbf{Caching $h_{lm}$ at each source}
-
-* asume $F_{+,\times}$ in the long wavelength limit
-
-* sky location: assume we transport $h_{lm}$ to each detector and cache, then integrate over all sky
-
-
-\noindent \textbf{Precessing sources: Rotating spins}:
-
-\noindent \textbf{Precessing sources: $h_{lm}$ inner product matrices}:
-
-
-\part{Includables}
-
-\section{Sky coordinates (*)}
-
-\refinclude{astro/Observations/obs-fragments/review.TimeAndSkyCoordinates-Classical.tex}
-
-\section{RP}
-
-\refinclude{math/General/util_fourier_formulary_k.tex}
-
-\refinclude{math/General/util_fourier_formulary_f.tex}
-
-
-\refinclude{GR/GravitationalWaveAstronomy/gw-astronomy-fragments/review.Conventions.FourierRP.tex}
-
-\section{Response}
-\refinclude{GR/GravitationalWaveAstronomy/gw-astronomy-fragments/review.MultidetectorSensitivityTensor.tex}
-
+\bibliography{overviewexport}
 \end{document}
 
