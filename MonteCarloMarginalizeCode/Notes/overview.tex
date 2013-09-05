@@ -3,8 +3,8 @@
 %   Original version:
 %      Planning/ShortProjectEvaluations/2013-08-MeBradyEtAl-MarginalizedPE/overview.tex
 \documentclass[twocolumn,prd,nofootinbib]{revtex4}
-\newcommand\ForRichardOnly[1]{#1}
-%\newcommand\ForRichardOnly[1]{}
+%\newcommand\ForRichardOnly[1]{#1}
+\newcommand\ForRichardOnly[1]{}
 \usepackage{verbatim}
 \usepackage{color}     % color text
 \usepackage{framed}
@@ -40,7 +40,7 @@
 \newcommand\aapr{AAPR}
 \newcommand\nar{NAR}  % New astronomy reviews
 
-\newcommand\Y[1]{{{}_{#1}Y}}
+\newcommand\Y[1]{Y^{(#1)}{}}
 % GR tools
 \newcommand\prederiv[2]{{}^{(#1)}#2}
 \newcommand\dualBack{*}
@@ -179,9 +179,10 @@ complex-valued functions $a,b$ of time.  Each detector has strain data $\hat{H}_
 The total likelihood is the product of individual detectors' likelihoods:
 \begin{eqnarray}
 \ln L &\equiv \sum_k \ln L_k  = \ln L_{\rm model} + \ln L_{\rm data} \\
-\ln L_{\rm model} &\equiv -\frac{1}{2} \sum_k \qmstateproduct{H_k}{H_k}_k \\
+\ln L_{\rm model} &\equiv -\frac{1}{2} \sum_k \qmstateproduct{H_k}{H_k}_k \equiv - \rho^2/2 \\
 \ln L_{\rm data} &\equiv  \sum_k \qmstateproduct{H_k}{\hat{H}_k}_k 
 \end{eqnarray}
+\ForRichardOnly{
 \begin{shaded}
 \textbf{Efficiency of terms?}: As described below, the two terms in the log likelihood
 \begin{itemize}
@@ -193,13 +194,14 @@ The total likelihood is the product of individual detectors' likelihoods:
   by archiving $\qmstateproduct{h_{lm}\exp(-i\omega t)}{\hat{H}_k}$ timeseries [Eq. (\ref{eq:IndividualDetectorLikelihoodTimeseries:ViaSpinWeightBasis})].
 \end{itemize}
 \end{shaded}
+}
 
 \begin{widetext}
 \begin{shaded}
 \noindent \textbf{Reorganize?}
 Using the notation in  \citet{gwastro-mergers-HeeSuk-CompareToPE-Aligned}, we define 
 \begin{eqnarray}
--2 L &\equiv \rho^2 - 2 \sum_k \qmstateproduct{H_k}{\hat{H}_k}
+-2 \ln L &\equiv \rho^2 - 2 \sum_k \qmstateproduct{H_k}{\hat{H}_k}
 \end{eqnarray}
 The first term is time-translation invariant and ``easy'' to evaluate ``once and for all'' -- see later tricks with
 $h_{lm}$.   The second term can be resummed by substituting the value of $H_k$ in terms of translations, beampatterns,
@@ -243,7 +245,7 @@ in different detectors, we find
 \end{align}
 where the last expression implicitly defines the operators $\sigma(f|\hat{k}), \zeta(f|\hat{k})$:
 \begin{eqnarray}
-\sigma \equiv \frac{1}{2} \sum_k F_k^* F_k^* \frac{S_{\rm ref}(f)}{S_k(f)} 
+\sigma \equiv \frac{1}{2} \sum_k |F_k|^2 \frac{S_{\rm ref}(f)}{S_k(f)} 
 \qquad 
 \zeta \equiv \sum_k F_k F_k \frac{S_{\rm ref}(f)}{S_k(f)} 
 \end{eqnarray}
@@ -258,6 +260,28 @@ $\tilde{h}$ for any emission direction [Eq. (\ref{eq:def:hSpinWeightEmissionDire
 ($\tilde{h}$ depends only on emission direction, not sky position),
 then efficiently generate $\rho^2$ for any sky location via an O(N) operation [the inner product with these
   sky-position-dependent operations].  
+
+To be even more efficient, we can pre-tabulate the $\qmstateproduct{h_{lm}}{h_{l'm'}}$, which depend only on $\lambda$
+and the $k$th detector PSD:
+\begin{subequations}
+\label{eq:ComputeRhoViaInnerProductMatrix}
+\begin{align}
+{\color{blue} U_{k,lm,l'm'}(\lambda)}& = \qmstateproduct{h_{lm}}{h_{l'm'}}_k \\
+V_{k,lm,l'm'}(\lambda)& = \qmstateproduct{{\cal I}h_{lm}}{h_{l'm'}}_k \\
+\ln L_{\rm model}(\lambda|\hat{n},\hat{k},\psi_J,d) &=
+   -\frac{(d_{\rm ref}/d)^2}{2}\sum_k
+\left[
+{\color{blue}
+ \frac{1}{2}|F_k(-\hat{k})|^2 U_{k,lm,lm'}(\lambda)[\Y{-2}_{lm}(\hat{n})]^*\Y{-2}_{l'm'}(\hat{n})
+}
+ \right. \nonumber \\ & \left.
+ {\color{blue}
++
+ \frac{1}{2} \text{Re} V_{k,lm,l'm'} e^{-4i\psi_J}F_k^2 \Y{-2}_{lm}(\hat{n})\Y{-2}_{l'm'}(\hat{n})
+}
+\right]
+\end{align}
+\end{subequations}
 \end{shaded}
 \end{widetext}
 
@@ -278,7 +302,7 @@ L_{\rm red} = \int \frac{dt}{T_{\rm window}} \frac{d^2 dd d\Omega_{sky} }{V_{\rm
 
 
 
-
+\ForRichardOnly{
 \subsection{Stage 0: Marginalize in time}
 \noindent \textbf{Rationale}: For long (BNS) signals, constructing the waveform for a fixed propagation direction is expensive, because of the cost of time translation to
 each site.  Let's get the most out of each sky location
@@ -404,11 +428,12 @@ and fast -- e.g., a Monte Carlo integral with some broad distribution.
 \noindent \textbf{Compare to  Bayestar}: Larry and Leo do a 1d distance integration with GSL : \texttt{gsl integration qagp}
 \end{shaded}
 
+}
 
+\subsection{Stage 3: Marginalize in time, phase, distance, and emission direction  }
 
-\subsection{Stage 3: Marginalize in time, phase, distance, and emission direction  (*)}
-
-\noindent \textbf{Rationale}: As above
+\noindent \textbf{Rationale}: Waveform generation and FFTs are expensive; large data sequences involve many $O(N)$
+operations.   For long (BNS) signals, constructing and handling the 30 min of data is very expensive!  Let's get the most out of each sky location.
 
 \noindent \textbf{Principle}: Express $h(t)$ and $h(f)$ using basis functions:
 \begin{eqnarray}
@@ -423,13 +448,15 @@ $h_{lm}(f)$, do we gain anything by writing out these expansions in full?  Just 
 to compute $h(t)$ and $h_{lm}(f)$ so we can efficiently evaluate $\rho^2$ and $\qmstateproduct{h}{{\cal S}}$?
 
 \noindent \textbf{What could be our advantage?}: To push extreme performance, it's \emph{possible} to generate complex-valued
-timeseries   \editremark{SANITY CHECK ME: make sure intelligent use of signs}
+timeseries via the inner product of $H_k(t)$ with $h_{lm}(t-\tau)$:
 \begin{eqnarray}
-{\color{blue}Q_{k,lm} \equiv \qmstateproduct{\exp(-i\omega t) h_{lm}}{\hat{H}_k}_k} \\
-{\color{blue}P_{k,lm} \equiv \qmstateproduct{\exp(-i\omega t){\cal I}h_{lm}}{\hat{H}_k}_k}
+{\color{blue}Q_{k,lm}(\tau) \equiv \qmstateproduct{\exp(-i\omega \tau) h_{lm}}{\hat{H}_k}_k} \\
+{\color{blue}P_{k,lm}(\tau) \equiv \qmstateproduct{\exp(-i\omega \tau){\cal I}h_{lm}}{\hat{H}_k}_k}\nonumber \\
+ = Q_{k,lm}(\tau)^*
 \end{eqnarray}
- once and for all, at each detector, then timeshift
-the resulting timeseries  to cover all sky positions as well as all orientations.  \textbf{After the
+The latter equality follows either by using the definition of ${\cal I}$; by thinking of the expression as two real
+inner products involving time translated $\text{Re}h_{lm}$ and $\text{Im}h_{lm}$; et cetera. 
+These quantities, evaluated once and for all at each detector, can be  timeshifted to cover all sky positions as well as all orientations.  \textbf{After the
 initial signal generation, fourier, comparison against data and inverse FFT, no further fourier transforms are performed. }
 %
 If fourier transforms dominate our computational cost, this postprocessing-only approach will be much faster.
@@ -437,21 +464,16 @@ If fourier transforms dominate our computational cost, this postprocessing-only 
 \begin{widetext}
 \noindent \emph{Longhand Implementation}: Explicit non-barycentered expressions allowing for timeshifts or sky position
 shifts have the form
-\begin{eqnarray}
+\begin{align}
 \label{eq:IndividualDetectorLikelihoodTimeseries:ViaSpinWeightBasis}
-\sum_k\qmstateproduct{e^{-i \omega t} H_k}{\hat{H}_k}_k
-= \sum_k (F_k \Y{-2}_{lm})^* {\color{blue} \qmstateproduct{ h_{lm}}{e^{i\omega t}\hat{H}_k}_k}
+\sum_k\qmstateproduct{e^{-i \omega \tau} H_k}{\hat{H}_k}_k
+&= \frac{1}{2} \sum_k (F_k \Y{-2}_{lm})^* {\color{blue} \qmstateproduct{ h_{lm}}{e^{i\omega t}\hat{H}_k}_k}
    + (F_k \Y{-2}_{lm}) {\color{blue}\qmstateproduct{{\cal I} h_{lm}}{e^{i\omega t}\hat{H}_k}_k} \\
-\end{eqnarray}
+ &= \sum_k \text{Re}[(F_k(-\hat{k}) \Y{-2}_{lm}(\hat{n}))^* Q_{k,km}(\tau|\lambda)]
+\end{align}
 The blue expressions have the form $\qmstateproduct{h_{lm}}{\hat{H}_k}_k$.  For a nonprecessing source ${\cal I} h_{lm}
 =(-1)^l h_{l,-m}$, letting us reduce by $\times 2$ the number of inverse FFTs needed; in general no symmetry holds. 
 
-Similarly, the signal amplitude $\rho$ can be expanded.  Because $\qmstateproduct{h_{lm}}{h_{l'm'}}\ne 0$ in general,
-this expansion is \textbf{not useful}: it's easier to compute $\rho^2_k(t)$ in each interferometer from the resummed
-signal, once and for all, then use timeshifts to construct the network amplitude $\rho^2_k(t-\vec{x}_k\cdot \hat{k})$.
-
-\editremark{Problem: This costs one inverse FFT for each source orientation, to construct $\rho_k(t)$.  In special cases
-where I *do* have orthogonality, I should use it}
 \end{widetext}
 
 \begin{shaded}
@@ -551,7 +573,7 @@ Assuming $P,Q$ are interpolated off a small number of basis points, this express
 \item \emph{Signal term}:  The scheme for computing $L_{\rm model}$ was outlined in
   Eq. \ref{eq:CalculateRhoFromBarycenterStrain}.     To minimize the number of re-evaluations, let's make any dependence on
   $\psi_J$ and $d$ explicit
-\editremark{check coefficients and signs}
+\editremark{check coefficients and signs: make sure we make table for inner products}
 \begin{align}
 \tilde{h}(f|\lambda,\hat{n},d_{\rm ref}) &\equiv \tilde{h}_{\rm ref}(f) = \sum_{lm} \tilde{h}_{lm}(f|\lambda) \Y{-2}_{lm}(\hat{n}) \\
 \tilde{h}(f|\lambda,\hat{n},\psi_J,d_{\rm ref})&= e^{-2i\psi_J} \tilde{h}_{\rm ref}(f) \\
@@ -562,20 +584,22 @@ Assuming $P,Q$ are interpolated off a small number of basis points, this express
 \ln L_{\rm model}(\lambda|\hat{n},\hat{k},\psi_J,d) &= -\frac{1}{2} \sum_k\qmstateproduct{H_k}{H_k}_k 
  \\
 &= -\frac{(d_{\rm ref}/d)^2}{2}
-\left[ \frac{1}{2} [ \sum_k \qmstateproduct{h_{\rm    ref}}{h_{\rm ref}}_k F_k F_k ]
+\left[ \frac{1}{2} [ \sum_k \qmstateproduct{h_{\rm    ref}}{h_{\rm ref}}_k |F_k |^2 ]
  +\frac{1}{2} e^{4i\psi_J} F_k^* F_k^* \qmstateproduct{h_{\rm ref}}{{\cal I}h_{\rm ref}}_k
  + \frac{1}{2} e^{-4i\psi_J} F_k F_k \qmstateproduct{{\cal I} h_{\rm ref}}{h_{\rm ref}}_k 
 \right] \\
 &= 
 {\color{blue}
 -\frac{(d_{\rm ref}/d)^2}{2}
-\left[ \frac{1}{2} [ \sum_k \qmstateproduct{h_{\rm    ref}}{h_{\rm ref}}_k F_k F_k ]
+\left[ \frac{1}{2} [ \sum_k \qmstateproduct{h_{\rm    ref}}{h_{\rm ref}}_k|F_k|^2 ]
  + \text{Re} e^{-4i\psi_J} F_k F_k \qmstateproduct{{\cal I} h_{\rm ref}}{h_{\rm ref}}_k 
 \right]
 }
 \end{align}
-The last expression requires $2N_{\rm det}$ inner products to evaluate.  But it can be implemented as just
-one $O(N)$ loop over all frequency bins.
+As written, the last expression requires $2N_{\rm det}$ inner products to evaluate, as stated.  
+
+\noindent \textbf{Precompute inner product matrix}: Now suppose we precompute the inner product matrix.  We end up with 
+Eq. (\ref{eq:ComputeRhoViaInnerProductMatrix})
 
 \end{itemize}
 
@@ -596,9 +620,7 @@ prefactors, generating short fiducial timeseries (only needed over the window ti
 \ln L_{\rm data}(\lambda|t,\hat{n},\hat{k},\psi_J,d)  = (d_{\rm ref}/d)[e^{+i2\psi_J} \bar{Q}(t)  + e^{+i2\psi_J}
   \bar{Q}(t)] 
 \end{eqnarray}
-The computation of $\rho^2$ (aka $-2\ln L_{\rm model}$) is $2+2N_{\rm det}$ $O(N)$ operations, assuming we store
-$\tilde{h}_{lm}(f)$: compute $\tilde{h}_{\rm ref}$ and ${\cal I} \tilde{h}_{\rm ref}$; then compute the two inner
-products at each detector.    This expression has the form
+The computation of $\rho^2$ has the form
 \begin{eqnarray}
 \ln L_{\rm model}  = -\frac{(d_{\rm ref}/d)^2}{2}\left[ A  + B \cos 4(\psi-\psi_0) \right] \\
 B = |\sum_k F_k F_k \qmstateproduct{{\cal I}h_{\rm ref}}{h_{\rm ref}}_k|
@@ -635,6 +657,31 @@ source and anything before 64 sec at a lower sample rate (256 Hz?).  Potentially
 
 
 \section{Stage 1: Prototype code}
+
+\subsection{Requirements}
+
+
+\noindent \textbf{Operation count}: Fortunately the huge data set is only processed once to generate a \emph{very small}
+set of intermediate quantities.  After a few O(N) operations, the \emph{actionable} memory usage is very small
+
+
+\noindent \textbf{Memory usage: Computation}: A stupid approach is to use a fixed sampling rate for all time.
+%
+A 30 min signal at 4kHz with 3 detector REAL8 timeseries $\simeq 180 Mb$.
+%% << PhysicalConstants`
+%% 30 Minute * 4096/Second * 3 * 8 Byte
+%% Convert[%, Mega Byte] // N
+Plus, we \textbf{must} create each harmonic tineseries -- with 5 harmonics, this is Gb of storage!  (Plus a factor of few for intermediate
+data: the FFTs.)
+
+\noindent \emph{Compressing in time-frequency}: A better approach to the likelihood only evaluates the terms we need.
+Memory usage should be \emph{much} more moderate if we only evaluate a handful of inner products. uses (a) tapered sampling rates in
+the raw data and template or (b) some intelligent representation (e.g., amplitude-phase representations for the $h_{lm}(f)$).
+
+\noindent \textbf{Memory usage: Output}: 
+
+\noindent \textbf{File I/O} \editremark{don't know} how fast the current disk speeds are, NFS limits, interconnect, etc
+
 
 \subsection{Routines needed}
 
