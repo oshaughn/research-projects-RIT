@@ -22,20 +22,18 @@ data.
 Requires python SWIG bindings of the LIGO Algorithms Library (LAL)
 """
 
-import numpy as np
-import lal
-import lalsimulation as lalsim
+from lalsimutils import *
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
 
 
-def MarginalizedLikelihood(m1, m2, data_dict, psd_dict, sample_dist):
+def MarginalizedLikelihood(P, data_dict, psd_dict, sample_dist):
     """
-    Compute the likelihood of masses (m1,m2), given data, marginalized
+    Compute the likelihood of parameters P, given data, marginalized
     over all extrinsic parameters.
     
-    m1, m2 should be given in solar masses.
+    'P' is a ChooseWaveformParams object.
 
     'data_dict' is a dictionary whose keys are names of detectors (e.g. 'H1')
         and whose values are pointers to REAL8TimeSeries of the 
@@ -53,87 +51,93 @@ def MarginalizedLikelihood(m1, m2, data_dict, psd_dict, sample_dist):
     """
     # Sanity checks
     assert data_dict.keys() == psd_dict.keys()
-    
-    # FIXME: I'm hardcoding some params we may want as arguments later
-    Ndet = len(data_dict.keys())
-    phiref = 0.
-    deltaT = 1./4096.
-    s1x = 0.
-    s1y = 0.
-    s1z = 0.
-    s2x = 0.
-    s2y = 0.
-    s2z = 0.
-    fmin = 40.
-    fref = 0.
-    dist = 1.e6 * lal.LAL_PC_SI
-    incl = 0.
-    lambda1 = 0.
-    lambda2 = 0.
-    waveFlags = None
-    nonGRparams = None
-    ampO = 0
-    phaseO = 7
-    approx = lalsim.TaylorT4
+
+    detectors = data_dict.keys()
+    Ndet = len(detectors)
     Lmax = 2
 
+    # These are the initial values of extrinsic parameters
+    iota = P.incl
+    psi = P.psi
+    tref = P.tref
+    phiref = P.phiref
+    DEC = P.theta
+    RA = P.phi
+    dist = P.dist
+
     # Create a linked list of all h_lm waveform modes for masses (m1,m2)
-    # Note that 'hlms' will be the linked list of modes in the barycenter frame
+    # Note that 'hlms' will be the linked list of modes in the geocenter frame
     # with the coalescence arriving at time tref=0
     #
     # FIXME: The above computes TD modes, we will want the FD modes.
     # I'll write a LAL function to do the conversion
-    hlms = lalsim.SimInspiralChooseTDModes(phiref, deltaT,
-            m1*lal.LAL_MSUN_SI, m2*lal.LAL_MSUN_SI, s1x, s1y, s1z,
-            s2x, s2y, s2z, fmin, fref, dist, incl, lambda1, lambda2,
-            waveFlags, nonGRparams, ampO, phaseO, Lmax, approx)
+    hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
+            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist,
+            P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
+            P.ampO, P.phaseO, P.Lmax, P.approx)
 
     # Loop over detectors and compute the complex-valued SNR 
     # of each hlm vs the data for tref at each discrete sample of the hlms
     #
     # FIXME: Need to decide if we keep all time shifts, just some subset,
     #       or bypass FFT and do inner product integral for each of a
-    #       small numbers of tiem shifts
+    #       small numbers of time shifts
     rholms = {}
-    for det in data_dict:
+    for det in detectors:
         # rholms is a dictionary, keyed on detector name, with each value a
         # linked list of SNR time series for that mode and detector
-        rholms[det] = ComputeModeSNRSeries(hlms, data_dict[det], psd_dict[det])
+        rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
+                psd_dict[det], P.fmin, P.fNyq)
+        # Compute < h_lm | h_l'm' >
+        # FIXME: Figure out best way to store this
+        crossTerms_dict[det] = ComputeModeCrossTermIP(hlms, psd_dict[det])
 
     # Draw random values of extrinsic parameters from our sampling distribution.
     # Compute the likelihood at each sample
-    # Keep looping until some convergence criterion is met and we are satisfied
-    # that we have the marginalized likelihood to sufficient accuracy
+    # Keep looping until some convergence criterion is met
     converged = False
     logL = []
     while converged is False:
         # Draw extrinsic parameters from the sampling distribution
-        extrParams = DrawFromExtrinsicSampleDistribution(sample_dist)
+        extr = DrawFromExtrinsicSampleDistribution(sample_dist)
 
         # Compute extrinsic pieces of the likelihood
-        # FIXME: We have LAL code to compute a single mode. Need to write a
-        # wrapper function to compute all modes and put them in some object.
-        # Maybe a python dictionary for the object???
-        iota = extrParams.inclination
-        psi = extrParams.polarization_angle
-        Ylms = ComputeYlms(Lmax, iota, psi)
+
+        # If binary orientation changed, recompute Ylms
+        if extr.inclination != iota or extr.polarization_angle != psi:
+            # FIXME: We have LAL code to compute a single mode. Need to write a
+            # wrapper function to compute all modes and put them in some object.
+            # Maybe a python dictionary for the object???
+            iota = extr.inclination
+            psi = extr.polarization_angle
+            Ylms = ComputeYlms(Lmax, iota, psi)
+
+        timeFlag = False
+        skyFlag = False
+        if extr.tref != tref:
+            timeFlag = True
+            skyFlag = True
+        if extr.right_ascension != RA or extr.declination != DEC:
+            RA = extr.right_ascension
+            DEC = extr.declination
+            skyFlag = True
+
+        dist = extr.distance
 
         # Loop over detectors
         temp = 0.
-        for det in data_dict:
-            tref = extrParams.tref
-            RA = extrParams.right_ascension
-            DEC = extrParams.declination
+        for det in detectors:
+            # If sky (or time) has change, recompute antenna pattern factor
+            if skyFlag == True:
+                F = ComplexAntennaFactor(det, RA, DEC, tref)
 
-            # Compute detector-dependent extrinsic factors
-            F = ComplexAntennaFactor(det, RA, DEC)
-
-            # Introduce barycenter-to-detector time shift
-            tshift = ComputeTimeDelay(tref, RA, DEC, det)
-            det_data = TimeShiftCOMPLEX16FrequencySeries(det_data, tshift)
+            # Introduce geocenter-to-detector time shift
+            tshifted = ComputeTimeDelay(tref, RA, DEC, det)
+            shifted_rholms = TimeShiftIPTimeSeries(rholms[det], tshifted)
 
             # Running total of log-likelihood in all detectors
-            temp += ComputeLogLikelihood(det_data, rholms, Ylms, F)
+            temp += ComputeLogLikelihood(shifted_rholms, crossTerms_dict[det],
+                    Ylms, F, dist)
 
         # Add likelihood at current extrinsic parameters to an array
         # FIXME: What's the best way to store/sort this info?
@@ -148,3 +152,69 @@ def MarginalizedLikelihood(m1, m2, data_dict, psd_dict, sample_dist):
     return margL
 
 
+def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, tref=None, N=None):
+    """
+    Compute the complex-valued overlap between
+    each member of a SphHarmFrequencySeries 'hlms' 
+    and the interferometer data COMPLEX16FrequencySeries 'data',
+    weighted the power spectral density REAL8FrequencySeries 'psd'.
+
+    The integrand is non-zero in the range: [-fNyq, -fmin] \union [fmin, fNyq].
+    This integrand is then inverse-FFT'd to get the inner product
+    at a discrete series of time shifts.
+
+    Returns a SphHarmTimeSeries object containing the complex inner product
+    for discrete values of the reference time tref.
+
+    Can optionally give arguments to return only the inner product reference
+    times in the range: [tref - N * deltaT, tref + N * deltaT]
+    where deltaT is the time step size stored in 'hlms'
+    """
+    # Sanity checks
+    assert data.deltaF == psd.deltaF
+
+    # FIXME: For now not handling tref, N
+    assert tref==None and N==None
+
+    # Create an instance of class to compute inner product time series
+    IP = ComplexOverlap(fmin, fNyq, psd.deltaF, psd.data.data, False, True)
+
+    # Loop over modes and compute the overlap time series
+    rholms = None
+    Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
+            hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
+            rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
+            rholms = lalsim.SphHarmFrequencySeriesAddMode(rholms, rhoTS, l, m)
+
+    # FIXME: Add ability to cut down to a narrow time window
+
+    return rholms
+
+
+def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq):
+    """
+    Compute the 'cross terms' between waveform modes, i.e.
+    < h_lm | h_l'm' >.
+    The inner product is weighted by power spectral density 'psd' and
+    integrated over the interval [-fNyq, -fmin] \union [fmin, fNyq]
+
+    Returns a dictionary of inner product values keyed by tuples of mode indices
+    i.e. ((l,m),(l',m'))
+    """
+    # Create an instance of class to compute inner product
+    IP = ComplexIP(fmin, fNyq, psd.deltaF, psd.data.data, False)
+
+    # Loop over modes and compute the inner products, store in a dictionary
+    crossTerms = {}
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
+            for lp in range(2,Lmax+1):
+                for mp in range(-lp,lp+1):
+                    hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
+                    hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, lp, mp)
+                    temp = IP.ip(hlm, hlpmp)
+                    crossTerms[ ((l,m),(lp,mp)) ] = temp
+
+    return crossTerms
