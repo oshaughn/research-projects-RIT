@@ -66,6 +66,7 @@ Notes. Main content in white.  Gray sidebars are ``footnotes'': implementation t
 first read.
 \end{abstract}
 \maketitle
+\tableofcontents
 \part{Notes for group}
 \nocite{gwastro-HarryFairhurst-CoherentTargetedSearch}
 % Keppel http://adsabs.harvard.edu/cgi-bin/nph-data_query?bibcode=2012arXiv1208.2340K&link_type=ABSTRACT
@@ -262,7 +263,7 @@ then efficiently generate $\rho^2$ for any sky location via an O(N) operation [t
   sky-position-dependent operations].  
 
 To be even more efficient, we can pre-tabulate the $\qmstateproduct{h_{lm}}{h_{l'm'}}$, which depend only on $\lambda$
-and the $k$th detector PSD:
+and the $k$th detector PSD, and reconstruct $\rho^2$ algebraically:
 \begin{subequations}
 \label{eq:ComputeRhoViaInnerProductMatrix}
 \begin{align}
@@ -282,7 +283,14 @@ V_{k,lm,l'm'}(\lambda)& = \qmstateproduct{{\cal I}h_{lm}}{h_{l'm'}}_k \\
 \right]
 \end{align}
 \end{subequations}
+
+\noindent \emph{Implementation tricks}: To minmize confusion, I recommend evaluating ${\cal I}h_{lm}(t)$ in the time
+domain and fourier transforming it, so it has exactly the same code path as $\tilde{h}_{lm}(f)$; for speed you can use
+${\cal I}\tilde{h}_{lm}(f) = h_{lm}(-f)^*$ if you are careful.
+
+For nonprecessing binaries $\tilde{h}_{lm}(-f)^*=(-1)^lh_{l,-m}$ and therefore $V_{k,lm,l'm'} = U_{k,l-m,l'm'}$
 \end{shaded}
+
 \end{widetext}
 
 
@@ -463,7 +471,7 @@ If fourier transforms dominate our computational cost, this postprocessing-only 
 
 \begin{widetext}
 \noindent \emph{Longhand Implementation}: Explicit non-barycentered expressions allowing for timeshifts or sky position
-shifts have the form
+shifts have the form \editremark{missing polarization angle explicitly in this construct}
 \begin{align}
 \label{eq:IndividualDetectorLikelihoodTimeseries:ViaSpinWeightBasis}
 \sum_k\qmstateproduct{e^{-i \omega \tau} H_k}{\hat{H}_k}_k
@@ -603,6 +611,7 @@ Eq. (\ref{eq:ComputeRhoViaInnerProductMatrix})
 
 \end{itemize}
 
+\ForRichardOnly{
 \noindent \textbf{Marginalization scheme}: We want to evaluate $L_{\rm red} \equiv \int p(\theta)L(\lambda,\theta)$:
 
 \begin{itemize}
@@ -641,23 +650,92 @@ L_{red,EZ} \equiv \int \frac{dt}{T_{\rm window}} \frac{d\psi}{\pi} \frac{dr}{r_{
 An integral over this 4d space can be done by monte carlo -- preferably using an intelligent sampling distribution.
 
 \end{itemize}
-
+}
 
 
 \end{widetext}
+
+
 \subsection{Discussion: what could we do for speed? (*)}
 
-* minimize the number of FFT evaluations -- for example, bootstrap the translation operation to each detector
+%* minimize the number of FFT evaluations -- for example, bootstrap the translation operation to each detector
 
 * clever likelihood evaluation (e.g., chunk the likeihood into time-frequency bins, and taper between bins? Good idea,
 LOTS of infrastructure: basically wavelet-basis idea.  Or just use \textbf{two} time-frequency bins: 64 sec close to the
 source and anything before 64 sec at a lower sample rate (256 Hz?).  Potentially dangerous for higher harmonics)
 
-* Reject extremely low likelihoods early on: if the log likelihood is very close to zero at the FFT stage, don't bother
+* Reject extremely low likelihoods early on: if the log likelihood is very close to zero at the FFT stage for any modes,
+don't bother.  [This hopefully should never happen, if our intrinsic search is good.]
 
 
+
+
+\begin{widetext}
 \section{Stage 1: Prototype code}
+\subsection{Milestones and Benchmarks: Marginalized likelihood evaluation}
 
+\noindent \textbf{Operations on complex series}: LAL's FFT infrastructure packs COMPLEX16 FFTs differently than REAL8.
+Inner products and the operation for $Q_{k,lm}(t)$ from $\tilde{h}_{lm}$ and $\tilde{H}_k$ need to use that order to
+compute $f_k$ and hence $S_h(f_k)$.  I've seen it done wrong.
+\begin{itemize}
+\item  \emph{Benchmark 1}: Take some $h=h_+-ih_\times$.  Compute the following using two code paths: (a) the left side,
+  via COMPLEX16 timeseries; (b) the right side, using two calls to the REAL8 timeseries
+\begin{eqnarray}
+\qmstateproduct{h}{h}=\qmstateproduct{h_+}{h_+}+\qmstateproduct{h_\times}{h_\times}
+\end{eqnarray}
+\item \emph{Benchmark 2}: Take some $h=h_+-h_\times$.  Compute the timeseries $q(\tau)\equiv \qmstateproduct{e^{-i\omega
+    \tau}h}{h}$ via two code paths: real and complex:
+\begin{eqnarray}
+q(\tau) = \qmstateproduct{e^{-i\omega \tau} h}{h} = 
+\qmstateproduct{e^{-i\omega \tau}h_+}{h_+} + \qmstateproduct{e^{-i\omega \tau}h_\times}{h_\times}
+-i(\qmstateproduct{e^{-i\omega \tau}h_+}{h_\times} - \qmstateproduct{e^{-i\omega \tau}h_\times}{h_+})
+\end{eqnarray}
+\end{itemize}
+
+\noindent \textbf{Inner product matrix}: $L_{\rm model}(\lambda,\theta)$ will be calculated via
+$\qmstateproduct{h_{lm}}{h_{l'm'}}$.  Is our implementation consistent with another code path?
+\begin{itemize}
+\item \emph{Symmetry check}:  For a nonprecessing system (e.g., BNS), confirm ${\cal I}h_{lm}(f) =
+  h_{lm}(-f)^*=h_{l,-m}(f)$ bin by bin and mode by mode: print the maximum absolute value of ${\cal I}h_{lm}  -
+  h_{lm}(-f)^*$ and $h_{lm}(-f)^* - h_{l,-m}(f)$ for all modes.
+
+Confirm  $\qmstateproduct{{\cal I} h_{lm}}{h_{l'm'}} = \qmstateproduct{h_{l,-m}}{h_{lm}}$
+
+Confirm $\qmstateproduct{h_{lm}}{h_{l'm'}}\simeq 0$ if $m m' <0$  (excellent approximation)
+
+\item \emph{Amplitude check 1}: For some fiducial binary (e.g., BNS), compute $\rho_1^2$ for an optimally oriented nonprecessing source directly overhead a
+  single interferometer, via two code paths using a standard real-valued code
+\begin{align}
+\rho^2_1 &\equiv\qmstateproduct{H_1}{H_1}_1 = \qmstateproduct{h_+}{h_+} 
+\end{align}
+and via the inner product matrix code  via the following expression, implemented in full :
+\begin{align}
+\rho^2_1& = \sum_{lm,l'm'} \frac{1}{2} [\Y{-2}_{lm}(\hat{n})]^*\Y{-2}_{l'm'}(\hat{n})\qmstateproduct{h_{lm}}{h_{l'm'}}
+  +\frac{1}{2}\text{Re}e^{-4i\psi_J}\Y{-2}_{lm}(\hat{n})\Y{-2}_{l'm'}(\hat{n})\qmstateproduct{{\cal I}h_{lm}}{h_{l'm'}}
+\end{align}
+For reference and debugging, this expression  should have only the $(l,m)=(l',m')=(2,2)$ term at leading order, because $\hat{n}=\hat{z}$:
+\begin{align}
+ \rho_1^2&= \sum_{lm,l'm'}d^l_{m,2}(0)d^{l'}_{m'2}(0) \frac{\sqrt{(2l+1)(2l'+1)}}{8\pi} \left[\qmstateproduct{h_{lm}}{h_{l'm'}} 
+ + \frac{1}{2} \text{Re}e^{-4i\psi_J}  \qmstateproduct{{\cal I}h_{lm}}{h_{l'm'}}
+\right] \\
+ &= \sum_{ll'}\frac{\sqrt{(2l+1)(2l'+1)}}{8\pi} \left[\qmstateproduct{h_{l2}}{h_{l'2}}  + O(\epsilon)
+\right]
+\end{align}
+where I use $d^l_{m,2}=\delta_{m2}$
+
+\item \emph{Random amplitude check}: Write a script to test the amplitude for many random orientations.
+\end{itemize}
+
+\noindent \textbf{$Q$ timeseries}: $Q_{k,lm}(\tau)$ provides a way to evaluate $\qmstateproduct{H_k}{\hat{H}_k}_k$; is
+it consistent with a conventional code path?  
+\begin{itemize}
+\item \emph{Random evaluation}: For a single interferometer, confirm both code paths reproduce the same inner product
+  with the data.   Let $\hat{H}_1$ be reconstructed using the standard code (optimally oriented BNS).
+\end{itemize}
+
+
+
+\end{widetext}
 \subsection{Requirements}
 
 
