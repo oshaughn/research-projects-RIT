@@ -61,6 +61,10 @@
 
 \title{PE by Monte Carlo}
 \author{R. O'Shaughnessy}
+\author{E. Ochsner}
+\author{C. Pankow}
+\author{P. Brady}
+\author{H. Qi}
 \begin{abstract}
 Notes. Main content in white.  Gray sidebars are ``footnotes'': implementation tricks and comments to be skipped on a
 first read.
@@ -97,13 +101,15 @@ h' = h \exp(-2i \psi)
 h(t|\lambda,\theta) = \sum_{lm} h_{lm}(t|\lambda) e^{-2i\psi_J}\Y{-2}_{lm}(\theta_{JN}\phi_{JN})
 \end{eqnarray}
 Note $h_{lm}$ depends only on intrinsic parameters.  (Implicitly, $h_{lm}$ also depends on our choice of reference
-frequency, typically 100 Hz.).
+frequency, typically 100 Hz.).  Coefficient functions $h_{lm}$ are provided in
+\cite{gw-astro-mergers-approximations-SpinningPNHigherHarmonics}; the theory underlying orbital phase generation is
+summarized in  \cite{gw-astro-PN-Comparison-AlessandraSathya2009}, etc.
 \item The sky location is $\hat{n}=\hat{n}(\delta,\alpha)$ (i.e., RA and DEC angles).  we do not have to do sky location
   conversions ourselves.
 \item Fourier sign convention is as follows, consistent with \cite{gwastro-mergers-nr-Alignment-ROS-Polarization}
 \begin{eqnarray}
-h(t) = \int \frac{d \omega}{2\pi} \; e^{-i\omega t} h(\omega) \\
-h(2\pi f) = \int dt e^{i 2\pi f t} h(t)
+h(t) = \int \frac{d \omega}{2\pi} \; e^{-i\omega t} \tilde{h}(\omega) \\
+\tilde{h}(2\pi f) = \int dt e^{i 2\pi f t} h(t)
 \end{eqnarray}
 In the common case that  $h = Ae^{-i\Phi(t)}$ with $\Phi$ increasing monotonically, the fourier transform $\tilde{h}(f)$ will be dominated by
 positive-frequency components
@@ -288,7 +294,7 @@ V_{k,lm,l'm'}(\lambda)& = \qmstateproduct{{\cal I}h_{lm}}{h_{l'm'}}_k \\
 domain and fourier transforming it, so it has exactly the same code path as $\tilde{h}_{lm}(f)$; for speed you can use
 ${\cal I}\tilde{h}_{lm}(f) = h_{lm}(-f)^*$ if you are careful.
 
-For nonprecessing binaries $\tilde{h}_{lm}(-f)^*=(-1)^lh_{l,-m}$ and therefore $V_{k,lm,l'm'} = U_{k,l-m,l'm'}$
+For nonprecessing binaries $\tilde{h}_{lm}(-f)^*=(-1)^lh_{l,-m}$ and therefore $V_{k,lm,l'm'} = (-1)^l U_{k,l-m,l'm'}$
 \end{shaded}
 
 \end{widetext}
@@ -593,13 +599,13 @@ Assuming $P,Q$ are interpolated off a small number of basis points, this express
  \\
 &= -\frac{(d_{\rm ref}/d)^2}{2}
 \left[ \frac{1}{2} [ \sum_k \qmstateproduct{h_{\rm    ref}}{h_{\rm ref}}_k |F_k |^2 ]
- +\frac{1}{2} e^{4i\psi_J} F_k^* F_k^* \qmstateproduct{h_{\rm ref}}{{\cal I}h_{\rm ref}}_k
- + \frac{1}{2} e^{-4i\psi_J} F_k F_k \qmstateproduct{{\cal I} h_{\rm ref}}{h_{\rm ref}}_k 
+ +\frac{1}{4} e^{4i\psi_J} F_k^* F_k^* \qmstateproduct{h_{\rm ref}}{{\cal I}h_{\rm ref}}_k
+ + \frac{1}{4} e^{-4i\psi_J} F_k F_k \qmstateproduct{{\cal I} h_{\rm ref}}{h_{\rm ref}}_k 
 \right] \\
 &= 
 {\color{blue}
--\frac{(d_{\rm ref}/d)^2}{2}
-\left[ \frac{1}{2} [ \sum_k \qmstateproduct{h_{\rm    ref}}{h_{\rm ref}}_k|F_k|^2 ]
+-\frac{(d_{\rm ref}/d)^2}{4}
+\left[  [ \sum_k \qmstateproduct{h_{\rm    ref}}{h_{\rm ref}}_k|F_k|^2 
  + \text{Re} e^{-4i\psi_J} F_k F_k \qmstateproduct{{\cal I} h_{\rm ref}}{h_{\rm ref}}_k 
 \right]
 }
@@ -692,6 +698,10 @@ q(\tau) = \qmstateproduct{e^{-i\omega \tau} h}{h} =
 \end{eqnarray}
 \end{itemize}
 
+\noindent \textbf{Quadrature sanity check}: Accurate quadrature for the overlap can make a difference, if we're
+undersampled (or gibbs-plagued). Make sure we're not sensitive to sampling rates: sampling, edge effects, etc change the
+signal amplitude by less than $\delta \rho^2 \ll 1$.
+
 \noindent \textbf{Inner product matrix}: $L_{\rm model}(\lambda,\theta)$ will be calculated via
 $\qmstateproduct{h_{lm}}{h_{l'm'}}$.  Is our implementation consistent with another code path?
 \begin{itemize}
@@ -701,27 +711,66 @@ $\qmstateproduct{h_{lm}}{h_{l'm'}}$.  Is our implementation consistent with anot
 
 Confirm  $\qmstateproduct{{\cal I} h_{lm}}{h_{l'm'}} = \qmstateproduct{h_{l,-m}}{h_{lm}}$
 
-Confirm $\qmstateproduct{h_{lm}}{h_{l'm'}}\simeq 0$ if $m m' <0$  (excellent approximation)
+Confirm $\qmstateproduct{h_{lm}}{h_{l'm'}}\simeq 0$ if $m m' <0$  (excellent approximation for long aLIGO
+waveforms)%\footnote{Not as reliable if $1/N_{chycles}$ is comparable to the powers of $v$ we want to include with higher harmonics.}
+\begin{shaded}
+\noindent \textbf{Why the symmetry?} Why is this true and why is it a useful approximation? Each basis function $h_{lm}$ satisfies $h_{lm}(t)=
+|h_{lm}|\exp(-i m\Phi_{orb}(t))$ during the inspiral; using the stationary-phase approximation $\tilde{h}_{lm}(f) =
+|\tilde{h}_{lm}(f)|\exp(-i \Psi_{lm}(f) )$ for some $\Psi_m$, where both amplitude and phase have significant support if
+and only if $m f>0$.  Modes $m>0$ are ``right handed'' and $m<0$ are ``left handed''.  
+
+Finite-duration effects break this interpretation, particularly if the waveform is not tapered.  Physically,  any realistic waveform has a finite number of in-band cycles; its
+fourier transform has support for both signs of $f$; and therefore the overlap between $m$'s of different signs is not
+exactly zero.  
+
+The  conditions describe below provide an \emph{upper} bound; the overlap can be significantly smaller if the waveform is smooth (i.e., no
+sharp termination edges), so the fourier transform better satisfies the conditions described above.
+
+Qualitatively,  the overlap between any two modes with a large phase difference between them scales as $2\pi/\Delta \Phi
+\simeq 1/N_c$, the inverse of the number of cycles ``in band'', times the amplitude of each.  Why? Most cycles (except one) average
+away.   
+\ForRichardOnly{
+Approximating the overlap in the neighborhood of the local maximum, we find
+\begin{eqnarray}
+\qmstateproduct{h_{lm}}{h_{l'm'}} = 2\int df e^{-i\Delta\Psi(f)} \frac{|\tilde{h}_{lm}(f)\tilde{h}_{l'm'}(f)|}{S_h} \simeq
+\frac{|\tilde{h}_{lm}(f_*)\tilde{h}_{l'm'}(f_*)|e^{i\Delta\Psi}}{S_h}\frac{1}{\sqrt{i \pi \frac{d^2\Delta \Psi}{df^2}}}
+\end{eqnarray}
+}
+
+If the signal amplitude is sufficiently low ($ \rho^2/N_c \gtrsim 1$), these terms have a noticable impact on the
+overlap.  That sets a mass vs SNR cut \editremark{provide explicitly}. 
+
+%
+
+\noindent \textbf{How is it useful?}: Massively reduces the complexity of $U,V$.
+\end{shaded}
 
 \item \emph{Amplitude check 1}: For some fiducial binary (e.g., BNS), compute $\rho_1^2$ for an optimally oriented nonprecessing source directly overhead a
   single interferometer, via two code paths using a standard real-valued code
 \begin{align}
 \rho^2_1 &\equiv\qmstateproduct{H_1}{H_1}_1 = \qmstateproduct{h_+}{h_+} 
 \end{align}
-and via the inner product matrix code  via the following expression, implemented in full :
+and via the inner product matrix code  via the following expression, implemented in full: \editremark{beware the memory mode...}
 \begin{align}
-\rho^2_1& = \sum_{lm,l'm'} \frac{1}{2} [\Y{-2}_{lm}(\hat{n})]^*\Y{-2}_{l'm'}(\hat{n})\qmstateproduct{h_{lm}}{h_{l'm'}}
-  +\frac{1}{2}\text{Re}e^{-4i\psi_J}\Y{-2}_{lm}(\hat{n})\Y{-2}_{l'm'}(\hat{n})\qmstateproduct{{\cal I}h_{lm}}{h_{l'm'}}
+\rho^2_1& = \sum_{lm,l'm'} \frac{1}{2} \left[ \Y{-2}_{lm}(\hat{n})]^*\Y{-2}_{l'm'}(\hat{n})\qmstateproduct{h_{lm}}{h_{l'm'}}
+  +\text{Re}e^{-4i\psi_J}\Y{-2}_{lm}(\hat{n})\Y{-2}_{l'm'}(\hat{n})\qmstateproduct{{\cal I}h_{lm}}{h_{l'm'}} \right]
 \end{align}
-For reference and debugging, this expression  should have only the $(l,m)=(l',m')=(2,2)$ term at leading order, because $\hat{n}=\hat{z}$:
+The detctor PSD is the same for all inner products
+\begin{shaded}
+\noindent \textbf{Face on case}: For reference and debugging, this expression  should have only the $(l,m)=(l',m')=(2,2)$ term at leading order, because $\hat{n}=\hat{z}$:
 \begin{align}
  \rho_1^2&= \sum_{lm,l'm'}d^l_{m,2}(0)d^{l'}_{m'2}(0) \frac{\sqrt{(2l+1)(2l'+1)}}{8\pi} \left[\qmstateproduct{h_{lm}}{h_{l'm'}} 
- + \frac{1}{2} \text{Re}e^{-4i\psi_J}  \qmstateproduct{{\cal I}h_{lm}}{h_{l'm'}}
+ +  \text{Re}e^{-4i\psi_J}  \qmstateproduct{{\cal I}h_{lm}}{h_{l'm'}}
 \right] \\
  &= \sum_{ll'}\frac{\sqrt{(2l+1)(2l'+1)}}{8\pi} \left[\qmstateproduct{h_{l2}}{h_{l'2}}  + O(\epsilon)
 \right]
 \end{align}
-where I use $d^l_{m,2}=\delta_{m2}$
+where I use $d^l_{m,2}=\delta_{m2}$.
+
+\noindent \textbf{General single-detector expression}: Does this expression reduce to the usual single-detector
+expression [Eq. (\ref{eq:SingleIFO:AmplitudeSquared})], evaluated in terms of $h_{+}(\hat{n})=\hat{z}$ (the plus polarization along the z axis) and geometrical
+factors?  
+\end{shaded}
 
 \item \emph{Random amplitude check}: Write a script to test the amplitude for many random orientations.
 \end{itemize}
@@ -736,7 +785,6 @@ it consistent with a conventional code path?
 
 
 \subsection{Milestones and Benchmarks: Marginalization (*)}
-
 
 
 \noindent \textbf{Document mone carlo and error}: So we're on the same page, Monte Carlo integration is well-documented in \href{http://nr.com}{Nuumerical Recipies}; in
@@ -760,7 +808,7 @@ To specify an arbitrary distribution with shape $\propto f(x)$ over $[x_0,x_1]$,
 \left< X \right> \equiv \int X p_s d\theta 
 \hat{X} \equiv \frac{1}{N} \sum_n X(\theta_k)\\ \\
 \sigma_X^2 \equiv \left<\hat{X}^2\right> -\left<\hat{X}\right>^2 
- = \frac{1}{N}[\left<X^^2\right> - \left<X\right>^2] 
+ = \frac{1}{N}[\left<X^2\right> - \left<X\right>^2] 
 \end{eqnarray}
 
 \emph{Reconstructing posterior}: Store the samples $x_k$ (memory-intensive!!)
@@ -773,13 +821,22 @@ To specify an arbitrary distribution with shape $\propto f(x)$ over $[x_0,x_1]$,
 correlation length of $\hat{L}$ if the sampling distribution is too narrow or insufficiently multimodal; et cetera.  How well do we need to tune the sampling distribution?
 
 
-\subsection{Milestones and Benchmarks: Exploring intrinsic parameters (*)}
+\noindent \textbf{Test export, recovery of extrinsic parameters}: Put a $10+1.4 M_\odot$ binary  at
+$\hat{n}=-\hat{k}=\pi/4,\pi/4$ with $\psi=0$, at a distance $d=25\unit{Mpc}$ in \emph{initial} LIGO [for speed: short
+  waveforms].  
+
+Recover the distance distribution;  sky position error box; and event time distribution.
+
+\subsection{Milestones and Benchmarks:  Intrinsic exploration (*)}
+
+\noindent \textbf{Document prototype exploration procedure}: Trigger values to seed mass range? Fisher matrix?
 
 
 
 \end{widetext}
 \subsection{Requirements}
 
+\noindent \textbf{GraceDB event rate}: Processing time needed for realtime followup is roughly 1/hour.
 
 \noindent \textbf{Operation count}: Fortunately the huge data set is only processed once to generate a \emph{very small}
 set of intermediate quantities.  After a few O(N) operations, the \emph{actionable} memory usage is very small
@@ -838,6 +895,77 @@ absolute and relative)
 
 * Construct intermediate transfer functions from complex methods paper.  Use a resummed complex quantity for each sky location
 
+
+\appendix
+\section{Notation issues: Comparing with standard notation}
+
+\subsection{Signal amplitude}
+
+\noindent \textbf{Single-interferometer: Complex notation}
+For a single perpendicular-arm detector with waves \emph{propagating from} $\hat{n}=n(\theta,\phi)$ on the sky and with
+polarization angle $\psi$ \emph{along that direction} \editremark{check signs}
+\begin{subequations}
+\label{eq:SingleIFOResponse}
+\begin{eqnarray}
+\begin{bmatrix}
+F_+ \\ F_\times 
+\end{bmatrix}
+&=& \begin{bmatrix}
+e_+(z):e_+^{(gw)}(-\hat{n},\psi) \\
+e_+:e_\times^{(gw)} 
+\end{bmatrix}
+ \\
+&=& 
+\begin{bmatrix}
+\cos 2\psi & \sin 2 \psi \\
+- \sin 2 \psi & \cos 2 \psi
+\end{bmatrix}
+\begin{bmatrix}
+\frac{1}{2} (1+\cos^2\theta) \cos2\phi  \\
+\cos \theta \sin 2 \phi
+\end{bmatrix} \nonumber
+\\
+F_\mathrm{+} &=&
+ \frac{1}{2}(1+\cos^{2} \theta) \cos 2 \phi \cos 2 \psi
+\nonumber\\ &+& \cos \theta \sin 2 \phi \sin 2 \psi \, \\ 
+F_\mathrm{\times} &=&- \frac{1}{2}(1+\cos^{2} \theta) \sin 2 \phi \cos 2 \psi
+\nonumber \\ &+& \cos \theta \cos 2 \phi \sin 2 \psi
+\end{eqnarray}
+\end{subequations}
+where $e_+^{(gw)}$ are the appropriately rotation-modified structures
+previously and $\psi$ is a polarization orientation (i.e., the third
+euler angle associated with the rotation operator; see the SU(2) reference).  
+%
+In the text it will be helpful to express them in complex form:
+\begin{eqnarray}
+{} [F_{+}+i F_{\times}](\hat{n},\psi) &=& \frac{\sqrt{4\pi}}{\sqrt{5}}\left[ e^{-2i\psi}\Y{-2}_{22} +
+  e^{+2i\psi}\Y{-2}_{2,-2}  \right] 
+\end{eqnarray}
+
+
+\noindent \textbf{Conventional signal amplitude expression}: 
+A nonprecessing source dominated by a single pair of conjugate $(2,\pm 2)$ modes has a simple signal and a well-known
+signal-to-noise ratio expression.  That standard expression (replacing $\iota \rightarrow \theta_E$ and $\phi_c \rightarrow \phi_E$) has the
+following form, 
+\begin{subequations}
+\label{eq:SingleIFO:AmplitudeSquared}
+\begin{align}
+H_1 &= F_+(\theta_S,\phi_s,0) h_+ + F_\times(\theta_S,\phi_S,0)h_\times \\
+    &= \text{Re} (F_++i F_\times) e^{-2i\psi} [\frac{1+\cos \theta^2_E}{2}h_{+,\hat{z}} - i \cos \theta_S
+  h_{\times,\hat{z}}] \\
+ &= {\cal F}_+ h_{+,\hat{z}} + {\cal F}_{\times} h_{\times, \hat{z}} \\
+{\cal F}_+ &= F_+(\theta_S,\phi_S,\psi)\frac{ 1+\cos^2 \theta_E}{2} \\
+{\cal F}_\times &= F_\times(\theta_S,\phi_S,\psi) \cos \theta_E \\
+\end{align}
+where we absorb inclination and polarization dependence into the generalized detector response functions ${\cal F}$.
+Substituting into the signal amplitude expression and using orthogonality and equal amplitude of $h_{+,\hat{z}}$ and $h_{\times, \hat{z}}$:
+\begin{align}
+\qmstateproduct{H_1}{H_1}_1 
+  &= \qmstateproduct{h_{+,z}}{h_+,z} [{\cal F}_+^2  + {\cal F}_\times^2]
+% \text{Re}[(F_++i F_\times) e^{-2i\psi} \frac{1+\cos^2 \theta_E}{2}]^2 \nonumber \\ & 
+%+  \text{Im}[(F_++i F_\times) e^{-2i\psi} \cos \theta_E]^2
+\end{align}
+\end{subequations}
 
 \bibliography{overviewexport}
 \end{document}
