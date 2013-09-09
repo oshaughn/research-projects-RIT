@@ -672,7 +672,7 @@ don't bother.  [This hopefully should never happen, if our intrinsic search is g
 
 \begin{widetext}
 \section{Stage 1: Prototype code}
-\subsection{Milestones and Benchmarks: Marginalized likelihood evaluation}
+\subsection{Milestones and Benchmarks: Likelihood evaluation}
 
 \noindent \textbf{Operations on complex series}: LAL's FFT infrastructure packs COMPLEX16 FFTs differently than REAL8.
 Inner products and the operation for $Q_{k,lm}(t)$ from $\tilde{h}_{lm}$ and $\tilde{H}_k$ need to use that order to
@@ -732,6 +732,48 @@ it consistent with a conventional code path?
 \item \emph{Random evaluation}: For a single interferometer, confirm both code paths reproduce the same inner product
   with the data.   Let $\hat{H}_1$ be reconstructed using the standard code (optimally oriented BNS).
 \end{itemize}
+
+
+
+\subsection{Milestones and Benchmarks: Marginalization (*)}
+
+
+
+\noindent \textbf{Document mone carlo and error}: So we're on the same page, Monte Carlo integration is well-documented in \href{http://nr.com}{Nuumerical Recipies}; in
+GSL; and in the \href{http://reference.wolfram.com/mathematica/tutorial/NIntegrateIntegrationStrategies.html}{Mathematica documentation}.  We will probably \emph{not} use sophisticated algoritms (e.g.,
+``\href{http://www.gnu.org/software/gsl/manual/html_node/VEGAS.html#VEGAS}{vegas}'' in GSL; fixed or adaptive stratification; etc) at first: we want to easily convert samples into a posterior distribution.
+
+
+\emph{Sampling: theory and practice}: Let $z$ be unformly distributed from [0,1]. Then $P^{-1}(z)$ has a cumulative distribution $P$
+and probability distribution function (PDF) $dP/dx$.  
+
+To specify an arbitrary distribution with shape $\propto f(x)$ over $[x_0,x_1]$, given a function object
+\begin{itemize}
+\item \emph{Construct P and inverse}: Solve $F'(x)=f(x)$ with $F(x_0)=1$ numerically.  Define $P(x)=F(x)/F(1)$ from the
+  interpolated samples; $P^{-1}(x)$ from the reversed samples $F_\alpha,x_\alpha$; and the posterior as $f(x)/F(1)$.
+  Store $f,F(1), P,P^{-1}$
+\item \emph{Sampler object}: Generate random samples via $P^{-1}(z)$ for $z\in[0,1]$ uniform.
+\end{itemize}
+
+\emph{Evaluating expression and error}: From our sample points, evaluate the average $L$ and error
+\begin{eqnarray}
+\left< X \right> \equiv \int X p_s d\theta 
+\hat{X} \equiv \frac{1}{N} \sum_n X(\theta_k)\\ \\
+\sigma_X^2 \equiv \left<\hat{X}^2\right> -\left<\hat{X}\right>^2 
+ = \frac{1}{N}[\left<X^^2\right> - \left<X\right>^2] 
+\end{eqnarray}
+
+\emph{Reconstructing posterior}: Store the samples $x_k$ (memory-intensive!!)
+
+\noindent \textbf{Implement naive monte carlo}: [Done]
+
+\noindent \textbf{Implement sampling distribution generators}: [Done]
+
+\noindent \textbf{Report on convergence rate and implications}: Memory usage for passing back; time needed to evaluate;
+correlation length of $\hat{L}$ if the sampling distribution is too narrow or insufficiently multimodal; et cetera.  How well do we need to tune the sampling distribution?
+
+
+\subsection{Milestones and Benchmarks: Exploring intrinsic parameters (*)}
 
 
 
