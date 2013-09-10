@@ -737,13 +737,15 @@ Approximating the overlap in the neighborhood of the local maximum, we find
 \end{eqnarray}
 }
 
-If the signal amplitude is sufficiently low ($ \rho^2/N_c \gtrsim 1$), these terms have a noticable impact on the
+If the signal amplitude is sufficiently large ($ \rho^2/N_c \gtrsim 1$), these terms have a noticable impact on the
 overlap.  That sets a mass vs SNR cut \editremark{provide explicitly}. 
 
 %
 
-\noindent \textbf{How is it useful?}: Massively reduces the complexity of $U,V$.
+\noindent \textbf{How is it useful?}: Massively reduces the complexity of $U,V$, producing a nearly block-diagonal
+matrix (mod memory terms).
 \end{shaded}
+
 
 \item \emph{Amplitude check 1}: For some fiducial binary (e.g., BNS), compute $\rho_1^2$ for an optimally oriented nonprecessing source directly overhead a
   single interferometer, via two code paths using a standard real-valued code
@@ -778,6 +780,19 @@ factors?
 \noindent \textbf{$Q$ timeseries}: $Q_{k,lm}(\tau)$ provides a way to evaluate $\qmstateproduct{H_k}{\hat{H}_k}_k$; is
 it consistent with a conventional code path?  
 \begin{itemize}
+\item \emph{Sanity check}: Construct $Q_{1,22}(\tau)$ for a fiducial signal (4+4 Msun at $\hat{n}(\pi/4\pi/4)$ in zero
+  noise,non-optimally oriented).
+
+Confirm $Q(\tau)$ has no discontinuities at $\tau\simeq 0$ (i.e., we understand packing).
+
+Confirm it has a single peak isolated to a few ms; confirm the peak is smooth and smoothly interpolated
+
+Confirm the  value at $Q_{l,22}(0)$ is consistent with the expected value: if $\lambda$ is the template model and
+$\lambda'$ the signal, using quasi-orthogonality of $h_{lm}$ for different $m$'s suggests that roughly
+\begin{eqnarray}
+\left< Q_{l,22} \right> \simeq \qmstateproduct{h_{22}(\lambda)}{h_{22}(\lambda')}\Y{-2}_{22}(\hat{n})
+\end{eqnarray}
+
 \item \emph{Random evaluation}: For a single interferometer, confirm both code paths reproduce the same inner product
   with the data.   Let $\hat{H}_1$ be reconstructed using the standard code (optimally oriented BNS).
 \end{itemize}
@@ -809,6 +824,14 @@ To specify an arbitrary distribution with shape $\propto f(x)$ over $[x_0,x_1]$,
 \hat{X} \equiv \frac{1}{N} \sum_n X(\theta_k)\\ \\
 \sigma_X^2 \equiv \left<\hat{X}^2\right> -\left<\hat{X}\right>^2 
  = \frac{1}{N}[\left<X^2\right> - \left<X\right>^2] 
+\end{eqnarray}
+
+
+\noindent \emph{Effective sample number}: If $L$ has support in a very small region, then only a very small number of
+Monte Carlo samples will ``find'' that point: the effective sample size is much smaller.
+To estimate the effective sample size, use an estimate of the effective volume:
+\begin{eqnarray}
+V \equiv \int \frac{L}{\max L} p dx \; ; \qquad  \hat{V} \equiv \frac{\sum_k L(x_k) p(x_k)/p_s(x_k)}{N \max_k L(x_k) p(x_k)/p_s(x_k)}
 \end{eqnarray}
 
 \emph{Reconstructing posterior}: Store the samples $x_k$ (memory-intensive!!)
@@ -897,6 +920,42 @@ absolute and relative)
 
 
 \appendix
+\section{Gravy issues: Things to think about but not critical now}
+
+% http://www.physics.gla.ac.uk/igr/GWbursts2012/pages/program/slides/MondayPM/Favata.pdf
+\emph{Physics check 1: Memory modes}: The $m=0$ memory modes \cite{2009PhRvD..80b4002F,2009ApJ...696L.159F,2010CQGra..27h4036F,2011PhRvD..84l4013F} aren't consistently implemented: present with
+  TaylorTN but \emph{not} with SpinTaylorT4.   If they \emph{are}
+  implemented, their spectrum is \textbf{incredibly sensitive to numerical effects: start and particularly the abrupt
+    end of the signal}.  Finally, memory is \textbf{physically incompatible with zero padding}: we need to ``pad and
+  extend'', not zero pad!    But for non-IMR waveforms, we don't know how to do that without \textbf{explicitly} knowing
+  which parts of the signal are memory!
+
+Do you care?  Memory modes are \emph{not} always sufficiently insignificant: if the signal is short and the number of cycles
+$N_{c}$ is small compared to $1/\rho^2$, then these overlaps matter:
+\begin{eqnarray}
+\qmstateproduct{h_{22}}{h_{20}} \simeq O(1) \times \qmstateproduct{h_{22}}{h_{22}}/N_c 
+\end{eqnarray}
+You should confirm these overlaps are \emph{not} zero with \texttt{TaylorT4} but \emph{are} zero for
+\texttt{SpinTaylorT4} (when implemented).
+
+\textbf{Should we fix it now?} No.  It's a relatively minor fix; everyone made this mistake; it's less important for
+long aLIGO waveforms. \editremark{Gravy item for the paper}
+
+\textbf{Should we manually set m=0 modes to zero for nonprecessing?}: Not yet...
+
+\begin{shaded}
+\noindent \textbf{Gravitational wave memory}: One informal   ad-hoc argument suggesting significant memory ($\tilde{h}(f)\propto f^{-1}$)
+  relies on $h$ changing by a nonzero amount in the $(l,0)$ modes.    These discontinuities are inevitable consequences
+  of radiation and insure $\tilde{h}$ decays as $1/f$ at high frequency.
+
+\noindent \textbf{Do we implement it?}: Nope.  And what we do implement is seriously broken
+
+\noindent \textbf{How can we fix it?}
+
+\noindent \textbf{What are the physical consequences of memory modes?}: The memory modes have nonzero overlap with
+everything. [For a nonprecessing binary, $\tilde{h}^{\rm mem} \simeq i \Delta h/2\pi f$ below a characteristic cutoff
+scale (i.e., the merger timescale).]
+\end{shaded}
 \section{Notation issues: Comparing with standard notation}
 
 \subsection{Signal amplitude}
@@ -946,7 +1005,7 @@ In the text it will be helpful to express them in complex form:
 \noindent \textbf{Conventional signal amplitude expression}: 
 A nonprecessing source dominated by a single pair of conjugate $(2,\pm 2)$ modes has a simple signal and a well-known
 signal-to-noise ratio expression.  That standard expression (replacing $\iota \rightarrow \theta_E$ and $\phi_c \rightarrow \phi_E$) has the
-following form, 
+following form \editremark{signs certainly wrong}
 \begin{subequations}
 \label{eq:SingleIFO:AmplitudeSquared}
 \begin{align}
@@ -954,8 +1013,8 @@ H_1 &= F_+(\theta_S,\phi_s,0) h_+ + F_\times(\theta_S,\phi_S,0)h_\times \\
     &= \text{Re} (F_++i F_\times) e^{-2i\psi} [\frac{1+\cos \theta^2_E}{2}h_{+,\hat{z}} - i \cos \theta_S
   h_{\times,\hat{z}}] \\
  &= {\cal F}_+ h_{+,\hat{z}} + {\cal F}_{\times} h_{\times, \hat{z}} \\
-{\cal F}_+ &= F_+(\theta_S,\phi_S,\psi)\frac{ 1+\cos^2 \theta_E}{2} \\
-{\cal F}_\times &= F_\times(\theta_S,\phi_S,\psi) \cos \theta_E \\
+{\cal F}_+ &= F_+(\theta_S,\phi_S,\psi)\frac{ 1+\cos^2 \theta_E}{2} + F_\times(\theta_S,\phi_S,\psi) \cos \theta_E \\
+{\cal F}_\times &= F_\times(\theta_S,\phi_S,\psi) \cos \theta_E  + F_+(\theta_S,\phi_S,\psi)\frac{1+\cos^2\theta}{2}\\
 \end{align}
 where we absorb inclination and polarization dependence into the generalized detector response functions ${\cal F}$.
 Substituting into the signal amplitude expression and using orthogonality and equal amplitude of $h_{+,\hat{z}}$ and $h_{\times, \hat{z}}$:
