@@ -65,16 +65,10 @@ def MarginalizedLikelihood(P, data_dict, psd_dict, sample_dist):
     RA = P.phi
     dist = P.dist
 
-    # Create a linked list of all h_lm waveform modes for masses (m1,m2)
+    # Compute all FD h_lm waveform modes for masses (m1,m2).
     # Note that 'hlms' will be the linked list of modes in the geocenter frame
     # with the coalescence arriving at time tref=0
-    #
-    # FIXME: The above computes TD modes, we will want the FD modes.
-    # I'll write a LAL function to do the conversion
-    hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
-            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist,
-            P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
-            P.ampO, P.phaseO, P.Lmax, P.approx)
+    hlms = hlmoff(P, Lmax)
 
     # Loop over detectors and compute the complex-valued SNR 
     # of each hlm vs the data for tref at each discrete sample of the hlms
@@ -89,7 +83,11 @@ def MarginalizedLikelihood(P, data_dict, psd_dict, sample_dist):
         rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
                 psd_dict[det], P.fmin, P.fNyq)
         # Compute < h_lm | h_l'm' >
-        # FIXME: Figure out best way to store this
+        # crossTerms_dict is a dictionary keyed in detector name.
+        # It's values crossTerms_dict[det] are each dictionaries keyed on
+        # tuples of mode index pairs, e.g.
+        # crossTerms_dict[det][ ( (l,m) , (l',m') ) ]
+        # holds the value of < h_lm | h_l'm' > for detector 'det'
         crossTerms_dict[det] = ComputeModeCrossTermIP(hlms, psd_dict[det])
 
     # Draw random values of extrinsic parameters from our sampling distribution.
@@ -101,26 +99,28 @@ def MarginalizedLikelihood(P, data_dict, psd_dict, sample_dist):
         # Draw extrinsic parameters from the sampling distribution
         extr = DrawFromExtrinsicSampleDistribution(sample_dist)
 
+        #
         # Compute extrinsic pieces of the likelihood
+        #
 
-        # If binary orientation changed, recompute Ylms
+        # If inclination or phiref orientation changed, recompute Ylms
         if extr.inclination != iota or extr.polarization_angle != psi:
-            # FIXME: We have LAL code to compute a single mode. Need to write a
-            # wrapper function to compute all modes and put them in some object.
-            # Maybe a python dictionary for the object???
             iota = extr.inclination
-            psi = extr.polarization_angle
-            Ylms = ComputeYlms(Lmax, iota, psi)
+            phiref = extr.phiref
+            Ylms = ComputeYlms(Lmax, iota, phiref)
 
+        # Check if time, RA, DEC, or psi changed
         timeFlag = False
-        skyFlag = False
+        antennaFlag = False
         if extr.tref != tref:
             timeFlag = True
-            skyFlag = True
-        if extr.right_ascension != RA or extr.declination != DEC:
+            antennaFlag = True
+        if extr.right_ascension != RA or extr.declination != DEC\
+                or extr.polarization_angle != psi:
             RA = extr.right_ascension
             DEC = extr.declination
-            skyFlag = True
+            psi = extr.polarization_angle
+            antennaFlag = True
 
         dist = extr.distance
 
@@ -128,11 +128,11 @@ def MarginalizedLikelihood(P, data_dict, psd_dict, sample_dist):
         temp = 0.
         for det in detectors:
             # If sky (or time) has change, recompute antenna pattern factor
-            if skyFlag == True:
-                F = ComplexAntennaFactor(det, RA, DEC, tref)
+            if antennaFlag == True:
+                F = ComplexAntennaFactor(det, RA, DEC, psi, tref)
 
             # Introduce geocenter-to-detector time shift
-            tshifted = ComputeTimeDelay(tref, RA, DEC, det)
+            tshifted = ComputeTimeDelay(det, RA, DEC, tref)
             shifted_rholms = TimeShiftIPTimeSeries(rholms[det], tshifted)
 
             # Running total of log-likelihood in all detectors
@@ -144,7 +144,8 @@ def MarginalizedLikelihood(P, data_dict, psd_dict, sample_dist):
         logL.append(temp)
 
         # Estimate the marginalized log-likelihood from our sampling of logL
-        margL = MarginalizeOverLikelihood(logL)
+        #margL = MarginalizeOverLikelihood(logL)
+        margL = logL[-1]
 
         # Do some sort of convergence test to determine when to stop marg.
         converged = CheckMarginalizationConvergence(margL, logL)
@@ -218,3 +219,82 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq):
                     crossTerms[ ((l,m),(lp,mp)) ] = temp
 
     return crossTerms
+
+def ComputeYlms(Lmax, theta, phi):
+    """
+    Return a dictionary keyed by tuples
+    (l,m)
+    that contains the values of all
+    -2Y_lm(theta,phi)
+    with 
+    l <= Lmax
+    -l <= m <= l
+    """
+    Ylms = {}
+    for l in range(2,Lmax+2):
+        for m in range(-l,l+1):
+            Ylms[ (l,m) ] = lal.SpinWeightedSphericalHarmonic(theta, phi,
+                    -2, l, m)
+
+    return Ylms
+
+def ComplexAntennaFactor(det, RA, DEC, psi, tref):
+    """
+    Function to compute the complex-valued antenna pattern function:
+    F+ + i Fx
+
+    'det' is a detector prefix string (e.g. 'H1')
+    'RA' and 'DEC' are right ascension and declination (in radians)
+    'psi' is the polarization angle
+    'tref' is the reference GPS time
+    """
+    detector = lalsim.DetectorPrefixToLALDetector(det)
+    Fp, Fc = lal.ComputeDetAMResponse(detector.response, RA, DEC, psi, tref)
+
+    return Fp + 1j * Fc
+
+def ComputeTimeDelay(det, RA, DEC, tref):
+    """
+    Function to compute the time of arrival at a detector
+    from the time of arrival at the geocenter.
+
+    'det' is a detector prefix string (e.g. 'H1')
+    'RA' and 'DEC' are right ascension and declination (in radians)
+    'tref' is the reference time at the geocenter
+    """
+    detector = lalsim.DetectorPrefixToLALDetector(det)
+    return tref + lal.TimeDelayFromEarthCenter(detector.location, RA, DEC, tref)
+
+def ComputeLogLikelihood(rholms, crossTerms, Ylms, F, dist):
+    """
+    Compute the log-likelihood of a signal in a single detector:
+    ln L = -1/2 < h(theta) - d | h(theta) - d >
+    where h is the measured strain for a waveform with parameters theta
+    and d is the data of a single detector.
+
+    Depends on terms:
+    'rholms' is a time series of < h_lm(tref) | d >
+    'crossTerms' is a dictionary containing < h_lm | h_l'm' >
+    'Ylms' is a dictionary containing the -2Y_lm's
+    'F' is the complex-valued antenna pattern F+ + i Fx
+    'dist' is the distance to the source (in meters)
+    """
+    # FIXME: Placeholder function
+    return 1.
+
+def CheckMarginalizationConvergence(margL, logL):
+    """
+    Perform a check whether the estimate of the marginalized likelihood (margL)
+    has converged, given a collection of evaluation of the log-likelihood (logL)
+
+    Returns True if the calculation has converged
+    Returns False if it is not converged
+    """
+    # FIXME: Placeholder function
+    limit = 1000
+    if len(logL) >= limit:
+        return True
+    else:
+        return False
+
+def TimeShiftIPTimeSeries():
