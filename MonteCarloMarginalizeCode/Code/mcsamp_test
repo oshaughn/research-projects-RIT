@@ -1,0 +1,149 @@
+#!/usr/bin/env python
+import sys
+import functools
+import itertools
+
+#import matplotlib
+#matplotlib.use("Agg")
+#from matplotlib import pyplot
+import numpy
+import scipy.special
+
+from mcsampler import MCSampler
+
+__author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
+
+if sys.argv[1] is None:
+	print "Usage: mcsamp_test npoints"
+	exit(-1)
+
+# set up bounds on parameters
+
+# Polarization angle
+#psi_min, psi_max = 0, 2*numpy.pi
+psi_min, psi_max = -2*numpy.pi, 2*numpy.pi
+psi_val, psi_width = numpy.pi/2, numpy.pi/6
+# RA and dec
+#ra_min, ra_max = 0, 2*numpy.pi
+ra_min, ra_max = -2*numpy.pi, 2*numpy.pi
+ra_val, ra_width = numpy.pi/4, 5*numpy.pi/180
+dec_min, dec_max = -numpy.pi/2, numpy.pi/2
+dec_val, dec_width = -numpy.pi/4, 5*numpy.pi/180
+# Inclination angle
+inc_min, inc_max = -numpy.pi/2, numpy.pi/2
+inc_val, inc_width = -numpy.pi/3, 10*numpy.pi/180
+# orbital phi
+phi_min, phi_max = 0, 2*numpy.pi
+phi_val, phi_width = numpy.pi/5, 10*numpy.pi/180
+
+# TODO: Make a class function
+def uniform_samp(a, b, x):
+	if type(x) is float:
+		return 1/(b-a)
+	else:
+		return numpy.ones(x.shape[0])/(b-a)
+# TODO: Make a class function
+def inv_uniform_cdf(a, b, x):
+	# NOTE: Presumes the variables are already distributed normal in (a,b)
+	#return x
+	return (b-a)*x+a
+
+samp = MCSampler()
+s, m = 2, 0
+def gauss_samp(mu, std, x):
+	return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2)
+	#return 1.0/numpy.sqrt(std**2)*numpy.exp(-(x-mu)**2/2/std**2)
+
+def inv_gauss_cdf(mu, std, x):
+	return mu + std*numpy.sqrt(2) * scipy.special.erfinv(2*x-1)
+
+#pyplot.hist( gauss_samp(0, 1, inv_gauss_cdf(0, 1, numpy.random.uniform(0,1,10000))))
+#pyplot.hist(inv_gauss_cdf(0, 1, numpy.random.uniform(0,1,10000)))
+#pyplot.savefig("hist.png", nbins=20)
+
+# Uniform sampling, cdf provided
+#samp.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), functools.partial(inv_uniform_cdf, psi_min, psi_max), psi_min, psi_max)
+#samp.add_parameter("ra", functools.partial(uniform_samp, ra_min, ra_max), functools.partial(inv_uniform_cdf, ra_min, ra_max), ra_min, ra_max)
+#samp.add_parameter("dec", functools.partial(uniform_samp, dec_min, dec_max), functools.partial(inv_uniform_cdf, dec_min, dec_max), dec_min, dec_max)
+
+# Uniform sampling, auto-cdf inverse
+samp.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), None, psi_min, psi_max)
+samp.add_parameter("ra", functools.partial(uniform_samp, ra_min, ra_max), None, ra_min, ra_max)
+samp.add_parameter("dec", functools.partial(uniform_samp, dec_min, dec_max), None, dec_min, dec_max)
+
+#
+# Plot PDFs
+#
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot
+for param in samp.params:
+	x_i = numpy.array([numpy.linspace(samp.llim[param], samp.rlim[param], 100)])
+	pyplot.plot(x_i[0], map(samp.pdf[param], x_i)[0], '-', label=param)
+
+pyplot.grid()
+pyplot.legend()
+pyplot.savefig("pdf.png")
+pyplot.clf()
+
+#
+# Plot inverse CDFs
+#
+
+x_i = numpy.linspace(0, 1, 1000)
+for param, cdfinv in samp.cdf_inv.iteritems():
+	pyplot.plot(x_i, map(cdfinv, x_i), '-', label=param)
+
+pyplot.grid()
+pyplot.legend()
+pyplot.savefig("cdf_inv.png")
+
+# Gaussian sampling, auto-cdf inverse -- Doesn't work yet
+#samp.add_parameter("psi", functools.partial(gauss_samp, 0, (psi_max-psi_min)/3.0), None, psi_min, psi_max)
+#samp.add_parameter("ra", functools.partial(gauss_samp, 0, (ra_max-ra_min)/10.0), None, ra_min, ra_max)
+#samp.add_parameter("dec", functools.partial(gauss_samp, (dec_max+dec_min)/2, (dec_max-dec_min)/10.0), None, dec_min, dec_max)
+
+a, b, c = 2*psi_width**2, 2*ra_width**2, 2*dec_width**2
+norm = 1.0/numpy.sqrt((numpy.pi)**len(samp.params)*a*b*c)
+def integrand(p, r, d):
+	return norm * numpy.exp(-(p-psi_val)**2/a-(r-ra_val)**2/b-(d-dec_val)**2/c)
+def integrand_1d(p):
+	return 1.0/numpy.sqrt(2*numpy.pi*psi_width**2)*numpy.exp(-(p-psi_val)**2/a)
+
+import scipy.integrate
+#integral = scipy.integrate.quad(integrand_1d, psi_min, psi_max)[0]
+#integral = scipy.integrate.tplquad(integrand, dec_min, dec_max, lambda x: ra_min, lambda x: ra_max, lambda x, y: psi_min, lambda x, y: psi_max)[0]
+#print "scipy says: %f" % integral
+
+#res, var = samp.integrate(integrand_1d, int(sys.argv[1]), "psi")
+res, var = samp.integrate(integrand, int(sys.argv[1]), "psi", "ra", "dec")
+print "Integral value: %f, stddev %f" % (res, numpy.sqrt(var))
+
+
+#
+# Plot two-d histograms of all parameters
+#
+samples = dict(zip(samp.params, samp._rvs))
+np = len(samp.params)-1
+i, j = 1, 1
+label_next = True
+for (p1, p2) in itertools.combinations(samp.params, 2):
+	subp = pyplot.subplot(np, np, i)
+	s1, s2 = samples[p1], samples[p2]
+	#s1, s2 = map(samp.pdf[p1], numpy.array([s1]))[0], map(samp.pdf[p2], numpy.array([s2]))[0]
+	hist, xedge, yedge = numpy.histogram2d(s2, s1, bins=(100, 100))
+
+	pyplot.imshow(hist, extent=(yedge[0], yedge[-1], xedge[-1], xedge[0]), interpolation='nearest')
+	pyplot.colorbar()
+	if label_next:
+		pyplot.ylabel(p1)
+		pyplot.xlabel(p2)
+		label_next = False
+
+	if i % np == 0:
+		i += 1
+		label_next = True
+	i += 1
+
+pyplot.savefig("samples_2d.png")
