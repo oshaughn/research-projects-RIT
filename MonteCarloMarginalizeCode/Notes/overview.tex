@@ -575,13 +575,14 @@ require a fixed distance scale; we adopt $d_{\rm ref}=100\unit{Mpc}$ by default.
 have been interpolated, to allow high resolution.  Using these quantities, we compute
 $L_{\rm data}$ and $L_{\rm model}$ for any event time via
 \begin{itemize}
-\item \emph{Data term}:  The scheme for computing $L_{\rm data}$ was outlined above:
+\item \emph{Data term}:  The scheme for computing $L_{\rm data}$ was outlined above: \editremark{missing 1/2}
 \begin{align}
-\ln L_{\rm data}(\lambda|t,\hat{n},\hat{k},\psi_J,d) &= \sum_k\qmstateproduct{H_k}{\hat{H}_k}_k \nonumber \\
+\ln L_{\rm data}(\lambda|t,\hat{n},\hat{k},\psi_J,d) &=  \sum_k\qmstateproduct{H_k}{\hat{H}_k}_k \nonumber \\
 & =
-{\color{blue} (d_{\rm ref}/d) \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi_J} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot x_k)
+{\color{blue} \frac{1}{2} (d_{\rm ref}/d) \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi_J} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot x_k)
    + (F_k(-\hat{k}) \Y{-2}_{lm}(\hat{n}) e^{-2\psi_J}) P_{k,lm}(t-\hat{k}\cdot x_k) 
-}
+} \nonumber \\
+&={\color{blue}  (d_{\rm ref}/d) \text{Re} \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi_J} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot x_k)}
 \end{align}
 Assuming $P,Q$ are interpolated off a small number of basis points, this expression can be evaluated ``analytically''.
 \item \emph{Signal term}:  The scheme for computing $L_{\rm model}$ was outlined in
@@ -678,6 +679,10 @@ don't bother.  [This hopefully should never happen, if our intrinsic search is g
 
 \begin{widetext}
 \section{Stage 1: Prototype code}
+\subsection{Milestones and Benchmarks: Injection code }
+Make sure I can make synthetic data with a known amplitude, parameters, approximant, etc.  [Should be trivial with
+  existing codebase: XML readers, etc.] For nonstandard codebases [ROS], confirm scalings
+
 \subsection{Milestones and Benchmarks: Likelihood evaluation}
 
 \noindent \textbf{Operations on complex series}: LAL's FFT infrastructure packs COMPLEX16 FFTs differently than REAL8.
@@ -706,8 +711,8 @@ signal amplitude by less than $\delta \rho^2 \ll 1$.
 $\qmstateproduct{h_{lm}}{h_{l'm'}}$.  Is our implementation consistent with another code path?
 \begin{itemize}
 \item \emph{Symmetry check}:  For a nonprecessing system (e.g., BNS), confirm ${\cal I}h_{lm}(f) =
-  h_{lm}(-f)^*=h_{l,-m}(f)$ bin by bin and mode by mode: print the maximum absolute value of ${\cal I}h_{lm}  -
-  h_{lm}(-f)^*$ and $h_{lm}(-f)^* - h_{l,-m}(f)$ for all modes.
+  h_{lm}(-f)^*=(-1)^lh_{l,-m}(f)$ bin by bin and mode by mode: print the maximum absolute value of ${\cal I}h_{lm}  -
+  h_{lm}(-f)^*$ and $h_{lm}(-f)^* -(-1)^l h_{l,-m}(f)$ for all modes.
 
 Confirm  $\qmstateproduct{{\cal I} h_{lm}}{h_{l'm'}} = \qmstateproduct{h_{l,-m}}{h_{lm}}$
 
@@ -746,6 +751,10 @@ overlap.  That sets a mass vs SNR cut \editremark{provide explicitly}.
 matrix (mod memory terms).
 \end{shaded}
 
+Confirm the following form is expected for BNS [no sum over repeated incides]
+\begin{eqnarray}
+U_{lm,l'm'} =(-1)^{l+l'}U_{l'-m',l-m}^* \quad  U_{lm,lm} = U_{l-m,l-m}
+\end{eqnarray}
 
 \item \emph{Amplitude check 1}: For some fiducial binary (e.g., BNS), compute $\rho_1^2$ for an optimally oriented nonprecessing source directly overhead a
   single interferometer, via two code paths using a standard real-valued code
@@ -783,9 +792,10 @@ it consistent with a conventional code path?
 \item \emph{Sanity check}: Construct $Q_{1,22}(\tau)$ for a fiducial signal (4+4 Msun at $\hat{n}(\pi/4\pi/4)$ in zero
   noise,non-optimally oriented).
 
+
 Confirm $Q(\tau)$ has no discontinuities at $\tau\simeq 0$ (i.e., we understand packing).
 
-Confirm it has a single peak isolated to a few ms; confirm the peak is smooth and smoothly interpolated
+Confirm it has a single peak isolated to a few ms; confirm the peak is smooth and smoothly interpolated.
 
 Confirm the  value at $Q_{l,22}(0)$ is consistent with the expected value: if $\lambda$ is the template model and
 $\lambda'$ the signal, using quasi-orthogonality of $h_{lm}$ for different $m$'s suggests that roughly
@@ -793,10 +803,40 @@ $\lambda'$ the signal, using quasi-orthogonality of $h_{lm}$ for different $m$'s
 \left< Q_{l,22} \right> \simeq \qmstateproduct{h_{22}(\lambda)}{h_{22}(\lambda')}\Y{-2}_{22}(\hat{n})
 \end{eqnarray}
 
+
+Confirm $Q_{1,22}(-k.n) = \qmstateproduct{e^{-i2\pi f \Delta t}h_{22}}{\hat{H}_1}$ and similarly (a consistency check on
+two code paths and a \textbf{useful error estimate})
+
+
+\item \emph{Crude sky location check}: Plot the following functions on the same figure, for all detectors; are they time
+  aligned with each other and with $\tau=0$?\footnote{Yes, this means for each set intrinsic parameters $\lambda$, we
+    can re-identify the sky localization range from the peaks of the $Q$'s.  I'd suggest doing it with the 22 and
+    (2,-2)'s.  And in fact we could run a coherent search this way...someday. For now, just process backend}
+\[
+Q_{k,22}(\tau-\hat{k}\cdot x_k)
+\]
+Find the time of the peak for each source
+
 \item \emph{Random evaluation}: For a single interferometer, confirm both code paths reproduce the same inner product
   with the data.   Let $\hat{H}_1$ be reconstructed using the standard code (optimally oriented BNS).
 \end{itemize}
 
+\noindent \textbf{Likelihood evaluation}:
+\begin{itemize}
+\item \emph{Qualitative tests}:  Confirm both $L_{\rm data}$ and $L_{\rm model}$ evaluate
+
+Plot  $L_{\rm data}(\tau)$ and confirm the peak occurs at $\tau=0$ \editremark{important, tricky}
+
+Plot $L_{\rm data}$ over the sky at the injected parameters; show a maximum occurs at the right place.
+
+\item \emph{Recover injected value}: Confirm that at the injection parameters in zero noise, (e.g., both overall and on
+  a detector-by-detector basis)
+\[
+\ln L_{\rm model}=-\rho^2/2 \quad 
+\ln L_{\rm data} = \rho^2 \quad
+\ln L = \rho^2/2
+\]
+\end{itemize}
 
 
 \subsection{Milestones and Benchmarks: Marginalization (*)}
