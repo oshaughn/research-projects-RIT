@@ -315,7 +315,7 @@ class RealIP(InnerProduct):
         val = np.sqrt( 4. * self.deltaF * np.abs(val) )
         return val
 
-class ComplexIP(InnerProduct):
+class HermitianComplexIP(InnerProduct):
     """
     Complex-valued inner product. self.ip(h1,h2) computes
 
@@ -325,6 +325,8 @@ class ComplexIP(InnerProduct):
 
     And similarly for self.norm(h1)
 
+    N.B. Assumes h1, h2 are Hermitian - i.e. they store only positive freqs.
+         with negative freqs. given by h(-f) = h*(f)
     DOES NOT maximize over time or phase
     """
     def ip(self, h1, h2):
@@ -351,6 +353,51 @@ class ComplexIP(InnerProduct):
         for i in range(self.minIdx,h.data.length):
             val += h.data.data[i] * h.data.data[i].conj() * self.weights[i]
         val = np.sqrt( 4. * self.deltaF * np.abs(val) )
+        return val
+
+class ComplexIP(InnerProduct):
+    """
+    Complex-valued inner product. self.ip(h1,h2) computes
+
+          fNyq
+    2 \int      h1(f) h2*(f) / Sn(f) df
+          -fNyq
+
+    And similarly for self.norm(h1)
+
+    N.B. DOES NOT assume h1, h2 are Hermitian - they should contain negative
+         and positive freqs. packed as
+    [ -N/2 * df, ..., -df, 0, df, ..., (N/2-1) * df ]
+    DOES NOT maximize over time or phase
+    """
+    def ip(self, h1, h2):
+        """
+        Compute inner product between two COMPLEX16Frequency Series
+        """
+        assert h1.data.length==h2.data.length==2*(self.FDlen-1)
+        assert abs(h1.deltaF-h2.deltaF)<=1.e-5 and abs(h1.deltaF-self.deltaF)<=1.e-5
+        val = 0.
+        length = h1.data.length
+        for i in range(self.minIdx,length/2):
+            val += (h1.data.data[length/2-i] * h2.data.data[length/2-i].conj()\
+                    + h1.data.data[length/2+i]\
+                    * h2.data.data[length/2+i].conj()) * self.weights[i]
+        val *= 2. * self.deltaF
+        return val
+
+    def norm(self, h):
+        """
+        Compute norm of a COMPLEX16Frequency Series
+        """
+        assert h.data.length==2*(self.FDlen-1)
+        assert abs(h.deltaF-self.deltaF) <= 1.e-5
+        length = h.data.length
+        val = 0.
+        for i in range(self.minIdx,length/2):
+            val += (h.data.data[length/2 - i] * h.data.data[length/2 -i].conj()\
+                    + h.data.data[length/2+i]\
+                    * h.data.data[length/2+i].conj()) * self.weights[i]
+        val = np.sqrt( 2. * self.deltaF * np.abs(val) )
         return val
 
 class Overlap(InnerProduct):
@@ -712,6 +759,10 @@ def hoft(P, Fp=None, Fc=None):
                 lalsim.InstrumentNameToLALDetector(P.detector))
     if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
         lalsim.SimInspiralREAL8WaveTaper(hoft.data, P.taper)
+    if P.deltaF is not None:
+        TDlen = int(1./P.deltaF * 1./P.deltaT)
+        assert TDlen >= hoft.data.length
+        hoft = lal.ResizeREAL8TimeSeries(hoft, 0, TDlen)
     return hoft
 
 def hoff(P, Fp=None, Fc=None, fwdplan=None):
