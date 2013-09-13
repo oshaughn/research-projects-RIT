@@ -55,6 +55,7 @@ def MarginalizedLikelihood(P, data_dict, psd_dict, sample_dist):
     detectors = data_dict.keys()
     Ndet = len(detectors)
     Lmax = 2
+    analyticPSD_Q=True
 
     # These are the initial values of extrinsic parameters
     iota = P.incl
@@ -76,12 +77,14 @@ def MarginalizedLikelihood(P, data_dict, psd_dict, sample_dist):
     # FIXME: Need to decide if we keep all time shifts, just some subset,
     #       or bypass FFT and do inner product integral for each of a
     #       small numbers of time shifts
-    rholms = {}
+    rholms_intp = {}
     for det in detectors:
         # rholms is a dictionary, keyed on detector name, with each value a
         # linked list of SNR time series for that mode and detector
-        rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
-                psd_dict[det], P.fmin, P.fNyq)
+        rholms = ComputeModeIPTimeSeries(hlms, data_dict[det],
+                psd_dict[det], P.fmin, P.fNyq, analyticPSD_Q)
+        t = np.arange(data_dict[det].data.length) * data_dict[det].deltaT
+        rholms_intp[det] =  InterpolateRholms(rholms, t, Lmax)
         # Compute < h_lm | h_l'm' >
         # crossTerms_dict is a dictionary keyed in detector name.
         # It's values crossTerms_dict[det] are each dictionaries keyed on
@@ -153,7 +156,8 @@ def MarginalizedLikelihood(P, data_dict, psd_dict, sample_dist):
     return margL
 
 
-def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, tref=None, N=None):
+def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
+        tref=None, N=None):
     """
     Compute the complex-valued overlap between
     each member of a SphHarmFrequencySeries 'hlms' 
@@ -171,14 +175,15 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, tref=None, N=None):
     times in the range: [tref - N * deltaT, tref + N * deltaT]
     where deltaT is the time step size stored in 'hlms'
     """
-    # Sanity checks
-    assert data.deltaF == psd.deltaF
-
     # FIXME: For now not handling tref, N
     assert tref==None and N==None
 
     # Create an instance of class to compute inner product time series
-    IP = ComplexOverlap(fmin, fNyq, psd.deltaF, psd.data.data, False, True)
+    if analyticPSD_Q==False:
+        assert data.deltaF == psd.deltaF
+        IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd.data.data, False, True)
+    else:
+        IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, True, True)
 
     # Loop over modes and compute the overlap time series
     rholms = None
@@ -187,14 +192,38 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, tref=None, N=None):
         for m in range(-l,l+1):
             hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
             rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
-            rholms = lalsim.SphHarmFrequencySeriesAddMode(rholms, rhoTS, l, m)
+            rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
 
     # FIXME: Add ability to cut down to a narrow time window
 
     return rholms
 
+def InterpolateRholms(rholms, t, Lmax):
+    """
+    Return a dictionary keyed on mode index tuples, (l,m)
+    where each value is an interpolating function of the overlap against data
+    as a function of time shift:
+    rholm_intp(t) = < h_lm(t) | d >
 
-def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq):
+    'rholms' is a SphHarmTimeSeries containing discrete time series of
+    < h_lm(t_i) | d >
+    't' is an array of the discrete times:
+    [t_0, t_1, ..., t_N]
+    'Lmax' is the largest l index of the SphHarmTimeSeries
+    """
+    rholm_intp = {}
+    for l in range(2, Lmax+1):
+        for m in range(-l,l+1):
+            rholm = lalsim.SphHarmTimeSeriesGetMode(rholms, l, m)
+            amp = np.abs(rholm.data.data)
+            phase = unwind_phase( np.angle(rholm.data.data) )
+            ampintp = interpolate.InterpolatedUnivariateSpline(t, amp, k=3)
+            phaseintp = interpolate.InterpolatedUnivariateSpline(t, phase, k=3)
+            rholm_intp[ (l,m) ] = lambda x: ampintp(x)*np.exp(1j*phaseintp(x))
+
+    return rholm_intp
+
+def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
     """
     Compute the 'cross terms' between waveform modes, i.e.
     < h_lm | h_l'm' >.
@@ -205,9 +234,16 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq):
     i.e. ((l,m),(l',m'))
     """
     # Create an instance of class to compute inner product
-    IP = ComplexIP(fmin, fNyq, psd.deltaF, psd.data.data, False)
+    if analyticPSD_Q==False:
+        assert deltaF == psd.deltaF
+        #IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd.data.data, False,True)
+        IP = ComplexIP(fmin, fNyq, data.deltaF, psd.data.data, False)
+    else:
+        #IP = ComplexOverlap(fmin, fNyq, deltaF, psd, True, True)
+        IP = ComplexIP(fmin, fNyq, deltaF, psd, True)
 
     # Loop over modes and compute the inner products, store in a dictionary
+    Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
     crossTerms = {}
     for l in range(2,Lmax+1):
         for m in range(-l,l+1):
@@ -215,8 +251,12 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq):
                 for mp in range(-lp,lp+1):
                     hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
                     hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, lp, mp)
-                    temp = IP.ip(hlm, hlpmp)
-                    crossTerms[ ((l,m),(lp,mp)) ] = temp
+                    # FIXME: For now computing IP for all time shifts,
+                    # take match for time offset=0
+                    # Should make a proper non-herm. ComplexIP class...
+                    #rho, rhoSeries, rhoIdx, rhoArg = IP.ip(hlm, hlpmp)
+                    #crossTerms[ ((l,m),(lp,mp)) ] = rhoSeries.data.data[0]
+                    crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)
 
     return crossTerms
 
@@ -297,4 +337,3 @@ def CheckMarginalizationConvergence(margL, logL):
     else:
         return False
 
-def TimeShiftIPTimeSeries():
