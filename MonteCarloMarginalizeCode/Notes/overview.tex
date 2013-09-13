@@ -880,6 +880,16 @@ V \equiv \int \frac{L}{\max L} p dx \; ; \qquad  \hat{V} \equiv \frac{\sum_k L(x
 
 \noindent \textbf{Implement sampling distribution generators}: [Done]
 
+Need also to implement a \emph{triangulation sampler}: pick 3 phase variables (for three ``detectors'') defined by three
+orientation vectors $\hat{n}_k$ and one event time [$t-t_{ref} +\hat{n}\cdot \vec{x}_k$].  Treat each as a 1d variable
+in \emph{time}
+and have a sampler for it.  Reconstruct the full posterior multiplicatively.  Posterior in each timing variable should
+have the form
+\begin{eqnarray}
+Q(\tau) = \frac{1}{2\pi \sigma_t^2}
+\end{eqnarray}
+The PDF for this posterior versus angles is a little annoying \editremark{finish}
+
 \noindent \textbf{Report on convergence rate and implications}: Memory usage for passing back; time needed to evaluate;
 correlation length of $\hat{L}$ if the sampling distribution is too narrow or insufficiently multimodal; et cetera.  How well do we need to tune the sampling distribution?
 
