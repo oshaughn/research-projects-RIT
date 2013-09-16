@@ -13,6 +13,8 @@ from matplotlib import pylab as plt
 # Set by user
 #
 checkResults = True # Turn on to print/plot output; Turn off for testing speed
+checkInputPlots = True
+checkResultsPlots = True
 
 #
 # Produce data with a coherent signal in H1, L1, V1
@@ -26,8 +28,11 @@ psd_dict['V1'] = lal.LIGOIPsd
 
 m1 = 5*lal.LAL_MSUN_SI
 m2 = 3*lal.LAL_MSUN_SI
-Psig = ChooseWaveformParams(fmin = 30., radec=True, theta=1.2, phi=2.4,
+ampO = -1 # sets which modes to include in the physical signal
+Lmax = 2  # sets which modes to include in the output
+Psig = ChooseWaveformParams(fmin = 30., radec=True, theta=0.01, phi=2.4,
          m1=m1,m2=m2,
+         ampO=-1,
         detector='H1', dist=25.*1.e6*lal.LAL_PC_SI)
 df = findDeltaF(Psig)
 Psig.deltaF = df
@@ -43,16 +48,47 @@ print " == Data report == "
 detectors = data_dict.keys()
 rho2Net = 0
 for det in detectors:
-    IP = ComplexIP(fLow=30, fNyq=2048,deltaF=df,psd=psd_dict[det])
+    IP = ComplexIP(fLow=25, fNyq=2048,deltaF=df,psd=psd_dict[det])
     rhoDet = IP.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
-    print det, rhoDet
+    print det, rhoDet, " at epoch ", float(data_dict[det].epoch)
 print "Network : ", np.sqrt(rho2Net)
+
+if checkInputPlots:
+    print " == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
+    P = Psig.copy()
+    for det in detectors:
+        P.detector=det
+        P.tref += ComputeTimeDelay(det, P.theta,P.phi,P.tref)
+        hT = hoft(P)
+        tvals = P.tref + hT.deltaT*np.arange(len(hT.data.data))
+        plt.figure(1)
+        plt.plot(tvals, hT.data.data,label=det)
+
+    tlen = hT.deltaT*len(np.nonzero(np.abs(hT.data.data)))
+    plt.xlim( 9.5,11)  # Not well centered
+    plt.show()
+
+    # print " == Plotting detector data (frequency domain) == "
+
+    # fakepsdFunction = lalsim.SimNoisePSDiLIGOSRD
+    # for det in detectors:
+    #     nbins = len(data_dict[det].data.data)
+    #     fvals = np.arange(-IP.fNyq, IP.fNyq, df )
+    #     hTildeAmpVals = np.abs(data_dict[det].data.data) 
+    #     plt.figure(2)
+    #     plt.plot(fvals, hTildeAmpVals, label=det)
+    #     plt.figure(3)
+    #     fakepsdData = map(lambda x: fakepsdFunction(max(x, 1e-2)), np.abs(fvals))
+    #     plt.plot(np.log10(np.abs(fvals)), np.log10(hTildeAmpVals), label=det)
+    #     plt.plot(np.log10(np.abs(fvals)), np.log10(np.sqrt(fakepsdData)),label=det+'IFO')
+    # plt.show()
+
+
 
 print " ======= Template specified: precomputing all quantities =========="
 # Struct to hold template parameters
-P = ChooseWaveformParams(fmin = 40., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df)
-Lmax = 2 # sets which modes to include
+P = ChooseWaveformParams(fmin = 40., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO)
 #
 # Perform the Precompute stage
 #
@@ -65,6 +101,8 @@ print " ======= Reporting on results =========="
 # Examine and sanity check the output
 #
 
+def swapIndex(pair1):
+    return [pair1[0], -pair1[1]]
 if checkResults == True:
     # Print values of cross terms
     detectors = data_dict.keys()
@@ -72,10 +110,27 @@ if checkResults == True:
         for pair1 in rholms_intp['V1']:
             for pair2 in rholms_intp['V1']:
                 print det, pair1, pair2, crossTerms[det][pair1,pair2]
+    
+    print " ======= UV symmetry check (reflection symmetric) =========="
+    constraint1 = 0
+    for det in detectors:
+        for pair1 in rholms_intp['V1']:
+            for pair2 in rholms_intp['V1']:
+#                print pair1, pair2, crossTerms[det][pair1,pair2], " - ",  ((-1)**(pair1[0]+pair2[0])*np.conj(crossTerms[det][(pair1[0],-pair1[1]),(pair2[0],-pair2[1])])
+                constraint1 += np.abs( crossTerms[det][pair1,pair2] - ((-1)**pair1[0])*np.conj(crossTerms[det][(pair1[0],-pair1[1]), (pair2[0],-pair2[1])]) )**2
+    print "   : Reflection symmetry constraint ", constraint1
+
+    print " ======= Epochs and timing =========="
+    for det in detectors:
+        for pair1 in rholms_intp['V1']:
+            print det, pair1, float(rholms[det].epoch), float(rholms[det].deltaT)
+    
+
+if checkResultsPlots == True:
 
     print " ======= Plotting  results =========="
     # Plot the interpolated rholms
-    tt = np.arange(0.,1./df ,1/500.) # Create a finer array of time steps. BE VERY CAREFUL - resampling generates huge arrays. BE CAREFUL not to extrapolate too far outside range
+    tt = np.arange(float(data_dict['H1'].epoch),P.tref ,1/500.) # Create a finer array of time steps. BE VERY CAREFUL - resampling generates huge arrays. BE CAREFUL not to extrapolate too far outside range
     plt.figure(1)
     rhointpH = rholms_intp['H1'][(2,2)]
     rhointpL = rholms_intp['L1'][(2,2)]
@@ -84,6 +139,16 @@ if checkResults == True:
     plt.plot(tt,np.abs(rhointpL(tt)), label='L(2,2)')
     plt.plot(tt,np.abs(rhointpV(tt)), label='V(2,2)')
     plt.legend()
+
+    plt.figure(2)
+    rhointpH = rholms_intp['H1'][(2,-2)]
+    rhointpL = rholms_intp['L1'][(2,-2)]
+    rhointpV = rholms_intp['V1'][(2,-2)]
+    plt.plot(tt,np.abs(rhointpH(tt)), label='H(2,-2)')
+    plt.plot(tt,np.abs(rhointpL(tt)), label='L(2,-2)')
+    plt.plot(tt,np.abs(rhointpV(tt)), label='V(2,-2)')
+    plt.legend()
+
     plt.show()
 
     # plt.figure(1)
