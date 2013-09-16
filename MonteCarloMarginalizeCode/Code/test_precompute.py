@@ -123,7 +123,9 @@ if checkResults == True:
     print " ======= Epochs and timing =========="
     for det in detectors:
         for pair1 in rholms_intp['V1']:
-            print det, pair1, float(rholms[det].epoch), float(rholms[det].deltaT)
+            #print det, pair1, float(rholms[det].epoch), float(rholms[det].deltaT)
+            hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
+            print det, pair1, float(hxx.epoch), float(hxx.deltaT)
     
 
 if checkResultsPlots == True:

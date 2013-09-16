@@ -33,6 +33,15 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 def PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
+
+    Returns:
+        - Dictionary of interpolating functions, keyed on detector, then (l,m)
+          e.g. rholms_intp['H1'][(2,2)]
+        - Dictionary of "cross terms" <h_lm | h_l'm' > keyed on (l,m),(l',m')
+          e.g. crossTerms[((2,2),(2,1))]
+        - Dictionary of discrete time series of < h_lm(t) | d >, keyed the same
+          as the interpolating functions.
+          Their main use is to validate the interpolating functions
     """
     assert data_dict.keys() == psd_dict.keys()
     detectors = data_dict.keys()
@@ -59,7 +68,14 @@ def PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
 
 def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
     """
-    DOCUMENT ME!!!
+    Compute the log-likelihood = -1/2 < d - h | d - h > from:
+        - extr_params is an object containing values of all extrinsic parameters
+        - rholms_intp is a dictionary of interpolating functions < h_lm(t) | d >
+        - crossTerms is a dictionary of < h_lm | h_l'm' >
+        - Lmax is the largest l-index of any h_lm mode considered
+
+    N.B. rholms_intp and crossTerms are the first two outputs of the function
+    'PrecomputeLikelihoodTerms'
     """
     # Sanity checks
     assert rholms_intp.keys() == crossTerms.keys()
