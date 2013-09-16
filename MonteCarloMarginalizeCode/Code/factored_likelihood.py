@@ -65,13 +65,13 @@ def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
     assert rholms_intp.keys() == crossTerms.keys()
     detectors = rholms_intp.keys()
 
-    RA = extr_params.RA
-    DEC = extr_params.DEC
-    tref = extr_params.tref
+    RA = extr_params.phi
+    DEC = extr_params.theta
+    tref = extr_params.tref # geocenter time
     phiref = extr_params.phiref
-    incl = extr.inclination
-    psi = extr.polarization_angle
-    dist = extr_params.distance
+    incl = extr_params.incl
+    psi = extr_params.psi
+    dist = extr_params.dist
 
     Ylms = ComputeYlms(Lmax, incl, phiref)
 
@@ -80,14 +80,15 @@ def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
         CT = crossTerms[det]
         F = ComplexAntennaFactor(det, RA, DEC, psi, tref)
 
-        tshifted = ComputeTimeDelay(det, RA, DEC, tref)
+        tshifted = ComputeTimeDelay(det, RA, DEC, tref) # detector time
         det_rholms_intp = rholms_intp[det]
         shifted_rholms = {}
         for key in det_rholms_intp.keys():
             func = det_rholms_intp[key]
             shifted_rholms[key] = func(tshifted)
 
-        lnL += SingleDetectorLogLikelihood(shifted_rholms, CT, Ylms, F, dist)
+        lnL += SingleDetectorLogLikelihood(shifted_rholms, CT, Ylms, F, dist,
+                Lmax)
 
     return lnL
 
@@ -95,6 +96,30 @@ def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
 #
 # Internal functions
 #
+def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
+    """
+    DOCUMENT ME!!!
+    """
+    # Eq. 35 of Richard's notes
+    term1 = 0.
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
+            term1 += F * Ylms[(l,m)] * rholm_vals[(l,m)]
+    term1 = np.real(term1) / dist
+
+    # Eq. 26 of Richard's notes
+    term2 = 0.
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
+            for lp in range(2,Lmax+1):
+                for mp in range(-lp,lp+1):
+                    term2 += F * np.conj(F) * ( crossTerms[((l,m),(lp,mp))]\
+                            + np.conj( crossTerms[((l,m),(lp,mp))]) )\
+                            * np.conj(Ylms[(l,m)]) * Ylms[(lp,mp)]
+    term2 = np.real(term2) / 4. / dist / dist
+
+    return term1 + term2
+
 def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
         tref=None, N=None):
     """
@@ -191,6 +216,51 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
                     crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)
 
     return crossTerms
+
+def ComplexAntennaFactor(det, RA, DEC, psi, tref):
+    """
+    Function to compute the complex-valued antenna pattern function:
+    F+ + i Fx
+
+    'det' is a detector prefix string (e.g. 'H1')
+    'RA' and 'DEC' are right ascension and declination (in radians)
+    'psi' is the polarization angle
+    'tref' is the reference GPS time
+    """
+    detector = lalsim.DetectorPrefixToLALDetector(det)
+    Fp, Fc = lal.ComputeDetAMResponse(detector.response, RA, DEC, psi, tref)
+
+    return Fp + 1j * Fc
+
+def ComputeYlms(Lmax, theta, phi):
+    """
+    Return a dictionary keyed by tuples
+    (l,m)
+    that contains the values of all
+    -2Y_lm(theta,phi)
+    with
+    l <= Lmax
+    -l <= m <= l
+    """
+    Ylms = {}
+    for l in range(2,Lmax+2):
+        for m in range(-l,l+1):
+            Ylms[ (l,m) ] = lal.SpinWeightedSphericalHarmonic(theta, phi,
+                    -2, l, m)
+
+    return Ylms
+
+def ComputeTimeDelay(det, RA, DEC, tref):
+    """
+    Function to compute the time of arrival at a detector
+    from the time of arrival at the geocenter.
+
+    'det' is a detector prefix string (e.g. 'H1')
+    'RA' and 'DEC' are right ascension and declination (in radians)
+    'tref' is the reference time at the geocenter
+    """
+    detector = lalsim.DetectorPrefixToLALDetector(det)
+    return tref + lal.TimeDelayFromEarthCenter(detector.location, RA, DEC, tref)
 
 # Create complex FD data that does not assume Hermitianity - i.e.
 # contains positive and negative freq. content
