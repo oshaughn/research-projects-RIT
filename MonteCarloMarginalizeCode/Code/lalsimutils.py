@@ -743,27 +743,27 @@ def hoft(P, Fp=None, Fc=None):
         hp.data.data *= Fp
         hc.data.data *= Fc
         hp = lal.AddREAL8TimeSeries(hp, hc)
-        hoft = hp
+        ht = hp
     elif P.radec==False:
         fp = Fplus(P.theta, P.phi, P.psi)
         fc = Fcross(P.theta, P.phi, P.psi)
         hp.data.data *= fp
         hc.data.data *= fc
         hp = lal.AddREAL8TimeSeries(hp, hc)
-        hoft = hp
+        ht = hp
     else:
         hp.epoch = hp.epoch + P.tref
         hc.epoch = hc.epoch + P.tref
-        hoft = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
+        ht = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
                 P.phi, P.theta, P.psi, 
                 lalsim.InstrumentNameToLALDetector(P.detector))
     if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
-        lalsim.SimInspiralREAL8WaveTaper(hoft.data, P.taper)
+        lalsim.SimInspiralREAL8WaveTaper(ht.data, P.taper)
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
-        assert TDlen >= hoft.data.length
-        hoft = lal.ResizeREAL8TimeSeries(hoft, 0, TDlen)
-    return hoft
+        assert TDlen >= ht.data.length
+        ht = lal.ResizeREAL8TimeSeries(ht, 0, TDlen)
+    return ht
 
 def hoff(P, Fp=None, Fc=None, fwdplan=None):
     """
@@ -814,48 +814,23 @@ def hoff_TD(P, Fp=None, Fc=None, fwdplan=None):
 
     Returns a COMPLEX16FrequencySeries object
     """
-    hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
-            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
-            P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
-            P.ampO, P.phaseO, P.approx)
+    ht = hoft(P, Fp, Fc)
 
-    if Fp is not None and Fc is not None:
-        hp.data.data *= Fp
-        hc.data.data *= Fc
-        hp = lal.AddREAL8TimeSeries(hp, hc)
-        hoft = hp
-    elif P.radec==False:
-        fp = Fplus(P.theta, P.phi, P.psi)
-        fc = Fcross(P.theta, P.phi, P.psi)
-        hp.data.data *= fp
-        hc.data.data *= fc
-        hp = lal.AddREAL8TimeSeries(hp, hc)
-        hoft = hp
-    else:
-        hp.epoch = hp.epoch + P.tref
-        hc.epoch = hc.epoch + P.tref
-        hoft = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
-                P.theta, P.phi, P.psi, 
-                lalsim.InstrumentNameToLALDetector(P.detector))
-    if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
-        lalsim.SimInspiralREAL8WaveTaper(hoft.data, P.taper)
-
-    if P.deltaF == None:
-        TDlen = nextPow2(hoft.data.length)
-    else:
+    if P.deltaF == None: # h(t) was not zero-padded, so do it now
+        TDlen = nextPow2(ht.data.length)
+        ht = lal.ResizeREAL8TimeSeries(ht, 0, TDlen)
+    else: # Check zero-padding was done to expected length
         TDlen = int(1./P.deltaF * 1./P.deltaT)
-        assert TDlen >= hoft.data.length
+        assert TDlen == ht.data.length
     
     if fwdplan==None:
         fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
-
-    hoft = lal.ResizeREAL8TimeSeries(hoft, 0, TDlen)
     FDlen = TDlen/2+1
-    hoff = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
-            hoft.epoch, hoft.f0, 1./hoft.deltaT/TDlen, lal.lalHertzUnit, 
+    hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
+            ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lal.lalHertzUnit, 
             FDlen)
-    lal.REAL8TimeFreqFFT(hoff, hoft, fwdplan)
-    return hoff
+    lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
+    return hf
 
 def hoff_FD(P, Fp=None, Fc=None):
     """
@@ -936,50 +911,10 @@ def norm_hoff_TD(P, IP, Fp=None, Fc=None, fwdplan=None):
     N.B. IP and the waveform generated from P must have the same deltaF and 
         the waveform must extend to at least the highest frequency of IP's PSD.
     """
-    hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
-            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
-            P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
-            P.ampO, P.phaseO, P.approx)
-
-    if Fp!=None and Fc!=None:
-        hp.data.data *= Fp
-        hc.data.data *= Fc
-        hp = lal.AddREAL8TimeSeries(hp, hc)
-        hoft = hp
-    elif P.radec==False:
-        fp = Fplus(P.theta, P.phi, P.psi)
-        fc = Fcross(P.theta, P.phi, P.psi)
-        hp.data.data *= fp
-        hc.data.data *= fc
-        hp = lal.AddREAL8TimeSeries(hp, hc)
-        hoft = hp
-    else:
-        hp.epoch = hp.epoch + P.tref
-        hc.epoch = hc.epoch + P.tref
-        hoft = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
-                P.theta, P.phi, P.psi, 
-                lalsim.InstrumentNameToLALDetector(P.detector))
-    if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
-        lalsim.SimInspiralREAL8WaveTaper(hoft.data, P.taper)
-
-    if P.deltaF == None:
-        TDlen = nextPow2(hoft.data.length)
-    else:
-        TDlen = int(1./P.deltaF * 1./P.deltaT)
-        assert TDlen >= hoft.data.length
-
-    if fwdplan==None:
-        fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
-
-    hoft = lal.ResizeREAL8TimeSeries(hoft, 0, TDlen)
-    FDlen = TDlen/2+1
-    hoff = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
-            hoft.epoch, hoft.f0, 1./hoft.deltaT/TDlen, lal.lalHertzUnit, 
-            FDlen)
-    lal.REAL8TimeFreqFFT(hoff, hoft, fwdplan)
-    norm = IP.norm(hoff)
-    hoff.data.data /= norm
-    return hoff
+    hf = hoff_TD(P, Fp, Fc, fwdplan)
+    norm = IP.norm(hf)
+    hf.data.data /= norm
+    return hf
 
 def norm_hoff_FD(P, IP, Fp=None, Fc=None):
     """
@@ -991,24 +926,7 @@ def norm_hoff_FD(P, IP, Fp=None, Fc=None):
     if P.deltaF is None:
         raise ValueError('None given for freq. bin size P.deltaF')
 
-    hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(P.phiref, P.deltaF,
-            P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin,
-            P.fmax, P.dist, P.incl, P.lambda1, P.lambda2, P.waveFlags,
-            P.nonGRparams, P.ampO, P.phaseO, P.approx)
-    if Fp is not None and Fc is not None:
-        hptilde.data.data *= Fp
-        hctilde.data.data *= Fc
-        hptilde = lal.AddCOMPLEX16FrequencySeries(hptilde, hctilde)
-        htilde = hptilde
-    elif P.radec==False:
-        fp = Fplus(P.theta, P.phi, P.psi)
-        fc = Fcross(P.theta, P.phi, P.psi)
-        hptilde.data.data *= fp
-        hctilde.data.data *= fc
-        hptilde = lal.AddCOMPLEX16FrequencySeries(hptilde, hctilde)
-        htilde = hptilde
-    else:
-        raise ValueError('Must use P.radec=False for FD approximant (for now)')
+    htilde = hoff_FD(P, Fp, Fc)
     norm = IP.norm(htilde)
     htilde.data.data /= norm
     return htilde
@@ -1023,9 +941,16 @@ def hlmoft(P, Lmax=2, Fp=None, Fc=None):
     The linked list will contain all modes with l <= Lmax
     and all values of m for these l.
     """
+    assert Lmax >= 2
     hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
             P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
             P.nonGRparams, P.ampO, P.phaseO, Lmax, P.approx)
+    # FIXME: Add ability to taper
+    if P.deltaF is not None:
+        TDlen = int(1./P.deltaF * 1./P.deltaT)
+        hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
+        assert TDlen >= hxx.data.length
+        hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
     return hlms
 
 def hlmoff(P, Lmax=2, Fp=None, Fc=None):
@@ -1037,35 +962,28 @@ def hlmoff(P, Lmax=2, Fp=None, Fc=None):
     The linked list will contain all modes with l <= Lmax
     and all values of m for these l.
     """
-    assert Lmax >= 2
-    hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
-            P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
-            P.nonGRparams, P.ampO, P.phaseO, Lmax, P.approx)
+    hlms = hlmoft(P, Lmax, Fp, Fc)
     hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
-    if P.deltaF == None:
+    if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
         TDlen = nextPow2(hxx.data.length)
-    else:
+        hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
+    else: # Check zero-padding was done to expected length
         TDlen = int(1./P.deltaF * 1./P.deltaT)
-        assert TDlen >= hxx.data.length
-
-    # Resize all hlm mode to length needed to achieve P.deltaF freq. bin width
-    hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
+        assert TDlen == hxx.data.length
 
     # FFT the hlms
     Hlms = lalsim.SphHarmFrequencySeriesFromSphHarmTimeSeries(hlms)
-
     return Hlms
 
 
-def complex_hoft(P, sgn=1):
+def complex_hoft(P, sgn=-1):
     """
     Generate a complex TD waveform from ChooseWaveformParams P
     Returns h(t) = h+(t) + 1j sgn hx(t)
-    where sgn = 1 (default) or -1
+    where sgn = -1 (default) or 1
 
     Returns a COMPLEX16TimeSeries object
     """
-    assert lalsim.SimInspiralImplementedTDApproximants(P.approx)
     assert sgn == 1 or sgn == -1
     hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
@@ -1074,22 +992,27 @@ def complex_hoft(P, sgn=1):
     if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
         lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
         lalsim.SimInspiralREAL8WaveTaper(hc.data, P.taper)
+    if P.deltaF is not None:
+        TDlen = int(1./P.deltaF * 1./P.deltaT)
+        assert TDlen >= hp.data.length
+        hp = lal.ResizeREAL8TimeSeries(hp, 0, TDlen)
+        hc = lal.ResizeREAL8TimeSeries(hc, 0, TDlen)
 
-    hoft = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
+    ht = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
             hp.deltaT, lal.lalDimensionlessUnit, hp.data.length)
-    hoft.epoch = hoft.epoch + P.tref
-    for i in range(hoft.data.length):
-        hoft.data.data[i] = hp.data.data[i] + 1j * sgn * hc.data.data[i]
-    return hoft
+    ht.epoch = ht.epoch + P.tref
+    for i in range(ht.data.length):
+        ht.data.data[i] = hp.data.data[i] + 1j * sgn * hc.data.data[i]
+    return ht
 
-def complex_hoff(P, sgn=1, fwdplan=None):
+def complex_hoff(P, sgn=-1, fwdplan=None):
     """
     CURRENTLY ONLY WORKS WITH TD APPROXIMANTS
 
     Generate a (non-Hermitian) FD waveform from ChooseWaveformParams P
     by creating a complex TD waveform of the form
 
-    h(t) = h+(t) + 1j sgn hx(t)    where sgn = 1 (default) or -1
+    h(t) = h+(t) + 1j sgn hx(t)    where sgn = -1 (default) or 1
 
     If P.deltaF==None, just pad up to next power of 2
     If P.deltaF = 1/X, will generate a TD waveform, zero-pad to length X seconds
@@ -1102,47 +1025,33 @@ def complex_hoff(P, sgn=1, fwdplan=None):
 
     Returns a COMPLEX16FrequencySeries object
     """
-    assert lalsim.SimInspiralImplementedTDApproximants(P.approx)
-    assert sgn == 1 or sgn == -1
-    hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
-            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
-            P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
-            P.ampO, P.phaseO, P.approx)
-    if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
-        lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
-        lalsim.SimInspiralREAL8WaveTaper(hc.data, P.taper)
+    ht = complex_hoft(P, sgn)
 
-    hoft = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
-            hp.deltaT, lal.lalDimensionlessUnit, hp.data.length)
-    hoft.epoch = hoft.epoch + P.tref
-    for i in range(hoft.data.length):
-        hoft.data.data[i] = hp.data.data[i] + 1j * sgn * hc.data.data[i]
-
-    if P.deltaF == None:
-        TDlen = nextPow2(hoft.data.length)
-    else:
+    if P.deltaF == None: # h(t) was not zero-padded, so do it now
+        TDlen = nextPow2(ht.data.length)
+        ht = lal.ResizeCOMPLEX16TimeSeries(ht, 0, TDlen)
+    else: # Check zero-padding was done to expected length
         TDlen = int(1./P.deltaF * 1./P.deltaT)
-        assert TDlen >= hoft.data.length
-    hoft = lal.ResizeCOMPLEX16TimeSeries(hoft, 0, TDlen)
+        assert TDlen == ht.data.length
 
     if fwdplan==None:
         fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
 
     FDlen = TDlen/2+1
-    hoff = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
-            hoft.epoch, hoft.f0, 1./hoft.deltaT/TDlen, lal.lalHertzUnit, 
+    hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
+            ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lal.lalHertzUnit, 
             TDlen)
-    lal.COMPLEX16TimeFreqFFT(hoff, hoft, fwdplan)
-    return hoff
+    lal.COMPLEX16TimeFreqFFT(hf, ht, fwdplan)
+    return hf
 
-def complex_norm_hoff(P, IP, sgn=1, fwdplan=None):
+def complex_norm_hoff(P, IP, sgn=-1, fwdplan=None):
     """
     CURRENTLY ONLY WORKS WITH TD APPROXIMANTS
 
     Generate a (non-Hermitian) FD waveform from ChooseWaveformParams P
     by creating a complex TD waveform of the form
 
-    h(t) = h+(t) + 1j sgn hx(t)    where sgn = 1 (default) or -1
+    h(t) = h+(t) + 1j sgn hx(t)    where sgn = -1 (default) or 1
 
     If P.deltaF==None, just pad up to next power of 2
     If P.deltaF = 1/X, will generate a TD waveform, zero-pad to length X seconds
@@ -1155,40 +1064,10 @@ def complex_norm_hoff(P, IP, sgn=1, fwdplan=None):
 
     Returns a COMPLEX16FrequencySeries object
     """
-    assert lalsim.SimInspiralImplementedTDApproximants(P.approx)
-    assert sgn == 1 or sgn == -1
-    hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
-            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
-            P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
-            P.ampO, P.phaseO, P.approx)
-    if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
-        lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
-        lalsim.SimInspiralREAL8WaveTaper(hc.data, P.taper)
-
-    hoft = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
-            hp.deltaT, lal.lalDimensionlessUnit, hp.data.length)
-    hoft.epoch = hoft.epoch + P.tref
-    for i in range(hoft.data.length):
-        hoft.data.data[i] = hp.data.data[i] + 1j * sgn * hc.data.data[i]
-
-    if P.deltaF == None:
-        TDlen = nextPow2(hoft.data.length)
-    else:
-        TDlen = int(1./P.deltaF * 1./P.deltaT)
-        assert TDlen >= hoft.data.length
-    hoft = lal.ResizeCOMPLEX16TimeSeries(hoft, 0, TDlen)
-
-    if fwdplan==None:
-        fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
-
-    FDlen = TDlen/2+1
-    hoff = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
-            hoft.epoch, hoft.f0, 1./hoft.deltaT/TDlen, lal.lalHertzUnit, 
-            TDlen)
-    lal.COMPLEX16TimeFreqFFT(hoff, hoft, fwdplan)
-    norm = IP.norm(hoff)
-    hoff.data.data /= norm
-    return hoff
+    htilde = complex_hoff(P, sgn, fwdplan)
+    norm = IP.norm(htilde)
+    htilde.data.data /= norm
+    return htilde
 
 #
 # Functions to read an ASCII file in NINJA data format (see arXiv:0709.0093)
@@ -1224,15 +1103,15 @@ def NINJA_data_to_hoft(fname, TDlen=-1, scaleT=1., scaleH=1., Fp=1., Fc=0.):
     tStart = t[0]
     deltaT = (t[1] - t[0]) * scaleT
 
-    hoft = lal.CreateREAL8TimeSeries("h(t)", lal.LIGOTimeGPS(tStart), 0.,
+    ht = lal.CreateREAL8TimeSeries("h(t)", lal.LIGOTimeGPS(tStart), 0.,
             deltaT, lal.lalDimensionlessUnit, TDlen)
 
     for i in range(tmplen):
-        hoft.data.data[i] = (Fp*hpdat[i] + Fc*hcdat[i]) * scaleH
+        ht.data.data[i] = (Fp*hpdat[i] + Fc*hcdat[i]) * scaleH
     for i in range(tmplen,TDlen):
-        hoft.data.data[i] = 0.
+        ht.data.data[i] = 0.
 
-    return hoft
+    return ht
 
 def NINJA_data_to_hp_hc(fname, TDlen=-1, scaleT=1., scaleH=1., deltaT=0):
     """
@@ -1358,20 +1237,20 @@ def NINJA_data_to_hoff(fname, TDlen=0, scaleT=1., scaleH=1., Fp=1., Fc=0.):
     tStart = t[0]
     deltaT = (t[1] - t[0]) * scaleT
 
-    hoft = lal.CreateREAL8TimeSeries("h(t)", lal.LIGOTimeGPS(tStart), 0.,
+    ht = lal.CreateREAL8TimeSeries("h(t)", lal.LIGOTimeGPS(tStart), 0.,
             deltaT, lal.lalDimensionlessUnit, TDlen)
 
     for i in range(tmplen):
-        hoft.data.data[i] = (Fp*hpdat[i] + Fc*hcdat[i]) * scaleH
+        ht.data.data[i] = (Fp*hpdat[i] + Fc*hcdat[i]) * scaleH
     for i in range(tmplen,TDlen):
-        hoft.data.data[i] = 0.
+        ht.data.data[i] = 0.
 
     fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
-    hoff = lal.CreateCOMPLEX16FrequencySeries("h(f)", 
-            hoft.epoch, hoft.f0, 1./deltaT/TDlen, lal.lalHertzUnit, 
+    hf = lal.CreateCOMPLEX16FrequencySeries("h(f)", 
+            ht.epoch, ht.f0, 1./deltaT/TDlen, lal.lalHertzUnit, 
             TDlen/2+1)
-    lal.REAL8TimeFreqFFT(hoff, hoft, fwdplan)
-    return hoff
+    lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
+    return hf
 
 def NINJA_data_to_norm_hoff(fname, IP, TDlen=0, scaleT=1., scaleH=1.,
         Fp=1., Fc=0.):
@@ -1403,20 +1282,20 @@ def NINJA_data_to_norm_hoff(fname, IP, TDlen=0, scaleT=1., scaleH=1.,
     tStart = t[0]
     deltaT = (t[1] - t[0]) * scaleT
 
-    hoft = lal.CreateREAL8TimeSeries("h(t)", lal.LIGOTimeGPS(tStart), 0.,
+    ht = lal.CreateREAL8TimeSeries("h(t)", lal.LIGOTimeGPS(tStart), 0.,
             deltaT, lal.lalDimensionlessUnit, TDlen)
 
     for i in range(tmplen):
-        hoft.data.data[i] = (Fp*hpdat[i] + Fc*hcdat[i]) * scaleH
+        ht.data.data[i] = (Fp*hpdat[i] + Fc*hcdat[i]) * scaleH
     for i in range(tmplen,TDlen):
-        hoft.data.data[i] = 0.
+        ht.data.data[i] = 0.
 
     fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
-    hoff = lal.CreateCOMPLEX16FrequencySeries("h(f)", 
-            hoft.epoch, hoft.f0, 1./deltaT/TDlen, lal.lalHertzUnit, 
+    hf = lal.CreateCOMPLEX16FrequencySeries("h(f)", 
+            ht.epoch, ht.f0, 1./deltaT/TDlen, lal.lalHertzUnit, 
             TDlen/2+1)
-    lal.REAL8TimeFreqFFT(hoff, hoft, fwdplan)
-    norm = IP.norm(hoff)
-    hoff.data.data /= norm
-    return hoff
+    lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
+    norm = IP.norm(hf)
+    hf.data.data /= norm
+    return hf
 
