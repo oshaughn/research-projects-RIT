@@ -28,7 +28,7 @@ m1 = 5*lal.LAL_MSUN_SI
 m2 = 3*lal.LAL_MSUN_SI
 Psig = ChooseWaveformParams(fmin = 30., radec=True, theta=1.2, phi=2.4,
          m1=m1,m2=m2,
-        detector='H1', dist=100.*1.e6*lal.LAL_PC_SI)
+        detector='H1', dist=25.*1.e6*lal.LAL_PC_SI)
 df = findDeltaF(Psig)
 Psig.deltaF = df
 Psig.print_params()
@@ -39,6 +39,15 @@ data_dict['L1'] = non_herm_hoff(Psig)
 Psig.detector = 'V1'
 data_dict['V1'] = non_herm_hoff(Psig)
 
+print " == Data report == "
+detectors = data_dict.keys()
+rho2Net = 0
+for det in detectors:
+    IP = ComplexIP(fLow=30, fNyq=2048,deltaF=df,psd=psd_dict[det])
+    rhoDet = IP.norm(data_dict[det])
+    rho2Net += rhoDet*rhoDet
+    print det, rhoDet
+print "Network : ", np.sqrt(rho2Net)
 
 print " ======= Template specified: precomputing all quantities =========="
 # Struct to hold template parameters
@@ -63,31 +72,35 @@ if checkResults == True:
         for pair1 in rholms_intp['V1']:
             for pair2 in rholms_intp['V1']:
                 print det, pair1, pair2, crossTerms[det][pair1,pair2]
-        # for l in range(2,Lmax+1):
-        #     for m in range(-l,l+1):
-        #         for lp in range(2,Lmax+1):
-        #             for mp in range(-lp,lp+1):
-                        # print det, "(",l,",",m,") (",lp,",",mp,") term:",\
-                        #         crossTerms[det][ ((l,m),(lp,mp)) ]
 
     print " ======= Plotting  results =========="
     # Plot the interpolated rholms
-    tt = np.arange(0.,64., 1/500.) # Create a finer array of time steps. BE VERY CAREFUL - resampling generates huge arrays
+    tt = np.arange(0.,1./df ,1/500.) # Create a finer array of time steps. BE VERY CAREFUL - resampling generates huge arrays. BE CAREFUL not to extrapolate too far outside range
     plt.figure(1)
-    plt.title("H1 $rho{lm}$s")
-    det = 'H1'
-    rho22intp = rholms_intp[det][(2,2)]
-    rho2m2intp = rholms_intp[det][(2,-2)]
-    rho21intp = rholms_intp[det][(2,1)]
-    rho2m1intp = rholms_intp[det][(2,-1)]
-    rho20intp = rholms_intp[det][(2,0)]
-    plt.plot(tt, np.abs(rho22intp(tt)), 'b--', label='(2,2)')
-    plt.plot(tt, np.abs(rho2m2intp(tt)), 'b.', label='(2,-2)')
-    plt.plot(tt, np.abs(rho21intp(tt)), 'r--', label='(2,1)')
-    plt.plot(tt, np.abs(rho2m1intp(tt)), 'r.', label='(2,-1)')
-    plt.plot(tt, np.abs(rho20intp(tt)), 'k-', label='(2,0)')
+    rhointpH = rholms_intp['H1'][(2,2)]
+    rhointpL = rholms_intp['L1'][(2,2)]
+    rhointpV = rholms_intp['V1'][(2,2)]
+    plt.plot(tt,np.abs(rhointpH(tt)), label='H(2,2)')
+    plt.plot(tt,np.abs(rhointpL(tt)), label='L(2,2)')
+    plt.plot(tt,np.abs(rhointpV(tt)), label='V(2,2)')
     plt.legend()
     plt.show()
+
+    # plt.figure(1)
+    # plt.title("H1 $rho{lm}$s")
+    # det = 'H1'
+    # rho22intp = rholms_intp[det][(2,2)]
+    # rho2m2intp = rholms_intp[det][(2,-2)]
+    # rho21intp = rholms_intp[det][(2,1)]
+    # rho2m1intp = rholms_intp[det][(2,-1)]
+    # rho20intp = rholms_intp[det][(2,0)]
+    # plt.plot(tt, np.abs(rho22intp(tt)), 'b--', label='(2,2)')
+    # plt.plot(tt, np.abs(rho2m2intp(tt)), 'b.', label='(2,-2)')
+    # plt.plot(tt, np.abs(rho21intp(tt)), 'r--', label='(2,1)')
+    # plt.plot(tt, np.abs(rho2m1intp(tt)), 'r.', label='(2,-1)')
+    # plt.plot(tt, np.abs(rho20intp(tt)), 'k-', label='(2,0)')
+    # plt.legend()
+    # plt.show()
 
     # plt.figure(2)
     # plt.title('L1 $\rho_{lm}$s')

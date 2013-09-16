@@ -905,6 +905,8 @@ Recover the distance distribution;  sky position error box; and event time distr
 \noindent \textbf{Document prototype exploration procedure}: Trigger values to seed mass range? Fisher matrix?
 
 
+\noindent \textbf{Implement, demonstrate serial code}: Just do it
+
 
 \end{widetext}
 \subsection{Requirements}
@@ -963,10 +965,106 @@ absolute and relative)
 
 
 
+\section{Stage 2: Short-term deliverables and selling points (*)} 
 
-\section{Alternative infrastructure (*)}
+\subsection{Results(*)}
 
-* Construct intermediate transfer functions from complex methods paper.  Use a resummed complex quantity for each sky location
+\noindent \textbf{Intrinsic mass posterior:}
+
+\noindent \textbf{Reliability of confidence contours}: To demonstrate confidence in each one-dimensional posterior, for
+each simulated event $\alpha$ and coordinate $A$ we evaluate the one-dimensional cumulative distribution $P_{\alpha,A}$
+and in particular this scalar evaluated at the injection location [$P_{\alpha,A}(x_{\alpha,A})$].  
+
+As an example Figure \ref{fig:ShortTermDemo:OneDCumulativeInjectionRecovery} shows our confidence distribution.
+The sources in the sample were drawn randomly from the same prior used \editremark{XXX}
+
+\noindent \textbf{Evidence:}
+
+
+
+\begin{figure}
+\caption{\textbf{Example of two-dimensional posterior $p(m_1,m_2)$}:
+}
+\end{figure}
+
+\begin{figure}
+\caption{\label{fig:ShortTermDemo:OneDCumulativeInjectionRecovery}\textbf{Example of confidence in confidence
+    intervals}: The cumulative distribution of $P_{\alpha,A}(x_{\alpha,A})$ for several variables $A$: chirp mass; mass
+  ratio $\eta$; sky location RA; sky location DEC \editremark{do all?}
+}
+\end{figure}
+
+\subsection{Selling points}
+
+\begin{verbatim}
+ -low-latency
+ -evidence accurate
+ -modular: infrastructure compatible with other uses
+\end{verbatim}
+
+
+
+\section{Stage N-2: Mid-term deliverables  (*)}
+\subsection{Quantity is a quality all its own}
+Our speed and performance allow lar
+
+\subsubsection{Revisit prior studies}
+
+\noindent \textbf{Fisher matrix breakdown?}: Ilya et al claim the Fisher matrix breaks down for some noise realizations
+with moderate SNR.  That's plausible but it'd be nicce to better understand why.  And to be \emph{confident} it's not a
+convergence issue.
+
+\subsubsection{New studies}
+
+
+\section{Stage N-1: Mid-term technical issues (*)}
+
+\noindent \textbf{SNR and breakdowns}: At high SNR, we can \emph{easily} have timing resolution smaller than our
+sampling rate (unless using 16 kHz). 
+
+If the SNR is above the low tens, nongaussianities will occur as a matter of course .  [This might in part explain the
+  non-Fisher-matrix claims made above.]
+
+\noindent \textbf{PSD sensitivity}: How do we handle the smoothing (1/30 minute  frequency bins?)
+
+
+
+\section{Stage N: Long term speculations (*)}
+
+
+\subsection{Search integration}
+
+\noindent \textbf{As a final coherent stage}: Running with just $(2,\pm 2)$ modes on the triggered masses (exact bank
+coincidence) provides a final coherent stage with a confidence statistic (evidence).  Just saying.
+
+If we use exact bank coincidence and a low-dimension $(l,m)$ space, the operations will be sub-minute (few seconds) --
+allowing high trigger rates. \editremark{I wonder if this is useful}.
+
+
+
+\part{Richard's notes to self}
+
+
+\section{Mathematica implementation}
+
+\noindent \textbf{Triangulation sampler}: Implement!
+
+\noindent \textbf{Mass-dependent data length?}: Change data length depending on trigger chirp mass to reduce computation time.
+
+
+\noindent \textbf{Converter}: Dump to quasi-MCMC output (\texttt{BayesianInport})
+
+\section{Python implementaiton}
+
+\noindent \textbf{Serial pipeline}: Rather than parallelize across the cluster, do a full zero-spin serial operation.
+It will be easier to document the physics and infrastructure if it's in one code.
+
+Make $L_{\rm marg}(m_1,m_2)$, recovery $p-p$ plots, etc
+
+\noindent \textbf{Serial sky localization code}: Test our comparison against Bayesstar
+
+\noindent \textbf{Mass-dependent data length?}: Change data length depending on trigger chirp mass to reduce computation time.
+
 
 
 \appendix
