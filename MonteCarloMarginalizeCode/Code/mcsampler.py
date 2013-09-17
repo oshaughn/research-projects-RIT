@@ -1,4 +1,3 @@
-import sys
 from collections import defaultdict
 
 import numpy
@@ -20,6 +19,8 @@ class MCSampler(object):
 		self._pdf_norm = defaultdict(lambda x: 1)
 		# Cache for the sampling points
 		self._rvs = None
+		# Sample point cache
+		self._cache = []
 		# parameter -> cdf^{-1} function object
 		self.cdf_inv = {}
 		# params for left and right limits
@@ -33,6 +34,7 @@ class MCSampler(object):
 		self.pdf = {}
 		self._pdf_norm = defaultdict(lambda x: 1)
 		self._rvs = None
+		self._cache = []
 		self.cdf_inv = {}
 		self.llim = {}
 		self.rlim = {}
@@ -86,24 +88,56 @@ class MCSampler(object):
 		if len(args) == 0 :
 			args = self.params
 
-		if type(rvs) is int:
-			self._rvs = [numpy.random.uniform(0,1,n) for (a,b) in [(self.llim[p], self.rlim[p]) for p in args]]
+		if type(rvs) is int or type(rvs) is float:
+			self._rvs = [numpy.random.uniform(0,1,rvs) for (a,b) in [(self.llim[p], self.rlim[p]) for p in args]]
+			#cdf_rvs = [self.cdf_inv[param](rv) for (rv, param) in zip(self._rvs, args)]
+			self._rvs = [self.cdf_inv[param](rv) for (rv, param) in zip(self._rvs, args)]
 		else:
 			self._rvs = rvs
 
-		cdf_rvs = [self.cdf_inv[param](rv) for (rv, param) in zip(self._rvs, args)]
-		res = [(self.pdf[param](cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(cdf_rvs, args)]
+		res = [(self.pdf[param](cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(self._rvs, args)]
 
 		if kwargs.has_key("rdict"):
 			return dict(zip(args, res))
 		return zip(*res)
 
+	def save_points(self, intg, prior):
+		# NOTE: Will save points from other integrations before this if used more than once.
+		self._cache.extend( [ rvs for rvs, ratio, rnd in zip(numpy.array(self._rvs).T, intg/prior, numpy.random.uniform(0, 1, len(prior))) if ratio < 1 or 1.0/ratio < rnd ] )
+
+	# TODO: Remove args
 	def integrate(self, func, n, *args):
-		self._rvs = numpy.random.uniform(0, 1, (len(self.params), n))
-		p_s, rv = self.draw(self._rvs, *args)
+		#self._rvs = numpy.random.uniform(0, 1, (len(self.params), n))
+		p_s, rv = self.draw(n, *args)
 		joint_p_s = numpy.prod(p_s, axis=0)
-		int_val = func(*rv)/joint_p_s
+		fval = func(*rv)
+		int_val = fval/joint_p_s
+		maxval = [fval[0] or 1e-300]
+		for v in fval[1:]:
+			maxval.append( v if v > maxval[-1] else maxval[-1] )
+		eff_samp = maxval/(int_val.cumsum()/numpy.linspace(1,n,n))
+		"""
+		FIXME: Debug plots. Get rid of them when done
+		import matplotlib
+		matplotlib.use("Agg")
+		from matplotlib import pyplot
+		pyplot.clf()
+		pyplot.subplot(311)
+		pyplot.plot(range(len(int_val)), int_val.cumsum()/numpy.linspace(1,n,n), 'k-')
+		pyplot.grid()
+		pyplot.subplot(312)
+		pyplot.plot(range(len(int_val)), fval, 'b-')
+		pyplot.subplot(313)
+		pyplot.plot(range(len(int_val)), maxval/(int_val.cumsum()/numpy.linspace(1,n,n)), 'r-')
+		pyplot.semilogy()
+		pyplot.ylim([1e-5, 1e1])
+		pyplot.grid()
+		pyplot.savefig("integral.png")
+		pyplot.clf()
+		"""
 		std = int_val.std()
+		#self.save_points(int_val, joint_p_s)
+		print "%d samples saved" % len(self._cache)
 		int_val1 = int_val.sum()/n
 		# FIXME: Running stddev
 		return int_val1, std**2/n
