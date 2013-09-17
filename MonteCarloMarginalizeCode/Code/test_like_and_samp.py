@@ -1,13 +1,31 @@
+import sys
+from optparse import OptionParser
+
 import numpy
+
+from glue.lal import Cache
+import lalsimutils
 
 """
 Simple program illustrating the precomputation step and calls to the
 likelihood function.
 """
 
-__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
+__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
 from factored_likelihood import *
+
+optp = OptionParser()
+optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
+optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
+opts, args = optp.parse_args()
+
+det_dict = {}
+if opts.channel_name is not None and opts.cache_file is None:
+    print >>sys.stderr, "Cache file required when requesting channel data."	
+    exit(-1)
+elif opts.channel_name is not None:
+    det_dict = dict(map(lambda cname: cname.split("="), opts.channel_name))
 
 Niter = 5 # Number of times to call likelihood function
 Tmax = 38. # max ref. time
@@ -19,21 +37,30 @@ Dmin = 90. * 1.e6 * lal.LAL_PC_SI # min ref. time
 # Produce data with a coherent signal in H1, L1, V1
 #
 data_dict = {}
+if len(det_dict) > 0:
+    with open(opts.cache_file) as cfile:
+        cachef = Cache.fromfile(cfile)
+
+    for d, chan in det_dict.iteritems():
+        data_dict[d] = lalsimutils.frame_data_to_hoff(fname, chan)
+else:
+
+    Psig = ChooseWaveformParams(fmin = 10., radec=True, theta=1.2, phi=2.4,
+            detector='H1', dist=100.*1.e6*lal.LAL_PC_SI)
+    df = findDeltaF(Psig)
+    Psig.deltaF = df
+    data_dict['H1'] = non_herm_hoff(Psig)
+    Psig.detector = 'L1'
+    data_dict['L1'] = non_herm_hoff(Psig)
+    Psig.detector = 'V1'
+    data_dict['V1'] = non_herm_hoff(Psig)
+
+# TODO: Read PSD from XML
 psd_dict = {}
 analyticPSD_Q = True # For simplicity, using an analytic PSD
 psd_dict['H1'] = lal.LIGOIPsd
 psd_dict['L1'] = lal.LIGOIPsd
 psd_dict['V1'] = lal.LIGOIPsd
-
-Psig = ChooseWaveformParams(fmin = 10., radec=True, theta=1.2, phi=2.4,
-        detector='H1', dist=100.*1.e6*lal.LAL_PC_SI)
-df = findDeltaF(Psig)
-Psig.deltaF = df
-data_dict['H1'] = non_herm_hoff(Psig)
-Psig.detector = 'L1'
-data_dict['L1'] = non_herm_hoff(Psig)
-Psig.detector = 'V1'
-data_dict['V1'] = non_herm_hoff(Psig)
 
 # Struct to hold template parameters
 P = ChooseWaveformParams(fmin = 40., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df)
