@@ -35,6 +35,9 @@ inc_val, inc_width = -numpy.pi/3, 10*numpy.pi/180
 # orbital phi
 phi_min, phi_max = 0, 2*numpy.pi
 phi_val, phi_width = numpy.pi/5, 10*numpy.pi/180
+# distance
+dist_min, dist_max = 0.0, 100.0
+dist_val, dist_width = 25.0, 25.0
 
 # TODO: Make a class function
 def uniform_samp(a, b, x):
@@ -42,20 +45,18 @@ def uniform_samp(a, b, x):
 		return 1/(b-a)
 	else:
 		return numpy.ones(x.shape[0])/(b-a)
+
 # TODO: Make a class function
 def inv_uniform_cdf(a, b, x):
-	# NOTE: Presumes the variables are already distributed normal in (a,b)
-	#return x
 	return (b-a)*x+a
 
-samp = MCSampler()
-s, m = 2, 0
 def gauss_samp(mu, std, x):
 	return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2)
-	#return 1.0/numpy.sqrt(std**2)*numpy.exp(-(x-mu)**2/2/std**2)
 
 def inv_gauss_cdf(mu, std, x):
 	return mu + std*numpy.sqrt(2) * scipy.special.erfinv(2*x-1)
+
+samp = MCSampler()
 
 #pyplot.hist( gauss_samp(0, 1, inv_gauss_cdf(0, 1, numpy.random.uniform(0,1,10000))))
 #pyplot.hist(inv_gauss_cdf(0, 1, numpy.random.uniform(0,1,10000)))
@@ -70,6 +71,9 @@ def inv_gauss_cdf(mu, std, x):
 samp.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), None, psi_min, psi_max)
 samp.add_parameter("ra", functools.partial(uniform_samp, ra_min, ra_max), None, ra_min, ra_max)
 samp.add_parameter("dec", functools.partial(uniform_samp, dec_min, dec_max), None, dec_min, dec_max)
+samp.add_parameter("phi", functools.partial(uniform_samp, phi_min, phi_max), None, phi_min, phi_max)
+samp.add_parameter("inc", functools.partial(uniform_samp, inc_min, inc_max), None, inc_min, inc_max)
+samp.add_parameter("dist", functools.partial(uniform_samp, dist_min, dist_max), None, dist_min, dist_max)
 
 #
 # Plot PDFs
@@ -104,10 +108,37 @@ pyplot.savefig("cdf_inv.png")
 #samp.add_parameter("ra", functools.partial(gauss_samp, 0, (ra_max-ra_min)/10.0), None, ra_min, ra_max)
 #samp.add_parameter("dec", functools.partial(gauss_samp, (dec_max+dec_min)/2, (dec_max-dec_min)/10.0), None, dec_min, dec_max)
 
-a, b, c = 2*psi_width**2, 2*ra_width**2, 2*dec_width**2
-norm = 1.0/numpy.sqrt((numpy.pi)**len(samp.params)*a*b*c)
-def integrand(p, r, d):
-	return norm * numpy.exp(-(p-psi_val)**2/a-(r-ra_val)**2/b-(d-dec_val)**2/c)
+a, b, c, d, e, f = 2*psi_width**2, 2*ra_width**2, 2*dec_width**2, 2*inc_width**2, 2*phi_width**2, 2*dist_width**2
+norm = 1.0/numpy.sqrt((numpy.pi)**len(samp.params)*a*b*c*d*e*f)
+numpy.seterr(invalid="raise")
+from numpy import ma
+def integrand(p, r, dec, ph, i, di):
+	# FIXME: Don't hardcode this, we need to deal with underflows in a more graceful manner
+	# Thoughts: Store the value of the exponent, but send a masked array back.
+	# If we find there's a problem with this solution, then, starting from the
+	# smallest exponent, deal with each sample independently until we've
+	# resolved it
+	# NOTE: Really, this will only matter if the number of non zero points 
+	# required for convergence is of the order of 10^100 : probably not gonna 
+	# happen
+	"""
+	# FIXME: Debug plots, remove when not needed.
+	exponent = -(p-psi_val)**2/a-(r-ra_val)**2/b-(dec-dec_val)**2/c-(i-inc_val)**2/d-(ph-phi_val)**2/e-(di-dist_val)**2/f
+	from matplotlib import pyplot
+	pyplot.clf()
+	decimate = int(len(exponent)/1e5)
+	if decimate < 1: decimate = 1
+	pyplot.plot(numpy.linspace(1,len(exponent), len(exponent))[::decimate], exponent[::decimate], 'b-')
+	#pyplot.plot(exponent)
+	pyplot.grid()
+	#pyplot.clf()
+	pyplot.savefig("exponent.png")
+	"""
+	#exponent = ma.masked_less_equal(-(p-psi_val)**2/a-(r-ra_val)**2/b-(dec-dec_val)**2/c-(i-inc_val)**2/d-(ph-phi_val)**2/e-(di-dist_val)**2/f, -700)
+	exponent = ma.masked_less_equal(-(p-psi_val)**2/a-(r-ra_val)**2/b-(dec-dec_val)**2/c-(i-inc_val)**2/d-(ph-phi_val)**2/e-(di-dist_val)**2/f, -700)
+	exponent.fill_value = 0
+	#print ma.count(exponent)
+	return norm * numpy.exp(exponent).filled()
 def integrand_1d(p):
 	return 1.0/numpy.sqrt(2*numpy.pi*psi_width**2)*numpy.exp(-(p-psi_val)**2/a)
 
@@ -117,9 +148,8 @@ import scipy.integrate
 #print "scipy says: %f" % integral
 
 #res, var = samp.integrate(integrand_1d, int(sys.argv[1]), "psi")
-res, var = samp.integrate(integrand, int(sys.argv[1]), "psi", "ra", "dec")
+res, var = samp.integrate(integrand, int(sys.argv[1]), "psi", "ra", "dec", "phi", "inc", "dist")
 print "Integral value: %f, stddev %f" % (res, numpy.sqrt(var))
-
 
 #
 # Plot two-d histograms of all parameters
