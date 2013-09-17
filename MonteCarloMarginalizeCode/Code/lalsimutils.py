@@ -29,6 +29,8 @@ import copy
 from numpy import sin, cos
 from scipy import interpolate
 
+from pylal.Fr import frgetvect1d
+
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
 #
@@ -1299,3 +1301,48 @@ def NINJA_data_to_norm_hoff(fname, IP, TDlen=0, scaleT=1., scaleH=1.,
     hf.data.data /= norm
     return hf
 
+def frame_data_to_hoft(fname, channel):
+    """
+    Function to read in data in the frame format and convert it to 
+	a REAL8TimeSeries
+    """
+    ht, st, _, dt, _, _ = frgetvect1d(fname, channel)
+    tmp = lal.CreateREAL8TimeSeries("h(t)", lal.LIGOTimeGPS(st), 0.,
+            dt, lal.lalDimensionlessUnit, len(ht))
+    tmp.data.data[:] = ht
+    return tmp
+
+def frame_data_to_hoff(fname, channel, TDlen=0):
+    """
+    Function to read in data in the frame format
+    and convert it to a COMPLEX16FrequencySeries holding
+    h(f) = FFT[ h(t) ]
+
+    If TDlen == -1, do not zero-pad the TD waveform before FFTing
+    If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
+    If TDlen == N, zero-pad the TD waveform to length N before FFTing
+    """
+    ht = frame_data_to_hoft(fname, channel)
+    t = np.linspace(0, ht.data.length, ht.data.length)*ht.deltaT + float(ht.epoch)
+
+    tmplen = len(t)
+    if TDlen == -1:
+        TDlen = tmplen
+    elif TDlen==0:
+        TDlen = nextPow2(tmplen)
+    else:
+        assert TDlen >= tmplen
+
+    tStart = t[0]
+    deltaT = (t[1] - t[0])
+
+    ht = lal.ResizeREAL8TimeSeries(ht, 0, TDlen)
+    for i in range(tmplen,TDlen):
+        ht.data.data[i] = 0.
+
+    fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
+    hf = lal.CreateCOMPLEX16FrequencySeries("h(f)", 
+            ht.epoch, ht.f0, 1./deltaT/TDlen, lal.lalHertzUnit, 
+            TDlen/2+1)
+    lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
+    return hf
