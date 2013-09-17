@@ -29,7 +29,8 @@ import copy
 from numpy import sin, cos
 from scipy import interpolate
 
-from pylal.Fr import frgetvect1d
+from pylal import frutils
+from glue.lal import Cache
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
@@ -1301,18 +1302,29 @@ def NINJA_data_to_norm_hoff(fname, IP, TDlen=0, scaleT=1., scaleH=1.,
     hf.data.data /= norm
     return hf
 
-def frame_data_to_hoft(fname, channel):
+def frame_data_to_hoft(fname, channel, start=None, stop=None):
     """
     Function to read in data in the frame format and convert it to 
-	a REAL8TimeSeries
+    a REAL8TimeSeries. fname is the path to a LIGO cache file.
     """
-    ht, st, _, dt, _, _ = frgetvect1d(fname, channel)
-    tmp = lal.CreateREAL8TimeSeries("h(t)", lal.LIGOTimeGPS(st), 0.,
-            dt, lal.lalDimensionlessUnit, len(ht))
+    with open(fname) as cfile:
+        cachef = Cache.fromfile(cfile)
+    fcache = frutils.FrameCache(cachef)
+    # FIXME: Horrible, horrible hack -- will only work if all requested channels
+    # span the cache *exactly*
+    if start is None:
+        start = cachef.to_segmentlistdict()[channel[0]][0][0]
+    if stop is None:
+        stop = cachef.to_segmentlistdict()[channel[0]][-1][-1]
+    
+    ht = fcache.fetch(channel, start, stop)
+    tmp = lal.CreateREAL8TimeSeries("h(t)", 
+            lal.LIGOTimeGPS(float(ht.metadata.segments[0][0])),
+            0., ht.metadata.dt, lal.lalDimensionlessUnit, len(ht))
     tmp.data.data[:] = ht
     return tmp
 
-def frame_data_to_hoff(fname, channel, TDlen=0):
+def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0):
     """
     Function to read in data in the frame format
     and convert it to a COMPLEX16FrequencySeries holding
@@ -1322,7 +1334,7 @@ def frame_data_to_hoff(fname, channel, TDlen=0):
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
-    ht = frame_data_to_hoft(fname, channel)
+    ht = frame_data_to_hoft(fname, channel, start, stop)
     t = np.linspace(0, ht.data.length, ht.data.length)*ht.deltaT + float(ht.epoch)
 
     tmplen = len(t)
