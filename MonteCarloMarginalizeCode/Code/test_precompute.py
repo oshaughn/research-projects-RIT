@@ -30,18 +30,22 @@ m1 = 5*lal.LAL_MSUN_SI
 m2 = 3*lal.LAL_MSUN_SI
 ampO = -1 # sets which modes to include in the physical signal
 Lmax = 2  # sets which modes to include in the output
-Psig = ChooseWaveformParams(fmin = 30., radec=True, theta=0.01, phi=2.4,
+Psig = ChooseWaveformParams(fmin = 30., radec=True, incl=0.0, theta=1.2, phi=2.4,
          m1=m1,m2=m2,
-         ampO=-1,
+         ampO=ampO,
         detector='H1', dist=25.*1.e6*lal.LAL_PC_SI)
 df = findDeltaF(Psig)
 Psig.deltaF = df
 Psig.print_params()
-print " ======= Generating synthetic data in each interferometer =========="
+print " ======= Generating synthetic data in each interferometer (manual timeshifts) =========="
+t0 = Psig.tref
+Psig.tref = t0 + ComputeTimeDelay('H1', Psig.theta,Psig.phi,Psig.tref)
 data_dict['H1'] = non_herm_hoff(Psig)
 Psig.detector = 'L1'
+Psig.tref = t0 + ComputeTimeDelay('L1', Psig.theta,Psig.phi,Psig.tref)
 data_dict['L1'] = non_herm_hoff(Psig)
 Psig.detector = 'V1'
+Psig.tref = t0 + ComputeTimeDelay('V1', Psig.theta,Psig.phi,Psig.tref)
 data_dict['V1'] = non_herm_hoff(Psig)
 
 print " == Data report == "
@@ -70,7 +74,6 @@ if checkInputPlots:
     plt.show()
 
     # print " == Plotting detector data (frequency domain) == "
-
     # fakepsdFunction = lalsim.SimNoisePSDiLIGOSRD
     # for det in detectors:
     #     nbins = len(data_dict[det].data.data)
@@ -78,11 +81,14 @@ if checkInputPlots:
     #     hTildeAmpVals = np.abs(data_dict[det].data.data) 
     #     plt.figure(2)
     #     plt.plot(fvals, hTildeAmpVals, label=det)
+    #     plt.xlim(-500,500)
     #     plt.figure(3)
+    #     plt.xlim(1,3)
+    #     plt.ylim(-25,-20)
     #     fakepsdData = map(lambda x: fakepsdFunction(max(x, 1e-2)), np.abs(fvals))
-    #     plt.plot(np.log10(np.abs(fvals)), np.log10(hTildeAmpVals), label=det)
+    #     plt.plot(np.log10(np.abs(fvals)), np.log10(np.sqrt(np.abs(fvals))*hTildeAmpVals), label=det)
     #     plt.plot(np.log10(np.abs(fvals)), np.log10(np.sqrt(fakepsdData)),label=det+'IFO')
-    # plt.show()
+     # plt.show()
 
 
 
@@ -118,9 +124,20 @@ if checkResults == True:
             for pair2 in rholms_intp['V1']:
 #                print pair1, pair2, crossTerms[det][pair1,pair2], " - ",  ((-1)**(pair1[0]+pair2[0])*np.conj(crossTerms[det][(pair1[0],-pair1[1]),(pair2[0],-pair2[1])])
                 constraint1 += np.abs( crossTerms[det][pair1,pair2] - ((-1)**pair1[0])*np.conj(crossTerms[det][(pair1[0],-pair1[1]), (pair2[0],-pair2[1])]) )**2
-    print "   : Reflection symmetry constraint ", constraint1
+    print "   : Reflection symmetry constraint (UV) ", constraint1
 
-    print " ======= Epochs and timing =========="
+    print " ======= rholm complex conjugation check (22 and 2-2 modes only) =========="
+    constraint1 = 0
+    for det in detectors:
+        hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
+        hyy = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, -2)
+        for i in np.arange(len(hxx.data.data)):
+            constraint1+= np.abs(hxx.data.data[i]-np.conj(hyy.data.data[i]))**2
+
+    print "   : Reflection symmetry constraint (Q22,Q2-2) ", constraint1
+
+        
+    print " ======= Epochs and timing : rholm timeseries =========="
     for det in detectors:
         for pair1 in rholms_intp['V1']:
             #print det, pair1, float(rholms[det].epoch), float(rholms[det].deltaT)
@@ -130,7 +147,13 @@ if checkResults == True:
 
 if checkResultsPlots == True:
 
-    print " ======= Plotting  results =========="
+    print " ======= Plotting  results (NOT timeeshifted; are rho's offset correctly?)  =========="
+    # plot the raw rholms
+    plt.figure(1)
+    for det in detectors:
+        rhonow = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
+        t = rhonow.deltaT*np.arange(0,len(rhonow.data.data))
+        plt.plot(t,np.abs(rhonow.data.data),label=det)
     # Plot the interpolated rholms
     tt = np.arange(float(data_dict['H1'].epoch),P.tref ,1/500.) # Create a finer array of time steps. BE VERY CAREFUL - resampling generates huge arrays. BE CAREFUL not to extrapolate too far outside range
     plt.figure(1)

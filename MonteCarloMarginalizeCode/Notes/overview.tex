@@ -660,6 +660,79 @@ An integral over this 4d space can be done by monte carlo -- preferably using an
 }
 
 
+
+
+\subsection{Extrinsic marginalization: Localized sources in $t,\hat{k}$ (*)}
+
+\noindent \textbf{Arrival-time sampling}: Physical sources will have well-determined arrival times at each detector,
+for any significant template.  In our notation, for each detector $k$, each intrinsc parameters $\lambda$, and each
+$(l,m)$ there is some pair of real numbers $\rho_{k,lm},t_{k,lm}$  that describes the local maximum's event time and
+signal magnitude:
+\begin{eqnarray}
+\rho_{k,lm} \equiv |Q_{k,lm}(t_{k,lm})|/\sqrt{U_{k,lm,lm}}
+\end{eqnarray}
+where $Q$ has a local maximum at $t_{k,lm}$.  
+[To order of magnitude $\rho_{k,lm}$ is similar to the signal amplitude $\qmstateproduct{\hat{H}_k}{\hat{H}_k}_k$ of the
+data in that detector, if a signal is present.]
+%
+Based on this information, a simple a priori \emph{estimate} for the arrival times $t_1\ldots t_3$ in each detector are
+[fixing some $(l,m)$ pair -- say (2,2)]
+\begin{align}
+p_k(t_k) dt_k &= \frac{dt_k}{\sqrt{2\pi  \sigma_t^2/\rho_{k,lm}^2}} \exp - (t_k - t_{k,lm})^2 \rho_{k,lm}^2/2\sigma_t^2 \\
+p_1 p_2 p_3 dt_1 dt_2 dt_3 &= \frac{dt_1 dt_2 dt_3 \rho_{1,lm}\rho_{2,lm}\rho_{3,lm}}{(2\pi \sigma_t^2)^{3/2}}
+ \exp - \frac{1}{2\sigma_t^2}\left[ (t_1 - t_{1,lm})^2 \rho_{1,lm}^2 + (t_2 - t_{2,lm})^2 \rho_{2,lm}^2 + (t_3 -
+   t_{3,lm})^2 \rho_{3,lm}^2 \right]]
+\end{align}
+Is is trivial to generate normally-distributed  arrival times $t_1,t_2,t_3$ in each detector
+
+\noindent \emph{Change of variables}: The normally-distributed arrival times are in 1-1 relationship with candidate
+event times and sky locations, \emph{roughly speaking}\footnote{Of course some arrival time separations are inconsistent with the Earth's
+crossing time.  Hopefully that's not a problem...}
+
+Re-express the arrival times in each detector as possible detector
+\begin{eqnarray}
+t_1 = t - \hat{k}\cdot \vec{x}_1 = t + \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_1 \\
+t_2  = t + \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_2 \\
+t_3  = t + \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_3 \\
+\end{eqnarray}
+Note in particular that the measure transforms according to
+\begin{eqnarray}
+ dt_1 dt_2 dt_3  = \sin\theta d\theta d\phi dt (\vec{x}_3-\vec{x}_2)\times(\vec{x}_1-\vec{x}_2)\cdot\hat{n}(\theta,\phi)
+\end{eqnarray}
+%% coordinate = {t, th, ph};
+%% nhat[th_, ph_] := {Sin[th] Cos[ph], Sin[th] Sin[ph], Cos[th]}
+%% expr1 = t + {x1, y1, z1}.nhat[th, ph]
+%% expr2 = t + {x2, y2, z2}.nhat[th, ph]
+%% expr3 = t + {x3, y3, z3}.nhat[th, ph]
+%% mydet = Det[{Table[D[expr1, coordinate[[k]]], {k, 1, 3}],
+%%     Table[D[expr2, coordinate[[k]]], {k, 1, 3}],
+%%     Table[D[expr3, coordinate[[k]]], {k, 1, 3}]}] // FullSimplify
+%%  v1 = {x1, y1, z1}
+%% v2 = {x2, y2, z2}
+%% v3 = {x3, y3, z3}
+%% expr = Cross[v3 - v2, v2 - v1].nhat[th, ph] // FullSimplify
+%% expr + 1/Sin[th] mydet // Simplify
+
+\begin{shaded}
+\noindent \textbf{Inverting these equations in practice}: For each event time we know $\vec{x}_k$ and hence the normal
+to the plane of the detectors, $\vec{V}\equiv (\vec{x}_3 -\vec{x}_2)\times(\vec{x}_1-\vec{x}_2)$.  When $\hat{n}\propto
+\vec{V}$, then $\hat{n}\cdot (x_1+x_2+x_3)=0$ and hence
+\begin{eqnarray}
+t = \frac{1}{3}[t_1+t_2+t_3 - \hat{V}\cdot(x_1+x_2+x_3)] 
+\end{eqnarray}
+
+\noindent \emph{No timing error}: If we treat all candidate event times equally, independent of $\rho$, then 
+
+\noindent \emph{Timing error included}:
+\end{shaded}
+
+
+\noindent \textbf{Ad-hoc trigonometric sampling}:  The above distribution
+
+These distributions use sky positions samples drawn from a suitable sky-position gaussian \cite{2011CQGra..28j5021F}
+based on 
+
+
 \end{widetext}
 
 
@@ -817,6 +890,14 @@ Q_{k,22}(\tau-\hat{k}\cdot x_k)
 \]
 Find the time of the peak for each source
 
+\item \emph{Symmetry test [nonprecessing]}: Each detector data is real-valued (i.e., measures one linear polarization at
+  a time).   A single detector therefore cannot distinguish between left- and right-handed radation.  For a
+  nonprecessing binary, where $h_{lm}$ is right-handed for $m>0$ and left-handed for $m<0$, the $Q_{k,lm}$ for  $(l,\pm
+  m)$  must be related.  Mathematically, the relationship implied by $h_{lm}(t) = (-1)^l{\cal I}h_{l,-m}(t)$ is    \editremark{check signs}
+\begin{eqnarray}
+Q_{k,lm}(\tau) = (-1)^l [Q_{k,l,-m}(\tau)]^*
+\end{eqnarray}
+
 \item \emph{Random evaluation}: For a single interferometer, confirm both code paths reproduce the same inner product
   with the data.   Let $\hat{H}_1$ be reconstructed using the standard code (optimally oriented BNS).
 \end{itemize}
@@ -837,6 +918,11 @@ Plot $L_{\rm data}$ over the sky at the injected parameters; show a maximum occu
 \ln L = \rho^2/2
 \]
 \end{itemize}
+
+
+\subsection{Milestones and Benchmarks: Real and synthetic data access (*)}
+
+\noindent \textbf{Frame reading and writing}: Code to read and write to frames
 
 
 \subsection{Milestones and Benchmarks: Marginalization (*)}
@@ -906,6 +992,9 @@ Recover the distance distribution;  sky position error box; and event time distr
 
 
 \noindent \textbf{Implement, demonstrate serial code}: Just do it
+
+
+
 
 
 \end{widetext}
@@ -1173,6 +1262,74 @@ Substituting into the signal amplitude expression and using orthogonality and eq
 %+  \text{Im}[(F_++i F_\times) e^{-2i\psi} \cos \theta_E]^2
 \end{align}
 \end{subequations}
+
+\section{Extensions and comparison: F statistic}
+
+In GW searches,  polarization phase marginalization can be done simultaneously.  At each timesample, we expected we could
+ marginalize \emph{analytically} over polarization phase, with a bessel function. 
+
+
+\subsection{Marginalizing in the polarization angle}
+
+\begin{shaded}
+\noindent \textbf{Template amplitude}: Using the $\sigma,\epsilon$ notation of \citet{CutlerFlanagan:1994}, the signal amplitude term has the form $\rho^2 = \sigma
+\rho_0^2(1+\epsilon \cos 4(\psi-\psi_0))$ where $\rho_0^2$ is the amplitude of a source directly overhead a single
+detector and $\sigma,\epsilon$ are derived from the beampattern functions:
+\begin{eqnarray}
+C_{\lambda \lambda'}&=& \sum_k \begin{bmatrix}
+F_+^2 & F_+F_\times \\
+F_\times F_+ & F_\times^2
+\end{bmatrix}\\
+&=& \sum_k [P_k : \hat{e}_\lambda(\hat{n})] [P_k : \hat{e}_{\lambda'}(\hat{n})]  \nonumber \\
+& =& \sigma U\begin{bmatrix} (1+\epsilon) & 0 \\ 0 & 1-\epsilon \end{bmatrix} U^{-1} 
+\end{eqnarray}
+where $U$ is a unitary transformation that diagonalizes $C$.
+
+\noindent \textbf{Response against data}: By contrast, for a fixed data set, the second term in the likelihood
+necessarily transforms like $h$: purely sinusoidally in polarization angle
+\begin{eqnarray}
+\rho \hat{\rho} = A \cos 2\psi + B \cos 2 \psi
+\end{eqnarray}
+\noindent \textbf{Marginalizing?}: If this were the only term in the likelihood -- for example, for an isotropic network
+--  we could marginalize exactly: \textbf{BUT THIS IS NOT TRUE}
+\begin{align}
+\ln L  &= [\ln L]_c \cos 2\psi + [\ln L]_s \sin 2\psi = \ln L_0 \cos 2(\psi-\psi_0)  \\
+\ln L_0 &= \sqrt{[\ln L]_c^2+[\ln L]_c^2} \\
+\int_0^{\pi}\frac{ d\psi}{\pi} L &= \frac{1}{\pi}I_0(\ln L_0)
+\end{align}
+In general $\rho$ depends on $\psi$, so we can't: both $\cos 2\phi$ and $\cos 4\psi$ appear in the exponential, unless
+the network has $\epsilon=0$ (i.e., equal sensitivity to both polarizations).
+\end{shaded}
+
+
+
+\subsection{F statistic}
+
+When viewed as maximization, this approach resembles the F statistic
+\cite{1998PhRvD..58f3001J,2005PhRvD..72f3006C,2012PhRvD..86l3010K,gwastro-HarryFairhurst-CoherentTargetedSearch}\cite{BCV:PTF}.
+
+
+
+\noindent \textbf{F statistic versus our approach}: The F statistic approach uses 4 real basis functions (2 polarizations
+plus cosine, sine chirp in each).  Including distance, these 4 basis functions have arbitrary coefficients in each
+signal: all possible realizations exist and correspond to different physical configurations with different
+$(d,\theta_S,\phi_S,\psi)$.  Maximization (or marginalization) of the likelihood over these four amplitudes is possible
+analytically! Why? Because the likelihood  $-\rho^2/2 + \ln L_{\rm data}$ has the form \editremark{roughly speaking}
+\begin{eqnarray}
+\ln L \propto a_\alpha \sum_k\qmstateproduct{h_\alpha}{\hat{H}_k}_k + a_\alpha a_\beta \qmstateproduct{h_{\alpha}}{h_\beta}_k
+\end{eqnarray}
+which, modulo measure factors, can be marginalized via gaussian integral tricks.
+
+In our approach,  more than 4 real basis functions exist.  Their amplitudes are \textbf{not independent}, because there
+are more than 4 of them (but still only 4 real-valued parameters). 
+
+Additionally, in our approach, \textbf{the sine and cosine chirp are not exactly orthgonal, and we have memory modes}
+(in general).  This effect is noticable in iLIGO-scale (short) signals
+
+ The F-statistic trick is a possible \emph{approximation} but not valid in general, particularly  not  for precessing binaries
+
+
+
 
 \bibliography{overviewexport}
 \end{document}
