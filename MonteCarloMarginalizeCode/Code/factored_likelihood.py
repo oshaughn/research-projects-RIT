@@ -180,6 +180,14 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
 
     return rholms
 
+def InterpolateRholm(rholm, t):
+    amp = np.abs(rholm.data.data)
+    phase = unwind_phase( np.angle(rholm.data.data) )
+    ampintp = interpolate.InterpolatedUnivariateSpline(t, amp, k=3)
+    phaseintp = interpolate.InterpolatedUnivariateSpline(t, phase, k=3)
+    return lambda ti: ampintp(ti)*np.exp(1j*phaseintp(ti))
+
+
 def InterpolateRholms(rholms, t, Lmax):
     """
     Return a dictionary keyed on mode index tuples, (l,m)
@@ -197,11 +205,7 @@ def InterpolateRholms(rholms, t, Lmax):
     for l in range(2, Lmax+1):
         for m in range(-l,l+1):
             rholm = lalsim.SphHarmTimeSeriesGetMode(rholms, l, m)
-            amp = np.abs(rholm.data.data)
-            phase = unwind_phase( np.angle(rholm.data.data) )
-            ampintp = interpolate.InterpolatedUnivariateSpline(t, amp, k=3)
-            phaseintp = interpolate.InterpolatedUnivariateSpline(t, phase, k=3)
-            rholm_intp[ (l,m) ] = lambda x: ampintp(x)*np.exp(1j*phaseintp(x))
+            rholm_intp[ (l,m) ] = InterpolateRholm(rholm, t)
 
     return rholm_intp
 
