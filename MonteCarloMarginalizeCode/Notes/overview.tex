@@ -675,16 +675,8 @@ where $Q$ has a local maximum at $t_{k,lm}$.
 [To order of magnitude $\rho_{k,lm}$ is similar to the signal amplitude $\qmstateproduct{\hat{H}_k}{\hat{H}_k}_k$ of the
 data in that detector, if a signal is present.]
 %
-Based on this information, a simple a priori \emph{estimate} for the arrival times $t_1\ldots t_3$ in each detector are
-[fixing some $(l,m)$ pair -- say (2,2)]
-\begin{align}
-p_k(t_k) dt_k &= \frac{dt_k}{\sqrt{2\pi  \sigma_t^2/\rho_{k,lm}^2}} \exp - (t_k - t_{k,lm})^2 \rho_{k,lm}^2/2\sigma_t^2 \\
-p_1 p_2 p_3 dt_1 dt_2 dt_3 &= \frac{dt_1 dt_2 dt_3 \rho_{1,lm}\rho_{2,lm}\rho_{3,lm}}{(2\pi \sigma_t^2)^{3/2}}
- \exp - \frac{1}{2\sigma_t^2}\left[ (t_1 - t_{1,lm})^2 \rho_{1,lm}^2 + (t_2 - t_{2,lm})^2 \rho_{2,lm}^2 + (t_3 -
-   t_{3,lm})^2 \rho_{3,lm}^2 \right]]
-\end{align}
-Is is trivial to generate normally-distributed  arrival times $t_1,t_2,t_3$ in each detector
-
+Based on this information, a simple a priori \emph{estimate} for the arrival times $t_1\ldots t_3$ in each detector are possible
+[fixing some $(l,m)$ pair -- say (2,2)]: we can build a distribution.
 \noindent \emph{Change of variables}: The normally-distributed arrival times are in 1-1 relationship with candidate
 event times and sky locations, \emph{roughly speaking}\footnote{Of course some arrival time separations are inconsistent with the Earth's
 crossing time.  Hopefully that's not a problem...}
@@ -720,11 +712,46 @@ to the plane of the detectors, $\vec{V}\equiv (\vec{x}_3 -\vec{x}_2)\times(\vec{
 \begin{eqnarray}
 t = \frac{1}{3}[t_1+t_2+t_3 - \hat{V}\cdot(x_1+x_2+x_3)] 
 \end{eqnarray}
+The solution for $\hat{n}$ follows by linear algebra, plus scaling to satisfy a constraint:
+\begin{eqnarray}
+\begin{bmatrix}
+\tau_{21} \\ \tau_{31} \\ Z
+\end{bmatrix}
+=
+\begin{bmatrix}
+\vec{x}_{21} \\ \vec{x}_{31} \\  \hat{V}
+\end{bmatrix}
+\begin{bmatrix}
+n_x \\ n_y \\ n_z
+\end{bmatrix}
+\end{eqnarray}
+This matrix equation by construction is invertible and tells us the components of $\hat{n}$.  In general they are not
+normalized; only discrete choices for $Z$ produce a normalized unit vector $\hat{n}.\hat{n}$; and the quadratic equation
+generally has two solutions.
+
+\end{shaded}
+
+\begin{shaded}
+\noindent \textbf{Example of distribution: Uncorrelated events?}: One distribution possibility is random times in each detector:
+\begin{align}
+p_k(t_k) dt_k &= \frac{dt_k}{\sqrt{2\pi  \sigma_t^2/\rho_{k,lm}^2}} \exp - (t_k - t_{k,lm})^2 \rho_{k,lm}^2/2\sigma_t^2 \\
+p_1 p_2 p_3 dt_1 dt_2 dt_3 &= \frac{dt_1 dt_2 dt_3 \rho_{1,lm}\rho_{2,lm}\rho_{3,lm}}{(2\pi \sigma_t^2)^{3/2}}
+ \exp - \frac{1}{2\sigma_t^2}\left[ (t_1 - t_{1,lm})^2 \rho_{1,lm}^2 + (t_2 - t_{2,lm})^2 \rho_{2,lm}^2 + (t_3 -
+   t_{3,lm})^2 \rho_{3,lm}^2 \right]]
+\end{align}
+Is is trivial to sample normally-distributed  arrival times $t_1,t_2,t_3$ in each detector.  But these can generate
+nonphysical possibilities.
+
+\noindent \textbf{Modified distribution: Hard constraints}: A better distribution uses physically-restricted \emph{delay
+  time} distributions.  As a concrete example, we know  $\tau_{21}\equiv t_2-t_1$ satisfies $|tau_{12}| \le |r_2
+-r_1|/c$ and could draw any delay time for that angle (equivalently, drawing uniformly in the cosine $\hat{n}\cdot
+\Delta r_{21}/|\Delta r_{21}$).  For multiple detectors, however, the process of uniform draws introduces an asymmetry:
+fixing the first delay time $\tau_{21}$ constrains the physically realizable options for $\tau_{31}$.
+\end{shaded}
 
 \noindent \emph{No timing error}: If we treat all candidate event times equally, independent of $\rho$, then 
 
 \noindent \emph{Timing error included}:
-\end{shaded}
 
 
 \noindent \textbf{Ad-hoc trigonometric sampling}:  The above distribution
@@ -1132,6 +1159,14 @@ allowing high trigger rates. \editremark{I wonder if this is useful}.
 
 
 \part{Richard's notes to self}
+
+\section{Python implementation}
+
+* Fourier convention: $\tilde{h}_{22}$ should have only positive frequencies
+
+* $Q$ timeseries has broad support
+
+* Interpolation of $Q$ not consistent with raw data
 
 
 \section{Mathematica implementation}
