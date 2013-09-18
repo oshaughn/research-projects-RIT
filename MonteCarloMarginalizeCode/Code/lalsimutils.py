@@ -471,7 +471,6 @@ class Overlap(InnerProduct):
                     *self.weights[i]
         # Reverse FFT to get overlap for all possible reference times
         lal.COMPLEX16FreqTimeFFT(self.ovlp, self.intgd, self.revplan)
-        self.ovlp.epoch = h2.epoch  # Ideally h1, h2 should have the same epoch!
         rhoSeries = np.abs(self.ovlp.data.data)
         rho = rhoSeries.max()
         if self.full_output==False:
