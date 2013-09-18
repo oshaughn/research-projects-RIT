@@ -38,11 +38,8 @@ Dmin = 90. * 1.e6 * lal.LAL_PC_SI # min ref. time
 #
 data_dict = {}
 if len(det_dict) > 0:
-    with open(opts.cache_file) as cfile:
-        cachef = Cache.fromfile(cfile)
-
     for d, chan in det_dict.iteritems():
-        data_dict[d] = lalsimutils.frame_data_to_hoff(cachef, chan)
+        data_dict[d] = lalsimutils.frame_data_to_hoff(opts.cache_file, chan)
 else:
 
     Psig = ChooseWaveformParams(fmin = 10., radec=True, theta=1.2, phi=2.4,
@@ -72,6 +69,7 @@ Lmax = 2 # sets which modes to include
 rholms_intp, crossTerms, rholms = PrecomputeLikelihoodTerms(P, data_dict,
         psd_dict, Lmax, analyticPSD_Q)
 print "Finished Precomputation..."
+
 
 #
 # Call the likelihood function for various extrinsic parameter values
