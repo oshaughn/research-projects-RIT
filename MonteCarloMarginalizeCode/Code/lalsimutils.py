@@ -1342,18 +1342,14 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0):
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
     ht = frame_data_to_hoft(fname, channel, start, stop)
-    t = np.linspace(0, ht.data.length, ht.data.length)*ht.deltaT + float(ht.epoch)
 
-    tmplen = len(t)
+    tmplen = ht.data.length
     if TDlen == -1:
         TDlen = tmplen
     elif TDlen==0:
         TDlen = nextPow2(tmplen)
     else:
         assert TDlen >= tmplen
-
-    tStart = t[0]
-    deltaT = (t[1] - t[0])
 
     ht = lal.ResizeREAL8TimeSeries(ht, 0, TDlen)
     for i in range(tmplen,TDlen):
@@ -1365,3 +1361,39 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0):
             TDlen/2+1)
     lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
     return hf
+
+
+def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
+    """
+    Function to read in data in the frame format
+    and convert it to a COMPLEX16FrequencySeries 
+    h(f) = FFT[ h(t) ]
+    Create complex FD data that does not assume Hermitianity - i.e.
+    contains positive and negative freq. content
+
+    If TDlen == -1, do not zero-pad the TD waveform before FFTing
+    If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
+    If TDlen == N, zero-pad the TD waveform to length N before FFTing
+    """
+    hoft = frame_data_to_hoft(fname, channel, start, stop)
+
+    tmplen = hoft.data.length
+    if TDlen == -1:
+        TDlen = tmplen
+    elif TDlen==0:
+        TDlen = nextPow2(tmplen)
+    else:
+        assert TDlen >= tmplen
+
+    hoft = lal.ResizeREAL8TimeSeries(hoft, 0, TDlen)
+    hoftC = lal.CreateCOMPLEX16TimeSeries("hoft", hoft.epoch, hoft.f0,
+            hoft.deltaT, hoft.sampleUnits, TDlen)
+    # copy h(t) into a COMPLEX16 array which happens to be purely real
+    for i in range(TDlen):
+        hoftC.data.data[i] = hoft.data.data[i]
+    FDlen = TDlen
+    hoff = lal.CreateCOMPLEX16FrequencySeries("Template h(f)",
+            hoft.epoch, hoft.f0, 1./hoft.deltaT/TDlen, lal.lalHertzUnit,
+            FDlen)
+    lal.COMPLEX16TimeFreqFFT(hoff, hoftC, fwdplan)
+    return hoff
