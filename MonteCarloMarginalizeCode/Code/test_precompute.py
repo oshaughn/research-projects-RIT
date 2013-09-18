@@ -133,9 +133,8 @@ if checkResults == True:
         hyy = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, -2)
         for i in np.arange(len(hxx.data.data)):
             constraint1+= np.abs(hxx.data.data[i]-np.conj(hyy.data.data[i]))**2
-
-    print "   : Reflection symmetry constraint (Q22,Q2-2) ", constraint1
-
+    print "   : Reflection symmetry constraint (Q22,Q2-2) ", constraint1/len(hxx.data.data)    # error per point 
+    print "   : Example  of complex conjugate quantities in interpolation ", rholms_intp['H1'][(2,2)](-1), rholms_intp['H1'][(2,-2)](-1)
         
     print " ======= Epochs and timing : rholm timeseries =========="
     for det in detectors:

@@ -42,7 +42,7 @@ if len(det_dict) > 0:
         cachef = Cache.fromfile(cfile)
 
     for d, chan in det_dict.iteritems():
-        data_dict[d] = lalsimutils.frame_data_to_hoff(fname, chan)
+        data_dict[d] = lalsimutils.frame_data_to_hoff(cachef, chan)
 else:
 
     Psig = ChooseWaveformParams(fmin = 10., radec=True, theta=1.2, phi=2.4,

@@ -302,7 +302,7 @@ class RealIP(InnerProduct):
         val = 0.
         maxIdx = min(h1.data.length,h2.data.length)
         for i in range(self.minIdx,maxIdx):
-            val += h1.data.data[i] * h2.data.data[i].conj() * self.weights[i]
+            val += h1.data.data[i].conj() * h2.data.data[i]* self.weights[i]
         val = 4. * self.deltaF * np.real(val)
         return val
 
@@ -342,7 +342,7 @@ class HermitianComplexIP(InnerProduct):
         val = 0.
         maxIdx = min(h1.data.length,h2.data.length)
         for i in range(self.minIdx,maxIdx):
-            val += h1.data.data[i] * h2.data.data[i].conj() * self.weights[i]
+            val += h1.data.data[i].conj() * h2.data.data[i] * self.weights[i]
         val *= 4. * self.deltaF
         return val
 
@@ -382,9 +382,9 @@ class ComplexIP(InnerProduct):
         val = 0.
         length = h1.data.length
         for i in range(self.minIdx,length/2):
-            val += (h1.data.data[length/2-i] * h2.data.data[length/2-i].conj()\
-                    + h1.data.data[length/2+i]\
-                    * h2.data.data[length/2+i].conj()) * self.weights[i]
+            val += (h1.data.data[length/2-i].conj() * h2.data.data[length/2-i]\
+                    + h1.data.data[length/2+i].conj()\
+                    * h2.data.data[length/2+i]) * self.weights[i]
         val *= 2. * self.deltaF
         return val
 
@@ -580,11 +580,18 @@ class ComplexOverlap(InnerProduct):
         # Note packing of h(f) is monotonic when h(t) is complex:
         # h(-N/2 df), ..., H(-df) h(0), h(df), ..., h(N/2 df)
         # In particular,freqs = +-i*df are in N/2+-i bins of array
-        for i in range(self.minIdx,self.wvlen/2):
-            self.intgd.data.data[i] = 2* ( h1.data.data[self.wvlen/2-i]\
-                    * h2.data.data[self.wvlen/2-i].conj()\
-                    + h1.data.data[self.wvlen/2+i]\
-                    * h2.data.data[self.wvlen/2+i].conj() ) * self.weights[i]
+        for i in range(self.wvlen):
+#            self.intgd.data.data[i] = 2*( np.conj(h1.data.data[i])*h2.data.data[i]/self.psd( np.abs(self.wvlen/2 -i)*self.deltaF))
+            self.intgd.data.data[i] = 2*( np.conj(h1.data.data[i])*h2.data.data[i]*self.weights[ np.abs(self.wvlen/2 -i)])
+            # self.intgd.data.data[i] = 2* ( h1.data.data[self.wvlen/2-i]\
+            #         * h2.data.data[self.wvlen/2-i].conj()\
+            #         + h1.data.data[self.wvlen/2+i]\
+            #         * h2.data.data[self.wvlen/2+i].conj() ) * self.weights[i]
+        # for i in range(self.minIdx,self.wvlen/2):
+            # self.intgd.data.data[i] = 2* ( h1.data.data[self.wvlen/2-i]\
+            #         * h2.data.data[self.wvlen/2-i].conj()\
+            #         + h1.data.data[self.wvlen/2+i]\
+            #         * h2.data.data[self.wvlen/2+i].conj() ) * self.weights[i]
         # Reverse FFT to get overlap for all possible reference times
         lal.COMPLEX16FreqTimeFFT(self.ovlp, self.intgd, self.revplan)
         rhoSeries = np.abs(self.ovlp.data.data)
