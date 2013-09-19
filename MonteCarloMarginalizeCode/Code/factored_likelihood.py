@@ -114,6 +114,44 @@ def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
 #
 # Internal functions
 #
+def swapIndex(pair1):
+    return (pair1[0], -pair1[1])
+def SingleDetectorLogLikelihoodModel( crossTermsDictionary,tref, RA,DEC, thS,phiS,psi,  dist, Lmax, det):
+    """
+    DOCUMENT ME!!!
+    """
+
+    crossTerms = crossTermsDictionary[det]
+    Ylms = ComputeYlms(Lmax, thS,phiS)
+    F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
+    distMpc = dist/(lal.LAL_PC_SI*1e6)
+
+    keys = Ylms.keys()
+
+    # Eq. 26 of Richard's notes
+    # APPROXIMATING V BY U (appropriately swapped).  THIS APPROXIMATION MUST BE FIXED FOR PRECSSING SOURCES
+    term2 = 0.
+    for pair1 in keys:
+        for pair2 in keys:
+            term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[(swapIndex(pair1),pair2)]
+    print term2
+    term2 = np.real(term2) / 4. / distMpc / distMpc
+    return term2
+
+def SingleDetectorLogLikelihoodData(rholmsDictionary,tref, RA,DEC, thS,phiS,psi,  dist, Lmax, det):
+    """
+    DOCUMENT ME!!!
+    """
+    Ylms = ComputeYlms(Lmax, thS,phiS)
+    F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
+
+    term1 = 0.
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
+            term1 += F * Ylms[(l,m)] * rholm_vals[(l,m)]
+    term1 = np.real(term1) / dist
+    return term1
+
 def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
     """
     DOCUMENT ME!!!
@@ -265,10 +303,9 @@ def ComputeYlms(Lmax, theta, phi):
     -l <= m <= l
     """
     Ylms = {}
-    for l in range(2,Lmax+2):
+    for l in range(2,Lmax+1):
         for m in range(-l,l+1):
-            Ylms[ (l,m) ] = lal.SpinWeightedSphericalHarmonic(theta, phi,
-                    -2, l, m)
+            Ylms[ (l,m) ] = lal.SpinWeightedSphericalHarmonic(theta, phi,-2, l, m)
 
     return Ylms
 

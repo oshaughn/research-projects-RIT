@@ -21,6 +21,7 @@ checkResultsPlots = True
 #
 data_dict = {}
 psd_dict = {}
+rhoExpected ={}
 analyticPSD_Q = True # For simplicity, using an analytic PSD
 psd_dict['H1'] = lal.LIGOIPsd
 psd_dict['L1'] = lal.LIGOIPsd
@@ -30,9 +31,11 @@ m1 = 5*lal.LAL_MSUN_SI
 m2 = 3*lal.LAL_MSUN_SI
 ampO = -1 # sets which modes to include in the physical signal
 Lmax = 2  # sets which modes to include in the output
+fref = 100
 Psig = ChooseWaveformParams(fmin = 30., radec=True, incl=0.0, theta=1.2, phi=2.4,
          m1=m1,m2=m2,
          ampO=ampO,
+         fref=fref,
         detector='H1', dist=25.*1.e6*lal.LAL_PC_SI)
 df = findDeltaF(Psig)
 Psig.deltaF = df
@@ -53,7 +56,7 @@ detectors = data_dict.keys()
 rho2Net = 0
 for det in detectors:
     IP = ComplexIP(fLow=25, fNyq=2048,deltaF=df,psd=psd_dict[det])
-    rhoDet = IP.norm(data_dict[det])
+    rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
     print det, rhoDet, " at epoch ", float(data_dict[det].epoch)
 print "Network : ", np.sqrt(rho2Net)
@@ -94,7 +97,7 @@ if checkInputPlots:
 
 print " ======= Template specified: precomputing all quantities =========="
 # Struct to hold template parameters
-P = ChooseWaveformParams(fmin = 40., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO)
+P = ChooseWaveformParams(fmin = 40., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO,fref=fref)
 #
 # Perform the Precompute stage
 #
@@ -126,6 +129,12 @@ if checkResults == True:
                 constraint1 += np.abs( crossTerms[det][pair1,pair2] - ((-1)**pair1[0])*np.conj(crossTerms[det][(pair1[0],-pair1[1]), (pair2[0],-pair2[1])]) )**2
     print "   : Reflection symmetry constraint (UV) ", constraint1
 
+    print " ======= UV test: Recover the SNR of the injection  =========="
+    for det in detectors:
+        lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, P.tref, Psig.phi, Psig.theta, P.incl, P.phiref, Psig.psi, Psig.dist, 2, det)
+        print det, lnLModel, np.sqrt(2*lnLModel), rhoExpected[det]
+
+
     print " ======= rholm complex conjugation check (22 and 2-2 modes only) =========="
     constraint1 = 0
     for det in detectors:
@@ -135,17 +144,16 @@ if checkResults == True:
             constraint1+= np.abs(hxx.data.data[i]-np.conj(hyy.data.data[i]))**2
     print "   : Reflection symmetry constraint (Q22,Q2-2) with raw data ", constraint1/len(hxx.data.data)    # error per point 
 
-    constraint1 = 0
-    for det in detectors:
-        npts = len(hxx.data.data)
-        t= hxx.deltaT*np.arange(npts)
-        for i in np.arange(len(hxx.data.data)):
-            constraint1+= np.abs(rholms_intp[det][(2,2)](t[i])-np.conj(rholms_intp[det][(2,2)](t[i])))**2
-    print "   : Reflection symmetry constraint (Q22,Q2-2) with interpolation", constraint1/len(t)    # error per point 
+    # constraint1 = 0
+    # for det in detectors:
+    #     npts = len(hxx.data.data)
+    #     t= hxx.deltaT*np.arange(npts)
+    #     for i in np.arange(len(hxx.data.data)):
+    #         constraint1+= np.abs(rholms_intp[det][(2,2)](t[i])-np.conj(rholms_intp[det][(2,-2)](t[i])))**2
+    # print "   : Reflection symmetry constraint (Q22,Q2-2) with interpolation", constraint1/len(t)    # error per point 
+    # print "   : Example  of complex conjugate quantities in interpolation ", rholms_intp['H1'][(2,2)](0.), rholms_intp['H1'][(2,-2)](0.)
 
-    print "   : Example  of complex conjugate quantities in interpolation ", rholms_intp['H1'][(2,2)](0.), rholms_intp['H1'][(2,-2)](0.)
-
-    print " ======= interpolation check (2,-2) mode: data vs timesampling =========="
+    print " ======= rholm test: interpolation check (2,2) mode: data vs timesampling =========="
     constraint1 = 0
     for det in detectors:
         hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
@@ -153,21 +161,24 @@ if checkResults == True:
         t= hxx.deltaT*np.arange(npts)
 #        t = map(lambda x: x if x<npts*hxx.deltaT/2 else x-npts*hxx.deltaT, hxx.deltaT*np.arange(npts))  # center at t=0
         for i in np.arange(len(hxx.data.data)):
-            constraint1+= np.abs(hxx.data.data[i]-rholms_intp['H1'][(2,2)](t[i]))**2
+            constraint1+= np.abs(hxx.data.data[i]-rholms_intp[det][(2,2)](t[i]))**2
         print "   : Quality of interpolation per point ", constraint1/len(hxx.data.data)
 
         
-    print " ======= Epochs and timing : rholm timeseries =========="
+    print " ======= rholm test: Epochs and timing =========="
     for det in detectors:
         for pair1 in rholms_intp['V1']:
             #print det, pair1, float(rholms[det].epoch), float(rholms[det].deltaT)
             hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
             print det, pair1, float(hxx.epoch), float(hxx.deltaT)
+
+
+    print " ======= rholm test: Recover the SNR of the injection  =========="
     
 
 if checkResultsPlots == True:
 
-    print " ======= Plotting  results (NOT timeeshifted; are rho's offset correctly?)  =========="
+    print " ======= Plotting rholm timeseries (NOT timeeshifted; are rho's offset correctly?)  =========="
     # plot the raw rholms
     plt.figure(1)
     for det in detectors:
