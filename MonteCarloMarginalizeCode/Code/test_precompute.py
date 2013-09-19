@@ -32,7 +32,7 @@ m2 = 3*lal.LAL_MSUN_SI
 ampO = -1 # sets which modes to include in the physical signal
 Lmax = 2  # sets which modes to include in the output
 fref = 100
-Psig = ChooseWaveformParams(fmin = 30., radec=True, incl=0.0, theta=1.2, phi=2.4,
+Psig = ChooseWaveformParams(fmin = 30., radec=True, incl=0.0, theta=1.2, phi=1.4,
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,
@@ -97,6 +97,7 @@ if checkInputPlots:
 
 print " ======= Template specified: precomputing all quantities =========="
 # Struct to hold template parameters
+# Fiducial distance provided but will not be used
 P = ChooseWaveformParams(fmin = 40., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO,fref=fref)
 #
 # Perform the Precompute stage
@@ -130,9 +131,10 @@ if checkResults == True:
     print "   : Reflection symmetry constraint (UV) ", constraint1
 
     print " ======= UV test: Recover the SNR of the injection  =========="
+    print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly) "
     for det in detectors:
         lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, P.tref, Psig.phi, Psig.theta, P.incl, P.phiref, Psig.psi, Psig.dist, 2, det)
-        print det, lnLModel, np.sqrt(2*lnLModel), rhoExpected[det]
+        print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det]
 
 
     print " ======= rholm complex conjugation check (22 and 2-2 modes only) =========="
@@ -165,15 +167,27 @@ if checkResults == True:
         print "   : Quality of interpolation per point ", constraint1/len(hxx.data.data)
 
         
-    print " ======= rholm test: Epochs and timing =========="
+    # print " ======= rholm test: Epochs and timing =========="
+    # for det in detectors:
+    #     for pair1 in rholms_intp['V1']:
+    #         hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
+    #         print det, pair1, float(hxx.epoch), float(hxx.deltaT)
+
+
+
+    print " ======= rholm test: Recover the SNR of the injection at the injection parameters (*)  =========="
     for det in detectors:
-        for pair1 in rholms_intp['V1']:
-            #print det, pair1, float(rholms[det].epoch), float(rholms[det].deltaT)
-            hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
-            print det, pair1, float(hxx.epoch), float(hxx.deltaT)
+        lnLData = SingleDetectorLogLikelihoodData(rholms_intp, P.tref, P.theta,P.phi, P.incl, P.phiref,P.psi, P.dist, 2, det)
+        print det, lnLData, np.sqrt(lnLData), rhoExpected[det]
 
+    print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (*)  =========="
+    tvals = np.linspace(0,10,3000)
+    for det in detectors:
+        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(rholms_intp, x, P.theta,P.phi, P.incl, P.phiref,P.psi, P.dist, 2, det), tvals)
+        plt.figure(1)
+        plt.plot(tvals, lnLData)
+    plt.show()
 
-    print " ======= rholm test: Recover the SNR of the injection  =========="
     
 
 if checkResultsPlots == True:
