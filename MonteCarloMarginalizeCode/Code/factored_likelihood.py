@@ -215,6 +215,7 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
     # Create an instance of class to compute inner product time series
     if analyticPSD_Q==False:
         assert data.deltaF == psd.deltaF
+        print " ARGH NOT USING ANALYTIC PSD MAKE SURE WE ARE DOING THIS CORRECTLY "
         IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd.data.data, False, True)
     else:
         IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, True, True)
@@ -226,6 +227,7 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
         for m in range(-l,l+1):
             hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
             rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
+            #print l,m, rho, rhoTS.data.data[0]
             rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
 
     # FIXME: Add ability to cut down to a narrow time window

@@ -613,6 +613,7 @@ class ComplexOverlap(InnerProduct):
             #         * h2.data.data[self.wvlen/2+i].conj() ) * self.weights[i]
         # Reverse FFT to get overlap for all possible reference times
         lal.COMPLEX16FreqTimeFFT(self.ovlp, self.intgd, self.revplan)
+        self.ovlp.data.data = np.fft.ifft(self.intgd.data.data)
         rhoSeries = np.abs(self.ovlp.data.data)
         rho = rhoSeries.max()
         if self.full_output==False:
