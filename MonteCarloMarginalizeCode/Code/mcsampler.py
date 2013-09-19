@@ -16,7 +16,7 @@ class MCSampler(object):
 		self.pdf = {}
 		# If the pdfs aren't normalized, this will hold the normalization 
 		# constant
-		self._pdf_norm = defaultdict(lambda x: 1)
+		self._pdf_norm = defaultdict(lambda: 1)
 		# Cache for the sampling points
 		self._rvs = None
 		# Sample point cache
