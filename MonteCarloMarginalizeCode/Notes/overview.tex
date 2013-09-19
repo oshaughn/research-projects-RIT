@@ -677,15 +677,14 @@ data in that detector, if a signal is present.]
 %
 Based on this information, a simple a priori \emph{estimate} for the arrival times $t_1\ldots t_3$ in each detector are possible
 [fixing some $(l,m)$ pair -- say (2,2)]: we can build a distribution.
-\noindent \emph{Change of variables}: The normally-distributed arrival times are in 1-1 relationship with candidate
-event times and sky locations, \emph{roughly speaking}\footnote{Of course some arrival time separations are inconsistent with the Earth's
-crossing time.  Hopefully that's not a problem...}
 
-Re-express the arrival times in each detector as possible detector
+\noindent \emph{Change of variables}: The arrival times are in 1-1 relationship with candidate
+event times and sky locations,when physical.  to solve, re-express the arrival times in each detector in terms of the
+sky location and barycenter:
 \begin{eqnarray}
 t_1 = t - \hat{k}\cdot \vec{x}_1 = t + \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_1 \\
 t_2  = t + \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_2 \\
-t_3  = t + \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_3 \\
+t_3  = t + \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_3 
 \end{eqnarray}
 Note in particular that the measure transforms according to
 \begin{eqnarray}
@@ -706,7 +705,7 @@ Note in particular that the measure transforms according to
 %% expr + 1/Sin[th] mydet // Simplify
 
 \begin{shaded}
-\noindent \textbf{Inverting these equations in practice}: For each event time we know $\vec{x}_k$ and hence the normal
+\noindent \textbf{Inverting these equations in practice: Abstractly}: For each event time we know $\vec{x}_k$ and hence the normal
 to the plane of the detectors, $\vec{V}\equiv (\vec{x}_3 -\vec{x}_2)\times(\vec{x}_1-\vec{x}_2)$.  When $\hat{n}\propto
 \vec{V}$, then $\hat{n}\cdot (x_1+x_2+x_3)=0$ and hence
 \begin{eqnarray}
@@ -728,6 +727,16 @@ n_x \\ n_y \\ n_z
 This matrix equation by construction is invertible and tells us the components of $\hat{n}$.  In general they are not
 normalized; only discrete choices for $Z$ produce a normalized unit vector $\hat{n}.\hat{n}$; and the quadratic equation
 generally has two solutions.
+
+\noindent \textbf{Inverting these equations: Using polar coordinates}: Choose a coordinate system so $x_2-x_1 =|\Delta
+r_{21}| \hat{z}$ and so $\hat{x}$ is in the detector plane, forming a right-handed coordinate system.  In this coordinate system we know $\cos \theta = -\Delta r_{21}/(t_2-t_1)$.  The remaining polar angle
+must satisfy 
+\begin{eqnarray}
+\hat{n} = \cos \theta \hat{z} + \hat{x}\sin\theta \cos \phi + \hat{y} \sin\theta \sin\phi \\
+\hat{n}\cdot \Delta r_{31} =  \cos \theta \hat{z}.\Delta r_{31} + \sin \theta \cos \phi \hat{x} \cdot \Delta r_{31} \\
+\phi = \cos^{-1} - \frac{(t_3-t_1)  - |\Delta r_{31}| \cos \theta_{21}\cos \theta_{31} }{ \sin \theta_{21}  \hat{x}\cdot
+  \Delta r_{31}}
+\end{eqnarray}
 
 \end{shaded}
 
