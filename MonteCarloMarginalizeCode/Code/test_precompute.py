@@ -13,7 +13,7 @@ from matplotlib import pylab as plt
 # Set by user
 #
 checkResults = True # Turn on to print/plot output; Turn off for testing speed
-checkInputPlots = True
+checkInputPlots = False
 checkResultsPlots = True
 
 #

@@ -259,10 +259,14 @@ class InnerProduct:
         self.minIdx = int(fLow/deltaF)
         self.FDlen = int(fNyq/deltaF)+1
         self.weights = np.zeros(self.FDlen)
+        self.longweights = np.zeros(2*(self.FDlen-1))  # for not hermetian inner products
         self.analyticPSD_Q = analyticPSD_Q
         if analyticPSD_Q == True:
-            for i in range(self.minIdx,self.FDlen):
+            for i in range(self.minIdx,self.FDlen):        # populate weights for both hermetian and non-hermetian products
                 self.weights[i] = 1./self.psd(i*deltaF)
+                length = 2*(self.FDlen-1)
+                self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
+                self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
         else:
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
@@ -301,8 +305,9 @@ class RealIP(InnerProduct):
         assert abs(h1.deltaF-h2.deltaF)<=1.e-5 and abs(h1.deltaF-self.deltaF)<=1.e-5
         val = 0.
         maxIdx = min(h1.data.length,h2.data.length)
-        for i in range(self.minIdx,maxIdx):
-            val += h1.data.data[i].conj() * h2.data.data[i]* self.weights[i]
+        val = np.sum(np.conj(h1.data.data)*h2.data.data*self.weights)
+        # for i in range(self.minIdx,maxIdx):
+        #     val += h1.data.data[i].conj() * h2.data.data[i]* self.weights[i]
         val = 4. * self.deltaF * np.real(val)
         return val
 
@@ -313,8 +318,9 @@ class RealIP(InnerProduct):
         assert h.data.length <= self.FDlen
         assert abs(h.deltaF-self.deltaF) <= 1.e-5
         val = 0.
-        for i in range(self.minIdx,h.data.length):
-            val += h.data.data[i] * h.data.data[i].conj() * self.weights[i]
+        val = np.sum(np.conj(h.data.data)*h.data.data*self.weights)
+        # for i in range(self.minIdx,h.data.length):
+        #     val += h.data.data[i] * h.data.data[i].conj() * self.weights[i]
         val = np.sqrt( 4. * self.deltaF * np.abs(val) )
         return val
 
@@ -341,8 +347,9 @@ class HermitianComplexIP(InnerProduct):
         assert abs(h1.deltaF-h2.deltaF)<=1.e-5 and abs(h1.deltaF-self.deltaF)<=1.e-5
         val = 0.
         maxIdx = min(h1.data.length,h2.data.length)
-        for i in range(self.minIdx,maxIdx):
-            val += h1.data.data[i].conj() * h2.data.data[i] * self.weights[i]
+        val = np.sum(np.conj(h1.data.data)*h2.data.data*self.weights)
+        # for i in range(self.minIdx,maxIdx):
+        #     val += h1.data.data[i].conj() * h2.data.data[i] * self.weights[i]
         val *= 4. * self.deltaF
         return val
 
@@ -380,11 +387,11 @@ class ComplexIP(InnerProduct):
         assert h1.data.length==h2.data.length==2*(self.FDlen-1)
         assert abs(h1.deltaF-h2.deltaF)<=1.e-5 and abs(h1.deltaF-self.deltaF)<=1.e-5
         val = 0.
-        length = h1.data.length
-        for i in range(self.minIdx,length/2):
-            val += (h1.data.data[length/2-i].conj() * h2.data.data[length/2-i]\
-                    + h1.data.data[length/2+i].conj()\
-                    * h2.data.data[length/2+i]) * self.weights[i]
+        val = np.sum( np.conj(h1.data.data)*h2.data.data *self.longweights)
+        # for i in range(self.minIdx,length/2):
+        #     val += (h1.data.data[length/2-i].conj() * h2.data.data[length/2-i]\
+        #             + h1.data.data[length/2+i].conj()\
+        #             * h2.data.data[length/2+i]) * self.weights[i]
         val *= 2. * self.deltaF
         return val
 
@@ -396,10 +403,11 @@ class ComplexIP(InnerProduct):
         assert abs(h.deltaF-self.deltaF) <= 1.e-5
         length = h.data.length
         val = 0.
-        for i in range(self.minIdx,length/2):
-            val += (h.data.data[length/2 - i] * h.data.data[length/2 -i].conj()\
-                    + h.data.data[length/2+i]\
-                    * h.data.data[length/2+i].conj()) * self.weights[i]
+        val = np.sum( np.conj(h.data.data)*h.data.data *self.longweights)
+        # for i in range(self.minIdx,length/2):
+        #     val += (h.data.data[length/2 - i] * h.data.data[length/2 -i].conj()\
+        #             + h.data.data[length/2+i]\
+        #             * h.data.data[length/2+i].conj()) * self.weights[i]
         val = np.sqrt( 2. * self.deltaF * np.abs(val) )
         return val
 
@@ -431,6 +439,7 @@ class Overlap(InnerProduct):
         self.TDlen = 2*(self.FDlen-1)
         self.deltaT = 1./self.deltaF/self.TDlen
         self.weights = np.zeros(self.FDlen)
+        self.longweights = np.zeros(2*(self.FDlen-1))  # for not hermetian inner products
         self.analyticPSD_Q = analyticPSD_Q
         self.full_output=full_output
         self.revplan = revplan
@@ -451,10 +460,15 @@ class Overlap(InnerProduct):
         if analyticPSD_Q == True:
             for i in range(self.minIdx,self.FDlen):
                 self.weights[i] = 1./self.psd(i*deltaF)
+                length = 2*(self.FDlen-1)
+                self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
+                self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
         else:
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
                     self.weights[i] = 1./psd[i]
+
+
 
     def ip(self, h1, h2):
         """
@@ -489,8 +503,9 @@ class Overlap(InnerProduct):
         assert h.data.length <= self.FDlen
         assert abs(h.deltaF-self.deltaF) <= 1.e-5
         val = 0.
-        for i in range(self.minIdx,h.data.length):
-            val += h.data.data[i] * h.data.data[i].conj() * self.weights[i]
+        val = np.sum( np.conj(h.data.data)*h.data.data *self.weights)
+        # for i in range(self.minIdx,h.data.length):
+        #     val += h.data.data[i] * h.data.data[i].conj() * self.weights[i]
         val = np.sqrt( 4. * self.deltaF * np.abs(val) )
         return val
 
@@ -544,6 +559,7 @@ class ComplexOverlap(InnerProduct):
         self.wvlen = 2*(self.wgtslen-1)
         self.deltaT = 1./self.deltaF/self.wvlen
         self.weights = np.zeros(self.wgtslen)
+        self.longweights = np.zeros(2*(self.wgtslen-1))  # for not hermetian inner products
         self.analyticPSD_Q = analyticPSD_Q
         self.full_output=full_output
         self.revplan = revplan
@@ -564,8 +580,11 @@ class ComplexOverlap(InnerProduct):
         if analyticPSD_Q == True:
             for i in range(self.minIdx,self.wgtslen):
                 self.weights[i] = 1./self.psd(i*deltaF)
+                length = self.wvlen
+                self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
+                self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
         else:
-            for i in range(self.minIdx,self.FDlen):
+            for i in range(self.minIdx,self.wgstlen):
                 if psd[i] != 0.:
                     self.weights[i] = 1./psd[i]
 
@@ -580,9 +599,9 @@ class ComplexOverlap(InnerProduct):
         # Note packing of h(f) is monotonic when h(t) is complex:
         # h(-N/2 df), ..., H(-df) h(0), h(df), ..., h(N/2 df)
         # In particular,freqs = +-i*df are in N/2+-i bins of array
-        for i in range(self.wvlen):
-#            self.intgd.data.data[i] = 2*( np.conj(h1.data.data[i])*h2.data.data[i]/self.psd( np.abs(self.wvlen/2 -i)*self.deltaF))
-            self.intgd.data.data[i] = 2*( np.conj(h1.data.data[i])*h2.data.data[i]*self.weights[ np.abs(self.wvlen/2 -i)])
+        self.intgd.data.data = 2*np.conj(h1.data.data)*h2.data.data*self.longweights
+        # for i in range(self.wvlen):
+        #     self.intgd.data.data[i] = 2*( np.conj(h1.data.data[i])*h2.data.data[i]*self.weights[ np.abs(self.wvlen/2 -i)])
             # self.intgd.data.data[i] = 2* ( h1.data.data[self.wvlen/2-i]\
             #         * h2.data.data[self.wvlen/2-i].conj()\
             #         + h1.data.data[self.wvlen/2+i]\
@@ -613,11 +632,12 @@ class ComplexOverlap(InnerProduct):
         assert abs(h.deltaF-self.deltaF) <= 1.e-5
         val = 0.
         # Note monotonic packing of h(f)
-        for i in range(self.minIdx,self.wvlen/2):
-            val += ( h.data.data[self.wvlen/2-i]\
-                    * h.data.data[self.wvlen/2-i].conj()\
-                    + h.data.data[self.wvlen/2+i]\
-                    * h.data.data[self.wvlen/2+i].conj() ) * self.weights[i]
+        val = np.sum( np.conj(h.data.data)*h.data.data *self.longweights)
+        # for i in range(self.minIdx,self.wvlen/2):
+        #     val += ( h.data.data[self.wvlen/2-i]\
+        #             * h.data.data[self.wvlen/2-i].conj()\
+        #             + h.data.data[self.wvlen/2+i]\
+        #             * h.data.data[self.wvlen/2+i].conj() ) * self.weights[i]
         val = np.sqrt( 2. * self.deltaF * np.abs(val) )
         return val
 

@@ -54,6 +54,7 @@ def PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
 
     for det in detectors:
         # Compute time-shift-dependent mode SNRs < h_lm(t) | d >
+        print " : Computing for ", det
         rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
                 psd_dict[det], P.fmin, 1./2./P.deltaT, analyticPSD_Q)
         rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
@@ -61,8 +62,10 @@ def PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
 #        t = float(data_dict[det].epoch-P.tref)+np.arange(rho22.data.length) * rho22.deltaT
         # NOTE: This array is almost certainly wrapped in time via the inverse FFT and is NOT starting at the epoch
         t = np.arange(rho22.data.length) * rho22.deltaT
-        rholms_intp[det] = InterpolateRholms(rholms[det], t, Lmax)
+        print " :   ", det, " -  Finished rholms, interpolating"
+        rholms_intp[det] =  InterpolateRholms(rholms[det], t, Lmax)
         # Compute cross terms < h_lm | h_l'm' >
+        print " :   ", det, " -  : Building cross term matrix "
         crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,
                 1./2./P.deltaT, P.deltaF, analyticPSD_Q)
 
