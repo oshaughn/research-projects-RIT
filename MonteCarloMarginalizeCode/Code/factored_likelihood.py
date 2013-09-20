@@ -29,6 +29,7 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
 distMpcRef = 100
 rosDebugMessages = True
+rosDebugUseCForQTimeseries =False
 
 #
 # Main driver functions
@@ -224,24 +225,30 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
     # Loop over modes and compute the overlap time series
     rholms = None
 
-    # psdData = lal.CreateCOMPLEX16FrequencySeries("PSD", 
-    #             lal.LIGOTimeGPS(0.), 0., IP.deltaF,
-    #             lal.lalHertzUnit, len(data.data.data));
-    # psdData.data.data = map(lambda x : psd(x), np.linspace(-fNyq, fNyq, len(data.data.data)))
-    # rholms = lalsim.SphHarmTimeSeriesFromSphHarmFrequencySeriesDataAndPSD(rholms, data, psdData)
-    Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
-    for l in range(2,Lmax+1):
-        for m in range(-l,l+1):
-            hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
-            assert hlm.deltaF == data.deltaF
-            rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
-            rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
-            # Sanity check
-            if rosDebugMessages:
-                print  "     :  value of <hlm|data> ", l,m, rho, np.amax(np.abs(rhoTS.data.data))  # Debuging info
-                rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, hlm)
-                rhoRegular = IPRegular.ip(hlm,hlm)
-                print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular
+    if rosDebugUseCForQTimeseries:
+        psdData = IP.longpsdLAL
+        rholms = lalsim.SphHarmTimeSeriesFromSphHarmFrequencySeriesDataAndPSD(hlms, data, psdData)
+        if rosDebugMessages:
+            print "   : C inner product timeseries complete "
+            Lmax = lalsim.SphHarmTimeSeriesGetMaxL(rholms)
+            for l in range(2,Lmax+1):
+                for m in range(-l,l+1):
+                    rhoTS = lalsim.SphHarmTimeSeriesGetMode(rholms, l, m)
+                    print  "     :  value of <hlm|data> ", l,m,  np.amax(np.abs(rhoTS.data.data))  
+    else:
+        Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
+        for l in range(2,Lmax+1):
+            for m in range(-l,l+1):
+                hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
+                assert hlm.deltaF == data.deltaF
+                rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
+                rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
+                # Sanity check
+                if rosDebugMessages:
+                    print  "     :  value of <hlm|data> ", l,m, rho, np.amax(np.abs(rhoTS.data.data))  # Debuging info
+                    rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, hlm)
+                    rhoRegular = IPRegular.ip(hlm,hlm)
+                    print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular
             
 
     # FIXME: Add ability to cut down to a narrow time window

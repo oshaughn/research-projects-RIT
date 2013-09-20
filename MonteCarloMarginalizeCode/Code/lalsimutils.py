@@ -559,6 +559,7 @@ class ComplexOverlap(InnerProduct):
         self.deltaT = 1./self.deltaF/self.wvlen
         self.weights = np.zeros(self.wgtslen)
         self.longweights = np.zeros(2*(self.wgtslen-1))  # for not hermetian inner products
+        self.longpsdLAL = lal.CreateCOMPLEX16FrequencySeries("PSD",lal.LIGOTimeGPS(0.), 0., self.deltaF,lal.lalHertzUnit, self.wvlen)
         self.analyticPSD_Q = analyticPSD_Q
         self.full_output=full_output
         self.revplan = revplan
@@ -582,6 +583,8 @@ class ComplexOverlap(InnerProduct):
                 length = self.wvlen
                 self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
                 self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
+                self.longpsdLAL.data.data[length/2-i+1] = self.psd(i*deltaF)
+                self.longpsdLAL.data.data[length/2+i-1] = self.psd(i*deltaF)
         else:
             for i in range(self.minIdx,self.wgstlen):
                 if psd[i] != 0.:
