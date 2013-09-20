@@ -24,8 +24,8 @@ if sys.argv[1] is None:
 psi_min, psi_max = -2*numpy.pi, 2*numpy.pi
 psi_val, psi_width = numpy.pi/2, numpy.pi/6
 # RA and dec
-#ra_min, ra_max = 0, 2*numpy.pi
-ra_min, ra_max = -2*numpy.pi, 2*numpy.pi
+ra_min, ra_max = 0, 2*numpy.pi
+#ra_min, ra_max = -2*numpy.pi, 2*numpy.pi
 ra_val, ra_width = numpy.pi/4, 5*numpy.pi/180
 dec_min, dec_max = -numpy.pi/2, numpy.pi/2
 dec_val, dec_width = -numpy.pi/4, 5*numpy.pi/180
@@ -68,11 +68,13 @@ samp = MCSampler()
 #samp.add_parameter("dec", functools.partial(uniform_samp, dec_min, dec_max), functools.partial(inv_uniform_cdf, dec_min, dec_max), dec_min, dec_max)
 
 # Uniform sampling, auto-cdf inverse
-samp.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), None, psi_min, psi_max)
+#samp.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), None, psi_min, psi_max)
+samp.add_parameter("psi", functools.partial(gauss_samp, psi_val, 2*psi_width), None, psi_min, psi_max)
 samp.add_parameter("ra", functools.partial(uniform_samp, ra_min, ra_max), None, ra_min, ra_max)
 samp.add_parameter("dec", functools.partial(uniform_samp, dec_min, dec_max), None, dec_min, dec_max)
 samp.add_parameter("phi", functools.partial(uniform_samp, phi_min, phi_max), None, phi_min, phi_max)
-samp.add_parameter("inc", functools.partial(uniform_samp, inc_min, inc_max), None, inc_min, inc_max)
+#samp.add_parameter("inc", functools.partial(uniform_samp, inc_min, inc_max), None, inc_min, inc_max)
+samp.add_parameter("inc", functools.partial(gauss_samp, inc_val, 2*inc_width), None, inc_min, inc_max)
 samp.add_parameter("dist", functools.partial(uniform_samp, dist_min, dist_max), None, dist_min, dist_max)
 
 #
@@ -134,11 +136,10 @@ def integrand(p, r, dec, ph, i, di):
 	#pyplot.clf()
 	pyplot.savefig("exponent.png")
 	"""
-	#exponent = ma.masked_less_equal(-(p-psi_val)**2/a-(r-ra_val)**2/b-(dec-dec_val)**2/c-(i-inc_val)**2/d-(ph-phi_val)**2/e-(di-dist_val)**2/f, -700)
 	exponent = ma.masked_less_equal(-(p-psi_val)**2/a-(r-ra_val)**2/b-(dec-dec_val)**2/c-(i-inc_val)**2/d-(ph-phi_val)**2/e-(di-dist_val)**2/f, -700)
 	exponent.fill_value = 0
 	#print ma.count(exponent)
-	return norm * numpy.exp(exponent).filled()
+	return norm * numpy.exp(exponent)
 def integrand_1d(p):
 	return 1.0/numpy.sqrt(2*numpy.pi*psi_width**2)*numpy.exp(-(p-psi_val)**2/a)
 
@@ -152,9 +153,24 @@ res, var = samp.integrate(integrand, int(sys.argv[1]), "psi", "ra", "dec", "phi"
 print "Integral value: %f, stddev %f" % (res, numpy.sqrt(var))
 
 #
+# Plot one-d histograms of all parameters
+#
+fig = pyplot.figure(figsize=(10,4))
+samples = samp._rvs
+np = len(samp.params)
+i=1
+for p in samp.params:
+	subp = pyplot.subplot(1, np, i)
+	i += 1
+	pyplot.hist(samples[p], bins=20)
+	pyplot.grid()
+	pyplot.xlabel(p)
+pyplot.savefig("samples_1d.png")
+
+#
 # Plot two-d histograms of all parameters
 #
-samples = dict(zip(samp.params, samp._rvs))
+fig = pyplot.figure(figsize=(10,10))
 np = len(samp.params)-1
 i, j = 1, 1
 label_next = True
@@ -162,9 +178,12 @@ for (p1, p2) in itertools.combinations(samp.params, 2):
 	subp = pyplot.subplot(np, np, i)
 	s1, s2 = samples[p1], samples[p2]
 	#s1, s2 = map(samp.pdf[p1], numpy.array([s1]))[0], map(samp.pdf[p2], numpy.array([s2]))[0]
-	hist, xedge, yedge = numpy.histogram2d(s2, s1, bins=(100, 100))
+	hist, yedge, xedge = numpy.histogram2d(s2, s1, bins=(100, 100))
 
-	pyplot.imshow(hist, extent=(yedge[0], yedge[-1], xedge[-1], xedge[0]), interpolation='nearest')
+	pyplot.imshow(hist.T, extent=(yedge[0], yedge[-1], xedge[-1], xedge[0]), interpolation='nearest')
+	im = subp.get_images()
+	ex = im[0].get_extent()
+	subp.set_aspect(abs((ex[1]-ex[0])/(ex[3]-ex[2])))
 	pyplot.colorbar()
 	if label_next:
 		pyplot.ylabel(p1)
@@ -172,8 +191,22 @@ for (p1, p2) in itertools.combinations(samp.params, 2):
 		label_next = False
 
 	if i % np == 0:
-		i += 1
+		i += j
+		j += 1
 		label_next = True
 	i += 1
 
-pyplot.savefig("samples_2d.png")
+pyplot.savefig("samples_2d.png", figsize=(10,3))
+
+fig = pyplot.figure(figsize=(10,10))
+from mpl_toolkits.basemap import Basemap
+hist, xedge, yedge = numpy.histogram2d(samples["ra"], samples["dec"], bins=(100, 100))
+x, y = numpy.meshgrid(xedge, yedge)
+x *= 180/numpy.pi
+y *= 180/numpy.pi
+m = Basemap(projection='moll', lon_0=0, resolution='c')
+m.contourf(x[:-1,:-1], y[:-1,:-1], hist, 100, cmap=matplotlib.cm.jet, latlon=True)
+pyplot.colorbar()
+m.drawparallels(numpy.arange(-90, 120, 30))
+m.drawmeridians(numpy.arange(0, 420, 60))
+pyplot.savefig("radec_proj.png")
