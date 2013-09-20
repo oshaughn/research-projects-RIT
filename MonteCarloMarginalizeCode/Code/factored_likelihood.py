@@ -28,6 +28,7 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
 
 distMpcRef = 100
+rosDebugMessages = True
 
 #
 # Main driver functions
@@ -61,8 +62,7 @@ def PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
     for det in detectors:
         # Compute time-shift-dependent mode SNRs < h_lm(t) | d >
         print " : Computing for ", det
-        rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
-                psd_dict[det], P.fmin, 1./2./P.deltaT, analyticPSD_Q)
+        rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],psd_dict[det], P.fmin, 1./2./P.deltaT, analyticPSD_Q)
         rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
         # FIXME: Need to handle geocenter-detector time shift properly
 #        t = float(data_dict[det].epoch-P.tref)+np.arange(rho22.data.length) * rho22.deltaT
@@ -72,8 +72,7 @@ def PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
         rholms_intp[det] =  InterpolateRholms(rholms[det], t, Lmax)
         # Compute cross terms < h_lm | h_l'm' >
         print " :   ", det, " -  : Building cross term matrix "
-        crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,
-                1./2./P.deltaT, P.deltaF, analyticPSD_Q)
+        crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,1./2./P.deltaT, P.deltaF, analyticPSD_Q)
 
     return rholms_intp, crossTerms, rholms
 
@@ -218,20 +217,34 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
         print " ARGH NOT USING ANALYTIC PSD MAKE SURE WE ARE DOING THIS CORRECTLY "
         IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd.data.data, False, True)
     else:
-        IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, True, True)
+        IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, analyticPSD_Q=True, full_output=True)
+        IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd)  # debugging, sanity checks
 
+    print IP.fLow, IP.fNyq,IP.deltaF
     # Loop over modes and compute the overlap time series
     rholms = None
+
+    # psdData = lal.CreateCOMPLEX16FrequencySeries("PSD", 
+    #             lal.LIGOTimeGPS(0.), 0., IP.deltaF,
+    #             lal.lalHertzUnit, len(data.data.data));
+    # psdData.data.data = map(lambda x : psd(x), np.linspace(-fNyq, fNyq, len(data.data.data)))
+    # rholms = lalsim.SphHarmTimeSeriesFromSphHarmFrequencySeriesDataAndPSD(rholms, data, psdData)
     Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
     for l in range(2,Lmax+1):
         for m in range(-l,l+1):
             hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
+            assert hlm.deltaF == data.deltaF
             rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
-            #print l,m, rho, rhoTS.data.data[0]
             rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
+            # Sanity check
+            if rosDebugMessages:
+                print  "     :  value of <hlm|data> ", l,m, rho, np.amax(np.abs(rhoTS.data.data))  # Debuging info
+                rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, hlm)
+                rhoRegular = IPRegular.ip(hlm,hlm)
+                print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular
+            
 
     # FIXME: Add ability to cut down to a narrow time window
-
     return rholms
 
 def InterpolateRholm(rholm, t):

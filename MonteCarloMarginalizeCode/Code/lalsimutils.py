@@ -481,8 +481,7 @@ class Overlap(InnerProduct):
         for i in range(self.TDlen):
             self.intgd.data.data[i] = 0.
         for i in range(self.minIdx,maxIdx):
-            self.intgd.data.data[i] = 4.*h1.data.data[i]*h2.data.data[i].conj()\
-                    *self.weights[i]
+            self.intgd.data.data[i] = 4.*np.conj(h1.data.data[i])*h2.data.data[i]*self.weights[i]
         # Reverse FFT to get overlap for all possible reference times
         lal.COMPLEX16FreqTimeFFT(self.ovlp, self.intgd, self.revplan)
         rhoSeries = np.abs(self.ovlp.data.data)
@@ -613,7 +612,7 @@ class ComplexOverlap(InnerProduct):
             #         * h2.data.data[self.wvlen/2+i].conj() ) * self.weights[i]
         # Reverse FFT to get overlap for all possible reference times
         lal.COMPLEX16FreqTimeFFT(self.ovlp, self.intgd, self.revplan)
-        self.ovlp.data.data = np.fft.ifft(self.intgd.data.data)
+        #self.ovlp.data.data = self.deltaF*np.fft.ifft(self.intgd.data.data)   # do it my own way, to be absolutely sure?
         rhoSeries = np.abs(self.ovlp.data.data)
         rho = rhoSeries.max()
         if self.full_output==False:

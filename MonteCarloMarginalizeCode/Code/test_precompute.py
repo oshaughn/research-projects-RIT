@@ -22,6 +22,7 @@ checkResultsPlots = True
 data_dict = {}
 psd_dict = {}
 rhoExpected ={}
+rhoExpectedAlt ={}
 analyticPSD_Q = True # For simplicity, using an analytic PSD
 # psd_dict['H1'] = lal.LIGOIPsd
 # psd_dict['L1'] = lal.LIGOIPsd
@@ -37,7 +38,7 @@ m2 = 3*lal.LAL_MSUN_SI
 ampO =0 # sets which modes to include in the physical signal
 Lmax = 2  # sets which modes to include in the output
 fref = 100
-Psig = ChooseWaveformParams(fmin = 30., radec=True, incl=0.0,phiref=0.0, theta=0.2, phi=1.4,psi=0.0,
+Psig = ChooseWaveformParams(fmin = 30., radec=True, incl=0.0,phiref=0.0, theta=0.2, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,
@@ -61,9 +62,11 @@ detectors = data_dict.keys()
 rho2Net = 0
 for det in detectors:
     IP = ComplexIP(fLow=25, fNyq=2048,deltaF=df,psd=psd_dict[det])
+    IPOverlap = ComplexOverlap(fLow=25, fNyq=2048,deltaF=df,psd=psd_dict[det],analyticPSD_Q=True,full_output=True)  # Use for debugging later
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
+    rhoExpectedAlt[det] = rhoDet2 = IPOverlap.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
-    print det, rhoDet, " at epoch ", float(data_dict[det].epoch), " with time delay ", ComputeTimeDelay(det, Psig.theta,Psig.phi,Psig.tref)
+    print det, rhoDet, rhoDet2, " at epoch ", float(data_dict[det].epoch), " with time delay ", ComputeTimeDelay(det, Psig.theta,Psig.phi,Psig.tref)
 print "Network : ", np.sqrt(rho2Net)
 
 if checkInputPlots:
@@ -103,7 +106,7 @@ if checkInputPlots:
 print " ======= Template specified: precomputing all quantities =========="
 # Struct to hold template parameters
 # Fiducial distance provided but will not be used
-P = ChooseWaveformParams(fmin = 40., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO,fref=fref)
+P = ChooseWaveformParams(fmin = 30., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO,fref=fref)
 #
 # Perform the Precompute stage
 #
@@ -229,6 +232,16 @@ if checkResultsPlots == True:
     plt.show()  # Show at the same time as the others
 
 
+    print " ======= rholm operation: calling ComplexOverlap (for 22 vs H1) =========="
+
+    plt.figure(3)
+    for pair1 in rholms_intp['V1']:
+            hxx = lalsim.SphHarmFrequencySeriesGetMode(hlms, pair1[0], pair2[0])
+            rho, rhoTS, rhoIdx, rhoPhase = IPOverlap.ip(hxx, data_dict['H1'])
+            plt.plot(tvals,np.abs(rhoTS.data.data),label="Q(t)[IP]")
+    plt.legend()
+    plt.show()
+
     print " ======= Plotting rholm timeseries (NOT timeeshifted; are rho's offset correctly?)  =========="
     # plot the raw rholms
     plt.figure(1)
@@ -240,7 +253,7 @@ if checkResultsPlots == True:
         plt.plot(t,np.abs(rhonow.data.data),label=det)
     # Plot the interpolated rholms
 #    tt = np.arange(float(data_dict['H1'].epoch),P.tref ,1/500.) # Create a finer array of time steps. BE VERY CAREFUL - resampling generates huge arrays. BE CAREFUL not to extrapolate too far outside range
-    tt = np.arange(0,10 ,1/5000.) # Create a finer array of time steps. BE VERY CAREFUL - resampling generates huge arrays. BE CAREFUL not to extrapolate too far outside range
+    tt = np.arange(0,rhonow.deltaT*npts ,1/5000.) # Create a finer array of time steps. BE VERY CAREFUL - resampling generates huge arrays. BE CAREFUL not to extrapolate too far outside range
     plt.figure(1)
     rhointpH = rholms_intp['H1'][(2,2)]
     rhointpL = rholms_intp['L1'][(2,2)]
@@ -249,6 +262,11 @@ if checkResultsPlots == True:
     plt.plot(tt,np.abs(rhointpL(tt)), label='L(2,2)')
     plt.plot(tt,np.abs(rhointpV(tt)), label='V(2,2)')
     plt.legend()
+
+
+    # plt.figure(3)
+    # plt.plot(fvals,np.abs(h22.data.data),label='h22(f)')
+    # plt.legend()
 
     plt.figure(2)
     rhointpH = rholms_intp['H1'][(2,-2)]
