@@ -3,15 +3,116 @@ import sys
 import functools
 import itertools
 
-#import matplotlib
-#matplotlib.use("Agg")
-#from matplotlib import pyplot
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot
+
 import numpy
 import scipy.special
 
 from mcsampler import MCSampler
 
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
+
+#
+# Plotting utilities
+#
+
+def plot_pdf(samp):
+	"""
+	Plot PDFs of sampling distributions
+	"""
+	pyplot.figure()
+	for param in samp.params:
+		x_i = numpy.array([numpy.linspace(samp.llim[param], samp.rlim[param], 100)])
+		pyplot.plot(x_i[0], map(samp.pdf[param], x_i)[0], '-', label=param)
+
+	pyplot.grid()
+	pyplot.legend()
+	pyplot.savefig("pdf.png")
+	pyplot.clf()
+
+def plot_cdf_inv(samp):
+	"""
+	Plot inverse CDFs
+	"""
+
+	pyplot.figure()
+	x_i = numpy.linspace(0, 1, 1000)
+	for param, cdfinv in samp.cdf_inv.iteritems():
+		pyplot.plot(x_i, map(cdfinv, x_i), '-', label=param)
+
+	pyplot.grid()
+	pyplot.legend()
+	pyplot.savefig("cdf_inv.png")
+
+
+def plot_one_d_hist(samp):
+	"""
+	Plot one-d histograms of all parameters
+	"""
+	fig = pyplot.figure(figsize=(10,4))
+	samples = samp._rvs
+	np = len(samp.params)
+	i=1
+	for p in samp.params:
+		subp = pyplot.subplot(1, np, i)
+		i += 1
+		pyplot.hist(samples[p], bins=20)
+		pyplot.grid()
+		pyplot.xlabel(p)
+	pyplot.savefig("samples_1d.png")
+
+def plot_two_d_hist(samp):
+	"""
+	Plot two-d histograms of all parameters
+	"""
+	samples = samp._rvs
+	fig = pyplot.figure(figsize=(10,10))
+	np = len(samp.params)-1
+	i, j = 1, 1
+	label_next = True
+	for (p1, p2) in itertools.combinations(samp.params, 2):
+		subp = pyplot.subplot(np, np, i)
+		s1, s2 = samples[p1], samples[p2]
+		hist, yedge, xedge = numpy.histogram2d(s2, s1, bins=(100, 100))
+	
+		pyplot.imshow(hist.T, extent=(yedge[0], yedge[-1], xedge[-1], xedge[0]), interpolation='nearest')
+		im = subp.get_images()
+		ex = im[0].get_extent()
+		subp.set_aspect(abs((ex[1]-ex[0])/(ex[3]-ex[2])))
+		pyplot.colorbar()
+		if label_next:
+			pyplot.ylabel(p1)
+			pyplot.xlabel(p2)
+			label_next = False
+	
+		if i % np == 0:
+			i += j
+			j += 1
+			label_next = True
+		i += 1
+	
+	pyplot.savefig("samples_2d.png", figsize=(10,3))
+
+	
+def plot_ra_dec(samp):
+	"""
+	Plot the RA and dec distribution in a Mollewide projection.
+	"""
+	samples = samp._rvs
+	fig = pyplot.figure(figsize=(10,10))
+	from mpl_toolkits.basemap import Basemap
+	hist, xedge, yedge = numpy.histogram2d(samples["ra"], samples["dec"], bins=(100, 100))
+	x, y = numpy.meshgrid(xedge, yedge)
+	x *= 180/numpy.pi
+	y *= 180/numpy.pi
+	m = Basemap(projection='moll', lon_0=0, resolution='c')
+	m.contourf(x[:-1,:-1], y[:-1,:-1], hist, 100, cmap=matplotlib.cm.jet, latlon=True)
+	pyplot.colorbar()
+	m.drawparallels(numpy.arange(-90, 120, 30))
+	m.drawmeridians(numpy.arange(0, 420, 60))
+	pyplot.savefig("radec_proj.png")
 
 if sys.argv[1] is None:
 	print "Usage: mcsamp_test npoints"
@@ -77,33 +178,6 @@ samp.add_parameter("phi", functools.partial(uniform_samp, phi_min, phi_max), Non
 samp.add_parameter("inc", functools.partial(gauss_samp, inc_val, 2*inc_width), None, inc_min, inc_max)
 samp.add_parameter("dist", functools.partial(uniform_samp, dist_min, dist_max), None, dist_min, dist_max)
 
-#
-# Plot PDFs
-#
-
-import matplotlib
-matplotlib.use("Agg")
-from matplotlib import pyplot
-for param in samp.params:
-	x_i = numpy.array([numpy.linspace(samp.llim[param], samp.rlim[param], 100)])
-	pyplot.plot(x_i[0], map(samp.pdf[param], x_i)[0], '-', label=param)
-
-pyplot.grid()
-pyplot.legend()
-pyplot.savefig("pdf.png")
-pyplot.clf()
-
-#
-# Plot inverse CDFs
-#
-
-x_i = numpy.linspace(0, 1, 1000)
-for param, cdfinv in samp.cdf_inv.iteritems():
-	pyplot.plot(x_i, map(cdfinv, x_i), '-', label=param)
-
-pyplot.grid()
-pyplot.legend()
-pyplot.savefig("cdf_inv.png")
 
 # Gaussian sampling, auto-cdf inverse -- Doesn't work yet
 #samp.add_parameter("psi", functools.partial(gauss_samp, 0, (psi_max-psi_min)/3.0), None, psi_min, psi_max)
@@ -152,61 +226,8 @@ import scipy.integrate
 res, var = samp.integrate(integrand, int(sys.argv[1]), "psi", "ra", "dec", "phi", "inc", "dist")
 print "Integral value: %f, stddev %f" % (res, numpy.sqrt(var))
 
-#
-# Plot one-d histograms of all parameters
-#
-fig = pyplot.figure(figsize=(10,4))
-samples = samp._rvs
-np = len(samp.params)
-i=1
-for p in samp.params:
-	subp = pyplot.subplot(1, np, i)
-	i += 1
-	pyplot.hist(samples[p], bins=20)
-	pyplot.grid()
-	pyplot.xlabel(p)
-pyplot.savefig("samples_1d.png")
-
-#
-# Plot two-d histograms of all parameters
-#
-fig = pyplot.figure(figsize=(10,10))
-np = len(samp.params)-1
-i, j = 1, 1
-label_next = True
-for (p1, p2) in itertools.combinations(samp.params, 2):
-	subp = pyplot.subplot(np, np, i)
-	s1, s2 = samples[p1], samples[p2]
-	#s1, s2 = map(samp.pdf[p1], numpy.array([s1]))[0], map(samp.pdf[p2], numpy.array([s2]))[0]
-	hist, yedge, xedge = numpy.histogram2d(s2, s1, bins=(100, 100))
-
-	pyplot.imshow(hist.T, extent=(yedge[0], yedge[-1], xedge[-1], xedge[0]), interpolation='nearest')
-	im = subp.get_images()
-	ex = im[0].get_extent()
-	subp.set_aspect(abs((ex[1]-ex[0])/(ex[3]-ex[2])))
-	pyplot.colorbar()
-	if label_next:
-		pyplot.ylabel(p1)
-		pyplot.xlabel(p2)
-		label_next = False
-
-	if i % np == 0:
-		i += j
-		j += 1
-		label_next = True
-	i += 1
-
-pyplot.savefig("samples_2d.png", figsize=(10,3))
-
-fig = pyplot.figure(figsize=(10,10))
-from mpl_toolkits.basemap import Basemap
-hist, xedge, yedge = numpy.histogram2d(samples["ra"], samples["dec"], bins=(100, 100))
-x, y = numpy.meshgrid(xedge, yedge)
-x *= 180/numpy.pi
-y *= 180/numpy.pi
-m = Basemap(projection='moll', lon_0=0, resolution='c')
-m.contourf(x[:-1,:-1], y[:-1,:-1], hist, 100, cmap=matplotlib.cm.jet, latlon=True)
-pyplot.colorbar()
-m.drawparallels(numpy.arange(-90, 120, 30))
-m.drawmeridians(numpy.arange(0, 420, 60))
-pyplot.savefig("radec_proj.png")
+plot_pdf(samp)
+plot_cdf_inv(samp)
+plot_one_d_hist(samp)
+plot_two_d_hist(samp)
+plot_ra_dec(samp)
