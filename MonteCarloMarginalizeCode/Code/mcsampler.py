@@ -32,7 +32,7 @@ class MCSampler(object):
 		"""
 		self.params = set()
 		self.pdf = {}
-		self._pdf_norm = defaultdict(lambda x: 1)
+		self._pdf_norm = defaultdict(lambda: 1)
 		self._rvs = None
 		self._cache = []
 		self.cdf_inv = {}
@@ -89,13 +89,13 @@ class MCSampler(object):
 			args = self.params
 
 		if isinstance(rvs, int) or isinstance(rvs, float):
-			self._rvs = [numpy.random.uniform(0,1,rvs) for (a,b) in [(self.llim[p], self.rlim[p]) for p in args]]
-			#cdf_rvs = [self.cdf_inv[param](rv) for (rv, param) in zip(self._rvs, args)]
+			self._rvs = [numpy.random.uniform(0,1,rvs) for p in args]
 			self._rvs = [self.cdf_inv[param](rv) for (rv, param) in zip(self._rvs, args)]
 		else:
 			self._rvs = rvs
 
 		res = [(self.pdf[param](cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(self._rvs, args)]
+		self._rvs = dict(zip(args, self._rvs))
 
 		if kwargs.has_key("rdict"):
 			return dict(zip(args, res))
@@ -106,8 +106,9 @@ class MCSampler(object):
 		self._cache.extend( [ rvs for rvs, ratio, rnd in zip(numpy.array(self._rvs).T, intg/prior, numpy.random.uniform(0, 1, len(prior))) if ratio < 1 or 1.0/ratio < rnd ] )
 
 	# TODO: Remove args
+	# NOTE: Better idea: have args and kwargs, and let the user pin values via
+	# kwargs and integrate through args
 	def integrate(self, func, n, *args):
-		#self._rvs = numpy.random.uniform(0, 1, (len(self.params), n))
 		p_s, rv = self.draw(n, *args)
 		joint_p_s = numpy.prod(p_s, axis=0)
 		fval = func(*rv)
