@@ -107,20 +107,13 @@ print " ======= Template specified: precomputing all quantities =========="
 # Struct to hold template parameters
 # Fiducial distance provided but will not be used
 P = ChooseWaveformParams(fmin = 30., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO,fref=fref)
-#
-# Perform the Precompute stage
-#
-rholms_intp, crossTerms, rholms = PrecomputeLikelihoodTerms(P, data_dict,
-        psd_dict, Lmax, analyticPSD_Q)
+rholms_intp, crossTerms, rholms = PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax, analyticPSD_Q)
 
 
 print " ======= Reporting on results =========="
 #
 # Examine and sanity check the output
 #
-
-def swapIndex(pair1):
-    return [pair1[0], -pair1[1]]
 if checkResults == True:
     # Print values of cross terms
     detectors = data_dict.keys()

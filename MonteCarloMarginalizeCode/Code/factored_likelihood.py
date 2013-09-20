@@ -62,7 +62,9 @@ def PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
 
     for det in detectors:
         # Compute time-shift-dependent mode SNRs < h_lm(t) | d >
-        print " : Computing for ", det
+        df = data_dict[det].deltaF
+        fNyq = df*len(data_dict[det].data.data)/2
+        print " : Computing for ", det, " df, fNyq  = ", df, fNyq
         rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],psd_dict[det], P.fmin, 1./2./P.deltaT, analyticPSD_Q)
         rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
         # FIXME: Need to handle geocenter-detector time shift properly
@@ -131,7 +133,10 @@ def SingleDetectorLogLikelihoodModel( crossTermsDictionary,tref, RA,DEC, thS,phi
 
     crossTerms = crossTermsDictionary[det]
     Ylms = ComputeYlms(Lmax, thS,phiS)
-    F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
+    if (det == "Fake"):
+        F=1
+    else:
+        F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
     keys = Ylms.keys()
@@ -151,11 +156,15 @@ def SingleDetectorLogLikelihoodData(rholmsDictionary,tref, RA,DEC, thS,phiS,psi,
     """
     global distMpcRef
     Ylms = ComputeYlms(Lmax, thS,phiS)
-    F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
+    if (det == "Fake"):
+        F=1
+        tshift=0
+    else:
+        F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
+        detector = lalsim.DetectorPrefixToLALDetector(det)
+        tshift = ComputeTimeDelay(det, RA,DEC, tref)
     rholms_intp = rholmsDictionary[det]
     distMpc = dist/(lal.LAL_PC_SI*1e6)
-    detector = lalsim.DetectorPrefixToLALDetector(det)
-    tshift = ComputeTimeDelay(det, RA,DEC, tref)
 
     term1 = 0.
     for pair in rholms_intp:
@@ -234,7 +243,7 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
             for l in range(2,Lmax+1):
                 for m in range(-l,l+1):
                     rhoTS = lalsim.SphHarmTimeSeriesGetMode(rholms, l, m)
-                    print  "     :  value of <hlm|data> ", l,m,  np.amax(np.abs(rhoTS.data.data))  
+                    print  "     :  value of <hlm|data> ", l,m,  np.amax(np.abs(rhoTS.data.data))  , " with length ", len(rhoTS.data.data)
     else:
         Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
         for l in range(2,Lmax+1):
@@ -248,7 +257,7 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
                     print  "     :  value of <hlm|data> ", l,m, rho, np.amax(np.abs(rhoTS.data.data))  # Debuging info
                     rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, hlm)
                     rhoRegular = IPRegular.ip(hlm,hlm)
-                    print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular
+                    print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
             
 
     # FIXME: Add ability to cut down to a narrow time window
