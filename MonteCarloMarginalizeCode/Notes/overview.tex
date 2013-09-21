@@ -662,7 +662,7 @@ An integral over this 4d space can be done by monte carlo -- preferably using an
 
 
 
-\subsection{Extrinsic marginalization: Localized sources in $t,\hat{k}$ (*)}
+\subsection{Extrinsic marginalization: Localized sources in $t,\hat{k}$ via time-of-flight }
 
 \noindent \textbf{Arrival-time sampling}: Physical sources will have well-determined arrival times at each detector,
 for any significant template.  In our notation, for each detector $k$, each intrinsc parameters $\lambda$, and each
@@ -682,9 +682,10 @@ Based on this information, a simple a priori \emph{estimate} for the arrival tim
 event times and sky locations,when physical.  to solve, re-express the arrival times in each detector in terms of the
 sky location and barycenter:
 \begin{eqnarray}
-t_1 = t - \hat{k}\cdot \vec{x}_1 = t + \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_1 \\
-t_2  = t + \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_2 \\
-t_3  = t + \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_3 
+t_1 = t + \hat{k}\cdot \vec{x}_1 
+      = t - \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_1 \\
+t_2  = t - \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_2 \\
+t_3  = t - \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_3 
 \end{eqnarray}
 Note in particular that the measure transforms according to
 \begin{eqnarray}
@@ -692,9 +693,9 @@ Note in particular that the measure transforms according to
 \end{eqnarray}
 %% coordinate = {t, th, ph};
 %% nhat[th_, ph_] := {Sin[th] Cos[ph], Sin[th] Sin[ph], Cos[th]}
-%% expr1 = t + {x1, y1, z1}.nhat[th, ph]
-%% expr2 = t + {x2, y2, z2}.nhat[th, ph]
-%% expr3 = t + {x3, y3, z3}.nhat[th, ph]
+%% expr1 = t - {x1, y1, z1}.nhat[th, ph]
+%% expr2 = t - {x2, y2, z2}.nhat[th, ph]
+%% expr3 = t - {x3, y3, z3}.nhat[th, ph]
 %% mydet = Det[{Table[D[expr1, coordinate[[k]]], {k, 1, 3}],
 %%     Table[D[expr2, coordinate[[k]]], {k, 1, 3}],
 %%     Table[D[expr3, coordinate[[k]]], {k, 1, 3}]}] // FullSimplify
@@ -709,7 +710,7 @@ Note in particular that the measure transforms according to
 to the plane of the detectors, $\vec{V}\equiv (\vec{x}_3 -\vec{x}_2)\times(\vec{x}_1-\vec{x}_2)$.  When $\hat{n}\propto
 \vec{V}$, then $\hat{n}\cdot (x_1+x_2+x_3)=0$ and hence
 \begin{eqnarray}
-t = \frac{1}{3}[t_1+t_2+t_3 - \hat{V}\cdot(x_1+x_2+x_3)] 
+t = \frac{1}{3}[t_1+t_2+t_3 + \hat{V}\cdot(x_1+x_2+x_3)] 
 \end{eqnarray}
 The solution for $\hat{n}$ follows by linear algebra, plus scaling to satisfy a constraint:
 \begin{eqnarray}
@@ -758,15 +759,56 @@ nonphysical possibilities.
 fixing the first delay time $\tau_{21}$ constrains the physically realizable options for $\tau_{31}$.
 \end{shaded}
 
-\noindent \emph{No timing error}: If we treat all candidate event times equally, independent of $\rho$, then 
 
-\noindent \emph{Timing error included}:
+\noindent \textbf{Lower-dimensional trigonometric sampling}:  The above distributions draw 3d samples in $\hat{n},t$.
+After marginalizing over time, the independent-arrival-time model \textbf{implies} a gaussian sky location posterior
+\cite{2011CQGra..28j5021F}, of the form [rewriting $\sigma_t/\rho_{1lm} = \sigma_1$ et cetera]
+\begin{eqnarray}
+p(\hat{n}|t_1,t_2,t_3) \propto \exp(- (\hat{n}-N(t_1,t_2,t_3)).D.(\hat{n}-N(t_1,t_2,t_3))/2)
+\end{eqnarray}
+[This derivation ignores edge effects.]
 
-
-\noindent \textbf{Ad-hoc trigonometric sampling}:  The above distribution
-
-These distributions use sky positions samples drawn from a suitable sky-position gaussian \cite{2011CQGra..28j5021F}
-based on 
+\begin{shaded}
+The derivation sheds light on the above (and how to generalize our timing solution if the timing errors are unequal).
+Let $\bar{t}_k = t_k+\hat{n}\cdot \vec{x}_k$ be the barycentered arrival time derived from $t_k$ and the proposed direction
+\begin{eqnarray}
+{\cal O}\equiv \Gamma_{kk}(t-\hat{k}\cdot \vec{x}_k -t_k)^2 \equiv \sum_k\Gamma_{kk}(t-\bar{t}_k)^2 
+= \bar{\Gamma} t^2 - 2 (\sum_k \Gamma_{kk} \bar{t}_k)t + \sum_k \Gamma_{kk}\bar{t}_k^2 
+= \bar{\Gamma}(t-t_*)^2 - \bar{\Gamma} t_*^2  + \sum_k \Gamma_{kk}\bar{t}_k^2 
+\end{eqnarray}
+When all arrival time errors  \emph{symmetric}, then the time $t$ which maximizes the likelihood is  independent of the
+sky location $\hat{n}$; in general, however, the optimal time $t_*$ is
+\begin{eqnarray}
+t_*  = (\sum_k \Gamma_{kk} \bar{t}_k)/\sum_k \Gamma_{kk} \equiv \left<\bar{t}\right>
+\end{eqnarray}
+where I use a suitable ``average'' notation to weight over interferometers. 
+Completing the square leads to a marginalized quadratic (after integrating out other variables)
+\begin{eqnarray}
+{\cal O}_{\rm marg}\equiv - \bar{\Gamma} t_*^2  + \sum_k \Gamma_{kk}\bar{t}_k^2  
+ = \bar{\Gamma}\left[ -\left<\bar{t}\right>^2 + \left<\bar{t}^2 \right> \right]
+ = \bar{\Gamma}\left[ -\left<t_{\rm measured}+\hat{n}\vec{x}\right>^2 + \left<(t_{\rm measured}+\hat{n}\vec{x})^2
+  \right>
+ \right]
+\end{eqnarray}
+Now reorganize the expression to group terms quadratic and linear in $\hat{n}$ to identify the best-fit sky position, et
+cetera:
+\begin{eqnarray}
+{\cal O}_{\rm marg} \equiv 
+{\color{blue}\bar{\Gamma}n_a n_b \left[
+   -\left<\vec{x}_a\right>\left<\vec{x}_b\right> + \left<\vec{x}_a \vec{x}_b\right>
+ \right]
+}
++{\color{green}{ 2 \bar{\Gamma}n_a  \left[
+   -\left<\vec{x}_a \right>\left<t_{\rm measured}\right> + \left< t_{\rm measured} \vec{x}_b\right>
+ \right]
+}
++  \bar{\Gamma}  \left[
+ -\left<t_{\rm measured}\right>^2 + \left<(t_{\rm measured})^2 \right>
+ \right]
+\end{eqnarray}
+The first  term (blue) tell us the shape of the sky position posterior on the plane of the sky.  The second term
+(combined with the first) tells us the best-fitting sky position
+\end{shaded}
 
 
 \end{widetext}

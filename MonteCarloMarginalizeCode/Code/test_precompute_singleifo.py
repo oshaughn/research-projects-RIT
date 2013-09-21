@@ -18,6 +18,40 @@ analyticPSD_Q = True # For simplicity, using an analytic PSD
 
 ifoName = "Fake"
 
+# Create complex FD data that does not assume Hermitianity - i.e.
+# contains positive and negative freq. content
+def non_herm_hoff_fake(P):
+    hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
+            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
+            P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
+            P.ampO, P.phaseO, P.approx)
+    hp.epoch = hp.epoch + P.tref
+    hc.epoch = hc.epoch + P.tref
+    hoft = hp
+    if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
+        lalsim.SimInspiralREAL8WaveTaper(hoft.data, P.taper)
+    if P.deltaF == None:
+        TDlen = nextPow2(hoft.data.length)
+    else:
+        TDlen = int(1./P.deltaF * 1./P.deltaT)
+        assert TDlen >= hoft.data.length
+
+    fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
+    hoft = lal.ResizeREAL8TimeSeries(hoft, 0, TDlen)
+    hoftC = lal.CreateCOMPLEX16TimeSeries("hoft", hoft.epoch, hoft.f0,
+            hoft.deltaT, hoft.sampleUnits, TDlen)
+    # copy h(t) into a COMPLEX16 array which happens to be purely real
+    for i in range(TDlen):
+        hoftC.data.data[i] = hoft.data.data[i]
+    FDlen = TDlen
+    hoff = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
+            hoft.epoch, hoft.f0, 1./hoft.deltaT/TDlen, lal.lalHertzUnit, 
+            FDlen)
+    lal.COMPLEX16TimeFreqFFT(hoff, hoftC, fwdplan)
+    return hoff
+
+
+distanceFiducial = 25  # Make same as reference
 psd_dict[ifoName] =  lalsim.SimNoisePSDiLIGOSRD
 m1 = 4*lal.LAL_MSUN_SI
 m2 = 3*lal.LAL_MSUN_SI
@@ -28,15 +62,20 @@ Psig = ChooseWaveformParams(fmin = 30., radec=False, incl=0.0,phiref=0.0, theta=
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,
-         dist=25.*1.e6*lal.LAL_PC_SI)
+         dist=distanceFiducial*1.e6*lal.LAL_PC_SI)
 df = findDeltaF(Psig)
 Psig.deltaF = df
 Psig.print_params()
-data_dict[ifoName] = complex_hoff(Psig)
+data_dict[ifoName] = non_herm_hoff_fake(Psig)
 
 print " == Data report == "
 detectors = data_dict.keys()
 rho2Net = 0
+fvalsDump = np.linspace(20,2000,1000)
+psdVecDump = map(lambda x: psd_dict[ifoName](x),fvalsDump )
+#print psdVecDump
+np.savetxt('psd.dat', (fvalsDump,psdVecDump))  # to calibrate the SNR calculations below
+
 for det in detectors:
     IP = ComplexIP(fLow=25, fNyq=2048,deltaF=df,psd=psd_dict[det])
     IPOverlap = ComplexOverlap(fLow=25, fNyq=2048,deltaF=df,psd=psd_dict[det],analyticPSD_Q=True,full_output=True)  # Use for debugging later
