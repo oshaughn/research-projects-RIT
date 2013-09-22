@@ -663,6 +663,7 @@ An integral over this 4d space can be done by monte carlo -- preferably using an
 
 
 \subsection{Extrinsic marginalization: Localized sources in $t,\hat{k}$ via time-of-flight }
+\label{sec:sub:MarginalizeViaTimeOfFlight}
 
 \noindent \textbf{Arrival-time sampling}: Physical sources will have well-determined arrival times at each detector,
 for any significant template.  In our notation, for each detector $k$, each intrinsc parameters $\lambda$, and each
@@ -798,7 +799,7 @@ cetera:
    -\left<\vec{x}_a\right>\left<\vec{x}_b\right> + \left<\vec{x}_a \vec{x}_b\right>
  \right]
 }
-+{\color{green}{ 2 \bar{\Gamma}n_a  \left[
++{ 2 \bar{\Gamma}n_a  \left[
    -\left<\vec{x}_a \right>\left<t_{\rm measured}\right> + \left< t_{\rm measured} \vec{x}_b\right>
  \right]
 }
@@ -810,6 +811,10 @@ The first  term (blue) tell us the shape of the sky position posterior on the pl
 (combined with the first) tells us the best-fitting sky position
 \end{shaded}
 
+\subsection{Extrinsic marginalization: Distance (*)}
+
+\noindent \textbf{Distance distribution}: The distance prior is dominated by the largest distances allowed.  Conversely,
+the distance posterior is of order unity width times the regular
 
 \end{widetext}
 
@@ -929,6 +934,24 @@ The detctor PSD is the same for all inner products
 \end{align}
 where I use $d^l_{m,2}=\delta_{m2}$.
 
+
+\noindent \emph{Optimally oriented source vs $U_{22,22}$}: Another way of saying the exact same thing.  A sanity check on $U_{22,22}$ follows from the
+amplitude of an optimally oriented source directly over a single detector (with no higher harmonics):
+\begin{eqnarray}
+\qmstateproduct{h_+(d)}{h_+(d)} = \frac{1}{2} \qmstateproduct{h(d)}{h(d)} 
+= (d_{\rm ref}/d)^2\frac{1}{2}\qmstateproduct{h_{22}}{h_{22}} |\Y{-2}_{22}|^2
+=\frac{(d_{\rm ref}/d)^2}{2} \qmstateproduct{h_{22}}{h_{22}} \frac{5}{4\pi} \nonumber 
+\equiv  U_{22,22} \frac{5}{8\pi} (d_{\rm ref}/d)^2
+\end{eqnarray}
+where the first inner product is evaluated using a specific distance and where the second is using data at $d_{\rm
+  ref}$. 
+In particular, for a $4+3 M_\odot$ fiducial source at 25 Mpc [in data] but 100 Mpc reference should have single-IFO amplitude $\rho\simeq 21$
+(depemding on the approximant used), we expect $U_{22,22}\simeq 8\pi/5 \rho^2 \simeq 137.5$.  My mathematica code does
+this. \editremark{Python pending}
+%% ConstructNonRedshiftingDhAt[{"InitialLIGO",   "SRD"}, {"NewtonianInspiralOnly", "NoTermination"}, 4, 3.]
+%% 8*%/(25 Mega Parsec)
+
+
 \noindent \textbf{General single-detector expression}: Does this expression reduce to the usual single-detector
 expression [Eq. (\ref{eq:SingleIFO:AmplitudeSquared})], evaluated in terms of $h_{+}(\hat{n})=\hat{z}$ (the plus polarization along the z axis) and geometrical
 factors?  
@@ -954,6 +977,18 @@ $\lambda'$ the signal, using quasi-orthogonality of $h_{lm}$ for different $m$'s
 \left< Q_{l,22} \right> \simeq \qmstateproduct{h_{22}(\lambda)}{h_{22}(\lambda')}\Y{-2}_{22}(\hat{n})
 \end{eqnarray}
 
+\begin{shaded}
+\noindent \textbf{Fiducial value}: $Q_{22}(0)$ for the fiducial $4+3 M_\odot$ binary at 25 Mpc optimally oiented above a
+single detector is
+\begin{eqnarray}
+Q_{l,22} = \qmstateproduct{h_{22}(d)}{\text{Re}[h_{lm}]}\Y{-2}_{lm}(\hat{z')) 
+\simeq  \frac{(d_{\rm ref}/d)}{2}  U_{22,22} \frac{\sqrt{5}{4\pi}}
+\end{eqnarray}
+where this result is a good approximation because of $Y(\hat{z})=0$ unless $m=2$. For the fiducial binary with
+$U_{22,22}\simeq 137$, 
+\end{shaded}
+
+
 
 Confirm $Q_{1,22}(-k.n) = \qmstateproduct{e^{-i2\pi f \Delta t}h_{22}}{\hat{H}_1}$ and similarly (a consistency check on
 two code paths and a \textbf{useful error estimate})
@@ -975,6 +1010,7 @@ Find the time of the peak for each source
 \begin{eqnarray}
 Q_{k,lm}(\tau) = (-1)^l [Q_{k,l,-m}(\tau)]^*
 \end{eqnarray}
+
 
 \item \emph{Random evaluation}: For a single interferometer, confirm both code paths reproduce the same inner product
   with the data.   Let $\hat{H}_1$ be reconstructed using the standard code (optimally oriented BNS).
@@ -1005,7 +1041,7 @@ Plot $L_{\rm data}$ over the sky at the injected parameters; show a maximum occu
 
 \subsection{Milestones and Benchmarks: Marginalization (*)}
 
-
+\subsubsection{Initial implementation}
 \noindent \textbf{Document mone carlo and error}: So we're on the same page, Monte Carlo integration is well-documented in \href{http://nr.com}{Nuumerical Recipies}; in
 GSL; and in the \href{http://reference.wolfram.com/mathematica/tutorial/NIntegrateIntegrationStrategies.html}{Mathematica documentation}.  We will probably \emph{not} use sophisticated algoritms (e.g.,
 ``\href{http://www.gnu.org/software/gsl/manual/html_node/VEGAS.html#VEGAS}{vegas}'' in GSL; fixed or adaptive stratification; etc) at first: we want to easily convert samples into a posterior distribution.
@@ -1063,6 +1099,28 @@ $\hat{n}=-\hat{k}=\pi/4,\pi/4$ with $\psi=0$, at a distance $d=25\unit{Mpc}$ in 
   waveforms].  
 
 Recover the distance distribution;  sky position error box; and event time distribution.
+
+
+\subsubsection{Milestones and benchmarks: Nonuniform sampling (*)} 
+Uniform sampling won't work -- we need a narrow prior using time-of-flight information
+
+\begin{figure*}
+\includegraphics{Figures/fig-mma-DemoSampler.pdf}
+\caption{\label{fig:Milestones:DemoSampler:Mathematica}\textbf{Example sampler results (Mathematica)}: Example of a
+  uniform sampler (left) and time-of-flight-targeted sampler (right).  Plots show the sky position distribution (top);
+  time distribution (center); and distance distribution (right). 
+}
+\end{figure*}
+
+\noindent \textbf{Time-of-flight sampler}: Generate random arrival times; convert to a sky position and arrival time.
+Examples of these samplers are shown in Figure \ref{fig:Milestones:DemoSampler:Mathematica}.
+\begin{itemize}
+\item \emph{Inversion tests}: Confirm the low-level time-of-flight code, given time of flights derived from a sky
+  location and time, recover that sky location and time.
+\item \emph{Sampling distribution}: Plot a sampling distribution in $\hat{n}$ and $t$ derived from a random location. 
+
+ Confirm the location improves (and  converges to the point and mirror point) as the timing errors decrease.
+\end{itemize}
 
 \subsection{Milestones and Benchmarks:  Intrinsic exploration (*)}
 
@@ -1213,7 +1271,22 @@ allowing high trigger rates. \editremark{I wonder if this is useful}.
 
 \section{Python implementation}
 
-* Fourier convention: $\tilde{h}_{22}$ should have only positive frequencies
+\noindent \textbf{Input check}: 
+
+* I use the raw $h_{lm}(t)$ in my mathematica code -- it's fine
+
+* $\tilde{h}_{lm(f)}$
+
+* Fourier convention: $\tilde{h}_{22}$ should have only positive frequencies \editremark{checkme}
+
+\noindent \textbf{Operations check}
+
+* make sure frequencies are consistently set EVERYWHERE.  It's very important to get all the PSD integrals using a
+consistent lower frequency! \editremark{FIX ME}
+
+\noindent \textbf{Intermediate structures}
+
+
 
 * $Q$ timeseries has broad support
 

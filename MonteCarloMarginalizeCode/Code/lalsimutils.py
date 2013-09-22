@@ -601,7 +601,7 @@ class ComplexOverlap(InnerProduct):
         # Note packing of h(f) is monotonic when h(t) is complex:
         # h(-N/2 df), ..., H(-df) h(0), h(df), ..., h(N/2 df)
         # In particular,freqs = +-i*df are in N/2+-i bins of array
-        self.intgd.data.data = 2*np.conj(h1.data.data)*h2.data.data*self.longweights
+        self.intgd.data.data = 2*np.conj(h1.data.data)*h2.data.data*self.longweights  # Dangerous!
         # for i in range(self.wvlen):
         #     self.intgd.data.data[i] = 2*( np.conj(h1.data.data[i])*h2.data.data[i]*self.weights[ np.abs(self.wvlen/2 -i)])
             # self.intgd.data.data[i] = 2* ( h1.data.data[self.wvlen/2-i]\

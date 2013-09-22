@@ -24,6 +24,14 @@ psd_dict = {}
 rhoExpected ={}
 rhoExpectedAlt ={}
 analyticPSD_Q = True # For simplicity, using an analytic PSD
+
+fminWaves = 25
+fminSNR = 25
+fSample = 4096
+distanceFiducial = 25.  # Make same as reference
+
+
+
 # psd_dict['H1'] = lal.LIGOIPsd
 # psd_dict['L1'] = lal.LIGOIPsd
 # psd_dict['V1'] = lal.LIGOIPsd
@@ -38,11 +46,12 @@ m2 = 3*lal.LAL_MSUN_SI
 ampO =0 # sets which modes to include in the physical signal
 Lmax = 2  # sets which modes to include in the output
 fref = 100
-Psig = ChooseWaveformParams(fmin = 30., radec=True, incl=0.0,phiref=0.0, theta=0.2, phi=0,psi=0.0,
+Psig = ChooseWaveformParams(fmin = fminWaves, radec=True, incl=0.0,phiref=0.0, theta=0.2, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,
-        detector='H1', dist=25.*1.e6*lal.LAL_PC_SI)
+         deltaT=1./fSample,
+        detector='H1', dist=distanceFiducial*1.e6*lal.LAL_PC_SI)
 df = findDeltaF(Psig)
 Psig.deltaF = df
 Psig.print_params()
@@ -61,8 +70,8 @@ print " == Data report == "
 detectors = data_dict.keys()
 rho2Net = 0
 for det in detectors:
-    IP = ComplexIP(fLow=25, fNyq=2048,deltaF=df,psd=psd_dict[det])
-    IPOverlap = ComplexOverlap(fLow=25, fNyq=2048,deltaF=df,psd=psd_dict[det],analyticPSD_Q=True,full_output=True)  # Use for debugging later
+    IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det])
+    IPOverlap = ComplexOverlap(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],analyticPSD_Q=True,full_output=True)  # Use for debugging later
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
     rhoExpectedAlt[det] = rhoDet2 = IPOverlap.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
@@ -106,7 +115,13 @@ if checkInputPlots:
 print " ======= Template specified: precomputing all quantities =========="
 # Struct to hold template parameters
 # Fiducial distance provided but will not be used
-P = ChooseWaveformParams(fmin = 30., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO,fref=fref)
+P =  ChooseWaveformParams(fmin=fminWaves, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
+         m1=m1,m2=m2,
+         ampO=ampO,
+         fref=fref,
+         deltaT=1./fSample,
+         dist=100*1.e6*lal.LAL_PC_SI,
+         deltaF=df)
 rholms_intp, crossTerms, rholms = PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax, analyticPSD_Q)
 
 

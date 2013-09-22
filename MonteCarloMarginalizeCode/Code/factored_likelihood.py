@@ -57,6 +57,8 @@ def PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
     # Fix fiducial distance at which precomputations are performed: distance scaling applied later
     P.dist = distMpcRef*1e6*lal.LAL_PC_SI
 
+    print "  ++++ Template data being computed for the following binary +++ "
+    P.print_params()
     # Compute all hlm modes with l <= Lmax
     hlms = hlmoff(P, Lmax)
 
@@ -65,6 +67,9 @@ def PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
         df = data_dict[det].deltaF
         fNyq = df*len(data_dict[det].data.data)/2
         print " : Computing for ", det, " df, fNyq  = ", df, fNyq
+        # Compute cross terms < h_lm | h_l'm' >
+        #print " :   ", det, " -  : Building cross term matrix "
+        crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,1./2./P.deltaT, P.deltaF, analyticPSD_Q)
         rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],psd_dict[det], P.fmin, 1./2./P.deltaT, analyticPSD_Q)
         rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
         # FIXME: Need to handle geocenter-detector time shift properly
@@ -73,9 +78,6 @@ def PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
         t = np.arange(rho22.data.length) * rho22.deltaT
         print " :   ", det, " -  Finished rholms, interpolating"
         rholms_intp[det] =  InterpolateRholms(rholms[det], t, Lmax)
-        # Compute cross terms < h_lm | h_l'm' >
-        print " :   ", det, " -  : Building cross term matrix "
-        crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,1./2./P.deltaT, P.deltaF, analyticPSD_Q)
 
     return rholms_intp, crossTerms, rholms
 
@@ -305,9 +307,9 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
     # Create an instance of class to compute inner product
     if analyticPSD_Q==False:
         assert deltaF == psd.deltaF
-        IP = ComplexIP(fmin, fNyq, data.deltaF, psd.data.data, False)
+        IP = ComplexIP(fmin, fNyq, data.deltaF, psd.data.data, analyticPSD_Q=False)
     else:
-        IP = ComplexIP(fmin, fNyq, deltaF, psd, True)
+        IP = ComplexIP(fmin, fNyq, deltaF, psd, analyticPSD_Q=True)
 
     # Loop over modes and compute the inner products, store in a dictionary
     Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)

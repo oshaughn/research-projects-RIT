@@ -5,6 +5,7 @@
 
 from factored_likelihood import *
 from matplotlib import pylab as plt
+import sys
 
 checkResults = True # Turn on to print/plot output; Turn off for testing speed
 checkInputPlots = False
@@ -15,6 +16,10 @@ psd_dict = {}
 rhoExpected ={}
 rhoExpectedAlt ={}
 analyticPSD_Q = True # For simplicity, using an analytic PSD
+
+fminWaves = 25
+fminSNR = 25
+fSample = 4096
 
 ifoName = "Fake"
 
@@ -51,22 +56,24 @@ def non_herm_hoff_fake(P):
     return hoff
 
 
-distanceFiducial = 25  # Make same as reference
+distanceFiducial = 25.  # Make same as reference
 psd_dict[ifoName] =  lalsim.SimNoisePSDiLIGOSRD
 m1 = 4*lal.LAL_MSUN_SI
 m2 = 3*lal.LAL_MSUN_SI
 ampO =0 # sets which modes to include in the physical signal
 Lmax = 2  # sets which modes to include in the output
 fref = 100
-Psig = ChooseWaveformParams(fmin = 30., radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
+Psig = ChooseWaveformParams(fmin = fminWaves, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,
+         deltaT=1./fSample,
          dist=distanceFiducial*1.e6*lal.LAL_PC_SI)
 df = findDeltaF(Psig)
 Psig.deltaF = df
 Psig.print_params()
 data_dict[ifoName] = non_herm_hoff_fake(Psig)
+print "Timing spacing in data vs expected : ", df, data_dict[ifoName].deltaF
 
 print " == Data report == "
 detectors = data_dict.keys()
@@ -77,8 +84,8 @@ psdVecDump = map(lambda x: psd_dict[ifoName](x),fvalsDump )
 np.savetxt('psd.dat', (fvalsDump,psdVecDump))  # to calibrate the SNR calculations below
 
 for det in detectors:
-    IP = ComplexIP(fLow=25, fNyq=2048,deltaF=df,psd=psd_dict[det])
-    IPOverlap = ComplexOverlap(fLow=25, fNyq=2048,deltaF=df,psd=psd_dict[det],analyticPSD_Q=True,full_output=True)  # Use for debugging later
+    IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2.,deltaF=df,psd=psd_dict[det])
+    IPOverlap = ComplexOverlap(fLow=fminSNR, fNyq=fSample/2.,deltaF=df,psd=psd_dict[det],analyticPSD_Q=True,full_output=True)  # Use for debugging later
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
     rhoExpectedAlt[det] = rhoDet2 = IPOverlap.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
@@ -89,7 +96,13 @@ print "Network : ", np.sqrt(rho2Net)
 print " ======= Template specified: precomputing all quantities =========="
 # Struct to hold template parameters
 # Fiducial distance provided but will not be used
-P = ChooseWaveformParams(fmin = 30., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO,fref=fref)
+P = ChooseWaveformParams(fmin=fminWaves, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
+         m1=m1,m2=m2,
+         ampO=ampO,
+         fref=fref,
+         deltaT=1./fSample,
+         dist=100*1.e6*lal.LAL_PC_SI,
+         deltaF=df) #ChooseWaveformParams(m1=m1,m2=m2,fmin = fminWaves, dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO,fref=fref)
 rholms_intp, crossTerms, rholms = PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax, analyticPSD_Q)
 
 if checkResults == True:
@@ -99,7 +112,7 @@ if checkResults == True:
         for pair1 in rholms_intp[ifoName]:
             for pair2 in rholms_intp[ifoName]:
                 if np.abs(crossTerms[det][pair1,pair2]) > 1e-5:
-                    print det, pair1, pair2, crossTerms[det][pair1,pair2]
+                    print det, pair1, pair2, crossTerms[det][pair1,pair2], " compare (2,\pm 2) in scale to ", rhoExpected[det]**2 * 8.*lal.LAL_PI/5. *np.power( distanceFiducial/distMpcRef,2)
     
     print " ======= UV symmetry check (reflection symmetric) =========="
     constraint1 = 0
@@ -135,6 +148,12 @@ if checkResults == True:
     # print "   : Reflection symmetry constraint (Q22,Q2-2) with interpolation", constraint1/len(t)    # error per point 
     # print "   : Example  of complex conjugate quantities in interpolation ", rholms_intp['H1'][(2,2)](0.), rholms_intp['H1'][(2,-2)](0.)
 
+
+    print " ======= rholm test: Recover the SNR of the injection at the injection parameters (*)  =========="
+    for det in detectors:
+        lnLData = SingleDetectorLogLikelihoodData(rholms_intp, P.tref, P.theta,P.phi, P.incl, P.phiref,P.psi, P.dist, 2, det)
+        print det, lnLData, np.sqrt(lnLData), rhoExpected[det]
+
     print " ======= rholm test: interpolation check (2,2) mode: data vs timesampling =========="
     constraint1 = 0
     for det in detectors:
@@ -147,11 +166,8 @@ if checkResults == True:
         print "   : Quality of interpolation per point : 0 ~= ", constraint1/len(hxx.data.data)
 
 
-    print " ======= rholm test: Recover the SNR of the injection at the injection parameters (*)  =========="
-    for det in detectors:
-        lnLData = SingleDetectorLogLikelihoodData(rholms_intp, P.tref, P.theta,P.phi, P.incl, P.phiref,P.psi, P.dist, 2, det)
-        print det, lnLData, np.sqrt(lnLData), rhoExpected[det]
 
+    sys.exit(0)
     print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (*)  =========="
     tvals = np.linspace(0,10,3000)
     for det in detectors:
