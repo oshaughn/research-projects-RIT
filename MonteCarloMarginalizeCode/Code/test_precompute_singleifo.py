@@ -10,6 +10,7 @@ import sys
 checkResults = True # Turn on to print/plot output; Turn off for testing speed
 checkInputPlots = False
 checkResultsPlots = True
+checkResultsSlowChecks = False
 
 data_dict = {}
 psd_dict = {}
@@ -154,27 +155,43 @@ if checkResults == True:
         lnLData = SingleDetectorLogLikelihoodData(rholms_intp, P.tref, P.theta,P.phi, P.incl, P.phiref,P.psi, P.dist, 2, det)
         print det, lnLData, np.sqrt(lnLData), rhoExpected[det]
 
-    print " ======= rholm test: interpolation check (2,2) mode: data vs timesampling =========="
-    constraint1 = 0
-    for det in detectors:
-        hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
-        npts = len(hxx.data.data)
-        t= hxx.deltaT*np.arange(npts)
-#        t = map(lambda x: x if x<npts*hxx.deltaT/2 else x-npts*hxx.deltaT, hxx.deltaT*np.arange(npts))  # center at t=0
-        for i in np.arange(len(hxx.data.data)):
-            constraint1+= np.abs(hxx.data.data[i]-rholms_intp[det][(2,2)](t[i]))**2
-        print "   : Quality of interpolation per point : 0 ~= ", constraint1/len(hxx.data.data)
+    if checkResultsSlowChecks:
+        print " ======= rholm test: interpolation check (2,2) mode: data vs timesampling =========="
+        constraint1 = 0
+        for det in detectors:
+            hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
+            npts = len(hxx.data.data)
+            t= hxx.deltaT*np.arange(npts)
+        #        t = map(lambda x: x if x<npts*hxx.deltaT/2 else x-npts*hxx.deltaT, hxx.deltaT*np.arange(npts))  # center at t=0
+            for i in np.arange(len(hxx.data.data)):
+                constraint1+= np.abs(hxx.data.data[i]-rholms_intp[det][(2,2)](t[i]))**2
+            print "   : Quality of interpolation per point : 0 ~= ", constraint1/len(hxx.data.data)
 
 
 
-    sys.exit(0)
     print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (*)  =========="
-    tvals = np.linspace(0,10,3000)
+    tvals = np.linspace(0,1/df,5000)
     for det in detectors:
         lnLData = map( lambda x: SingleDetectorLogLikelihoodData(rholms_intp, x, P.theta,P.phi, P.incl, P.phiref,P.psi, P.dist, 2, det), tvals)
         plt.figure(1)
         plt.plot(tvals, lnLData,label='Ldata(t)+'+det)
     plt.legend()
+
+    tvals = np.linspace(0,0.01,500)
+    for det in detectors:
+        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(rholms_intp, x, P.theta,P.phi, P.incl, P.phiref,P.psi, P.dist, 2, det), tvals)
+        plt.figure(2)
+        plt.plot(tvals, lnLData,label='Ldata(t)+'+det)
+    plt.legend()
     plt.show()
 
 
+    print " ======= Plotting rholm timeseries (NOT timeeshifted; are rho's offset correctly?)  =========="
+    # plot the raw rholms
+    plt.figure(1)
+    for det in detectors:
+        rhonow = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
+        npts = len(rhonow.data.data)
+#        t = map(lambda x: x if x<npts*rhonow.deltaT/2 else x-npts*rhonow.deltaT, rhonow.deltaT*np.arange(npts))  # center at t=0
+        t = rhonow.deltaT*np.arange(npts)
+        plt.plot(t,np.abs(rhonow.data.data),label=det)

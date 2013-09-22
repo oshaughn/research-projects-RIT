@@ -76,6 +76,7 @@ def PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
 #        t = float(data_dict[det].epoch-P.tref)+np.arange(rho22.data.length) * rho22.deltaT
         # NOTE: This array is almost certainly wrapped in time via the inverse FFT and is NOT starting at the epoch
         t = np.arange(rho22.data.length) * rho22.deltaT
+#        t = np.linspace(-rho22.data.length/2, rho22.data.length/2+1,1)*rho22.deltaT
         print " :   ", det, " -  Finished rholms, interpolating"
         rholms_intp[det] =  InterpolateRholms(rholms[det], t, Lmax)
 
@@ -268,8 +269,10 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
 def InterpolateRholm(rholm, t):
     amp = np.abs(rholm.data.data)
     phase = unwind_phase( np.angle(rholm.data.data) )
-    ampintp = interpolate.InterpolatedUnivariateSpline(t, amp, k=3)
-    phaseintp = interpolate.InterpolatedUnivariateSpline(t, phase, k=3)
+    ampintp = interpolate.InterpolatedUnivariateSpline(t, amp, k=2)
+    phaseintp = interpolate.InterpolatedUnivariateSpline(t, phase, k=2)
+#    ampintp = interpolate.interp1d(t, amp, kind='quadratic')
+#    phaseintp = interpolate.interp1d(t, phase, kind='quadratic')
     return lambda ti: ampintp(ti)*np.exp(1j*phaseintp(ti))
 
 
