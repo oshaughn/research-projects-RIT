@@ -1,3 +1,4 @@
+import bisect
 from collections import defaultdict
 
 import numpy
@@ -114,33 +115,43 @@ class MCSampler(object):
 		p_s, rv = self.draw(n, *args)
 		joint_p_s = numpy.prod(p_s, axis=0)
 		fval = func(*rv)
+		# sum_i f(x_i)/p_s(x_i)
 		int_val = fval/joint_p_s
-		maxval = [fval[0] or 1e-300]
+		maxval = [fval[0] or 0]
 		for v in fval[1:]:
 			maxval.append( v if v > maxval[-1] else maxval[-1] )
-		eff_samp = maxval/(int_val.cumsum()/numpy.linspace(1,n,n))
+		eff_samp = int_val.cumsum()/maxval
+		indx = bisect.bisect_right(eff_samp, 100)
 		"""
-		FIXME: Debug plots. Get rid of them when done
+		#FIXME: Debug plots. Get rid of them when done
 		import matplotlib
 		matplotlib.use("Agg")
 		from matplotlib import pyplot
 		pyplot.clf()
 		pyplot.subplot(311)
-		pyplot.plot(range(len(int_val)), int_val.cumsum()/numpy.linspace(1,n,n), 'k-')
+		pyplot.plot(range(1, len(int_val)+1), int_val.cumsum()/numpy.linspace(1,n,n), 'k-')
+		pyplot.semilogx()
 		pyplot.grid()
 		pyplot.subplot(312)
-		pyplot.plot(range(len(int_val)), fval, 'b-')
+		pyplot.plot(range(1, len(int_val)+1), maxval, 'k-')
+		pyplot.plot(range(1, len(int_val)+1), fval, 'b-')
+		pyplot.semilogx()
 		pyplot.subplot(313)
-		pyplot.plot(range(len(int_val)), maxval/(int_val.cumsum()/numpy.linspace(1,n,n)), 'r-')
-		pyplot.semilogy()
-		pyplot.ylim([1e-5, 1e1])
+		pyplot.plot(range(1, len(int_val)+1), eff_samp, 'b-')
+		#pyplot.plot(range(len(int_val)), eff_samp, 'r-')
+		pyplot.loglog()
+		#pyplot.ylim([1e-1, 1e1])
 		pyplot.grid()
 		pyplot.savefig("integral.png")
 		pyplot.clf()
 		"""
-		std = int_val.std()
+		if indx == len(int_val):
+			std = 0
+		else:
+			std = int_val[indx:].std()
 		#self.save_points(int_val, joint_p_s)
 		print "%d samples saved" % len(self._cache)
 		int_val1 = int_val.sum()/n
 		# FIXME: Running stddev
-		return int_val1, std**2/n
+		# TODO: Wrong n in variance
+		return int_val1, std**2/max(1, (n-indx))
