@@ -127,7 +127,7 @@ if checkResults == True:
     print " ======= UV test: Recover the SNR of the injection  =========="
     print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] "
     for det in detectors:
-        lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, P.tref, Psig.phi, Psig.theta, P.incl, P.phiref, Psig.psi, Psig.dist, 2, det)
+        lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
         print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det]
 
 
@@ -152,8 +152,14 @@ if checkResults == True:
 
     print " ======= rholm test: Recover the SNR of the injection at the injection parameters (*)  =========="
     for det in detectors:
-        lnLData = SingleDetectorLogLikelihoodData(rholms_intp, P.tref, P.theta,P.phi, P.incl, P.phiref,P.psi, P.dist, 2, det)
+        lnLData = SingleDetectorLogLikelihoodData(rholms_intp, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
         print det, lnLData, np.sqrt(lnLData), rhoExpected[det]
+
+    print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters (*)  =========="
+    print "    *** CANNOT RUN WITH FAKE DETECTORS (as in this test) **** "
+#    lnL = FactoredLogLikelihood(P, rholms_intp, crossTerms, Lmax)
+#    print "  : Evan's code : ", lnL, " versus rho^2/2 ", rho2Net/2
+
 
     if checkResultsSlowChecks:
         print " ======= rholm test: interpolation check (2,2) mode: data vs timesampling =========="
@@ -172,16 +178,18 @@ if checkResults == True:
     print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (*)  =========="
     tvals = np.linspace(0,1/df,5000)
     for det in detectors:
-        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(rholms_intp, x, P.theta,P.phi, P.incl, P.phiref,P.psi, P.dist, 2, det), tvals)
+        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(rholms_intp, x, Psig.phi,Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
         plt.figure(1)
         plt.plot(tvals, lnLData,label='Ldata(t)+'+det)
     plt.legend()
 
     tvals = np.linspace(0,0.01,500)
     for det in detectors:
-        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(rholms_intp, x, P.theta,P.phi, P.incl, P.phiref,P.psi, P.dist, 2, det), tvals)
+        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(rholms_intp, x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
+        lnLDataEstimate = np.ones(len(tvals))*rhoExpected^2
         plt.figure(2)
         plt.plot(tvals, lnLData,label='Ldata(t)+'+det)
+        plt.plot(tvals, lnLDataEstimate,label='$\rho^2$')
     plt.legend()
     plt.show()
 

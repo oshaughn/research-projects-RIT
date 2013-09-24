@@ -1,4 +1,4 @@
-# Copyright (C) 2013  Evan Ochsner
+# Copyright (C) 2013  Evan Ochsner, R. O'Shaughnessy
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the
@@ -29,6 +29,7 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
 distMpcRef = 100
 rosDebugMessages = True
+rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
 rosDebugUseCForQTimeseries =False
 
 #
@@ -82,7 +83,7 @@ def PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
 
     return rholms_intp, crossTerms, rholms
 
-def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
+def FactoredLogLikelihood(epoch, extr_params, rholms_intp, crossTerms, Lmax):
     """
     Compute the log-likelihood = -1/2 < d - h | d - h > from:
         - extr_params is an object containing values of all extrinsic parameters
@@ -98,7 +99,7 @@ def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
     detectors = rholms_intp.keys()
 
     RA = extr_params.phi
-    DEC = extr_params.theta
+    DEC =  extr_params.theta
     tref = extr_params.tref # geocenter time
     phiref = extr_params.phiref
     incl = extr_params.incl
@@ -112,15 +113,14 @@ def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
         CT = crossTerms[det]
         F = ComplexAntennaFactor(det, RA, DEC, psi, tref)
 
-        tshifted = ComputeTimeDelay(det, RA, DEC, tref) # detector time
+        tshifted = float(ComputeArrivalTimeAtDetector(det, RA, DEC, tref) - epoch) # detector time minus fiducial time zero used in rholms.
         det_rholms_intp = rholms_intp[det]
         shifted_rholms = {}
         for key in det_rholms_intp.keys():
             func = det_rholms_intp[key]
             shifted_rholms[key] = func(tshifted)
 
-        lnL += SingleDetectorLogLikelihood(shifted_rholms, CT, Ylms, F, dist,
-                Lmax)
+        lnL += SingleDetectorLogLikelihood(shifted_rholms, CT, Ylms, F, dist, Lmax)
 
     return lnL
 
@@ -165,13 +165,14 @@ def SingleDetectorLogLikelihoodData(rholmsDictionary,tref, RA,DEC, thS,phiS,psi,
     else:
         F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
         detector = lalsim.DetectorPrefixToLALDetector(det)
-        tshift = ComputeTimeDelay(det, RA,DEC, tref)
+        tshift = ComputeArrivalTimeAtDetector(det, RA,DEC, tref)
     rholms_intp = rholmsDictionary[det]
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
     term1 = 0.
     for pair in rholms_intp:
-        term1+= np.conj(F*Ylms[pair])*rholms_intp[pair](tref-tshift)
+#        print " adding term to lnLdata ", pair
+        term1+= np.conj(F*Ylms[pair])*rholms_intp[pair]( float(tref-tshift))
     # for l in range(2,Lmax+1):
     #     for m in range(-l,l+1):
     #         term1 += F * Ylms[(l,m)] * rholm_vals[(l,m)]
@@ -246,7 +247,7 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
             for l in range(2,Lmax+1):
                 for m in range(-l,l+1):
                     rhoTS = lalsim.SphHarmTimeSeriesGetMode(rholms, l, m)
-                    print  "     :  value of <hlm|data> ", l,m,  np.amax(np.abs(rhoTS.data.data))  , " with length ", len(rhoTS.data.data)
+                    print  "     :  value of <hlm|data> ", l,m,  np.amax(np.abs(rhoTS.data.data))   #, " with length ", len(rhoTS.data.data)
     else:
         Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
         for l in range(2,Lmax+1):
@@ -260,7 +261,7 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
                     print  "     :  value of <hlm|data> ", l,m, rho, np.amax(np.abs(rhoTS.data.data))  # Debuging info
                     rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, hlm)
                     rhoRegular = IPRegular.ip(hlm,hlm)
-                    print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
+                    print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular # ,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
             
 
     # FIXME: Add ability to cut down to a narrow time window
@@ -337,8 +338,11 @@ def ComplexAntennaFactor(det, RA, DEC, psi, tref):
     'psi' is the polarization angle
     'tref' is the reference GPS time
     """
+    global rosDebugMessages
     detector = lalsim.DetectorPrefixToLALDetector(det)
-    Fp, Fc = lal.ComputeDetAMResponse(detector.response, RA, DEC, psi, tref)
+    Fp, Fc = lal.ComputeDetAMResponse(detector.response, RA, DEC, psi, lal.GreenwichMeanSiderealTime(tref))
+    if rosDebugMessagesLong:
+        print " : Detector response in ComplexAntenna factor (det, t, RA, DEC, psi, Fp,Fx) ", det, float(tref), RA,DEC, psi, Fp, Fc
 
     return Fp + 1j * Fc
 
@@ -359,7 +363,7 @@ def ComputeYlms(Lmax, theta, phi):
 
     return Ylms
 
-def ComputeTimeDelay(det, RA, DEC, tref):
+def ComputeArrivalTimeAtDetector(det, RA, DEC, tref):  ## should be relabelled to be 'ComputeArrivalTimeAtDetector'!
     """
     Function to compute the time of arrival at a detector
     from the time of arrival at the geocenter.
@@ -381,8 +385,13 @@ def non_herm_hoff(P):
     hp.epoch = hp.epoch + P.tref
     hc.epoch = hc.epoch + P.tref
     hoft = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc,
-            P.theta, P.phi, P.psi,
+             P.phi,  P.theta, P.psi,
             lalsim.InstrumentNameToLALDetector(P.detector))
+    if rosDebugMessages:
+        print " +++ Injection creation ++ "
+        print  "   : Creating signal for injection with epoch ", float(hp.epoch)
+        Fp, Fc = lal.ComputeDetAMResponse(lalsim.InstrumentNameToLALDetector(P.detector).response, P.phi, P.theta, P.psi, lal.GreenwichMeanSiderealTime(hp.epoch))
+        print "  : creating signal for injection with (det, t,RA, DEC,psi,Fp,Fx)= ", P.detector, float(P.tref), P.phi, P.theta, P.psi, Fp, Fc
     if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
         lalsim.SimInspiralREAL8WaveTaper(hoft.data, P.taper)
     if P.deltaF == None:

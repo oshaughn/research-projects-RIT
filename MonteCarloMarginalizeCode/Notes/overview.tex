@@ -582,6 +582,7 @@ $L_{\rm data}$ and $L_{\rm model}$ for any event time via
 {\color{blue} \frac{1}{2} (d_{\rm ref}/d) \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi_J} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot x_k)
    + (F_k(-\hat{k}) \Y{-2}_{lm}(\hat{n}) e^{-2\psi_J}) P_{k,lm}(t-\hat{k}\cdot x_k) 
 } \nonumber \\
+\label{eq:Implementation:lnLData}
 &={\color{blue}  (d_{\rm ref}/d) \text{Re} \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi_J} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot x_k)}
 \end{align}
 Assuming $P,Q$ are interpolated off a small number of basis points, this expression can be evaluated ``analytically''.
@@ -980,12 +981,21 @@ $\lambda'$ the signal, using quasi-orthogonality of $h_{lm}$ for different $m$'s
 \begin{shaded}
 \noindent \textbf{Fiducial value}: $Q_{22}(0)$ for the fiducial $4+3 M_\odot$ binary at 25 Mpc optimally oiented above a
 single detector is
-\begin{eqnarray}
-Q_{l,22} = \qmstateproduct{h_{22}(d)}{\text{Re}[h_{lm}]}\Y{-2}_{lm}(\hat{z')) 
-\simeq  \frac{(d_{\rm ref}/d)}{2}  U_{22,22} \frac{\sqrt{5}{4\pi}}
-\end{eqnarray}
+ \begin{eqnarray}
+ Q_{l,22} = \qmstateproduct{h_{22}(d)}{\text{Re}[h_{lm}]}\Y{-2}_{lm}(\hat{z'}) 
+\simeq  \frac{(d_{\rm ref}/d)}{2}  U_{22,22} \sqrt{ \frac{5}{4\pi}}
+ \end{eqnarray}
 where this result is a good approximation because of $Y(\hat{z})=0$ unless $m=2$. For the fiducial binary with
-$U_{22,22}\simeq 137$, 
+$U_{22,22}\simeq 137$, this predicts $Q_{1,22}\simeq 173$.
+%% Sqrt[5/(4 Pi)]/2  // N
+%% %*137* (100/25)
+
+\noindent \emph{Back-substituting}: Back-substituting this expression into $\ln L_{\rm data}$
+          [Eq. (\ref{eq:Implementation:lnLData}) we must recover $\rho^2 = \qmstateproduct{h_+}{h_+}$
+\begin{eqnarray}
+\ln L_{\rm data} = (d_{\rm ref}/d) \text{Re} \Y{-2}_{22}^* Q_{22}(0) = \frac{(d_{\rm ref}/d)^2}{2} U_{22,22} \frac{5}{4\pi}
+\end{eqnarray}
+Inevitably this expression agrees with our other approach to the same problem
 \end{shaded}
 
 

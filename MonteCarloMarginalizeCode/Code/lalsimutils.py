@@ -78,8 +78,8 @@ class ChooseWaveformParams:
         self.ampO = ampO
         self.phaseO = phaseO
         self.approx = approx
-        self.theta = theta
-        self.phi = phi
+        self.theta = theta     # DEC.  DEC =0 on the equator; the south pole has DEC = - pi/2
+        self.phi = phi         # RA.   
         self.psi = psi
         self.tref = tref
         self.radec = radec

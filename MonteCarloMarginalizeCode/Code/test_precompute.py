@@ -7,7 +7,8 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
 from factored_likelihood import *
 from matplotlib import pylab as plt
-
+import sys
+import scipy.optimize
 
 #
 # Set by user
@@ -15,6 +16,9 @@ from matplotlib import pylab as plt
 checkResults = True # Turn on to print/plot output; Turn off for testing speed
 checkInputPlots = False
 checkResultsPlots = True
+checkRhoIngredients = False
+rosUseRandomSkyLocation = True
+rosUseRandomSourceOrientation = True
 
 #
 # Produce data with a coherent signal in H1, L1, V1
@@ -30,7 +34,10 @@ fminSNR = 25
 fSample = 4096
 distanceFiducial = 25.  # Make same as reference
 
-
+theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
+#theEpochFiducial = 1064023405.000000000
+#theEpochFiducial =   1000000000
+#theEpochFiducial =   0
 
 # psd_dict['H1'] = lal.LIGOIPsd
 # psd_dict['L1'] = lal.LIGOIPsd
@@ -46,25 +53,38 @@ m2 = 3*lal.LAL_MSUN_SI
 ampO =0 # sets which modes to include in the physical signal
 Lmax = 2  # sets which modes to include in the output
 fref = 100
+    
 Psig = ChooseWaveformParams(fmin = fminWaves, radec=True, incl=0.0,phiref=0.0, theta=0.2, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,
+                            tref=theEpochFiducial,
          deltaT=1./fSample,
         detector='H1', dist=distanceFiducial*1.e6*lal.LAL_PC_SI)
+if rosUseRandomSkyLocation:
+    print "   --- Generating a random sky location  ---- " 
+    Psig.theta = np.arccos( 2*(np.random.random_sample())-1)
+    Psig.phi = (np.random.random_sample())*2*lal.LAL_PI
+    Psig.psi = (np.random.random_sample())*lal.LAL_PI
+if rosUseRandomSourceOrientation:
+    print "   --- Generating a random source orientation  ---- " 
+    Psig.incl = np.arccos( 2*(np.random.random_sample())-1)
+    Psig.phiref = (np.random.random_sample())*2*lal.LAL_PI
+
 df = findDeltaF(Psig)
 Psig.deltaF = df
 Psig.print_params()
 print " ======= Generating synthetic data in each interferometer (manual timeshifts) =========="
 t0 = Psig.tref
-Psig.tref = t0 + ComputeTimeDelay('H1', Psig.theta,Psig.phi,Psig.tref)
+Psig.tref =  ComputeArrivalTimeAtDetector('H1', Psig.phi,Psig.theta,Psig.tref)
 data_dict['H1'] = non_herm_hoff(Psig)
 Psig.detector = 'L1'
-Psig.tref = t0 + ComputeTimeDelay('L1', Psig.theta,Psig.phi,Psig.tref)
+Psig.tref =ComputeArrivalTimeAtDetector('L1', Psig.phi,Psig.theta,Psig.tref)
 data_dict['L1'] = non_herm_hoff(Psig)
 Psig.detector = 'V1'
-Psig.tref = t0 + ComputeTimeDelay('V1', Psig.theta,Psig.phi,Psig.tref)
+Psig.tref =  ComputeArrivalTimeAtDetector('V1', Psig.phi,Psig.theta,Psig.tref)
 data_dict['V1'] = non_herm_hoff(Psig)
+
 
 print " == Data report == "
 detectors = data_dict.keys()
@@ -75,15 +95,16 @@ for det in detectors:
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
     rhoExpectedAlt[det] = rhoDet2 = IPOverlap.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
-    print det, rhoDet, rhoDet2, " at epoch ", float(data_dict[det].epoch), " with time delay ", ComputeTimeDelay(det, Psig.theta,Psig.phi,Psig.tref)
+    print det, rhoDet, rhoDet2, " at epoch ", float(data_dict[det].epoch), " with arrival time ", float(ComputeArrivalTimeAtDetector(det, Psig.phi,Psig.theta,Psig.tref))
 print "Network : ", np.sqrt(rho2Net)
 
 if checkInputPlots:
     print " == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
     P = Psig.copy()
+    P.tref = t0
     for det in detectors:
         P.detector=det
-        P.tref += ComputeTimeDelay(det, P.theta,P.phi,P.tref)
+        P.tref = ComputeArrivalTimeAtDetector(det, P.phi, P.theta,P.tref)
         hT = hoft(P)
         tvals = P.tref + hT.deltaT*np.arange(len(hT.data.data))
         plt.figure(1)
@@ -150,7 +171,7 @@ if checkResults == True:
     print " ======= UV test: Recover the SNR of the injection  =========="
     print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] "
     for det in detectors:
-        lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, P.tref, Psig.phi, Psig.theta, P.incl, P.phiref, Psig.psi, Psig.dist, 2, det)
+        lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
         print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det]
 
 
@@ -172,44 +193,36 @@ if checkResults == True:
     # print "   : Reflection symmetry constraint (Q22,Q2-2) with interpolation", constraint1/len(t)    # error per point 
     # print "   : Example  of complex conjugate quantities in interpolation ", rholms_intp['H1'][(2,2)](0.), rholms_intp['H1'][(2,-2)](0.)
 
-    print " ======= rholm test: interpolation check (2,2) mode: data vs timesampling =========="
-    constraint1 = 0
-    for det in detectors:
-        hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
-        npts = len(hxx.data.data)
-        t= hxx.deltaT*np.arange(npts)
-#        t = map(lambda x: x if x<npts*hxx.deltaT/2 else x-npts*hxx.deltaT, hxx.deltaT*np.arange(npts))  # center at t=0
-        for i in np.arange(len(hxx.data.data)):
-            constraint1+= np.abs(hxx.data.data[i]-rholms_intp[det][(2,2)](t[i]))**2
-        print "   : Quality of interpolation per point : 0 ~= ", constraint1/len(hxx.data.data)
-
-        
-    # print " ======= rholm test: Epochs and timing =========="
-    # for det in detectors:
-    #     for pair1 in rholms_intp['V1']:
-    #         hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
-    #         print det, pair1, float(hxx.epoch), float(hxx.deltaT)
-
-
-
     print " ======= rholm test: Recover the SNR of the injection at the injection parameters (*)  =========="
     for det in detectors:
-        lnLData = SingleDetectorLogLikelihoodData(rholms_intp, P.tref, P.theta,P.phi, P.incl, P.phiref,P.psi, P.dist, 2, det)
+        lnLData = SingleDetectorLogLikelihoodData(rholms_intp, Psig.tref, Psig.phi,  Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det)
         print det, lnLData, np.sqrt(lnLData), rhoExpected[det]
 
+    print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters (*)  =========="
+    lnL = FactoredLogLikelihood(theEpochFiducial,Psig, rholms_intp, crossTerms, Lmax)
+    print "  : Evan's code : ", lnL, " versus rho^2/2 ", rho2Net/2
+
     print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (*)  =========="
-    tvals = np.linspace(0,10,3000)
+    tvals = np.linspace(0,1/df,5000)
     for det in detectors:
-        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(rholms_intp, x, P.theta,P.phi, P.incl, P.phiref,P.psi, P.dist, 2, det), tvals)
+        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(rholms_intp, x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
         plt.figure(1)
         plt.plot(tvals, lnLData,label='Ldata(t)+'+det)
     plt.legend()
-    plt.show()
+
+
+    print " ======= End to end LogL: Maximize in polarization and time (*)  =========="
+    lnLmax = scipy.optimize.fmin( (lambda (x,y) : SingleDetectorLogLikelihoodData(rholms_intp, x+theEpochFiducial, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,y, Psig.dist, 2, det) if y>0 and y<lal.LAL_PI and x>0 and x<1/Psig.deltaF else 0), [0.001, Psig.psi],maxiter=1000)
+    print "  : Evan after optimizing in phase and time ", lnLmax
+
+
+        
 
     
 
-if checkResultsPlots == True:
+if checkRhoIngredients == True:
 
+    
     print " ======= rholm ingredients: the integrand (for 22 vs H1) =========="
     hlms = hlmoff(Psig, Lmax)
     h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms, 2, 2)
@@ -239,6 +252,20 @@ if checkResultsPlots == True:
     plt.legend()
     plt.show()  # Show at the same time as the others
 
+
+    print " ======= rholm test: interpolation check (2,2) mode: data vs timesampling =========="
+    constraint1 = 0
+    for det in detectors:
+        hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
+        npts = len(hxx.data.data)
+        t= hxx.deltaT*np.arange(npts)
+#        t = map(lambda x: x if x<npts*hxx.deltaT/2 else x-npts*hxx.deltaT, hxx.deltaT*np.arange(npts))  # center at t=0
+        for i in np.arange(len(hxx.data.data)):
+            constraint1+= np.abs(hxx.data.data[i]-rholms_intp[det][(2,2)](t[i]))**2
+        print "   : Quality of interpolation per point : 0 ~= ", constraint1/len(hxx.data.data)
+
+
+if checkResultsPlots == True:
 
     print " ======= rholm operation: calling ComplexOverlap (for 22 vs H1) =========="
 
