@@ -73,8 +73,10 @@ class MCSampler(object):
 		def dP_cdf(p, x):
 			return self.pdf[param](x)
 		x_i = numpy.linspace(self.llim[param], self.rlim[param], 1000)
-		# FIXME: Why does this return only a nearly complete (0,1) interval
-		cdf = integrate.odeint(dP_cdf, [0], x_i).T[0]
+		# Integrator needs to have a step size which doesn't step over the
+		# probability mass
+		# TODO: Determine h_max.
+		cdf = integrate.odeint(dP_cdf, [0], x_i, hmax=0.1).T[0]
 		if cdf[-1] != 1.0: # original pdf wasn't normalized
 			self._pdf_norm[param] = cdf[-1]
 			cdf /= cdf[-1]
