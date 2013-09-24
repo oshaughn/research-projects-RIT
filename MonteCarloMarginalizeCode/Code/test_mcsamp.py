@@ -6,8 +6,10 @@ import itertools
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib import pyplot
+from mpl_toolkits.basemap import Basemap
 
 import numpy
+import scipy.integrate
 import scipy.special
 
 from mcsampler import MCSampler
@@ -17,6 +19,16 @@ __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 #
 # Plotting utilities
 #
+
+def plot_integrand(fcn, x1, x2):
+	"""
+	Plot integrand (fcn) from x1 to x2
+	"""
+	pyplot.figure()
+	x_i = numpy.linspace(x1, x2, 1000)
+	pyplot.plot(x_i, fcn(x_i))
+	pyplot.savefig("integrand.png")
+
 
 def plot_pdf(samp):
 	"""
@@ -30,7 +42,6 @@ def plot_pdf(samp):
 	pyplot.grid()
 	pyplot.legend()
 	pyplot.savefig("pdf.png")
-	pyplot.clf()
 
 def plot_cdf_inv(samp):
 	"""
@@ -102,7 +113,6 @@ def plot_ra_dec(samp):
 	"""
 	samples = samp._rvs
 	fig = pyplot.figure(figsize=(10,10))
-	from mpl_toolkits.basemap import Basemap
 	hist, xedge, yedge = numpy.histogram2d(samples["ra"], samples["dec"], bins=(100, 100))
 	x, y = numpy.meshgrid(xedge, yedge)
 	x *= 180/numpy.pi
@@ -118,7 +128,9 @@ if sys.argv[1] is None:
 	print "Usage: mcsamp_test npoints"
 	exit(-1)
 
+#
 # set up bounds on parameters
+#
 
 # Polarization angle
 #psi_min, psi_max = 0, 2*numpy.pi
@@ -159,9 +171,85 @@ def inv_gauss_cdf(mu, std, x):
 
 samp = MCSampler()
 
-#pyplot.hist( gauss_samp(0, 1, inv_gauss_cdf(0, 1, numpy.random.uniform(0,1,10000))))
-#pyplot.hist(inv_gauss_cdf(0, 1, numpy.random.uniform(0,1,10000)))
-#pyplot.savefig("hist.png", nbins=20)
+def integrand_1d(p):
+	return 1.0/numpy.sqrt(2*numpy.pi*psi_width**2)*numpy.exp(-(p-psi_val)**2/2.0/psi_width**2)
+plot_integrand(integrand_1d, psi_min, psi_max)
+
+#
+# Test 1: What happens when we know the exact right answer
+#
+
+samp.add_parameter("psi", functools.partial(gauss_samp, psi_val, psi_width), None, psi_min, psi_max)
+print samp.integrate(integrand_1d, 1, "psi")
+integral = scipy.integrate.quad(integrand_1d, psi_min, psi_max)[0]
+print "scipy answer: %f" % integral
+plot_pdf(samp)
+plot_cdf_inv(samp)
+plot_one_d_hist(samp)
+#plot_two_d_hist(samp)
+#plot_ra_dec(samp)
+samp.clear()
+
+#
+# Test 2: Same integrand, uniform sampling
+#
+
+samp.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), None, psi_min, psi_max)
+print samp.integrate(integrand_1d, int(sys.argv[1]), "psi")
+plot_pdf(samp)
+plot_cdf_inv(samp)
+plot_one_d_hist(samp)
+#plot_two_d_hist(samp)
+#plot_ra_dec(samp)
+samp.clear()
+
+#
+# Test 3: Same integrand, gaussian sampling -- various width and offsets
+#
+widths = [0.1, 0.2, 0.5, 0.8, 0.9, 0.99, 1.01, 1.1, 1.5, 2, 4, 5, 10]
+offsets = [-2.0, -1.0, -0.5, -0.25, -0.1, -0.01, 0.01, 0.1, 0.25, 0.5, 1.0, 2.0]
+
+variances = []
+wo = []
+for w, o in itertools.product(widths, offsets):
+	samp.add_parameter("psi", functools.partial(gauss_samp, psi_val-o*psi_width, w*psi_width), None, psi_min, psi_max)
+	print "Width of Gaussian sampler (in units of the width of the integrand: %f" % w
+	print "offset of Gaussian sampler (in units of the width of the integrand: %f" % o
+	res, var = samp.integrate(integrand_1d, int(sys.argv[1]), "psi")
+	variances.append(var)
+	wo.append((w, o))
+	print res, var
+
+pyplot.figure()
+widths, offsets = zip(*wo)
+pyplot.grid()
+pyplot.xlabel("width in units of $\\sigma_{\\psi}$")
+pyplot.ylabel("offset in units of $\\sigma_{\\psi}$")
+pyplot.scatter(widths, offsets, c=numpy.log10(numpy.array(variances)))
+cbar = pyplot.colorbar()
+cbar.set_label("log10 variance")
+pyplot.semilogx()
+pyplot.savefig("gsamp_variances.png")
+
+exit()
+
+#
+# Testing convergence: Loop over samples and test sigma relation for desired error
+# 
+pyplot.figure()
+for n in 10**(numpy.arange(1,6)):
+	ans = []
+	for i in range(1000):
+		res, var = samp.integrate(integrand_1d, int(sys.argv[1]), "psi")
+		ans.append( (res-1.0)/numpy.sqrt(var) )
+	pyplot.hist(ans, bins=20, label="%d" % n)
+pyplot.title("$(I-\\bar{I})/\\bar\\sigma$")
+pyplot.grid()
+pyplot.legend()
+pyplot.savefig("integral_hist.png")
+
+samp.clear()
+exit()
 
 # Uniform sampling, cdf provided
 #samp.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), functools.partial(inv_uniform_cdf, psi_min, psi_max), psi_min, psi_max)
@@ -178,11 +266,14 @@ samp.add_parameter("phi", functools.partial(uniform_samp, phi_min, phi_max), Non
 samp.add_parameter("inc", functools.partial(gauss_samp, inc_val, 2*inc_width), None, inc_min, inc_max)
 samp.add_parameter("dist", functools.partial(uniform_samp, dist_min, dist_max), None, dist_min, dist_max)
 
-
 # Gaussian sampling, auto-cdf inverse -- Doesn't work yet
 #samp.add_parameter("psi", functools.partial(gauss_samp, 0, (psi_max-psi_min)/3.0), None, psi_min, psi_max)
 #samp.add_parameter("ra", functools.partial(gauss_samp, 0, (ra_max-ra_min)/10.0), None, ra_min, ra_max)
 #samp.add_parameter("dec", functools.partial(gauss_samp, (dec_max+dec_min)/2, (dec_max-dec_min)/10.0), None, dec_min, dec_max)
+
+#
+# Full 6-D test
+#
 
 a, b, c, d, e, f = 2*psi_width**2, 2*ra_width**2, 2*dec_width**2, 2*inc_width**2, 2*phi_width**2, 2*dist_width**2
 norm = 1.0/numpy.sqrt((numpy.pi)**len(samp.params)*a*b*c*d*e*f)
@@ -214,11 +305,7 @@ def integrand(p, r, dec, ph, i, di):
 	exponent.fill_value = 0
 	#print ma.count(exponent)
 	return norm * numpy.exp(exponent)
-def integrand_1d(p):
-	return 1.0/numpy.sqrt(2*numpy.pi*psi_width**2)*numpy.exp(-(p-psi_val)**2/a)
 
-import scipy.integrate
-#integral = scipy.integrate.quad(integrand_1d, psi_min, psi_max)[0]
 #integral = scipy.integrate.tplquad(integrand, dec_min, dec_max, lambda x: ra_min, lambda x: ra_max, lambda x, y: psi_min, lambda x, y: psi_max)[0]
 #print "scipy says: %f" % integral
 
