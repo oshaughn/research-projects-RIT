@@ -75,6 +75,13 @@ first read.
 \nocite{gwastro-HarryFairhurst-CoherentTargetedSearch}
 % Keppel http://adsabs.harvard.edu/cgi-bin/nph-data_query?bibcode=2012arXiv1208.2340K&link_type=ABSTRACT
 
+
+\editremark{MISC}
+
+* Convergence rate diagnostic for whether sampler is working
+
+
+
 \section{Stage 0: What are we calculating}
 
 \subsection{The reduced likelihood}
@@ -812,10 +819,36 @@ The first  term (blue) tell us the shape of the sky position posterior on the pl
 (combined with the first) tells us the best-fitting sky position
 \end{shaded}
 
-\subsection{Extrinsic marginalization: Distance (*)}
+\subsection{Extrinsic marginalization: Distance  [PLACEHOLDER DOCS] (*)}
 
 \noindent \textbf{Distance distribution}: The distance prior is dominated by the largest distances allowed.  Conversely,
-the distance posterior is of order unity width times the regular
+the distance posterior is of order unity.
+%
+For any \emph{individual} sky location and template, the actual distance posterior has the form \editremark{See eqna}
+\begin{eqnarray}
+p(r)dr \propto  r^2 dr \exp \left[ -\rho_{\rm ref}^2 (d_{\rm ref}/d)^2//2 + \qmstateproduct{{\cal S}(\hat{n})}{h_{\rm
+      ref}}_{\rm ref} (d_{\rm
+    ref}/d) \right]
+\end{eqnarray}
+where ${\cal S}(\hat{n})$ is a sky-position-dependent resumming of the data into quasi-coherent form; where
+$\qmstateproduct{.}{.}_{\rm ref}$ refers to the weighted inner product described near
+Eq. (\ref{eq:def:BarycenteredInnerProductWithData}); and where $h_{\rm ref}$ and $\rho_{\rm ref}$ refer to the signal
+and signal amplitude at the proposed model parameters, evaluated at $d=d_{\rm ref}$.
+
+\begin{shaded}
+\noindent \textbf{Distance targeting with trigger [tempate-dependent sampling]}:  \editremark{XXX}
+So in practice the distance distribution has the form
+\begin{eqnarray}
+p(r)dr \propto r^2 dr \exp[ -(r_0/r)^2/2 + (r_o/r)]
+\end{eqnarray}
+for some constant $r_o$ to be provided \editremark{provide a specific formula}.  An example of distance-targeted sampling is shown in Figure
+\ref{fig:Milestones:DemoSampler:Mathematica}.  
+
+\noindent \textbf{Distance targeting with template [tempate-dependent sampling]}: We are free to \emph{use a different
+  sampling distribution at each template.}  Suppose we have a candidate template.  Putting that source at a
+reference distance ($d_{\rm ref}=100 Mpc$) in any one detector tells us the distance posterior for that template \emph{automatically}: we
+are free to use that posterior as a sampling distribution.   \editremark{write down}
+\end{shaded}
 
 \end{widetext}
 
@@ -1117,8 +1150,8 @@ Uniform sampling won't work -- we need a narrow prior using time-of-flight infor
 \begin{figure*}
 \includegraphics{Figures/fig-mma-DemoSampler.pdf}
 \caption{\label{fig:Milestones:DemoSampler:Mathematica}\textbf{Example sampler results (Mathematica)}: Example of a
-  uniform sampler (left) and time-of-flight-targeted sampler (right).  Plots show the sky position distribution (top);
-  time distribution (center); and distance distribution (right). 
+  uniform sampler (left) and time-of-flight-targeted and distance-targeted sampler (right).  Plots show the sky position distribution (top);
+  time distribution (center); and distance distribution (right).   The distance-targeted sampler uses a common distance distribution
 }
 \end{figure*}
 
@@ -1283,11 +1316,9 @@ allowing high trigger rates. \editremark{I wonder if this is useful}.
 
 \noindent \textbf{Input check}: 
 
-* I use the raw $h_{lm}(t)$ in my mathematica code -- it's fine
-
-* $\tilde{h}_{lm(f)}$
-
 * Fourier convention: $\tilde{h}_{22}$ should have only positive frequencies \editremark{checkme}
+
+\noindent \textbf{Time shift check}: \editremark{INTENTIONALLY BREAKING TIMESHIFT} by rolling the signal at the end.
 
 \noindent \textbf{Operations check}
 
@@ -1315,6 +1346,7 @@ memory bloat
 \noindent \textbf{Converter}: Dump to quasi-MCMC output (\texttt{BayesianInport})
 
 \section{Python implementaiton}
+
 
 \noindent \textbf{Serial pipeline}: Rather than parallelize across the cluster, do a full zero-spin serial operation.
 It will be easier to document the physics and infrastructure if it's in one code.

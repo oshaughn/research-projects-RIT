@@ -23,6 +23,7 @@ fminSNR = 25
 fSample = 4096
 
 ifoName = "Fake"
+theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
 
 # Create complex FD data that does not assume Hermitianity - i.e.
 # contains positive and negative freq. content
@@ -61,6 +62,7 @@ distanceFiducial = 25.  # Make same as reference
 psd_dict[ifoName] =  lalsim.SimNoisePSDiLIGOSRD
 m1 = 4*lal.LAL_MSUN_SI
 m2 = 3*lal.LAL_MSUN_SI
+tEventFiducial = 0.0
 ampO =0 # sets which modes to include in the physical signal
 Lmax = 2  # sets which modes to include in the output
 fref = 100
@@ -68,6 +70,7 @@ Psig = ChooseWaveformParams(fmin = fminWaves, radec=False, incl=0.0,phiref=0.0, 
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,
+         tref=theEpochFiducial+tEventFiducial,
          deltaT=1./fSample,
          dist=distanceFiducial*1.e6*lal.LAL_PC_SI)
 df = findDeltaF(Psig)
@@ -101,10 +104,11 @@ P = ChooseWaveformParams(fmin=fminWaves, radec=False, incl=0.0,phiref=0.0, theta
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,
+         tref=theEpochFiducial,
          deltaT=1./fSample,
          dist=100*1.e6*lal.LAL_PC_SI,
          deltaF=df) #ChooseWaveformParams(m1=m1,m2=m2,fmin = fminWaves, dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO,fref=fref)
-rholms_intp, crossTerms, rholms = PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax, analyticPSD_Q)
+rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict, psd_dict, Lmax, analyticPSD_Q)
 
 if checkResults == True:
     # Print values of cross terms
@@ -150,10 +154,12 @@ if checkResults == True:
     # print "   : Example  of complex conjugate quantities in interpolation ", rholms_intp['H1'][(2,2)](0.), rholms_intp['H1'][(2,-2)](0.)
 
 
-    print " ======= rholm test: Recover the SNR of the injection at the injection parameters (*)  =========="
+    print " ======= rholm test: Recover the SNR of the injection at the injection parameters  =========="
+    print "  WARNING: the interpolation is done with its own epoch "
     for det in detectors:
-        lnLData = SingleDetectorLogLikelihoodData(rholms_intp, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
+        lnLData = SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
         print det, lnLData, np.sqrt(lnLData), rhoExpected[det]
+
 
     print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters (*)  =========="
     print "    *** CANNOT RUN WITH FAKE DETECTORS (as in this test) **** "
@@ -161,7 +167,58 @@ if checkResults == True:
 #    print "  : Evan's code : ", lnL, " versus rho^2/2 ", rho2Net/2
 
 
+
+
+    print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (*)  =========="
+    # tvals = np.linspace(-0.1,0.1,5000)
+    # for det in detectors:
+    #     lnLData = map( (lambda x: SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi,Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det)), tvals)
+    #     lnLDataEstimate = np.ones(len(tvals))*rho2Net
+    #     plt.figure(1)
+    #     plt.plot(tvals, lnLData,label='Ldata(t)+'+det)
+    #     plt.plot(tvals, lnLDataEstimate,label="$rho^2$")
+    #     plt.ylim(0, rho2Net*1.1)
+    #     tEventRelative =float( Psig.tref - theEpochFiducial)
+    # plt.plot([tEventRelative,0],[tEventRelative,rho2Net], color='k',linestyle='-')
+    # plt.title("lnL (interpolated) vs all time")
+    # plt.legend()
+
+    tvals = np.linspace(-0.02,0.02,1000)
+    for det in detectors:
+        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
+#        print lnLData
+        lnLDataEstimate = np.ones(len(tvals))*rho2Net
+        plt.figure(2)
+        tvalsPlot = tvals - float(epoch_post - theEpochFiducial)
+        plt.plot(tvalsPlot, lnLData,label='Ldata(t)+'+det)
+        plt.plot(tvalsPlot, lnLDataEstimate,label="$rho^2$")
+        plt.ylim(-rho2Net, rho2Net*1.1)
+    tEventRelative =float( Psig.tref - theEpochFiducial)
+    print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
+    plt.plot([tEventRelative,0],[tEventRelative,rho2Net], color='k',linestyle='--')
+    plt.title("lnL (interpolated) vs narrow time interval")
+    plt.legend()
+    plt.show()
+
+
+
     if checkResultsSlowChecks:
+
+        print " ======= Plotting rholm timeseries (NOT timeeshifted; are rho's offset correctly?)  =========="
+        # plot the raw rholms
+        plt.figure(5)
+        for det in detectors:
+            QestimateScalar  = crossTerms[det][((2,2),(2,2))]*(100/distanceFiducial)/2. * np.sqrt(5./(4*lal.LAL_PI))
+            rhonow = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
+            print "  rho timeseries :(det, max, expected) = ",  det,np.max(np.abs(rhonow.data.data)),QestimateScalar, "   [should be equal]"
+            npts = len(rhonow.data.data)
+            t = rhonow.deltaT*np.arange(npts)
+            plt.plot(t,np.abs(rhonow.data.data),label='rholm(2,2):'+det)
+            Qestimate = np.ones(len(t))*np.abs(QestimateScalar)
+            plt.plot(t,Qestimate)
+            plt.title("rholm(2,2) vs all time")
+            plt.legend()
+        plt.show()
         print " ======= rholm test: interpolation check (2,2) mode: data vs timesampling =========="
         constraint1 = 0
         for det in detectors:
@@ -173,33 +230,3 @@ if checkResults == True:
                 constraint1+= np.abs(hxx.data.data[i]-rholms_intp[det][(2,2)](t[i]))**2
             print "   : Quality of interpolation per point : 0 ~= ", constraint1/len(hxx.data.data)
 
-
-
-    print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (*)  =========="
-    tvals = np.linspace(0,1/df,5000)
-    for det in detectors:
-        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(rholms_intp, x, Psig.phi,Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
-        plt.figure(1)
-        plt.plot(tvals, lnLData,label='Ldata(t)+'+det)
-    plt.legend()
-
-    tvals = np.linspace(0,0.01,500)
-    for det in detectors:
-        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(rholms_intp, x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
-        lnLDataEstimate = np.ones(len(tvals))*rhoExpected^2
-        plt.figure(2)
-        plt.plot(tvals, lnLData,label='Ldata(t)+'+det)
-        plt.plot(tvals, lnLDataEstimate,label='$\rho^2$')
-    plt.legend()
-    plt.show()
-
-
-    print " ======= Plotting rholm timeseries (NOT timeeshifted; are rho's offset correctly?)  =========="
-    # plot the raw rholms
-    plt.figure(1)
-    for det in detectors:
-        rhonow = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
-        npts = len(rhonow.data.data)
-#        t = map(lambda x: x if x<npts*rhonow.deltaT/2 else x-npts*rhonow.deltaT, rhonow.deltaT*np.arange(npts))  # center at t=0
-        t = rhonow.deltaT*np.arange(npts)
-        plt.plot(t,np.abs(rhonow.data.data),label=det)

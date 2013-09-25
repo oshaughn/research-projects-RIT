@@ -58,7 +58,7 @@ Psig = ChooseWaveformParams(fmin = fminWaves, radec=True, incl=0.0,phiref=0.0, t
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,
-                            tref=theEpochFiducial,
+         tref=theEpochFiducial,
          deltaT=1./fSample,
         detector='H1', dist=distanceFiducial*1.e6*lal.LAL_PC_SI)
 if rosUseRandomSkyLocation:
@@ -141,9 +141,10 @@ P =  ChooseWaveformParams(fmin=fminWaves, radec=False, incl=0.0,phiref=0.0, thet
          ampO=ampO,
          fref=fref,
          deltaT=1./fSample,
+         tref=theEpochFiducial,
          dist=100*1.e6*lal.LAL_PC_SI,
          deltaF=df)
-rholms_intp, crossTerms, rholms = PrecomputeLikelihoodTerms(P, data_dict, psd_dict, Lmax, analyticPSD_Q)
+rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict, psd_dict, Lmax, analyticPSD_Q)
 
 
 print " ======= Reporting on results =========="
@@ -172,7 +173,7 @@ if checkResults == True:
     print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] "
     for det in detectors:
         lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
-        print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det]
+        print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det], "      [last two equal?]"
 
 
     print " ======= rholm complex conjugation check (22 and 2-2 modes only) =========="
@@ -195,30 +196,13 @@ if checkResults == True:
 
     print " ======= rholm test: Recover the SNR of the injection at the injection parameters (*)  =========="
     for det in detectors:
-        lnLData = SingleDetectorLogLikelihoodData(rholms_intp, Psig.tref, Psig.phi,  Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det)
+        lnLData = SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, Psig.tref, Psig.phi,  Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det)
         print det, lnLData, np.sqrt(lnLData), rhoExpected[det]
 
     print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters (*)  =========="
     lnL = FactoredLogLikelihood(theEpochFiducial,Psig, rholms_intp, crossTerms, Lmax)
     print "  : Evan's code : ", lnL, " versus rho^2/2 ", rho2Net/2
 
-    print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (*)  =========="
-    tvals = np.linspace(0,1/df,5000)
-    for det in detectors:
-        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(rholms_intp, x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
-        plt.figure(1)
-        plt.plot(tvals, lnLData,label='Ldata(t)+'+det)
-    plt.legend()
-
-
-    print " ======= End to end LogL: Maximize in polarization and time (*)  =========="
-    lnLmax = scipy.optimize.fmin( (lambda (x,y) : SingleDetectorLogLikelihoodData(rholms_intp, x+theEpochFiducial, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,y, Psig.dist, 2, det) if y>0 and y<lal.LAL_PI and x>0 and x<1/Psig.deltaF else 0), [0.001, Psig.psi],maxiter=1000)
-    print "  : Evan after optimizing in phase and time ", lnLmax
-
-
-        
-
-    
 
 if checkRhoIngredients == True:
 
@@ -263,6 +247,30 @@ if checkRhoIngredients == True:
         for i in np.arange(len(hxx.data.data)):
             constraint1+= np.abs(hxx.data.data[i]-rholms_intp[det][(2,2)](t[i]))**2
         print "   : Quality of interpolation per point : 0 ~= ", constraint1/len(hxx.data.data)
+
+
+sys.exit(0)
+if checkResults == True:
+    print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (*)  =========="
+    tvals = np.linspace(0,1./df,5000)
+    for det in detectors:
+        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, float(x+theEpochFiducial), Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
+        lnLDataEstimate = np.ones(len(tvals))*rho2Net
+        plt.figure(1)
+        plt.plot(tvals, lnLData,label='Ldata(t)+'+det)
+        plt.plot(tvals, lnLDataEstimate,label='$\rho^2$')
+    plt.legend()
+    plt.show()
+
+
+    print " ======= End to end LogL: Maximize in polarization and time (*)  =========="
+    lnLmax = scipy.optimize.fmin( (lambda (x,y) : SingleDetectorLogLikelihoodData(rholms_intp, x+theEpochFiducial, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,y, Psig.dist, 2, det) if y>0 and y<lal.LAL_PI and x>0 and x<1/Psig.deltaF else 0), [0.001, Psig.psi],maxiter=1000)
+    print "  : Evan after optimizing in phase and time ", lnLmax
+
+
+        
+
+    
 
 
 if checkResultsPlots == True:
