@@ -1,3 +1,17 @@
+"""
+test_precompute.py:  Testing the likelihood evaluation.
+    - Generates a fiducial signal
+    - The synthetic signal is introduced directly overhead a single detector at the earth's barycenter.
+      I assume *zero noise* and *an assumed known PSD*
+    - Generates a 'template' signal at a reference distance
+    - Precomputes all factors appearing in the likelihood
+      Compares those factors for self-consistency (U and Q)
+    - Evaluates the likelihood at the injection parameters and versus time
+
+"""
+
+__author__ = "R. O'Shaughnessy"
+
 # GOAL
 #   Like TestPrecompute, but using *extremely controlled* conditions so I can *calibrate a priori*
 #   The source is directly overhead a single interferometer.  
@@ -20,7 +34,7 @@ analyticPSD_Q = True # For simplicity, using an analytic PSD
 
 fminWaves = 25
 fminSNR = 25
-fSample = 4096
+fSample = 4096*4
 
 ifoName = "Fake"
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
@@ -183,20 +197,23 @@ if checkResults == True:
     # plt.title("lnL (interpolated) vs all time")
     # plt.legend()
 
-    tvals = np.linspace(-0.02,0.02,1000)
+    tvals = np.linspace(-0.02,0.02,2000)
     for det in detectors:
         lnLData = map( lambda x: SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
 #        print lnLData
         lnLDataEstimate = np.ones(len(tvals))*rho2Net
         plt.figure(2)
-        tvalsPlot = tvals - float(epoch_post - theEpochFiducial)
+        tvalsPlot = tvals  # time is done relative to a fiducial epoch so should just work
         plt.plot(tvalsPlot, lnLData,label='Ldata(t)+'+det)
         plt.plot(tvalsPlot, lnLDataEstimate,label="$rho^2$")
         plt.ylim(-rho2Net, rho2Net*1.1)
     tEventRelative =float( Psig.tref - theEpochFiducial)
     print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
-    plt.plot([tEventRelative,0],[tEventRelative,rho2Net], color='k',linestyle='--')
-    plt.title("lnL (interpolated) vs narrow time interval")
+    plt.plot([tEventRelative,0],[tEventRelative,rho2Net], color='k',linestyle='-')
+    plt.title("lnLData (interpolated) vs narrow time interval")
+    plt.xlabel("t(s)")
+    plt.ylabel("lnL")
+    plt.xlim(-0.1,0.1)
     plt.legend()
     plt.show()
 

@@ -80,6 +80,10 @@ first read.
 
 * Convergence rate diagnostic for whether sampler is working
 
+* NOW IT IS EASY to truncate the number of fitting points to a small time window: after rolling, take a small subset
+
+* SUGGESTION FOR DATA GENERATION: slow because we completely regenerate the whole signal 3 times, rather than
+  project the same signal onto each IFO
 
 
 \section{Stage 0: What are we calculating}
@@ -1276,13 +1280,14 @@ The sources in the sample were drawn randomly from the same prior used \editrema
 \subsection{Quantity is a quality all its own}
 Our speed and performance allow lar
 
-\subsubsection{Revisit prior studies}
+\subsubsection{Revisit prior studies [papers?]}
 
 \noindent \textbf{Fisher matrix breakdown?}: Ilya et al claim the Fisher matrix breaks down for some noise realizations
 with moderate SNR.  That's plausible but it'd be nicce to better understand why.  And to be \emph{confident} it's not a
 convergence issue.
 
 \subsubsection{New studies}
+
 
 
 \section{Stage N-1: Mid-term technical issues (*)}
@@ -1358,6 +1363,20 @@ Make $L_{\rm marg}(m_1,m_2)$, recovery $p-p$ plots, etc
 \noindent \textbf{Mass-dependent data length?}: Change data length depending on trigger chirp mass to reduce computation time.
 
 
+
+\subsection{Implementation issues to remember}
+
+\noindent \textbf{Python swig time }: Be careful re the automagic time conversion. It is \textbf{very important} to make
+sure all time quantities remain GPSTime objects...and very easy to slip up when passing arguments and throw a float
+instead.  
+\begin{shaded}
+\begin{verbatim}
+from factored_likelihood import *
+detector = lalsim.DetectorPrefixToLALDetector('H1')
+ tArrive = ComputeArrivalTimeAtDetector("H1", 0,0,0)   # this is not a GPStime
+tArriveB = ComputeArrivalTimeAtDetector("H1",0,0,lal.GPSTimeNow())   # this is a GPS time
+\end{verbatim}
+\end{shaded}
 
 \appendix
 \section{Gravy issues: Things to think about but not critical now}

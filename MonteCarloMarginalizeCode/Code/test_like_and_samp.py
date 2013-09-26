@@ -7,11 +7,11 @@ from glue.lal import Cache
 import lalsimutils
 
 """
-Simple program illustrating the precomputation step and calls to the
-likelihood function.
+test_like_and_samp.py:  Testing the likelihood evaluation and sampler, working in conjunction
+
 """
 
-__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>"
+__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 from factored_likelihood import *
 

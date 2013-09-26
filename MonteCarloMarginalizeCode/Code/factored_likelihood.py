@@ -29,10 +29,15 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
 distMpcRef = 100
 tWindowReference = [-0.1,0.1]            # choose samples so we have this centered on the window
+tWindowExplore = [-0.05, 0.05]          # smaller window.  Avoid interpolation errors on the edge.
 rosDebugMessages = False
 rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
 rosDebugUseCForQTimeseries =False
-
+rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
+#rosInterpolateVia = 'AmplitudePhase'       #  Interpolate in amplitude and phase (NOT reliable!! DO NOT USE. Makes code slower and less reliable!)
+rosInterpolateVia = "Other"
+rosDoNotRollTimeseries = False
+#rosDoNotUseMemoryMode = True       # strip the memory mode.  I am seeing some strange features.
 
 #
 # Main driver functions
@@ -83,6 +88,8 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
 #        t = np.array(map(lambda x : x if x< rho22.data.length/2 else x-rho22.data.length,np.arange(rho22.data.length))) * rho22.deltaT
         tShift = float( P.tref -  epoch)   # 
         nRollL = int((np.abs(tWindowReference[0]) - tShift )/rho22.deltaT)
+        if rosDoNotRollTimeseries:
+            nRollL = 0
         tShiftDiscrete = nRollL*rho22.deltaT
         if rosDebugMessages:
             print "  : must shift by ", nRollL, " corresponding to a time shift ", tShift, " = ", tShiftDiscrete, " to make sure the reference time ", float(P.tref), " has a long window", float(tShift)
@@ -171,6 +178,7 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
     """
     global distMpcRef
 
+#    print tref.gpsSeconds, tref.gpsNanoSeconds, epoch.gpsSeconds, epoch.gpsNanoSeconds#        print tshift.gpsSeconds,  tshift.gpsNanoSeconds
 
     Ylms = ComputeYlms(Lmax, thS,phiS)
     if (det == "Fake"):
@@ -180,7 +188,6 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
         F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
         detector = lalsim.DetectorPrefixToLALDetector(det)
         tshift = ComputeArrivalTimeAtDetector(det, RA,DEC, tref)  -  epoch   # detector time minus reference time (so far)
-#        print tshift.gpsSeconds,  tshift.gpsNanoSeconds
     rholms_intp = rholmsDictionary[det]
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
@@ -203,12 +210,16 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
     """
     DOCUMENT ME!!!
     """
+    global distMpcRef
+    distMpc = dist/(lal.LAL_PC_SI*1e6)
+
     # Eq. 35 of Richard's notes
     term1 = 0.
     for l in range(2,Lmax+1):
         for m in range(-l,l+1):
-            term1 += F * Ylms[(l,m)] * rholm_vals[(l,m)]
-    term1 = np.real(term1) / dist
+            term1 += np.conj(F * Ylms[(l,m)]) * rholm_vals[(l,m)]
+    term1 = np.real(term1) / (distMpc/distMpcRef)
+#   term1 = np.real(term1) / dist
 
     # Eq. 26 of Richard's notes
     term2 = 0.
@@ -216,10 +227,10 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
         for m in range(-l,l+1):
             for lp in range(2,Lmax+1):
                 for mp in range(-lp,lp+1):
-                    term2 += F * np.conj(F) * ( crossTerms[((l,m),(lp,mp))]\
-                            + np.conj( crossTerms[((l,m),(lp,mp))]) )\
-                            * np.conj(Ylms[(l,m)]) * Ylms[(lp,mp)]
-    term2 = np.real(term2) / 4. / dist / dist
+                    term2 += F * np.conj(F) * ( crossTerms[((l,m),(lp,mp))])* np.conj(Ylms[(l,m)]) * Ylms[(lp,mp)] + F*F*Ylms[(l,m)]*Ylms[(lp,mp)]*((-1)**l)*crossTerms[((l,-m),(lp,mp))]
+                    #term2 += F * np.conj(F) * ( crossTerms[((l,m),(lp,mp))] + np.conj( crossTerms[((l,m),(lp,mp))]) )* np.conj(Ylms[(l,m)]) * Ylms[(lp,mp)]
+    term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
+#    term2 = np.real(term2) / 4. / dist / dist
 
     return term1 + term2
 
@@ -288,13 +299,31 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
     return rholms
 
 def InterpolateRholm(rholm, t,nRollL):
-    amp = np.roll(np.abs(rholm.data.data),nRollL)
-    phase = unwind_phase( np.roll(np.angle(rholm.data.data), nRollL) )
-    ampintp = interpolate.InterpolatedUnivariateSpline(t, amp, k=2)
-    phaseintp = interpolate.InterpolatedUnivariateSpline(t, phase, k=2)
-#    ampintp = interpolate.interp1d(t, amp, kind='quadratic')
-#    phaseintp = interpolate.interp1d(t, phase, kind='quadratic')
-    return lambda ti: ampintp(ti)*np.exp(1j*phaseintp(ti))
+    global rosInterpolateVia
+    nBinMax = 2*(tWindowReference[1]-tWindowReference[0])/rholm.deltaT
+    if rosInterpolateVia == 'AmplitudePhase':
+        print " ... interpolating in ampltiude-phase ... "
+        if (rosInterpolateOnlyTimeWindow):
+            amp = np.roll(np.abs(rholm.data.data),nRollL)[:nBinMax]
+            phase = unwind_phase( np.roll(np.angle(rholm.data.data), nRollL) )[:nBinMax]
+            ampintp = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], amp, k=2)
+            phaseintp = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], phase, k=2)
+        else:
+            amp = np.roll(np.abs(rholm.data.data),nRollL)
+            phase = unwind_phase( np.roll(np.angle(rholm.data.data), nRollL) )
+            ampintp = interpolate.InterpolatedUnivariateSpline(t, amp, k=1)
+            phaseintp = interpolate.InterpolatedUnivariateSpline(t, phase, k=1)
+            #        ampintp = interpolate.interp1d(t, amp, kind='quadratic')
+            #        phaseintp = interpolate.interp1d(t, phase, kind='quadratic')
+            return lambda ti: ampintp(ti)*np.exp(1j*phaseintp(ti))
+    else:
+        print " ... interpolating real, imaginary part ... "
+        hxdat = np.roll(np.imag(rholm.data.data),nRollL)[:nBinMax]
+        hpdat = np.roll(np.real(rholm.data.data), nRollL)[:nBinMax]
+        hx = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hxdat, k=2)
+        hp = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hpdat, k=2)
+        return lambda ti: hp(ti) + 1j*hx(ti)
+        
 
 
 def InterpolateRholms(rholms, t, nRollL, Lmax):
@@ -383,17 +412,17 @@ def ComputeYlms(Lmax, theta, phi):
 
     return Ylms
 
-def ComputeArrivalTimeAtDetector(det, RA, DEC, tref):  ## should be relabelled to be 'ComputeArrivalTimeAtDetector'!
+def ComputeArrivalTimeAtDetector(det, RA, DEC, tref): 
     """
     Function to compute the time of arrival at a detector
     from the time of arrival at the geocenter.
 
     'det' is a detector prefix string (e.g. 'H1')
     'RA' and 'DEC' are right ascension and declination (in radians)
-    'tref' is the reference time at the geocenter
+    'tref' is the reference time at the geocenter.  It can be either a float (in which case the return is a float) or a GPSTime object (in which case it returns a GPSTime)
     """
     detector = lalsim.DetectorPrefixToLALDetector(det)
-    return tref + lal.TimeDelayFromEarthCenter(detector.location, RA, DEC, tref)
+    return tref + lal.TimeDelayFromEarthCenter(detector.location, RA, DEC, tref)  # if tref is a float or a GPSTime object, it shoud be automagically converted in the appropriate way
 
 # Create complex FD data that does not assume Hermitianity - i.e.
 # contains positive and negative freq. content
@@ -440,3 +469,4 @@ def rollTimeSeries(series_dict, nRollRight):
     for det in series_dict:
         print " Rolling timeseries ", nRollRight
         np.roll(series_dict.data.data, nRollRight)
+
