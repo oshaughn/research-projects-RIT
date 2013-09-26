@@ -15,6 +15,8 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gr
 
 from factored_likelihood import *
 
+theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
+
 optp = OptionParser()
 optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
 optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
@@ -28,10 +30,10 @@ elif opts.channel_name is not None:
     det_dict = dict(map(lambda cname: cname.split("="), opts.channel_name))
 
 Niter = 5 # Number of times to call likelihood function
-Tmax = 38. # max ref. time
-Tmin = 36. # min ref. time
+Tmax = 0.05 # max ref. time
+Tmin = -0.05 # min ref. time
 Dmax = 110. * 1.e6 * lal.LAL_PC_SI # max ref. time
-Dmin = 90. * 1.e6 * lal.LAL_PC_SI # min ref. time
+Dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min ref. time
 
 #
 # Produce data with a coherent signal in H1, L1, V1
@@ -42,8 +44,12 @@ if len(det_dict) > 0:
         data_dict[d] = lalsimutils.frame_data_to_hoff(opts.cache_file, chan)
 else:
 
-    Psig = ChooseWaveformParams(fmin = 10., radec=True, theta=1.2, phi=2.4,
-            detector='H1', dist=100.*1.e6*lal.LAL_PC_SI)
+    Psig = ChooseWaveformParams(fmin = 10., 
+                                radec=True, theta=1.2, phi=2.4,
+                                detector='H1', 
+                                dist=25.*1.e6*lal.LAL_PC_SI,
+                                tref = theEpochFiducial
+                                )
     df = findDeltaF(Psig)
     Psig.deltaF = df
     data_dict['H1'] = non_herm_hoff(Psig)
@@ -60,38 +66,41 @@ psd_dict['L1'] = lal.LIGOIPsd
 psd_dict['V1'] = lal.LIGOIPsd
 
 # Struct to hold template parameters
-P = ChooseWaveformParams(fmin = 40., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df)
+P = ChooseWaveformParams(fmin = 40., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df, 
+                         tref=theEpochFiducial)
 Lmax = 2 # sets which modes to include
 
 #
 # Perform the Precompute stage
 #
-rholms_intp, crossTerms, rholms = PrecomputeLikelihoodTerms(P, data_dict,
-        psd_dict, Lmax, analyticPSD_Q)
+rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict,psd_dict, Lmax, analyticPSD_Q)
 print "Finished Precomputation..."
 
 
 #
 # Call the likelihood function for various extrinsic parameter values
 #
+nEvals = 0
 def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
+    global nEvals
     lnL = numpy.zeros(phi.shape)
     i = 0
     for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
         P.phi = ph # right ascension
         P.theta = th # declination
-        P.tref = tr # ref. time
+        P.tref = theEpochFiducial + tr # ref. time (rel to epoch for data taking)
         P.phiref = phr # ref. orbital phase
         P.incl = ic # inclination
         P.psi = ps # polarization angle
         P.dist = di # luminosity distance
 
-        lnL[i] = FactoredLogLikelihood(P, rholms_intp, crossTerms, Lmax)
+        lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)
         i+=1
 
-        print "For (RA, DEC, tref, phiref, incl, psi, dist) ="
-        print "\t", P.phi, P.theta, P.tref, P.phiref, P.incl, P.psi, P.dist
-        print "\tlog likelihood is %g:" % lnL[-1]
+        if (numpy.mod(i,100)==0):
+            print "Evaluation # ", i, " : For (RA, DEC, tref, phiref, incl, psi, dist) ="
+            print "\t", P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI)
+            print "\tlog likelihood is %g:" % lnL[-1]
     return numpy.exp(lnL)
 
 import mcsampler
