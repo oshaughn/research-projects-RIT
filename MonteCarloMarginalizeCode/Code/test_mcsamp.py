@@ -14,6 +14,8 @@ import scipy.special
 
 from mcsampler import MCSampler
 
+
+
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
 #
@@ -27,7 +29,7 @@ def plot_integrand(fcn, x1, x2):
 	pyplot.figure()
 	x_i = numpy.linspace(x1, x2, 1000)
 	pyplot.plot(x_i, fcn(x_i))
-	pyplot.savefig("integrand.png")
+	pyplot.savefig("integrand.pdf")
 
 
 def plot_pdf(samp):
@@ -41,7 +43,7 @@ def plot_pdf(samp):
 
 	pyplot.grid()
 	pyplot.legend()
-	pyplot.savefig("pdf.png")
+	pyplot.savefig("pdf.pdf")
 
 def plot_cdf_inv(samp):
 	"""
@@ -55,7 +57,7 @@ def plot_cdf_inv(samp):
 
 	pyplot.grid()
 	pyplot.legend()
-	pyplot.savefig("cdf_inv.png")
+	pyplot.savefig("cdf_inv.pdf")
 
 
 def plot_one_d_hist(samp):
@@ -72,7 +74,7 @@ def plot_one_d_hist(samp):
 		pyplot.hist(samples[p], bins=20)
 		pyplot.grid()
 		pyplot.xlabel(p)
-	pyplot.savefig("samples_1d.png")
+	pyplot.savefig("samples_1d.pdf")
 
 def plot_two_d_hist(samp):
 	"""
@@ -104,7 +106,7 @@ def plot_two_d_hist(samp):
 			label_next = True
 		i += 1
 	
-	pyplot.savefig("samples_2d.png", figsize=(10,3))
+	pyplot.savefig("samples_2d.pdf", figsize=(10,3))
 
 	
 def plot_ra_dec(samp):
@@ -122,10 +124,10 @@ def plot_ra_dec(samp):
 	pyplot.colorbar()
 	m.drawparallels(numpy.arange(-90, 120, 30))
 	m.drawmeridians(numpy.arange(0, 420, 60))
-	pyplot.savefig("radec_proj.png")
+	pyplot.savefig("radec_proj.pdf")
 
-if sys.argv[1] is None:
-	print "Usage: mcsamp_test npoints"
+if len(sys.argv)<2:
+	print "Usage: mcsamp_test npoints psi"
 	exit(-1)
 
 #
@@ -229,7 +231,7 @@ pyplot.scatter(widths, offsets, c=numpy.log10(numpy.array(variances)))
 cbar = pyplot.colorbar()
 cbar.set_label("log10 variance")
 pyplot.semilogx()
-pyplot.savefig("gsamp_variances.png")
+pyplot.savefig("gsamp_variances.pdf")
 
 exit()
 
@@ -246,7 +248,7 @@ for n in 10**(numpy.arange(1,6)):
 pyplot.title("$(I-\\bar{I})/\\bar\\sigma$")
 pyplot.grid()
 pyplot.legend()
-pyplot.savefig("integral_hist.png")
+pyplot.savefig("integral_hist.pdf")
 
 samp.clear()
 exit()
@@ -299,7 +301,7 @@ def integrand(p, r, dec, ph, i, di):
 	#pyplot.plot(exponent)
 	pyplot.grid()
 	#pyplot.clf()
-	pyplot.savefig("exponent.png")
+	pyplot.savefig("exponent.pdf")
 	"""
 	exponent = ma.masked_less_equal(-(p-psi_val)**2/a-(r-ra_val)**2/b-(dec-dec_val)**2/c-(i-inc_val)**2/d-(ph-phi_val)**2/e-(di-dist_val)**2/f, -700)
 	exponent.fill_value = 0

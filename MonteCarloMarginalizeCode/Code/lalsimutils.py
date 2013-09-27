@@ -1392,7 +1392,8 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0):
     """
     Function to read in data in the frame format
     and convert it to a COMPLEX16FrequencySeries holding
-    h(f) = FFT[ h(t) ]
+    h(f) = FFT[ h(t) ].
+    fname is the name of a LIGO cache file
 
     If TDlen == -1, do not zero-pad the TD waveform before FFTing
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
