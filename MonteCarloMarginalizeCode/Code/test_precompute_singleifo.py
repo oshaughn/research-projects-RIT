@@ -25,6 +25,8 @@ checkResults = True # Turn on to print/plot output; Turn off for testing speed
 checkInputPlots = False
 checkResultsPlots = True
 checkResultsSlowChecks = False
+rosUseRandomEventTime = True
+rosUseDifferentWaveformLengths = True    # Very important test: lnL should be independent of the template length
 
 data_dict = {}
 psd_dict = {}
@@ -32,7 +34,11 @@ rhoExpected ={}
 rhoExpectedAlt ={}
 analyticPSD_Q = True # For simplicity, using an analytic PSD
 
-fminWaves = 25
+fminWavesSignal = 25
+if rosUseDifferentWaveformLengths: 
+    fminWavesTemplate = fminWavesSignal+0.005
+else:
+    fminWavesTemplate = fminWavesSignal
 fminSNR = 25
 fSample = 4096*4
 
@@ -76,17 +82,21 @@ distanceFiducial = 25.  # Make same as reference
 psd_dict[ifoName] =  lalsim.SimNoisePSDiLIGOSRD
 m1 = 4*lal.LAL_MSUN_SI
 m2 = 3*lal.LAL_MSUN_SI
-tEventFiducial = 0.0
+tEventFiducial = 0.001 # 10./fSample
+if rosUseRandomEventTime:
+    print "   --- Generating a random event (barycenter) time  ---- " 
+    tEventFiducial+= 0.05*np.random.random_sample()
 ampO =0 # sets which modes to include in the physical signal
 Lmax = 2  # sets which modes to include in the output
 fref = 100
-Psig = ChooseWaveformParams(fmin = fminWaves, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
+Psig = ChooseWaveformParams(fmin = fminWavesSignal, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,
          tref=theEpochFiducial+tEventFiducial,
          deltaT=1./fSample,
          dist=distanceFiducial*1.e6*lal.LAL_PC_SI)
+tEventFiducialGPS = Psig.tref             # the 'trigger time' we will localize on
 df = findDeltaF(Psig)
 Psig.deltaF = df
 Psig.print_params()
@@ -114,7 +124,7 @@ print "Network : ", np.sqrt(rho2Net)
 print " ======= Template specified: precomputing all quantities =========="
 # Struct to hold template parameters
 # Fiducial distance provided but will not be used
-P = ChooseWaveformParams(fmin=fminWaves, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
+P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,
@@ -143,7 +153,7 @@ if checkResults == True:
     print "   : Reflection symmetry constraint (UV) : 0 ~=  ", constraint1
 
     print " ======= UV test: Recover the SNR of the injection  =========="
-    print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] "
+    print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal! (if source and template start at the same frequency)] "
     for det in detectors:
         lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
         print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det]
@@ -197,7 +207,7 @@ if checkResults == True:
     # plt.title("lnL (interpolated) vs all time")
     # plt.legend()
 
-    tvals = np.linspace(-0.02,0.02,2000)
+    tvals = np.linspace(tWindowExplore[0]+tEventFiducial,tWindowExplore[1]+tEventFiducial,2000)
     for det in detectors:
         lnLData = map( lambda x: SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
 #        print lnLData
@@ -209,7 +219,8 @@ if checkResults == True:
         plt.ylim(-rho2Net, rho2Net*1.1)
     tEventRelative =float( Psig.tref - theEpochFiducial)
     print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
-    plt.plot([tEventRelative,0],[tEventRelative,rho2Net], color='k',linestyle='-')
+    plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='-')
+    plt.plot([tEventRelative,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
     plt.title("lnLData (interpolated) vs narrow time interval")
     plt.xlabel("t(s)")
     plt.ylabel("lnL")

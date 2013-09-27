@@ -25,8 +25,8 @@ checkResultsSlowChecks = True
 checkInputPlots = False
 checkResultsPlots = True
 checkRhoIngredients = False
-rosUseRandomSkyLocation = False
-rosUseRandomSourceOrientation = False
+rosUseRandomSkyLocation = True
+rosUseRandomSourceOrientation = True
 rosUseRandomEventTime = False
 
 #
@@ -58,7 +58,7 @@ psd_dict['V1'] = lalsim.SimNoisePSDiLIGOSRD
 distanceFiducial = 25.  # Make same as reference
 m1 = 4*lal.LAL_MSUN_SI
 m2 = 3*lal.LAL_MSUN_SI
-tEventFiducial = 0.02
+tEventFiducial = 0.0
 if rosUseRandomEventTime:
     print "   --- Generating a random event (barycenter) time  ---- " 
     tEventFiducial+= 0.05*np.random.random_sample()
@@ -91,13 +91,11 @@ Psig.deltaF = df
 Psig.print_params()
 print " ======= Generating synthetic data in each interferometer (manual timeshifts) =========="
 t0 = Psig.tref
-Psig.tref =  ComputeArrivalTimeAtDetector('H1', Psig.phi,Psig.theta,Psig.tref)
-data_dict['H1'] = non_herm_hoff(Psig)
+Psig.detector = 'H1'
+data_dict['H1'] = non_herm_hoff(Psig)  # already takes care of propagating to a detector, using the 'detector' field
 Psig.detector = 'L1'
-Psig.tref =ComputeArrivalTimeAtDetector('L1', Psig.phi,Psig.theta,Psig.tref)
 data_dict['L1'] = non_herm_hoff(Psig)
 Psig.detector = 'V1'
-Psig.tref =  ComputeArrivalTimeAtDetector('V1', Psig.phi,Psig.theta,Psig.tref)
 data_dict['V1'] = non_herm_hoff(Psig)
 
 
@@ -120,8 +118,7 @@ if checkInputPlots:
     P = Psig.copy()
     P.tref = Psig.tref
     for det in detectors:
-        P.detector=det
-        P.tref = ComputeArrivalTimeAtDetector(det, P.phi, P.theta,P.tref)
+        P.detector=det   # we do 
         hT = hoft(P)
         tvals = float(P.tref - theEpochFiducial) + hT.deltaT*np.arange(len(hT.data.data))
         plt.figure(1)
@@ -192,14 +189,15 @@ if checkResults == True:
         lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
         print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det], "      [last two equal?]"
 
-    print " ======= rholm test: Recover the SNR of the injection at the injection parameters (*)  =========="
+    print " ======= rholm test: Recover the SNR of the injection at the injection parameters  =========="
     for det in detectors:
         lnLData = SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, Psig.tref, Psig.phi,  Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det)
         print det, lnLData, np.sqrt(lnLData), rhoExpected[det]
 
-    print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters (*)  =========="
+    print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters  =========="
     lnL = FactoredLogLikelihood(theEpochFiducial,Psig, rholms_intp, crossTerms, Lmax)
     print "  : Evan's code : ", lnL, " versus rho^2/2 ", rho2Net/2
+    print "  : Timing issues (checkme!) : fiducial = ", stringGPSNice(theEpochFiducial)
 
 
 if checkRhoIngredients == True:    
@@ -323,7 +321,8 @@ if checkRhoIngredients == True:
 if checkResults == True:
     print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (* STILL TIME OFFSET *)  =========="
     tmin = np.max(float(epoch_post - theEpochFiducial),tWindowReference[0]+0.03)   # the minimum time used is set by the rolling condition
-    tvals = np.linspace(tmin,tWindowReference[1],4*fSample*(tWindowReference[1]-tmin))
+#    tvals = np.linspace(tmin,tWindowReference[1],4*fSample*(tWindowReference[1]-tmin))
+    tvals = np.linspace(tWindowExplore[0]+tEventFiducial,tWindowExplore[1]+tEventFiducial,fSample*(tWindowExplore[1]-tWindowExplore[0]))
     for det in detectors:
         lnLData = map( lambda x: SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
         lnLDataEstimate = np.ones(len(tvals))*rhoExpected[det]*rhoExpected[det]
@@ -333,7 +332,7 @@ if checkResults == True:
         plt.plot(tvalsPlot, lnLDataEstimate,label="$rho^2("+det+")$")
     tEventRelative =float( Psig.tref - theEpochFiducial)
     print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is ", tEventRelative
-    plt.plot([tEventFiducial,0],[tEventFiducial,rho2Net], color='k',linestyle='--')
+    plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
     plt.title("lnLdata (interpolated) vs narrow time interval")
     plt.xlabel('t(s)')
     plt.ylabel('lnLdata')
@@ -349,13 +348,13 @@ if checkResults == True:
     lnLEstimate = np.ones(len(tvals))*rho2Net/2
     plt.figure(1)
     tvalsPlot = tvals 
-    plt.plot(tvalsPlot, lnL,label='lnL(t)+'+det)
-    plt.plot(tvalsPlot, lnLEstimate,label="$rho^2("+det+")$")
+    plt.plot(tvalsPlot, lnL,label='lnL(t)')
+    plt.plot(tvalsPlot, lnLEstimate,label="$rho^2/2(net)$")
     tEventRelative =float( Psig.tref - theEpochFiducial)
     print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
-    plt.plot([tEventFiducial,0],[tEventFiducial,rho2Net], color='k',linestyle='--')
+    plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
     plt.title("lnL (interpolated) vs narrow time interval")
-#    plt.legend()
+    plt.legend()
     plt.show()
 
 

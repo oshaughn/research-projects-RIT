@@ -80,11 +80,6 @@ first read.
 
 * Convergence rate diagnostic for whether sampler is working
 
-* NOW IT IS EASY to truncate the number of fitting points to a small time window: after rolling, take a small subset
-
-* SUGGESTION FOR DATA GENERATION: slow because we completely regenerate the whole signal 3 times, rather than
-  project the same signal onto each IFO
-
 
 \section{Stage 0: What are we calculating}
 
@@ -873,9 +868,18 @@ don't bother.  [This hopefully should never happen, if our intrinsic search is g
 
 \begin{widetext}
 \section{Stage 1: Prototype code}
-\subsection{Milestones and Benchmarks: Injection code }
-Make sure I can make synthetic data with a known amplitude, parameters, approximant, etc.  [Should be trivial with
+\subsection{Milestones and Benchmarks: Injection and template code }
+\noindent \textbf{Data generation}: Make sure I can make synthetic data with a known amplitude, parameters, approximant, etc.  [Should be trivial with
   existing codebase: XML readers, etc.] For nonstandard codebases [ROS], confirm scalings
+
+The data segments should have consistently set GPS epochs.
+
+
+\noindent \textbf{[Python implementation] Template generation and timing}: Templates (and hence $h_{lm}$) must be
+generated so their ``reference time'' point occurs at \textbf{zero} GPSTime.  This means that $Q_{k,lm}(\tau) = \qmstateproduct{e^{-i\omega \tau}h_{lm}}{\hat{H}_k}$ is a
+physical timeseris, with $\tau$ the ``time of the event''.  
+%
+
 
 \subsection{Milestones and Benchmarks: Likelihood evaluation}
 
@@ -1080,6 +1084,82 @@ Plot $L_{\rm data}$ over the sky at the injected parameters; show a maximum occu
 \]
 \end{itemize}
 
+
+\subsubsection{Python implementation: Special checks}
+
+Bookkeeping of GPS times is critical and
+\textbf{not} transparently provided by lalsuite.  [C++ would be nice here.]  We need to
+manually carefully insure we are using the right timeshifts between $\hat{H}_k$; $H_k$,
+$h$, and the fourier transform needed to compute $\ln L_{\rm data}$.    We also need to allow for wraparound effects of
+the FFT.
+%
+\begin{shaded}
+\noindent \textbf{Common problems}: Accidental  GPSTime conversion to floats is an easy way to screw up, losing ms precision.
+\end{shaded}
+
+
+\noindent \textbf{Epoch propagation}: The SphHarmTimeSeries and SphHarmFrequency series undergo new, unreviewed
+operations.  We should confirm epochs are propagated correctly.  [Yes]
+
+\noindent \textbf{$Q$ timeseries times}: The FFT itself does not assign an epoch to the resulting $Q_{k,lm}$
+timeseries; we must do it ourselves.  
+%
+We rely on the following conventions to convert the epochs and arrays to a timeseries with physical meaning.  
+%
+First and foremost,  the template is assumed to be defined in
+\emph{relative} time, with zero at the template's event time; the ``epoch'' $t_{E,T}$ is negative and reflects the
+template's padding.  As a result, the $n$th timesample in the resulting FFT array is associated with a time
+\begin{eqnarray}
+t_{Q,n} = n \Delta t + (t_{E,D} - t_{E,T})
+\end{eqnarray}
+where $t_{E,D}$ is the epoch of the data and $t_{E,T}$ is the epoch of the template.  
+%
+Because the data epoch is negative, that means the n'th sample of the $Q$ array corresponds to  well inside the data
+segment -- particularly accounting for zero-padding the template data!    Specifically, if we introduce a fiducial epoch
+$t_{E,F}$ so relative times  $\tau_X =t_X - \tau_{E,F}$ (floats rather than GPS times) are used in computations, any time $t$ corresponds to an index
+\begin{eqnarray}
+t=n\Delta t + t_{E,D} t_{E,T} \quad \rightarrow \quad
+t-t_{E,F} = n \Delta t - t_{E,T} + (t_{E,D}  - t_{E,F}) \quad \leftrightarrow  \quad 
+\tau  =  n \Delta t - t_{E,T} + \tau_{E,D}
+\end{eqnarray}
+If that index is negative we've wrapped around.   This will happen in real calculations because of zero-padding to fill
+out the template to the signal length to conduct the FFT.
+
+
+\noindent \textbf{Implementation notes and tests: Fake data}:
+In my synthetic data tests, the FFT is beating against two data buffers, performing a correlation between two buffers (data $D$ and signal $\lambda$).
+\begin{enumerate}
+\item  a ``fiducial'' GPS time $t_F$ is defined.
+\item templates have a zero GPS time at the event and an epoch $t_{E,\lambda}$
+
+\item fake data is generated  to be aligned to a barycentric time $t_0(D)$.  In each detector, the event time is offset
+  by a time $\Delta t_k$.  This is \emph{implemented} not by
+  resampling, but by shifting the epoch of the series : the data vector has an epoch $t_{E}(D_k)\equiv t_{0}(D) - \Delta
+  t_k - T_D$.
+\item A ``trigger time''  $t_T = t_0$ is used to identify the window in which the data is plotted. De facto this is the
+  fiducial time
+\end{enumerate}
+%
+Using these definitions, I implement the following tests
+\begin{itemize}
+\item \emph{Single-IFO overhead}: My single-IFO tests lock to the barycentric time. Lock the signal injection time to $t_F$ as above, then see how $\ln L(t)$ (overall and
+  in each detector) changes as I change other parameters
+
+* Change the \textbf{starting frequency} of the template (but not signal): $\ln L(t)$ should not shift.  
+
+* Change the event time for the data: $\ln L$ \textbf{should} shift the peak.  Use \emph{SEVERAL} timeshifts, including
+those comparable to the sampling rate (
+
+* Manually change the epoch of the data (versus the fiducial).  Confirm the data shifts
+
+\item \emph{Multi-IFO}: Multiple IFOs have physical timeshifts at each detector
+
+* Confirm the single-detector likelihoods line up at $t=0$ for a $t=0$ event
+
+\end{itemize}
+
+
+\noindent \textbf{Implementation notes: windowing}: \editremark{don't be stupid}: make sure I can fully explore the data
 
 \subsection{Milestones and Benchmarks: Real and synthetic data access (*)}
 
@@ -1317,13 +1397,20 @@ allowing high trigger rates. \editremark{I wonder if this is useful}.
 
 \part{Richard's notes to self}
 
+
+* NOW IT IS EASY to truncate the number of fitting points to a small time window: after rolling, take a small subset
+
+* SUGGESTION FOR DATA GENERATION: slow because we completely regenerate the whole signal 3 times, rather than
+  project the same signal onto each IFO
+
 \section{Python implementation}
 
 \noindent \textbf{Input check}: 
 
 * Fourier convention: $\tilde{h}_{22}$ should have only positive frequencies \editremark{checkme}
 
-\noindent \textbf{Time shift check}: \editremark{INTENTIONALLY BREAKING TIMESHIFT} by rolling the signal at the end.
+\noindent \textbf{Timeshifts?}: Still not fixed. But at least we are coherent.
+
 
 \noindent \textbf{Operations check}
 

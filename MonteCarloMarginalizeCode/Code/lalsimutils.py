@@ -1,4 +1,4 @@
-# Copyright (C) 2012  Evan Ochsner
+# Copyright (C) 2012  Evan Ochsner, Richard O'Shaughnessy
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the
@@ -33,6 +33,10 @@ from pylal import frutils
 from glue.lal import Cache
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
+
+rosDebugMessagesContainer = [False]
+
+print "[Loading lalsimutils.py : MonteCarloMarginalization version]"
 
 #
 # Class to hold arguments of ChooseWaveform functions
@@ -789,7 +793,7 @@ def hoft(P, Fp=None, Fc=None):
         hc.epoch = hc.epoch + P.tref
         ht = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
                 P.phi, P.theta, P.psi, 
-                lalsim.InstrumentNameToLALDetector(P.detector))
+                lalsim.InstrumentNameToLALDetector(P.detector))  # propagates including the delay time
     if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
         lalsim.SimInspiralREAL8WaveTaper(ht.data, P.taper)
     if P.deltaF is not None:
@@ -974,16 +978,36 @@ def hlmoft(P, Lmax=2, Fp=None, Fc=None):
     The linked list will contain all modes with l <= Lmax
     and all values of m for these l.
     """
+    global rosDebugMessagesContainer  # Not working like I would expect AT ALL
     assert Lmax >= 2
     hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
             P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
             P.nonGRparams, P.ampO, P.phaseO, Lmax, P.approx)
     # FIXME: Add ability to taper
+    # COMMENT: Add ability to generate hlmoft at a nonzero GPS time directly.
+    #      USUALLY we will use the hlms in template-generation mode, so will want the event at zero GPS time
+    # for L in np.arange(2,Lmax+1):
+    #     for m in np.arange(-Lmax, Lmax+1):
+    #         hxx = lalsim.SphHarmTimeSeriesGetMode(hlms,int(L),int(m))  
+    #         if rosDebugMessagesContainer[0]:
+    #             print " hlm(t) epoch after shift  (l,m)=", L,m,":  = ", stringGPSNice( hxx.epoch)
+    #         hxx.epoch = hxx.epoch + P.tref  # edit the actual pointer's data.  Critical to make sure the epoch is propagated in full into the template hlm's, so I know what index corresponds to the P.tref time!
+    #         if rosDebugMessagesContainer[0]:
+    #             print " hlm(t) epoch after shift  (l,m)=", L,m,":  = ", stringGPSNice( hxx.epoch)
+
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
         hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
         assert TDlen >= hxx.data.length
         hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
+
+    # Debugging: Confirm with complete certainty that the epochs of all the modes are consistently propagated
+    if rosDebugMessagesContainer[0]:
+        for L in np.arange(2,Lmax+1):
+            for m in np.arange(-Lmax, Lmax+1):
+                hxx = lalsim.SphHarmTimeSeriesGetMode(hlms,int(L),int(m))  
+                print " hlm(t) epoch after resize, (l,m) ", L,m, stringGPSNice( hxx.epoch)
+
     return hlms
 
 def hlmoff(P, Lmax=2, Fp=None, Fc=None):
@@ -995,6 +1019,8 @@ def hlmoff(P, Lmax=2, Fp=None, Fc=None):
     The linked list will contain all modes with l <= Lmax
     and all values of m for these l.
     """
+    global rosDebugMessagesContainer
+
     hlms = hlmoft(P, Lmax, Fp, Fc)
     hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
     if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
@@ -1006,6 +1032,14 @@ def hlmoff(P, Lmax=2, Fp=None, Fc=None):
 
     # FFT the hlms
     Hlms = lalsim.SphHarmFrequencySeriesFromSphHarmTimeSeries(hlms)
+
+    # Fixme
+    if rosDebugMessagesContainer[0]:
+        for L in np.arange(2,Lmax+1):
+            for m in np.arange(-Lmax, Lmax+1):
+                hxx = lalsim.SphHarmFrequencySeriesGetMode(Hlms,int(L),int(m))  
+                print " hlm(f) epoch after FFT, (l,m) ", L,m, hxx.epoch.gpsSeconds, ".", hxx.epoch.gpsNanoSeconds 
+
     return Hlms
 
 
@@ -1420,3 +1454,7 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
             FDlen)
     lal.COMPLEX16TimeFreqFFT(hoff, hoftC, fwdplan)
     return hoff
+
+
+def stringGPSNice(tgps):
+    return str(tgps.gpsSeconds)+'.'+str(tgps.gpsNanoSeconds)

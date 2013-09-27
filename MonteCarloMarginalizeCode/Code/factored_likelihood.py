@@ -22,13 +22,13 @@ and computes the log likelihood for given values of extrinsic parameters
 Requires python SWIG bindings of the LIGO Algorithms Library (LAL)
 """
 
-from lalsimutils import *
+from  lalsimutils import *   # WARNING: will not use same global variables consistently
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
 
 distMpcRef = 100
-tWindowReference = [-0.1,0.1]            # choose samples so we have this centered on the window
+tWindowReference = [-0.1,0.4]            # choose samples so we have this centered on the window
 tWindowExplore = [-0.05, 0.05]          # smaller window.  Avoid interpolation errors on the edge.
 rosDebugMessages = False
 rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
@@ -36,7 +36,7 @@ rosDebugUseCForQTimeseries =False
 rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
 #rosInterpolateVia = 'AmplitudePhase'       #  Interpolate in amplitude and phase (NOT reliable!! DO NOT USE. Makes code slower and less reliable!)
 rosInterpolateVia = "Other"
-rosDoNotRollTimeseries = False
+rosDoNotRollTimeseries = False           # must be done if you have zero padding.  Should always work, since epoch shifted too.
 #rosDoNotUseMemoryMode = True       # strip the memory mode.  I am seeing some strange features.
 
 #
@@ -55,6 +55,7 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
           as the interpolating functions.
           Their main use is to validate the interpolating functions
     """
+    global rosDebugMessages, rosDebugMessagesLong
     assert data_dict.keys() == psd_dict.keys()
     global distMpcRef
     detectors = data_dict.keys()
@@ -69,6 +70,15 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
     P.print_params()
     # Compute all hlm modes with l <= Lmax
     hlms = hlmoff(P, Lmax)
+    h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms, 2, 2)
+    h22Epoch = h22.epoch
+    if rosDebugMessagesLong:
+        print "   --Confirming epoch settings in the template signal hlm(f) --"
+        for L in np.arange(2,Lmax+1):
+            for m in np.arange(-Lmax, Lmax+1):
+                hxx = lalsim.SphHarmFrequencySeriesGetMode(hlms,int(L),int(m))  
+                print " hlm(f) GPSTime for (l,m)= ",L,m, ": ", stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", stringGPSNice(epoch)
+
 
     for det in detectors:
         # Compute time-shift-dependent mode SNRs < h_lm(t) | d >
@@ -83,22 +93,35 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
         rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
         if rosDebugMessages:
             indxMax = np.argmax(np.abs(rho22.data.data))
+            print " ++ ", det, ": [rholm array] epoch of returned data vs fiducial ", stringGPSNice(rho22.epoch)
+            print " ++ ", det, ": [rholm array] best fit offset by ", indxMax, " which is dt = ", indxMax*rho22.deltaT
+            print "   --Confirming epoch settings in the template signal Qlm(t) --"
+            for L in np.arange(2,Lmax+1):
+                for m in np.arange(-Lmax, Lmax+1):
+                    hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det],int(L),int(m))  
+                    print " Qlm(f) GPSTime for det(l,m)= ", det,L,m, ": ", stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", stringGPSNice(epoch)
         # FIXME: Need to handle geocenter-detector time shift properly
         # NOTE: This array is almost certainly wrapped in time via the inverse FFT and is NOT starting at the epoch
-#        t = np.array(map(lambda x : x if x< rho22.data.length/2 else x-rho22.data.length,np.arange(rho22.data.length))) * rho22.deltaT
-        tShift = float( P.tref -  epoch)   # 
-        nRollL = int((np.abs(tWindowReference[0]) - tShift )/rho22.deltaT)
+#        tShift =  float(h22Epoch - rho22)   # shift the data by the epoch specified by the returned data!
+        tShift =  float( P.tref -  epoch)   # shift the data by the time difference between the target data
+        nRollL = int((np.abs(tWindowReference[0]) - tShift )/rho22.deltaT)   # this is a DISCRETE timeshift
         if rosDoNotRollTimeseries:
             nRollL = 0
         tShiftDiscrete = nRollL*rho22.deltaT
         if rosDebugMessages:
             print "  : must shift by ", nRollL, " corresponding to a time shift ", tShift, " = ", tShiftDiscrete, " to make sure the reference time ", float(P.tref), " has a long window", float(tShift)
-        t = np.arange(rho22.data.length) * rho22.deltaT - tShiftDiscrete  # roll, then shift back in time.  This is correct
+        # Time correspondence for these events, relative to the *fiducial* GPSTime 'epoch'
+        t = np.arange(rho22.data.length) * rho22.deltaT - tShiftDiscrete  # account for the timeseries, plus roll
+        tShiftChangeTimeOrigin = float(rho22.epoch - epoch)   # rho22.epoch already includes signal length info: literally just origin change
+        if rosDebugMessages:
+            print "  to change the time origin, we are translating by ", tShiftChangeTimeOrigin, " because the data series has time ",  stringGPSNice(rho22.epoch), " and the fiducial reference is ", stringGPSNice(epoch)
+        t = t + tShiftChangeTimeOrigin                           # account for zero of time being set to 'epoch'. 
         if rosDebugMessages:
             print " :   ", det, " -  Finished rholms, interpolating.  BEWARE ROLLING THE EVENT TIME"
         rholms_intp[det] =  InterpolateRholms(rholms[det], t,nRollL, Lmax)
 
-        epoch_interp = epoch - tShiftDiscrete
+        print " shifting time by ", -tShiftDiscrete, " to allow for wraparound and to center the desired time "
+        epoch_interp = rho22.epoch - tShiftDiscrete  # Moving the zero of time back to account for rolling the timeseries
 
     return rholms_intp, crossTerms, rholms, epoch_interp
 
@@ -200,7 +223,7 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
     #         term1 += F * Ylms[(l,m)] * rholm_vals[(l,m)]
     term1 = np.real(term1) / (distMpc/distMpcRef)
 
-    if rosDebugMessages:
+    if rosDebugMessagesLong:
         print " Evaluating lnLData for parameters ", det, float(tref), " [via shift ", float(tshift),  " versus reference epoch ", float(epoch),"]",  RA, DEC, term1   #, thS,phiS,psi,dist
 
 
@@ -247,7 +270,8 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
     at a discrete series of time shifts.
 
     Returns a SphHarmTimeSeries object containing the complex inner product
-    for discrete values of the reference time tref.
+    for discrete values of the reference time tref.  The epoch of the SphHarmTimeSeries object
+    is set to account for the transformation
 
     Can optionally give arguments to return only the inner product reference
     times in the range: [tref - N * deltaT, tref + N * deltaT]
@@ -268,6 +292,7 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
     print IP.fLow, IP.fNyq,IP.deltaF
     # Loop over modes and compute the overlap time series
     rholms = None
+    h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms,2,2)
 
     if rosDebugUseCForQTimeseries:
         psdData = IP.longpsdLAL
@@ -279,6 +304,7 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
                 for m in range(-l,l+1):
                     rhoTS = lalsim.SphHarmTimeSeriesGetMode(rholms, l, m)
                     print  "     :  value of <hlm|data> ", l,m,  np.amax(np.abs(rhoTS.data.data))   #, " with length ", len(rhoTS.data.data)
+                    print "      : epoch ", stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
     else:
         Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
         for l in range(2,Lmax+1):
@@ -286,6 +312,7 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
                 hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
                 assert hlm.deltaF == data.deltaF
                 rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
+                rhoTS.epoch = data.epoch -h22.epoch
                 rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
                 # Sanity check
                 if rosDebugMessages:
@@ -293,9 +320,10 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
                     rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, hlm)
                     rhoRegular = IPRegular.ip(hlm,hlm)
                     print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular # ,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
-            
+                    print "      : epoch ", stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
 
-    # FIXME: Add ability to cut down to a narrow time window
+    # RETURN: Do not window or readjust the timeseries here.  This is done in the interpolation step.
+    # TIMING : Epoch set 
     return rholms
 
 def InterpolateRholm(rholm, t,nRollL):
@@ -426,6 +454,8 @@ def ComputeArrivalTimeAtDetector(det, RA, DEC, tref):
 
 # Create complex FD data that does not assume Hermitianity - i.e.
 # contains positive and negative freq. content
+# TIMING INFO: 
+#    - epoch set so the merger event occurs at total time P.tref
 def non_herm_hoff(P):
     hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
@@ -435,10 +465,10 @@ def non_herm_hoff(P):
     hc.epoch = hc.epoch + P.tref
     hoft = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc,
              P.phi,  P.theta, P.psi,
-            lalsim.InstrumentNameToLALDetector(P.detector))
+            lalsim.InstrumentNameToLALDetector(P.detector))  # Propagates signal to the detector, including beampattern and time delay
     if rosDebugMessages:
         print " +++ Injection creation ++ "
-        print  "   : Creating signal for injection with epoch ", float(hp.epoch)
+        print  "   : Creating signal for injection with epoch ", float(hp.epoch), " and event time centered at ", P.tref
         Fp, Fc = lal.ComputeDetAMResponse(lalsim.InstrumentNameToLALDetector(P.detector).response, P.phi, P.theta, P.psi, lal.GreenwichMeanSiderealTime(hp.epoch))
         print "  : creating signal for injection with (det, t,RA, DEC,psi,Fp,Fx)= ", P.detector, float(P.tref), P.phi, P.theta, P.psi, Fp, Fc
     if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
@@ -469,4 +499,5 @@ def rollTimeSeries(series_dict, nRollRight):
     for det in series_dict:
         print " Rolling timeseries ", nRollRight
         np.roll(series_dict.data.data, nRollRight)
+
 
