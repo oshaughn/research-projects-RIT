@@ -64,7 +64,11 @@ class MCSampler(object):
 			else:
 				self.rlim[params] = right_limit
 		self.pdf[params] = pdf
-		self.cdf_inv[params] = cdf_inv or self.cdf_inverse(params)
+		# FIXME: This only works for the 2d case currently
+		if isinstance(params, tuple):
+			self.cdf_inv[params] = cdf_inv or self.cdf_inverse_2d(params)
+		else:
+			self.cdf_inv[params] = cdf_inv or self.cdf_inverse(params)
 
 	def cdf_inverse(self, param):
 		"""
@@ -84,6 +88,25 @@ class MCSampler(object):
 		# Interpolate the inverse
 		return interpolate.interp1d(cdf, x_i)
 
+	# NOTE: Could just be a user function that's passed in
+	def cdf_inverse_2d(self, param):
+		"""
+		Numerically determine the inverse CDF from a given sampling PDF. If the PDF itself is not normalized, the class will keep an internal record of the normalization and adjust the PDF values as necessary. Returns a function object which is the interpolated CDF inverse.
+		"""
+		def reject_samp(xin, yin):
+			i = 0
+			while i < len(xin):
+				x_i = numpy.random.uniform(self.llim[param][0], self.rlim[param][0])
+				y_i = numpy.random.uniform(self.llim[param][1], self.rlim[param][1])
+
+				trial = numpy.random.uniform(0,1)
+				print i, trial, self.pdf[param](x_i, y_i) 
+				if trial < self.pdf[param](x_i, y_i):
+					xin[i], yin[i] = [x_i, y_i]
+					i += 1
+			return numpy.array([xin, yin])
+		return reject_samp
+
 	def draw(self, rvs, *args, **kwargs):
 		"""
 		Draw a set of random variates for parameter(s) args. Left and right limits are handed to the function. If args is None, then draw *all* parameters. 'rdict' parameter is a boolean. If true, returns a dict matched to param name rather than list. rvs must be either a list of uniform random variates to transform for sampling, or an integer number of samples to draw.
@@ -92,12 +115,25 @@ class MCSampler(object):
 			args = self.params
 
 		if isinstance(rvs, int) or isinstance(rvs, float):
-			self._rvs = [numpy.random.uniform(0,1,rvs) for p in args]
-			self._rvs = [self.cdf_inv[param](rv) for (rv, param) in zip(self._rvs, args)]
+			#
+			# Convert all arguments to tuples
+			#
+			# FIXME: UGH! Really? This was the most elegant thing you could come
+			# up with?
+			self._rvs = [numpy.random.uniform(0,1,(len(p), rvs)) for p in map(lambda i: (i,) if not isinstance(i, tuple) else i, args)]
+			# TODO: *rv
+			self._rvs = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(self._rvs, args)])
 		else:
-			self._rvs = rvs
+			self._rvs = numpy.array(rvs)
 
-		res = [(self.pdf[param](cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(self._rvs, args)]
+
+		# FIXME: ELegance; get some of that...
+		for (cdf_rv, param) in zip(self._rvs, args):
+			if len(cdf_rv.shape) == 1:
+				res = [(self.pdf[param](cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(self._rvs, args)]
+			else:
+				res = [(self.pdf[param](*cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(self._rvs, args)]
+
 		self._rvs = dict(zip(args, self._rvs))
 
 		if kwargs.has_key("rdict"):
@@ -112,8 +148,13 @@ class MCSampler(object):
 	# NOTE: Better idea: have args and kwargs, and let the user pin values via
 	# kwargs and integrate through args
 	def integrate(self, func, n, *args):
+		"""
+		Integrate func, by using n sample points. Right now, all params defined must be passed to args must be provided, but this will change soon.
+		"""
 		p_s, rv = self.draw(n, *args)
 		joint_p_s = numpy.prod(p_s, axis=0)
+		if len(rv[0].shape) != 1:
+			rv = rv[0]
 		fval = func(*rv)
 		# sum_i f(x_i)/p_s(x_i)
 		int_val = fval/joint_p_s
@@ -122,7 +163,6 @@ class MCSampler(object):
 			maxval.append( v if v > maxval[-1] else maxval[-1] )
 		eff_samp = int_val.cumsum()/maxval
 		indx = bisect.bisect_right(eff_samp, 100)
-		"""
 		#FIXME: Debug plots. Get rid of them when done
 		import matplotlib
 		matplotlib.use("Agg")
@@ -144,7 +184,6 @@ class MCSampler(object):
 		pyplot.grid()
 		pyplot.savefig("integral.png")
 		pyplot.clf()
-		"""
 		if indx == len(int_val):
 			std = 0
 		else:

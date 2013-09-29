@@ -107,22 +107,34 @@ def plot_two_d_hist(samp):
 	pyplot.savefig("samples_2d.png", figsize=(10,3))
 
 	
-def plot_ra_dec(samp):
+def plot_ra_dec(samp, use_pdf=False, fname=None):
 	"""
 	Plot the RA and dec distribution in a Mollewide projection.
 	"""
+	key = ("ra", "dec")
 	samples = samp._rvs
 	fig = pyplot.figure(figsize=(10,10))
-	hist, xedge, yedge = numpy.histogram2d(samples["ra"], samples["dec"], bins=(100, 100))
-	x, y = numpy.meshgrid(xedge, yedge)
-	x *= 180/numpy.pi
-	y *= 180/numpy.pi
 	m = Basemap(projection='moll', lon_0=0, resolution='c')
-	m.contourf(x[:-1,:-1], y[:-1,:-1], hist, 100, cmap=matplotlib.cm.jet, latlon=True)
+	if not use_pdf:
+		hist, xedge, yedge = numpy.histogram2d(*samples[("ra", "dec")], bins=(100, 100))
+		x, y = numpy.meshgrid(xedge, yedge)
+		x *= 180/numpy.pi
+		y *= 180/numpy.pi
+		m.contourf(x[:-1,:-1], y[:-1,:-1], hist, 100, cmap=matplotlib.cm.jet, latlon=True)
+	else:
+		xedge = numpy.linspace(samp.llim[key][0], samp.rlim[key][0], 100)
+		yedge = numpy.linspace(samp.llim[key][1], samp.rlim[key][1], 100)
+		x, y = numpy.meshgrid(xedge, yedge)
+		hist = samp.pdf[key](x, y)
+		x *= 180/numpy.pi
+		y *= 180/numpy.pi
+		m.contourf(x, y, hist, 100, cmap=matplotlib.cm.jet, latlon=True)
+
 	pyplot.colorbar()
 	m.drawparallels(numpy.arange(-90, 120, 30))
 	m.drawmeridians(numpy.arange(0, 420, 60))
-	pyplot.savefig("radec_proj.png")
+	pyplot.savefig(fname or "radec_proj.png")
+	return hist
 
 if sys.argv[1] is None:
 	print "Usage: mcsamp_test npoints"
@@ -155,7 +167,7 @@ dist_val, dist_width = 25.0, 25.0
 # TODO: Make a class function
 def uniform_samp(a, b, x):
 	if type(x) is float:
-		return 1/(b-a)
+		return 1.0/(b-a)
 	else:
 		return numpy.ones(x.shape[0])/(b-a)
 
@@ -170,6 +182,24 @@ def inv_gauss_cdf(mu, std, x):
 	return mu + std*numpy.sqrt(2) * scipy.special.erfinv(2*x-1)
 
 samp = MCSampler()
+
+#
+# Test some other 1-D integrals
+#
+"""
+test_min, test_max = -10, 10
+def integrand_1d(x):
+	return numpy.sinc(10*x)
+plot_integrand(integrand_1d, test_min, test_max)
+
+samp.add_parameter("p1", functools.partial(uniform_samp, test_min, test_max), None, test_min, test_max)
+plot_cdf_inv(samp)
+res, var = samp.integrate(integrand_1d, int(sys.argv[1]), "p1")
+print res, var
+integral = scipy.integrate.quad(integrand_1d, psi_min, psi_max)[0]
+print integral
+samp.clear()
+"""
 
 def integrand_1d(p):
 	return 1.0/numpy.sqrt(2*numpy.pi*psi_width**2)*numpy.exp(-(p-psi_val)**2/2.0/psi_width**2)
@@ -206,6 +236,7 @@ samp.clear()
 #
 # Test 3: Same integrand, gaussian sampling -- various width and offsets
 #
+"""
 widths = [0.1, 0.2, 0.5, 0.8, 0.9, 0.99, 1.01, 1.1, 1.5, 2, 4, 5, 10]
 offsets = [-2.0, -1.0, -0.5, -0.25, -0.1, -0.01, 0.01, 0.1, 0.25, 0.5, 1.0, 2.0]
 
@@ -230,12 +261,12 @@ cbar = pyplot.colorbar()
 cbar.set_label("log10 variance")
 pyplot.semilogx()
 pyplot.savefig("gsamp_variances.png")
-
-exit()
+"""
 
 #
 # Testing convergence: Loop over samples and test sigma relation for desired error
 # 
+"""
 pyplot.figure()
 for n in 10**(numpy.arange(1,6)):
 	ans = []
@@ -247,8 +278,35 @@ pyplot.title("$(I-\\bar{I})/\\bar\\sigma$")
 pyplot.grid()
 pyplot.legend()
 pyplot.savefig("integral_hist.png")
+"""
 
 samp.clear()
+
+import functools
+import healpy
+
+from lalinference.bayestar import fits as bfits
+from lalinference.bayestar import plot as bplot
+
+smap, smap_meta = bfits.read_sky_map("data/30602.toa.fits.gz")
+
+def bayestar_temp(temp, smap, x, y):
+	return bplot._healpix_lookup(smap, x, y)**(1.0/temp)
+
+sky_pdf = functools.partial(bayestar_temp, 4, smap)
+
+def integrand_2d(ra, dec):
+	#return sky_pdf(ra, dec)
+	return numpy.ones(ra.shape)
+
+# FIXME: Leo's using longitude, not dec
+samp.add_parameter(("ra", "dec"), sky_pdf, None, (ra_min, dec_min), (ra_max, dec_max))
+print samp.integrate(integrand_2d, 10, ("ra", "dec"))
+prior = plot_ra_dec(samp)
+plot_ra_dec(samp, use_pdf=True, fname="pdf.png")
+
+bfits.write_sky_map("test.fits.gz", prior)
+
 exit()
 
 # Uniform sampling, cdf provided
