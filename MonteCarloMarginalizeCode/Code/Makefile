@@ -2,6 +2,7 @@ setup:
 # Retrieve Pankow 'blind injection challenge'
 	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/richard_mdc/signal_hoft .
 	gsiscp  ldas-grid.ligo.caltech.edu:/home/pankow/richard_mdc/mdc.xml.gz .
+	find -L . -name '*.gwf' -print | lalapps_path2cache
 
 
 test:
