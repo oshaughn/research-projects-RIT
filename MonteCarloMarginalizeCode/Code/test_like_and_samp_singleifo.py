@@ -15,24 +15,25 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gr
 
 from factored_likelihood import *
 
+checkResults = True # Turn on to print/plot output; Turn off for testing speed
+checkInputPlots = False
+checkResultsPlots = True
+checkResultsSlowChecks = False
+rosUseRandomEventTime = True
+rosUseDifferentWaveformLengths = False    # Very important test: lnL should be independent of the template length
+rosUseRandomTemplateStartingFrequency = True
+
+
+fminSNR = 25
+fSample = 4096*4
+
+ifoName = "H1"
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
 
-optp = OptionParser()
-optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
-optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
-opts, args = optp.parse_args()
-
-det_dict = {}
-rhoExpected ={}
-if opts.channel_name is not None and opts.cache_file is None:
-    print >>sys.stderr, "Cache file required when requesting channel data."	
-    exit(-1)
-elif opts.channel_name is not None:
-    det_dict = dict(map(lambda cname: cname.split("="), opts.channel_name))
 
 Niter = 5 # Number of times to call likelihood function
-Tmax = 0.05 # max ref. time
-Tmin = -0.05 # min ref. time
+Tmax = 0.01 # max ref. time
+Tmin = -0.01 # min ref. time
 Dmax = 110. * 1.e6 * lal.LAL_PC_SI # max ref. time
 Dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min ref. time
 
@@ -40,55 +41,76 @@ Dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min ref. time
 # Produce data with a coherent signal in H1, L1, V1
 #
 data_dict = {}
-if len(det_dict) > 0:
-    for d, chan in det_dict.iteritems():
-        data_dict[d] = lalsimutils.frame_data_to_hoff(opts.cache_file, chan)
-else:
-    m1 = 4*lal.LAL_MSUN_SI
-    m2 = 3*lal.LAL_MSUN_SI
-
-    Psig = ChooseWaveformParams(
-        m1 = m1,m2 =m2,
-        fmin = 15, 
-                                radec=True, theta=1.2, phi=2.4,
-                                detector='H1', 
-                                dist=25.*1.e6*lal.LAL_PC_SI,
-                                tref = theEpochFiducial
-                                )
-    df = findDeltaF(Psig)
-    Psig.deltaF = df
-    data_dict['H1'] = non_herm_hoff(Psig)
-    Psig.detector = 'L1'
-    data_dict['L1'] = non_herm_hoff(Psig)
-    Psig.detector = 'V1'
-    data_dict['V1'] = non_herm_hoff(Psig)
-
-# TODO: Read PSD from XML
 psd_dict = {}
+rhoExpected ={}
+rhoExpectedAlt ={}
 analyticPSD_Q = True # For simplicity, using an analytic PSD
-psd_dict['H1'] = lal.LIGOIPsd
-psd_dict['L1'] = lal.LIGOIPsd
-psd_dict['V1'] = lal.LIGOIPsd
+
+fminWavesSignal = 25
+if rosUseDifferentWaveformLengths: 
+    fminWavesTemplate = fminWavesSignal+0.005
+else:
+    if rosUseRandomTemplateStartingFrequency:
+         print "   --- Generating a random template starting frequency  ---- " 
+         fminWavesTemplate = fminWavesSignal+5.*np.random.random_sample()
+    else:
+        fminWavesTemplate = fminWavesSignal
+
+
+
+
+
+distanceFiducial = 25.  # Make same as reference
+psd_dict[ifoName] =  lalsim.SimNoisePSDiLIGOSRD
+m1 = 4*lal.LAL_MSUN_SI
+m2 = 3*lal.LAL_MSUN_SI
+tEventFiducial = 0.000 # 10./fSample
+if rosUseRandomEventTime:
+    print "   --- Generating a random event (barycenter) time  ---- " 
+    tEventFiducial+= 0.05*np.random.random_sample()
+ampO =0 # sets which modes to include in the physical signal
+Lmax = 2  # sets which modes to include in the output
+fref = 100
+Psig = ChooseWaveformParams(fmin = fminWavesSignal, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
+         m1=m1,m2=m2,
+         ampO=ampO,
+         fref=fref,
+         tref=theEpochFiducial+tEventFiducial,
+         deltaT=1./fSample,
+         dist=distanceFiducial*1.e6*lal.LAL_PC_SI)
+tEventFiducialGPS = Psig.tref             # the 'trigger time' we will localize on
+df = findDeltaF(Psig)
+Psig.deltaF = df
+Psig.print_params()
+data_dict[ifoName] = non_herm_hoff(Psig)
+print "Timing spacing in data vs expected : ", df, data_dict[ifoName].deltaF
 
 print " == Data report == "
 detectors = data_dict.keys()
 rho2Net = 0
-print  " Amplitude report :"
-fSample = 4096
-fminSNR =30
 for det in detectors:
-    IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=Psig.deltaF,psd=psd_dict[det])
+    IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2.,deltaF=df,psd=psd_dict[det])
+    IPOverlap = ComplexOverlap(fLow=fminSNR, fNyq=fSample/2.,deltaF=df,psd=psd_dict[det],analyticPSD_Q=True,full_output=True)  # Use for debugging later
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
+    rhoExpectedAlt[det] = rhoDet2 = IPOverlap.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
-    print det, " rho = ", rhoDet
+    print det, rhoDet, rhoDet2, " at epoch ", float(data_dict[det].epoch)
 print "Network : ", np.sqrt(rho2Net)
 
 
-
+print " ======= Template specified: precomputing all quantities =========="
 # Struct to hold template parameters
-P = ChooseWaveformParams(fmin = 30., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df, 
-                         tref=theEpochFiducial)
+# Fiducial distance provided but will not be used
 Lmax = 2 # sets which modes to include
+P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
+         m1=m1,m2=m2,
+         ampO=ampO,
+         fref=fref,
+         tref=theEpochFiducial,
+         deltaT=1./fSample,
+         dist=100*1.e6*lal.LAL_PC_SI,
+         deltaF=df) #ChooseWaveformParams(m1=m1,m2=m2,fmin = fminWaves, dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO,fref=fref)
+rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict, psd_dict, Lmax, analyticPSD_Q)
 
 #
 # Perform the Precompute stage
