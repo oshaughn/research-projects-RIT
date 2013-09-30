@@ -20,7 +20,7 @@ such as finding a region of interest and laying out a grid over it
 """
 
 from lalsimutils import *
-from scipy.optimize import leastsq
+from scipy.optimize import leastsq, brentq
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
@@ -78,9 +78,8 @@ def update_params_norm_hoff(P, IP, param_names, vals, verbose=False):
         - IP: An InnerProduct object
         - param_names: An array of strings of parameters to be updated.
             e.g. [ 'm1', 'm2', 'incl' ]
-        - vals: update P to have these parameter values. Must have as many
-            vals as length of param_names, ordered the same way
-
+        - vals: update P to have these parameter values. Must be array-like
+            with same length as param_names, ordered the same way
     Outputs:
         - A COMPLEX16FrequencySeries, same as norm_hoff(P, IP)
     """
@@ -103,6 +102,16 @@ def update_params_norm_hoff(P, IP, param_names, vals, verbose=False):
         m1, m2 = m1m2(special_vals[1], special_vals[0])
         setattr(P, 'm1', m1)
         setattr(P, 'm2', m2)
+    elif special_params==['Mc']:
+        eta = symRatio(P.m1, P.m2)
+        m1, m2 = m1m2(special_vals[0], eta)
+        setattr(P, 'm1', m1)
+        setattr(P, 'm2', m2)
+    elif special_params==['eta']:
+        Mc = mchirp(P.m1, P.m2)
+        m1, m2 = m1m2(Mc, special_vals[0])
+        setattr(P, 'm1', m1)
+        setattr(P, 'm2', m2)
     elif special_params != []:
         print special_params
         raise Exception
@@ -113,9 +122,10 @@ def update_params_norm_hoff(P, IP, param_names, vals, verbose=False):
 
 
 
-def find_effective_Fisher_region(P, IP, target_match, param_names,
-        max_param_width):
+def find_effective_Fisher_region(P, IP, target_match, param_names,param_bounds):
     """
+    Example Usage:
+        find_effective_Fisher_region(P, IP, 0.9, ['Mc', 'eta'], [[mchirp(P.m1,P.m2)-lal.LAL_MSUN_SI,mchirp(P.m1,P.m2)+lal.LAL_MSUN_SI], [0.05, 0.25]])
     Arguments:
         - P: a ChooseWaveformParams object describing a target signal
         - IP: An inner product class to compute overlaps.
@@ -139,11 +149,20 @@ def find_effective_Fisher_region(P, IP, target_match, param_names,
     # FIXME: Use a root-finder to bound a region of interest
     Nparams = len(param_names)
     assert len(max_param_width) == Nparams
-    param_cube = np.zeros( (Nparams, 2) )
-    PS = P.copy()
-    df = findDeltaF(PS)
-    PS.deltaF=df
-    PT = PS.copy()
+    param_cube = []
+    hfSIG = norm_hoff(P, IP)
+    for i, param in enumerate(param_names):
+        PT = P.copy()
+        if param=='Mc':
+            param_peak = mchirp(P.m1, P.m2)
+        elif param=='eta':
+            param_peak = symRatio(P.m1, P.m2)
+        else:
+            param_peak = getattr(P, param)
+        func = lambda x: update_params_ip(hfSIG, PT, IP, [param], [x]) - target_match
+        max_param = brentq(func, param_peak, param_peak + max_param_width[i])
+        min_param = brentq(func, param_peak - max_param_width[i], param_peak)
+        param_cube.append( [min_param, max_param] )
 
     return param_cube
 
@@ -252,3 +271,94 @@ def evalfit2d(x1, x2, gamma):
     g22 = gamma[2]
     return 1. - g11*x1*x1/2. - g12*x1*x2 - g22*x2*x2/2.
 
+def residuals3d(gamma, y, x1, x2, x3):
+    g11 = gamma[0]
+    g12 = gamma[1]
+    g13 = gamma[2]
+    g22 = gamma[3]
+    g23 = gamma[4]
+    g33 = gamma[5]
+    return y - (1. - g11*x1*x1/2. - g12*x1*x2 - g13*x1*x3
+            - g22*x2*x2/2. - g23*x2*x3 - g33*x3*x3/2.)
+
+def evalfit3d(x1, x2, x3, gamma):
+    g11 = gamma[0]
+    g12 = gamma[1]
+    g13 = gamma[2]
+    g22 = gamma[3]
+    g23 = gamma[4]
+    g33 = gamma[5]
+    return 1. - g11*x1*x1/2. - g12*x1*x2 - g13*x1*x3\
+            - g22*x2*x2/2. - g23*x2*x3 - g33*x3*x3/2.
+
+def residuals4d(gamma, y, x1, x2, x3, x4):
+    g11 = gamma[0]
+    g12 = gamma[1]
+    g13 = gamma[2]
+    g14 = gamma[3]
+    g22 = gamma[4]
+    g23 = gamma[5]
+    g24 = gamma[6]
+    g33 = gamma[7]
+    g34 = gamma[8]
+    g44 = gamma[9]
+    return y - (1. - g11*x1*x1/2. - g12*x1*x2 - g13*x1*x3 - g14*x1*x4
+            - g22*x2*x2/2. - g23*x2*x3 - g24*x2*x4 - g33*x3*x3/2. - g34*x3*x4
+            - g44*x4*x4/2.)
+
+def evalfit4d(x1, x2, x3, x4, gamma):
+    g11 = gamma[0]
+    g12 = gamma[1]
+    g13 = gamma[2]
+    g14 = gamma[3]
+    g22 = gamma[4]
+    g23 = gamma[5]
+    g24 = gamma[6]
+    g33 = gamma[7]
+    g34 = gamma[8]
+    g44 = gamma[9]
+    return 1. - g11*x1*x1/2. - g12*x1*x2 - g13*x1*x3 - g14*x1*x4\
+            - g22*x2*x2/2. - g23*x2*x3 - g24*x2*x4 - g33*x3*x3/2. - g34*x3*x4\
+            - g44*x4*x4/2.
+
+def residuals5d(gamma, y, x1, x2, x3, x4, x5):
+    g11 = gamma[0]
+    g12 = gamma[1]
+    g13 = gamma[2]
+    g14 = gamma[3]
+    g15 = gamma[4]
+    g22 = gamma[5]
+    g23 = gamma[6]
+    g24 = gamma[7]
+    g25 = gamma[8]
+    g33 = gamma[9]
+    g34 = gamma[10]
+    g35 = gamma[11]
+    g44 = gamma[12]
+    g45 = gamma[13]
+    g55 = gamma[14]
+    return y - (1. - g11*x1*x1/2. - g12*x1*x2 - g13*x1*x3 - g14*x1*x4
+            - g15*x1*x5 - g22*x2*x2/2. - g23*x2*x3 - g24*x2*x4 - g25*x2*x5
+            - g33*x3*x3/2. - g34*x3*x4 - g35*x3*x5 - g44*x4*x4/2. - g45*x4*x5
+            - g55*x5*x5/2.)
+
+def evalfit5d(x1, x2, x3, x4, x5, gamma):
+    g11 = gamma[0]
+    g12 = gamma[1]
+    g13 = gamma[2]
+    g14 = gamma[3]
+    g15 = gamma[4]
+    g22 = gamma[5]
+    g23 = gamma[6]
+    g24 = gamma[7]
+    g25 = gamma[8]
+    g33 = gamma[9]
+    g34 = gamma[10]
+    g35 = gamma[11]
+    g44 = gamma[12]
+    g45 = gamma[13]
+    g55 = gamma[14]
+    return 1. - g11*x1*x1/2. - g12*x1*x2 - g13*x1*x3 - g14*x1*x4\
+            - g15*x1*x5 - g22*x2*x2/2. - g23*x2*x3 - g24*x2*x4 - g25*x2*x5\
+            - g33*x3*x3/2. - g34*x3*x4 - g35*x3*x5 - g44*x4*x4/2. - g45*x4*x5\
+            - g55*x5*x5/2.
