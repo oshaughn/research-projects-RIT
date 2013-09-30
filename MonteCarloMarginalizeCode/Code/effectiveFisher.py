@@ -132,9 +132,11 @@ def find_effective_Fisher_region(P, IP, target_match, param_names,param_bounds):
                 Should have deltaF and length consistent with P
         - target_match: find parameter variation where overlap is target_match.
                 Should be a real number in [0,1]
-        - param_names: array of string names for members of P to vary
+        - param_names: array of string names for members of P to vary.
+                Should have length N for N params to be varied
                 e.g. ['Mc', 'eta']
-        - max_param_width: array of max variations of each param in param_names
+        - param_bounds: array of max variations of each param in param_names
+                Should be an Nx2 array for N params to be varied
     
     Returns:
         Array of boundaries of a hypercube meant to encompass region where
@@ -148,7 +150,7 @@ def find_effective_Fisher_region(P, IP, target_match, param_names,param_bounds):
     """
     # FIXME: Use a root-finder to bound a region of interest
     Nparams = len(param_names)
-    assert len(max_param_width) == Nparams
+    assert len(param_bounds) == Nparams
     param_cube = []
     hfSIG = norm_hoff(P, IP)
     for i, param in enumerate(param_names):
@@ -160,8 +162,8 @@ def find_effective_Fisher_region(P, IP, target_match, param_names,param_bounds):
         else:
             param_peak = getattr(P, param)
         func = lambda x: update_params_ip(hfSIG, PT, IP, [param], [x]) - target_match
-        max_param = brentq(func, param_peak, param_peak + max_param_width[i])
-        min_param = brentq(func, param_peak - max_param_width[i], param_peak)
+        max_param = brentq(func, param_peak, param_bounds[i][1])
+        min_param = brentq(func, param_bounds[i][0], param_peak)
         param_cube.append( [min_param, max_param] )
 
     return param_cube
