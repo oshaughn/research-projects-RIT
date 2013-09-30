@@ -32,9 +32,9 @@ from scipy import interpolate
 from pylal import frutils
 from glue.lal import Cache
 
-__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
+__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
-rosDebugMessagesContainer = [True]
+rosDebugMessagesContainer = [False]
 
 print "[Loading lalsimutils.py : MonteCarloMarginalization version]"
 
@@ -1463,6 +1463,10 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
             hoft.epoch, hoft.f0, 1./hoft.deltaT/TDlen, lal.lalHertzUnit,
             FDlen)
     lal.COMPLEX16TimeFreqFFT(hoff, hoftC, fwdplan)
+
+    if rosDebugMessagesContainer[0]:
+        print " ++ Loaded data h(f) of length n= ", len(hoff.data.data), " (= ", len(hoff.data.data)*hoft.deltaT, "s) at sampling rate ", 1./hoft.deltaT
+
     return hoff
 
 

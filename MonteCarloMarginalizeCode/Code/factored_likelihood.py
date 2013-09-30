@@ -24,12 +24,12 @@ Requires python SWIG bindings of the LIGO Algorithms Library (LAL)
 
 from  lalsimutils import *   # WARNING: will not use same global variables consistently
 
-__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
+__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
 distMpcRef = 100
-tWindowReference = [-0.1,0.4]            # choose samples so we have this centered on the window
-tWindowExplore = [-0.05, 0.05]          # smaller window.  Avoid interpolation errors on the edge.
+tWindowReference = [-1.4,0.4]            # choose samples so we have this centered on the window
+tWindowExplore = [-1.3, 0.1]          # smaller window.  Avoid interpolation errors on the edge.
 rosDebugMessages = False
 rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
 rosDebugUseCForQTimeseries =False

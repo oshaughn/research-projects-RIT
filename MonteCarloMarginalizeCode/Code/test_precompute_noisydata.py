@@ -29,21 +29,42 @@ analyticPSD_Q = True # For simplicity, using an analytic PSD
 
 fminWaves = 25
 fminSNR = 25
-fSample = 4096
+fSample = 4096  # will be reset by data sampling rate.
 
 theEpochFiducial = lal.LIGOTimeGPS(1000000014.000000000)   # Use actual injection GPS time (assumed from trigger)
+tEventFiducial = 1.5   #  time relative to fiducial epoch, used to identify window to look in
 
+detectors = {'H1', "L1", "V1"}
 psd_dict['H1'] = lalsim.SimNoisePSDiLIGOSRD
 psd_dict['L1'] = lalsim.SimNoisePSDiLIGOSRD
 psd_dict['V1'] = lalsim.SimNoisePSDiLIGOSRD
 
+# TARGET INJECTED SIGNAL (for reference and calibration of results)
+Psig = xml_to_ChooseWaveformParams_array("mdc.xml.gz")[0]  # Load in the physical parameters of the injection (=first element)
+df = findDeltaF(Psig)
+Psig.deltaF = df
+Psig.print_params()
+rho2Net = 0
+for det in detectors:
+    Psig.detector = det
+    IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det])
+    hT = non_herm_hoff(Psig)
+    rhoExpected[det] = rhoDet = IP.norm(hT)
+    rho2Net += rhoDet*rhoDet
+    print det, rhoDet,  " has arrival time relative to fiducial of ", float(ComputeArrivalTimeAtDetector(det, Psig.phi,Psig.theta,Psig.tref) - theEpochFiducial)
+print "Network : ", np.sqrt(rho2Net)
 
-# Load H1 data FFT
+
+# Load IFO FFTs.
+# ASSUME data has same sampling rate!
 data_dict['H1'] =frame_data_to_non_herm_hoff("test1.cache", "H1"+":FAKE-STRAIN")
 data_dict['V1'] =frame_data_to_non_herm_hoff("test1.cache", "V1"+":FAKE-STRAIN")
 data_dict['L1'] =frame_data_to_non_herm_hoff("test1.cache", "L1"+":FAKE-STRAIN")
 print data_dict['H1'].data.data[10]  # confirm data loaded
 df = data_dict['H1'].deltaF  
+fSample = len(data_dict['H1'].data.data)*data_dict['H1'].deltaF
+
+
 
 # Plot the H1 data (some time)
 # fvals = data_dict['H1'].deltaF* np.arange(len(data_dict['H1'].data.data))  # remember frequencies are padded from the center out
@@ -68,17 +89,19 @@ P =  ChooseWaveformParams(fmin=fminWaves, radec=False, incl=0.0,phiref=0.0, thet
          fref=fref,
          deltaT=1./fSample,
          tref=theEpochFiducial,
-         dist=100*1.e6*lal.LAL_PC_SI,
+         dist=100*1.e6*lal.LAL_PC_SI,  # critical that this is fiducial (will be reset later)
          deltaF=df)
 rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict, psd_dict, Lmax, analyticPSD_Q)
 
 
 
+#rho2Net = 400 # complete guess -- just needed to make a line
+print rho2Net
 if checkResults == True:
     print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (* STILL TIME OFFSET *)  =========="
     tmin = np.max(float(epoch_post - theEpochFiducial),tWindowReference[0]+0.03)   # the minimum time used is set by the rolling condition
-#    tvals = np.linspace(tmin,tWindowReference[1],4*fSample*(tWindowReference[1]-tmin))
     tvals = np.linspace(tWindowExplore[0]+tEventFiducial,tWindowExplore[1]+tEventFiducial,fSample*(tWindowExplore[1]-tWindowExplore[0]))
+#    tvals = np.linspace(0,15,1600*15)
     for det in detectors:
         lnLData = map( lambda x: SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
         lnLDataEstimate = np.ones(len(tvals))*rhoExpected[det]*rhoExpected[det]
@@ -101,9 +124,9 @@ if checkResults == True:
     for indx in np.arange(len(tvals)):
             P.tref =  theEpochFiducial+tvals[indx]
             lnL[indx] =  FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, 2)
-    lnLEstimate = np.ones(len(tvals))*rho2Net/2
     plt.figure(1)
     tvalsPlot = tvals 
+    lnLEstimate = np.ones(len(tvals))*rho2Net/2
     plt.plot(tvalsPlot, lnL,label='lnL(t)')
     plt.plot(tvalsPlot, lnLEstimate,label="$rho^2/2(net)$")
     tEventRelative =float( Psig.tref - theEpochFiducial)
