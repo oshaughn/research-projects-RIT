@@ -24,3 +24,4 @@ injection-info:
 # Frame files
 	FrDump -i signal_hoft/H-ER_signal_hoft-10000/H-ER_signal_hoft-1000000000-64.gwf 
 	FrDump -i signal_hoft/L-ER_signal_hoft-10000/L-ER_signal_hoft-1000000000-64.gwf 
+	FrDump -i signal_hoft/V-ER_signal_hoft-10000/V-ER_signal_hoft-1000000000-64.gwf 

@@ -34,7 +34,7 @@ from glue.lal import Cache
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
-rosDebugMessagesContainer = [False]
+rosDebugMessagesContainer = [True]
 
 print "[Loading lalsimutils.py : MonteCarloMarginalization version]"
 
@@ -1371,11 +1371,15 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None):
     Function to read in data in the frame format and convert it to 
     a REAL8TimeSeries. fname is the path to a LIGO cache file.
     """
+    if rosDebugMessagesContainer[0]:
+        print " ++ Loading from cache ", fname, channel
     with open(fname) as cfile:
         cachef = Cache.fromfile(cfile)
     fcache = frutils.FrameCache(cachef)
     # FIXME: Horrible, horrible hack -- will only work if all requested channels
     # span the cache *exactly*
+    if rosDebugMessagesContainer[0]:
+        print cachef.to_segmentlistdict()
     if start is None:
         start = cachef.to_segmentlistdict()[channel[0]][0][0]
     if stop is None:
@@ -1450,6 +1454,7 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
     for i in range(TDlen):
         hoftC.data.data[i] = hoft.data.data[i]
     FDlen = TDlen
+    fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
     hoff = lal.CreateCOMPLEX16FrequencySeries("Template h(f)",
             hoft.epoch, hoft.f0, 1./hoft.deltaT/TDlen, lal.lalHertzUnit,
             FDlen)

@@ -1,3 +1,3 @@
-H1 S5 1000000000 64  signal_hoft/H-ER_signal_hoft-10000/H-ER_signal_hoft-1000000000-64.gwf
-L1 S5 1000000000 64  signal_hoft/L-ER_signal_hoft-10000/L-ER_signal_hoft-1000000000-64.gwf
-V1 S5 1000000000 64  signal_hoft/V-ER_signal_hoft-10000/V-ER_signal_hoft-1000000000-64.gwf
+H H1_FAKE_STRAIN 1000000000 64  file:///Users/oshaughn/unixhome/Projects/Planning/ShortProjectEvaluations/2013-08-MeBradyEtAl-MarginalizedPE/research-projects/MonteCarloMarginalizeCode/Code/signal_hoft/H-ER_signal_hoft-10000/H-ER_signal_hoft-1000000000-64.gwf
+V V1_FAKE_STRAIN 1000000000 64  file:///Users/oshaughn/unixhome/Projects/Planning/ShortProjectEvaluations/2013-08-MeBradyEtAl-MarginalizedPE/research-projects/MonteCarloMarginalizeCode/Code/signal_hoft/V-ER_signal_hoft-10000/V-ER_signal_hoft-1000000000-64.gwf
+L L1_FAKE_STRAIN 1000000000 64  file:///Users/oshaughn/unixhome/Projects/Planning/ShortProjectEvaluations/2013-08-MeBradyEtAl-MarginalizedPE/research-projects/MonteCarloMarginalizeCode/Code/signal_hoft/L-ER_signal_hoft-10000/L-ER_signal_hoft-1000000000-64.gwf
