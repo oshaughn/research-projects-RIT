@@ -28,9 +28,9 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
 distMpcRef = 100
-tWindowReference = [-1.4,0.4]            # choose samples so we have this centered on the window
-tWindowExplore = [-1.3, 0.1]          # smaller window.  Avoid interpolation errors on the edge.
-rosDebugMessages = False
+tWindowReference = [-0.2,0.2]            # choose samples so we have this centered on the window
+tWindowExplore = [-0.1, 0.1]             # smaller window.  Avoid interpolation errors on the edge.
+rosDebugMessages = True
 rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
 rosDebugUseCForQTimeseries =False
 rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
@@ -104,14 +104,15 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
         # NOTE: This array is almost certainly wrapped in time via the inverse FFT and is NOT starting at the epoch
 #        tShift =  float(h22Epoch - rho22)   # shift the data by the epoch specified by the returned data!
         tShift =  float( P.tref -  epoch)   # shift the data by the time difference between the target data
-        nRollL = int((np.abs(tWindowReference[0]) - tShift )/rho22.deltaT)   # this is a DISCRETE timeshift
+        nRollL = int((np.abs(tWindowReference[0]) - tShift )/rho22.deltaT)   # this is a DISCRETE timeshift.
+        nRollL +=  int(float((rho22.epoch - epoch))/rho22.deltaT)   # roll by more points if the epochs between the rho and fiducial are very different.  Important b/c I only interpolate a narrow window...if I miss the right epoch, the lnL(t) function will look like quadratic garbage.
         if rosDoNotRollTimeseries:
             nRollL = 0
         tShiftDiscrete = nRollL*rho22.deltaT
         if rosDebugMessages:
-            print "  : must shift by ", nRollL, " corresponding to a time shift ", tShift, " = ", tShiftDiscrete, " to make sure the reference time ", float(P.tref), " has a long window", float(tShift)
+            print "  : must shift by ", nRollL, " corresponding to a time shift = ", tShiftDiscrete, " to make sure the reference time ", float(P.tref), " has a long window", float(tShift)
         # Time correspondence for these events, relative to the *fiducial* GPSTime 'epoch'
-        t = np.arange(rho22.data.length) * rho22.deltaT - tShiftDiscrete  # account for the timeseries, plus roll
+        t = np.arange(rho22.data.length) * rho22.deltaT - tShiftDiscrete  # account for the timeseries, plus roll. This is always correct
         tShiftChangeTimeOrigin = float(rho22.epoch - epoch)   # rho22.epoch already includes signal length info: literally just origin change
         if rosDebugMessages:
             print "  to change the time origin, we are translating by ", tShiftChangeTimeOrigin, " because the data series has time ",  stringGPSNice(rho22.epoch), " and the fiducial reference is ", stringGPSNice(epoch)
@@ -304,7 +305,7 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
                 for m in range(-l,l+1):
                     rhoTS = lalsim.SphHarmTimeSeriesGetMode(rholms, l, m)
                     print  "     :  value of <hlm|data> ", l,m,  np.amax(np.abs(rhoTS.data.data))   #, " with length ", len(rhoTS.data.data)
-                    print "      : epoch ", stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
+                    print "      : epoch ", stringGPSNice(rhoTS.epoch), " (should be 0 for template) compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch), " which should be related to padding, the choice of reference time, etc"
     else:
         Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
         for l in range(2,Lmax+1):
@@ -317,10 +318,9 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
                 # Sanity check
                 if rosDebugMessages:
                     print  "     :  value of <hlm|data> ", l,m, rho, np.amax(np.abs(rhoTS.data.data))  # Debuging info
-                    rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, hlm)
                     rhoRegular = IPRegular.ip(hlm,hlm)
                     print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular # ,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
-                    print "      : epoch ", stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
+                    print "      : Qlm series starts at ", stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
 
     # RETURN: Do not window or readjust the timeseries here.  This is done in the interpolation step.
     # TIMING : Epoch set 
@@ -468,7 +468,7 @@ def non_herm_hoff(P):
             lalsim.InstrumentNameToLALDetector(P.detector))  # Propagates signal to the detector, including beampattern and time delay
     if rosDebugMessages:
         print " +++ Injection creation ++ "
-        print  "   : Creating signal for injection with epoch ", float(hp.epoch), " and event time centered at ", P.tref
+        print  "   : Creating signal for injection with epoch ", float(hp.epoch), " and event time centered at ", stringGPSNice(P.tref)
         Fp, Fc = lal.ComputeDetAMResponse(lalsim.InstrumentNameToLALDetector(P.detector).response, P.phi, P.theta, P.psi, lal.GreenwichMeanSiderealTime(hp.epoch))
         print "  : creating signal for injection with (det, t,RA, DEC,psi,Fp,Fx)= ", P.detector, float(P.tref), P.phi, P.theta, P.psi, Fp, Fc
     if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested

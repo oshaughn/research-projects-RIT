@@ -28,6 +28,8 @@ import numpy as np
 import copy
 from numpy import sin, cos
 from scipy import interpolate
+from scipy import signal
+#import scipy  # for decimate
 
 from pylal import frutils
 from glue.lal import Cache
@@ -1006,7 +1008,7 @@ def hlmoft(P, Lmax=2, Fp=None, Fc=None):
         for L in np.arange(2,Lmax+1):
             for m in np.arange(-Lmax, Lmax+1):
                 hxx = lalsim.SphHarmTimeSeriesGetMode(hlms,int(L),int(m))  
-                print " hlm(t) epoch after resize, (l,m) ", L,m, stringGPSNice( hxx.epoch)
+                print " hlm(t) epoch after resize, (l,m) ", L,m, stringGPSNice( hxx.epoch), " and buffer duration =   ", hxx.deltaT*len(hxx.data.data)
 
     return hlms
 
@@ -1038,7 +1040,7 @@ def hlmoff(P, Lmax=2, Fp=None, Fc=None):
         for L in np.arange(2,Lmax+1):
             for m in np.arange(-Lmax, Lmax+1):
                 hxx = lalsim.SphHarmFrequencySeriesGetMode(Hlms,int(L),int(m))  
-                print " hlm(f) epoch after FFT, (l,m) ", L,m, hxx.epoch.gpsSeconds, ".", hxx.epoch.gpsNanoSeconds 
+                print " hlm(f) epoch after FFT, (l,m) ", L,m,  stringGPSNice(hxx.epoch)
 
     return Hlms
 
@@ -1393,6 +1395,7 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None):
     tmp = lal.CreateREAL8TimeSeries("h(t)", 
             lal.LIGOTimeGPS(float(ht.metadata.segments[0][0])),
             0., ht.metadata.dt, lal.lalDimensionlessUnit, len(ht))
+    print   "  ++ Frame data sampling rate ", 1./tmp.deltaT, " and epoch ", stringGPSNice(tmp.epoch)
     tmp.data.data[:] = ht
     return tmp
 
@@ -1455,8 +1458,9 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
     hoftC = lal.CreateCOMPLEX16TimeSeries("hoft", hoft.epoch, hoft.f0,
             hoft.deltaT, hoft.sampleUnits, TDlen)
     # copy h(t) into a COMPLEX16 array which happens to be purely real
-    for i in range(TDlen):
-        hoftC.data.data[i] = hoft.data.data[i]
+    hoftC.data.data = hoft.data.data + 0j
+#    for i in range(TDlen):
+#        hoftC.data.data[i] = hoft.data.data[i]
     FDlen = TDlen
     fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
     hoff = lal.CreateCOMPLEX16FrequencySeries("Template h(f)",

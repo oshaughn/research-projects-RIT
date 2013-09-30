@@ -26,7 +26,8 @@ checkInputPlots = False
 checkResultsPlots = True
 checkResultsSlowChecks = False
 rosUseRandomEventTime = True
-rosUseDifferentWaveformLengths = True    # Very important test: lnL should be independent of the template length
+rosUseDifferentWaveformLengths = False    # Very important test: lnL should be independent of the template length
+rosUseRandomTemplateStartingFrequency = True
 
 data_dict = {}
 psd_dict = {}
@@ -38,7 +39,12 @@ fminWavesSignal = 25
 if rosUseDifferentWaveformLengths: 
     fminWavesTemplate = fminWavesSignal+0.005
 else:
-    fminWavesTemplate = fminWavesSignal
+    if rosUseRandomTemplateStartingFrequency:
+         print "   --- Generating a random template starting frequency  ---- " 
+         fminWavesTemplate = fminWavesSignal+5.*np.random.random_sample()
+    else:
+        fminWavesTemplate = fminWavesSignal
+
 fminSNR = 25
 fSample = 4096*4
 
@@ -82,7 +88,7 @@ distanceFiducial = 25.  # Make same as reference
 psd_dict[ifoName] =  lalsim.SimNoisePSDiLIGOSRD
 m1 = 4*lal.LAL_MSUN_SI
 m2 = 3*lal.LAL_MSUN_SI
-tEventFiducial = 0.001 # 10./fSample
+tEventFiducial = 0.000 # 10./fSample
 if rosUseRandomEventTime:
     print "   --- Generating a random event (barycenter) time  ---- " 
     tEventFiducial+= 0.05*np.random.random_sample()
@@ -207,7 +213,7 @@ if checkResults == True:
     # plt.title("lnL (interpolated) vs all time")
     # plt.legend()
 
-    tvals = np.linspace(tWindowExplore[0]+tEventFiducial,tWindowExplore[1]+tEventFiducial,2000)
+    tvals = np.linspace(tWindowExplore[0]+tEventFiducial,tWindowExplore[1]+tEventFiducial,int(0.25*fSample*(tWindowExplore[1]-tWindowExplore[0])))
     for det in detectors:
         lnLData = map( lambda x: SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
 #        print lnLData

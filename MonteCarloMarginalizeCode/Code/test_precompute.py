@@ -28,6 +28,8 @@ checkRhoIngredients = False
 rosUseRandomSkyLocation = True
 rosUseRandomSourceOrientation = True
 rosUseRandomEventTime = False
+rosUseRandomTemplateStartingFrequency = False
+
 
 #
 # Produce data with a coherent signal in H1, L1, V1
@@ -39,6 +41,10 @@ rhoExpectedAlt ={}
 analyticPSD_Q = True # For simplicity, using an analytic PSD
 
 fminWaves = 25
+fminWavesTemplate = 25
+if (rosUseRandomTemplateStartingFrequency):
+    print "   --- Generating a random template starting frequency  ---- " 
+    fminWavesTemplate += 5*np.random.random_sample()
 fminSNR = 25
 fSample = 4096
 
@@ -150,7 +156,7 @@ if checkInputPlots:
 print " ======= Template specified: precomputing all quantities =========="
 # Struct to hold template parameters
 # Fiducial distance provided but will not be used
-P =  ChooseWaveformParams(fmin=fminWaves, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
+P =  ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,

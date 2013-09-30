@@ -1,8 +1,10 @@
 setup:
 # Retrieve Pankow 'blind injection challenge'
 	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/richard_mdc/signal_hoft .
+	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/richard_mdc/signal_hoft_no_noise .
 	gsiscp  ldas-grid.ligo.caltech.edu:/home/pankow/richard_mdc/mdc.xml.gz .
-	find -L . -name '*.gwf' -print | lalapps_path2cache
+	find -L signal_hoft -name '*.gwf' -print | lalapps_path2cache > test1.cache
+	find -L signal_hoft_no_noise -name '*.gwf' -print | lalapps_path2cache > test1-0noise.cache
 
 
 test:
