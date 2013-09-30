@@ -15,6 +15,9 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gr
 
 from factored_likelihood import *
 
+rosUseDifferentWaveformLengths = False    
+rosUseRandomTemplateStartingFrequency = False
+
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
 
 optp = OptionParser()
@@ -36,6 +39,16 @@ Tmin = -0.05 # min ref. time
 Dmax = 110. * 1.e6 * lal.LAL_PC_SI # max ref. time
 Dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min ref. time
 
+fminWavesSignal = 25
+if rosUseDifferentWaveformLengths: 
+    fminWavesTemplate = fminWavesSignal+0.005
+else:
+    if rosUseRandomTemplateStartingFrequency:
+         print "   --- Generating a random template starting frequency  ---- " 
+         fminWavesTemplate = fminWavesSignal+5.*np.random.random_sample()
+    else:
+        fminWavesTemplate = fminWavesSignal
+
 #
 # Produce data with a coherent signal in H1, L1, V1
 #
@@ -56,6 +69,7 @@ else:
                                 tref = theEpochFiducial
                                 )
     df = findDeltaF(Psig)
+    Psig.print_params()
     Psig.deltaF = df
     data_dict['H1'] = non_herm_hoff(Psig)
     Psig.detector = 'L1'
@@ -86,9 +100,17 @@ print "Network : ", np.sqrt(rho2Net)
 
 
 # Struct to hold template parameters
-P = ChooseWaveformParams(fmin = 30., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df, 
-                         tref=theEpochFiducial)
+ampO =0 # sets which modes to include in the physical signal
 Lmax = 2 # sets which modes to include
+fref = 100
+P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
+         m1=m1,m2=m2,
+         ampO=ampO,
+         fref=fref,
+         tref=theEpochFiducial,
+         deltaT=1./fSample,
+         dist=100*1.e6*lal.LAL_PC_SI,
+         deltaF=df)
 
 #
 # Perform the Precompute stage
