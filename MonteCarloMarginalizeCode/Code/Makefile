@@ -5,7 +5,22 @@ setup:
 
 
 test:
+# test hlm generation, overlaps
+#	python test_hlm.py   # shows that hlm's generate via our wrapper.  SHOULD BE TESTED with other approximants.
+	python test_rhotimeseries.py  # inner product with data
 # test likelihood evaluation
 	python test_precompute_singleifo.py
 	python test_precompute.py
-# test access
+	python test_precompute_noisydata.py
+# test sampler 
+	test_mcsamp.py
+#
+
+
+
+injection-info:
+# Parameters
+	ligolw_print mdc.xml.gz -t sim_inspiral -c mass1 -c mass2 -c longitude -c latitude
+# Frame files
+	FrDump -i signal_hoft/H-ER_signal_hoft-10000/H-ER_signal_hoft-1000000000-64.gwf 
+	FrDump -i signal_hoft/L-ER_signal_hoft-10000/L-ER_signal_hoft-1000000000-64.gwf 
