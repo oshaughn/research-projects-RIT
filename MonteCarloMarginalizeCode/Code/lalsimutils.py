@@ -1375,6 +1375,10 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None):
         print " ++ Loading from cache ", fname, channel
     with open(fname) as cfile:
         cachef = Cache.fromfile(cfile)
+    for i in range(len(cachef))[::-1]:
+        # FIXME: HACKHACKHACK
+        if cachef[i].observatory != channel[0]:
+            del cachef[i]
     fcache = frutils.FrameCache(cachef)
     # FIXME: Horrible, horrible hack -- will only work if all requested channels
     # span the cache *exactly*
