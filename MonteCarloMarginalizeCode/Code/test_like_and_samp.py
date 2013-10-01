@@ -2,6 +2,7 @@ import sys
 from optparse import OptionParser
 
 import numpy
+from matplotlib import pylab as plt
 
 from glue.lal import Cache
 import lalsimutils
@@ -17,6 +18,9 @@ from factored_likelihood import *
 
 rosUseDifferentWaveformLengths = False    
 rosUseRandomTemplateStartingFrequency = False
+
+rosUseTargetedDistance = True
+rosShowSamplerInputDistributions = True
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
 
@@ -127,6 +131,8 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
     global nEvals
     lnL = numpy.zeros(phi.shape)
     i = 0
+    print " Likelihood results :  "
+    print " iteration  lnL   sqrt(2max(lnL))  sqrt(2 lnLmarg)   <lnL> "
     for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
         P.phi = ph # right ascension
         P.theta = th # declination
@@ -137,11 +143,12 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.dist = di # luminosity distance
 
         lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)
-        if (numpy.mod(i,100)==0):
-            print "Evaluation # ", i, " : For (RA, DEC, tref, phiref, incl, psi, dist) ="
-            print "\t", P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI)
+        if (numpy.mod(i,200)==10 and i>100):
+            print "\t Params ", i, " (RA, DEC, tref, phiref, incl, psi, dist) ="
+            print "\t", i, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL[i]
             logLmarg =np.log(np.mean(np.exp(lnL[:i])))
-            print "\tlog likelihood is ",  lnL[i], ";   log-integral L_{marg} =", logLmarg , " with sqrt(2Lmarg)= ", np.sqrt(2*logLmarg), "; and  <lnL>=  ", np.mean(lnL[:i])
+#            print "\tlog likelihood is ",  lnL[i], ";   log-integral L_{marg} =", logLmarg , " with sqrt(2Lmarg)= ", np.sqrt(2*logLmarg), "; and  <lnL>=  ", np.mean(lnL[:i])
+            print i,  lnL[i],   np.sqrt(np.max(lnL[:i])),  np.sqrt(2*logLmarg), np.mean(lnL[:i]) 
         i+=1
     return numpy.exp(lnL)
 
@@ -164,21 +171,69 @@ dec_min, dec_max = -numpy.pi/2, numpy.pi/2
 # Reference time
 tref_min, tref_max = Tmin, Tmax
 # Inclination angle
-inc_min, inc_max = -numpy.pi/2, numpy.pi/2
+inc_min, inc_max = 0, numpy.pi
 # orbital phi
 phi_min, phi_max = 0, 2*numpy.pi
 # distance
 dist_min, dist_max = Dmin, Dmax
 
 import functools
-# Uniform sampling, auto-cdf inverse
-sampler.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), None, psi_min, psi_max)
-sampler.add_parameter("ra", functools.partial(uniform_samp, ra_min, ra_max), None, ra_min, ra_max)
-sampler.add_parameter("dec", functools.partial(uniform_samp, dec_min, dec_max), None, dec_min, dec_max)
-sampler.add_parameter("tref", functools.partial(uniform_samp, tref_min, tref_max), None, tref_min, tref_max)
-sampler.add_parameter("phi", functools.partial(uniform_samp, phi_min, phi_max), None, phi_min, phi_max)
-sampler.add_parameter("inc", functools.partial(uniform_samp, inc_min, inc_max), None, inc_min, inc_max)
-sampler.add_parameter("dist", functools.partial(uniform_samp, dist_min, dist_max), None, dist_min, dist_max)
+# Uniform sampling (in area) but nonuniform sampling in distance (*I hope*).  Auto-cdf inverse
+# PROBLEM: Underlying prior samplers are not uniform.  We need two stages
+sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
+sampler.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), None, ra_min, ra_max)
+sampler.add_parameter("dec", functools.partial(mcsampler.dec_samp_vector), None, dec_min, dec_max)
+sampler.add_parameter("tref", functools.partial(mcsampler.uniform_samp_vector, tref_min, tref_max), None, tref_min, tref_max)
+sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max)
+sampler.add_parameter("inc", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max)
+if rosUseTargetedDistance:
+    r0 = 25*1e6*lal.LAL_PC_SI
+    sampler.add_parameter("dist", functools.partial(mcsampler.pseudo_dist_samp_vector,r0 ), None, dist_min, dist_max)
+else:
+    sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, dist_min, dist_max), None, dist_min, dist_max)
+
+
+if rosShowSamplerInputDistributions:
+    print " ====== Plotting prior and sampling distributions ==== "
+    print "  PROBLEM: Build in/hardcoded via uniform limits on each parameter! Need to add measure factors "
+    nFig = 0
+    for param in sampler.params:
+        nFig+=1
+        plt.figure(nFig)
+        xLow = sampler.llim[param]
+        xHigh = sampler.rlim[param]
+        xvals = np.linspace(xLow,xHigh,500)
+        pdfPrior = lambda x: mcsampler.uniform_samp( float(xLow), float(xHigh), float(x))  # Force type conversion in case we have non-float limits for some reasona
+        pdfvalsPrior = np.array(map(pdfPrior, xvals))  # do all the numpy operations by hand: no vectorization
+        pdf = sampler.pdf[param]
+        pdfvals = pdf(xvals)
+        if param is  "dist":
+            xvvals = xvals/(1e6*lal.LAL_PC_SI)       # plot in Mpc, not m.  Note PDF has to change
+            pdfvalsPrior = pdfvalsPrior * (1e6*lal.LAL_PC_SI) # rescale units
+            pdfvals = pdfvals * (1e6*lal.LAL_PC_SI) # rescale units
+        plt.plot(xvals,pdfvalsPrior,label="prior:"+str(param),linestyle='--')
+        plt.plot(xvals,pdfvals,label=str(param))
+        plt.xlabel(str(param))
+        plt.legend()
+    plt.show()
+
+    # print " ====== Plotting sampling distributions ==== "
+    # nFig = 0
+    # for param in sampler.params:
+    #     nFig+=1
+    #     plt.figure(nFig)
+    #     pdf = sampler.pdf[param]
+    #     xLow = sampler.llim[param]
+    #     xHigh = sampler.rlim[param]
+    #     xvals = np.linspace(xLow,xHigh,500)
+    #     pdfvals = np.array(map(pdf, xvals))
+    #     if param is  'dist':
+    #         xvvals = xvals/(1e6*lal.LAL_PC_SI)       # plot in Mpc, not m.  Note PDF has to change
+    #         pdfvals = pdfvals * (1e6*lal.LAL_PC_SI) # rescale units
+    #     plt.plot(xvals,pdfvals,label=str(param))
+    #     plt.xlabel(str(param))
+    # plt.legend()
+    # plt.show()
 
 res, var = sampler.integrate(likelihood_function, 1e6, "ra", "dec", "tref", "phi", "inc", "psi", "dist")
 print res, numpy.sqrt(var)

@@ -127,6 +127,8 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
     global nEvals
     lnL = numpy.zeros(phi.shape)
     i = 0
+    print " Likelihood results :  "
+    print "  lnL   sqrt(2max(lnL))  sqrt(2 lnLmarg)   <lnL> "
     for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
         P.phi = ph # right ascension
         P.theta = th # declination
@@ -138,10 +140,11 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
 
         lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)
         if (numpy.mod(i,100)==0):
-            print "Evaluation # ", i, " : For (RA, DEC, tref, phiref, incl, psi, dist) ="
-            print "\t", P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI)
+#            print "Evaluation # ", i, " : For (RA, DEC, tref, phiref, incl, psi, dist) ="
+#            print "\t", P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI)
             logLmarg =np.log(np.mean(np.exp(lnL[:i])))
-            print "\tlog likelihood is ",  lnL[i], ";   log-integral L_{marg} =", logLmarg , " with sqrt(2Lmarg)= ", np.sqrt(2*logLmarg), "; and  <lnL>=  ", np.mean(lnL[:i])
+#            print "\tlog likelihood is ",  lnL[i], ";   log-integral L_{marg} =", logLmarg , " with sqrt(2Lmarg)= ", np.sqrt(2*logLmarg), "; and  <lnL>=  ", np.mean(lnL[:i])
+            print   lnL[i], np.sqrt(np.max(lnL[:i])), logLmarg , np.sqrt(2*logLmarg), np.mean(lnL[:i])
         i+=1
     return numpy.exp(lnL)
 

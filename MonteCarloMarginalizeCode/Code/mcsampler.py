@@ -155,3 +155,32 @@ class MCSampler(object):
 		# FIXME: Running stddev
 		# TODO: Wrong n in variance
 		return int_val1, std**2/max(1, (n-indx))
+
+
+### UTILITIES: Predefined distributions
+def uniform_samp(a, b, x):   # I prefer to vectorize with the same call for all functions, rather than hardcode vectorization
+        if  x>a and x<b:
+                return 1/(b-a)
+        else:
+                return 0
+uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
+
+def inv_uniform_cdf(a, b, x):
+	return (b-a)*x+a
+
+def gauss_samp(mu, std, x):
+	return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2)
+
+def cos_samp(x):
+        return numpy.sin(x)/2   # x from 0, pi
+
+def dec_samp(x):
+        return numpy.sin(x+numpy.pi/2)/2   # x from 0, pi
+
+cos_samp_vector = numpy.vectorize(cos_samp,otypes=[numpy.float])
+dec_samp_vector = numpy.vectorize(dec_samp,otypes=[numpy.float])
+
+def pseudo_dist_samp(r0,r):
+        return r*r*numpy.exp( - (r0/r)*(r0/r)/2. + r0/r)+0.01  # put a floor on probability, so we converge
+
+pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])

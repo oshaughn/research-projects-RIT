@@ -157,7 +157,9 @@ dist_val, dist_width = 25.0, 25.0
 # TODO: Make a class function
 def uniform_samp(a, b, x):
 	if type(x) is float:
-		return 1/(b-a)
+                if x>b and x< a:
+                        return 1/(b-a)
+                else return 0
 	else:
 		return numpy.ones(x.shape[0])/(b-a)
 
@@ -182,9 +184,9 @@ plot_integrand(integrand_1d, psi_min, psi_max)
 #
 
 samp.add_parameter("psi", functools.partial(gauss_samp, psi_val, psi_width), None, psi_min, psi_max)
-print samp.integrate(integrand_1d, 1, "psi")
+integralViaSampler = samp.integrate(integrand_1d, 1, "psi")
 integral = scipy.integrate.quad(integrand_1d, psi_min, psi_max)[0]
-print "scipy answer: %f" % integral
+print "scipy answer vs our answer:",  integral, integralViaSampler
 plot_pdf(samp)
 plot_cdf_inv(samp)
 plot_one_d_hist(samp)
