@@ -21,13 +21,32 @@ such as finding a region of interest and laying out a grid over it
 
 from lalsimutils import *
 from scipy.optimize import leastsq, brentq
+from scipy.linalg import eig
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
 
 def effectiveFisher(residual_func, *flat_grids):
     """
-    DOCUMENT ME!!!
+    Fit a quadratic to the ambiguity function tabulated on a grid.
+    Inputs:
+        - a pointer to a function to compute residuals, e.g.
+          z(x1, ..., xN) - fit
+          for N-dimensions, this is called 'residualsNd'
+        - N+1 flat arrays of length K. N arrays for each on N parameters,
+          plus 1 array of values of the overlap
+    Returns:
+        - flat array of upper-triangular elements of the effective Fisher matrix
+
+    Example:
+    x1s = [x1_1, ..., x1_K]
+    x2s = [x2_1, ..., x2_K]
+    ...
+    xNs = [xN_1, ..., xN_K]
+
+    gamma = effectiveFisher(residualsNd, x1s, x2s, ..., xNs, rhos)
+
+    gamma = [g_11, g_12, ..., g_1N, g_22, ..., g_2N, g_33, ..., g_3N, ..., g_NN]
     """
     x0 = np.ones(len(flat_grids))
     fitgamma = leastsq(residual_func, x0=x0, args=tuple(flat_grids))
@@ -364,3 +383,103 @@ def evalfit5d(x1, x2, x3, x4, x5, gamma):
             - g15*x1*x5 - g22*x2*x2/2. - g23*x2*x3 - g24*x2*x4 - g25*x2*x5\
             - g33*x3*x3/2. - g34*x3*x4 - g35*x3*x5 - g44*x4*x4/2. - g45*x4*x5\
             - g55*x5*x5/2.
+
+
+# Convenience function to return eigenvalues and eigenvectors of a matrix
+def eigensystem(matrix):
+    """
+    Given an array-like 'matrix', returns:
+        - An array of eigenvalues
+        - An array of eigenvectors
+    """
+    evals, evecs = eig(matrix)
+    return evals, np.transpose(evecs)
+
+#
+# Functions to return points distributed randomly, uniformly inside
+# an ellipsoid of arbitrary dimension
+#
+def uniform_random_ellipsoid(Npts, *radii):
+    """
+    Return an array of pts distributed randomly and uniformly inside an
+    D-dimensional ellipsoid. D is determined by the number of radii args given.
+
+    Returned array has shape like:
+    [[x1_1,x2_1, ..., xD_1],
+     [x1_2,x2_2, ..., xD_2],
+      ...,
+    [x1_Npts,x2_Npts, ..., xD_Npts]]
+    """
+    D = len(radii)
+    if D==2:
+        return uniform_random_ellipsoid2d(Npts, *radii)
+    elif D==3:
+        return uniform_random_ellipsoid3d(Npts, *radii)
+    elif D==4:
+        return uniform_random_ellipsoid4d(Npts, *radii)
+    elif D==5:
+        return uniform_random_ellipsoid5d(Npts, *radii)
+    else:
+        raise ValueError('Not implemented for that many dimensions')
+
+def uniform_random_ellipsoid2d(Npts, r1, r2):
+    """
+    2D case of uniform_random_ellipsoid
+    """
+    r = np.random.rand(Npts)
+    th = np.random.rand(Npts) * 2.*np.pi
+    rrt = np.sqrt(r)
+    x1 = r1 * rrt * np.cos(th)
+    x2 = r2 * rrt * np.sin(th)
+    return np.transpose((x1,x2))
+
+def uniform_random_ellipsoid3d(Npts, r1, r2, r3):
+    """
+    3D case of uniform_random_ellipsoid
+    """
+    r = np.random.rand(Npts)
+    ph = np.random.rand(Npts) * 2.*np.pi
+    costh = np.random.rand(Npts)*2.-1.
+    sinth = np.sqrt(1.-costh*costh)
+    rrt = r**(1./3.)
+    x1 = r1 * rrt * sinth * np.cos(ph)
+    x2 = r2 * rrt * sinth * np.sin(ph)
+    x3 = r3 * rrt * costh
+    return np.transpose((x1,x2,x3))
+
+def uniform_random_ellipsoid4d(Npts, r1, r2, r3, r4):
+    """
+    4D case of uniform_random_ellipsoid
+    """
+    r = np.random.rand(Npts)
+    ph = np.random.rand(Npts) * 2.*np.pi
+    costh1 = np.random.rand(Npts)*2.-1.
+    costh2 = np.random.rand(Npts)*2.-1.
+    sinth1 = np.sqrt(1.-costh1*costh1)
+    sinth2 = np.sqrt(1.-costh2*costh2)
+    rrt = r**(1./4.)
+    x1 = r1 * rrt * sinth1 * sinth2 * np.cos(ph)
+    x2 = r2 * rrt * sinth1 * sinth2 * np.sin(ph)
+    x3 = r3 * rrt * sinth1 * costh2
+    x4 = r4 * rrt * costh1
+    return np.transpose((x1,x2,x3,x4))
+
+def uniform_random_ellipsoid5d(Npts, r1, r2, r3, r4, r5):
+    """
+    4D case of uniform_random_ellipsoid
+    """
+    r = np.random.rand(Npts)
+    ph = np.random.rand(Npts) * 2.*np.pi
+    costh1 = np.random.rand(Npts)*2.-1.
+    costh2 = np.random.rand(Npts)*2.-1.
+    costh3 = np.random.rand(Npts)*2.-1.
+    sinth1 = np.sqrt(1.-costh1*costh1)
+    sinth2 = np.sqrt(1.-costh2*costh2)
+    sinth3 = np.sqrt(1.-costh3*costh3)
+    rrt = r**(1./5.)
+    x1 = r1 * rrt * sinth1 * sinth2 * sinth3 * np.cos(ph)
+    x2 = r2 * rrt * sinth1 * sinth2 * sinth3 * np.sin(ph)
+    x3 = r3 * rrt * sinth1 * sinth2 * costh3
+    x4 = r4 * rrt * sinth1 * costh2
+    x5 = r5 * rrt * costh1
+    return np.transpose((x1,x2,x3,x4,x5))
