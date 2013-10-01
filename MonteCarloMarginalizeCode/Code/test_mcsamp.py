@@ -157,9 +157,10 @@ dist_val, dist_width = 25.0, 25.0
 # TODO: Make a class function
 def uniform_samp(a, b, x):
 	if type(x) is float:
-                if x>b and x< a:
-                        return 1/(b-a)
-                else return 0
+#                if x>b and x< a:
+                return 1/(b-a)
+#                else:
+#                        return 0
 	else:
 		return numpy.ones(x.shape[0])/(b-a)
 

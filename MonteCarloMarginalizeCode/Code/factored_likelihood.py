@@ -28,9 +28,9 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
 distMpcRef = 100
-tWindowReference = [-0.2,0.2]            # choose samples so we have this centered on the window
-tWindowExplore = [-0.1, 0.1]             # smaller window.  Avoid interpolation errors on the edge.
-rosDebugMessages = True
+tWindowReference = [-0.15,0.15]            # choose samples so we have this centered on the window
+tWindowExplore = [-0.05, 0.05]             # smaller window.  Avoid interpolation errors on the edge.
+rosDebugMessages = False
 rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
 rosDebugUseCForQTimeseries =False
 rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
@@ -38,6 +38,11 @@ rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the targ
 rosInterpolateVia = "Other"
 rosDoNotRollTimeseries = False           # must be done if you have zero padding.  Should always work, since epoch shifted too.
 #rosDoNotUseMemoryMode = True       # strip the memory mode.  I am seeing some strange features.
+rosInterpolationMethod = "NearestNeighbor"
+rosInterpolationMethod = "Interp1d"  # horribly slow!  Unusable prep time!
+rosInterpolationMethod = "PrecomputeSpline"
+rosInterpolationMethod = "ManualLinear"
+rosInterpolationMethod = "InterpolatedUnivariateSpline"
 
 #
 # Main driver functions
@@ -348,8 +353,25 @@ def InterpolateRholm(rholm, t,nRollL):
         print " ... interpolating real, imaginary part ... "
         hxdat = np.roll(np.imag(rholm.data.data),nRollL)[:nBinMax]
         hpdat = np.roll(np.real(rholm.data.data), nRollL)[:nBinMax]
-        hx = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hxdat, k=2)
-        hp = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hpdat, k=2)
+        print "     : using method ", rosInterpolationMethod
+        if (rosInterpolationMethod == "InterpolatedUnivariateSpline"):
+            hx = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hxdat, k=3)
+            hp = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hpdat, k=3)
+        else:
+#            if (rosInterpolationMethod == "NearestNeighbor"):  # should ONLY do this if I upsample!
+#                hx = interpolate.interp1d(t[:nBinMax], hxdat, kind='nearest')
+#                hp = interpolate.interp1d(t[:nBinMax], hpdat, kind='nearest')
+            if (rosInterpolationMethod == "ManualLinear"):
+                hx = makeFast1dInterpolator(hxdat, t[0], t[nBinMax])
+                hp = makeFast1dInterpolator(hpdat, t[0], t[nBinMax])
+            else:
+                hxRaw = interpolate.splrep(t[:nBinMax], hxdat)
+                hx = lambda x : interpolate.splev( x, hxRaw)
+                hpRaw = interpolate.splrep(t[:nBinMax], hpdat)
+                hp = lambda x : interpolate.splev( x, hpRaw)
+#                hx = interpolate.interp1d(t[:nBinMax], hxdat, kind='quadratic')
+#                hp = interpolate.interp1d(t[:nBinMax], hpdat, kind='quadratic')
+
         return lambda ti: hp(ti) + 1j*hx(ti)
         
 
@@ -501,3 +523,13 @@ def rollTimeSeries(series_dict, nRollRight):
         np.roll(series_dict.data.data, nRollRight)
 
 
+
+def evaluateFast1dInterpolator(x,y,xlow,xhigh):
+    indx = np.floor((x-xlow)/(xhigh-xlow) * len(y))
+    if indx<0:
+        indx = 0
+    if indx > len(y):
+        indx = len(y)-1
+    return (y[indx]*(xhigh-x)  + y[indx+1]*(x-xlow))/(xhigh-xlow)
+def makeFast1dInterpolator(y,xlow,xhigh):
+    return lambda x: evaluateFast1dInterpolator(x,y, xlow, xhigh)

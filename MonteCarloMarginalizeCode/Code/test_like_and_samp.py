@@ -16,13 +16,16 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gr
 
 from factored_likelihood import *
 
-checkInputs = True
+checkInputs = False
 
 rosUseDifferentWaveformLengths = False    
 rosUseRandomTemplateStartingFrequency = False
 
 rosUseTargetedDistance = True
+rosUseStrongPriorOnParameters = True
 rosShowSamplerInputDistributions = True
+rosShowRunningConvergencePlots = True
+rosShowTerminalSampleHistograms = True
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
 tEventFiducial = 0                                                                 # relative to GPS reference
@@ -43,8 +46,8 @@ elif opts.channel_name is not None:
 Niter = 5 # Number of times to call likelihood function
 Tmax = 0.05 # max ref. time
 Tmin = -0.05 # min ref. time
-Dmax = 110. * 1.e6 * lal.LAL_PC_SI # max ref. time
-Dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min ref. time
+Dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
+Dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
 
 ampO =0 # sets which modes to include in the physical signal
 Lmax = 2 # sets which modes to include
@@ -203,10 +206,13 @@ if checkInputs == True:
 nEvals = 0
 def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
     global nEvals
+    global sampler
+
     lnL = numpy.zeros(phi.shape)
     i = 0
+    LSum = np.zeros(1e6)
     print " Likelihood results :  "
-    print " iteration  lnL   sqrt(2max(lnL))  sqrt(2 lnLmarg)   <lnL> "
+    print " iteration Neff  lnL   sqrt(2max(lnL))  sqrt(2 lnLmarg)   <lnL> "
     for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
         P.phi = ph # right ascension
         P.theta = th # declination
@@ -217,13 +223,38 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.dist = di # luminosity distance
 
         lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)
+        LSum[i+1] = LSum[i]+np.exp(lnL[i])
+        if (numpy.mod(i,1000)==10 and i>100):
+            print " iteration Neff  lnL   sqrt(2max(lnL))  sqrt(2 lnLmarg)   <lnL> "  # reminder
         if (numpy.mod(i,200)==10 and i>100):
+            Neff = LSum[i+1]/np.exp(np.max(lnL[:i]))
             print "\t Params ", i, " (RA, DEC, tref, phiref, incl, psi, dist) ="
             print "\t", i, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL[i]
+            print "\t sampler probability of draws", sampler.cdf['ra'](P.phi), sampler.cdf['dec'](P.theta),sampler.cdf['tref'](float(P.tref - theEpochFiducial)), sampler.cdf['phi'](P.phiref), sampler.cdf['incl'](P.incl), sampler.cdf['psi'](P.psi), sampler.cdf['dist'](P.dist)
             logLmarg =np.log(np.mean(np.exp(lnL[:i])))
 #            print "\tlog likelihood is ",  lnL[i], ";   log-integral L_{marg} =", logLmarg , " with sqrt(2Lmarg)= ", np.sqrt(2*logLmarg), "; and  <lnL>=  ", np.mean(lnL[:i])
-            print i,  lnL[i],   np.sqrt(2*np.max(lnL[:i])),  np.sqrt(2*logLmarg), np.mean(lnL[:i]) 
+            print i, Neff,  lnL[i],   np.sqrt(2*np.max(lnL[:i])),  np.sqrt(2*logLmarg), np.mean(lnL[:i])
+        # if      rosShowRunningConvergencePlots:
+        #     plt.figure(10)
+        #     plt.plot(np.arange(i), lnL[:i])
         i+=1
+
+    plt.show()
+    if rosShowTerminalSampleHistograms:
+        print " ==== TERMINAL HISTOGRAMS: Confirm sampler did the expected === "
+        plt.figure(1)
+        plt.clf()
+        hist, bins  = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50)
+        center = (bins[:-1]+bins[1:])/2
+        plt.bar(center,hist,label="dist")
+        plt.figure(2)
+        plt.clf()
+        hist, bins  = np.histogram(tr,bins=50)
+        center = (bins[:-1]+bins[1:])/2
+        plt.bar(center,hist,label="tref")
+        plt.legend()
+        plt.savefig("test_like_and_samp-sampling-"+str(param)+".pdf")
+        plt.show()
     return numpy.exp(lnL)
 
 import mcsampler
@@ -253,18 +284,27 @@ dist_min, dist_max = Dmin, Dmax
 
 import functools
 # Uniform sampling (in area) but nonuniform sampling in distance (*I hope*).  Auto-cdf inverse
-# PROBLEM: Underlying prior samplers are not uniform.  We need two stages
-sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
-sampler.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), None, ra_min, ra_max)
-sampler.add_parameter("dec", functools.partial(mcsampler.dec_samp_vector), None, dec_min, dec_max)
-sampler.add_parameter("tref", functools.partial(mcsampler.uniform_samp_vector, tref_min, tref_max), None, tref_min, tref_max)
-sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max)
-sampler.add_parameter("inc", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max)
-if rosUseTargetedDistance:
-    r0 = 25*1e6*lal.LAL_PC_SI
-    sampler.add_parameter("dist", functools.partial(mcsampler.pseudo_dist_samp_vector,r0 ), None, dist_min, dist_max)
+if rosUseStrongPriorOnParameters:
+    sampler.add_parameter("psi", functools.partial(mcsampler.gauss_samp, Psig.psi, 0.5), None, psi_min, psi_max)
+    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.5), None, ra_min, ra_max)
+    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.3), None, dec_min, dec_max)
+    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max)
+    sampler.add_parameter("phi", functools.partial(mcsampler.gauss_samp, Psig.phiref,0.5), None, phi_min, phi_max)
+    sampler.add_parameter("incl", functools.partial(mcsampler.gauss_samp, Psig.incl,0.3), None, inc_min, inc_max)
+    sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max)
 else:
-    sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, dist_min, dist_max), None, dist_min, dist_max)
+    # PROBLEM: Underlying prior samplers are not uniform.  We need two stages
+    sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
+    sampler.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), None, ra_min, ra_max)
+    sampler.add_parameter("dec", functools.partial(mcsampler.dec_samp_vector), None, dec_min, dec_max)
+    sampler.add_parameter("tref", functools.partial(mcsampler.uniform_samp_vector, tref_min, tref_max), None, tref_min, tref_max)
+    sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max)
+    sampler.add_parameter("incl", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max)
+    if rosUseTargetedDistance:
+        r0 = 25*1e6*lal.LAL_PC_SI
+        sampler.add_parameter("dist", functools.partial(mcsampler.pseudo_dist_samp_vector,r0 ), None, dist_min, dist_max)
+    else:
+        sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, dist_min, dist_max), None, dist_min, dist_max)
 
 
 if rosShowSamplerInputDistributions:
@@ -281,17 +321,20 @@ if rosShowSamplerInputDistributions:
         pdfPrior = lambda x: mcsampler.uniform_samp( float(xLow), float(xHigh), float(x))  # Force type conversion in case we have non-float limits for some reasona
         pdfvalsPrior = np.array(map(pdfPrior, xvals))  # do all the numpy operations by hand: no vectorization
         pdf = sampler.pdf[param]
+        cdf = sampler.cdf[param]
         pdfvals = pdf(xvals)
-        if param is  "dist":
+        cdfvals = cdf(xvals)
+        if str(param) ==  "dist":
             xvvals = xvals/(1e6*lal.LAL_PC_SI)       # plot in Mpc, not m.  Note PDF has to change
             pdfvalsPrior = pdfvalsPrior * (1e6*lal.LAL_PC_SI) # rescale units
             pdfvals = pdfvals * (1e6*lal.LAL_PC_SI) # rescale units
         plt.plot(xvals,pdfvalsPrior,label="prior:"+str(param),linestyle='--')
         plt.plot(xvals,pdfvals,label=str(param))
+        plt.plot(xvals,cdfvals,label='cdf:'+str(param))
         plt.xlabel(str(param))
         plt.legend()
         plt.savefig("test_like_and_samp-"+str(param)+".pdf")
 #    plt.show()
 
-res, var = sampler.integrate(likelihood_function, 1e6, "ra", "dec", "tref", "phi", "inc", "psi", "dist")
+res, var = sampler.integrate(likelihood_function, 1e5, "ra", "dec", "tref", "phi", "incl", "psi", "dist")
 print res, numpy.sqrt(var)

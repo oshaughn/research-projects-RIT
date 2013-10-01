@@ -23,6 +23,7 @@ class MCSampler(object):
 		# Sample point cache
 		self._cache = []
 		# parameter -> cdf^{-1} function object
+                self.cdf = {}
 		self.cdf_inv = {}
 		# params for left and right limits
 		self.llim, self.rlim = {}, {}
@@ -36,6 +37,7 @@ class MCSampler(object):
 		self._pdf_norm = defaultdict(lambda: 1)
 		self._rvs = None
 		self._cache = []
+		self.cdf = {}
 		self.cdf_inv = {}
 		self.llim = {}
 		self.rlim = {}
@@ -65,6 +67,25 @@ class MCSampler(object):
 				self.rlim[params] = right_limit
 		self.pdf[params] = pdf
 		self.cdf_inv[params] = cdf_inv or self.cdf_inverse(params)
+		self.cdf[params] =  self.cdf_function(params)
+
+	def cdf_function(self, param):
+		"""
+		Numerically determine the  CDF from a given sampling PDF. If the PDF itself is not normalized, the class will keep an internal record of the normalization and adjust the PDF values as necessary. Returns a function object which is the interpolated CDF.
+		"""
+		# Solve P'(x) == p(x), with P[lower_boun] == 0
+		def dP_cdf(p, x):
+			return self.pdf[param](x)
+		x_i = numpy.linspace(self.llim[param], self.rlim[param], 1000)
+		# Integrator needs to have a step size which doesn't step over the
+		# probability mass
+		# TODO: Determine h_max.
+		cdf = integrate.odeint(dP_cdf, [0], x_i, hmax=0.1*(self.rlim[param]-self.llim[param])).T[0]
+		if cdf[-1] != 1.0: # original pdf wasn't normalized
+			self._pdf_norm[param] = cdf[-1]
+			cdf /= cdf[-1]
+		# Interpolate the inverse
+		return interpolate.interp1d( x_i,cdf)
 
 	def cdf_inverse(self, param):
 		"""
@@ -77,7 +98,7 @@ class MCSampler(object):
 		# Integrator needs to have a step size which doesn't step over the
 		# probability mass
 		# TODO: Determine h_max.
-		cdf = integrate.odeint(dP_cdf, [0], x_i, hmax=0.1).T[0]
+		cdf = integrate.odeint(dP_cdf, [0], x_i, hmax=0.1*(self.rlim[param]-self.llim[param])).T[0]
 		if cdf[-1] != 1.0: # original pdf wasn't normalized
 			self._pdf_norm[param] = cdf[-1]
 			cdf /= cdf[-1]
@@ -170,6 +191,12 @@ def inv_uniform_cdf(a, b, x):
 
 def gauss_samp(mu, std, x):
 	return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2)
+
+def gauss_samp_withfloor(mu, std, myfloor, x):
+	return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2) + myfloor
+
+gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,excluded=['mu','std','myfloor'],otypes=[numpy.float])
+
 
 def cos_samp(x):
         return numpy.sin(x)/2   # x from 0, pi
