@@ -16,6 +16,8 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gr
 
 from factored_likelihood import *
 
+checkInputs = True
+
 rosUseDifferentWaveformLengths = False    
 rosUseRandomTemplateStartingFrequency = False
 
@@ -23,6 +25,7 @@ rosUseTargetedDistance = True
 rosShowSamplerInputDistributions = True
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
+tEventFiducial = 0                                                                 # relative to GPS reference
 
 optp = OptionParser()
 optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
@@ -43,7 +46,12 @@ Tmin = -0.05 # min ref. time
 Dmax = 110. * 1.e6 * lal.LAL_PC_SI # max ref. time
 Dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min ref. time
 
-fminWavesSignal = 25
+ampO =0 # sets which modes to include in the physical signal
+Lmax = 2 # sets which modes to include
+fref = 100
+fminWavesSignal = 25  # too long can be a memory and time hog, particularly at 16 kHz
+fSample = 4096*4
+
 if rosUseDifferentWaveformLengths: 
     fminWavesTemplate = fminWavesSignal+0.005
 else:
@@ -66,11 +74,13 @@ else:
 
     Psig = ChooseWaveformParams(
         m1 = m1,m2 =m2,
-        fmin = 15, 
+        fmin = fminWavesSignal, 
+        fref=fref, ampO=ampO,
                                 radec=True, theta=1.2, phi=2.4,
                                 detector='H1', 
                                 dist=25.*1.e6*lal.LAL_PC_SI,
-                                tref = theEpochFiducial
+                                tref = theEpochFiducial,
+        deltaT=1./fSample
                                 )
     df = findDeltaF(Psig)
     Psig.print_params()
@@ -92,7 +102,6 @@ print " == Data report == "
 detectors = data_dict.keys()
 rho2Net = 0
 print  " Amplitude report :"
-fSample = 4096
 fminSNR =30
 for det in detectors:
     IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=Psig.deltaF,psd=psd_dict[det])
@@ -101,12 +110,25 @@ for det in detectors:
     print det, " rho = ", rhoDet
 print "Network : ", np.sqrt(rho2Net)
 
+if checkInputs:
+    print " == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
+    P = Psig.copy()
+    P.tref = Psig.tref
+    for det in detectors:
+        P.detector=det   # we do 
+        hT = hoft(P)
+        tvals = float(P.tref - theEpochFiducial) + hT.deltaT*np.arange(len(hT.data.data))
+        plt.figure(1)
+        plt.plot(tvals, hT.data.data,label=det)
+
+    tlen = hT.deltaT*len(np.nonzero(np.abs(hT.data.data)))
+    tRef = np.abs(float(hT.epoch))
+    plt.xlim( tRef-0.5,tRef+0.1)  # Not well centered, based on epoch to identify physical merger time
+    plt.savefig("test_like_and_samp-input-hoft.pdf")
+
 
 
 # Struct to hold template parameters
-ampO =0 # sets which modes to include in the physical signal
-Lmax = 2 # sets which modes to include
-fref = 100
 P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
@@ -121,6 +143,58 @@ P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.
 #
 rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict,psd_dict, Lmax, analyticPSD_Q)
 print "Finished Precomputation..."
+
+
+if checkInputs == True:
+
+    print " ======= UV test: Recover the SNR of the injection  =========="
+    print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] "
+    for det in detectors:
+        lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
+        print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det], "      [last two equal?]"
+    print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters  =========="
+    lnL = FactoredLogLikelihood(theEpochFiducial,Psig, rholms_intp, crossTerms, Lmax)
+    print "  : Evan's code : ", lnL, " versus rho^2/2 ", rho2Net/2
+    print "  : Timing issues (checkme!) : fiducial = ", stringGPSNice(theEpochFiducial)
+
+    print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (* STILL TIME OFFSET *)  =========="
+    tmin = np.max(float(epoch_post - theEpochFiducial),tWindowReference[0]+0.03)   # the minimum time used is set by the rolling condition
+#    tvals = np.linspace(tmin,tWindowReference[1],4*fSample*(tWindowReference[1]-tmin))
+    tvals = np.linspace(tWindowExplore[0]+tEventFiducial,tWindowExplore[1]+tEventFiducial,fSample*(tWindowExplore[1]-tWindowExplore[0]))
+    for det in detectors:
+        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
+        lnLDataEstimate = np.ones(len(tvals))*rhoExpected[det]*rhoExpected[det]
+        plt.figure(1)
+        tvalsPlot = tvals 
+        plt.plot(tvalsPlot, lnLData,label='Ldata(t)+'+det)
+        plt.plot(tvalsPlot, lnLDataEstimate,label="$rho^2("+det+")$")
+    tEventRelative =float( Psig.tref - theEpochFiducial)
+    print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is ", tEventRelative
+    plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
+    plt.title("lnLdata (interpolated) vs narrow time interval")
+    plt.xlabel('t(s)')
+    plt.ylabel('lnLdata')
+
+    print " ======= rholm test: Plot the lnL timeseries at the injection parameters (* STILL TIME)  =========="
+    tmin = np.max(float(epoch_post - theEpochFiducial),tWindowReference[0]+0.03)   # the minimum time used is set by the rolling condition
+    tvals = np.linspace(tmin,tWindowReference[1],4*fSample*(tWindowReference[1]-tmin))
+    P = Psig.copy()
+    lnL = np.zeros(len(tvals))
+    for indx in np.arange(len(tvals)):
+            P.tref =  theEpochFiducial+tvals[indx]
+            lnL[indx] =  FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, 2)
+    lnLEstimate = np.ones(len(tvals))*rho2Net/2
+    plt.figure(1)
+    tvalsPlot = tvals 
+    plt.plot(tvalsPlot, lnL,label='lnL(t)')
+    plt.plot(tvalsPlot, lnLEstimate,label="$rho^2/2(net)$")
+    tEventRelative =float( Psig.tref - theEpochFiducial)
+    print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
+    plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
+    plt.title("lnL (interpolated) vs narrow time interval")
+    plt.xlim(Tmin,Tmax)  # the window we actually use
+    plt.legend()
+    plt.savefig("test_like_and_samp-lnLvsTime.pdf")
 
 
 #
@@ -148,7 +222,7 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
             print "\t", i, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL[i]
             logLmarg =np.log(np.mean(np.exp(lnL[:i])))
 #            print "\tlog likelihood is ",  lnL[i], ";   log-integral L_{marg} =", logLmarg , " with sqrt(2Lmarg)= ", np.sqrt(2*logLmarg), "; and  <lnL>=  ", np.mean(lnL[:i])
-            print i,  lnL[i],   np.sqrt(np.max(lnL[:i])),  np.sqrt(2*logLmarg), np.mean(lnL[:i]) 
+            print i,  lnL[i],   np.sqrt(2*np.max(lnL[:i])),  np.sqrt(2*logLmarg), np.mean(lnL[:i]) 
         i+=1
     return numpy.exp(lnL)
 
@@ -200,6 +274,7 @@ if rosShowSamplerInputDistributions:
     for param in sampler.params:
         nFig+=1
         plt.figure(nFig)
+        plt.clf()
         xLow = sampler.llim[param]
         xHigh = sampler.rlim[param]
         xvals = np.linspace(xLow,xHigh,500)
@@ -215,25 +290,8 @@ if rosShowSamplerInputDistributions:
         plt.plot(xvals,pdfvals,label=str(param))
         plt.xlabel(str(param))
         plt.legend()
-    plt.show()
-
-    # print " ====== Plotting sampling distributions ==== "
-    # nFig = 0
-    # for param in sampler.params:
-    #     nFig+=1
-    #     plt.figure(nFig)
-    #     pdf = sampler.pdf[param]
-    #     xLow = sampler.llim[param]
-    #     xHigh = sampler.rlim[param]
-    #     xvals = np.linspace(xLow,xHigh,500)
-    #     pdfvals = np.array(map(pdf, xvals))
-    #     if param is  'dist':
-    #         xvvals = xvals/(1e6*lal.LAL_PC_SI)       # plot in Mpc, not m.  Note PDF has to change
-    #         pdfvals = pdfvals * (1e6*lal.LAL_PC_SI) # rescale units
-    #     plt.plot(xvals,pdfvals,label=str(param))
-    #     plt.xlabel(str(param))
-    # plt.legend()
-    # plt.show()
+        plt.savefig("test_like_and_samp-"+str(param)+".pdf")
+#    plt.show()
 
 res, var = sampler.integrate(likelihood_function, 1e6, "ra", "dec", "tref", "phi", "inc", "psi", "dist")
 print res, numpy.sqrt(var)

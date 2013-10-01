@@ -30,7 +30,7 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 distMpcRef = 100
 tWindowReference = [-0.2,0.2]            # choose samples so we have this centered on the window
 tWindowExplore = [-0.1, 0.1]             # smaller window.  Avoid interpolation errors on the edge.
-rosDebugMessages = False
+rosDebugMessages = True
 rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
 rosDebugUseCForQTimeseries =False
 rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
@@ -467,7 +467,7 @@ def non_herm_hoff(P):
              P.phi,  P.theta, P.psi,
             lalsim.InstrumentNameToLALDetector(P.detector))  # Propagates signal to the detector, including beampattern and time delay
     if rosDebugMessages:
-        print " +++ Injection creation ++ "
+        print " +++ Injection creation for detector ", P.detector, " ++ "
         print  "   : Creating signal for injection with epoch ", float(hp.epoch), " and event time centered at ", stringGPSNice(P.tref)
         Fp, Fc = lal.ComputeDetAMResponse(lalsim.InstrumentNameToLALDetector(P.detector).response, P.phi, P.theta, P.psi, lal.GreenwichMeanSiderealTime(hp.epoch))
         print "  : creating signal for injection with (det, t,RA, DEC,psi,Fp,Fx)= ", P.detector, float(P.tref), P.phi, P.theta, P.psi, Fp, Fc

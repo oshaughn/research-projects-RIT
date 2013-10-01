@@ -1,4 +1,4 @@
-# Copyright (C) 2012  Evan Ochsner
+# Copyright (C) 2012  Evan Ochsner, R. O'Shaughnessy
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the
@@ -34,7 +34,12 @@ from scipy import signal
 from pylal import frutils
 from glue.lal import Cache
 
-__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
+__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
+
+
+rosDebugMessagesContainer = [True]
+print "[Loading lalsimutils.py : MonteCarloMarginalization version]"
+
 
 #
 # Class to hold arguments of ChooseWaveform functions
@@ -976,11 +981,23 @@ def hlmoft(P, Lmax=2, Fp=None, Fc=None):
     The linked list will contain all modes with l <= Lmax
     and all values of m for these l.
     """
+    global rosDebugMessagesContainer
     assert Lmax >= 2
     hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
             P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
             P.nonGRparams, P.ampO, P.phaseO, Lmax, P.approx)
     # FIXME: Add ability to taper
+    # COMMENT: Add ability to generate hlmoft at a nonzero GPS time directly.
+    #      USUALLY we will use the hlms in template-generation mode, so will want the event at zero GPS time
+    # for L in np.arange(2,Lmax+1):
+    #     for m in np.arange(-Lmax, Lmax+1):
+    #         hxx = lalsim.SphHarmTimeSeriesGetMode(hlms,int(L),int(m))  
+    #         if rosDebugMessagesContainer[0]:
+    #             print " hlm(t) epoch after shift  (l,m)=", L,m,":  = ", stringGPSNice( hxx.epoch)
+    #         hxx.epoch = hxx.epoch + P.tref  # edit the actual pointer's data.  Critical to make sure the epoch is propagated in full into the template hlm's, so I know what index corresponds to the P.tref time!
+    #         if rosDebugMessagesContainer[0]:
+    #             print " hlm(t) epoch after shift  (l,m)=", L,m,":  = ", stringGPSNice( hxx.epoch)
+
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
         hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
@@ -1005,6 +1022,8 @@ def hlmoff(P, Lmax=2, Fp=None, Fc=None):
     The linked list will contain all modes with l <= Lmax
     and all values of m for these l.
     """
+    global rosDebugMessagesContainer
+
     hlms = hlmoft(P, Lmax, Fp, Fc)
     hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
     if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
@@ -1355,8 +1374,18 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None):
     Function to read in data in the frame format and convert it to 
     a REAL8TimeSeries. fname is the path to a LIGO cache file.
     """
+    global rosDebugMessagesContainer
+
+    if rosDebugMessagesContainer[0]:
+        print " ++ Loading from cache ", fname, channel
     with open(fname) as cfile:
         cachef = Cache.fromfile(cfile)
+    for i in range(len(cachef))[::-1]:
+        # FIXME: HACKHACKHACK
+        if cachef[i].observatory != channel[0]:
+            del cachef[i]
+    if rosDebugMessagesContainer[0]:
+        print cachef.to_segmentlistdict()
     fcache = frutils.FrameCache(cachef)
     # FIXME: Horrible, horrible hack -- will only work if all requested channels
     # span the cache *exactly*
@@ -1440,4 +1469,10 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
             hoft.epoch, hoft.f0, 1./hoft.deltaT/TDlen, lal.lalHertzUnit,
             FDlen)
     lal.COMPLEX16TimeFreqFFT(hoff, hoftC, fwdplan)
+    if rosDebugMessagesContainer[0]:
+        print " ++ Loaded data h(f) of length n= ", len(hoff.data.data), " (= ", len(hoff.data.data)*hoft.deltaT, "s) at sampling rate ", 1./hoft.deltaT    
     return hoff
+
+
+def stringGPSNice(tgps):
+    return str(tgps.gpsSeconds)+'.'+str(tgps.gpsNanoSeconds)
