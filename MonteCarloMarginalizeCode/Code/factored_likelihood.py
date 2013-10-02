@@ -23,6 +23,7 @@ Requires python SWIG bindings of the LIGO Algorithms Library (LAL)
 """
 
 from  lalsimutils import *   # WARNING: will not use same global variables consistently
+from scipy import integrate
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -30,7 +31,7 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 distMpcRef = 100
 tWindowReference = [-0.15,0.15]            # choose samples so we have this centered on the window
 tWindowExplore = [-0.05, 0.05]             # smaller window.  Avoid interpolation errors on the edge.
-rosDebugMessages = False
+rosDebugMessages = True
 rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
 rosDebugUseCForQTimeseries =False
 rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
@@ -162,10 +163,9 @@ def FactoredLogLikelihood(epoch, extr_params, rholms_intp, crossTerms, Lmax):
         F = ComplexAntennaFactor(det, RA, DEC, psi, tref)
 
         tshifted = ComputeArrivalTimeAtDetector(det, RA, DEC, tref)  -  epoch # detector time minus fiducial time zero used in rholms.
-        det_rholms_intp = rholms_intp[det]
-        shifted_rholms = {}
-        for key in det_rholms_intp.keys():
-            func = det_rholms_intp[key]
+        shifted_rholms = {}  # preallocate space with the right keys
+        for key in rholms_intp[det]: #  det_rholms_intp.keys():
+            func = rholms_intp[det][key]
             shifted_rholms[key] = func(float(tshifted))
 
         lnL += SingleDetectorLogLikelihood(shifted_rholms, CT, Ylms, F, dist, Lmax)
@@ -207,8 +207,6 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
     """
     global distMpcRef
 
-#    print tref.gpsSeconds, tref.gpsNanoSeconds, epoch.gpsSeconds, epoch.gpsNanoSeconds#        print tshift.gpsSeconds,  tshift.gpsNanoSeconds
-
     Ylms = ComputeYlms(Lmax, thS,phiS)
     if (det == "Fake"):
         F=1
@@ -235,6 +233,45 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
 
     return term1
 
+# Prototyping speed of time marginalization.  Not yet confirmed
+def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms, tref, RA,DEC, thS,phiS,psi,  dist, Lmax, detList):
+    """
+    DOCUMENT ME!!!
+    """
+    global distMpcRef
+
+    Ylms = ComputeYlms(Lmax, thS,phiS)
+    distMpc = dist/(lal.LAL_PC_SI*1e6)
+
+    F = {}
+    tshift= {}
+    for det in detList:
+        F[det] = ComplexAntennaFactor(det, RA,DEC,psi,tref)
+        detector = lalsim.DetectorPrefixToLALDetector(det)
+        tshift[det] = float(ComputeArrivalTimeAtDetector(det, RA,DEC, tref)  -  epoch)   # detector time minus reference time (so far)
+
+    term2 = 0.
+    for det in detList:
+        for pair1 in rholmsDictionary[det]:
+            for pair2 in rholmsDictionary[det]:
+                term2 += F[det] * np.conj(F[det]) * ( crossTerms[det][(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F[det]*F[det]*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[det][((pair1[0],-pair1[1]),pair2)]
+    term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
+
+    def fnIntegrand(dt):
+        term1 = 0.
+        for det in detList:
+            for pair in rholmsDictionary[det]:
+                term1+= np.conj(F[det]*Ylms[pair])*rholmsDictionary[det][pair]( float(tshift[det]) + dt)
+        term1 = np.real(term1) / (distMpc/distMpcRef)
+        return np.exp(np.max([term1+term2,-15.]))   # avoid hugely negative numbers.  This floor on the log likelihood here will not significantly alter any physical result.
+
+    # empirically this procedure will find a gaussian with width less than  0.5 e (-3) times th window length.  This procedure *should* therefore work for a sub-s window
+    LmargTime = integrate.quad(fnIntegrand, tWindowExplore[0], tWindowExplore[1],points=[0],limit=300)[0]  # the second return value is the error
+#    LmargTime = integrate.quadrature(fnIntegrand, tWindowExplore[0], tWindowExplore[1],maxiter=400)  # very slow, not reliable
+    if rosDebugMessages:
+        print " Evaluating  \int L dt :  ", LmargTime, " note integrand evaluates as ", fnIntegrand(0.)
+    return np.log(LmargTime)
+
 def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
     """
     DOCUMENT ME!!!
@@ -244,22 +281,24 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
 
     # Eq. 35 of Richard's notes
     term1 = 0.
-    for l in range(2,Lmax+1):
-        for m in range(-l,l+1):
-            term1 += np.conj(F * Ylms[(l,m)]) * rholm_vals[(l,m)]
+    for key in rholm_vals:
+        term1 += np.conj(F * Ylms[key]) * rholm_vals[key]
+    # for l in range(2,Lmax+1):
+    #     for m in range(-l,l+1):
+    #         term1 += np.conj(F * Ylms[(l,m)]) * rholm_vals[(l,m)]
     term1 = np.real(term1) / (distMpc/distMpcRef)
-#   term1 = np.real(term1) / dist
 
     # Eq. 26 of Richard's notes
     term2 = 0.
-    for l in range(2,Lmax+1):
-        for m in range(-l,l+1):
-            for lp in range(2,Lmax+1):
-                for mp in range(-lp,lp+1):
-                    term2 += F * np.conj(F) * ( crossTerms[((l,m),(lp,mp))])* np.conj(Ylms[(l,m)]) * Ylms[(lp,mp)] + F*F*Ylms[(l,m)]*Ylms[(lp,mp)]*((-1)**l)*crossTerms[((l,-m),(lp,mp))]
-                    #term2 += F * np.conj(F) * ( crossTerms[((l,m),(lp,mp))] + np.conj( crossTerms[((l,m),(lp,mp))]) )* np.conj(Ylms[(l,m)]) * Ylms[(lp,mp)]
+    for pair1 in rholm_vals:
+        for pair2 in rholm_vals:
+            term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
+    # for l in range(2,Lmax+1):
+    #     for m in range(-l,l+1):
+    #         for lp in range(2,Lmax+1):
+    #             for mp in range(-lp,lp+1):
+    #                 term2 += F * np.conj(F) * ( crossTerms[((l,m),(lp,mp))])* np.conj(Ylms[(l,m)]) * Ylms[(lp,mp)] + F*F*Ylms[(l,m)]*Ylms[(lp,mp)]*((-1)**l)*crossTerms[((l,-m),(lp,mp))]
     term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
-#    term2 = np.real(term2) / 4. / dist / dist
 
     return term1 + term2
 
