@@ -21,7 +21,7 @@ such as finding a region of interest and laying out a grid over it
 
 from lalsimutils import *
 from scipy.optimize import leastsq, brentq
-from scipy.linalg import eig
+from scipy.linalg import eig, inv
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
@@ -391,9 +391,34 @@ def eigensystem(matrix):
     Given an array-like 'matrix', returns:
         - An array of eigenvalues
         - An array of eigenvectors
+        - A rotation matrix that rotates the eigenbasis
+            into the original basis
+
+    Example:
+        mat = [[1,2,3], [4,5,6], [7,8,10]]
+        evals, evecs, rot = eigensystem(mat)
+        evals = array([ 16.70749332+0.j,  -0.90574018+0.j,   0.19824686+0.j])
+        evecs = array([[-0.22351336, -0.50394563, -0.83431444],
+                       [-0.86584578,  0.0856512 ,  0.4929249 ],
+                       [ 0.27829649, -0.8318468 ,  0.48018951]])
+        rot = array([[-0.46970759, -0.57567288, -0.7250339 ],
+                     [-0.97447675, -0.12998907,  0.3395794 ],
+                     [ 0.18421899, -0.86677726,  0.47420155]])
+
+        rot.dot(evecs[0]) = [1,0,0]
+        rot.dot(evecs[1]) = [0,1,0]
+        rot.dot(evecs[2]) = [0,0,1]
+
+        inv(rot).dot([1,0,0]) = evecs[0]
+        inv(rot).dot([0,1,0]) = evecs[1]
+        inv(rot).dot([0,0,1]) = evecs[2]
+
+        rot.dot(mat).dot(inv(rot)) = [[evals[0], 0,        0]
+                                      [0,        evals[1], 0]
+                                      [0,        0,        evals[2]]]
     """
-    evals, evecs = eig(matrix)
-    return evals, np.transpose(evecs)
+    evals, emat = eig(matrix)
+    return evals, np.transpose(emat), inv(emat)
 
 #
 # Functions to return points distributed randomly, uniformly inside
