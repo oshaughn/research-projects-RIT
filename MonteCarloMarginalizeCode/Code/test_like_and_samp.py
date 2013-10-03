@@ -23,9 +23,11 @@ rosUseRandomTemplateStartingFrequency = False
 
 rosUseTargetedDistance = True
 rosUseStrongPriorOnParameters = True
+rosDebugMessages = False
 rosShowSamplerInputDistributions = True
 rosShowRunningConvergencePlots = True
 rosShowTerminalSampleHistograms = True
+rosSaveHighLikelihoodPoints = True
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
 tEventFiducial = 0                                                                 # relative to GPS reference
@@ -141,11 +143,15 @@ P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.
          dist=100*1.e6*lal.LAL_PC_SI,
          deltaF=df)
 
+
 #
 # Perform the Precompute stage
 #
 rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict,psd_dict, Lmax, analyticPSD_Q)
 print "Finished Precomputation..."
+print "====Generating metadata from precomputed results ====="
+distBoundGuess = estimateUpperDistanceBoundInMpc(rholms, crossTerms)
+print " distance probably less than ", distBoundGuess, " Mpc"
 
 
 if checkInputs == True:
@@ -210,9 +216,9 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
 
     lnL = numpy.zeros(phi.shape)
     i = 0
-    LSum = np.zeros(1e6)
+    LSum = np.zeros(phi.shape)
     print " Likelihood results :  "
-    print " iteration Neff  lnL   sqrt(2max(lnL))  sqrt(2 lnLmarg)   <lnL> "
+    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
     for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
         P.phi = ph # right ascension
         P.theta = th # declination
@@ -223,38 +229,103 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.dist = di # luminosity distance
 
         lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)
-        LSum[i+1] = LSum[i]+np.exp(lnL[i])
+        if i<len(phi)-10:
+            LSum[i+1] = LSum[i]+np.exp(lnL[i])
         if (numpy.mod(i,1000)==10 and i>100):
-            print " iteration Neff  lnL   sqrt(2max(lnL))  sqrt(2 lnLmarg)   <lnL> "  # reminder
+            print " iteration Neff  lnL   sqrt(2max(lnL)) rho  sqrt(2 lnLmarg)   <lnL> "  # reminder
         if (numpy.mod(i,200)==10 and i>100):
-            Neff = LSum[i+1]/np.exp(np.max(lnL[:i]))
-            print "\t Params ", i, " (RA, DEC, tref, phiref, incl, psi, dist) ="
-            print "\t", i, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL[i]
-            print "\t sampler probability of draws", sampler.cdf['ra'](P.phi), sampler.cdf['dec'](P.theta),sampler.cdf['tref'](float(P.tref - theEpochFiducial)), sampler.cdf['phi'](P.phiref), sampler.cdf['incl'](P.incl), sampler.cdf['psi'](P.psi), sampler.cdf['dist'](P.dist)
+            Neff = LSum[i+1]/np.exp(np.max(lnL[:i]))   # should actually include sampling distribution and prior distribution correction in it
+            if rosDebugMessages:
+                print "\t Params ", i, " (RA, DEC, tref, phiref, incl, psi, dist) ="
+                print "\t", i, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL[i]
+                print "\t sampler probability of draws", sampler.cdf['ra'](P.phi), sampler.cdf['dec'](P.theta),sampler.cdf['tref'](float(P.tref - theEpochFiducial)), sampler.cdf['phi'](P.phiref), sampler.cdf['incl'](P.incl), sampler.cdf['psi'](P.psi), sampler.cdf['dist'](P.dist)
             logLmarg =np.log(np.mean(np.exp(lnL[:i])))
-#            print "\tlog likelihood is ",  lnL[i], ";   log-integral L_{marg} =", logLmarg , " with sqrt(2Lmarg)= ", np.sqrt(2*logLmarg), "; and  <lnL>=  ", np.mean(lnL[:i])
-            print i, Neff,  lnL[i],   np.sqrt(2*np.max(lnL[:i])),  np.sqrt(2*logLmarg), np.mean(lnL[:i])
-        # if      rosShowRunningConvergencePlots:
-        #     plt.figure(10)
-        #     plt.plot(np.arange(i), lnL[:i])
+            print i, Neff,  lnL[i],   np.sqrt(2*np.max(lnL[:i])), np.sqrt(rho2Net), np.sqrt(2*logLmarg), np.mean(lnL[:i])
         i+=1
 
     plt.show()
     if rosShowTerminalSampleHistograms:
-        print " ==== TERMINAL HISTOGRAMS: Confirm sampler did the expected === "
+        print " ==== CONVERGENCE PLOTS === "
+        plt.figure(0)
+        plt.clf()
+        plt.plot(np.arange(len(lnL)), np.log(LSum/(1+np.arange(len(lnL)))),label="lnLmarg")
+        plt.plot(np.arange(len(lnL)), np.ones(len(lnL))*rho2Net/2,label="rho^2/2")
+        plt.legend()
+        print " ==== TERMINAL 1D HISTOGRAMS: Sampling and posterior === "
         plt.figure(1)
         plt.clf()
-        hist, bins  = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50)
+        hist, bins  = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,density=True)
         center = (bins[:-1]+bins[1:])/2
-        plt.bar(center,hist,label="dist")
+        plt.plot(center,hist,label="dist:sampled")
+        hist,bins = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,weights=np.exp(lnL),density=True)
+        center = (bins[:-1]+bins[1:])/2
+        plt.plot(center,hist,label="dist:post")
+        plt.xlabel("d (Mpc)")
+        plt.title("Sampling and posterior distribution: d ")
+        plt.legend()
         plt.figure(2)
         plt.clf()
-        hist, bins  = np.histogram(tr,bins=50)
+        hist, bins  = np.histogram(tref,bins=50,density=True)
         center = (bins[:-1]+bins[1:])/2
-        plt.bar(center,hist,label="tref")
+        plt.plot(center,hist,label="tref:sampled")
+        hist, bins  = np.histogram(tref,bins=50,density=True,weights=np.exp(lnL))
+        center = (bins[:-1]+bins[1:])/2
+        plt.plot(center,hist,label="tref:post")
+        plt.xlim(-0.01+tEventFiducial,0.01+tEventFiducial)
+        plt.xlabel("t (s)")
+        plt.title("Sampling and posterior distribution: t ")
         plt.legend()
-        plt.savefig("test_like_and_samp-sampling-"+str(param)+".pdf")
+        plt.figure(3)
+        plt.clf()
+        hist, bins  = np.histogram(incl,bins=50,normed=True)
+        center = (bins[:-1]+bins[1:])/2
+        plt.plot(center,hist,label="incl:sampled")
+        hist, bins  = np.histogram(incl,bins=50,normed=True,weights=np.exp(lnL))
+        center = (bins[:-1]+bins[1:])/2
+        plt.plot(center,hist,label="incl:post")
+        plt.xlabel("incl")
+        plt.title("Sampling and posterior distribution: incl ")
+        plt.legend()
+        plt.figure(4)
+        plt.clf()
+        hist, bins  = np.histogram(psi,bins=50,normed=True)
+        center = (bins[:-1]+bins[1:])/2
+        plt.plot(center,hist,label="psi:sampled")
+        hist, bins  = np.histogram(psi,bins=50,normed=True,weights=np.exp(lnL))
+        center = (bins[:-1]+bins[1:])/2
+        plt.plot(center,hist,label="psi:post")
+        plt.xlabel("psi")
+        plt.title("Sampling and posterior distribution: psi ")
+        plt.legend()
         plt.show()
+        print " ==== TERMINAL 2D HISTOGRAMS: Sampling and posterior === "
+        # Distance-inclination
+        plt.figure(1)
+        plt.clf()
+        H, xedges, yedges = np.histogram2d(dist/(1e6*lal.LAL_PC_SI),incl, weights=np.exp(lnL),bins=(10,10))
+        extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
+        plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
+        plt.colorbar()
+        plt.title("Posterior distribution: d-incl ")
+        # phi-psi
+        plt.figure(2)
+        plt.clf()
+        H, xedges, yedges = np.histogram2d(phi,psi, bins=(10,10),weights=np.exp(lnL))
+        extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
+        plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
+        plt.colorbar()
+        plt.title("Posterior distribution: phi-psi ")
+        # ra-dec
+        plt.figure(3)
+        plt.clf()
+        H, xedges, yedges = np.histogram2d(phi,theta, bins=(10,10),weights=np.exp(lnL))
+        extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
+        plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
+        plt.colorbar()
+        plt.title("Posterior distribution: ra-dec ")
+        plt.show()
+    if rosSaveHighLikelihoodPoints:
+        np.savetxt("points.dat",(phi, theta, tref, phiref, incl, psi, dist,lnL))
     return numpy.exp(lnL)
 
 import mcsampler
@@ -291,7 +362,10 @@ if rosUseStrongPriorOnParameters:
     sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max)
     sampler.add_parameter("phi", functools.partial(mcsampler.gauss_samp, Psig.phiref,0.5), None, phi_min, phi_max)
     sampler.add_parameter("incl", functools.partial(mcsampler.gauss_samp, Psig.incl,0.3), None, inc_min, inc_max)
-    sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max)
+    if rosUseTargetedDistance:
+        sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, 0, distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max)
+    else:
+        sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max)
 else:
     # PROBLEM: Underlying prior samplers are not uniform.  We need two stages
     sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
@@ -301,8 +375,7 @@ else:
     sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max)
     sampler.add_parameter("incl", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max)
     if rosUseTargetedDistance:
-        r0 = 25*1e6*lal.LAL_PC_SI
-        sampler.add_parameter("dist", functools.partial(mcsampler.pseudo_dist_samp_vector,r0 ), None, dist_min, dist_max)
+        sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, 0, distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max)
     else:
         sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, dist_min, dist_max), None, dist_min, dist_max)
 

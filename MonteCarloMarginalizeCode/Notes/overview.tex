@@ -597,7 +597,7 @@ require a fixed distance scale; we adopt $d_{\rm ref}=100\unit{Mpc}$ by default.
 have been interpolated, to allow high resolution.  Using these quantities, we compute
 $L_{\rm data}$ and $L_{\rm model}$ for any event time via
 \begin{itemize}
-\item \emph{Data term}:  The scheme for computing $L_{\rm data}$ was outlined above: \editremark{missing 1/2}
+\item \emph{Data term}:  The scheme for computing $L_{\rm data}$ was outlined above:
 \begin{align}
 \ln L_{\rm data}(\lambda|t,\hat{n},\hat{k},\psi_J,d) &=  \sum_k\qmstateproduct{H_k}{\hat{H}_k}_k \nonumber \\
 & =
@@ -611,7 +611,6 @@ Assuming $P,Q$ are interpolated off a small number of basis points, this express
 \item \emph{Signal term}:  The scheme for computing $L_{\rm model}$ was outlined in
   Eq. \ref{eq:CalculateRhoFromBarycenterStrain}.     To minimize the number of re-evaluations, let's make any dependence on
   $\psi_J$ and $d$ explicit
-\editremark{check coefficients and signs: make sure we make table for inner products}
 \begin{align}
 \tilde{h}(f|\lambda,\hat{n},d_{\rm ref}) &\equiv \tilde{h}_{\rm ref}(f) = \sum_{lm} \tilde{h}_{lm}(f|\lambda) \Y{-2}_{lm}(\hat{n}) \\
 \tilde{h}(f|\lambda,\hat{n},\psi_J,d_{\rm ref})&= e^{-2i\psi_J} \tilde{h}_{\rm ref}(f) \\
@@ -836,10 +835,10 @@ The first  term (blue) tell us the shape of the sky position posterior on the pl
 
 \subsection{Extrinsic marginalization: Distance  [PLACEHOLDER DOCS] (*)}
 
-\noindent \textbf{Distance distribution}: The distance prior is dominated by the largest distances allowed.  Conversely,
+\noindent \textbf{``Physical'' distance distribution}: The distance prior is dominated by the largest distances allowed.  Conversely,
 the distance posterior is of order unity.
 %
-For any \emph{individual} sky location and template, the actual distance posterior has the form \editremark{See eqna}
+For any \emph{individual} sky location, inclination,  and template, the actual distance posterior has the form [Eq. \ref{eq:ComputeRhoViaInnerProductMatrix}]editremark{See eqna}
 \begin{eqnarray}
 p(r)dr \propto  r^2 dr \exp \left[ -\rho_{\rm ref}^2 (d_{\rm ref}/d)^2//2 + \qmstateproduct{{\cal S}(\hat{n})}{h_{\rm
       ref}}_{\rm ref} (d_{\rm
@@ -848,22 +847,63 @@ p(r)dr \propto  r^2 dr \exp \left[ -\rho_{\rm ref}^2 (d_{\rm ref}/d)^2//2 + \qms
 where ${\cal S}(\hat{n})$ is a sky-position-dependent resumming of the data into quasi-coherent form; where
 $\qmstateproduct{.}{.}_{\rm ref}$ refers to the weighted inner product described near
 Eq. (\ref{eq:def:BarycenteredInnerProductWithData}); and where $h_{\rm ref}$ and $\rho_{\rm ref}$ refer to the signal
-and signal amplitude at the proposed model parameters, evaluated at $d=d_{\rm ref}$.
+and signal amplitude at the proposed model parameters, evaluated at $d=d_{\rm ref}$.  
+%
+
+For any specific source orientation and sky location, the physical distance distribution is extremely narrow.
+Marginalizing over orientations, the distance distribution becomes broad.  By implication, if the
+same sampling distribution must be used for all orientations, the sampling distribution must \emph{also} be broad.  So
+we can't use this.
+
 
 \begin{shaded}
-\noindent \textbf{Distance targeting with trigger [tempate-dependent sampling]}:  \editremark{XXX}
+\noindent \textbf{Distance targeting with trigger [tempate-dependent sampling]}:  One proposal is a form like this
 So in practice the distance distribution has the form
 \begin{eqnarray}
-p(r)dr \propto r^2 dr \exp[ -(r_0/r)^2/2 + (r_o/r)]
+p(r)dr \propto r^2 dr \exp[ (-(r_0/r)^2/2 + (r_o/r)){\cal A}]
 \end{eqnarray}
-for some constant $r_o$ to be provided \editremark{provide a specific formula}.  An example of distance-targeted sampling is shown in Figure
+for some constants $r_o$ and ${\cal A}$ to be provided \editremark{provide a specific formula}.  An example of distance-targeted sampling is shown in Figure
 \ref{fig:Milestones:DemoSampler:Mathematica}.  
+
+Is this useful?  \textbf{Is is not a very useful form}:
+\begin{itemize}
+\item  if the amplitude is large (=comparable to expected) this procedure sets an EXTREMELY tight prior on the signal amplitude, but
+only a loose prior on the distance (=because of inclination degeneracy)
+
+\item this kind of prior sets a natural \emph{lower} limit, but not a strong upper one: as $r \rightarrow \infty$, the
+  exponential approaches a constant
+\end{itemize}
+
+We can modify this expression to use a 
 
 \noindent \textbf{Distance targeting with template [tempate-dependent sampling]}: We are free to \emph{use a different
   sampling distribution at each template.}  Suppose we have a candidate template.  Putting that source at a
 reference distance ($d_{\rm ref}=100 Mpc$) in any one detector tells us the distance posterior for that template \emph{automatically}: we
 are free to use that posterior as a sampling distribution.   \editremark{write down}
 \end{shaded}
+
+
+\noindent \textbf{Ad hoc distance distributions}: Suppose we can place a confident upper bound on the source distance (e.g.,
+from the peak amplitude).  A good sampling distribution covers the whole range, with plausible behavior at small
+distances.
+%
+I don't see a good reason to use a tightly peaked sampling prior, except to exclude zero; options include  uniform over
+that range; volumetric with cutoff; or something else (e.g., a parabola over that range).
+
+
+
+\noindent \textbf{Data-dependent distance distributions}: We are free to use any sampling distribution to evaluate the
+integral, including a data-dependent one.   A signal with a strong peak in $\qmstateproduct{\hat{H}}{h}$ -- equvalently,
+in the $Q_{k,lm}$ -- must be close by.  Precisely how close depends on the orientation source orientation; however, we
+can confidently place an upper bound, using an optimally oriented source (derived independently from each IFO).
+
+So,  reconstruct the optimally oriented distance using Eq. (\ref{eq:SpecialCase:SingleIFOOptimalOrientation}), a model for the distance to an
+optimally oriented source overhead a single detector:
+\begin{eqnarray}
+\bar{Q}_k \equiv  \text{max}_t |Q_{k,22}| \simeq \frac{d_{\rm ref}}{2 d} \sqrt{\frac{5}{4\pi}} U_{k,22,22} \\
+\hat{d} \equiv \frac{1}{n_{det}}\sum_k\frac{U_{k,22,22}}{\bar{Q}_k} \frac{d_{\rm ref}}{2} \sqrt{\frac{5}{4\pi}}
+\end{eqnarray}
+Not the best estimate...so we should pad it with a lorentzian. \editremark{implement}
 
 \end{widetext}
 
@@ -879,6 +919,71 @@ source and anything before 64 sec at a lower sample rate (256 Hz?).  Potentially
 * Reject extremely low likelihoods early on: if the log likelihood is very close to zero at the FFT stage for any modes,
 don't bother.  [This hopefully should never happen, if our intrinsic search is good.]
 
+
+
+
+\subsection{Appendix: Review of Monte Carlo theory}
+
+\noindent \textbf{Document mone carlo and error}: So we're on the same page, Monte Carlo integration is well-documented in \href{http://nr.com}{Nuumerical Recipies}; in
+GSL; and in the \href{http://reference.wolfram.com/mathematica/tutorial/NIntegrateIntegrationStrategies.html}{Mathematica documentation}.  We will probably \emph{not} use sophisticated algoritms (e.g.,
+``\href{http://www.gnu.org/software/gsl/manual/html_node/VEGAS.html#VEGAS}{vegas}'' in GSL; fixed or adaptive stratification; etc) at first: we want to easily convert samples into a posterior distribution.
+
+
+\emph{Sampling: theory and practice}: Let $z$ be unformly distributed from [0,1]. Then $P^{-1}(z)$ has a cumulative distribution $P$
+and probability distribution function (PDF) $dP/dx$.  
+
+To specify an arbitrary distribution with shape $\propto f(x)$ over $[x_0,x_1]$, given a function object
+\begin{itemize}
+\item \emph{Construct P and inverse}: Solve $F'(x)=f(x)$ with $F(x_0)=1$ numerically.  Define $P(x)=F(x)/F(1)$ from the
+  interpolated samples; $P^{-1}(x)$ from the reversed samples $F_\alpha,x_\alpha$; and the posterior as $f(x)/F(1)$.
+  Store $f,F(1), P,P^{-1}$
+\item \emph{Sampler object}: Generate random samples via $P^{-1}(z)$ for $z\in[0,1]$ uniform.
+\end{itemize}
+
+\noindent \emph{Evaluating expression and error}: From our sample points, evaluate the average $L$ and error
+\begin{subequations}
+\begin{eqnarray}
+\label{eq:EvaluateMCIntegral}
+\left< X \right> \equiv \int X p_s d\theta 
+\hat{X} \equiv \frac{1}{N} \sum_n X(\theta_k)\\ 
+\label{eq:ErrorEstimateMC}\sigma_X^2 \equiv \left<\hat{X}^2\right> -\left<\hat{X}\right>^2 
+ = \frac{1}{N}[\left<X^2\right> - \left<X\right>^2] 
+\end{eqnarray}
+\end{subequations}
+
+
+\noindent \emph{Effective volume v1}: If $L$ has support in a very small region, then only a very small number of
+Monte Carlo samples will ``find'' that point: the effective sample size is much smaller.  As described in \cite{gwastro-mergers-HeeSuk-CompareToPE-Aligned}, the
+effective volume is exactly related to the marginalized likelihood:
+\begin{align}
+V           &\equiv \int \frac{L}{\max L} p dx  \quad \hat{V} = \frac{\sum_k L(x_k)p(x_k)/p_s(x_k)}{\max L}
+\end{align}
+Asymptotically, the effective volume tells us about how rapidly a blind Monte Carlo could possibly converge. 
+%
+Unfortunately, this expression is also asymptotically independent  of the sampling distribution. 
+
+
+\noindent\emph{Effective sample number}: Motivated by the above, we define an effective sample number $N_{\rm eff}$:
+\begin{align}
+N_{\rm eff} & \equiv V_{\rm eff,samp} N = \frac{\sum_{k=1}^N L(x_k) p(x_k)/p_s(x_k)}{ \max_{k\le N} L(x_k)  p(x_k)/p_s(x_k)}
+V_{\rm eff,samp} \equiv \frac{\sum_k L(x_k) p(x_k)/p_s(x_k)}{N \max_k L(x_k)  p(x_k)/p_s(x_k)} \\
+\end{align}
+In the special case that $p_s = Lp/Z$ (i.e., that we sample from the target distribution), then $V_{\rm eff,sam} = 1$
+and $N=N_{\rm eff}$.  In general, the quantity is strictly $\le N$ because each term is less than or equal to 1 by
+construction.  This definition therefore provides an extremely helpful and sampling-distribution-dependent diagnostic!
+
+Roughly speaking, $N_{\rm eff}$ tells us how many times the maximum has been found.  Because $L$ varies by so many
+orders of magnitude and is so tightly concentrated near its maximum, it is unlikely that $N_{\rm eff}$ will increase
+significantly above 1 unless we have sampled the maximum thoroughly.
+
+\begin{shaded}
+\noindent \textbf{Neff as  a crude convergence test}: Practically, $N_{\rm eff}$ needs to be of order 10 before we can have some confidence the global maximum has been
+found.  (We can never be sure -- we're always dividing by the maximum seen so far -- but a large $N_{\rm eff}$ gives us
+confidence many random trials have found numbers consistent with the same order of magnitude.)
+\end{shaded}
+
+\noindent \emph{Reconstructing posterior}: Store the samples $x_k$.  While nominally memory-intensive, \textbf{only a handful of
+  points contribute to $N_{\rm eff}$ significantly}; it's straightforward to eliminate the vast bulk of zero-likelihood samples
 
 
 
@@ -1039,6 +1144,7 @@ $\lambda'$ the signal, using quasi-orthogonality of $h_{lm}$ for different $m$'s
 \noindent \textbf{Fiducial value}: $Q_{22}(0)$ for the fiducial $4+3 M_\odot$ binary at 25 Mpc optimally oiented above a
 single detector is
  \begin{eqnarray}
+\label{eq:SpecialCase:SingleIFOOptimalOrientation}
  Q_{l,22} = \qmstateproduct{h_{22}(d)}{\text{Re}[h_{lm}]}\Y{-2}_{lm}(\hat{z'}) 
 \simeq  \frac{(d_{\rm ref}/d)}{2}  U_{22,22} \sqrt{ \frac{5}{4\pi}}
  \end{eqnarray}
@@ -1177,71 +1283,144 @@ those comparable to the sampling rate (
 
 \noindent \textbf{Implementation notes: windowing}: \editremark{don't be stupid}: make sure I can fully explore the data
 
-\subsection{Milestones and Benchmarks: Real and synthetic data access (*)}
+\noindent \textbf{Profiling and speed}: The code should be fast.
 
-\noindent \textbf{Frame reading and writing}: Code to read and write to frames
+\begin{shaded}
+A python implementation suffers from dynamic type checking.
+\end{shaded}
+
+
+\subsection{Milestones and Benchmarks: Real and synthetic data access}
+
+\noindent \textbf{Frame reading and writing}: Code to read and write to frames [glue, Fr : done]
+
+\noindent \textbf{Cache reading and writing}: Code to read from standard LIGO cache files [done].  Generating a suitable
+cache file from existing .gwf files is as easy as \texttt{lalapps\_path2cache}; from our test suite
+\begin{shaded}
+\begin{verbatim}
+	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/richard_mdc/signal_hoft .
+	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/richard_mdc/signal_hoft_no_noise .
+	gsiscp  ldas-grid.ligo.caltech.edu:/home/pankow/richard_mdc/mdc.xml.gz .
+	find -L signal_hoft -name '*.gwf' -print | lalapps_path2cache > test1.cache
+	find -L signal_hoft_no_noise -name '*.gwf' -print | lalapps_path2cache > test1-0noise.cache
+\end{verbatim}
+\end{shaded}
 
 
 \subsection{Milestones and Benchmarks: Marginalization (*)}
 
-\subsubsection{Initial implementation}
-\noindent \textbf{Document mone carlo and error}: So we're on the same page, Monte Carlo integration is well-documented in \href{http://nr.com}{Nuumerical Recipies}; in
-GSL; and in the \href{http://reference.wolfram.com/mathematica/tutorial/NIntegrateIntegrationStrategies.html}{Mathematica documentation}.  We will probably \emph{not} use sophisticated algoritms (e.g.,
-``\href{http://www.gnu.org/software/gsl/manual/html_node/VEGAS.html#VEGAS}{vegas}'' in GSL; fixed or adaptive stratification; etc) at first: we want to easily convert samples into a posterior distribution.
 
 
-\emph{Sampling: theory and practice}: Let $z$ be unformly distributed from [0,1]. Then $P^{-1}(z)$ has a cumulative distribution $P$
-and probability distribution function (PDF) $dP/dx$.  
-
-To specify an arbitrary distribution with shape $\propto f(x)$ over $[x_0,x_1]$, given a function object
-\begin{itemize}
-\item \emph{Construct P and inverse}: Solve $F'(x)=f(x)$ with $F(x_0)=1$ numerically.  Define $P(x)=F(x)/F(1)$ from the
-  interpolated samples; $P^{-1}(x)$ from the reversed samples $F_\alpha,x_\alpha$; and the posterior as $f(x)/F(1)$.
-  Store $f,F(1), P,P^{-1}$
-\item \emph{Sampler object}: Generate random samples via $P^{-1}(z)$ for $z\in[0,1]$ uniform.
-\end{itemize}
-
-\emph{Evaluating expression and error}: From our sample points, evaluate the average $L$ and error
-\begin{eqnarray}
-\left< X \right> \equiv \int X p_s d\theta 
-\hat{X} \equiv \frac{1}{N} \sum_n X(\theta_k)\\ \\
-\sigma_X^2 \equiv \left<\hat{X}^2\right> -\left<\hat{X}\right>^2 
- = \frac{1}{N}[\left<X^2\right> - \left<X\right>^2] 
-\end{eqnarray}
-
-
-\noindent \emph{Effective sample number}: If $L$ has support in a very small region, then only a very small number of
-Monte Carlo samples will ``find'' that point: the effective sample size is much smaller.
-To estimate the effective sample size, use an estimate of the effective volume:
-\begin{eqnarray}
-V \equiv \int \frac{L}{\max L} p dx \; ; \qquad  \hat{V} \equiv \frac{\sum_k L(x_k) p(x_k)/p_s(x_k)}{N \max_k L(x_k) p(x_k)/p_s(x_k)}
-\end{eqnarray}
-
-\emph{Reconstructing posterior}: Store the samples $x_k$ (memory-intensive!!)
-
+\subsubsection{Test suite 0: Pankow's initial tests}
 \noindent \textbf{Implement naive monte carlo}: [Done]
 
 \noindent \textbf{Implement sampling distribution generators}: [Done]
 
-Need also to implement a \emph{triangulation sampler}: pick 3 phase variables (for three ``detectors'') defined by three
-orientation vectors $\hat{n}_k$ and one event time [$t-t_{ref} +\hat{n}\cdot \vec{x}_k$].  Treat each as a 1d variable
-in \emph{time}
-and have a sampler for it.  Reconstruct the full posterior multiplicatively.  Posterior in each timing variable should
-have the form
-\begin{eqnarray}
-Q(\tau) = \frac{1}{2\pi \sigma_t^2}
-\end{eqnarray}
-The PDF for this posterior versus angles is a little annoying \editremark{finish}
+%% Need also to implement a \emph{triangulation sampler}: pick 3 phase variables (for three ``detectors'') defined by three
+%% orientation vectors $\hat{n}_k$ and one event time [$t-t_{ref} +\hat{n}\cdot \vec{x}_k$].  Treat each as a 1d variable
+%% in \emph{time}
+%% and have a sampler for it.  Reconstruct the full posterior multiplicatively.  Posterior in each timing variable should
+%% have the form
+%% \begin{eqnarray}
+%% Q(\tau) = \frac{1}{2\pi \sigma_t^2}
+%% \end{eqnarray}
+%% The PDF for this posterior versus angles is a little annoying \editremark{finish}
+
+\noindent \textbf{Gaussian 1d integral} [\texttt{test\_mcsamp}]: Perform  one-dimensional gaussian integrals with a uniform
+prior $p$ on $[-10,10]$:
+\begin{align}
+L &= \frac{1}{\sqrt{2\pi \sigma^2} } \exp (-(x-\mu)^2/2\sigma^2)  \\
+I &= \int_{-10}^{10} L  p dx
+\end{align}
+Perform the following calculations for several samplers, both uniform and gaussian.  [Done]
+\begin{itemize}
+\item \emph{Asymptotic error estimate}: Estimate the integral [Eq. (\ref{eq:EvaluateMCIntegral}) and its variance using
+  $n$ samples drawn from the sampling distribution.  Confirm the error   estimate [Eq. (\ref{eq:ErrorEstimateMC})], including the coefficient:
+\begin{align}
+I \equiv \sum_k L(x_k) p(x_k)/p_s
+\sigma_{I,n}^2 \equiv \frac{1}{n-1}\sum_{k=1}^n[ I - \bar{I}]^2 \simeq \frac{1}{n}  \sigma^2
+\end{align}
+Repeat the running calculation for several sampling distributions
+\item \emph{Effective sample size}: For the same choices, plot the integral, effective sample size, and the volume
+  fraction $\hat{V}=N_{\rm eff}/N$. 
+\end{itemize}
+
+\noindent \textbf{Plausible 7d integral}: Construct a plausible 7d problem \editremark{finish}
+
 
 \noindent \textbf{Report on convergence rate and implications}: Memory usage for passing back; time needed to evaluate;
 correlation length of $\hat{L}$ if the sampling distribution is too narrow or insufficiently multimodal; et cetera.  How well do we need to tune the sampling distribution?
 
+
+\subsubsection{Test suite 1: Single IFO}
+
+Why a single-interferometer test suite?  Because sky location de facto decouples, becoming a time
+shift. [\textbf{Possible problem}: the time window is broadened to 30 ms, because our coordinates are barycentric
+  time. \editremark{is this too much of a challenge?}] 
+Likewise, source inclination, distance, and polarization all couple only through a composite parameter $D_{\rm eff}$
+%
+These broad (but highly correlated) posteriors insure we develop tests to compare results with target distributions: (a) event time; (b) event sky location [Bayestar]; (c)
+event orientation, polarization [optional! tricky]
+
+
+\noindent \textbf{Validate sampling, prior, posterior distributions qualitatively}: Build infrastructure to show all distributions:
+the input sampling distribution; prior; and posterior distribution.  All should use the samples generated by the
+sampler, the likelihood, $p$, and $p_s$. \editremark{PROBLEM: Chris doesn't provide a prior distribution tool yet}.
+\begin{itemize}
+\item \emph{Sampling distributions correct}: Are the samples generated consistent with the \texttt{pdf} provided? With
+  the \texttt{cdf} provided?  [Errors and inconsistencies can happen in the sampler code]
+
+\item \emph{$N_{\rm eff},L$ sequences plausible}: Confirm $N_{\rm eff},I_n$ sequences vs $N$ are plausible given the
+  physical system.
+
+Overlay the sequence with an error estimate; do we believe our error estimate from $N_{\rm eff}$?
+
+\item \emph{Posterior distribution plausible}: Confirm posterior distributions are recovered.  Compare against the
+  sampling distributions to insure nothing horrible happens. 
+\begin{itemize}
+\item \emph{No railing}: We don't hit a limit in distance or other hard cutoff
+\end{itemize}
+
+\item  \textbf{Test sampling distributions that depend on the data}: Some sampling distributions can infer the event
+  time (barycentered), distance, sky location, inclination, et cetera from the data (e.g. from the $U$ and $Q$).
+
+\item \textbf{Run on cluster in vanilla mode}: Throw it at the clust
+\end{itemize}
+
+\editremark{TEST SAMPLING DISTRIBUTIONS THAT USE INFORMATION FROM THE DATA}
+
+\noindent \textbf{Test posterior recovery: Toy signal}: Compare the injected and recovered posterior distributions, for a
+\textbf{fixed set of intrinsic parameters} (i.e., masses) -- typically $4+3 M_\odot$ in initial LIGO, with $DEC=1.2$ and
+$RA=2.4$ at $25\unit{Mpc}$ at GPS time 1064023405.  This signal has $\rho \simeq 21$ in a sythetic 3-detector network.
+\begin{itemize}
+\item \emph{Do we recover the injected parameters?}: \editremark{yes}
+\item \emph{Are the parameter errors consistent with expectation?}: Compare with a Fisher matrix calculation \editremark{pending}
+\end{itemize}
 
 \noindent \textbf{Test export, recovery of extrinsic parameters}: Put a $10+1.4 M_\odot$ binary  at
 $\hat{n}=-\hat{k}=\pi/4,\pi/4$ with $\psi=0$, at a distance $d=25\unit{Mpc}$ in \emph{initial} LIGO [for speed: short
   waveforms].  
 
 Recover the distance distribution;  sky position error box; and event time distribution.
+
+
+
+\noindent \textbf{Draw conclusions}
+
+
+* discuss whether 2d samplers will be needed -- for example in distance-inclination.
+
+\subsubsection{Test suite 2: 3-IFO}
+
+
+
+
+\noindent \textbf{Marginalize}
+Single IFO test suite: why
+* confirm sampling distribution generated (in real test suite)
+
+* confirm 
+
 
 
 \subsubsection{Milestones and benchmarks: Nonuniform sampling (*)} 
@@ -1456,18 +1635,15 @@ memory bloat
 \section{Python implementaiton}
 
 
-\noindent \textbf{Serial pipeline}: Rather than parallelize across the cluster, do a full zero-spin serial operation.
-It will be easier to document the physics and infrastructure if it's in one code.
 
-Make $L_{\rm marg}(m_1,m_2)$, recovery $p-p$ plots, etc
-
-\noindent \textbf{Serial sky localization code}: Test our comparison against Bayesstar
-
-\noindent \textbf{Mass-dependent data length?}: Change data length depending on trigger chirp mass to reduce computation time.
+\subsection{Remaining bugs}
+\noindent \textbf{Sign vs Pankow injection}: Phase difference, it seeems
 
 
 
 \subsection{Implementation issues to remember}
+
+
 
 \noindent \textbf{Python swig time }: Be careful re the automagic time conversion. It is \textbf{very important} to make
 sure all time quantities remain GPSTime objects...and very easy to slip up when passing arguments and throw a float
@@ -1480,6 +1656,38 @@ detector = lalsim.DetectorPrefixToLALDetector('H1')
 tArriveB = ComputeArrivalTimeAtDetector("H1",0,0,lal.GPSTimeNow())   # this is a GPS time
 \end{verbatim}
 \end{shaded}
+
+\noindent \textbf{Reference phase}: Be careful to adopt it consistently
+
+\subsection{Tests to implement}
+\noindent \textbf{Serial pipeline}: Rather than parallelize across the cluster, do a full zero-spin serial operation.
+It will be easier to document the physics and infrastructure if it's in one code.
+
+Make $L_{\rm marg}(m_1,m_2)$, recovery $p-p$ plots, etc
+
+\noindent \textbf{Serial sky localization code}: Test our comparison against Bayesstar
+
+\noindent \textbf{Mass-dependent data length?}: Change data length depending on trigger chirp mass to reduce computation time.
+
+
+\subsection{Python MPI and parallelization}
+
+\noindent \textbf{PythonMPI}: Apparently python MPI and even python multithreading is possible with cython (=compiling an extension, and releasing the
+global interpreter lock).  So we \textbf{ought} to be able to capture all the advantages we're looking for.
+\begin{verbatim}
+http://mpi4py.scipy.org/docs/usrman/tutorial.html  # mpi
+http://www.vallis.org/salon/summary-8.html         # openmp
+http://archive.euroscipy.org/talk/6857
+\end{verbatim}
+
+\noindent \textbf{Faster low-level calls: typing, cython, ...}: Should be massive speed improvement.  Type checking on
+our nested loops causes enormous problems -- the code is just too slow.
+\begin{verbatim}
+http://numba.pydata.org/numba-doc/0.11/types.html
+http://jakevdp.github.io/blog/2013/06/15/numba-vs-cython-take-2/
+http://www.slideshare.net/teoliphant/numba-siam-2013
+\end{verbatim}
+%http://stackoverflow.com/questions/8097408/why-python-is-so-slow-for-a-simple-loop
 
 \appendix
 \section{Gravy issues: Things to think about but not critical now}

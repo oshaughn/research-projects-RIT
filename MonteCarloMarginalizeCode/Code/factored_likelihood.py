@@ -24,6 +24,7 @@ Requires python SWIG bindings of the LIGO Algorithms Library (LAL)
 
 from  lalsimutils import *   # WARNING: will not use same global variables consistently
 from scipy import integrate
+import itertools
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -31,7 +32,7 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 distMpcRef = 100
 tWindowReference = [-0.15,0.15]            # choose samples so we have this centered on the window
 tWindowExplore = [-0.05, 0.05]             # smaller window.  Avoid interpolation errors on the edge.
-rosDebugMessages = True
+rosDebugMessages = False
 rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
 rosDebugUseCForQTimeseries =False
 rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
@@ -39,6 +40,7 @@ rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the targ
 rosInterpolateVia = "Other"
 rosDoNotRollTimeseries = False           # must be done if you have zero padding.  Should always work, since epoch shifted too.
 #rosDoNotUseMemoryMode = True       # strip the memory mode.  I am seeing some strange features.
+rosAvoidNestedLoops = False               # itertools is actually pretty darned slow.  Let's not use it.
 rosInterpolationMethod = "NearestNeighbor"
 rosInterpolationMethod = "Interp1d"  # horribly slow!  Unusable prep time!
 rosInterpolationMethod = "PrecomputeSpline"
@@ -195,9 +197,16 @@ def SingleDetectorLogLikelihoodModel( crossTermsDictionary,tref, RA,DEC, thS,phi
     # Eq. 26 of Richard's notes
     # APPROXIMATING V BY U (appropriately swapped).  THIS APPROXIMATION MUST BE FIXED FOR PRECSSING SOURCES
     term2 = 0.
-    for pair1 in keys:
-        for pair2 in keys:
+    if rosAvoidNestedLoops:
+        pairsOfPairs = itertools.product( keys,keys)  # loop over pairs might be faster than not
+        for pPair in pairsOfPairs:
+            pair1 = pPair[0]
+            pair2 = pPair[1]
             term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
+    else:
+        for pair1 in keys:
+            for pair2 in keys:
+                term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
     term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
     return term2
 
@@ -219,12 +228,15 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
     term1 = 0.
-    for pair in rholms_intp:
-#        print " adding term to lnLdata ", pair
-        term1+= np.conj(F*Ylms[pair])*rholms_intp[pair]( float(tshift))
-    # for l in range(2,Lmax+1):
-    #     for m in range(-l,l+1):
-    #         term1 += F * Ylms[(l,m)] * rholm_vals[(l,m)]
+    keys = constructLMIterator(Lmax)
+    if rosAvoidNestedLoops:
+        for pair in keys: #rholms_intp:
+            #        print " adding term to lnLdata ", pair
+            term1+= np.conj(F*Ylms[pair])*rholms_intp[pair]( float(tshift))
+    else:
+        for l in range(2,Lmax+1):
+            for m in range(-l,l+1):
+                term1 += F * Ylms[(l,m)] * rholms_intp[(l,m)]( float(tshift))
     term1 = np.real(term1) / (distMpc/distMpcRef)
 
     if rosDebugMessagesLong:
@@ -279,20 +291,33 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
     global distMpcRef
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
+    keys = constructLMIterator(Lmax)
+    if rosDebugMessagesLong:
+        print " looping over (l,m) pairs ", keys
+
     # Eq. 35 of Richard's notes
     term1 = 0.
-    for key in rholm_vals:
-        term1 += np.conj(F * Ylms[key]) * rholm_vals[key]
-    # for l in range(2,Lmax+1):
-    #     for m in range(-l,l+1):
-    #         term1 += np.conj(F * Ylms[(l,m)]) * rholm_vals[(l,m)]
+    if rosAvoidNestedLoops:
+        for key in keys: #rholm_vals:
+            term1 += np.conj(F * Ylms[key]) * rholm_vals[key]
+    else:
+        for l in range(2,Lmax+1):
+            for m in range(-l,l+1):
+                term1 += np.conj(F * Ylms[(l,m)]) * rholm_vals[(l,m)]
     term1 = np.real(term1) / (distMpc/distMpcRef)
 
     # Eq. 26 of Richard's notes
     term2 = 0.
-    for pair1 in rholm_vals:
-        for pair2 in rholm_vals:
+    if rosAvoidNestedLoops:
+        pairsOfPairs = itertools.product(  keys,keys)  # loop over pairs might be faster than not
+        for pPair in pairsOfPairs:
+            pair1 = pPair[0]
+            pair2 = pPair[1]
             term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
+    else:
+        for pair1 in rholm_vals:
+            for pair2 in rholm_vals:
+                term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
     # for l in range(2,Lmax+1):
     #     for m in range(-l,l+1):
     #         for lp in range(2,Lmax+1):
@@ -342,7 +367,7 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
     if rosDebugUseCForQTimeseries:
         psdData = IP.longpsdLAL
         rholms = lalsim.SphHarmTimeSeriesFromSphHarmFrequencySeriesDataAndPSD(hlms, data, psdData)
-        if rosDebugMessages:
+        if rosDebugMessagesLong:
             print "   : C inner product timeseries complete "
             Lmax = lalsim.SphHarmTimeSeriesGetMaxL(rholms)
             for l in range(2,Lmax+1):
@@ -352,19 +377,23 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
                     print "      : epoch ", stringGPSNice(rhoTS.epoch), " (should be 0 for template) compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch), " which should be related to padding, the choice of reference time, etc"
     else:
         Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
-        for l in range(2,Lmax+1):
-            for m in range(-l,l+1):
-                hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
-                assert hlm.deltaF == data.deltaF
-                rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
-                rhoTS.epoch = data.epoch -h22.epoch
-                rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
+        keys = constructLMIterator(Lmax)  # nested lists are very bad for python
+#        for l in range(2,Lmax+1):
+#            for m in range(-l,l+1):
+        for pair in keys:
+            l = int(pair[0])
+            m = int(pair[1])
+            hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
+            assert hlm.deltaF == data.deltaF
+            rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
+            rhoTS.epoch = data.epoch -h22.epoch
+            rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
                 # Sanity check
-                if rosDebugMessages:
-                    print  "     :  value of <hlm|data> ", l,m, rho, np.amax(np.abs(rhoTS.data.data))  # Debuging info
-                    rhoRegular = IPRegular.ip(hlm,hlm)
-                    print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular # ,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
-                    print "      : Qlm series starts at ", stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
+            if rosDebugMessagesLong:
+                print  "     :  value of <hlm|data> ", l,m, rho, np.amax(np.abs(rhoTS.data.data))  # Debuging info
+                rhoRegular = IPRegular.ip(hlm,hlm)
+                print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular # ,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
+                print "      : Qlm series starts at ", stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
 
     # RETURN: Do not window or readjust the timeseries here.  This is done in the interpolation step.
     # TIMING : Epoch set 
@@ -455,14 +484,34 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
 
     # Loop over modes and compute the inner products, store in a dictionary
     Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
+
     crossTerms = {}
-    for l in range(2,Lmax+1):
-        for m in range(-l,l+1):
-            for lp in range(2,Lmax+1):
-                for mp in range(-lp,lp+1):
-                    hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
-                    hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, lp, mp)
-                    crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)
+
+    if rosAvoidNestedLoops:
+        keys = constructLMIterator(Lmax)
+        pairsOfPairs = itertools.product(keys,keys)  # loop over pairs might be faster than not
+        for pPair in pairsOfPairs:
+            pair1 = pPair[0]
+            pair2 = pPair[1]
+            l = pair1[0]
+            m = pair1[1]
+            lp = pair2[0]
+            mp = pair2[1]
+            hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, int(l), int(m))
+            hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, int(lp), int(mp))
+            crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)  # need to be careful about left side to avoid type errors later when I do this loop
+            if rosDebugMessages:
+                print "       : U populated ", ((l,m), (lp,mp)), "  = ", crossTerms[(pair1,pair2) ]
+    else:
+        for l in range(2,Lmax+1):
+            for m in range(-l,l+1):
+                for lp in range(2,Lmax+1):
+                    for mp in range(-lp,lp+1):
+                        hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
+                        hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, lp, mp)
+                        crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)
+                        if rosDebugMessages:
+                            print "       : U populated ", ((l,m), (lp,mp)), "  = ", crossTerms[((l,m),(lp,mp)) ]
 
     return crossTerms
 
@@ -495,9 +544,16 @@ def ComputeYlms(Lmax, theta, phi):
     -l <= m <= l
     """
     Ylms = {}
-    for l in range(2,Lmax+1):
-        for m in range(-l,l+1):
+    if rosAvoidNestedLoops:
+        keys = constructLMIterator(Lmax)
+        for pair in keys:
+            l = int(pair[0])
+            m = int(pair[1])
             Ylms[ (l,m) ] = lal.SpinWeightedSphericalHarmonic(theta, phi,-2, l, m)
+    else:
+        for l in range(2,Lmax+1):
+            for m in range(-l,l+1):
+                Ylms[ (l,m) ] = lal.SpinWeightedSphericalHarmonic(theta, phi,-2, l, m)
 
     return Ylms
 
@@ -561,7 +617,20 @@ def rollTimeSeries(series_dict, nRollRight):
         print " Rolling timeseries ", nRollRight
         np.roll(series_dict.data.data, nRollRight)
 
+def estimateUpperDistanceBoundInMpc(rholms,crossTerms):  
+    # For nonprecessing sources, use the 22 mode to estimate the optimally oriented distance
+    Qbar = 0
+    nDet = 0
+    for det in rholms:
+        nDet+=1
+        rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
+        Qbar+=np.abs(crossTerms[det][(2,2), (2,2)])/np.max(np.abs(rho22.data.data))   # one value for each detector
+    fudgeFactor = 1.5  # let's give ourselves a buffer -- we can't afford to be too tight
+    return fudgeFactor*distMpcRef* Qbar/nDet *np.sqrt(5/(4.*np.pi))/2.
 
+def estimateEventTimeRelative(theEpochFiducial,rholms, rholms_intp):
+    
+    return 0
 
 def evaluateFast1dInterpolator(x,y,xlow,xhigh):
     indx = np.floor((x-xlow)/(xhigh-xlow) * len(y))

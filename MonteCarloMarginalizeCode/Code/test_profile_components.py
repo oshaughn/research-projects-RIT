@@ -131,12 +131,12 @@ tE = lal.GPSTimeNow()
 cost_dict['roll'] = float(tE-tS)/nEvals
 
 
-tS = lal.GPSTimeNow()
-nEvals = 20
-for i in np.arange(nEvals):
-    lnLmargTime = NetworkLogLikelihoodTimeMarginalized(theEpochFiducial, rholms_intp, crossTerms,Psig.tref, Psig.phi,Psig.theta, P.incl, P.phiref,P.psi, P.dist, 2, detectors)
-tE = lal.GPSTimeNow()
-cost_dict['lnLmargTime'] = float(tE-tS)/nEvals
+# tS = lal.GPSTimeNow()
+# nEvals = 20
+# for i in np.arange(nEvals):
+#     lnLmargTime = NetworkLogLikelihoodTimeMarginalized(theEpochFiducial, rholms_intp, crossTerms,Psig.tref, Psig.phi,Psig.theta, P.incl, P.phiref,P.psi, P.dist, 2, detectors)
+# tE = lal.GPSTimeNow()
+# cost_dict['lnLmargTime'] = float(tE-tS)/nEvals
 
 
 print " ======= Report =========="
@@ -151,5 +151,5 @@ print "  ... sum of previous two should equal FactoredLogLikelihood. "
 print "Per-evaluation : generate all Ylms : ", cost_dict['Ylms']
 print "Per-evaluation : evaluate one rholm * (2Lmax+1) *3: ", cost_dict['rholms']* (2*Lmax+1)*3
 print "  ... this should agree with SingleDetectorLogLikelihoodData  *3 "
-print "Per evaluation NetworkLogLikelihoodTimeMarginalized (an alternative) ", cost_dict['lnLmargTime'], " with answer ", lnLmargTime, " which had better compare with the unmarginalized lnL (i.e., about 200) ", lnL
-print "    ... use if convergence of a blind Monte Carlo requires many times the following number of iterations ",  cost_dict['lnLmargTime']/cost_dict['lnL']
+#print "Per evaluation NetworkLogLikelihoodTimeMarginalized (an alternative) ", cost_dict['lnLmargTime'], " with answer ", lnLmargTime, " which had better compare with the unmarginalized lnL (i.e., about 200) ", lnL
+#print "    ... use if convergence of a blind Monte Carlo requires many times the following number of iterations ",  cost_dict['lnLmargTime']/cost_dict['lnL']

@@ -207,6 +207,6 @@ cos_samp_vector = numpy.vectorize(cos_samp,otypes=[numpy.float])
 dec_samp_vector = numpy.vectorize(dec_samp,otypes=[numpy.float])
 
 def pseudo_dist_samp(r0,r):
-        return r*r*numpy.exp( - (r0/r)*(r0/r)/2. + r0/r)+0.01  # put a floor on probability, so we converge
+        return r*r*numpy.exp( - (r0/r)*(r0/r)/2. + r0/r)+0.01  # put a floor on probability, so we converge. Note this floor only cuts out NEARBY distances
 
 pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])

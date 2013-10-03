@@ -143,6 +143,7 @@ rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpoch
 if checkResults == True:
     # Print values of cross terms
     detectors = data_dict.keys()
+    assert rholms_intp.keys() == crossTerms.keys()
     for det in detectors:
         for pair1 in rholms_intp[ifoName]:
             for pair2 in rholms_intp[ifoName]:

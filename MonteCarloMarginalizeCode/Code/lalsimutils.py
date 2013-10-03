@@ -1476,3 +1476,10 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
 
 def stringGPSNice(tgps):
     return str(tgps.gpsSeconds)+'.'+str(tgps.gpsNanoSeconds)
+
+def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all modes, as a list.  Useful for building iterators without nested lists
+    mylist = []
+    for L in np.arange(2, Lmax+1):
+        for m in np.arange(-Lmax, Lmax+1):
+            mylist.append((L,m))
+    return mylist
