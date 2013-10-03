@@ -24,9 +24,9 @@ rosUseRandomTemplateStartingFrequency = False
 rosUseTargetedDistance = True
 rosUseStrongPriorOnParameters = True
 rosDebugMessages = False
-rosShowSamplerInputDistributions = True
-rosShowRunningConvergencePlots = True
-rosShowTerminalSampleHistograms = True
+rosShowSamplerInputDistributions = False
+rosShowRunningConvergencePlots = False
+rosShowTerminalSampleHistograms = False
 rosSaveHighLikelihoodPoints = True
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
@@ -409,5 +409,5 @@ if rosShowSamplerInputDistributions:
         plt.savefig("test_like_and_samp-"+str(param)+".pdf")
 #    plt.show()
 
-res, var = sampler.integrate(likelihood_function, 1e5, "ra", "dec", "tref", "phi", "incl", "psi", "dist")
+res, var = sampler.integrate(likelihood_function, 500*1e5, "ra", "dec", "tref", "phi", "incl", "psi", "dist")
 print res, numpy.sqrt(var)

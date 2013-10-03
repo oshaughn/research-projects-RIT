@@ -180,12 +180,14 @@ class MCSampler(object):
 		return int_val1, std**2/n
 
 ### UTILITIES: Predefined distributions
+#  Be careful: vectorization is not always implemented consistently in new versions of numpy
 def uniform_samp(a, b, x):   # I prefer to vectorize with the same call for all functions, rather than hardcode vectorization
         if  x>a and x<b:
                 return 1/(b-a)
         else:
                 return 0
-uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
+#uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
+uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
 
 def inv_uniform_cdf(a, b, x):
 	return (b-a)*x+a
@@ -196,7 +198,8 @@ def gauss_samp(mu, std, x):
 def gauss_samp_withfloor(mu, std, myfloor, x):
 	return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2) + myfloor
 
-gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,excluded=['mu','std','myfloor'],otypes=[numpy.float])
+#gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,excluded=['mu','std','myfloor'],otypes=[numpy.float])
+gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,otypes=[numpy.float])
 
 
 def cos_samp(x):
@@ -211,7 +214,8 @@ dec_samp_vector = numpy.vectorize(dec_samp,otypes=[numpy.float])
 def pseudo_dist_samp(r0,r):
         return r*r*numpy.exp( - (r0/r)*(r0/r)/2. + r0/r)+0.01  # put a floor on probability, so we converge. Note this floor only cuts out NEARBY distances
 
-pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
+#pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
+pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float])
 
 def sky_rejection(skymap, ra_in, dec_in, massp=1.0):
 	"""
@@ -242,3 +246,5 @@ def sky_rejection(skymap, ra_in, dec_in, massp=1.0):
 	# FIXME: How does this get reversed?
 	dec_in *= -1
 	return numpy.array([ra_in, dec_in])
+#pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
+pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float])
