@@ -4,6 +4,8 @@ from collections import defaultdict
 import numpy
 from scipy import integrate, interpolate
 
+import healpy
+
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
 # TODO: Move other sampling routines here
@@ -210,3 +212,33 @@ def pseudo_dist_samp(r0,r):
         return r*r*numpy.exp( - (r0/r)*(r0/r)/2. + r0/r)+0.01  # put a floor on probability, so we converge. Note this floor only cuts out NEARBY distances
 
 pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
+
+def sky_rejection(skymap, ra_in, dec_in, massp=1.0):
+	"""
+	Do rejection sampling of the skymap PDF, restricted to the greatest XX % of the mass, ra_in and dec_in will be returned, replaced with the new sample points.
+	"""
+
+	res = healpy.npix2nside(len(skymap))
+	pdf_sorted = sorted([(p, i) for i, p in enumerate(skymap)], reverse=True)
+	valid_points = []
+	cdf, np = 0, 0
+	for p, i in pdf_sorted:
+		valid_points.append( healpy.pix2ang(res, i) )
+		cdf += p
+		np += 1
+		if cdf > massp:
+			break
+
+	i = 0
+	while i < len(ra_in):
+		rnd_n = numpy.random.randint(0, np)
+		trial = numpy.random.uniform(0, pdf_sorted[0][0])
+		#print i, trial, pdf_sorted[rnd_n] 
+		# TODO: Ensure (ra, dec) within bounds
+		if trial < pdf_sorted[rnd_n][0]:
+			dec_in[i], ra_in[i] = valid_points[rnd_n]
+			i += 1
+	dec_in -= numpy.pi/2
+	# FIXME: How does this get reversed?
+	dec_in *= -1
+	return numpy.array([ra_in, dec_in])
