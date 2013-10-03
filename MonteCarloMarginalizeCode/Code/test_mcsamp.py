@@ -18,7 +18,7 @@ import scipy.special
 from lalinference.bayestar import fits as bfits
 from lalinference.bayestar import plot as bplot
 
-from mcsampler import MCSampler
+import mcsampler
 
 
 
@@ -245,57 +245,6 @@ def plot_ra_dec(samp, use_pdf=False, fname=None, key=("ra", "dec")):
 	pyplot.savefig(fname or "radec_proj.png")
 	return hist
 
-#
-# Sampling utilities
-#
-
-def sky_rejection(skymap, ra_in, dec_in, massp=1.0):
-	"""
-	Do rejection sampling of the skymap PDF, restricted to the greatest XX % of the mass, ra_in and dec_in will be returned, replaced with the new sample points.
-	"""
-
-	res = healpy.npix2nside(len(skymap))
-	pdf_sorted = sorted([(p, i) for i, p in enumerate(skymap)], reverse=True)
-	valid_points = []
-	cdf, np = 0, 0
-	for p, i in pdf_sorted:
-		valid_points.append( healpy.pix2ang(res, i) )
-		cdf += p
-		np += 1
-		if cdf > massp:
-			break
-
-	i = 0
-	while i < len(ra_in):
-		rnd_n = numpy.random.randint(0, np)
-		trial = numpy.random.uniform(0, pdf_sorted[0][0])
-		#print i, trial, pdf_sorted[rnd_n] 
-		# TODO: Ensure (ra, dec) within bounds
-		if trial < pdf_sorted[rnd_n][0]:
-			dec_in[i], ra_in[i] = valid_points[rnd_n]
-			i += 1
-	dec_in -= numpy.pi/2
-	# FIXME: How does this get reversed?
-	dec_in *= -1
-	return numpy.array([ra_in, dec_in])
-
-# TODO: Make a class function
-def uniform_samp(a, b, x):
-	if type(x) is float:
-		return 1.0/(b-a)
-	else:
-		return numpy.ones(x.shape[0])/(b-a)
-
-# TODO: Make a class function
-def inv_uniform_cdf(a, b, x):
-	return (b-a)*x+a
-
-def gauss_samp(mu, std, x):
-	return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2)
-
-def inv_gauss_cdf(mu, std, x):
-	return mu + std*numpy.sqrt(2) * scipy.special.erfinv(2*x-1)
-
 if sys.argv[1] is None:
 	print "Usage: mcsamp_test npoints"
 	exit(-1)
@@ -325,7 +274,7 @@ dist_min, dist_max = 0.0, 100.0
 dist_val, dist_width = 25.0, 25.0
 
 
-samp = MCSampler()
+samp = mcsampler.MCSampler()
 
 #
 # Test some other 1-D integrals
@@ -336,7 +285,7 @@ def integrand_1d(x):
 	return numpy.sinc(10*x)
 plot_integrand(integrand_1d, test_min, test_max)
 
-samp.add_parameter("p1", functools.partial(uniform_samp, test_min, test_max), None, test_min, test_max)
+samp.add_parameter("p1", functools.partial(mcsampler.uniform_samp_vector, test_min, test_max), None, test_min, test_max)
 plot_cdf_inv(samp)
 res, var = samp.integrate(integrand_1d, int(sys.argv[1]), "p1")
 print res, var
@@ -353,7 +302,7 @@ plot_integrand(integrand_1d, psi_min, psi_max)
 # Test 1: What happens when we know the exact right answer
 #
 
-samp.add_parameter("psi", functools.partial(gauss_samp, psi_val, psi_width), None, psi_min, psi_max)
+samp.add_parameter("psi", functools.partial(mcsampler.gauss_samp, psi_val, psi_width), None, psi_min, psi_max)
 integralViaSampler = samp.integrate(integrand_1d, 1, "psi")
 integral = scipy.integrate.quad(integrand_1d, psi_min, psi_max)[0]
 print "scipy answer vs our answer:",  integral, integralViaSampler
@@ -366,7 +315,7 @@ samp.clear()
 # Test 2: Same integrand, uniform sampling
 #
 
-samp.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), None, psi_min, psi_max)
+samp.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
 print samp.integrate(integrand_1d, int(sys.argv[1]), "psi")
 plot_pdf(samp)
 plot_cdf_inv(samp)
@@ -382,7 +331,7 @@ offsets = [-2.0, -1.0, -0.5, -0.25, -0.1, -0.01, 0.01, 0.1, 0.25, 0.5, 1.0, 2.0]
 variances = []
 wo = []
 for w, o in itertools.product(widths, offsets):
-	samp.add_parameter("psi", functools.partial(gauss_samp, psi_val-o*psi_width, w*psi_width), None, psi_min, psi_max)
+	samp.add_parameter("psi", functools.partial(mcsampler.gauss_samp, psi_val-o*psi_width, w*psi_width), None, psi_min, psi_max)
 	print "Width of Gaussian sampler (in units of the width of the integrand: %f" % w
 	print "offset of Gaussian sampler (in units of the width of the integrand: %f" % o
 	res, var = samp.integrate(integrand_1d, int(sys.argv[1]), "psi")
@@ -454,7 +403,7 @@ def integrand_2d(ra, dec):
 	#return bayestar_temp(1, smap, ra, dec) * pix_radsq
 	return numpy.ones(ra.shape)
 
-generate_sky_points = functools.partial(sky_rejection, smap)
+generate_sky_points = functools.partial(mcsampler.sky_rejection, smap)
 samp.add_parameter(("ra", "dec"), sky_pdf, generate_sky_points, (ra_min, dec_min), (ra_max, dec_max))
 
 print samp.integrate(integrand_2d, int(sys.argv[1]), ("ra", "dec"))
@@ -471,29 +420,29 @@ samp.clear()
 #
 # Test 5a: Uniform sampling, cdf provided
 #
-#samp.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), functools.partial(inv_uniform_cdf, psi_min, psi_max), psi_min, psi_max)
-#samp.add_parameter("ra", functools.partial(uniform_samp, ra_min, ra_max), functools.partial(inv_uniform_cdf, ra_min, ra_max), ra_min, ra_max)
-#samp.add_parameter("dec", functools.partial(uniform_samp, dec_min, dec_max), functools.partial(inv_uniform_cdf, dec_min, dec_max), dec_min, dec_max)
+#samp.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), functools.partial(mcsampler.inv_uniform_cdf, psi_min, psi_max), psi_min, psi_max)
+#samp.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), functools.partial(mcsampler.inv_uniform_cdf, ra_min, ra_max), ra_min, ra_max)
+#samp.add_parameter("dec", functools.partial(mcsampler.uniform_samp_vector, dec_min, dec_max), functools.partial(mcsampler.inv_uniform_cdf, dec_min, dec_max), dec_min, dec_max)
 
 #
 # Test 5b: Uniform sampling, cdf provided
 #
 # Uniform sampling, auto-cdf inverse
-#samp.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), None, psi_min, psi_max)
-samp.add_parameter("psi", functools.partial(gauss_samp, psi_val, 2*psi_width), None, psi_min, psi_max)
-samp.add_parameter("ra", functools.partial(uniform_samp, ra_min, ra_max), None, ra_min, ra_max)
-samp.add_parameter("dec", functools.partial(uniform_samp, dec_min, dec_max), None, dec_min, dec_max)
-samp.add_parameter("phi", functools.partial(uniform_samp, phi_min, phi_max), None, phi_min, phi_max)
-#samp.add_parameter("inc", functools.partial(uniform_samp, inc_min, inc_max), None, inc_min, inc_max)
-samp.add_parameter("inc", functools.partial(gauss_samp, inc_val, 2*inc_width), None, inc_min, inc_max)
-samp.add_parameter("dist", functools.partial(uniform_samp, dist_min, dist_max), None, dist_min, dist_max)
+#samp.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
+samp.add_parameter("psi", functools.partial(mcsampler.gauss_samp, psi_val, 2*psi_width), None, psi_min, psi_max)
+samp.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), None, ra_min, ra_max)
+samp.add_parameter("dec", functools.partial(mcsampler.uniform_samp_vector, dec_min, dec_max), None, dec_min, dec_max)
+samp.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max)
+#samp.add_parameter("inc", functools.partial(mcsampler.uniform_samp_vector, inc_min, inc_max), None, inc_min, inc_max)
+samp.add_parameter("inc", functools.partial(mcsampler.gauss_samp, inc_val, 2*inc_width), None, inc_min, inc_max)
+samp.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, dist_min, dist_max), None, dist_min, dist_max)
 
 #
 # Test 5c: Gaussian sampling, auto-cdf inverse -- Doesn't work yet
 #
-#samp.add_parameter("psi", functools.partial(gauss_samp, 0, (psi_max-psi_min)/3.0), None, psi_min, psi_max)
-#samp.add_parameter("ra", functools.partial(gauss_samp, 0, (ra_max-ra_min)/10.0), None, ra_min, ra_max)
-#samp.add_parameter("dec", functools.partial(gauss_samp, (dec_max+dec_min)/2, (dec_max-dec_min)/10.0), None, dec_min, dec_max)
+#samp.add_parameter("psi", functools.partial(mcsampler.gauss_samp, 0, (psi_max-psi_min)/3.0), None, psi_min, psi_max)
+#samp.add_parameter("ra", functools.partial(mcsampler.gauss_samp, 0, (ra_max-ra_min)/10.0), None, ra_min, ra_max)
+#samp.add_parameter("dec", functools.partial(mcsampler.gauss_samp, (dec_max+dec_min)/2, (dec_max-dec_min)/10.0), None, dec_min, dec_max)
 
 #
 # Full 6-D test
