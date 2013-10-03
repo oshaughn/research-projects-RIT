@@ -6,6 +6,8 @@ from scipy import integrate, interpolate
 
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
+# TODO: Move other sampling routines here
+
 class MCSampler(object):
 	"""
 	Class to define a set of parameter names, limits, and probability densities.
@@ -23,7 +25,7 @@ class MCSampler(object):
 		# Sample point cache
 		self._cache = []
 		# parameter -> cdf^{-1} function object
-                self.cdf = {}
+		self.cdf = {}
 		self.cdf_inv = {}
 		# params for left and right limits
 		self.llim, self.rlim = {}, {}
@@ -66,6 +68,7 @@ class MCSampler(object):
 			else:
 				self.rlim[params] = right_limit
 		self.pdf[params] = pdf
+		# FIXME: This only works automagically for the 1d case currently
 		self.cdf_inv[params] = cdf_inv or self.cdf_inverse(params)
 		self.cdf[params] =  self.cdf_function(params)
 
@@ -113,14 +116,35 @@ class MCSampler(object):
 			args = self.params
 
 		if isinstance(rvs, int) or isinstance(rvs, float):
-			self._rvs = [numpy.random.uniform(0,1,rvs) for p in args]
-			self._rvs = [self.cdf_inv[param](rv) for (rv, param) in zip(self._rvs, args)]
+			#
+			# Convert all arguments to tuples
+			#
+			# FIXME: UGH! Really? This was the most elegant thing you could come
+			# up with?
+			self._rvs = [numpy.random.uniform(0,1,(len(p), rvs)) for p in map(lambda i: (i,) if not isinstance(i, tuple) else i, args)]
+			self._rvs = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(self._rvs, args)])
 		else:
-			self._rvs = rvs
+			self._rvs = numpy.array(rvs)
 
-		res = [(self.pdf[param](cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(self._rvs, args)]
+
+		# FIXME: ELegance; get some of that...
+		# This is mainly to ensure that the array can be "splatted", e.g.
+		# separated out into its components for matching with args. The case of
+		# one argument has to be handled specially.
+		for (cdf_rv, param) in zip(self._rvs, args):
+			if len(cdf_rv.shape) == 1:
+				res = [(self.pdf[param](cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(self._rvs, args)]
+			else:
+				res = [(self.pdf[param](*cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(self._rvs, args)]
+
+		#
+		# Cache the samples we chose
+		#
 		self._rvs = dict(zip(args, self._rvs))
 
+		#
+		# Pack up the result if the user wants a dictonary instead
+		#
 		if kwargs.has_key("rdict"):
 			return dict(zip(args, res))
 		return zip(*res)
@@ -129,54 +153,28 @@ class MCSampler(object):
 		# NOTE: Will save points from other integrations before this if used more than once.
 		self._cache.extend( [ rvs for rvs, ratio, rnd in zip(numpy.array(self._rvs).T, intg/prior, numpy.random.uniform(0, 1, len(prior))) if ratio < 1 or 1.0/ratio < rnd ] )
 
-	# TODO: Remove args
-	# NOTE: Better idea: have args and kwargs, and let the user pin values via
+	# TODO: Idea: have args and kwargs, and let the user pin values via
 	# kwargs and integrate through args
 	def integrate(self, func, n, *args):
+		"""
+		Integrate func, by using n sample points. Right now, all params defined must be passed to args must be provided, but this will change soon.
+		"""
 		p_s, rv = self.draw(n, *args)
 		joint_p_s = numpy.prod(p_s, axis=0)
+		if len(rv[0].shape) != 1:
+			rv = rv[0]
 		fval = func(*rv)
 		# sum_i f(x_i)/p_s(x_i)
 		int_val = fval/joint_p_s
-		maxval = [fval[0] or 0]
-		for v in fval[1:]:
-			maxval.append( v if v > maxval[-1] else maxval[-1] )
+		maxval = [fval[0]/joint_p_s[0] or -float("Inf")]
+		for v in int_val[1:]:
+			maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 		eff_samp = int_val.cumsum()/maxval
-		indx = bisect.bisect_right(eff_samp, 100)
-		"""
-		#FIXME: Debug plots. Get rid of them when done
-		import matplotlib
-		matplotlib.use("Agg")
-		from matplotlib import pyplot
-		pyplot.clf()
-		pyplot.subplot(311)
-		pyplot.plot(range(1, len(int_val)+1), int_val.cumsum()/numpy.linspace(1,n,n), 'k-')
-		pyplot.semilogx()
-		pyplot.grid()
-		pyplot.subplot(312)
-		pyplot.plot(range(1, len(int_val)+1), maxval, 'k-')
-		pyplot.plot(range(1, len(int_val)+1), fval, 'b-')
-		pyplot.semilogx()
-		pyplot.subplot(313)
-		pyplot.plot(range(1, len(int_val)+1), eff_samp, 'b-')
-		#pyplot.plot(range(len(int_val)), eff_samp, 'r-')
-		pyplot.loglog()
-		#pyplot.ylim([1e-1, 1e1])
-		pyplot.grid()
-		pyplot.savefig("integral.png")
-		pyplot.clf()
-		"""
-		if indx == len(int_val):
-			std = 0
-		else:
-			std = int_val[indx:].std()
+		std = int_val.std()
 		#self.save_points(int_val, joint_p_s)
 		print "%d samples saved" % len(self._cache)
 		int_val1 = int_val.sum()/n
-		# FIXME: Running stddev
-		# TODO: Wrong n in variance
-		return int_val1, std**2/max(1, (n-indx))
-
+		return int_val1, std**2/n
 
 ### UTILITIES: Predefined distributions
 def uniform_samp(a, b, x):   # I prefer to vectorize with the same call for all functions, rather than hardcode vectorization

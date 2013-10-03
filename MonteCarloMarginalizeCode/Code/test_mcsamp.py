@@ -2,6 +2,9 @@
 import sys
 import functools
 import itertools
+import bisect
+
+import healpy
 
 import matplotlib
 matplotlib.use("Agg")
@@ -12,6 +15,9 @@ import numpy
 import scipy.integrate
 import scipy.special
 
+from lalinference.bayestar import fits as bfits
+from lalinference.bayestar import plot as bplot
+
 from mcsampler import MCSampler
 
 
@@ -19,22 +25,112 @@ from mcsampler import MCSampler
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
 #
+# FITS utilities
+#
+def make_skymap(samp, res=32, fname=None):
+	"""
+	Plot the RA and dec distribution in a Mollewide projection.
+	"""
+	samples = samp._rvs
+	smap = numpy.zeros(healpy.nside2npix(res))
+	phi, thetar = samples[("ra", "dec")]
+	# FIXME: Why is this flipped?
+	for ind in healpy.ang2pix(res, numpy.pi - (thetar + numpy.pi/2), numpy.pi*2 - phi):
+		smap[ind] += 1
+	bfits.write_sky_map(fname or "pe_skymap.fits", smap)
+
+#
+# Stat utilities
+#
+def cumvar(arr):
+	"""
+	Numerically stable running variance measure. See http://www.johndcook.com/standard_deviation.html for algorithm details.
+	"""
+	m, s = numpy.zeros(arr.shape), numpy.zeros(arr.shape)
+	m[0] = arr[0]
+	for i, x in enumerate(arr):
+		k = i+1
+		if i == 0: continue
+		m[i] = m[i-1] + (x-m[i-1])/k
+		s[i] = s[i-1] + (x-m[i-1])*(x-m[i])
+
+	return s/numpy.arange(1, len(s)+1)
+
+
+#
 # Plotting utilities
 #
-
-def plot_integrand(fcn, x1, x2):
+def plot_integral(fcn, samp, fargs=None, fname=None):
 	"""
-	Plot integrand (fcn) from x1 to x2
+	Effectively redoes the process which happens in MCSampler.integrate, but keeps track of the values for plotting.
+	"""
+	args = []
+	p_s = numpy.array([])
+	for p in fargs or samp.params:
+		if isinstance(p, tuple) and len(p) > 1:
+			# FIXME: Will this preserve order?
+			for a in samp._rvs[p]:
+				args.append(a)
+			p_s = numpy.hstack( (p_s, samp.pdf[p](*samp._rvs[p])/samp._pdf_norm[p]) )
+		else:
+			p_s = numpy.hstack( (p_s, samp.pdf[p](samp._rvs[p])/samp._pdf_norm[p]) )
+			args.append(samp._rvs[p])
+
+	p_s.shape = (len(samp.params), len(p_s)/len(samp.params))
+
+	fval = fcn(*args)
+	n = len(fval)
+	#p_s = numpy.array([ samp.pdf[p](*x)/samp._pdf_norm[p] for p, x in samp._rvs.iteritems() ])
+	joint_p_s = numpy.prod(p_s, axis=0)
+	int_val = fval/joint_p_s
+	maxval = [fval[0]/joint_p_s[0] or -float("Inf")]
+	for v in int_val[1:]:
+			maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
+	eff_samp = int_val.cumsum()/maxval
+
+	pyplot.figure()
+	pyplot.subplot(311)
+	pyplot.title("Integral estimate")
+	n_itr = range(1, len(int_val)+1)
+	pyplot.semilogx()
+	pyplot.plot(n_itr, int_val.cumsum()/numpy.linspace(1,n,n), 'k-')
+	pyplot.ylabel("integral val")
+	pyplot.twinx()
+	pyplot.ylabel("integral std")
+	pyplot.plot(n_itr, numpy.sqrt(cumvar(int_val)/n_itr), 'b-')
+	pyplot.grid()
+	pyplot.subplot(312)
+	pyplot.title("Point integral estimate and maximum over iterations")
+	pyplot.plot(n_itr, maxval, 'k-')
+	pyplot.plot(n_itr, int_val, 'b-')
+	pyplot.grid()
+	pyplot.semilogx()
+	pyplot.subplot(313)
+	pyplot.title("Effective samples")
+	pyplot.loglog()
+	pyplot.ylabel("N_eff")
+	pyplot.plot(range(1, len(int_val)+1), eff_samp, 'k-')
+	pyplot.twinx()
+	pyplot.loglog()
+	pyplot.ylabel("ratio N_eff/N")
+	pyplot.plot(range(1, len(int_val)+1), eff_samp/numpy.arange(1,len(int_val)+1), 'b-')
+	pyplot.grid()
+	pyplot.subplots_adjust(hspace=0.5)
+	pyplot.savefig(fname or "integral.png")
+
+def plot_integrand(fcn, x1, x2, fname=None):
+	"""
+	Plot 1D integrand (fcn) from x1 to x2
 	"""
 	pyplot.figure()
 	x_i = numpy.linspace(x1, x2, 1000)
 	pyplot.plot(x_i, fcn(x_i))
-	pyplot.savefig("integrand.pdf")
+	pyplot.savefig(fname or "integrand.png")
 
 
-def plot_pdf(samp):
+def plot_pdf(samp, fname=None):
 	"""
-	Plot PDFs of sampling distributions
+	Plot PDFs of sampling distributions if they are independent
 	"""
 	pyplot.figure()
 	for param in samp.params:
@@ -43,9 +139,9 @@ def plot_pdf(samp):
 
 	pyplot.grid()
 	pyplot.legend()
-	pyplot.savefig("pdf.pdf")
+	pyplot.savefig(fname or "pdf.png")
 
-def plot_cdf_inv(samp):
+def plot_cdf_inv(samp, fname=None):
 	"""
 	Plot inverse CDFs
 	"""
@@ -57,10 +153,10 @@ def plot_cdf_inv(samp):
 
 	pyplot.grid()
 	pyplot.legend()
-	pyplot.savefig("cdf_inv.pdf")
+	pyplot.savefig(fname or "cdf_inv.png")
 
 
-def plot_one_d_hist(samp):
+def plot_one_d_hist(samp, fname=None):
 	"""
 	Plot one-d histograms of all parameters
 	"""
@@ -74,9 +170,9 @@ def plot_one_d_hist(samp):
 		pyplot.hist(samples[p], bins=20)
 		pyplot.grid()
 		pyplot.xlabel(p)
-	pyplot.savefig("samples_1d.pdf")
+	pyplot.savefig(fname or "samples_1d.png")
 
-def plot_two_d_hist(samp):
+def plot_two_d_hist(samp, fname=None):
 	"""
 	Plot two-d histograms of all parameters
 	"""
@@ -106,28 +202,102 @@ def plot_two_d_hist(samp):
 			label_next = True
 		i += 1
 	
-	pyplot.savefig("samples_2d.pdf", figsize=(10,3))
-
+	pyplot.savefig(fname or "samples_2d.png", figsize=(10,3))
 	
-def plot_ra_dec(samp):
+def plot_ra_dec(samp, use_pdf=False, fname=None, key=("ra", "dec")):
 	"""
 	Plot the RA and dec distribution in a Mollewide projection.
 	"""
 	samples = samp._rvs
+	if isinstance(key, tuple):
+		ra_samp, dec_samp = samples[key]
+		ra_min, dec_min = samp.llim[key]
+		ra_max, dec_max = samp.rlim[key]
+		pdf = samp.pdf[key]
+	else:
+		ra_samp, dec_samp = samples[key[0]], samples[key[1]]
+		ra_min, ra_max = samp.llim[key[0]], samp.rlim[key[0]]
+		dec_min, dec_max = samp.llim[key[1]], samp.rlim[key[1]]
+		def radec(ra, dec):
+			return (samp.pdf[key[0]], samp.pdf[key[1]])
+		pdf = radec
+
 	fig = pyplot.figure(figsize=(10,10))
-	hist, xedge, yedge = numpy.histogram2d(samples["ra"], samples["dec"], bins=(100, 100))
-	x, y = numpy.meshgrid(xedge, yedge)
-	x *= 180/numpy.pi
-	y *= 180/numpy.pi
 	m = Basemap(projection='moll', lon_0=0, resolution='c')
-	m.contourf(x[:-1,:-1], y[:-1,:-1], hist, 100, cmap=matplotlib.cm.jet, latlon=True)
+	if not use_pdf:
+		hist, xedge, yedge = numpy.histogram2d(ra_samp, dec_samp, bins=(100, 100), normed=True)
+		x, y = numpy.meshgrid(xedge, yedge)
+		x *= 180/numpy.pi
+		y *= 180/numpy.pi
+		m.contourf(x[:-1,:-1], y[:-1,:-1], hist.T, 100, cmap=matplotlib.cm.jet, latlon=True)
+	else:
+		xedge = numpy.linspace(ra_min, ra_max, 100)
+		yedge = numpy.linspace(dec_min, dec_max, 100)
+		x, y = numpy.meshgrid(xedge, yedge)
+		hist = pdf(x, y)
+		x *= 180/numpy.pi
+		y *= 180/numpy.pi
+		m.contourf(x, y, hist, cmap=matplotlib.cm.jet, latlon=True)
+
 	pyplot.colorbar()
 	m.drawparallels(numpy.arange(-90, 120, 30))
 	m.drawmeridians(numpy.arange(0, 420, 60))
-	pyplot.savefig("radec_proj.pdf")
+	pyplot.savefig(fname or "radec_proj.png")
+	return hist
 
-if len(sys.argv)<2:
-	print "Usage: mcsamp_test npoints psi"
+#
+# Sampling utilities
+#
+
+def sky_rejection(skymap, ra_in, dec_in, massp=1.0):
+	"""
+	Do rejection sampling of the skymap PDF, restricted to the greatest XX % of the mass, ra_in and dec_in will be returned, replaced with the new sample points.
+	"""
+
+	res = healpy.npix2nside(len(skymap))
+	pdf_sorted = sorted([(p, i) for i, p in enumerate(skymap)], reverse=True)
+	valid_points = []
+	cdf, np = 0, 0
+	for p, i in pdf_sorted:
+		valid_points.append( healpy.pix2ang(res, i) )
+		cdf += p
+		np += 1
+		if cdf > massp:
+			break
+
+	i = 0
+	while i < len(ra_in):
+		rnd_n = numpy.random.randint(0, np)
+		trial = numpy.random.uniform(0, pdf_sorted[0][0])
+		#print i, trial, pdf_sorted[rnd_n] 
+		# TODO: Ensure (ra, dec) within bounds
+		if trial < pdf_sorted[rnd_n][0]:
+			dec_in[i], ra_in[i] = valid_points[rnd_n]
+			i += 1
+	dec_in -= numpy.pi/2
+	# FIXME: How does this get reversed?
+	dec_in *= -1
+	return numpy.array([ra_in, dec_in])
+
+# TODO: Make a class function
+def uniform_samp(a, b, x):
+	if type(x) is float:
+		return 1.0/(b-a)
+	else:
+		return numpy.ones(x.shape[0])/(b-a)
+
+# TODO: Make a class function
+def inv_uniform_cdf(a, b, x):
+	return (b-a)*x+a
+
+def gauss_samp(mu, std, x):
+	return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2)
+
+def inv_gauss_cdf(mu, std, x):
+	return mu + std*numpy.sqrt(2) * scipy.special.erfinv(2*x-1)
+
+if sys.argv[1] is None:
+	print "Usage: mcsamp_test npoints"
 	exit(-1)
 
 #
@@ -154,27 +324,26 @@ phi_val, phi_width = numpy.pi/5, 10*numpy.pi/180
 dist_min, dist_max = 0.0, 100.0
 dist_val, dist_width = 25.0, 25.0
 
-# TODO: Make a class function
-def uniform_samp(a, b, x):
-	if type(x) is float:
-#                if x>b and x< a:
-                return 1/(b-a)
-#                else:
-#                        return 0
-	else:
-		return numpy.ones(x.shape[0])/(b-a)
-
-# TODO: Make a class function
-def inv_uniform_cdf(a, b, x):
-	return (b-a)*x+a
-
-def gauss_samp(mu, std, x):
-	return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2)
-
-def inv_gauss_cdf(mu, std, x):
-	return mu + std*numpy.sqrt(2) * scipy.special.erfinv(2*x-1)
 
 samp = MCSampler()
+
+#
+# Test some other 1-D integrals
+#
+"""
+test_min, test_max = -10, 10
+def integrand_1d(x):
+	return numpy.sinc(10*x)
+plot_integrand(integrand_1d, test_min, test_max)
+
+samp.add_parameter("p1", functools.partial(uniform_samp, test_min, test_max), None, test_min, test_max)
+plot_cdf_inv(samp)
+res, var = samp.integrate(integrand_1d, int(sys.argv[1]), "p1")
+print res, var
+integral = scipy.integrate.quad(integrand_1d, psi_min, psi_max)[0]
+print integral
+samp.clear()
+"""
 
 def integrand_1d(p):
 	return 1.0/numpy.sqrt(2*numpy.pi*psi_width**2)*numpy.exp(-(p-psi_val)**2/2.0/psi_width**2)
@@ -191,8 +360,6 @@ print "scipy answer vs our answer:",  integral, integralViaSampler
 plot_pdf(samp)
 plot_cdf_inv(samp)
 plot_one_d_hist(samp)
-#plot_two_d_hist(samp)
-#plot_ra_dec(samp)
 samp.clear()
 
 #
@@ -204,8 +371,6 @@ print samp.integrate(integrand_1d, int(sys.argv[1]), "psi")
 plot_pdf(samp)
 plot_cdf_inv(samp)
 plot_one_d_hist(samp)
-#plot_two_d_hist(samp)
-#plot_ra_dec(samp)
 samp.clear()
 
 #
@@ -236,8 +401,6 @@ cbar.set_label("log10 variance")
 pyplot.semilogx()
 pyplot.savefig("gsamp_variances.pdf")
 
-exit()
-
 #
 # Testing convergence: Loop over samples and test sigma relation for desired error
 # 
@@ -251,16 +414,70 @@ for n in 10**(numpy.arange(1,6)):
 pyplot.title("$(I-\\bar{I})/\\bar\\sigma$")
 pyplot.grid()
 pyplot.legend()
-pyplot.savefig("integral_hist.pdf")
+pyplot.savefig("integral_hist.png")
+samp.clear()
+
+#
+# Test 4: 2D PDFs, rejection sampling, and BAYESTAR
+#
+
+#
+# Read FITS data
+#
+smap, smap_meta = bfits.read_sky_map("data/30602.toa.fits.gz")
+sides = healpy.npix2nside(len(smap))
+
+#
+# For sampling PDF, have the option to apply a temperature argument
+#
+def bayestar_temp(temp, skymap, lon, lat):
+	return bplot._healpix_lookup(skymap, lon, lat)**(1.0/temp)
+def bayestar_norm(skymap, lon, lat):
+	return bplot._healpix_lookup(skymap, lon, lat)*numpy.cos(lat)
+
+sky_pdf = functools.partial(bayestar_temp, 1, smap)
+norm_sky_pdf = functools.partial(bayestar_norm, smap)
+
+#
+# Renormalize for the integral
+#
+#norm = scipy.integrate.dblquad(sky_pdf, dec_min, dec_max, lambda x: ra_min, lambda x: ra_max, epsabs=1e-3, epsrel=1e-3)[0]
+norm = scipy.integrate.dblquad(norm_sky_pdf, dec_min, dec_max, lambda x: ra_min, lambda x: ra_max, epsabs=1e-3, epsrel=1e-3)[0]
+# FIXME: This shouldn't address variables that are "hidden"
+samp._pdf_norm[("ra", "dec")] = norm
+
+#
+# Try to integrate the sky PDF itself
+#
+pix_radsq = len(smap)/4.0/numpy.pi
+def integrand_2d(ra, dec):
+	#return bayestar_temp(1, smap, ra, dec) * pix_radsq
+	return numpy.ones(ra.shape)
+
+generate_sky_points = functools.partial(sky_rejection, smap)
+samp.add_parameter(("ra", "dec"), sky_pdf, generate_sky_points, (ra_min, dec_min), (ra_max, dec_max))
+
+print samp.integrate(integrand_2d, int(sys.argv[1]), ("ra", "dec"))
+plot_ra_dec(samp)
+plot_ra_dec(samp, use_pdf=True, fname="pdf.png")
+plot_integral(integrand_2d, samp)
+make_skymap(samp)
+
+# FIXME: Never converges
+#print "scipy says %g" % scipy.integrate.dblquad(integrand_2d, dec_min, dec_max, lambda x: ra_min, lambda x: ra_max, epsabs=1e-3, epsrel=1e-3)[0]
 
 samp.clear()
-exit()
 
-# Uniform sampling, cdf provided
+#
+# Test 5a: Uniform sampling, cdf provided
+#
 #samp.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), functools.partial(inv_uniform_cdf, psi_min, psi_max), psi_min, psi_max)
 #samp.add_parameter("ra", functools.partial(uniform_samp, ra_min, ra_max), functools.partial(inv_uniform_cdf, ra_min, ra_max), ra_min, ra_max)
 #samp.add_parameter("dec", functools.partial(uniform_samp, dec_min, dec_max), functools.partial(inv_uniform_cdf, dec_min, dec_max), dec_min, dec_max)
 
+#
+# Test 5b: Uniform sampling, cdf provided
+#
 # Uniform sampling, auto-cdf inverse
 #samp.add_parameter("psi", functools.partial(uniform_samp, psi_min, psi_max), None, psi_min, psi_max)
 samp.add_parameter("psi", functools.partial(gauss_samp, psi_val, 2*psi_width), None, psi_min, psi_max)
@@ -271,7 +488,9 @@ samp.add_parameter("phi", functools.partial(uniform_samp, phi_min, phi_max), Non
 samp.add_parameter("inc", functools.partial(gauss_samp, inc_val, 2*inc_width), None, inc_min, inc_max)
 samp.add_parameter("dist", functools.partial(uniform_samp, dist_min, dist_max), None, dist_min, dist_max)
 
-# Gaussian sampling, auto-cdf inverse -- Doesn't work yet
+#
+# Test 5c: Gaussian sampling, auto-cdf inverse -- Doesn't work yet
+#
 #samp.add_parameter("psi", functools.partial(gauss_samp, 0, (psi_max-psi_min)/3.0), None, psi_min, psi_max)
 #samp.add_parameter("ra", functools.partial(gauss_samp, 0, (ra_max-ra_min)/10.0), None, ra_min, ra_max)
 #samp.add_parameter("dec", functools.partial(gauss_samp, (dec_max+dec_min)/2, (dec_max-dec_min)/10.0), None, dec_min, dec_max)
@@ -283,43 +502,16 @@ samp.add_parameter("dist", functools.partial(uniform_samp, dist_min, dist_max), 
 a, b, c, d, e, f = 2*psi_width**2, 2*ra_width**2, 2*dec_width**2, 2*inc_width**2, 2*phi_width**2, 2*dist_width**2
 norm = 1.0/numpy.sqrt((numpy.pi)**len(samp.params)*a*b*c*d*e*f)
 numpy.seterr(invalid="raise")
-from numpy import ma
 def integrand(p, r, dec, ph, i, di):
-	# FIXME: Don't hardcode this, we need to deal with underflows in a more graceful manner
-	# Thoughts: Store the value of the exponent, but send a masked array back.
-	# If we find there's a problem with this solution, then, starting from the
-	# smallest exponent, deal with each sample independently until we've
-	# resolved it
-	# NOTE: Really, this will only matter if the number of non zero points 
-	# required for convergence is of the order of 10^100 : probably not gonna 
-	# happen
-	"""
-	# FIXME: Debug plots, remove when not needed.
 	exponent = -(p-psi_val)**2/a-(r-ra_val)**2/b-(dec-dec_val)**2/c-(i-inc_val)**2/d-(ph-phi_val)**2/e-(di-dist_val)**2/f
-	from matplotlib import pyplot
-	pyplot.clf()
-	decimate = int(len(exponent)/1e5)
-	if decimate < 1: decimate = 1
-	pyplot.plot(numpy.linspace(1,len(exponent), len(exponent))[::decimate], exponent[::decimate], 'b-')
-	#pyplot.plot(exponent)
-	pyplot.grid()
-	#pyplot.clf()
-	pyplot.savefig("exponent.pdf")
-	"""
-	exponent = ma.masked_less_equal(-(p-psi_val)**2/a-(r-ra_val)**2/b-(dec-dec_val)**2/c-(i-inc_val)**2/d-(ph-phi_val)**2/e-(di-dist_val)**2/f, -700)
-	exponent.fill_value = 0
-	#print ma.count(exponent)
 	return norm * numpy.exp(exponent)
 
-#integral = scipy.integrate.tplquad(integrand, dec_min, dec_max, lambda x: ra_min, lambda x: ra_max, lambda x, y: psi_min, lambda x, y: psi_max)[0]
-#print "scipy says: %f" % integral
-
-#res, var = samp.integrate(integrand_1d, int(sys.argv[1]), "psi")
 res, var = samp.integrate(integrand, int(sys.argv[1]), "psi", "ra", "dec", "phi", "inc", "dist")
 print "Integral value: %f, stddev %f" % (res, numpy.sqrt(var))
 
+plot_integral(integrand, samp, ("psi", "ra", "dec", "phi", "inc", "dist"))
 plot_pdf(samp)
 plot_cdf_inv(samp)
 plot_one_d_hist(samp)
 plot_two_d_hist(samp)
-plot_ra_dec(samp)
+plot_ra_dec(samp, key=["ra", "dec"])
