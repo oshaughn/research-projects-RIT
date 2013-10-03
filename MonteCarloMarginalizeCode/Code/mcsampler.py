@@ -70,7 +70,8 @@ class MCSampler(object):
 		self.pdf[params] = pdf
 		# FIXME: This only works automagically for the 1d case currently
 		self.cdf_inv[params] = cdf_inv or self.cdf_inverse(params)
-		self.cdf[params] =  self.cdf_function(params)
+		if not isinstance(params, tuple):
+			self.cdf[params] =  self.cdf_function(params)
 
 	def cdf_function(self, param):
 		"""
