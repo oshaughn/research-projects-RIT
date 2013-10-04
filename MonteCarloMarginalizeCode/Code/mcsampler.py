@@ -1,3 +1,4 @@
+import sys
 import bisect
 from collections import defaultdict
 
@@ -6,9 +7,9 @@ from scipy import integrate, interpolate
 
 import healpy
 
-__author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
+from statutils import cumvar
 
-# TODO: Move other sampling routines here
+__author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
 class MCSampler(object):
 	"""
@@ -23,7 +24,7 @@ class MCSampler(object):
 		# constant
 		self._pdf_norm = defaultdict(lambda: 1)
 		# Cache for the sampling points
-		self._rvs = None
+		self._rvs = {}
 		# Sample point cache
 		self._cache = []
 		# parameter -> cdf^{-1} function object
@@ -39,7 +40,7 @@ class MCSampler(object):
 		self.params = set()
 		self.pdf = {}
 		self._pdf_norm = defaultdict(lambda: 1)
-		self._rvs = None
+		self._rvs = {}
 		self._cache = []
 		self.cdf = {}
 		self.cdf_inv = {}
@@ -86,7 +87,7 @@ class MCSampler(object):
 		# Integrator needs to have a step size which doesn't step over the
 		# probability mass
 		# TODO: Determine h_max.
-		cdf = integrate.odeint(dP_cdf, [0], x_i, hmax=0.1*(self.rlim[param]-self.llim[param])).T[0]
+		cdf = integrate.odeint(dP_cdf, [0], x_i, hmax=0.01*(self.rlim[param]-self.llim[param])).T[0]
 		if cdf[-1] != 1.0: # original pdf wasn't normalized
 			self._pdf_norm[param] = cdf[-1]
 			cdf /= cdf[-1]
@@ -104,7 +105,7 @@ class MCSampler(object):
 		# Integrator needs to have a step size which doesn't step over the
 		# probability mass
 		# TODO: Determine h_max.
-		cdf = integrate.odeint(dP_cdf, [0], x_i, hmax=0.1*(self.rlim[param]-self.llim[param])).T[0]
+		cdf = integrate.odeint(dP_cdf, [0], x_i, hmax=0.01*(self.rlim[param]-self.llim[param])).T[0]
 		if cdf[-1] != 1.0: # original pdf wasn't normalized
 			self._pdf_norm[param] = cdf[-1]
 			cdf /= cdf[-1]
@@ -115,7 +116,7 @@ class MCSampler(object):
 		"""
 		Draw a set of random variates for parameter(s) args. Left and right limits are handed to the function. If args is None, then draw *all* parameters. 'rdict' parameter is a boolean. If true, returns a dict matched to param name rather than list. rvs must be either a list of uniform random variates to transform for sampling, or an integer number of samples to draw.
 		"""
-		if len(args) == 0 :
+		if len(args) == 0:
 			args = self.params
 
 		if isinstance(rvs, int) or isinstance(rvs, float):
@@ -124,26 +125,31 @@ class MCSampler(object):
 			#
 			# FIXME: UGH! Really? This was the most elegant thing you could come
 			# up with?
-			self._rvs = [numpy.random.uniform(0,1,(len(p), rvs)) for p in map(lambda i: (i,) if not isinstance(i, tuple) else i, args)]
-			self._rvs = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(self._rvs, args)])
+			rvs_tmp = [numpy.random.uniform(0,1,(len(p), rvs)) for p in map(lambda i: (i,) if not isinstance(i, tuple) else i, args)]
+			rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)])
 		else:
-			self._rvs = numpy.array(rvs)
+			rvs_tmp = numpy.array(rvs)
 
 
 		# FIXME: ELegance; get some of that...
 		# This is mainly to ensure that the array can be "splatted", e.g.
 		# separated out into its components for matching with args. The case of
 		# one argument has to be handled specially.
-		for (cdf_rv, param) in zip(self._rvs, args):
+		for (cdf_rv, param) in zip(rvs_tmp, args):
 			if len(cdf_rv.shape) == 1:
-				res = [(self.pdf[param](cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(self._rvs, args)]
+				res = [(self.pdf[param](cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(rvs_tmp, args)]
 			else:
-				res = [(self.pdf[param](*cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(self._rvs, args)]
+				res = [(self.pdf[param](*cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(rvs_tmp, args)]
 
 		#
 		# Cache the samples we chose
 		#
-		self._rvs = dict(zip(args, self._rvs))
+		if len(self._rvs) == 0:
+			self._rvs = dict(zip(args, rvs_tmp))
+		else:
+			rvs_tmp = dict(zip(args, rvs_tmp))
+			for p, ar in self._rvs.iteritems():
+				self._rvs[p] = numpy.hstack( (ar, rvs_tmp[p]) )
 
 		#
 		# Pack up the result if the user wants a dictonary instead
@@ -158,26 +164,65 @@ class MCSampler(object):
 
 	# TODO: Idea: have args and kwargs, and let the user pin values via
 	# kwargs and integrate through args
-	def integrate(self, func, n, *args):
+	#def integrate(self, func, neff=1, nmax=float("inf"), *args):
+	def integrate(self, func, *args, **kwargs):
 		"""
 		Integrate func, by using n sample points. Right now, all params defined must be passed to args must be provided, but this will change soon.
+		kwargs:
+		nmax -- total allowed number of sample points, will throw a warning if this number is reached before neff.
+		neff -- Effective samples to collect before terminating. If not given, assume infinity
+		n -- Number of samples to integrate in a 'chunk' -- default is 1000
 		"""
-		p_s, rv = self.draw(n, *args)
-		joint_p_s = numpy.prod(p_s, axis=0)
-		if len(rv[0].shape) != 1:
-			rv = rv[0]
-		fval = func(*rv)
-		# sum_i f(x_i)/p_s(x_i)
-		int_val = fval/joint_p_s
-		maxval = [fval[0]/joint_p_s[0] or -float("Inf")]
-		for v in int_val[1:]:
-			maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
-		eff_samp = int_val.cumsum()/maxval
-		std = int_val.std()
-		#self.save_points(int_val, joint_p_s)
-		print "%d samples saved" % len(self._cache)
-		int_val1 = int_val.sum()/n
-		return int_val1, std**2/n
+
+		#
+		# Determine stopping conditions
+		#
+		nmax = kwargs["nmax"] if kwargs.has_key("nmax") else float("inf")
+		neff = kwargs["neff"] if kwargs.has_key("neff") else float("inf")
+		n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
+
+		#
+		# TODO: Pin values via kwargs
+		#
+
+		int_val1 = 0
+		ntotal = 0
+		maxval = -float("Inf")
+		eff_samp = 0
+		mean, std = None, None 
+		#import pdb; pdb.set_trace()
+		while eff_samp < neff and ntotal < nmax:
+			# Draw our sample points
+			p_s, rv = self.draw(n, *args)
+
+			# Calculate the overall p_s assuming each pdf is independent
+			joint_p_s = numpy.prod(p_s, axis=0)
+			if len(rv[0].shape) != 1:
+				rv = rv[0]
+			fval = func(*rv)
+			# sum_i f(x_i)/p_s(x_i)
+			int_val = fval/joint_p_s
+
+			# Calculate the effective samples via max over the current evaluations
+			maxval = [max(maxval, int_val[0]) if int_val[0] != 0 else maxval]
+			for v in int_val[1:]:
+				maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
+			eff_samp = (int_val.cumsum()/maxval)[-1] + eff_samp
+
+			# FIXME: Need to bring in the running stddev here
+			var = cumvar(int_val, mean, std, ntotal)[-1]
+			# FIXME: Reenable caching
+			#self.save_points(int_val, joint_p_s)
+			#print "%d samples saved" % len(self._cache)
+			int_val1 += int_val.sum()
+			mean = int_val1
+			ntotal += n
+			maxval = maxval[-1]
+			#print int_val1, ntotal, eff_samp
+			if ntotal >= nmax and neff != float("inf"):
+				print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
+
+		return int_val1/ntotal, var/ntotal
 
 ### UTILITIES: Predefined distributions
 #  Be careful: vectorization is not always implemented consistently in new versions of numpy
