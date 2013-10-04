@@ -15,6 +15,7 @@ test_like_and_samp.py:  Testing the likelihood evaluation and sampler, working i
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 from factored_likelihood import *
+from ourio import *
 
 checkInputs = False
 
@@ -244,6 +245,20 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         i+=1
 
     plt.show()
+    if rosSaveHighLikelihoodPoints:
+        print " ==== SAVING RESULTS: High likelihood only === "
+        # Create array of all points
+        m1 = (P.m1/lal.LAL_MSUN_SI)*np.ones(len(lnL))
+        m2 = (P.m2/lal.LAL_MSUN_SI)*np.ones(len(lnL))
+        dat = np.transpose((np.arange(len(lnL)), phi, theta, tref, phiref, incl, psi, dist/(1e6*lal.LAL_PC_SI),m1,m2,lnL))
+        # select only reasonably high likelihoods (sqrt(lnL)>= sqrt(max lnL)-3  : very safe buffer        
+        lnLcrit = np.power(np.sqrt(2*np.max(lnL))-3,2)/2
+        datReduced = [x for x in dat if x[-1]>lnLcrit]
+        # save
+        print " ++ Saving ", len(datReduced), " points; compare to Neff = ", Neff
+        labels = ["indx", "ra", "dec", "tref", "phiref", "incl", "psi", "d", "m1", "m2", "logL"]
+        dumpSamplesToFile("points.dat", datReduced,labels)
+        #np.savetxt("points.dat",datReduced)
     if rosShowTerminalSampleHistograms:
         print " ==== CONVERGENCE PLOTS === "
         plt.figure(0)
@@ -324,8 +339,6 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         plt.colorbar()
         plt.title("Posterior distribution: ra-dec ")
         plt.show()
-    if rosSaveHighLikelihoodPoints:
-        np.savetxt("points.dat",(phi, theta, tref, phiref, incl, psi, dist,lnL))
     return numpy.exp(lnL)
 
 import mcsampler

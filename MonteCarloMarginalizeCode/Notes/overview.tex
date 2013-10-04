@@ -82,10 +82,18 @@ first read.
 
 * Complex $h(t)$.
 
+* \editremark{priming future with past}: Each MC evaluation provides information about intrinsic parameters, which we can use
+to further refine subsequent iterations.  Convergence should get faster as we go.
+
 
 \section{What we are selling}
 
 \subsection{Early sale}
+
+\noindent \textbf{Playing to the crowd 0}: The evidence is the principal figure of merit for parameter estimation,
+particularly for selecting among models of competing sophistication.   
+
+Our code provides an  reliable evidence calculation, with well-understood error bars.
 
 \noindent \textbf{Playing to the crowd}: At the Sept LVC in Hannover, the PE group identified waveform systematics as a
 core issue needing futher development.  To address waveform systematics (i.e., varying PN order; modified GR) as well as
@@ -833,7 +841,7 @@ The first  term (blue) tell us the shape of the sky position posterior on the pl
 (combined with the first) tells us the best-fitting sky position
 \end{shaded}
 
-\subsection{Extrinsic marginalization: Distance  [PLACEHOLDER DOCS] (*)}
+\subsection{Extrinsic marginalization: Distance }
 
 \noindent \textbf{``Physical'' distance distribution}: The distance prior is dominated by the largest distances allowed.  Conversely,
 the distance posterior is of order unity.
@@ -1348,8 +1356,11 @@ Repeat the running calculation for several sampling distributions
 \noindent \textbf{Plausible 7d integral}: Construct a plausible 7d problem \editremark{finish}
 
 
-\noindent \textbf{Report on convergence rate and implications}: Memory usage for passing back; time needed to evaluate;
+\noindent \textbf{Report on convergence rate and implications}: Memory usage for passing back --a \textbf{huge} problem
+if we pass back entire arrays; time needed to evaluate;
 correlation length of $\hat{L}$ if the sampling distribution is too narrow or insufficiently multimodal; et cetera.  How well do we need to tune the sampling distribution?
+
+
 
 
 \subsubsection{Test suite 1: Single IFO}
@@ -1375,10 +1386,13 @@ sampler, the likelihood, $p$, and $p_s$. \editremark{PROBLEM: Chris doesn't prov
 
 Overlay the sequence with an error estimate; do we believe our error estimate from $N_{\rm eff}$?
 
+\item \emph{Return of posterior possible}: The sampling set is huge -- Gb of data are possible.   The high-likelihod set
+  is much smaller.   Confirm a viable output method exists on a per-template basis.
+
 \item \emph{Posterior distribution plausible}: Confirm posterior distributions are recovered.  Compare against the
   sampling distributions to insure nothing horrible happens. 
 \begin{itemize}
-\item \emph{No railing}: We don't hit a limit in distance or other hard cutoff
+\item \emph{No railing}: We don't hit a limit in distance or other hard cutoffxo
 \end{itemize}
 
 \item  \textbf{Test sampling distributions that depend on the data}: Some sampling distributions can infer the event
