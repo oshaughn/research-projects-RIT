@@ -45,8 +45,8 @@ def effectiveFisher(residual_func, *flat_grids):
     xNs = [xN_1, ..., xN_K]
 
     gamma = effectiveFisher(residualsNd, x1s, x2s, ..., xNs, rhos)
-
-    gamma = [g_11, g_12, ..., g_1N, g_22, ..., g_2N, g_33, ..., g_3N, ..., g_NN]
+    gamma
+        [g_11, g_12, ..., g_1N, g_22, ..., g_2N, g_33, ..., g_3N, ..., g_NN]
     """
     x0 = np.ones(len(flat_grids))
     fitgamma = leastsq(residual_func, x0=x0, args=tuple(flat_grids))
@@ -168,6 +168,7 @@ def find_effective_Fisher_region(P, IP, target_match, param_names,param_bounds):
     safety factor in your value of 'target_match'.
     """
     # FIXME: Use a root-finder to bound a region of interest
+    TOL = 1.e-3 # Don't need to be very precise for this...
     Nparams = len(param_names)
     assert len(param_bounds) == Nparams
     param_cube = []
@@ -181,8 +182,8 @@ def find_effective_Fisher_region(P, IP, target_match, param_names,param_bounds):
         else:
             param_peak = getattr(P, param)
         func = lambda x: update_params_ip(hfSIG, PT, IP, [param], [x]) - target_match
-        max_param = brentq(func, param_peak, param_bounds[i][1])
-        min_param = brentq(func, param_bounds[i][0], param_peak)
+        max_param = brentq(func, param_peak, param_bounds[i][1], xtol=TOL)
+        min_param = brentq(func, param_bounds[i][0], param_peak, xtol=TOL)
         param_cube.append( [min_param, max_param] )
 
     return param_cube
@@ -254,8 +255,10 @@ def multi_dim_flatgrid(*arrs):
     y = [2,4,6]
     X, Y = multi_dim_flatgrid(x, y)
     returns:
-    X = [1,1,1,3,3,3,5,5,5]
-    Y = [2,4,6,2,4,6,2,4,6]
+    X
+        [1,1,1,3,3,3,5,5,5]
+    Y
+        [2,4,6,2,4,6,2,4,6]
     """
     outarrs = multi_dim_meshgrid(*arrs)
     return tuple([ outarrs[i].flatten() for i in xrange(len(outarrs)) ])
@@ -395,32 +398,40 @@ def eigensystem(matrix):
             into the original basis
 
     Example:
-        mat = [[1,2,3], [4,5,6], [7,8,10]]
+        mat = [[1,2,3],[2,4,5],[3,5,6]]
         evals, evecs, rot = eigensystem(mat)
-        evals = array([ 16.70749332+0.j,  -0.90574018+0.j,   0.19824686+0.j])
-        evecs = array([[-0.22351336, -0.50394563, -0.83431444],
-                       [-0.86584578,  0.0856512 ,  0.4929249 ],
-                       [ 0.27829649, -0.8318468 ,  0.48018951]])
-        rot = array([[-0.46970759, -0.57567288, -0.7250339 ],
-                     [-0.97447675, -0.12998907,  0.3395794 ],
-                     [ 0.18421899, -0.86677726,  0.47420155]])
+        evals
+            array([ 11.34481428+0.j,  -0.51572947+0.j,   0.17091519+0.j]
+        evecs
+            array([[-0.32798528, -0.59100905, -0.73697623],
+                   [-0.73697623, -0.32798528,  0.59100905],
+                   [ 0.59100905, -0.73697623,  0.32798528]])
+        rot
+            array([[-0.32798528, -0.73697623,  0.59100905],
+                   [-0.59100905, -0.32798528, -0.73697623],
+                   [-0.73697623,  0.59100905,  0.32798528]]))
 
-        rot.dot(evecs[0]) = [1,0,0]
-        rot.dot(evecs[1]) = [0,1,0]
-        rot.dot(evecs[2]) = [0,0,1]
+    This allows you to translate between original and eigenbases:
 
-        inv(rot).dot([1,0,0]) = evecs[0]
-        inv(rot).dot([0,1,0]) = evecs[1]
-        inv(rot).dot([0,0,1]) = evecs[2]
+        If [v1, v2, v3] are the components of a vector in eigenbasis e1, e2, e3
+        Then:
+            rot.dot([v1,v2,v3]) = [vx,vy,vz]
+        Will give the components in the original basis x, y, z
 
-        rot.dot(mat).dot(inv(rot)) = [[evals[0], 0,        0]
-                                      [0,        evals[1], 0]
-                                      [0,        0,        evals[2]]]
+        If [wx, wy, wz] are the components of a vector in original basis z, y, z
+        Then:
+            inv(rot).dot([wx,wy,wz]) = [w1,w2,w3]
+        Will give the components in the eigenbasis e1, e2, e3
+
+        inv(rot).dot(mat).dot(rot)
+            array([[evals[0], 0,        0]
+                   [0,        evals[1], 0]
+                   [0,        0,        evals[2]]])
+
+    Note: For symmetric input 'matrix', inv(rot) == evecs
     """
     evals, emat = eig(matrix)
-    # FIXME: Why is the transpose needed... be sure to understand this!!!
-    #return evals, np.transpose(emat), inv(emat)
-    return evals, np.transpose(emat), np.transpose(inv(emat))
+    return evals, np.transpose(emat), emat
 
 def array_to_symmetric_matrix(gamma):
     """

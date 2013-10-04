@@ -14,8 +14,8 @@ PTMPLT = PSIG.copy()
 hfSIG = norm_hoff(PSIG, IP)
 McSIG = mchirp(m1, m2)
 etaSIG = symRatio(m1, m2)
-NMcs = 21
-NEtas = 21
+NMcs = 11
+NEtas = 11
 #minMc = McSIG - 0.04*lal.LAL_MSUN_SI
 #maxMc = McSIG + 0.04*lal.LAL_MSUN_SI
 #minEta = max(0.01, etaSIG-0.005)
@@ -32,6 +32,9 @@ for i, param in enumerate(param_names):
                 "(Msun)"
     else:
         print "\t", param, ":", param_ranges[i]
+
+elapsed = (time.clock() - start)
+print "Range-finding took:", elapsed, "(s) for", len(param_names), "parameters"
 
 # setup parameter grid
 #Mcrange = [minMc, maxMc]
@@ -83,17 +86,19 @@ print evecs2
 print "rotation taking eigenvectors into Mc, eta basis:"
 print rot2
 
-elapsed = (time.clock() - start)
-print "Time to comput Fisher matrix and its eigensystem:", elapsed
+elapsed = (time.clock() - elapsed)
+print "Time to compute Fisher matrix and its eigensystem:", elapsed
 print "For a grid of size:", pts_per_dim
 
 # Check overlap at a bunch of pts inside predicted 0.97 contour
 match_cntr = 0.97
+Nrandpts=200
 r1 = np.sqrt(2.*(1.-match_cntr)/evals[0])
 r2 = np.sqrt(2.*(1.-match_cntr)/evals[1])
 # Get pts. inside an ellipsoid oriented along eigenvectors...
-rand_grid = uniform_random_ellipsoid(500, r1, r2)
+rand_grid = uniform_random_ellipsoid(Nrandpts, r1, r2)
 # Rotate to get coordinates in parameter basis
+#rand_grid = np.array([ np.real(evecs.dot(rand_grid[i]))
 rand_grid = np.array([ np.real(rot.dot(rand_grid[i]))
     for i in xrange(len(rand_grid)) ])
 # Put in convenient units, subtract off true param values, etc.
@@ -103,7 +108,6 @@ rand_etas = rand_detas + etaSIG
 rand_grid = np.transpose((rand_Mcs,rand_etas))
 # Evaluate IP at random pts in the ellipsoid
 rhos2 = evaluate_ip_on_grid(hfSIG, PTMPLT, IP, param_names, rand_grid)
-
 
 plt.figure(1)
 plt.title('Ambiguity function')
