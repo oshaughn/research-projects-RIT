@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import sys
+import os
 import functools
 import itertools
 import bisect
@@ -19,7 +20,7 @@ from lalinference.bayestar import fits as bfits
 from lalinference.bayestar import plot as bplot
 
 import mcsampler
-
+from statutils import cumvar
 
 
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
@@ -38,23 +39,6 @@ def make_skymap(samp, res=32, fname=None):
 	for ind in healpy.ang2pix(res, numpy.pi - (thetar + numpy.pi/2), numpy.pi*2 - phi):
 		smap[ind] += 1
 	bfits.write_sky_map(fname or "pe_skymap.fits", smap)
-
-#
-# Stat utilities
-#
-def cumvar(arr):
-	"""
-	Numerically stable running variance measure. See http://www.johndcook.com/standard_deviation.html for algorithm details.
-	"""
-	m, s = numpy.zeros(arr.shape), numpy.zeros(arr.shape)
-	m[0] = arr[0]
-	for i, x in enumerate(arr):
-		k = i+1
-		if i == 0: continue
-		m[i] = m[i-1] + (x-m[i-1])/k
-		s[i] = s[i-1] + (x-m[i-1])*(x-m[i])
-
-	return s/numpy.arange(1, len(s)+1)
 
 
 #
@@ -117,6 +101,7 @@ def plot_integral(fcn, samp, fargs=None, fname=None):
 	pyplot.grid()
 	pyplot.subplots_adjust(hspace=0.5)
 	pyplot.savefig(fname or "integral.png")
+	pyplot.close()
 
 def plot_integrand(fcn, x1, x2, fname=None):
 	"""
@@ -126,6 +111,7 @@ def plot_integrand(fcn, x1, x2, fname=None):
 	x_i = numpy.linspace(x1, x2, 1000)
 	pyplot.plot(x_i, fcn(x_i))
 	pyplot.savefig(fname or "integrand.png")
+	pyplot.close()
 
 
 def plot_pdf(samp, fname=None):
@@ -140,6 +126,7 @@ def plot_pdf(samp, fname=None):
 	pyplot.grid()
 	pyplot.legend()
 	pyplot.savefig(fname or "pdf.png")
+	pyplot.close()
 
 def plot_cdf_inv(samp, fname=None):
 	"""
@@ -154,6 +141,7 @@ def plot_cdf_inv(samp, fname=None):
 	pyplot.grid()
 	pyplot.legend()
 	pyplot.savefig(fname or "cdf_inv.png")
+	pyplot.close()
 
 
 def plot_one_d_hist(samp, fname=None):
@@ -171,6 +159,7 @@ def plot_one_d_hist(samp, fname=None):
 		pyplot.grid()
 		pyplot.xlabel(p)
 	pyplot.savefig(fname or "samples_1d.png")
+	pyplot.close()
 
 def plot_two_d_hist(samp, fname=None):
 	"""
@@ -203,6 +192,7 @@ def plot_two_d_hist(samp, fname=None):
 		i += 1
 	
 	pyplot.savefig(fname or "samples_2d.png", figsize=(10,3))
+	pyplot.close()
 	
 def plot_ra_dec(samp, use_pdf=False, fname=None, key=("ra", "dec")):
 	"""
@@ -243,11 +233,8 @@ def plot_ra_dec(samp, use_pdf=False, fname=None, key=("ra", "dec")):
 	m.drawparallels(numpy.arange(-90, 120, 30))
 	m.drawmeridians(numpy.arange(0, 420, 60))
 	pyplot.savefig(fname or "radec_proj.png")
+	pyplot.close()
 	return hist
-
-if sys.argv[1] is None:
-	print "Usage: mcsamp_test npoints"
-	exit(-1)
 
 #
 # set up bounds on parameters
@@ -302,25 +289,40 @@ plot_integrand(integrand_1d, psi_min, psi_max)
 # Test 1: What happens when we know the exact right answer
 #
 
+d = "test1/"
+if not os.path.exists(d): os.makedirs(d)
+os.chdir(d)
+
 samp.add_parameter("psi", functools.partial(mcsampler.gauss_samp, psi_val, psi_width), None, psi_min, psi_max)
-integralViaSampler = samp.integrate(integrand_1d, 1, "psi")
+sampler_integral = samp.integrate(integrand_1d, "psi", nmax=1)
 integral = scipy.integrate.quad(integrand_1d, psi_min, psi_max)[0]
-print "scipy answer vs our answer:",  integral, integralViaSampler
+print "scipy answer vs our answer:",  integral, sampler_integral
 plot_pdf(samp)
 plot_cdf_inv(samp)
 plot_one_d_hist(samp)
 samp.clear()
+
+os.chdir("../")
 
 #
 # Test 2: Same integrand, uniform sampling
 #
 
+d = "test2/"
+if not os.path.exists(d): os.makedirs(d)
+os.chdir(d)
+
 samp.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
-print samp.integrate(integrand_1d, int(sys.argv[1]), "psi")
+#print samp.integrate(integrand_1d, "psi", neff=1000, nmax=int(sys.argv[1]))
+res, var = samp.integrate(integrand_1d, "psi", neff=1000)
+print "Integral: %f, stddev: %f" % (res, numpy.sqrt(var))
+plot_integral(integrand_1d, samp)
 plot_pdf(samp)
 plot_cdf_inv(samp)
 plot_one_d_hist(samp)
 samp.clear()
+
+os.chdir("../")
 
 #
 # Test 3: Same integrand, gaussian sampling -- various width and offsets
@@ -330,14 +332,24 @@ offsets = [-2.0, -1.0, -0.5, -0.25, -0.1, -0.01, 0.01, 0.1, 0.25, 0.5, 1.0, 2.0]
 
 variances = []
 wo = []
+d = "test3/"
+if not os.path.exists(d): os.makedirs(d)
 for w, o in itertools.product(widths, offsets):
+	d1 = "test3/" + "w_%2.2f_o_%2.2f/" % (w,o)
+	if not os.path.exists(d1): os.makedirs(d1)
+	os.chdir(d1)
 	samp.add_parameter("psi", functools.partial(mcsampler.gauss_samp, psi_val-o*psi_width, w*psi_width), None, psi_min, psi_max)
+	plot_pdf(samp)
+	plot_cdf_inv(samp)
 	print "Width of Gaussian sampler (in units of the width of the integrand: %f" % w
 	print "offset of Gaussian sampler (in units of the width of the integrand: %f" % o
-	res, var = samp.integrate(integrand_1d, int(sys.argv[1]), "psi")
+	res, var = samp.integrate(integrand_1d, "psi", neff=100, nmax=int(1e5))
+	plot_integral(integrand_1d, samp)
 	variances.append(var)
 	wo.append((w, o))
-	print res, var
+	print "Integral: %f, stddev: %f" % (res, numpy.sqrt(var))
+	samp.clear()
+	os.chdir("../../")
 
 pyplot.figure()
 widths, offsets = zip(*wo)
@@ -351,13 +363,21 @@ pyplot.semilogx()
 pyplot.savefig("gsamp_variances.pdf")
 
 #
-# Testing convergence: Loop over samples and test sigma relation for desired error
+# Testing variance under convergence: Loop over samples and test sigma relation 
+# for desired error
 # 
 pyplot.figure()
+
+d = "test3b/"
+if not os.path.exists(d): os.makedirs(d)
+os.chdir(d)
+
+samp.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
 for n in 10**(numpy.arange(1,6)):
 	ans = []
+	print "Number of samples in integral %d" % n
 	for i in range(1000):
-		res, var = samp.integrate(integrand_1d, int(sys.argv[1]), "psi")
+		res, var = samp.integrate(integrand_1d, "psi", nmax=n)
 		ans.append( (res-1.0)/numpy.sqrt(var) )
 	pyplot.hist(ans, bins=20, label="%d" % n)
 pyplot.title("$(I-\\bar{I})/\\bar\\sigma$")
@@ -365,6 +385,9 @@ pyplot.grid()
 pyplot.legend()
 pyplot.savefig("integral_hist.png")
 samp.clear()
+exit()
+
+os.chdir("../")
 
 #
 # Test 4: 2D PDFs, rejection sampling, and BAYESTAR
@@ -375,6 +398,10 @@ samp.clear()
 #
 smap, smap_meta = bfits.read_sky_map("data/30602.toa.fits.gz")
 sides = healpy.npix2nside(len(smap))
+
+d = "test4/"
+if not os.path.exists(d): os.makedirs(d)
+os.chdir(d)
 
 #
 # For sampling PDF, have the option to apply a temperature argument
@@ -406,7 +433,8 @@ def integrand_2d(ra, dec):
 generate_sky_points = functools.partial(mcsampler.sky_rejection, smap)
 samp.add_parameter(("ra", "dec"), sky_pdf, generate_sky_points, (ra_min, dec_min), (ra_max, dec_max))
 
-print samp.integrate(integrand_2d, int(sys.argv[1]), ("ra", "dec"))
+res, var = samp.integrate(integrand_2d, ("ra", "dec"), neff=1000)
+print "Integral: %f, stddev: %f" % (res, numpy.sqrt(var))
 plot_ra_dec(samp)
 plot_ra_dec(samp, use_pdf=True, fname="pdf.png")
 plot_integral(integrand_2d, samp)
@@ -416,10 +444,15 @@ make_skymap(samp)
 #print "scipy says %g" % scipy.integrate.dblquad(integrand_2d, dec_min, dec_max, lambda x: ra_min, lambda x: ra_max, epsabs=1e-3, epsrel=1e-3)[0]
 
 samp.clear()
+os.chdir("../")
 
 #
 # Test 5a: Uniform sampling, cdf provided
 #
+d = "test5a/"
+if not os.path.exists(d): os.makedirs(d)
+os.chdir(d)
+
 #samp.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), functools.partial(mcsampler.inv_uniform_cdf, psi_min, psi_max), psi_min, psi_max)
 #samp.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), functools.partial(mcsampler.inv_uniform_cdf, ra_min, ra_max), ra_min, ra_max)
 #samp.add_parameter("dec", functools.partial(mcsampler.uniform_samp_vector, dec_min, dec_max), functools.partial(mcsampler.inv_uniform_cdf, dec_min, dec_max), dec_min, dec_max)
@@ -455,7 +488,7 @@ def integrand(p, r, dec, ph, i, di):
 	exponent = -(p-psi_val)**2/a-(r-ra_val)**2/b-(dec-dec_val)**2/c-(i-inc_val)**2/d-(ph-phi_val)**2/e-(di-dist_val)**2/f
 	return norm * numpy.exp(exponent)
 
-res, var = samp.integrate(integrand, int(sys.argv[1]), "psi", "ra", "dec", "phi", "inc", "dist")
+res, var = samp.integrate(integrand, "psi", "ra", "dec", "phi", "inc", "dist", neff=100, nmax=int(1e6))
 print "Integral value: %f, stddev %f" % (res, numpy.sqrt(var))
 
 plot_integral(integrand, samp, ("psi", "ra", "dec", "phi", "inc", "dist"))
@@ -464,3 +497,5 @@ plot_cdf_inv(samp)
 plot_one_d_hist(samp)
 plot_two_d_hist(samp)
 plot_ra_dec(samp, key=["ra", "dec"])
+
+os.chdir("../")
