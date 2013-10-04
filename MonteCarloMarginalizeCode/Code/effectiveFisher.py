@@ -59,8 +59,8 @@ def evaluate_ip_on_grid(hfSIG, P, IP, param_names, grid):
     Nparams = len(param_names)
     Npts = len(grid)
     assert len(grid[0])==Nparams
-    return [update_params_ip(hfSIG, P, IP, param_names, grid[i])
-            for i in xrange(Npts)]
+    return np.array([update_params_ip(hfSIG, P, IP, param_names, grid[i])
+            for i in xrange(Npts)])
 
 
 def update_params_ip(hfSIG, P, IP, param_names, vals):
@@ -418,7 +418,53 @@ def eigensystem(matrix):
                                       [0,        0,        evals[2]]]
     """
     evals, emat = eig(matrix)
-    return evals, np.transpose(emat), inv(emat)
+    # FIXME: Why is the transpose needed... be sure to understand this!!!
+    #return evals, np.transpose(emat), inv(emat)
+    return evals, np.transpose(emat), np.transpose(inv(emat))
+
+def array_to_symmetric_matrix(gamma):
+    """
+    Given a flat array of length N*(N+1)/2 consisting of
+    the upper right triangle of a symmetric matrix,
+    return an NxN numpy array of the symmetric matrix
+
+    Example:
+        gamma = [1, 2, 3, 4, 5, 6]
+        array_to_symmetric_matrix(gamma)
+            array([[1,2,3],
+                   [2,4,5],
+                   [3,5,6]])
+    """
+    length = len(gamma)
+    if length==3: # 2x2 matrix
+        g11 = gamma[0]
+        g12 = gamma[1]
+        g22 = gamma[2]
+        return np.array([[g11,g12],[g12,g22]])
+    if length==6: # 3x3 matrix
+        g11 = gamma[0]
+        g12 = gamma[1]
+        g13 = gamma[2]
+        g22 = gamma[3]
+        g23 = gamma[4]
+        g33 = gamma[5]
+        return np.array([[g11,g12,g13],[g12,g22,g23],[g13,g23,g33]])
+    if length==10: # 4x4 matrix
+        g11 = gamma[0]
+        g12 = gamma[1]
+        g13 = gamma[2]
+        g14 = gamma[3]
+        g22 = gamma[4]
+        g23 = gamma[5]
+        g24 = gamma[6]
+        g33 = gamma[7]
+        g34 = gamma[8]
+        g44 = gamma[9]
+        return np.array([[g11,g12,g13,g14],[g12,g22,g23,g24],
+            [g13,g23,g33,g34],[g14,g24,g34,g44]])
+    if length==15: # 5x5 matrix
+        return np.array([[g11,g12,g13,g14,g15],[g12,g22,g23,g24,g25],
+            [g13,g23,g33,g34,g35],[g14,g24,g34,g44,g45],[g15,g25,g5,g45,g55]])
 
 #
 # Functions to return points distributed randomly, uniformly inside
