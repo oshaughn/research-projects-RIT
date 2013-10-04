@@ -409,5 +409,5 @@ if rosShowSamplerInputDistributions:
         plt.savefig("test_like_and_samp-"+str(param)+".pdf")
 #    plt.show()
 
-res, var = sampler.integrate(likelihood_function, 1e5, "ra", "dec", "tref", "phi", "incl", "psi", "dist")
+res, var = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", nmax=1e5)
 print res, numpy.sqrt(var)

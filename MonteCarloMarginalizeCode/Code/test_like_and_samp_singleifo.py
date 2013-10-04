@@ -392,5 +392,5 @@ if rosShowSamplerInputDistributions:
 
 tMiddleAfterPlots2 = lal.GPSTimeNow()
 
-res, var = sampler.integrate(likelihood_function, 5e5, "ra", "dec", "tref", "phi", "incl", "psi", "dist")
+res, var = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", nmax=5e5)
 print res, numpy.sqrt(var)
