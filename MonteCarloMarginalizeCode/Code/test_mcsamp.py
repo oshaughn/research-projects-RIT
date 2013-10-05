@@ -100,7 +100,7 @@ def plot_integral(fcn, samp, fargs=None, fname=None):
 	pyplot.plot(range(1, len(int_val)+1), eff_samp/numpy.arange(1,len(int_val)+1), 'b-')
 	pyplot.grid()
 	pyplot.subplots_adjust(hspace=0.5)
-	pyplot.savefig(fname or "integral.png")
+	pyplot.savefig(fname or "integral.pdf")
 	pyplot.close()
 
 def plot_integrand(fcn, x1, x2, fname=None):
@@ -110,7 +110,7 @@ def plot_integrand(fcn, x1, x2, fname=None):
 	pyplot.figure()
 	x_i = numpy.linspace(x1, x2, 1000)
 	pyplot.plot(x_i, fcn(x_i))
-	pyplot.savefig(fname or "integrand.png")
+	pyplot.savefig(fname or "integrand.pdf")
 	pyplot.close()
 
 
@@ -125,7 +125,7 @@ def plot_pdf(samp, fname=None):
 
 	pyplot.grid()
 	pyplot.legend()
-	pyplot.savefig(fname or "pdf.png")
+	pyplot.savefig(fname or "pdf.pdf")
 	pyplot.close()
 
 def plot_cdf_inv(samp, fname=None):
@@ -140,7 +140,7 @@ def plot_cdf_inv(samp, fname=None):
 
 	pyplot.grid()
 	pyplot.legend()
-	pyplot.savefig(fname or "cdf_inv.png")
+	pyplot.savefig(fname or "cdf_inv.pdf")
 	pyplot.close()
 
 
@@ -158,7 +158,7 @@ def plot_one_d_hist(samp, fname=None):
 		pyplot.hist(samples[p], bins=20)
 		pyplot.grid()
 		pyplot.xlabel(p)
-	pyplot.savefig(fname or "samples_1d.png")
+	pyplot.savefig(fname or "samples_1d.pdf")
 	pyplot.close()
 
 def plot_two_d_hist(samp, fname=None):
@@ -191,7 +191,7 @@ def plot_two_d_hist(samp, fname=None):
 			label_next = True
 		i += 1
 	
-	pyplot.savefig(fname or "samples_2d.png", figsize=(10,3))
+	pyplot.savefig(fname or "samples_2d.pdf", figsize=(10,3))
 	pyplot.close()
 	
 def plot_ra_dec(samp, use_pdf=False, fname=None, key=("ra", "dec")):
@@ -232,7 +232,7 @@ def plot_ra_dec(samp, use_pdf=False, fname=None, key=("ra", "dec")):
 	pyplot.colorbar()
 	m.drawparallels(numpy.arange(-90, 120, 30))
 	m.drawmeridians(numpy.arange(0, 420, 60))
-	pyplot.savefig(fname or "radec_proj.png")
+	pyplot.savefig(fname or "radec_proj.pdf")
 	pyplot.close()
 	return hist
 
@@ -383,7 +383,7 @@ for n in 10**(numpy.arange(1,6)):
 pyplot.title("$(I-\\bar{I})/\\bar\\sigma$")
 pyplot.grid()
 pyplot.legend()
-pyplot.savefig("integral_hist.png")
+pyplot.savefig("integral_hist.pdf")
 samp.clear()
 exit()
 
@@ -436,7 +436,7 @@ samp.add_parameter(("ra", "dec"), sky_pdf, generate_sky_points, (ra_min, dec_min
 res, var = samp.integrate(integrand_2d, ("ra", "dec"), neff=1000)
 print "Integral: %f, stddev: %f" % (res, numpy.sqrt(var))
 plot_ra_dec(samp)
-plot_ra_dec(samp, use_pdf=True, fname="pdf.png")
+plot_ra_dec(samp, use_pdf=True, fname="pdf.pdf")
 plot_integral(integrand_2d, samp)
 make_skymap(samp)
 

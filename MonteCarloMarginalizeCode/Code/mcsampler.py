@@ -11,6 +11,8 @@ from statutils import cumvar
 
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
+rosDebugMessages = True
+
 class MCSampler(object):
 	"""
 	Class to define a set of parameter names, limits, and probability densities.
@@ -180,6 +182,8 @@ class MCSampler(object):
 		nmax = kwargs["nmax"] if kwargs.has_key("nmax") else float("inf")
 		neff = kwargs["neff"] if kwargs.has_key("neff") else float("inf")
 		n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
+                peakExpected = kwargs["igrandmax"] if kwargs.has_key("igrandmax") else 0
+                bReturnPoints = kwargs['full_output'] if kwargs.has_key('full_output') else False
 
 		#
 		# TODO: Pin values via kwargs
@@ -188,21 +192,37 @@ class MCSampler(object):
 		int_val1 = 0
 		ntotal = 0
 		maxval = -float("Inf")
+                maxlnL = -float("Inf")
 		eff_samp = 0
 		mean, std = None, None 
+
+                #
+                # TODO: Allocate memory to return values
+                #
+                theGoodPoints = numpy.zeros((nmax,len(args)))
+                theGoodlnL = numpy.zeros(nmax)
+
 		#import pdb; pdb.set_trace()
+                if rosDebugMessages:
+                        print "iteration Neff  rhoMax rhoExpected  sqrt(2*Lmarg)  <L> "
+                nEval =0
 		while eff_samp < neff and ntotal < nmax:
 			# Draw our sample points
 			p_s, rv = self.draw(n, *args)
-
+                        
 			# Calculate the overall p_s assuming each pdf is independent
 			joint_p_s = numpy.prod(p_s, axis=0)
+                        # ROS fix: Underflow issue: prevent probability from being zero!  This only weakly distorts our result in implausible regions
+                        # Be very careful: distance prior is in SI units,so the natural scale is 1/(10)^6 * 1/(10^24)
+                        joint_p_s  = numpy.maximum(numpy.ones(len(joint_p_s))*1e-50,joint_p_s)
 			if len(rv[0].shape) != 1:
 				rv = rv[0]
 			fval = func(*rv)
 			# sum_i f(x_i)/p_s(x_i)
 			int_val = fval/joint_p_s
 
+                        # Calculate max L (a useful convergence feature) for debug reporting
+                        maxlnL = numpy.max([maxlnL, numpy.log(numpy.max([numpy.max(fval),-100]))])
 			# Calculate the effective samples via max over the current evaluations
 			maxval = [max(maxval, int_val[0]) if int_val[0] != 0 else maxval]
 			for v in int_val[1:]:
@@ -218,11 +238,27 @@ class MCSampler(object):
 			mean = int_val1
 			ntotal += n
 			maxval = maxval[-1]
-			#print int_val1, ntotal, eff_samp
+                        if rosDebugMessages:
+                                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*peakExpected), numpy.log(int_val1)
 			if ntotal >= nmax and neff != float("inf"):
 				print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
 
-		return int_val1/ntotal, var/ntotal
+                        # Store our sample points
+                        for i in range(0, int(n)):
+                                theGoodPoints[nEval+i] = numpy.transpose(rv)[i]
+                                theGoodlnL[nEval+i] = numpy.log(fval[i])
+                        nEval +=n
+
+                # Select points to be returned.
+                # Downselect the points passed back: only use high likelihood values. (Hardcoded threshold specific to our problem. Return of these points should probably be optional)
+#                lnLcrit = numpy.power(numpy.sqrt(2*maxlnL)-3,2)/2
+                lnLcrit = -100  # return everything, for now
+                datReduced = [ numpy.array([theGoodPoints[i], theGoodlnL[i]]).flatten() for i in range(len(theGoodlnL)) if theGoodlnL[i] > lnLcrit]
+
+                if bReturnPoints:
+                        return int_val1/ntotal, var/ntotal, datReduced
+                else:
+                        return int_val1/ntotal, var/ntotal
 
 ### UTILITIES: Predefined distributions
 #  Be careful: vectorization is not always implemented consistently in new versions of numpy
