@@ -17,7 +17,11 @@ test:
 	python test_precompute_noisydata.py
 # test sampler 
 	test_mcsamp.py
-#
+# test marginalization (single template).  User may need to interact 
+	test_like_and_samp_singleifo.py
+	test_like_and_samp.py
+# test Fisher matrix estimator
+	test_effectiveFisher.py
 
 
 

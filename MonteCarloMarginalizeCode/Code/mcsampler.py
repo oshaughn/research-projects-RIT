@@ -183,6 +183,7 @@ class MCSampler(object):
 		neff = kwargs["neff"] if kwargs.has_key("neff") else float("inf")
 		n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
                 peakExpected = kwargs["igrandmax"] if kwargs.has_key("igrandmax") else 0
+                fracCrit = kwargs['igrand_threshold_fraction'] if kwargs.has_key('igrand_threshold_fraction') else 0 # default is to return all
                 bReturnPoints = kwargs['full_output'] if kwargs.has_key('full_output') else False
 
 		#
@@ -199,12 +200,13 @@ class MCSampler(object):
                 #
                 # TODO: Allocate memory to return values
                 #
-                theGoodPoints = numpy.zeros((nmax,len(args)))
-                theGoodlnL = numpy.zeros(nmax)
+                if bReturnPoints:
+                        theGoodPoints = numpy.zeros((nmax,len(args)))
+                        theGoodlnL = numpy.zeros(nmax)
 
 		#import pdb; pdb.set_trace()
                 if rosDebugMessages:
-                        print "iteration Neff  rhoMax rhoExpected  sqrt(2*Lmarg)  <L> "
+                        print "iteration Neff  rhoMax rhoExpected  sqrt(2*Lmarg)"
                 nEval =0
 		while eff_samp < neff and ntotal < nmax:
 			# Draw our sample points
@@ -239,24 +241,28 @@ class MCSampler(object):
 			ntotal += n
 			maxval = maxval[-1]
                         if rosDebugMessages:
-                                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*peakExpected), numpy.log(int_val1)
+                                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*peakExpected), numpy.log(int_val1/ntotal)
 			if ntotal >= nmax and neff != float("inf"):
 				print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
 
                         # Store our sample points
-                        for i in range(0, int(n)):
-                                theGoodPoints[nEval+i] = numpy.transpose(rv)[i]
-                                theGoodlnL[nEval+i] = numpy.log(fval[i])
+                        if bReturnPoints:
+                                for i in range(0, int(n)):
+                                        theGoodPoints[nEval+i] = numpy.transpose(rv)[i]
+                                        theGoodlnL[nEval+i] = numpy.log(fval[i])
                         nEval +=n
 
+                
                 # Select points to be returned.
                 # Downselect the points passed back: only use high likelihood values. (Hardcoded threshold specific to our problem. Return of these points should probably be optional)
-#                lnLcrit = numpy.power(numpy.sqrt(2*maxlnL)-3,2)/2
-                lnLcrit = -100  # return everything, for now
-                datReduced = [ numpy.array([theGoodPoints[i], theGoodlnL[i]]).flatten() for i in range(len(theGoodlnL)) if theGoodlnL[i] > lnLcrit]
-
                 if bReturnPoints:
-                        return int_val1/ntotal, var/ntotal, datReduced
+                        if fracCrit > 0:
+                                lnLcrit = numpy.power(fracCrit*numpy.sqrt(2*maxlnL),2)/2  # fraction of the SNR being returned
+                        else:
+                                lnLcrit = -100  # return everything
+                        datReduced = numpy.array([ list(theGoodPoints[i])+ [theGoodlnL[i]] for i in range(len(theGoodlnL)) if theGoodlnL[i] > lnLcrit])
+
+                        return int_val1/ntotal, var/ntotal, datReduced, eff_samp
                 else:
                         return int_val1/ntotal, var/ntotal
 
