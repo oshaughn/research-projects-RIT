@@ -189,10 +189,22 @@ def likelihood_function( x):
 # emcee
 ndim = 7
 nwalkers = 100
-p0 = [[np.random.random_sample(),np.random.random_sample(),0.002*np.random.random_sample(),np.random.random_sample(),np.random.random_sample(),np.random.random_sample(),np.random.random_sample()*distBoundGuess] for i in range(nwalkers)]
+ntemps = 20
+p0 = [[[np.random.random_sample(),np.random.random_sample(),0.002*np.random.random_sample(),np.random.random_sample(),np.random.random_sample(),np.random.random_sample(),np.random.random_sample()*distBoundGuess] for i in range(nwalkers)] for i in range(ntemps)]
 
-sampler = emcee.EnsembleSampler(nwalkers, ndim, likelihood_function,threads=2)
-sampler.run_mcmc(p0,2000)
+def logp(x):
+	return 0.0
 
-np.savetxt('test-emcee.dat', sampler.flatchain)
+sampler = emcee.PTSampler(ntemps,nwalkers, ndim, likelihood_function,logp,threads=2)
+for p, lnprob, lnlike in sampler.sample(p0, iterations=1000):
+    pass
+
+for p, lnprob, lnlike in sampler.sample(p, lnprob0=lnprob,
+                                           lnlike0=lnlike,
+                                           iterations=10000, thin=10):
+    pass
+
+print "ACL: ", np.max(sampler.acor)
+
+np.savetxt('test-emcee.dat', sampler.chain[0,...])
 
