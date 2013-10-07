@@ -4,6 +4,7 @@ from collections import defaultdict
 
 import numpy
 from scipy import integrate, interpolate
+import itertools
 
 import healpy
 
@@ -35,6 +36,10 @@ class MCSampler(object):
 		# params for left and right limits
 		self.llim, self.rlim = {}, {}
 
+		# MEASURES (=priors): ROS needs these at the sampler level, to clearly separate their effects
+		# ASSUMES the user insures they are normalized
+		self.prior_pdf = {}
+
 	def clear(self):
 		"""
 		Clear out the parameters and their settings, as well as clear the sample cache.
@@ -49,7 +54,7 @@ class MCSampler(object):
 		self.llim = {}
 		self.rlim = {}
 
-	def add_parameter(self, params, pdf, cdf_inv=None, left_limit=None, right_limit=None):
+	def add_parameter(self, params, pdf,  cdf_inv=None, left_limit=None, right_limit=None,prior_pdf=None):
 		"""
 		Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.
 		"""
@@ -77,6 +82,11 @@ class MCSampler(object):
 		self.cdf_inv[params] = cdf_inv or self.cdf_inverse(params)
 		if not isinstance(params, tuple):
 			self.cdf[params] =  self.cdf_function(params)
+                        if prior_pdf is None:
+                                self.prior_pdf[params] = lambda x:1
+                        else:
+                                self.prior_pdf[params] = prior_pdf
+
 
 	def cdf_function(self, param):
 		"""
@@ -139,9 +149,9 @@ class MCSampler(object):
 		# one argument has to be handled specially.
 		for (cdf_rv, param) in zip(rvs_tmp, args):
 			if len(cdf_rv.shape) == 1:
-				res = [(self.pdf[param](cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(rvs_tmp, args)]
+				res = [(self.pdf[param](cdf_rv)/self._pdf_norm[param], self.prior_pdf[param](cdf_rv), cdf_rv) for (cdf_rv, param) in zip(rvs_tmp, args)]
 			else:
-				res = [(self.pdf[param](*cdf_rv)/self._pdf_norm[param], cdf_rv) for (cdf_rv, param) in zip(rvs_tmp, args)]
+				res = [(self.pdf[param](*cdf_rv)/self._pdf_norm[param], self.prior_pdf[param](*cdf_rv), cdf_rv) for (cdf_rv, param) in zip(rvs_tmp, args)]
 
 		#
 		# Cache the samples we chose
@@ -210,18 +220,19 @@ class MCSampler(object):
                 nEval =0
 		while eff_samp < neff and ntotal < nmax:
 			# Draw our sample points
-			p_s, rv = self.draw(n, *args)
+			p_s, p_prior,  rv = self.draw(n, *args)
                         
 			# Calculate the overall p_s assuming each pdf is independent
 			joint_p_s = numpy.prod(p_s, axis=0)
+			joint_p_prior = numpy.prod(p_prior, axis=0)
                         # ROS fix: Underflow issue: prevent probability from being zero!  This only weakly distorts our result in implausible regions
                         # Be very careful: distance prior is in SI units,so the natural scale is 1/(10)^6 * 1/(10^24)
                         joint_p_s  = numpy.maximum(numpy.ones(len(joint_p_s))*1e-50,joint_p_s)
 			if len(rv[0].shape) != 1:
 				rv = rv[0]
 			fval = func(*rv)
-			# sum_i f(x_i)/p_s(x_i)
-			int_val = fval/joint_p_s
+#			int_val = fval * priorVals/joint_p_s    # Need to fix to use prior probability.  Low-level implementation broken
+			int_val = fval /joint_p_s
 
                         # Calculate max L (a useful convergence feature) for debug reporting
                         maxlnL = numpy.max([maxlnL, numpy.log(numpy.max([numpy.max(fval),-100]))])
@@ -241,7 +252,7 @@ class MCSampler(object):
 			ntotal += n
 			maxval = maxval[-1]
                         if rosDebugMessages:
-                                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*peakExpected), numpy.log(int_val1/ntotal)
+                                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*peakExpected), numpy.sqrt(2*numpy.log(int_val1/ntotal))
 			if ntotal >= nmax and neff != float("inf"):
 				print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
 
@@ -260,9 +271,20 @@ class MCSampler(object):
                                 lnLcrit = numpy.power(fracCrit*numpy.sqrt(2*maxlnL),2)/2  # fraction of the SNR being returned
                         else:
                                 lnLcrit = -100  # return everything
-                        datReduced = numpy.array([ list(theGoodPoints[i])+ [theGoodlnL[i]] for i in range(len(theGoodlnL)) if theGoodlnL[i] > lnLcrit])
+                        datReduced = numpy.array([ list(theGoodPoints[i])+ [theGoodlnL[i]] for i in range(nEval) if theGoodlnL[i] > lnLcrit ])
 
-                        return int_val1/ntotal, var/ntotal, datReduced, eff_samp
+                        #  Note size is TRUNCATED: only re-evaluated every n points!
+                        # Need to stretch the buffer, so I have one Lmarg per evaluation
+                        LmargArrayRaw = numpy.cumsum(int_val)/(numpy.arange(1,len(int_val)+1)) # array of partial sums.
+                        LmargArray = LmargArrayRaw
+                        # numpy.zeros(nEval)
+                        # LmargArray[0] = LmargArrayRaw[0]
+                        # for i in numpy.arange(1,nEval-1):
+                        #         LmargArray[i+1] == LmargArray[i]
+                        #         if numpy.mod(i , n ==0):
+                        #                 LmargArray[i+1] == LmargArrayRaw[(i-1)/n]
+
+                        return int_val1/ntotal, var/ntotal, datReduced, numpy.log(LmargArray), eff_samp
                 else:
                         return int_val1/ntotal, var/ntotal
 

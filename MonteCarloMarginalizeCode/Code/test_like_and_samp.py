@@ -15,7 +15,7 @@ test_like_and_samp.py:  Testing the likelihood evaluation and sampler, working i
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 from factored_likelihood import *
-from ourio import *
+import ourio
 
 checkInputs = False
 
@@ -29,7 +29,7 @@ rosShowSamplerInputDistributions = True
 rosShowRunningConvergencePlots = True
 rosShowTerminalSampleHistograms = True
 rosSaveHighLikelihoodPoints = True
-nMaxEvals = 1e1
+nMaxEvals = 1e5
 
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
@@ -217,11 +217,10 @@ if checkInputs == True:
 nEvals = 0
 def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
     global nEvals
-    global sampler
+    global pdfFullPrior
 
     lnL = numpy.zeros(phi.shape)
     i = 0
-    LSum = np.zeros(phi.shape)
 #    print " Likelihood results :  "
 #    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
     for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
@@ -233,18 +232,18 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.psi = ps # polarization angle
         P.dist = di # luminosity distance
 
-        lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)
-        if i<len(phi)-10:
-            LSum[i+1] = LSum[i]+np.exp(lnL[i])
+        lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+#        if i<len(phi)-10:
+#            LSum[i+1] = LSum[i]+np.exp(lnL[i])
 #        if (numpy.mod(i,1000)==10 and i>100):
 #            print " iteration Neff  lnL   sqrt(2max(lnL)) rho  sqrt(2 lnLmarg)   <lnL> "  # reminder
-        if (numpy.mod(i,200)==10 and i>100):
-            Neff = LSum[i+1]/np.exp(np.max(lnL[:i]))   # should actually include sampling distribution and prior distribution correction in it
-            if rosDebugMessages:
-                print "\t Params ", nEvals+i, " (RA, DEC, tref, phiref, incl, psi, dist) ="
-                print "\t", i, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL[i]
-                print "\t sampler probability of draws", sampler.cdf['ra'](P.phi), sampler.cdf['dec'](P.theta),sampler.cdf['tref'](float(P.tref - theEpochFiducial)), sampler.cdf['phi'](P.phiref), sampler.cdf['incl'](P.incl), sampler.cdf['psi'](P.psi), sampler.cdf['dist'](P.dist)
-            logLmarg =np.log(np.mean(np.exp(lnL[:i])))
+        # if (numpy.mod(i,200)==10 and i>100):
+        #     Neff = LSum[i+1]/np.exp(np.max(lnL[:i]))   # should actually include sampling distribution and prior distribution correction in it
+            # if rosDebugMessages:
+            #     print "\t Params ", nEvals+i, " (RA, DEC, tref, phiref, incl, psi, dist) ="
+            #     print "\t", i, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL[i]
+            #     print "\t sampler probability of draws", sampler.cdf['ra'](P.phi), sampler.cdf['dec'](P.theta),sampler.cdf['tref'](float(P.tref - theEpochFiducial)), sampler.cdf['phi'](P.phiref), sampler.cdf['incl'](P.incl), sampler.cdf['psi'](P.psi), sampler.cdf['dist'](P.dist)
+            # logLmarg =np.log(np.mean(np.exp(lnL[:i])))
 #            print nEvals+i, Neff,  lnL[i],   np.sqrt(2*np.max(lnL[:i])), np.sqrt(rho2Net), np.sqrt(2*logLmarg), np.mean(lnL[:i])
         i+=1
 
@@ -278,18 +277,25 @@ phi_min, phi_max = 0, 2*numpy.pi
 dist_min, dist_max = Dmin, Dmax
 
 import functools
+# Define the true prior PDF
+# The likelihood function assumes this function exists.
+# The integrator actually does a monte carlo integral of L*p using a sampling prior p_s.
+def pdfFullPrior(phi, theta, tref, phiref, incl, psi, dist): # remember theta is dec, 
+    return (np.cos(theta)/(4*np.pi)) * 1./(tWindowExplore[1]-tWindowExplore[0])*1/(3*Dmax**3)*np.cos(incl)/(4*np.pi)*1./(np.pi)
+
+
 # Uniform sampling (in area) but nonuniform sampling in distance (*I hope*).  Auto-cdf inverse
 if rosUseStrongPriorOnParameters:
-    sampler.add_parameter("psi", functools.partial(mcsampler.gauss_samp, Psig.psi, 0.5), None, psi_min, psi_max)
-    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.5), None, ra_min, ra_max)
-    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.3), None, dec_min, dec_max)
-    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max)
-    sampler.add_parameter("phi", functools.partial(mcsampler.gauss_samp, Psig.phiref,0.5), None, phi_min, phi_max)
-    sampler.add_parameter("incl", functools.partial(mcsampler.gauss_samp, Psig.incl,0.3), None, inc_min, inc_max)
+    sampler.add_parameter("psi", functools.partial(mcsampler.gauss_samp, Psig.psi, 0.5), None, psi_min, psi_max, prior_pdf = lambda x: 1/np.pi)
+    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.5), None, ra_min, ra_max, prior_pdf = lambda x: 1/(2*np.pi))
+    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.3), None, dec_min, dec_max, prior_pdf= lambda x: np.cos(x)/(2))
+    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max, prior_pdf = lambda x: 1/(tWindowExplore[1]-tWindowExplore[0]))
+    sampler.add_parameter("phi", functools.partial(mcsampler.gauss_samp, Psig.phiref,0.5), None, phi_min, phi_max, prior_pdf = lambda x: 1/(2*np.pi))
+    sampler.add_parameter("incl", functools.partial(mcsampler.gauss_samp, Psig.incl,0.3), None, inc_min, inc_max, prior_pdf = lambda x: np.sin(x)/2)
     if rosUseTargetedDistance:
-        sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, 0, distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max)
+        sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, 0, distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max, prior_pdf = lambda x: 1/(3*Dmax**3))
     else:
-        sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max)
+        sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max,prior_pdf = lambda x: 1/(3*Dmax**3))
 else:
     # PROBLEM: Underlying prior samplers are not uniform.  We need two stages
     sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
@@ -333,35 +339,27 @@ if rosShowSamplerInputDistributions:
         plt.savefig("test_like_and_samp-"+str(param)+".pdf")
 #    plt.show()
 
-res, var, ret = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True)
+res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100)
+print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
+print " expected largest value is ", rho2Net/2, 
+print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
+# Save the sampled points to a file
+ourio.dumpSamplesToFile("test_like_and_samp-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
 
-print ret
-
-print res, numpy.sqrt(var)
-sys.exit(0)
-
-plt.show()
-if rosSaveHighLikelihoodPoints:
-    print " ==== SAVING RESULTS: High likelihood only === "
-        # Create array of all points
-    m1 = (P.m1/lal.LAL_MSUN_SI)*np.ones(len(lnL))
-    m2 = (P.m2/lal.LAL_MSUN_SI)*np.ones(len(lnL))
-    dat = np.transpose((np.arange(len(lnL)), phi, theta, tref, phiref, incl, psi, dist/(1e6*lal.LAL_PC_SI),m1,m2,lnL))
-        # select only reasonably high likelihoods (sqrt(lnL)>= sqrt(max lnL)-3  : very safe buffer        
-    lnLcrit = np.power(np.sqrt(2*np.max(lnL))-3,2)/2
-    datReduced = [x for x in dat if x[-1]>lnLcrit]
-        # save
-    print " ++ Saving ", len(datReduced), " points; compare to Neff = ", Neff
-    labels = ["indx", "ra", "dec", "tref", "phiref", "incl", "psi", "d", "m1", "m2", "logL"]
-    dumpSamplesToFile("points.dat", datReduced,labels)
-        #np.savetxt("points.dat",datReduced)
+if checkInputs:
+    plt.show()
+# Plot terminal histograms from the sampled points and log likelihoods
 if rosShowTerminalSampleHistograms:
-    print " ==== CONVERGENCE PLOTS === "
+    ra,dec,tref,phi,incl, psi,dist,lnL = np.transpose(ret)  # unpack. This can include all or some of the data set. The default configuration returns *all* points
+    print " ==== CONVERGENCE PLOTS (**beware: potentially truncated data!**) === "
     plt.figure(0)
     plt.clf()
-    plt.plot(np.arange(len(lnL)), np.log(LSum/(1+np.arange(len(lnL)))),label="lnLmarg")
+    plt.plot(np.arange(len(lnLmarg)), lnLmarg,label="lnLmarg")
     plt.plot(np.arange(len(lnL)), np.ones(len(lnL))*rho2Net/2,label="rho^2/2")
+    plt.xlim(0,len(lnL))
+    plt.xlabel('iteration')
+    plt.ylabel('lnL')
     plt.legend()
     print " ==== TERMINAL 1D HISTOGRAMS: Sampling and posterior === "
     plt.figure(1)
@@ -430,7 +428,7 @@ if rosShowTerminalSampleHistograms:
         # ra-dec
     plt.figure(3)
     plt.clf()
-    H, xedges, yedges = np.histogram2d(phi,theta, bins=(10,10),weights=np.exp(lnL))
+    H, xedges, yedges = np.histogram2d(ra,dec, bins=(10,10),weights=np.exp(lnL))
     extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
     plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
     plt.colorbar()

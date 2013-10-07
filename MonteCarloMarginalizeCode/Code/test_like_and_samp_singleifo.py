@@ -188,6 +188,7 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
     global nEvals
     global sampler
     global rho2Net
+    global priorPDF
 
     lnL = numpy.zeros(phi.shape)
     i = 0
