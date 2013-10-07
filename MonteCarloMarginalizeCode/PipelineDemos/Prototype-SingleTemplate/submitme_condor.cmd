@@ -1,8 +1,11 @@
 Universe = vanilla
-genenv = true
+getenv = true
 
-Executable = python 
+Executable = /usr/bin/python 
 arguments = test_like_and_samp.py
+error  = cndr.err
+log = cndr.log
+output = cndr.output
 
 Queue 1
 
