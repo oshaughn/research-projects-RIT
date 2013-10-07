@@ -214,9 +214,13 @@ class MCSampler(object):
                         theGoodPoints = numpy.zeros((nmax,len(args)))
                         theGoodlnL = numpy.zeros(nmax)
 
-		#import pdb; pdb.set_trace()
+                # Need FULL history to calculate neff!  No substitutes!
+                theIntegrandFull = numpy.zeros(nmax)
+                theMaxFull = numpy.zeros(nmax)
+
+
                 if rosDebugMessages:
-                        print "iteration Neff  rhoMax rhoExpected  sqrt(2*Lmarg)"
+                        print "iteration Neff  rhoMax rhoExpected  sqrt(2*Lmarg)  Lmarg"
                 nEval =0
 		while eff_samp < neff and ntotal < nmax:
 			# Draw our sample points
@@ -227,32 +231,38 @@ class MCSampler(object):
 			joint_p_prior = numpy.prod(p_prior, axis=0)
                         # ROS fix: Underflow issue: prevent probability from being zero!  This only weakly distorts our result in implausible regions
                         # Be very careful: distance prior is in SI units,so the natural scale is 1/(10)^6 * 1/(10^24)
+                        # FIXME: Non-portable change, breaks universality of the integration.
                         joint_p_s  = numpy.maximum(numpy.ones(len(joint_p_s))*1e-50,joint_p_s)
 			if len(rv[0].shape) != 1:
 				rv = rv[0]
 			fval = func(*rv)
-#			int_val = fval * priorVals/joint_p_s    # Need to fix to use prior probability.  Low-level implementation broken
-			int_val = fval /joint_p_s
+			int_val = fval*joint_p_prior /joint_p_s
 
-                        # Calculate max L (a useful convergence feature) for debug reporting
-                        maxlnL = numpy.max([maxlnL, numpy.log(numpy.max([numpy.max(fval),-100]))])
+                        # Calculate max L (a useful convergence feature) for debug reporting.  Not used for integration
+                        # Try to avoid nan's
+                        maxlnL = numpy.log(numpy.max([numpy.exp(maxlnL), numpy.max(fval),numpy.exp(-100)]))   # note if f<0, this will return nearly 0
 			# Calculate the effective samples via max over the current evaluations
+                        # Requires populationg theIntegrandFull, a history of all integrand evaluations.
 			maxval = [max(maxval, int_val[0]) if int_val[0] != 0 else maxval]
 			for v in int_val[1:]:
 				maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
-			eff_samp = (int_val.cumsum()/maxval)[-1] + eff_samp
+                        for i in range(0, int(n)):
+                                theIntegrandFull[nEval+i] = int_val[i]  # FIXME: Could do this by using maxval[-1] intelligently, rather than storing and resumming all
+#                        theIntegrandMaxSoFar = numpy.maximum.accumulate(theIntegrandFull) # For debugging only.  FIXME: should split into max over new data and old
 
+#			eff_samp = (int_val.cumsum()/maxval)[-1] + eff_samp   # ROS: This is wrong (monotonic over blocks of size 'n').  neff can reset to 1 at any time.
+                        eff_samp = numpy.sum((theIntegrandFull/maxval[-1])[:ntotal])
 			# FIXME: Need to bring in the running stddev here
 			var = cumvar(int_val, mean, std, ntotal)[-1]
 			# FIXME: Reenable caching
 			#self.save_points(int_val, joint_p_s)
 			#print "%d samples saved" % len(self._cache)
 			int_val1 += int_val.sum()
-			mean = int_val1
 			ntotal += n
+			mean = int_val1
 			maxval = maxval[-1]
                         if rosDebugMessages:
-                                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*peakExpected), numpy.sqrt(2*numpy.log(int_val1/ntotal))
+                                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*peakExpected), numpy.sqrt(2*numpy.log(int_val1/ntotal)), int_val1/ntotal
 			if ntotal >= nmax and neff != float("inf"):
 				print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
 
@@ -261,7 +271,7 @@ class MCSampler(object):
                                 for i in range(0, int(n)):
                                         theGoodPoints[nEval+i] = numpy.transpose(rv)[i]
                                         theGoodlnL[nEval+i] = numpy.log(fval[i])
-                        nEval +=n
+                        nEval +=n  # duplicate variable to ntotal.  Need to disentangle
 
                 
                 # Select points to be returned.
@@ -297,6 +307,12 @@ def uniform_samp(a, b, x):   # I prefer to vectorize with the same call for all 
                 return 0
 #uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
 uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
+
+# syntatic sugar : predefine the most common distributions
+uniform_samp_phase = numpy.vectorize(lambda x: 1/(2*numpy.pi))
+uniform_samp_psi = numpy.vectorize(lambda x: 1/(numpy.pi))
+uniform_samp_theta = numpy.vectorize(lambda x: numpy.sin(x)/(2))
+uniform_samp_dec = numpy.vectorize(lambda x: numpy.cos(x)/(2))
 
 def inv_uniform_cdf(a, b, x):
 	return (b-a)*x+a

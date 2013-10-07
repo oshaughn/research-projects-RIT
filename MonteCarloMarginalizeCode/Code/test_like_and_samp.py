@@ -29,7 +29,7 @@ rosShowSamplerInputDistributions = True
 rosShowRunningConvergencePlots = True
 rosShowTerminalSampleHistograms = True
 rosSaveHighLikelihoodPoints = True
-nMaxEvals = 1e5
+nMaxEvals = 1e6
 
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
@@ -286,24 +286,36 @@ def pdfFullPrior(phi, theta, tref, phiref, incl, psi, dist): # remember theta is
 
 # Uniform sampling (in area) but nonuniform sampling in distance (*I hope*).  Auto-cdf inverse
 if rosUseStrongPriorOnParameters:
-    sampler.add_parameter("psi", functools.partial(mcsampler.gauss_samp, Psig.psi, 0.5), None, psi_min, psi_max, prior_pdf = lambda x: 1/np.pi)
-    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.5), None, ra_min, ra_max, prior_pdf = lambda x: 1/(2*np.pi))
-    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.3), None, dec_min, dec_max, prior_pdf= lambda x: np.cos(x)/(2))
-    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max, prior_pdf = lambda x: 1/(tWindowExplore[1]-tWindowExplore[0]))
-    sampler.add_parameter("phi", functools.partial(mcsampler.gauss_samp, Psig.phiref,0.5), None, phi_min, phi_max, prior_pdf = lambda x: 1/(2*np.pi))
-    sampler.add_parameter("incl", functools.partial(mcsampler.gauss_samp, Psig.incl,0.3), None, inc_min, inc_max, prior_pdf = lambda x: np.sin(x)/2)
+    sampler.add_parameter("psi", functools.partial(mcsampler.gauss_samp, Psig.psi, 0.5), None, psi_min, psi_max, 
+                          prior_pdf =mcsampler.uniform_samp_psi  )
+    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.5), None, ra_min, ra_max, 
+                          prior_pdf = mcsampler.uniform_samp_phase)
+    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.3), None, dec_min, dec_max, 
+                          prior_pdf= mcsampler.uniform_samp_dec)
+    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max, 
+                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
+    sampler.add_parameter("phi", functools.partial(mcsampler.gauss_samp, Psig.phiref,0.5), None, phi_min, phi_max, 
+                          prior_pdf = mcsampler.uniform_samp_phase)
+    sampler.add_parameter("incl", functools.partial(mcsampler.gauss_samp, Psig.incl,0.3), None, inc_min, inc_max, 
+                          prior_pdf = mcsampler.uniform_samp_theta)
     if rosUseTargetedDistance:
-        sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, 0, distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max, prior_pdf = lambda x: 1/(3*Dmax**3))
+        sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, 0, distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max, prior_pdf = np.vectorize(lambda x: x**2/(3*Dmax**3)))
     else:
-        sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max,prior_pdf = lambda x: 1/(3*Dmax**3))
+        sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max,prior_pdf =np.vectorize( lambda x: x**2/(3*Dmax**3)))
 else:
     # PROBLEM: Underlying prior samplers are not uniform.  We need two stages
-    sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
-    sampler.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), None, ra_min, ra_max)
-    sampler.add_parameter("dec", functools.partial(mcsampler.dec_samp_vector), None, dec_min, dec_max)
-    sampler.add_parameter("tref", functools.partial(mcsampler.uniform_samp_vector, tref_min, tref_max), None, tref_min, tref_max)
-    sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max)
-    sampler.add_parameter("incl", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max)
+    sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max,
+                          prior_pdf =mcsampler.uniform_samp_psi )
+    sampler.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), None, ra_min, ra_max,
+                          prior_pdf = mcsampler.uniform_samp_phase)
+    sampler.add_parameter("dec", functools.partial(mcsampler.dec_samp_vector), None, dec_min, dec_max,
+                          prior_pdf= mcsampler.uniform_samp_dec)
+    sampler.add_parameter("tref", functools.partial(mcsampler.uniform_samp_vector, tref_min, tref_max), None, tref_min, tref_max,
+                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
+    sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max,
+                          prior_pdf = mcsampler.uniform_samp_phase)
+    sampler.add_parameter("incl", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max,
+                          prior_pdf = mcsampler.uniform_samp_theta)
     if rosUseTargetedDistance:
         sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, 0, distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max)
     else:
@@ -321,7 +333,7 @@ if rosShowSamplerInputDistributions:
         xLow = sampler.llim[param]
         xHigh = sampler.rlim[param]
         xvals = np.linspace(xLow,xHigh,500)
-        pdfPrior = lambda x: mcsampler.uniform_samp( float(xLow), float(xHigh), float(x))  # Force type conversion in case we have non-float limits for some reasona
+        pdfPrior = sampler.prior_pdf[param]  # Force type conversion in case we have non-float limits for some reasona
         pdfvalsPrior = np.array(map(pdfPrior, xvals))  # do all the numpy operations by hand: no vectorization
         pdf = sampler.pdf[param]
         cdf = sampler.cdf[param]
@@ -339,12 +351,13 @@ if rosShowSamplerInputDistributions:
         plt.savefig("test_like_and_samp-"+str(param)+".pdf")
 #    plt.show()
 
-res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100)
+res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=100,nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100,igrand_threshold_fraction=0.9)
 print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
 print " expected largest value is ", rho2Net/2, 
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
 # Save the sampled points to a file
+# Only store some
 ourio.dumpSamplesToFile("test_like_and_samp-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
 
 if checkInputs:

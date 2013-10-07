@@ -14,8 +14,9 @@ ret = samplerPrior.integrate(np.vectorize(lambda x:1), 'x', nmax=1e4)
 print "Integral of 1 over this range ", [samplerPrior.llim['x'] ,samplerPrior.rlim['x'] ], " is ", ret, " needs to be ", samplerPrior.rlim['x'] -  samplerPrior.llim['x'] ," and (small)"
 # do an integral with a different prior
 samplerNewPrior = mcsampler.MCSampler()
-samplerNewPrior.add_parameter('y', np.vectorize(lambda x: np.exp(-x**2/2)), None, -1,1, prior_pdf = np.vectorize(lambda x: 1/2)) # normalized prior!
+samplerNewPrior.add_parameter('y', np.vectorize(lambda x: np.exp(-x**2/2)), None, -1,1, prior_pdf = np.vectorize(lambda x: 1/2.)) # normalized prior!
 ret = samplerNewPrior.integrate(np.vectorize(lambda x:1), 'y', nmax=1e4)
+print "Integral of 1 over a normalized pdf  is ", ret, " and needs to be 1"
 
 
 # Manual plotting. Note the PDF is NOT renormalized

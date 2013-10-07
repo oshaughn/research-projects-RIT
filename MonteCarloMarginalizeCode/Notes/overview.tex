@@ -1400,21 +1400,24 @@ Overlay the sequence with an error estimate; do we believe our error estimate fr
 \end{itemize}
 
 \item \textbf{Confirm normalization}: Chris' code provides a way to do integrals of the form $\int X dx$ via $p_s$ by
-  evaluating $\int X/p_s  p_s dx$.  The likelihood evaluation code itself must hardcode the prior over angles and
-  distance (trivial, but important).
+  evaluating $\int (X/p_s)  p_s dx$ \textbf{as well as} [new addition] $\int X p dx$ by evaluating $\int (X p/p_s)p_s
+  dx$.  The latter lets us clearly separate the likelihood from the prior.
 
-As a result, we had better have $L_{\rm marg} = \int L p dx \le \text{max} L$ for real-data results.
+We had better have $L_{\rm marg} = \int L p dx \le \text{max} L$ for real-data results.
 
-\editremark{DOING IT THIS WAY MAKES DEBUGGING INCREDIBLY ANNOYING}. I want access to the low-level true $L$ in debugging
-plots, not $L*p$.
 
 \item  \textbf{Test sampling distributions that depend on the data}: Some sampling distributions can infer the event
-  time (barycentered), distance, sky location, inclination, et cetera from the data (e.g. from the $U$ and $Q$).
+  time (barycentered), distance, sky location, inclination, et cetera from the data (e.g. from the $U$ and $Q$).  
 
-\item \textbf{Run on cluster in vanilla mode}: Throw it at the clust
+For a single-IFO model, a distance distribution helps most.
+
+\editremark{try some}
+
+\editremark{TEST SAMPLING DISTRIBUTIONS THAT USE INFORMATION FROM THE DATA} -- notably distance and time for 
+
+\item \textbf{Run on cluster in vanilla mode}: Throw it at the cluster.  Does it even run?
 \end{itemize}
 
-\editremark{TEST SAMPLING DISTRIBUTIONS THAT USE INFORMATION FROM THE DATA}
 
 \noindent \textbf{Test posterior recovery: Toy signal}: Compare the injected and recovered posterior distributions, for a
 \textbf{fixed set of intrinsic parameters} (i.e., masses) -- typically $4+3 M_\odot$ in initial LIGO, with $DEC=1.2$ and
