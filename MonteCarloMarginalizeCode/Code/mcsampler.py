@@ -199,7 +199,10 @@ class MCSampler(object):
                 bReturnPoints = kwargs['full_output'] if kwargs.has_key('full_output') else False
                 bUseMultiprocessing = kwargs['use_multiprocessing'] if kwargs.has_key('use_multiprocessing') else False
                 nProcesses = kwargs['nprocesses'] if kwargs.has_key('nprocesses') else 2
+                bShowEvaluationLog = kwargs['verbose'] if kwargs.has_key('verbose') else False
 
+                if bShowEvaluationLog:
+                        print " .... mcsampler : providing verbose output ..... "
                 if bUseMultiprocessing:
                         if rosDebugMessages:
                                 print " Initiating multiprocessor pool : ", nProcesses
@@ -225,11 +228,16 @@ class MCSampler(object):
 
                 # Need FULL history to calculate neff!  No substitutes!
                 # Be careful to allocate the larger of n and nmax
-                theIntegrandFull = numpy.zeros(numpy.max([nmax,n]))
-                theMaxFull = numpy.zeros(numpy.max([nmax,n]))
+                if nmax < float("inf"):
+                        nbinsToStore = int(numpy.max([nmax,n]))
+                else:
+                        nBinsToStore = 1e7    # don't store everything! stop!
+                        nmax = nBinsToStore
+                theIntegrandFull = numpy.zeros(nmax)
+                theMaxFull = numpy.zeros(nmax)
 
 
-                if rosDebugMessages:
+                if bShowEvaluationLog:
                         print "iteration Neff  rhoMax rhoExpected  sqrt(2*Lmarg)  Lmarg"
                 nEval =0
 		while eff_samp < neff and ntotal < nmax:
@@ -274,7 +282,7 @@ class MCSampler(object):
 			ntotal += n
 			mean = int_val1
 			maxval = maxval[-1]
-                        if rosDebugMessages:
+                        if bShowEvaluationLog:
                                 print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*peakExpected), numpy.sqrt(2*numpy.log(int_val1/ntotal)), int_val1/ntotal
 			if ntotal >= nmax and neff != float("inf"):
 				print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
@@ -395,3 +403,7 @@ def sky_rejection(skymap, ra_in, dec_in, massp=1.0):
 	return numpy.array([ra_in, dec_in])
 #pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
 pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float])
+
+
+def sanityCheckSamplerIntegrateUnity(sampler,*args,**kwargs):
+        return sampler.integrate(lambda *args: 1,*args,**kwargs)
