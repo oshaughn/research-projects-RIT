@@ -763,6 +763,34 @@ def findDeltaF(P):
     h = hoft(P)
     return 1./(nextPow2(h.data.length) * P.deltaT)
 
+def sanitize_eta(eta, tol=1.e-10, exception='error'):
+    """
+    If 'eta' is slightly outside the physically allowed range for
+    symmetric mass ratio, push it back in. If 'eta' is further
+    outside the physically allowed range, throw an error
+    or return a special value.
+    Explicitly:
+        - If 'eta' is in [tol, 0.25], return eta.
+        - If 'eta' is in [0, tol], return tol.
+        - If 'eta' in is (0.25, 0.25+tol], return 0.25
+        - If 'eta' < 0 OR eta > 0.25+tol,
+            - if exception=='error' raise a ValueError
+            - if exception is anything else, return exception
+    """
+    MIN = 0.
+    MAX = 0.25
+    if eta < MIN or eta > MAX+tol:
+        if exception=='error':
+            raise ValueError("Value of eta outside the physicaly-allowed range of symmetric mass ratio.")
+        else:
+            return exception
+    elif eta < tol:
+        return tol
+    elif eta > MAX:
+        return MAX
+    else:
+        return eta
+
 #
 # Functions to generate waveforms
 #
