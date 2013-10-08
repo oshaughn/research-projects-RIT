@@ -114,21 +114,22 @@ def update_params_norm_hoff(P, IP, param_names, vals, verbose=False):
 
     # Check allowed special cases of params not in P, e.g. Mc and eta
     if special_params==['Mc','eta']:
-        m1, m2 = m1m2(special_vals[0], special_vals[1]) # m1,m2 = m1m2(Mc,eta)
+        m1, m2 = m1m2(special_vals[0],
+                sanitize_eta(special_vals[1])) # m1,m2 = m1m2(Mc,eta)
         setattr(P, 'm1', m1)
         setattr(P, 'm2', m2)
     elif special_params==['eta','Mc']:
-        m1, m2 = m1m2(special_vals[1], special_vals[0])
+        m1, m2 = m1m2(sanitize_eta(special_vals[1]), special_vals[0])
         setattr(P, 'm1', m1)
         setattr(P, 'm2', m2)
     elif special_params==['Mc']:
-        eta = symRatio(P.m1, P.m2)
+        eta = sanitize_eta(symRatio(P.m1, P.m2))
         m1, m2 = m1m2(special_vals[0], eta)
         setattr(P, 'm1', m1)
         setattr(P, 'm2', m2)
     elif special_params==['eta']:
         Mc = mchirp(P.m1, P.m2)
-        m1, m2 = m1m2(Mc, special_vals[0])
+        m1, m2 = m1m2(Mc, sanitize_eta(special_vals[0]))
         setattr(P, 'm1', m1)
         setattr(P, 'm2', m2)
     elif special_params != []:
@@ -167,7 +168,6 @@ def find_effective_Fisher_region(P, IP, target_match, param_names,param_bounds):
     region where target_match is achieved. Therefore, allow a generous
     safety factor in your value of 'target_match'.
     """
-    # FIXME: Use a root-finder to bound a region of interest
     TOL = 1.e-3 # Don't need to be very precise for this...
     Nparams = len(param_names)
     assert len(param_bounds) == Nparams
@@ -182,8 +182,22 @@ def find_effective_Fisher_region(P, IP, target_match, param_names,param_bounds):
         else:
             param_peak = getattr(P, param)
         func = lambda x: update_params_ip(hfSIG, PT, IP, [param], [x]) - target_match
-        max_param = brentq(func, param_peak, param_bounds[i][1], xtol=TOL)
-        min_param = brentq(func, param_bounds[i][0], param_peak, xtol=TOL)
+        try:
+            min_param = brentq(func, param_peak, param_bounds[i][0], xtol=TOL)
+        except ValueError:
+            print "\nWarning! Value", param_bounds[i][0], "of", param,\
+                    "did not bound target match", target_match, ". Using",\
+                    param_bounds[i][0], "as the lower bound of", param,\
+                    "range for the effective Fisher region.\n"
+            min_param = param_bounds[i][1]
+        try:
+            max_param = brentq(func, param_peak, param_bounds[i][1], xtol=TOL)
+        except ValueError:
+            print "\nWarning! Value", param_bounds[i][1], "of", param,\
+                    "did not bound target match", target_match, ". Using",\
+                    param_bounds[i][1], "as the upper bound of", param,\
+                    "range for the effective Fisher region.\n"
+            max_param = param_bounds[i][1]
         param_cube.append( [min_param, max_param] )
 
     return param_cube
@@ -474,6 +488,21 @@ def array_to_symmetric_matrix(gamma):
         return np.array([[g11,g12,g13,g14],[g12,g22,g23,g24],
             [g13,g23,g33,g34],[g14,g24,g34,g44]])
     if length==15: # 5x5 matrix
+        g11 = gamma[0]
+        g12 = gamma[1]
+        g13 = gamma[2]
+        g14 = gamma[3]
+        g15 = gamma[4]
+        g22 = gamma[5]
+        g23 = gamma[6]
+        g24 = gamma[7]
+        g25 = gamma[8]
+        g33 = gamma[9]
+        g34 = gamma[10]
+        g35 = gamma[11]
+        g44 = gamma[12]
+        g45 = gamma[13]
+        g55 = gamma[14]
         return np.array([[g11,g12,g13,g14,g15],[g12,g22,g23,g24,g25],
             [g13,g23,g33,g34,g35],[g14,g24,g34,g44,g45],[g15,g25,g5,g45,g55]])
 
