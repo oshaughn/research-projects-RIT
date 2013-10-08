@@ -10,6 +10,8 @@ import healpy
 
 from statutils import cumvar
 
+from multiprocessing import Pool
+
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
 rosDebugMessages = True
@@ -195,6 +197,13 @@ class MCSampler(object):
                 peakExpected = kwargs["igrandmax"] if kwargs.has_key("igrandmax") else 0
                 fracCrit = kwargs['igrand_threshold_fraction'] if kwargs.has_key('igrand_threshold_fraction') else 0 # default is to return all
                 bReturnPoints = kwargs['full_output'] if kwargs.has_key('full_output') else False
+                bUseMultiprocessing = kwargs['use_multiprocessing'] if kwargs.has_key('use_multiprocessing') else False
+                nProcesses = kwargs['nprocesses'] if kwargs.has_key('nprocesses') else 2
+
+                if bUseMultiprocessing:
+                        if rosDebugMessages:
+                                print " Initiating multiprocessor pool : ", nProcesses
+                        p = Pool(nProcesses)
 
 		#
 		# TODO: Pin values via kwargs
@@ -215,8 +224,9 @@ class MCSampler(object):
                         theGoodlnL = numpy.zeros(nmax)
 
                 # Need FULL history to calculate neff!  No substitutes!
-                theIntegrandFull = numpy.zeros(nmax)
-                theMaxFull = numpy.zeros(nmax)
+                # Be careful to allocate the larger of n and nmax
+                theIntegrandFull = numpy.zeros(numpy.max([nmax,n]))
+                theMaxFull = numpy.zeros(numpy.max([nmax,n]))
 
 
                 if rosDebugMessages:
@@ -235,7 +245,10 @@ class MCSampler(object):
                         joint_p_s  = numpy.maximum(numpy.ones(len(joint_p_s))*1e-50,joint_p_s)
 			if len(rv[0].shape) != 1:
 				rv = rv[0]
-			fval = func(*rv)
+                        if bUseMultiprocessing:
+                                fval = p.map(lambda x : func(*x), numpy.transpose(rv))
+                        else:
+                                fval = func(*rv)
 			int_val = fval*joint_p_prior /joint_p_s
 
                         # Calculate max L (a useful convergence feature) for debug reporting.  Not used for integration
@@ -246,7 +259,7 @@ class MCSampler(object):
 			maxval = [max(maxval, int_val[0]) if int_val[0] != 0 else maxval]
 			for v in int_val[1:]:
 				maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
-                        for i in range(0, int(n)):
+                        for i in range(0, int(n)-1):
                                 theIntegrandFull[nEval+i] = int_val[i]  # FIXME: Could do this by using maxval[-1] intelligently, rather than storing and resumming all
 #                        theIntegrandMaxSoFar = numpy.maximum.accumulate(theIntegrandFull) # For debugging only.  FIXME: should split into max over new data and old
 
@@ -285,7 +298,8 @@ class MCSampler(object):
 
                         #  Note size is TRUNCATED: only re-evaluated every n points!
                         # Need to stretch the buffer, so I have one Lmarg per evaluation
-                        LmargArrayRaw = numpy.cumsum(int_val)/(numpy.arange(1,len(int_val)+1)) # array of partial sums.
+#                        LmargArrayRaw = numpy.cumsum(int_val)/(numpy.arange(1,len(int_val)+1)) # array of partial sums.
+                        LmargArrayRaw = numpy.cumsum(theIntegrandFull)/(numpy.arange(1,len(theIntegrandFull)+1)) # array of partial sums.
                         LmargArray = LmargArrayRaw
                         # numpy.zeros(nEval)
                         # LmargArray[0] = LmargArrayRaw[0]
