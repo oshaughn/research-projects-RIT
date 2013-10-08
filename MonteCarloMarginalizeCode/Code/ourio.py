@@ -2,10 +2,13 @@
 """
 ourio.py : 
   Input-output routines
+   - plot sampling distributions, priors
+   - plot (weighted) histograms of results
 """
 
 import numpy as np
 from matplotlib import pylab as plt
+import lal   # rescale distance units if needed
 
 """
 dumpSamplesToFile
@@ -96,6 +99,43 @@ def plotParameterDistributions(titleBase, sampler, samplerPrior):
         plt.plot(xvals,pdfvalsPrior,label="prior:"+str(param),linestyle='--')
         plt.plot(xvals,pdfvals,label=str(param))
         plt.plot(xvals,cdfvals,label='cdf:'+str(param))
+        plt.xlabel(str(param))
+        plt.title(titleBase+":"+str(param))
+        plt.legend()
+    plt.show()
+
+def plotParameterDistributionsFromSamples(titleBase, sampler, ret, keynames):
+    nFig = 0
+    lnL = np.transpose(ret)[-1] # Assumed.
+    for nFig in range(len(keynames)-1):
+        param = keynames[nFig]
+        plt.figure(nFig)
+        plt.clf()
+        # Sample distributions
+        vals = np.transpose(ret)[nFig]
+        if str(param) == "dist":
+            fac = (1e6*lal.LAL_PC_SI)
+        else:
+            fac = 1
+        hist, bins = np.histogram(vals/fac, bins=50, density=True, weights=np.exp(lnL))
+        center = (bins[:-1]+bins[1:])/2
+        plt.plot(center,hist,label="posterior:"+param+":sampled")
+        hist, bins  = np.histogram(vals/fac,bins=50,density=True)
+        center = (bins[:-1]+bins[1:])/2
+        plt.plot(center,hist,label="sampling prior:"+param+":sampled",linestyle='--')
+        # Distributions
+        xLow = sampler.llim[param]
+        xHigh = sampler.rlim[param]
+        xvals = np.linspace(xLow,xHigh,500)
+        pdfPrior = sampler.prior_pdf[param]
+        pdfvalsPrior = pdfPrior(xvals)
+        pdf = sampler.pdf[param]
+        pdfvals = pdf(xvals)/sampler._pdf_norm[param]
+        xvvals = xvals/fac
+        pdfvalsPrior = pdfvalsPrior *fac
+        pdfvals = pdfvals *fac
+        plt.plot(xvals,pdfvalsPrior,label="prior:"+str(param),linestyle='--')
+        plt.plot(xvals,pdfvals,label="sampling prior:"+str(param))
         plt.xlabel(str(param))
         plt.title(titleBase+":"+str(param))
         plt.legend()

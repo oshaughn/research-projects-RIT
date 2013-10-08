@@ -29,7 +29,15 @@ rosShowSamplerInputDistributions = True
 rosShowRunningConvergencePlots = True
 rosShowTerminalSampleHistograms = True
 rosSaveHighLikelihoodPoints = True
-nMaxEvals = 1e6
+rosUseThresholdForReturn = True
+rosUseMultiprocessing= False
+rosDebugCheckPriorIntegral = False
+nMaxEvals = 1e4
+
+if rosUseThresholdForReturn and nMaxEvals > 5e4:
+    fracThreshold = 0.95
+else:
+    fracThreshold = 0.0
 
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
@@ -251,7 +259,7 @@ def uniform_samp(a, b, x):
 
 # set up bounds on parameters
 # Polarization angle
-psi_min, psi_max = 0, 2*numpy.pi
+psi_min, psi_max = 0, numpy.pi
 # RA and dec
 ra_min, ra_max = 0, 2*numpy.pi
 dec_min, dec_max = -numpy.pi/2, numpy.pi/2
@@ -314,11 +322,13 @@ else:
 
 if rosShowSamplerInputDistributions:
     print " ====== Plotting prior and sampling distributions ==== "
-    print "  PROBLEM: Build in/hardcoded via uniform limits on each parameter! Need to add measure factors "
+    # Done by hand so I have access to them later
     nFig = 0
+    pltAssociation = {}
     for param in sampler.params:
         nFig+=1
         plt.figure(nFig)
+        pltAssociation[param] = nFig
         plt.clf()
         xLow = sampler.llim[param]
         xHigh = sampler.rlim[param]
@@ -342,24 +352,26 @@ if rosShowSamplerInputDistributions:
 #    plt.show()
 
 tGPSStart = lal.GPSTimeNow()
-res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=100,nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100,igrand_threshold_fraction=0.)
+res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=100,nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100,igrand_threshold_fraction=fracThreshold,use_multiprocessing=rosUseMultiprocessing,verbose=True)
 tGPSEnd = lal.GPSTimeNow()
 print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
-print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
-print " expected largest value is ", rho2Net/2, 
+print " lnLmarg is ", np.log(res), " with nominal sampling error ", np.sqrt(var)/res, " but a more reasonable estimate based on the lnL history is ", np.std(lnLmarg - np.log(res))
+print " expected largest value is ", rho2Net/2, "and observed largest lnL is ", np.max(np.transpose(ret)[-1])
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
 # Save the sampled points to a file
 # Only store some
-ourio.dumpSamplesToFile("test_like_and_samp-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
+ourio.dumpSamplesToFile("test_like_and_samp_margPsi-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
 
 if checkInputs:
     plt.show()
+
 # Plot terminal histograms from the sampled points and log likelihoods
 if rosShowTerminalSampleHistograms:
+    ourio.plotParameterDistributionsFromSamples("results", sampler, ret,  ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
     ra,dec,tref,phi,incl, psi,dist,lnL = np.transpose(ret)  # unpack. This can include all or some of the data set. The default configuration returns *all* points
     print " ==== CONVERGENCE PLOTS (**beware: potentially truncated data!**) === "
-    plt.figure(0)
+    plt.figure(0) # lnL
     plt.clf()
     plt.plot(np.arange(len(lnLmarg)), lnLmarg,label="lnLmarg")
     plt.plot(np.arange(len(lnL)), np.ones(len(lnL))*rho2Net/2,label="rho^2/2")
@@ -368,7 +380,8 @@ if rosShowTerminalSampleHistograms:
     plt.ylabel('lnL')
     plt.legend()
     print " ==== TERMINAL 1D HISTOGRAMS: Sampling and posterior === "
-    plt.figure(1)
+    # d
+    plt.figure(pltAssociation['dist']) # d = fig
     plt.clf()
     hist, bins  = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,density=True)
     center = (bins[:-1]+bins[1:])/2
@@ -376,11 +389,21 @@ if rosShowTerminalSampleHistograms:
     hist,bins = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,weights=np.exp(lnL),density=True)
     center = (bins[:-1]+bins[1:])/2
     plt.plot(center,hist,label="dist:post")
+    # param = 'dist'
+    # pdfPrior = sampler.prior_pdf[param]  # Force type conversion in case we have non-float limits for some reasona
+    # pdfvalsPrior = np.array(map(pdfPrior, xvals))  # do all the numpy operations by hand: no vectorization
+    # pdf = sampler.pdf[param]
+    # xvvals = xvals/(1e6*lal.LAL_PC_SI)       # plot in Mpc, not m.  Note PDF has to change
+    # pdfvalsPrior = pdfvalsPrior * (1e6*lal.LAL_PC_SI) # rescale units
+    # pdfvals = pdfvals * (1e6*lal.LAL_PC_SI) # rescale units
+    # plt.plot(xvals,pdfvalsPrior,label="prior:"+str(param),linestyle='--')
+    # plt.plot(xvals,pdfvals,label=str(param))
     plt.xlabel("d (Mpc)")
     plt.title("Sampling and posterior distribution: d ")
     plt.legend()
-    plt.figure(2)
-    plt.clf()
+    # tref
+    plt.figure(pltAssociation['tref'])
+#    plt.clf()
     hist, bins  = np.histogram(tref,bins=50,density=True)
     center = (bins[:-1]+bins[1:])/2
     plt.plot(center,hist,label="tref:sampled")
@@ -391,8 +414,9 @@ if rosShowTerminalSampleHistograms:
     plt.xlabel("t (s)")
     plt.title("Sampling and posterior distribution: t ")
     plt.legend()
-    plt.figure(3)
-    plt.clf()
+    # incl
+    plt.figure(pltAssociation['incl'])
+#    plt.clf()
     hist, bins  = np.histogram(incl,bins=50,normed=True)
     center = (bins[:-1]+bins[1:])/2
     plt.plot(center,hist,label="incl:sampled")

@@ -89,6 +89,11 @@ to further refine subsequent iterations.  Convergence should get faster as we go
 
 - harvest from pycbc -- save reinventing the wheel
 
+
+\editremark{Bugs}
+
+ - marginalization in $\psi$ is effective, but posteriors are extremely broad.  Fixme?  Check consistency with standard code?
+
 \section{What we are selling}
 
 \subsection{Early sale}
@@ -1009,6 +1014,20 @@ confidence many random trials have found numbers consistent with the same order 
 
 
 
+\subsection{Appendix: Computational costs and convergence rate}
+Monte carlo calculations converge as $1/\sqrt{N}$; increasing our accuracy can be \textbf{extremely} expensive.  
+%
+Conversely, the range of parameter space that contributes significantly to the integrand ($V_{\rm eff}$) is extremely
+small, scaling as a fraction $\rho^{-d_{\rm eff}}$ of the total parameter volume.  [$d_{\rm eff}$ is defined in \cite{gwastro-mergers-HeeSuk-CompareToPE-Aligned}
+
+\begin{shaded}
+Notes for 
+
+we expect the rate to grow slowly and steadily past a certain point, as we populate a region
+			$V_{eff}$. Note most volume in Veff is significantly far away from the peak -- near the threshold.
+			For us most of the volume will contribute at $\delta \rho^2/2 ~ 2$ or more 
+\end{shaded}
+
 \begin{widetext}
 \section{Stage 1: Prototype code}
 \subsection{Milestones and Benchmarks: Injection and template code }
@@ -1396,6 +1415,10 @@ sampler, the likelihood, $p$, and $p_s$.
 \item \emph{Sampling distributions correct}: Are the samples generated consistent with the \texttt{pdf} provided? With
   the \texttt{cdf} provided?  [Errors and inconsistencies can happen in the sampler code]
 
+\item \emph{Integrals conserve probability}: The integral $\int p dx=1$.  [\textbf{This may not be satisfied if the
+    sampling prior is very narrow, particularly in sky location.}] \editremark{implement as standard test}
+
+
 \item \emph{$N_{\rm eff},L$ sequences plausible}: Confirm $N_{\rm eff},I_n$ sequences vs $N$ are plausible given the
   physical system.
 
@@ -1454,6 +1477,8 @@ Recover the distance distribution;  sky position error box; and event time distr
 \subsubsection{Test suite 2: 3-IFO}
 
 
+
+\noindent \textbf{Report on timescales: Marginalized integral}: Con
 
 
 \noindent \textbf{Marginalize}
@@ -1741,6 +1766,12 @@ http://www.slideshare.net/teoliphant/numba-siam-2013
 \end{verbatim}
 %http://stackoverflow.com/questions/8097408/why-python-is-so-slow-for-a-simple-loop
 
+\noindent \textbf{Multiprocessing}:  A hack to achieve mildly better flow
+\begin{verbatim}
+http://docs.python.org/dev/library/threading.html#	
+http://docs.python.org/dev/library/multiprocessing.html
+http://stackoverflow.com/questions/2846653/python-multithreading-for-dummies
+\end{verbatim}
 \appendix
 \section{Gravy issues: Things to think about but not critical now}
 

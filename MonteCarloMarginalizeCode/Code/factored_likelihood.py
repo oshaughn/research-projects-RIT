@@ -688,7 +688,7 @@ def estimateUpperDistanceBoundInMpc(rholms,crossTerms):
         nDet+=1
         rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
         Qbar+=np.abs(crossTerms[det][(2,2), (2,2)])/np.max(np.abs(rho22.data.data))   # one value for each detector
-    fudgeFactor = 1.2  # let's give ourselves a buffer -- we can't afford to be too tight
+    fudgeFactor = 1.1  # let's give ourselves a buffer -- we can't afford to be too tight
     return fudgeFactor*distMpcRef* Qbar/nDet *np.sqrt(5/(4.*np.pi))/2.
 
 def estimateEventTimeRelative(theEpochFiducial,rholms, rholms_intp):

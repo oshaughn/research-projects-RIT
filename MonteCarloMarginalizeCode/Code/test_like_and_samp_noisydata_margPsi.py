@@ -1,3 +1,11 @@
+"""
+test_like_and_samp_noisydata.py:  Testing convergnece of intrinsic marginalization with noisy, 3-ifo data.
+  - Loads frame data that Chris generated (assumed in signal_hoft) into 3-detector data sets
+  - Uses an assumed PSD
+  - Constructs a template which *exactly* matches the known source
+  - 
+"""
+from pylal import Fr
 import sys
 from optparse import OptionParser
 
@@ -7,10 +15,6 @@ from matplotlib import pylab as plt
 from glue.lal import Cache
 import lalsimutils
 
-"""
-test_like_and_samp.py:  Testing the likelihood evaluation and sampler, working in conjunction
-
-"""
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -18,6 +22,8 @@ from factored_likelihood import *
 import ourio
 
 checkInputs = False
+rosUseZeroNoiseCache  = True
+
 
 rosUseDifferentWaveformLengths = False    
 rosUseRandomTemplateStartingFrequency = False
@@ -29,15 +35,8 @@ rosShowSamplerInputDistributions = True
 rosShowRunningConvergencePlots = True
 rosShowTerminalSampleHistograms = True
 rosSaveHighLikelihoodPoints = True
-rosUseThresholdForReturn = False
-rosUseMultiprocessing= False
-rosDebugCheckPriorIntegral = False
-nMaxEvals = 1e4
+nMaxEvals = 1e2
 
-if rosUseThresholdForReturn and nMaxEvals > 5e4:  # I usually only want to restrict the return set when I am testing
-    fracThreshold = 0.95
-else:
-    fracThreshold = 0.0
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
 tEventFiducial = 0                                                                 # relative to GPS reference
@@ -47,13 +46,17 @@ optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file contai
 optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
 opts, args = optp.parse_args()
 
-det_dict = {}
+data_dict = {}
+data_dict_time = {}
+psd_dict = {}
 rhoExpected ={}
-if opts.channel_name is not None and opts.cache_file is None:
-    print >>sys.stderr, "Cache file required when requesting channel data."	
-    exit(-1)
-elif opts.channel_name is not None:
-    det_dict = dict(map(lambda cname: cname.split("="), opts.channel_name))
+rhoManual ={}
+rhoExpectedAlt ={}
+# Note: Injected signal has fmin = 25. We should choose a different value.
+fminWaves = 30
+fminSNR = 30
+fSample = 4096*4  # will be reset by data sampling rate.
+
 
 Niter = 5 # Number of times to call likelihood function
 Tmax = 0.05 # max ref. time
@@ -76,42 +79,52 @@ else:
     else:
         fminWavesTemplate = fminWavesSignal
 
-#
-# Produce data with a coherent signal in H1, L1, V1
-#
-data_dict = {}
-if len(det_dict) > 0:
-    for d, chan in det_dict.iteritems():
-        data_dict[d] = lalsimutils.frame_data_to_hoff(opts.cache_file, chan)
+
+theEpochFiducial = lal.LIGOTimeGPS(1000000014.000000000)   # Use actual injection GPS time (assumed from trigger)
+#theEpochFiducial = lal.LIGOTimeGPS(1000000000.000000000)     # Use epoch of the data
+tEventFiducial = 0   #  time relative to fiducial epoch, used to identify window to look in.  Checked empirically.
+
+detectors = ['H1', "L1", "V1"]
+psd_dict['H1'] = lalsim.SimNoisePSDiLIGOSRD
+psd_dict['L1'] = lalsim.SimNoisePSDiLIGOSRD
+psd_dict['V1'] = lalsim.SimNoisePSDiLIGOSRD
+
+# Load IFO FFTs.
+# ASSUME data has same sampling rate!
+if not rosUseZeroNoiseCache:
+    fnameCache = 'test1.cache'
 else:
-    m1 = 4*lal.LAL_MSUN_SI
-    m2 = 3*lal.LAL_MSUN_SI
+    fnameCache = 'test1-0noise.cache'
+data_dict['H1'] =frame_data_to_non_herm_hoff(fnameCache, "H1"+":FAKE-STRAIN")
+data_dict['V1'] =frame_data_to_non_herm_hoff(fnameCache, "V1"+":FAKE-STRAIN")
+data_dict['L1'] =frame_data_to_non_herm_hoff(fnameCache, "L1"+":FAKE-STRAIN")
+#print data_dict['H1'].data.data[10]  # confirm data loaded
+df = data_dict['H1'].deltaF  
+fSample = len(data_dict['H1'].data.data)*data_dict['H1'].deltaF  # Note two-sided
+print " sampling rate of data = ", fSample
+print " ===  Repeating SNR calculation (only valid for noiseless data) ==="
+rho2NetManual = 0
+for det in detectors:
+    IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det])
+    rhoManual[det] = IP.norm(data_dict[det])
+    rho2NetManual+= rhoManual[det]*rhoManual[det]
+    print det, rhoManual[det], " via raw data"
 
-    Psig = ChooseWaveformParams(
-        m1 = m1,m2 =m2,
-        fmin = fminWavesSignal, 
-        fref=fref, ampO=ampO,
-                                radec=True, theta=1.2, phi=2.4,
-                                detector='H1', 
-                                dist=25.*1.e6*lal.LAL_PC_SI,
-                                tref = theEpochFiducial,
-        deltaT=1./fSample
-                                )
-    df = findDeltaF(Psig)
-    Psig.print_params()
-    Psig.deltaF = df
-    data_dict['H1'] = non_herm_hoff(Psig)
-    Psig.detector = 'L1'
-    data_dict['L1'] = non_herm_hoff(Psig)
-    Psig.detector = 'V1'
-    data_dict['V1'] = non_herm_hoff(Psig)
 
-# TODO: Read PSD from XML
-psd_dict = {}
-analyticPSD_Q = True # For simplicity, using an analytic PSD
-psd_dict['H1'] = lal.LIGOIPsd
-psd_dict['L1'] = lal.LIGOIPsd
-psd_dict['V1'] = lal.LIGOIPsd
+# TARGET INJECTED SIGNAL (for reference and calibration of results)
+Psig = xml_to_ChooseWaveformParams_array("mdc.xml.gz")[0]  # Load in the physical parameters of the injection (=first element)
+dfSig = Psig.deltaF = findDeltaF(Psig)  # NOT the full deltaf to avoid padding problems
+Psig.print_params()
+rho2Net = 0
+for det in detectors:
+    Psig.detector = det
+    hT = non_herm_hoff(Psig)
+    fSampleSig = len(hT.data.data)*hT.deltaF
+    IP = ComplexIP(fLow=fminSNR, fNyq=fSampleSig/2,deltaF=dfSig,psd=psd_dict[det])
+    rhoExpected[det] = rhoDet = IP.norm(hT)
+    rho2Net += rhoDet*rhoDet
+    print det, rhoDet, "compare to", rhoExpected[det],  "; note it arrival time relative to fiducial of ", float(ComputeArrivalTimeAtDetector(det, Psig.phi,Psig.theta,Psig.tref) - theEpochFiducial)
+print "Network : ", np.sqrt(rho2Net)
 
 print " == Data report == "
 detectors = data_dict.keys()
@@ -270,7 +283,7 @@ def uniform_samp(a, b, x):
 
 # set up bounds on parameters
 # Polarization angle
-psi_min, psi_max = 0, numpy.pi
+psi_min, psi_max = 0, 2*numpy.pi
 # RA and dec
 ra_min, ra_max = 0, 2*numpy.pi
 dec_min, dec_max = -numpy.pi/2, numpy.pi/2
@@ -360,92 +373,81 @@ if rosShowSamplerInputDistributions:
         plt.savefig("test_like_and_samp-"+str(param)+".pdf")
 #    plt.show()
 
-if rosDebugCheckPriorIntegral:
-    res, var = mcsampler.sanityCheckSamplerIntegrateUnity(sampler, "ra", "dec", "tref", "phi", "incl", "psi", "dist",nmax=nMaxEvals)
-    print " Integration of unity ", res, " which is probably NOT =1, because our sampler has a very narrow PDF."
-
 tGPSStart = lal.GPSTimeNow()
-res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=200,nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100,igrand_threshold_fraction=fracThreshold,use_multiprocessing=rosUseMultiprocessing,verbose=True)
+res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=200,nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100,igrand_threshold_fraction=0.95)
 tGPSEnd = lal.GPSTimeNow()
 print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
-print " lnLmarg is ", np.log(res), " with nominal relative sampling error ", np.sqrt(var)/res, " but a more reasonable estimate based on the lnL history is ", np.std(lnLmarg - np.log(res))
-print " expected largest value is ", rho2Net/2, "and observed largest lnL is ", np.max(np.transpose(ret)[-1])
+print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
+print " expected largest value is ", rho2Net/2, 
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
 # Save the sampled points to a file
 # Only store some
 ourio.dumpSamplesToFile("test_like_and_samp-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
-np.savetxt('test_like_and_samp-result.dat', [res])
-np.savetxt('test_like_and_samp-dump-lnLmarg.dat',lnLmarg)
 
 if checkInputs:
     plt.show()
-
-
 # Plot terminal histograms from the sampled points and log likelihoods
 if rosShowTerminalSampleHistograms:
+    ra,dec,tref,phi,incl, psi,dist,lnL = np.transpose(ret)  # unpack. This can include all or some of the data set. The default configuration returns *all* points
     print " ==== CONVERGENCE PLOTS (**beware: potentially truncated data!**) === "
-    plt.figure(99)
+    plt.figure(0)
     plt.clf()
-    lnL = np.transpose(ret)[-1]
     plt.plot(np.arange(len(lnLmarg)), lnLmarg,label="lnLmarg")
-    nExtend = np.max([len(lnL),len(lnLmarg)])
-    plt.plot(np.arange(nExtend), np.ones(nExtend)*rho2Net/2,label="rho^2/2")
+    plt.plot(np.arange(len(lnL)), np.ones(len(lnL))*rho2Net/2,label="rho^2/2")
     plt.xlim(0,len(lnL))
     plt.xlabel('iteration')
     plt.ylabel('lnL')
     plt.legend()
-    ourio.plotParameterDistributionsFromSamples("results", sampler, ret,  ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
-    # print " ==== TERMINAL 1D HISTOGRAMS: Sampling and posterior === "
-    # plt.figure(1)
-    # plt.clf()
-    # hist, bins  = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,density=True)
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="dist:sampled")
-    # hist,bins = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,weights=np.exp(lnL),density=True)
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="dist:post")
-    # plt.xlabel("d (Mpc)")
-    # plt.title("Sampling and posterior distribution: d ")
-    # plt.legend()
-    # plt.figure(2)
-    # plt.clf()
-    # hist, bins  = np.histogram(tref,bins=50,density=True)
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="tref:sampled")
-    # hist, bins  = np.histogram(tref,bins=50,density=True,weights=np.exp(lnL))
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="tref:post")
-    # plt.xlim(-0.01+tEventFiducial,0.01+tEventFiducial)
-    # plt.xlabel("t (s)")
-    # plt.title("Sampling and posterior distribution: t ")
-    # plt.legend()
-    # plt.figure(3)
-    # plt.clf()
-    # hist, bins  = np.histogram(incl,bins=50,normed=True)
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="incl:sampled")
-    # hist, bins  = np.histogram(incl,bins=50,normed=True,weights=np.exp(lnL))
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="incl:post")
-    # plt.xlabel("incl")
-    # plt.title("Sampling and posterior distribution: incl ")
-    # plt.legend()
-    # plt.figure(4)
-    # plt.clf()
-    # hist, bins  = np.histogram(psi,bins=50,normed=True)
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="psi:sampled")
-    # hist, bins  = np.histogram(psi,bins=50,normed=True,weights=np.exp(lnL))
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="psi:post")
-    # plt.xlabel("psi")
-    # plt.title("Sampling and posterior distribution: psi ")
-    # plt.legend()
-    # plt.show()
+    print " ==== TERMINAL 1D HISTOGRAMS: Sampling and posterior === "
+    plt.figure(1)
+    plt.clf()
+    hist, bins  = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,density=True)
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="dist:sampled")
+    hist,bins = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,weights=np.exp(lnL),density=True)
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="dist:post")
+    plt.xlabel("d (Mpc)")
+    plt.title("Sampling and posterior distribution: d ")
+    plt.legend()
+    plt.figure(2)
+    plt.clf()
+    hist, bins  = np.histogram(tref,bins=50,density=True)
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="tref:sampled")
+    hist, bins  = np.histogram(tref,bins=50,density=True,weights=np.exp(lnL))
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="tref:post")
+    plt.xlim(-0.01+tEventFiducial,0.01+tEventFiducial)
+    plt.xlabel("t (s)")
+    plt.title("Sampling and posterior distribution: t ")
+    plt.legend()
+    plt.figure(3)
+    plt.clf()
+    hist, bins  = np.histogram(incl,bins=50,normed=True)
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="incl:sampled")
+    hist, bins  = np.histogram(incl,bins=50,normed=True,weights=np.exp(lnL))
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="incl:post")
+    plt.xlabel("incl")
+    plt.title("Sampling and posterior distribution: incl ")
+    plt.legend()
+    plt.figure(4)
+    plt.clf()
+    hist, bins  = np.histogram(psi,bins=50,normed=True)
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="psi:sampled")
+    hist, bins  = np.histogram(psi,bins=50,normed=True,weights=np.exp(lnL))
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="psi:post")
+    plt.xlabel("psi")
+    plt.title("Sampling and posterior distribution: psi ")
+    plt.legend()
+    plt.show()
     print " ==== TERMINAL 2D HISTOGRAMS: Sampling and posterior === "
         # Distance-inclination
-    ra,dec,tref,phi,incl, psi,dist,lnL = np.transpose(ret)  # unpack. This can include all or some of the data set. The default configuration returns *all* points
     plt.figure(1)
     plt.clf()
     H, xedges, yedges = np.histogram2d(dist/(1e6*lal.LAL_PC_SI),incl, weights=np.exp(lnL),bins=(10,10))
