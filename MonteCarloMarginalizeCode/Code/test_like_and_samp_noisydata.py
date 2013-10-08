@@ -1,3 +1,11 @@
+"""
+test_like_and_samp_noisydata.py:  Testing convergnece of intrinsic marginalization with noisy, 3-ifo data.
+  - Loads frame data that Chris generated (assumed in signal_hoft) into 3-detector data sets
+  - Uses an assumed PSD
+  - Constructs a template which *exactly* matches the known source
+  - 
+"""
+from pylal import Fr
 import sys
 from optparse import OptionParser
 
@@ -7,28 +15,18 @@ from matplotlib import pylab as plt
 from glue.lal import Cache
 import lalsimutils
 
-"""
-test_like_and_samp.py:  Testing the likelihood evaluation and sampler, working in conjunction
-
-"""
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 from factored_likelihood import *
 import ourio
 
-tStartEverything = lal.GPSTimeNow()
+checkInputs = False
+rosUseZeroNoiseCache  = True
 
-checkInputs = True
-checkResults = True # Turn on to print/plot output; Turn off for testing speed
-checkInputPlots = False
-checkResultsPlots = True
-checkResultsSlowChecks = False
-rosUseRandomEventTime = True
-rosUseDifferentWaveformLengths = False    # Very important test: lnL should be independent of the template length
-rosUseRandomTemplateStartingFrequency = True
-nMaxEvals = 1e6
 
+rosUseDifferentWaveformLengths = False    
+rosUseRandomTemplateStartingFrequency = False
 
 rosUseTargetedDistance = True
 rosUseStrongPriorOnParameters = False
@@ -37,30 +35,41 @@ rosShowSamplerInputDistributions = True
 rosShowRunningConvergencePlots = True
 rosShowTerminalSampleHistograms = True
 rosSaveHighLikelihoodPoints = True
+nMaxEvals = 1e2
 
-fminSNR = 25
-fSample = 4096*4
 
-ifoName = "H1"
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
+tEventFiducial = 0                                                                 # relative to GPS reference
+
+optp = OptionParser()
+optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
+optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
+opts, args = optp.parse_args()
+
+data_dict = {}
+data_dict_time = {}
+psd_dict = {}
+rhoExpected ={}
+rhoManual ={}
+rhoExpectedAlt ={}
+# Note: Injected signal has fmin = 25. We should choose a different value.
+fminWaves = 30
+fminSNR = 30
+fSample = 4096*4  # will be reset by data sampling rate.
 
 
 Niter = 5 # Number of times to call likelihood function
-Tmax = 0.05 # max ref. time (prior)
-Tmin = -0.05 # min ref. time (prior)
-Dmax = 510. * 1.e6 * lal.LAL_PC_SI # max distance (prior)
-Dmin = 1. * 1.e6 * lal.LAL_PC_SI     # min distance (prior)
+Tmax = 0.05 # max ref. time
+Tmin = -0.05 # min ref. time
+Dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
+Dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
 
-#
-# Produce data with a coherent signal in H1, L1, V1
-#
-data_dict = {}
-psd_dict = {}
-rhoExpected ={}
-rhoExpectedAlt ={}
-analyticPSD_Q = True # For simplicity, using an analytic PSD
+ampO =0 # sets which modes to include in the physical signal
+Lmax = 2 # sets which modes to include
+fref = 100
+fminWavesSignal = 25  # too long can be a memory and time hog, particularly at 16 kHz
+fSample = 4096*4
 
-fminWavesSignal = 25
 if rosUseDifferentWaveformLengths: 
     fminWavesTemplate = fminWavesSignal+0.005
 else:
@@ -71,48 +80,83 @@ else:
         fminWavesTemplate = fminWavesSignal
 
 
-distanceFiducial = 25.  # Make same as reference
-psd_dict[ifoName] =  lalsim.SimNoisePSDiLIGOSRD
-m1 = 4*lal.LAL_MSUN_SI
-m2 = 3*lal.LAL_MSUN_SI
-tEventFiducial = 0.000 # 10./fSample
-if rosUseRandomEventTime:
-    print "   --- Generating a random event (barycenter) time  ---- " 
-    tEventFiducial+= 0.01*(2*np.random.random_sample()-1.)
-ampO =0 # sets which modes to include in the physical signal
-Lmax = 2  # sets which modes to include in the output
-fref = 100
-Psig = ChooseWaveformParams(fmin = fminWavesSignal, radec=False, incl=0.0,phiref=0.0, theta=-np.pi/2, phi=0,psi=0.0,
-         m1=m1,m2=m2,
-         ampO=ampO,
-         fref=fref,
-         tref=theEpochFiducial+tEventFiducial,
-         deltaT=1./fSample,
-         dist=distanceFiducial*1.e6*lal.LAL_PC_SI)
-tEventFiducialGPS = Psig.tref             # the 'trigger time' we will localize on
-df = findDeltaF(Psig)
-Psig.deltaF = df
+theEpochFiducial = lal.LIGOTimeGPS(1000000014.000000000)   # Use actual injection GPS time (assumed from trigger)
+#theEpochFiducial = lal.LIGOTimeGPS(1000000000.000000000)     # Use epoch of the data
+tEventFiducial = 0   #  time relative to fiducial epoch, used to identify window to look in.  Checked empirically.
+
+detectors = ['H1', "L1", "V1"]
+psd_dict['H1'] = lalsim.SimNoisePSDiLIGOSRD
+psd_dict['L1'] = lalsim.SimNoisePSDiLIGOSRD
+psd_dict['V1'] = lalsim.SimNoisePSDiLIGOSRD
+
+# Load IFO FFTs.
+# ASSUME data has same sampling rate!
+if not rosUseZeroNoiseCache:
+    fnameCache = 'test1.cache'
+else:
+    fnameCache = 'test1-0noise.cache'
+data_dict['H1'] =frame_data_to_non_herm_hoff(fnameCache, "H1"+":FAKE-STRAIN")
+data_dict['V1'] =frame_data_to_non_herm_hoff(fnameCache, "V1"+":FAKE-STRAIN")
+data_dict['L1'] =frame_data_to_non_herm_hoff(fnameCache, "L1"+":FAKE-STRAIN")
+#print data_dict['H1'].data.data[10]  # confirm data loaded
+df = data_dict['H1'].deltaF  
+fSample = len(data_dict['H1'].data.data)*data_dict['H1'].deltaF  # Note two-sided
+print " sampling rate of data = ", fSample
+print " ===  Repeating SNR calculation (only valid for noiseless data) ==="
+rho2NetManual = 0
+for det in detectors:
+    IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det])
+    rhoManual[det] = IP.norm(data_dict[det])
+    rho2NetManual+= rhoManual[det]*rhoManual[det]
+    print det, rhoManual[det], " via raw data"
+
+
+# TARGET INJECTED SIGNAL (for reference and calibration of results)
+Psig = xml_to_ChooseWaveformParams_array("mdc.xml.gz")[0]  # Load in the physical parameters of the injection (=first element)
+dfSig = Psig.deltaF = findDeltaF(Psig)  # NOT the full deltaf to avoid padding problems
 Psig.print_params()
-data_dict[ifoName] = non_herm_hoff(Psig)
-print "Timing spacing in data vs expected : ", df, data_dict[ifoName].deltaF
+rho2Net = 0
+for det in detectors:
+    Psig.detector = det
+    hT = non_herm_hoff(Psig)
+    fSampleSig = len(hT.data.data)*hT.deltaF
+    IP = ComplexIP(fLow=fminSNR, fNyq=fSampleSig/2,deltaF=dfSig,psd=psd_dict[det])
+    rhoExpected[det] = rhoDet = IP.norm(hT)
+    rho2Net += rhoDet*rhoDet
+    print det, rhoDet, "compare to", rhoExpected[det],  "; note it arrival time relative to fiducial of ", float(ComputeArrivalTimeAtDetector(det, Psig.phi,Psig.theta,Psig.tref) - theEpochFiducial)
+print "Network : ", np.sqrt(rho2Net)
 
 print " == Data report == "
 detectors = data_dict.keys()
 rho2Net = 0
+print  " Amplitude report :"
+fminSNR =30
 for det in detectors:
-    IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2.,deltaF=df,psd=psd_dict[det])
-    IPOverlap = ComplexOverlap(fLow=fminSNR, fNyq=fSample/2.,deltaF=df,psd=psd_dict[det],analyticPSD_Q=True,full_output=True)  # Use for debugging later
+    IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=Psig.deltaF,psd=psd_dict[det])
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
-    rhoExpectedAlt[det] = rhoDet2 = IPOverlap.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
-    print det, rhoDet, rhoDet2, " at epoch ", float(data_dict[det].epoch)
+    print det, " rho = ", rhoDet
 print "Network : ", np.sqrt(rho2Net)
 
+if checkInputs:
+    print " == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
+    P = Psig.copy()
+    P.tref = Psig.tref
+    for det in detectors:
+        P.detector=det   # we do 
+        hT = hoft(P)
+        tvals = float(P.tref - theEpochFiducial) + hT.deltaT*np.arange(len(hT.data.data))
+        plt.figure(1)
+        plt.plot(tvals, hT.data.data,label=det)
 
-print " ======= Template specified: precomputing all quantities =========="
+    tlen = hT.deltaT*len(np.nonzero(np.abs(hT.data.data)))
+    tRef = np.abs(float(hT.epoch))
+    plt.xlim( tRef-0.5,tRef+0.1)  # Not well centered, based on epoch to identify physical merger time
+    plt.savefig("test_like_and_samp-input-hoft.pdf")
+
+
+
 # Struct to hold template parameters
-# Fiducial distance provided but will not be used
-Lmax = 2 # sets which modes to include
 P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
@@ -120,18 +164,22 @@ P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.
          tref=theEpochFiducial,
          deltaT=1./fSample,
          dist=100*1.e6*lal.LAL_PC_SI,
-         deltaF=df) #ChooseWaveformParams(m1=m1,m2=m2,fmin = fminWaves, dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO,fref=fref)
-rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict, psd_dict, Lmax, analyticPSD_Q)
-tMiddle = lal.GPSTimeNow()
+         deltaF=df)
+
 
 #
+# Perform the Precompute stage
+#
+rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict,psd_dict, Lmax, analyticPSD_Q)
+print "Finished Precomputation..."
 print "====Generating metadata from precomputed results ====="
 distBoundGuess = estimateUpperDistanceBoundInMpc(rholms, crossTerms)
 print " distance probably less than ", distBoundGuess, " Mpc"
 
+print "====Loading metadata from previous runs (if any): sampler-seed-data.dat ====="
+
+
 if checkInputs == True:
-
-
 
     print " ======= UV test: Recover the SNR of the injection  =========="
     print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] "
@@ -189,12 +237,12 @@ if checkInputs == True:
 nEvals = 0
 def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
     global nEvals
-    global sampler
-    global rho2Net
-    global priorPDF
+    global pdfFullPrior
 
     lnL = numpy.zeros(phi.shape)
     i = 0
+#    print " Likelihood results :  "
+#    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
     for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
         P.phi = ph # right ascension
         P.theta = th # declination
@@ -203,14 +251,25 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.incl = ic # inclination
         P.psi = ps # polarization angle
         P.dist = di # luminosity distance
-        
-        lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)
+
+        lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+#        if i<len(phi)-10:
+#            LSum[i+1] = LSum[i]+np.exp(lnL[i])
+#        if (numpy.mod(i,1000)==10 and i>100):
+#            print " iteration Neff  lnL   sqrt(2max(lnL)) rho  sqrt(2 lnLmarg)   <lnL> "  # reminder
+        # if (numpy.mod(i,200)==10 and i>100):
+        #     Neff = LSum[i+1]/np.exp(np.max(lnL[:i]))   # should actually include sampling distribution and prior distribution correction in it
+            # if rosDebugMessages:
+            #     print "\t Params ", nEvals+i, " (RA, DEC, tref, phiref, incl, psi, dist) ="
+            #     print "\t", i, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL[i]
+            #     print "\t sampler probability of draws", sampler.cdf['ra'](P.phi), sampler.cdf['dec'](P.theta),sampler.cdf['tref'](float(P.tref - theEpochFiducial)), sampler.cdf['phi'](P.phiref), sampler.cdf['incl'](P.incl), sampler.cdf['psi'](P.psi), sampler.cdf['dist'](P.dist)
+            # logLmarg =np.log(np.mean(np.exp(lnL[:i])))
+#            print nEvals+i, Neff,  lnL[i],   np.sqrt(2*np.max(lnL[:i])), np.sqrt(rho2Net), np.sqrt(2*logLmarg), np.mean(lnL[:i])
         i+=1
 
-    tEnd = lal.GPSTimeNow()
-    return numpy.exp(lnL)
 
-tMiddleAfterPlots = lal.GPSTimeNow()
+    nEvals+=i 
+    return numpy.exp(lnL)
 
 import mcsampler
 sampler = mcsampler.MCSampler()
@@ -236,7 +295,6 @@ inc_min, inc_max = 0, numpy.pi
 phi_min, phi_max = 0, 2*numpy.pi
 # distance
 dist_min, dist_max = Dmin, Dmax
-
 
 import functools
 # Define the true prior PDF
@@ -269,12 +327,12 @@ else:
     # PROBLEM: Underlying prior samplers are not uniform.  We need two stages
     sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max,
                           prior_pdf =mcsampler.uniform_samp_psi )
-    # Single IFO, no info
-    sampler.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), None, ra_min, ra_max, 
+    # Use few degree square prior : at SNR 20 in 3 detetors.  This is about 10 deg square
+    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.05), None, ra_min, ra_max, 
                           prior_pdf = mcsampler.uniform_samp_phase)
-    sampler.add_parameter("dec", functools.partial(mcsampler.dec_samp_vector, dec_min, dec_max), None, dec_min, dec_max, 
+    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.05), None, dec_min, dec_max, 
                           prior_pdf= mcsampler.uniform_samp_dec)
-    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.01), None, tref_min, tref_max, 
+    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max, 
                           prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
     sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max,
                           prior_pdf = mcsampler.uniform_samp_phase)
@@ -325,7 +383,7 @@ print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
 # Save the sampled points to a file
 # Only store some
-ourio.dumpSamplesToFile("test_like_and_samp_singleifo-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
+ourio.dumpSamplesToFile("test_like_and_samp-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
 
 if checkInputs:
     plt.show()
@@ -416,12 +474,7 @@ if rosShowTerminalSampleHistograms:
     extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
     plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
     plt.xlim(0,2*np.pi)
-    plt.ylim(0,np.pi)
+    plt.ylim(-np.pi,np.pi)
     plt.colorbar()
     plt.title("Posterior distribution: ra-dec ")
     plt.show()
-
-tMiddleBeforePlots2 = lal.GPSTimeNow()
-
-tMiddleAfterPlots2 = lal.GPSTimeNow()
-

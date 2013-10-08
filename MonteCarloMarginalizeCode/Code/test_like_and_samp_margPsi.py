@@ -17,18 +17,10 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gr
 from factored_likelihood import *
 import ourio
 
-tStartEverything = lal.GPSTimeNow()
+checkInputs = False
 
-checkInputs = True
-checkResults = True # Turn on to print/plot output; Turn off for testing speed
-checkInputPlots = False
-checkResultsPlots = True
-checkResultsSlowChecks = False
-rosUseRandomEventTime = True
-rosUseDifferentWaveformLengths = False    # Very important test: lnL should be independent of the template length
-rosUseRandomTemplateStartingFrequency = True
-nMaxEvals = 1e6
-
+rosUseDifferentWaveformLengths = False    
+rosUseRandomTemplateStartingFrequency = False
 
 rosUseTargetedDistance = True
 rosUseStrongPriorOnParameters = False
@@ -37,30 +29,37 @@ rosShowSamplerInputDistributions = True
 rosShowRunningConvergencePlots = True
 rosShowTerminalSampleHistograms = True
 rosSaveHighLikelihoodPoints = True
+nMaxEvals = 1e6
 
-fminSNR = 25
-fSample = 4096*4
 
-ifoName = "H1"
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
+tEventFiducial = 0                                                                 # relative to GPS reference
 
+optp = OptionParser()
+optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
+optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
+opts, args = optp.parse_args()
+
+det_dict = {}
+rhoExpected ={}
+if opts.channel_name is not None and opts.cache_file is None:
+    print >>sys.stderr, "Cache file required when requesting channel data."	
+    exit(-1)
+elif opts.channel_name is not None:
+    det_dict = dict(map(lambda cname: cname.split("="), opts.channel_name))
 
 Niter = 5 # Number of times to call likelihood function
-Tmax = 0.05 # max ref. time (prior)
-Tmin = -0.05 # min ref. time (prior)
-Dmax = 510. * 1.e6 * lal.LAL_PC_SI # max distance (prior)
-Dmin = 1. * 1.e6 * lal.LAL_PC_SI     # min distance (prior)
+Tmax = 0.05 # max ref. time
+Tmin = -0.05 # min ref. time
+Dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
+Dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
 
-#
-# Produce data with a coherent signal in H1, L1, V1
-#
-data_dict = {}
-psd_dict = {}
-rhoExpected ={}
-rhoExpectedAlt ={}
-analyticPSD_Q = True # For simplicity, using an analytic PSD
+ampO =0 # sets which modes to include in the physical signal
+Lmax = 2 # sets which modes to include
+fref = 100
+fminWavesSignal = 25  # too long can be a memory and time hog, particularly at 16 kHz
+fSample = 4096*4
 
-fminWavesSignal = 25
 if rosUseDifferentWaveformLengths: 
     fminWavesTemplate = fminWavesSignal+0.005
 else:
@@ -70,49 +69,74 @@ else:
     else:
         fminWavesTemplate = fminWavesSignal
 
+#
+# Produce data with a coherent signal in H1, L1, V1
+#
+data_dict = {}
+if len(det_dict) > 0:
+    for d, chan in det_dict.iteritems():
+        data_dict[d] = lalsimutils.frame_data_to_hoff(opts.cache_file, chan)
+else:
+    m1 = 4*lal.LAL_MSUN_SI
+    m2 = 3*lal.LAL_MSUN_SI
 
-distanceFiducial = 25.  # Make same as reference
-psd_dict[ifoName] =  lalsim.SimNoisePSDiLIGOSRD
-m1 = 4*lal.LAL_MSUN_SI
-m2 = 3*lal.LAL_MSUN_SI
-tEventFiducial = 0.000 # 10./fSample
-if rosUseRandomEventTime:
-    print "   --- Generating a random event (barycenter) time  ---- " 
-    tEventFiducial+= 0.01*(2*np.random.random_sample()-1.)
-ampO =0 # sets which modes to include in the physical signal
-Lmax = 2  # sets which modes to include in the output
-fref = 100
-Psig = ChooseWaveformParams(fmin = fminWavesSignal, radec=False, incl=0.0,phiref=0.0, theta=-np.pi/2, phi=0,psi=0.0,
-         m1=m1,m2=m2,
-         ampO=ampO,
-         fref=fref,
-         tref=theEpochFiducial+tEventFiducial,
-         deltaT=1./fSample,
-         dist=distanceFiducial*1.e6*lal.LAL_PC_SI)
-tEventFiducialGPS = Psig.tref             # the 'trigger time' we will localize on
-df = findDeltaF(Psig)
-Psig.deltaF = df
-Psig.print_params()
-data_dict[ifoName] = non_herm_hoff(Psig)
-print "Timing spacing in data vs expected : ", df, data_dict[ifoName].deltaF
+    Psig = ChooseWaveformParams(
+        m1 = m1,m2 =m2,
+        fmin = fminWavesSignal, 
+        fref=fref, ampO=ampO,
+                                radec=True, theta=1.2, phi=2.4,
+                                detector='H1', 
+                                dist=25.*1.e6*lal.LAL_PC_SI,
+                                tref = theEpochFiducial,
+        deltaT=1./fSample
+                                )
+    df = findDeltaF(Psig)
+    Psig.print_params()
+    Psig.deltaF = df
+    data_dict['H1'] = non_herm_hoff(Psig)
+    Psig.detector = 'L1'
+    data_dict['L1'] = non_herm_hoff(Psig)
+    Psig.detector = 'V1'
+    data_dict['V1'] = non_herm_hoff(Psig)
+
+# TODO: Read PSD from XML
+psd_dict = {}
+analyticPSD_Q = True # For simplicity, using an analytic PSD
+psd_dict['H1'] = lal.LIGOIPsd
+psd_dict['L1'] = lal.LIGOIPsd
+psd_dict['V1'] = lal.LIGOIPsd
 
 print " == Data report == "
 detectors = data_dict.keys()
 rho2Net = 0
+print  " Amplitude report :"
+fminSNR =30
 for det in detectors:
-    IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2.,deltaF=df,psd=psd_dict[det])
-    IPOverlap = ComplexOverlap(fLow=fminSNR, fNyq=fSample/2.,deltaF=df,psd=psd_dict[det],analyticPSD_Q=True,full_output=True)  # Use for debugging later
+    IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=Psig.deltaF,psd=psd_dict[det])
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
-    rhoExpectedAlt[det] = rhoDet2 = IPOverlap.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
-    print det, rhoDet, rhoDet2, " at epoch ", float(data_dict[det].epoch)
+    print det, " rho = ", rhoDet
 print "Network : ", np.sqrt(rho2Net)
 
+if checkInputs:
+    print " == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
+    P = Psig.copy()
+    P.tref = Psig.tref
+    for det in detectors:
+        P.detector=det   # we do 
+        hT = hoft(P)
+        tvals = float(P.tref - theEpochFiducial) + hT.deltaT*np.arange(len(hT.data.data))
+        plt.figure(1)
+        plt.plot(tvals, hT.data.data,label=det)
 
-print " ======= Template specified: precomputing all quantities =========="
+    tlen = hT.deltaT*len(np.nonzero(np.abs(hT.data.data)))
+    tRef = np.abs(float(hT.epoch))
+    plt.xlim( tRef-0.5,tRef+0.1)  # Not well centered, based on epoch to identify physical merger time
+    plt.savefig("test_like_and_samp-input-hoft.pdf")
+
+
+
 # Struct to hold template parameters
-# Fiducial distance provided but will not be used
-Lmax = 2 # sets which modes to include
 P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
@@ -120,18 +144,22 @@ P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.
          tref=theEpochFiducial,
          deltaT=1./fSample,
          dist=100*1.e6*lal.LAL_PC_SI,
-         deltaF=df) #ChooseWaveformParams(m1=m1,m2=m2,fmin = fminWaves, dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df,ampO=ampO,fref=fref)
-rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict, psd_dict, Lmax, analyticPSD_Q)
-tMiddle = lal.GPSTimeNow()
+         deltaF=df)
+
 
 #
+# Perform the Precompute stage
+#
+rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict,psd_dict, Lmax, analyticPSD_Q)
+print "Finished Precomputation..."
 print "====Generating metadata from precomputed results ====="
 distBoundGuess = estimateUpperDistanceBoundInMpc(rholms, crossTerms)
 print " distance probably less than ", distBoundGuess, " Mpc"
 
+print "====Loading metadata from previous runs (if any): sampler-seed-data.dat ====="
+
+
 if checkInputs == True:
-
-
 
     print " ======= UV test: Recover the SNR of the injection  =========="
     print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] "
@@ -189,12 +217,12 @@ if checkInputs == True:
 nEvals = 0
 def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
     global nEvals
-    global sampler
-    global rho2Net
-    global priorPDF
+    global pdfFullPrior
 
     lnL = numpy.zeros(phi.shape)
     i = 0
+#    print " Likelihood results :  "
+#    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
     for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
         P.phi = ph # right ascension
         P.theta = th # declination
@@ -203,14 +231,13 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.incl = ic # inclination
         P.psi = ps # polarization angle
         P.dist = di # luminosity distance
-        
-        lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)
+
+        lnL[i] = NetworkLogLikelihoodPolarizationMarginalized(theEpochFiducial, rholms_intp, crossTerms,Psig.tref, Psig.phi,Psig.theta, P.incl, P.phiref,P.psi, P.dist, 2, detectors)
         i+=1
 
-    tEnd = lal.GPSTimeNow()
-    return numpy.exp(lnL)
 
-tMiddleAfterPlots = lal.GPSTimeNow()
+    nEvals+=i 
+    return numpy.exp(lnL)
 
 import mcsampler
 sampler = mcsampler.MCSampler()
@@ -237,7 +264,6 @@ phi_min, phi_max = 0, 2*numpy.pi
 # distance
 dist_min, dist_max = Dmin, Dmax
 
-
 import functools
 # Define the true prior PDF
 # The likelihood function assumes this function exists.
@@ -255,7 +281,7 @@ if rosUseStrongPriorOnParameters:
                           prior_pdf = mcsampler.uniform_samp_phase)
     sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.05), None, dec_min, dec_max, 
                           prior_pdf= mcsampler.uniform_samp_dec)
-    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max, 
+    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.01), None, tref_min, tref_max, 
                           prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
     sampler.add_parameter("phi", functools.partial(mcsampler.gauss_samp, Psig.phiref,0.5), None, phi_min, phi_max, 
                           prior_pdf = mcsampler.uniform_samp_phase)
@@ -269,10 +295,10 @@ else:
     # PROBLEM: Underlying prior samplers are not uniform.  We need two stages
     sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max,
                           prior_pdf =mcsampler.uniform_samp_psi )
-    # Single IFO, no info
-    sampler.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), None, ra_min, ra_max, 
+    # Use few degree square prior : at SNR 20 in 3 detetors.  This is about 10 deg square
+    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.05), None, ra_min, ra_max, 
                           prior_pdf = mcsampler.uniform_samp_phase)
-    sampler.add_parameter("dec", functools.partial(mcsampler.dec_samp_vector, dec_min, dec_max), None, dec_min, dec_max, 
+    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.05), None, dec_min, dec_max, 
                           prior_pdf= mcsampler.uniform_samp_dec)
     sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.01), None, tref_min, tref_max, 
                           prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
@@ -316,7 +342,7 @@ if rosShowSamplerInputDistributions:
 #    plt.show()
 
 tGPSStart = lal.GPSTimeNow()
-res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=200,nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100,igrand_threshold_fraction=0.95)
+res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=100,nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100,igrand_threshold_fraction=0.)
 tGPSEnd = lal.GPSTimeNow()
 print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
 print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
@@ -325,7 +351,7 @@ print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
 # Save the sampled points to a file
 # Only store some
-ourio.dumpSamplesToFile("test_like_and_samp_singleifo-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
+ourio.dumpSamplesToFile("test_like_and_samp-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
 
 if checkInputs:
     plt.show()
@@ -416,12 +442,7 @@ if rosShowTerminalSampleHistograms:
     extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
     plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
     plt.xlim(0,2*np.pi)
-    plt.ylim(0,np.pi)
+    plt.ylim(-np.pi,np.pi)
     plt.colorbar()
     plt.title("Posterior distribution: ra-dec ")
     plt.show()
-
-tMiddleBeforePlots2 = lal.GPSTimeNow()
-
-tMiddleAfterPlots2 = lal.GPSTimeNow()
-

@@ -93,10 +93,21 @@ to further refine subsequent iterations.  Convergence should get faster as we go
 
 \subsection{Early sale}
 
-\noindent \textbf{Playing to the crowd 0}: The evidence is the principal figure of merit for parameter estimation,
+\noindent \textbf{Showing off}:
+\begin{itemize}
+\item \emph{Viable for expensive waveforms} Our approach is not limited by waveform generation costs.  We can therefore perform
+robust parameter estimation with ``expensive'' waveforms like SEOBNR and EOBNRv2HM.  And we have [provide examples]
+
+\item \emph{Viable for expensive long data}: Our approach is not limited by ``setup'' cost and works well with \emph{long} data
+  stretches, such as signals with many resolved higher harmonics; BNS in aLIGO; etc.
+
+\item \emph{Reliable evidence}: The evidence is the principal figure of merit for parameter estimation,
 particularly for selecting among models of competing sophistication.   
 
 Our code provides an  reliable evidence calculation, with well-understood error bars.
+\end{itemize}
+
+\noindent \textbf{Playing to the crowd 0}: 
 
 \noindent \textbf{Playing to the crowd}: At the Sept LVC in Hannover, the PE group identified waveform systematics as a
 core issue needing futher development.  To address waveform systematics (i.e., varying PN order; modified GR) as well as

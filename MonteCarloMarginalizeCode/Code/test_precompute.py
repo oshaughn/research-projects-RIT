@@ -30,6 +30,10 @@ rosUseRandomSourceOrientation = True
 rosUseRandomEventTime = False
 rosUseRandomTemplateStartingFrequency = False
 
+approxSignal = lalsim.TaylorT4
+approxTemplate = lalsim.TaylorT4
+#approxSignal = lalsim.EOBNRv2HM      # if using EOB, make sure to use a full 16kHz sampling rate
+#approxTemplate = lalsim.EOBNRv2HM
 
 #
 # Produce data with a coherent signal in H1, L1, V1
@@ -46,7 +50,7 @@ if (rosUseRandomTemplateStartingFrequency):
     print "   --- Generating a random template starting frequency  ---- " 
     fminWavesTemplate += 5*np.random.random_sample()
 fminSNR = 25
-fSample = 4096
+fSample = 4096*4
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
 #theEpochFiducial = 1064023405.000000000
@@ -75,6 +79,7 @@ fref = 100
 Psig = ChooseWaveformParams(fmin = fminWaves, radec=True, incl=0.0,phiref=0.0, theta=0.2, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
+         approx=approxSignal,
          fref=fref,
          tref=theEpochFiducial+tEventFiducial,
          deltaT=1./fSample,
@@ -159,6 +164,7 @@ print " ======= Template specified: precomputing all quantities =========="
 P =  ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
+         approx=approxTemplate,
          fref=fref,
          deltaT=1./fSample,
          tref=theEpochFiducial,

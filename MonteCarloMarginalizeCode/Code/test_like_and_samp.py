@@ -23,7 +23,7 @@ rosUseDifferentWaveformLengths = False
 rosUseRandomTemplateStartingFrequency = False
 
 rosUseTargetedDistance = True
-rosUseStrongPriorOnParameters = True
+rosUseStrongPriorOnParameters = False
 rosDebugMessages = False
 rosShowSamplerInputDistributions = True
 rosShowRunningConvergencePlots = True
@@ -288,9 +288,10 @@ def pdfFullPrior(phi, theta, tref, phiref, incl, psi, dist): # remember theta is
 if rosUseStrongPriorOnParameters:
     sampler.add_parameter("psi", functools.partial(mcsampler.gauss_samp, Psig.psi, 0.5), None, psi_min, psi_max, 
                           prior_pdf =mcsampler.uniform_samp_psi  )
-    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.5), None, ra_min, ra_max, 
+    # Use few degree square prior : at SNR 20 in 3 detetors.  This is about 10 deg square
+    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.05), None, ra_min, ra_max, 
                           prior_pdf = mcsampler.uniform_samp_phase)
-    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.3), None, dec_min, dec_max, 
+    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.05), None, dec_min, dec_max, 
                           prior_pdf= mcsampler.uniform_samp_dec)
     sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max, 
                           prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
@@ -299,27 +300,28 @@ if rosUseStrongPriorOnParameters:
     sampler.add_parameter("incl", functools.partial(mcsampler.gauss_samp, Psig.incl,0.3), None, inc_min, inc_max, 
                           prior_pdf = mcsampler.uniform_samp_theta)
     if rosUseTargetedDistance:
-        sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, 0, distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max, prior_pdf = np.vectorize(lambda x: x**2/(3*Dmax**3)))
+        sampler.add_parameter("dist", functools.partial(mcsampler.quadratic_samp_vector,  distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max, prior_pdf = np.vectorize(lambda x: x**2/(3*Dmax**3)))
     else:
         sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max,prior_pdf =np.vectorize( lambda x: x**2/(3*Dmax**3)))
 else:
     # PROBLEM: Underlying prior samplers are not uniform.  We need two stages
     sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max,
                           prior_pdf =mcsampler.uniform_samp_psi )
-    sampler.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), None, ra_min, ra_max,
+    # Use few degree square prior : at SNR 20 in 3 detetors.  This is about 10 deg square
+    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.05), None, ra_min, ra_max, 
                           prior_pdf = mcsampler.uniform_samp_phase)
-    sampler.add_parameter("dec", functools.partial(mcsampler.dec_samp_vector), None, dec_min, dec_max,
+    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.05), None, dec_min, dec_max, 
                           prior_pdf= mcsampler.uniform_samp_dec)
-    sampler.add_parameter("tref", functools.partial(mcsampler.uniform_samp_vector, tref_min, tref_max), None, tref_min, tref_max,
+    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max, 
                           prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
     sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max,
                           prior_pdf = mcsampler.uniform_samp_phase)
     sampler.add_parameter("incl", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max,
                           prior_pdf = mcsampler.uniform_samp_theta)
     if rosUseTargetedDistance:
-        sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, 0, distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max)
+        sampler.add_parameter("dist", functools.partial(mcsampler.quadratic_samp_vector,  distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max, prior_pdf = np.vectorize(lambda x: x**2/(3*Dmax**3)))
     else:
-        sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, dist_min, dist_max), None, dist_min, dist_max)
+        sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max,prior_pdf =np.vectorize( lambda x: x**2/(3*Dmax**3)))
 
 
 if rosShowSamplerInputDistributions:
@@ -351,7 +353,10 @@ if rosShowSamplerInputDistributions:
         plt.savefig("test_like_and_samp-"+str(param)+".pdf")
 #    plt.show()
 
-res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=100,nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100,igrand_threshold_fraction=0.9)
+tGPSStart = lal.GPSTimeNow()
+res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=200,nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100,igrand_threshold_fraction=0.95)
+tGPSEnd = lal.GPSTimeNow()
+print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
 print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
 print " expected largest value is ", rho2Net/2, 
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
@@ -429,6 +434,8 @@ if rosShowTerminalSampleHistograms:
     extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
     plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
     plt.colorbar()
+    plt.xlim(0, 50)
+    plt.ylim(0, np.pi)
     plt.title("Posterior distribution: d-incl ")
         # phi-psi
     plt.figure(2)
@@ -437,6 +444,8 @@ if rosShowTerminalSampleHistograms:
     extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
     plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
     plt.colorbar()
+    plt.xlim(0,2*np.pi)
+    plt.ylim(0,np.pi)
     plt.title("Posterior distribution: phi-psi ")
         # ra-dec
     plt.figure(3)
@@ -444,6 +453,8 @@ if rosShowTerminalSampleHistograms:
     H, xedges, yedges = np.histogram2d(ra,dec, bins=(10,10),weights=np.exp(lnL))
     extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
     plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
+    plt.xlim(0,2*np.pi)
+    plt.ylim(-np.pi,np.pi)
     plt.colorbar()
     plt.title("Posterior distribution: ra-dec ")
     plt.show()

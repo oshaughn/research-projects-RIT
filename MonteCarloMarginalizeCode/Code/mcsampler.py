@@ -251,7 +251,7 @@ class MCSampler(object):
 #                        theIntegrandMaxSoFar = numpy.maximum.accumulate(theIntegrandFull) # For debugging only.  FIXME: should split into max over new data and old
 
 #			eff_samp = (int_val.cumsum()/maxval)[-1] + eff_samp   # ROS: This is wrong (monotonic over blocks of size 'n').  neff can reset to 1 at any time.
-                        eff_samp = numpy.sum((theIntegrandFull/maxval[-1])[:ntotal])
+                        eff_samp = numpy.sum((theIntegrandFull/maxval[-1])[:(ntotal+n-1)])
 			# FIXME: Need to bring in the running stddev here
 			var = cumvar(int_val, mean, std, ntotal)[-1]
 			# FIXME: Reenable caching
@@ -313,6 +313,14 @@ uniform_samp_phase = numpy.vectorize(lambda x: 1/(2*numpy.pi))
 uniform_samp_psi = numpy.vectorize(lambda x: 1/(numpy.pi))
 uniform_samp_theta = numpy.vectorize(lambda x: numpy.sin(x)/(2))
 uniform_samp_dec = numpy.vectorize(lambda x: numpy.cos(x)/(2))
+
+def quadratic_samp(rmax,x):
+        if x<rmax:
+                return x**2/(3*rmax**3)
+        else:
+                return 0
+
+quadratic_samp_vector = numpy.vectorize(quadratic_samp, otypes=[numpy.float])
 
 def inv_uniform_cdf(a, b, x):
 	return (b-a)*x+a

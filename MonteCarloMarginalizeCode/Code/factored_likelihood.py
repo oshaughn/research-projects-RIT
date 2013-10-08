@@ -24,6 +24,7 @@ Requires python SWIG bindings of the LIGO Algorithms Library (LAL)
 
 from  lalsimutils import *   # WARNING: will not use same global variables consistently
 from scipy import integrate
+from scipy import special
 import itertools
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
@@ -85,7 +86,8 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
         for L in np.arange(2,Lmax+1):
             for m in np.arange(-Lmax, Lmax+1):
                 hxx = lalsim.SphHarmFrequencySeriesGetMode(hlms,int(L),int(m))  
-                print " hlm(f) GPSTime for (l,m)= ",L,m, ": ", stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", stringGPSNice(epoch)
+                if not(hxx is None):
+                    print " hlm(f) GPSTime for (l,m)= ",L,m, ": ", stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", stringGPSNice(epoch)
 
 
     for det in detectors:
@@ -228,15 +230,15 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
     term1 = 0.
-    keys = constructLMIterator(Lmax)
     if rosAvoidNestedLoops:
+        keys = constructLMIterator(Lmax)
         for pair in keys: #rholms_intp:
             #        print " adding term to lnLdata ", pair
             term1+= np.conj(F*Ylms[pair])*rholms_intp[pair]( float(tshift))
     else:
         for l in range(2,Lmax+1):
             for m in range(-l,l+1):
-                term1 += F * Ylms[(l,m)] * rholms_intp[(l,m)]( float(tshift))
+                term1 += np.conj(F * Ylms[(l,m)]) * rholms_intp[(l,m)]( float(tshift))
     term1 = np.real(term1) / (distMpc/distMpcRef)
 
     if rosDebugMessagesLong:
@@ -280,9 +282,54 @@ def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms, tref
     # empirically this procedure will find a gaussian with width less than  0.5 e (-3) times th window length.  This procedure *should* therefore work for a sub-s window
     LmargTime = integrate.quad(fnIntegrand, tWindowExplore[0], tWindowExplore[1],points=[0],limit=300)[0]  # the second return value is the error
 #    LmargTime = integrate.quadrature(fnIntegrand, tWindowExplore[0], tWindowExplore[1],maxiter=400)  # very slow, not reliable
-    if rosDebugMessages:
-        print " Evaluating  \int L dt :  ", LmargTime, " note integrand evaluates as ", fnIntegrand(0.)
     return np.log(LmargTime)
+
+# Prototyping speed of time marginalization.  Not yet confirmed
+def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTerms, tref, RA,DEC, thS,phiS,psi,  dist, Lmax, detList):
+    """
+    DOCUMENT ME!!!
+    """
+    global distMpcRef
+
+    Ylms = ComputeYlms(Lmax, thS,phiS)
+    distMpc = dist/(lal.LAL_PC_SI*1e6)
+
+    F = {}
+    tshift= {}
+    for det in detList:
+        F[det] = ComplexAntennaFactor(det, RA,DEC,psi,tref)
+        detector = lalsim.DetectorPrefixToLALDetector(det)
+        tshift[det] = float(ComputeArrivalTimeAtDetector(det, RA,DEC, tref)  -  epoch)   # detector time minus reference time (so far)
+
+    term2a = 0.
+    term2b = 0.
+    for det in detList:
+        for pair1 in rholmsDictionary[det]:
+            for pair2 in rholmsDictionary[det]:
+                term2a += F[det] * np.conj(F[det]) * ( crossTerms[det][(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] 
+                term2b += F[det]*F[det]*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[det][((pair1[0],-pair1[1]),pair2)]
+    term2a = -np.real(term2a) / 4. /(distMpc/distMpcRef)**2
+    term2b = -term2b/4./(distMpc/distMpcRef)**2   # coefficient of exp(-4ipsi)
+
+    term1 = 0.
+    for det in detList:
+        for pair in rholmsDictionary[det]:
+                term1+= np.conj(F[det]*Ylms[pair])*rholmsDictionary[det][pair]( float(tshift[det]) )
+    term1 = term1 / (distMpc/distMpcRef)  # coefficient of exp(-2ipsi)
+
+    # if the coefficients of the exponential are too large, do the integral by hand, in the gaussian limit? NOT IMPLEMENTED YET
+    if False: #xgterm2a+np.abs(term2b)+np.abs(term1)>100:
+#        psiCrit = - np.angle(term1/term2b)/2
+#        return term2a+np.real(term2b*np.exp(-4.j*psiCrit) + np.real(term1*np.exp(-2.j*psiCrit)) 
+#        return 0
+        return term2a+ np.log(special.iv(0,np.abs(term1)))  # an approximation, ignoring term2b entirely! 
+    else:
+        # marginalize over phase.  Ideally done analytically. Only works if the terms are not too large -- otherwise overflow can occur. 
+        # Should probably implement a special solution if overflow occurs
+        def fnIntegrand(x):
+            return np.exp( term2a+ np.real(term2b*np.exp(-4.j*x)+ term1*np.exp(+2.j*x)))/np.pi  # remember how the two terms enter -- note signs!
+        LmargPsi = integrate.quad(fnIntegrand,0,np.pi,limit=100,epsrel=1e-4)[0]
+        return np.log(LmargPsi)
 
 def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
     """
@@ -363,6 +410,8 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
     # Loop over modes and compute the overlap time series
     rholms = None
     h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms,2,2)
+    assert data.deltaF == h22.deltaF
+    assert len(data.data.data) == len(h22.data.data)
 
     if rosDebugUseCForQTimeseries:
         psdData = IP.longpsdLAL
@@ -384,16 +433,24 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
             l = int(pair[0])
             m = int(pair[1])
             hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
-            assert hlm.deltaF == data.deltaF
-            rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
+            if hlm is None:
+                # set a zero timeseries for that object
+                deltaT = len(data.data.data)/(2*fNyq)
+                rhoTS = lal.CreateCOMPLEX16TimeSeries("zero data",  lal.LIGOTimeGPS(0.), 0.,deltaT , lal.lalDimensionlessUnit,len(data.data.data))
+            else:
+                assert hlm.deltaF == data.deltaF
+                rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
             rhoTS.epoch = data.epoch -h22.epoch
             rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
                 # Sanity check
             if rosDebugMessagesLong:
                 print  "     :  value of <hlm|data> ", l,m, rho, np.amax(np.abs(rhoTS.data.data))  # Debuging info
-                rhoRegular = IPRegular.ip(hlm,hlm)
-                print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular # ,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
-                print "      : Qlm series starts at ", stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
+                if hlm is None:
+                    print "          -- skipping ", l,m, " since it is not present "
+                else:
+                    rhoRegular = IPRegular.ip(hlm,hlm)
+                    print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular # ,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
+                    print "      : Qlm series starts at ", stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
 
     # RETURN: Do not window or readjust the timeseries here.  This is done in the interpolation step.
     # TIMING : Epoch set 
@@ -499,7 +556,10 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
             mp = pair2[1]
             hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, int(l), int(m))
             hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, int(lp), int(mp))
-            crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)  # need to be careful about left side to avoid type errors later when I do this loop
+            if hlm is None or hlpmp is None:
+                crossTerms[ ((l,m),(lp,mp)) ] = 0
+            else:
+                crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)  # need to be careful about left side to avoid type errors later when I do this loop
             if rosDebugMessages:
                 print "       : U populated ", ((l,m), (lp,mp)), "  = ", crossTerms[(pair1,pair2) ]
     else:
@@ -509,7 +569,10 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
                     for mp in range(-lp,lp+1):
                         hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
                         hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, lp, mp)
-                        crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)
+                        if hlm is None or hlpmp is None:
+                            crossTerms[ ((l,m),(lp,mp)) ] = 0
+                        else:
+                            crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)  # need to be careful about left side to avoid type errors later when I do this loop
                         if rosDebugMessages:
                             print "       : U populated ", ((l,m), (lp,mp)), "  = ", crossTerms[((l,m),(lp,mp)) ]
 

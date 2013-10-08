@@ -39,7 +39,7 @@ theEpochFiducial = lal.LIGOTimeGPS(1000000014.000000000)   # Use actual injectio
 #theEpochFiducial = lal.LIGOTimeGPS(1000000000.000000000)     # Use epoch of the data
 tEventFiducial = 0   #  time relative to fiducial epoch, used to identify window to look in.  Checked empirically.
 
-detectors = {'H1', "L1", "V1"}
+detectors = ['H1', "L1", "V1"]
 psd_dict['H1'] = lalsim.SimNoisePSDiLIGOSRD
 psd_dict['L1'] = lalsim.SimNoisePSDiLIGOSRD
 psd_dict['V1'] = lalsim.SimNoisePSDiLIGOSRD

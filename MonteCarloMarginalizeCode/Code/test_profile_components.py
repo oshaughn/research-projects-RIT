@@ -18,6 +18,7 @@ import sys
 #
 checkResults = True
 rosUseZeroNoiseCache  = True
+approxTemplate = lalsim.TaylorT4
 
 cost_dict = {}
 #
@@ -76,6 +77,7 @@ fref = 100
 P =  ChooseWaveformParams(fmin=fminWaves, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
+         approx=approxTemplate,
          fref=fref,
          deltaT=1./fSample,
          tref=theEpochFiducial,
@@ -130,6 +132,12 @@ for i in np.arange(nEvals):
 tE = lal.GPSTimeNow()
 cost_dict['roll'] = float(tE-tS)/nEvals
 
+tS = lal.GPSTimeNow()
+nEvals = 1000
+for i in np.arange(nEvals):
+    lnL =NetworkLogLikelihoodPolarizationMarginalized(theEpochFiducial, rholms_intp, crossTerms,Psig.tref, Psig.phi,Psig.theta, P.incl, P.phiref,P.psi, P.dist, 2, detectors)
+tE = lal.GPSTimeNow()
+cost_dict['psi'] = float(tE-tS)/nEvals
 
 # tS = lal.GPSTimeNow()
 # nEvals = 20
@@ -151,5 +159,6 @@ print "  ... sum of previous two should equal FactoredLogLikelihood. "
 print "Per-evaluation : generate all Ylms : ", cost_dict['Ylms']
 print "Per-evaluation : evaluate one rholm * (2Lmax+1) *3: ", cost_dict['rholms']* (2*Lmax+1)*3
 print "  ... this should agree with SingleDetectorLogLikelihoodData  *3 "
+print " Special test : polarization log likelihood cost per evaluation = ", cost_dict['psi'],  " which is significantly higher than ", cost_dict['lnL'], "because of one (python-implemented) integration, but should be the same order of time if the integral is done in C "
 #print "Per evaluation NetworkLogLikelihoodTimeMarginalized (an alternative) ", cost_dict['lnLmargTime'], " with answer ", lnLmargTime, " which had better compare with the unmarginalized lnL (i.e., about 200) ", lnL
 #print "    ... use if convergence of a blind Monte Carlo requires many times the following number of iterations ",  cost_dict['lnLmargTime']/cost_dict['lnL']
