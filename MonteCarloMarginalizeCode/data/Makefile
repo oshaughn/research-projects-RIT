@@ -2,7 +2,7 @@
 gid=G78339
 ldf_server=ldr.ligo.caltech.edu:443
 
-all: psds bayestar_map get_data
+all: psds bayestar_map get_data local.cache
 
 coinc.xml:
 	gracedb download ${gid} coinc.xml
@@ -55,4 +55,6 @@ get_data: H_remote.cache L_remote.cache V_remote.cache
 	@while read line; do \
 			gsiscp ldas-pcdev1.ligo.caltech.edu:$${line:16} ${gid}/; \
 	done < V_remote.cache
-	find ${gid}/ | lalapps_path2cache > local.cache
+
+local.cache: 
+	find ${gid}/ -name "*.gwf" | lalapps_path2cache > local.cache
