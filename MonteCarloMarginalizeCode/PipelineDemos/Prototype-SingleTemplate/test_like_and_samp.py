@@ -15,6 +15,7 @@ test_like_and_samp.py:  Testing the likelihood evaluation and sampler, working i
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 from factored_likelihood import *
+import ourio
 
 checkInputs = False
 
@@ -28,6 +29,8 @@ rosShowSamplerInputDistributions = False
 rosShowRunningConvergencePlots = False
 rosShowTerminalSampleHistograms = False
 rosSaveHighLikelihoodPoints = True
+nMaxEvals = 1e7
+
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
 tEventFiducial = 0                                                                 # relative to GPS reference
@@ -54,6 +57,8 @@ Dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
 ampO =0 # sets which modes to include in the physical signal
 Lmax = 2 # sets which modes to include
 fref = 100
+approxSignal = lalsim.EOBNRv2HM
+approxTemplate = lalsim.EOBNRv2HM
 fminWavesSignal = 25  # too long can be a memory and time hog, particularly at 16 kHz
 fSample = 4096*4
 
@@ -81,6 +86,7 @@ else:
         m1 = m1,m2 =m2,
         fmin = fminWavesSignal, 
         fref=fref, ampO=ampO,
+	approx=approxSignal,
                                 radec=True, theta=1.2, phi=2.4,
                                 detector='H1', 
                                 dist=25.*1.e6*lal.LAL_PC_SI,
@@ -136,6 +142,7 @@ if checkInputs:
 # Struct to hold template parameters
 P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
          m1=m1,m2=m2,
+	 approx=approxTemplate,
          ampO=ampO,
          fref=fref,
          tref=theEpochFiducial,
@@ -152,6 +159,8 @@ print "Finished Precomputation..."
 print "====Generating metadata from precomputed results ====="
 distBoundGuess = estimateUpperDistanceBoundInMpc(rholms, crossTerms)
 print " distance probably less than ", distBoundGuess, " Mpc"
+
+print "====Loading metadata from previous runs (if any): sampler-seed-data.dat ====="
 
 
 if checkInputs == True:
@@ -212,13 +221,12 @@ if checkInputs == True:
 nEvals = 0
 def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
     global nEvals
-    global sampler
+    global pdfFullPrior
 
     lnL = numpy.zeros(phi.shape)
     i = 0
-    LSum = np.zeros(phi.shape)
-    print " Likelihood results :  "
-    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
+#    print " Likelihood results :  "
+#    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
     for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
         P.phi = ph # right ascension
         P.theta = th # declination
@@ -228,104 +236,23 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.psi = ps # polarization angle
         P.dist = di # luminosity distance
 
-        lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)
-        if i<len(phi)-10:
-            LSum[i+1] = LSum[i]+np.exp(lnL[i])
-        if (numpy.mod(i,1000)==10 and i>100):
-            print " iteration Neff  lnL   sqrt(2max(lnL)) rho  sqrt(2 lnLmarg)   <lnL> "  # reminder
-        if (numpy.mod(i,200)==10 and i>100):
-            Neff = LSum[i+1]/np.exp(np.max(lnL[:i]))   # should actually include sampling distribution and prior distribution correction in it
-            if rosDebugMessages:
-                print "\t Params ", i, " (RA, DEC, tref, phiref, incl, psi, dist) ="
-                print "\t", i, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL[i]
-                print "\t sampler probability of draws", sampler.cdf['ra'](P.phi), sampler.cdf['dec'](P.theta),sampler.cdf['tref'](float(P.tref - theEpochFiducial)), sampler.cdf['phi'](P.phiref), sampler.cdf['incl'](P.incl), sampler.cdf['psi'](P.psi), sampler.cdf['dist'](P.dist)
-            logLmarg =np.log(np.mean(np.exp(lnL[:i])))
-            print i, Neff,  lnL[i],   np.sqrt(2*np.max(lnL[:i])), np.sqrt(rho2Net), np.sqrt(2*logLmarg), np.mean(lnL[:i])
+        lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+#        if i<len(phi)-10:
+#            LSum[i+1] = LSum[i]+np.exp(lnL[i])
+#        if (numpy.mod(i,1000)==10 and i>100):
+#            print " iteration Neff  lnL   sqrt(2max(lnL)) rho  sqrt(2 lnLmarg)   <lnL> "  # reminder
+        # if (numpy.mod(i,200)==10 and i>100):
+        #     Neff = LSum[i+1]/np.exp(np.max(lnL[:i]))   # should actually include sampling distribution and prior distribution correction in it
+            # if rosDebugMessages:
+            #     print "\t Params ", nEvals+i, " (RA, DEC, tref, phiref, incl, psi, dist) ="
+            #     print "\t", i, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL[i]
+            #     print "\t sampler probability of draws", sampler.cdf['ra'](P.phi), sampler.cdf['dec'](P.theta),sampler.cdf['tref'](float(P.tref - theEpochFiducial)), sampler.cdf['phi'](P.phiref), sampler.cdf['incl'](P.incl), sampler.cdf['psi'](P.psi), sampler.cdf['dist'](P.dist)
+            # logLmarg =np.log(np.mean(np.exp(lnL[:i])))
+#            print nEvals+i, Neff,  lnL[i],   np.sqrt(2*np.max(lnL[:i])), np.sqrt(rho2Net), np.sqrt(2*logLmarg), np.mean(lnL[:i])
         i+=1
 
-    plt.show()
-    if rosShowTerminalSampleHistograms:
-        print " ==== CONVERGENCE PLOTS === "
-        plt.figure(0)
-        plt.clf()
-        plt.plot(np.arange(len(lnL)), np.log(LSum/(1+np.arange(len(lnL)))),label="lnLmarg")
-        plt.plot(np.arange(len(lnL)), np.ones(len(lnL))*rho2Net/2,label="rho^2/2")
-        plt.legend()
-        print " ==== TERMINAL 1D HISTOGRAMS: Sampling and posterior === "
-        plt.figure(1)
-        plt.clf()
-        hist, bins  = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,density=True)
-        center = (bins[:-1]+bins[1:])/2
-        plt.plot(center,hist,label="dist:sampled")
-        hist,bins = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,weights=np.exp(lnL),density=True)
-        center = (bins[:-1]+bins[1:])/2
-        plt.plot(center,hist,label="dist:post")
-        plt.xlabel("d (Mpc)")
-        plt.title("Sampling and posterior distribution: d ")
-        plt.legend()
-        plt.figure(2)
-        plt.clf()
-        hist, bins  = np.histogram(tref,bins=50,density=True)
-        center = (bins[:-1]+bins[1:])/2
-        plt.plot(center,hist,label="tref:sampled")
-        hist, bins  = np.histogram(tref,bins=50,density=True,weights=np.exp(lnL))
-        center = (bins[:-1]+bins[1:])/2
-        plt.plot(center,hist,label="tref:post")
-        plt.xlim(-0.01+tEventFiducial,0.01+tEventFiducial)
-        plt.xlabel("t (s)")
-        plt.title("Sampling and posterior distribution: t ")
-        plt.legend()
-        plt.figure(3)
-        plt.clf()
-        hist, bins  = np.histogram(incl,bins=50,normed=True)
-        center = (bins[:-1]+bins[1:])/2
-        plt.plot(center,hist,label="incl:sampled")
-        hist, bins  = np.histogram(incl,bins=50,normed=True,weights=np.exp(lnL))
-        center = (bins[:-1]+bins[1:])/2
-        plt.plot(center,hist,label="incl:post")
-        plt.xlabel("incl")
-        plt.title("Sampling and posterior distribution: incl ")
-        plt.legend()
-        plt.figure(4)
-        plt.clf()
-        hist, bins  = np.histogram(psi,bins=50,normed=True)
-        center = (bins[:-1]+bins[1:])/2
-        plt.plot(center,hist,label="psi:sampled")
-        hist, bins  = np.histogram(psi,bins=50,normed=True,weights=np.exp(lnL))
-        center = (bins[:-1]+bins[1:])/2
-        plt.plot(center,hist,label="psi:post")
-        plt.xlabel("psi")
-        plt.title("Sampling and posterior distribution: psi ")
-        plt.legend()
-        plt.show()
-        print " ==== TERMINAL 2D HISTOGRAMS: Sampling and posterior === "
-        # Distance-inclination
-        plt.figure(1)
-        plt.clf()
-        H, xedges, yedges = np.histogram2d(dist/(1e6*lal.LAL_PC_SI),incl, weights=np.exp(lnL),bins=(10,10))
-        extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
-        plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
-        plt.colorbar()
-        plt.title("Posterior distribution: d-incl ")
-        # phi-psi
-        plt.figure(2)
-        plt.clf()
-        H, xedges, yedges = np.histogram2d(phi,psi, bins=(10,10),weights=np.exp(lnL))
-        extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
-        plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
-        plt.colorbar()
-        plt.title("Posterior distribution: phi-psi ")
-        # ra-dec
-        plt.figure(3)
-        plt.clf()
-        H, xedges, yedges = np.histogram2d(phi,theta, bins=(10,10),weights=np.exp(lnL))
-        extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
-        plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
-        plt.colorbar()
-        plt.title("Posterior distribution: ra-dec ")
-        plt.show()
-    if rosSaveHighLikelihoodPoints:
-        np.savetxt("points.dat",(phi, theta, tref, phiref, incl, psi, dist,lnL))
+
+    nEvals+=i 
     return numpy.exp(lnL)
 
 import mcsampler
@@ -354,26 +281,45 @@ phi_min, phi_max = 0, 2*numpy.pi
 dist_min, dist_max = Dmin, Dmax
 
 import functools
+# Define the true prior PDF
+# The likelihood function assumes this function exists.
+# The integrator actually does a monte carlo integral of L*p using a sampling prior p_s.
+def pdfFullPrior(phi, theta, tref, phiref, incl, psi, dist): # remember theta is dec, 
+    return (np.cos(theta)/(4*np.pi)) * 1./(tWindowExplore[1]-tWindowExplore[0])*1/(3*Dmax**3)*np.cos(incl)/(4*np.pi)*1./(np.pi)
+
+
 # Uniform sampling (in area) but nonuniform sampling in distance (*I hope*).  Auto-cdf inverse
 if rosUseStrongPriorOnParameters:
-    sampler.add_parameter("psi", functools.partial(mcsampler.gauss_samp, Psig.psi, 0.5), None, psi_min, psi_max)
-    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.5), None, ra_min, ra_max)
-    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.3), None, dec_min, dec_max)
-    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max)
-    sampler.add_parameter("phi", functools.partial(mcsampler.gauss_samp, Psig.phiref,0.5), None, phi_min, phi_max)
-    sampler.add_parameter("incl", functools.partial(mcsampler.gauss_samp, Psig.incl,0.3), None, inc_min, inc_max)
+    sampler.add_parameter("psi", functools.partial(mcsampler.gauss_samp, Psig.psi, 0.5), None, psi_min, psi_max, 
+                          prior_pdf =mcsampler.uniform_samp_psi  )
+    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.5), None, ra_min, ra_max, 
+                          prior_pdf = mcsampler.uniform_samp_phase)
+    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.3), None, dec_min, dec_max, 
+                          prior_pdf= mcsampler.uniform_samp_dec)
+    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max, 
+                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
+    sampler.add_parameter("phi", functools.partial(mcsampler.gauss_samp, Psig.phiref,0.5), None, phi_min, phi_max, 
+                          prior_pdf = mcsampler.uniform_samp_phase)
+    sampler.add_parameter("incl", functools.partial(mcsampler.gauss_samp, Psig.incl,0.3), None, inc_min, inc_max, 
+                          prior_pdf = mcsampler.uniform_samp_theta)
     if rosUseTargetedDistance:
-        sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, 0, distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max)
+        sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, 0, distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max, prior_pdf = np.vectorize(lambda x: x**2/(3*Dmax**3)))
     else:
-        sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max)
+        sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max,prior_pdf =np.vectorize( lambda x: x**2/(3*Dmax**3)))
 else:
     # PROBLEM: Underlying prior samplers are not uniform.  We need two stages
-    sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
-    sampler.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), None, ra_min, ra_max)
-    sampler.add_parameter("dec", functools.partial(mcsampler.dec_samp_vector), None, dec_min, dec_max)
-    sampler.add_parameter("tref", functools.partial(mcsampler.uniform_samp_vector, tref_min, tref_max), None, tref_min, tref_max)
-    sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max)
-    sampler.add_parameter("incl", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max)
+    sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max,
+                          prior_pdf =mcsampler.uniform_samp_psi )
+    sampler.add_parameter("ra", functools.partial(mcsampler.uniform_samp_vector, ra_min, ra_max), None, ra_min, ra_max,
+                          prior_pdf = mcsampler.uniform_samp_phase)
+    sampler.add_parameter("dec", functools.partial(mcsampler.dec_samp_vector), None, dec_min, dec_max,
+                          prior_pdf= mcsampler.uniform_samp_dec)
+    sampler.add_parameter("tref", functools.partial(mcsampler.uniform_samp_vector, tref_min, tref_max), None, tref_min, tref_max,
+                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
+    sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max,
+                          prior_pdf = mcsampler.uniform_samp_phase)
+    sampler.add_parameter("incl", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max,
+                          prior_pdf = mcsampler.uniform_samp_theta)
     if rosUseTargetedDistance:
         sampler.add_parameter("dist", functools.partial(mcsampler.uniform_samp_vector, 0, distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max)
     else:
@@ -391,7 +337,7 @@ if rosShowSamplerInputDistributions:
         xLow = sampler.llim[param]
         xHigh = sampler.rlim[param]
         xvals = np.linspace(xLow,xHigh,500)
-        pdfPrior = lambda x: mcsampler.uniform_samp( float(xLow), float(xHigh), float(x))  # Force type conversion in case we have non-float limits for some reasona
+        pdfPrior = sampler.prior_pdf[param]  # Force type conversion in case we have non-float limits for some reasona
         pdfvalsPrior = np.array(map(pdfPrior, xvals))  # do all the numpy operations by hand: no vectorization
         pdf = sampler.pdf[param]
         cdf = sampler.cdf[param]
@@ -409,5 +355,99 @@ if rosShowSamplerInputDistributions:
         plt.savefig("test_like_and_samp-"+str(param)+".pdf")
 #    plt.show()
 
-res, var = sampler.integrate(likelihood_function, 500*1e5, "ra", "dec", "tref", "phi", "incl", "psi", "dist")
-print res, numpy.sqrt(var)
+res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=100,nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100,igrand_threshold_fraction=0.9)
+print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
+print " expected largest value is ", rho2Net/2, 
+print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
+
+# Save the sampled points to a file
+# Only store some
+ourio.dumpSamplesToFile("test_like_and_samp-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
+
+if checkInputs:
+    plt.show()
+# Plot terminal histograms from the sampled points and log likelihoods
+if rosShowTerminalSampleHistograms:
+    ra,dec,tref,phi,incl, psi,dist,lnL = np.transpose(ret)  # unpack. This can include all or some of the data set. The default configuration returns *all* points
+    print " ==== CONVERGENCE PLOTS (**beware: potentially truncated data!**) === "
+    plt.figure(0)
+    plt.clf()
+    plt.plot(np.arange(len(lnLmarg)), lnLmarg,label="lnLmarg")
+    plt.plot(np.arange(len(lnL)), np.ones(len(lnL))*rho2Net/2,label="rho^2/2")
+    plt.xlim(0,len(lnL))
+    plt.xlabel('iteration')
+    plt.ylabel('lnL')
+    plt.legend()
+    print " ==== TERMINAL 1D HISTOGRAMS: Sampling and posterior === "
+    plt.figure(1)
+    plt.clf()
+    hist, bins  = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,density=True)
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="dist:sampled")
+    hist,bins = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,weights=np.exp(lnL),density=True)
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="dist:post")
+    plt.xlabel("d (Mpc)")
+    plt.title("Sampling and posterior distribution: d ")
+    plt.legend()
+    plt.figure(2)
+    plt.clf()
+    hist, bins  = np.histogram(tref,bins=50,density=True)
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="tref:sampled")
+    hist, bins  = np.histogram(tref,bins=50,density=True,weights=np.exp(lnL))
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="tref:post")
+    plt.xlim(-0.01+tEventFiducial,0.01+tEventFiducial)
+    plt.xlabel("t (s)")
+    plt.title("Sampling and posterior distribution: t ")
+    plt.legend()
+    plt.figure(3)
+    plt.clf()
+    hist, bins  = np.histogram(incl,bins=50,normed=True)
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="incl:sampled")
+    hist, bins  = np.histogram(incl,bins=50,normed=True,weights=np.exp(lnL))
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="incl:post")
+    plt.xlabel("incl")
+    plt.title("Sampling and posterior distribution: incl ")
+    plt.legend()
+    plt.figure(4)
+    plt.clf()
+    hist, bins  = np.histogram(psi,bins=50,normed=True)
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="psi:sampled")
+    hist, bins  = np.histogram(psi,bins=50,normed=True,weights=np.exp(lnL))
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="psi:post")
+    plt.xlabel("psi")
+    plt.title("Sampling and posterior distribution: psi ")
+    plt.legend()
+    plt.show()
+    print " ==== TERMINAL 2D HISTOGRAMS: Sampling and posterior === "
+        # Distance-inclination
+    plt.figure(1)
+    plt.clf()
+    H, xedges, yedges = np.histogram2d(dist/(1e6*lal.LAL_PC_SI),incl, weights=np.exp(lnL),bins=(10,10))
+    extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
+    plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
+    plt.colorbar()
+    plt.title("Posterior distribution: d-incl ")
+        # phi-psi
+    plt.figure(2)
+    plt.clf()
+    H, xedges, yedges = np.histogram2d(phi,psi, bins=(10,10),weights=np.exp(lnL))
+    extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
+    plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
+    plt.colorbar()
+    plt.title("Posterior distribution: phi-psi ")
+        # ra-dec
+    plt.figure(3)
+    plt.clf()
+    H, xedges, yedges = np.histogram2d(ra,dec, bins=(10,10),weights=np.exp(lnL))
+    extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
+    plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
+    plt.colorbar()
+    plt.title("Posterior distribution: ra-dec ")
+    plt.show()
