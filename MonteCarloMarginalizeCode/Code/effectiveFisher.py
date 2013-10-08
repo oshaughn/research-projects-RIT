@@ -19,7 +19,8 @@ Module of routines to compute an effective Fisher matrix and related utilities,
 such as finding a region of interest and laying out a grid over it
 """
 
-from lalsimutils import *
+import lalsimutils as lsu
+import numpy as np
 from scipy.optimize import leastsq, brentq
 from scipy.linalg import eig, inv
 
@@ -114,22 +115,22 @@ def update_params_norm_hoff(P, IP, param_names, vals, verbose=False):
 
     # Check allowed special cases of params not in P, e.g. Mc and eta
     if special_params==['Mc','eta']:
-        m1, m2 = m1m2(special_vals[0],
-                sanitize_eta(special_vals[1])) # m1,m2 = m1m2(Mc,eta)
+        m1, m2 = lsu.m1m2(special_vals[0],
+                lsu.sanitize_eta(special_vals[1])) # m1,m2 = m1m2(Mc,eta)
         setattr(P, 'm1', m1)
         setattr(P, 'm2', m2)
     elif special_params==['eta','Mc']:
-        m1, m2 = m1m2(sanitize_eta(special_vals[1]), special_vals[0])
+        m1, m2 = lsu.m1m2(lsu.sanitize_eta(special_vals[1]), special_vals[0])
         setattr(P, 'm1', m1)
         setattr(P, 'm2', m2)
     elif special_params==['Mc']:
-        eta = sanitize_eta(symRatio(P.m1, P.m2))
-        m1, m2 = m1m2(special_vals[0], eta)
+        eta = lsu.sanitize_eta(lsu.symRatio(P.m1, P.m2))
+        m1, m2 = lsu.m1m2(special_vals[0], eta)
         setattr(P, 'm1', m1)
         setattr(P, 'm2', m2)
     elif special_params==['eta']:
-        Mc = mchirp(P.m1, P.m2)
-        m1, m2 = m1m2(Mc, sanitize_eta(special_vals[0]))
+        Mc = lsu.mchirp(P.m1, P.m2)
+        m1, m2 = lsu.m1m2(Mc, lsu.sanitize_eta(special_vals[0]))
         setattr(P, 'm1', m1)
         setattr(P, 'm2', m2)
     elif special_params != []:
@@ -138,7 +139,7 @@ def update_params_norm_hoff(P, IP, param_names, vals, verbose=False):
 
     if verbose==True: # for debugging - make sure params change properly
         P.print_params()
-    return norm_hoff(P, IP)
+    return lsu.norm_hoff(P, IP)
 
 
 
@@ -172,13 +173,13 @@ def find_effective_Fisher_region(P, IP, target_match, param_names,param_bounds):
     Nparams = len(param_names)
     assert len(param_bounds) == Nparams
     param_cube = []
-    hfSIG = norm_hoff(P, IP)
+    hfSIG = lsu.norm_hoff(P, IP)
     for i, param in enumerate(param_names):
         PT = P.copy()
         if param=='Mc':
-            param_peak = mchirp(P.m1, P.m2)
+            param_peak = lsu.mchirp(P.m1, P.m2)
         elif param=='eta':
-            param_peak = symRatio(P.m1, P.m2)
+            param_peak = lsu.symRatio(P.m1, P.m2)
         else:
             param_peak = getattr(P, param)
         func = lambda x: update_params_ip(hfSIG, PT, IP, [param], [x]) - target_match

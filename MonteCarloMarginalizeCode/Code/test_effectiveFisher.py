@@ -1,4 +1,8 @@
-from effectiveFisher import *
+import lal
+import lalsimulation as lalsim
+import lalsimutils as lsu
+import effectiveFisher as eff
+import numpy as np
 import matplotlib.pyplot as plt
 from time import clock
 from functools import partial
@@ -9,20 +13,20 @@ elapsed_time = lambda: clock()-start
 # Setup signal and IP class
 m1=10.*lal.LAL_MSUN_SI
 m2=10.*lal.LAL_MSUN_SI
-PSIG = ChooseWaveformParams(m1=m1, m2=m2, approx=lalsim.TaylorT1)
+PSIG = lsu.ChooseWaveformParams(m1=m1, m2=m2, approx=lalsim.TaylorT1)
 #PSIG.deltaF = findDeltaF(PSIG)
 PSIG.deltaF = 1./8.
-IP = Overlap(fLow=40., deltaF=PSIG.deltaF, psd=lal.LIGOIPsd)
+IP = lsu.Overlap(fLow=40., deltaF=PSIG.deltaF, psd=lal.LIGOIPsd)
 PTMPLT = PSIG.copy()
-hfSIG = norm_hoff(PSIG, IP)
-McSIG = mchirp(m1, m2)
-etaSIG = symRatio(m1, m2)
+hfSIG = lsu.norm_hoff(PSIG, IP)
+McSIG = lsu.mchirp(m1, m2)
+etaSIG = lsu.symRatio(m1, m2)
 NMcs = 11
 NEtas = 11
 param_names = ['Mc', 'eta']
 
 # Find appropriate parameter ranges
-param_ranges = find_effective_Fisher_region(PSIG, IP, 0.90, param_names,
+param_ranges = eff.find_effective_Fisher_region(PSIG, IP, 0.90, param_names,
         [[McSIG-0.5*lal.LAL_MSUN_SI,McSIG+0.5*lal.LAL_MSUN_SI],[0.05,0.25]])
 print "Computing amibiguity function in the range:"
 for i, param in enumerate(param_names):
@@ -37,15 +41,15 @@ print "Range-finding took:", elapsed, "(s) for", len(param_names),"parameters\n"
 
 # setup uniform parameter grid for effective Fisher
 pts_per_dim = [NMcs, NEtas]
-Mcpts, etapts = make_regular_1d_grids(param_ranges, pts_per_dim)
-etapts = map(sanitize_eta, etapts)
-McMESH, etaMESH =multi_dim_meshgrid(Mcpts, etapts)
-McFLAT, etaFLAT = multi_dim_flatgrid(Mcpts, etapts)
+Mcpts, etapts = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
+etapts = map(lsu.sanitize_eta, etapts)
+McMESH, etaMESH = eff.multi_dim_meshgrid(Mcpts, etapts)
+McFLAT, etaFLAT = eff.multi_dim_flatgrid(Mcpts, etapts)
 dMcMESH = McMESH - McSIG
 detaMESH = etaMESH - etaSIG
 dMcFLAT = McFLAT - McSIG
 detaFLAT = etaFLAT - etaSIG
-grid = multi_dim_grid(Mcpts, etapts)
+grid = eff.multi_dim_grid(Mcpts, etapts)
 
 # Change units on Mc
 dMcFLAT_MSUN = dMcFLAT / lal.LAL_MSUN_SI
@@ -54,16 +58,16 @@ McMESH_MSUN = McMESH / lal.LAL_MSUN_SI
 McSIG_MSUN = McSIG / lal.LAL_MSUN_SI
 
 # Evaluate ambiguity function on the grid
-rhos = np.array(evaluate_ip_on_grid(hfSIG, PTMPLT, IP, param_names, grid))
+rhos = np.array(eff.evaluate_ip_on_grid(hfSIG, PTMPLT, IP, param_names, grid))
 rhogrid = rhos.reshape(NMcs, NEtas)
 
 # Fit to determine effective Fisher matrix
 cut = rhos > 0.99
-fitgamma = effectiveFisher(residuals2d, rhos[cut], dMcFLAT_MSUN[cut],
+fitgamma = eff.effectiveFisher(eff.residuals2d, rhos[cut], dMcFLAT_MSUN[cut],
         detaFLAT[cut])
 # Find the eigenvalues/vectors of the effective Fisher matrix
-gam = array_to_symmetric_matrix(fitgamma)
-evals, evecs, rot = eigensystem(gam)
+gam = eff.array_to_symmetric_matrix(fitgamma)
+evals, evecs, rot = eff.eigensystem(gam)
 
 elapsed = elapsed_time() - elapsed
 print "Time to compute Fisher matrix and its eigensystem:", elapsed
@@ -90,7 +94,7 @@ Nrandpts=200
 r1 = np.sqrt(2.*(1.-match_cntr)/evals[0]) # ellipse radii along eigendirections
 r2 = np.sqrt(2.*(1.-match_cntr)/evals[1])
 # Get pts. inside an ellipsoid oriented along eigenvectors...
-rand_grid = uniform_random_ellipsoid(Nrandpts, r1, r2)
+rand_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
 # Rotate to get coordinates in parameter basis
 rand_grid = np.array([ np.real(rot.dot(rand_grid[i]))
     for i in xrange(len(rand_grid)) ])
@@ -102,7 +106,7 @@ rand_Mcs = rand_dMcs_MSUN * lal.LAL_MSUN_SI + McSIG # Mc (kg)
 rand_etas = rand_detas + etaSIG # eta
 
 # Prune points with unphysical values of eta from rand_grid
-rand_etas = np.array(map(partial(sanitize_eta, exception=np.NAN), rand_etas))
+rand_etas = np.array(map(partial(lsu.sanitize_eta, exception=np.NAN), rand_etas))
 rand_grid = np.transpose((rand_Mcs,rand_etas))
 phys_cut = ~np.isnan(rand_grid).any(1) # cut to remove unphysical pts
 rand_grid = rand_grid[phys_cut]
@@ -122,7 +126,7 @@ print "Kept", len(rand_grid), "points with physically allowed parameters."
 #
 
 # Evaluate IP on the grid inside the ellipsoid
-rhos2 = evaluate_ip_on_grid(hfSIG, PTMPLT, IP, param_names, rand_grid)
+rhos2 = eff.evaluate_ip_on_grid(hfSIG, PTMPLT, IP, param_names, rand_grid)
 
 # Plot the ambiguity function, effective Fisher and ellipsoid points
 plt.figure(1)
@@ -137,7 +141,7 @@ plt.ylabel("eta")
 plt.figure(2)
 plt.title('Effective Fisher contours')
 plt.contourf(dMcMESH_MSUN, detaMESH,
-        evalfit2d(dMcMESH_MSUN, detaMESH, fitgamma),
+        eff.evalfit2d(dMcMESH_MSUN, detaMESH, fitgamma),
         cntrs, cmap=plt.cm.jet)
 plt.colorbar()
 plt.scatter(0.,0.,marker='x',c='k',s=40)
