@@ -40,7 +40,7 @@ from pylal.series import read_psd_xmldoc
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
-rosDebugMessagesContainer = [False]
+rosDebugMessagesContainer = [True]
 print "[Loading lalsimutils.py : MonteCarloMarginalization version]"
 
 

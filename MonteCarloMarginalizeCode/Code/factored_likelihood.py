@@ -33,8 +33,8 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 distMpcRef = 100
 tWindowReference = [-0.15,0.15]            # choose samples so we have this centered on the window
 tWindowExplore = [-0.05, 0.05]             # smaller window.  Avoid interpolation errors on the edge.
-rosDebugMessages = False
-rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
+rosDebugMessages = True
+rosDebugMessagesLong = True           # use to debug antenna factors vs time. An important issue
 rosDebugUseCForQTimeseries =False
 rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
 #rosInterpolateVia = 'AmplitudePhase'       #  Interpolate in amplitude and phase (NOT reliable!! DO NOT USE. Makes code slower and less reliable!)
@@ -399,9 +399,10 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
 
     # Create an instance of class to compute inner product time series
     if analyticPSD_Q==False:
-        assert data.deltaF == psd.deltaF
+        #assert data.deltaF == psd.deltaF
+        # MODIFIED: psd is raw numpy array
         print " ARGH NOT USING ANALYTIC PSD MAKE SURE WE ARE DOING THIS CORRECTLY "
-        IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd.data.data, False, True)
+        IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, False, True)
     else:
         IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, analyticPSD_Q=True, full_output=True)
         IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd)  # debugging, sanity checks

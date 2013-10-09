@@ -56,7 +56,8 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
 
 for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     print "Reading PSD for instrument %s from %s" % (inst, psdf)
-    psd_dict[inst] = lalsimutils.get_intp_psd_series_from_xmldoc(psdf, inst)
+    psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
+    psd_dict[inst] = extend_psd_series_to_sampling_requirements(psd_dict[inst], deltaF, deltaF*len(data_dict[inst].data.data))
 
 #
 # Sanity checks
