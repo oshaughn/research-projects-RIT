@@ -130,7 +130,7 @@ P = lalsimutils.ChooseWaveformParams(
 #
 # Perform the Precompute stage
 #
-rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(fiducial_epoch, P, data_dict, psd_dict, Lmax, analyticPSD_Q=True)
+rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(fiducial_epoch, P, data_dict, psd_dict, Lmax, analyticPSD_Q=False)
 
 #
 # Set up parameters and bounds
