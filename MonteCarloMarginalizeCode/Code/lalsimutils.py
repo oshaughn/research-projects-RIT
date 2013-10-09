@@ -277,15 +277,15 @@ class InnerProduct:
         if analyticPSD_Q == True:
             if rosDebugMessagesContainer[0]:
                 print "  ... populating inner product weight array using analytic PSD ... "
-            self.weights[self.minIdx:self.FDlen] = 1.0/self.psd(np.arange(self.minIdx, self.FDlen, 1))
-            # Take 1 sided PSD and make it 2 sided
-            self.longweights[1:1+len(self.weights)] = self.weights[::-1]
-            self.longweights[-(len(self.weights)+1):-1] = self.weights[:]
-            #for i in range(self.minIdx,self.FDlen):        # populate weights for both hermetian and non-hermetian products
-                #self.weights[i] = 1./self.psd(i*deltaF)
-                #length = 2*(self.FDlen-1)
-                #self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
-                #self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
+#            self.weights[self.minIdx:self.FDlen] = 1.0/self.psd(np.arange(self.minIdx, self.FDlen, 1))
+#            # Take 1 sided PSD and make it 2 sided
+#            self.longweights[1:1+len(self.weights)] = self.weights[::-1]
+#            self.longweights[-(len(self.weights)+1):-1] = self.weights[:]
+            for i in range(self.minIdx,self.FDlen):        # populate weights for both hermetian and non-hermetian products
+                self.weights[i] = 1./self.psd(i*deltaF)
+                length = 2*(self.FDlen-1)
+                self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
+                self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
             if rosDebugMessagesContainer[0]:
                 print "  ... finished populating inner product weight array using analytic PSD ... "
         else:
@@ -624,7 +624,7 @@ class ComplexOverlap(InnerProduct):
                 self.longpsdLAL.data.data[length/2-i+1] = self.psd(i*deltaF)
                 self.longpsdLAL.data.data[length/2+i-1] = self.psd(i*deltaF)
         else:
-            for i in range(self.minIdx,self.wgstlen):
+            for i in range(self.minIdx,self.wgtslen):
                 if psd[i] != 0.:
                     self.weights[i] = 1./psd[i]
                     length = self.wvlen
