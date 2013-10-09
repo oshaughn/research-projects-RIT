@@ -1554,6 +1554,7 @@ def get_psd_series_from_xmldoc(fname, inst):
 def get_intp_psd_series_from_xmldoc(fname, inst):
     psd = get_psd_series_from_xmldoc(fname, inst)
     f = np.arange(psd.f0, psd.deltaF*len(psd.data), psd.deltaF)
+    ifunc = interpolate.interp1d(f, psd.data)
     def intp_psd(freq):
-        return float("inf") if freq > psd.deltaF*len(psd.data) else interpolate.interp1d(f, psd.data)
+        return float("inf") if freq > psd.deltaF*len(psd.data) else ifunc(freq)
     return intp_psd
