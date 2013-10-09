@@ -49,9 +49,10 @@ print "Coinc XML loaded, event time: %s" % str(coinc_row.get_end())
 #
 data_dict, psd_dict = {}, {}
 
+start_pad, end_pad = 1300, 100
 for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
-    data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=int(event_time)-1300, stop=int(event_time)+100)
+    data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=int(event_time)-start_pad, stop=int(event_time)+end_pad)
     print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF, len(data_dict[inst].data.data))
 
 for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
