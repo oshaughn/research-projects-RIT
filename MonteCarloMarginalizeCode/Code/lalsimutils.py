@@ -37,7 +37,7 @@ from glue.lal import Cache
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
-rosDebugMessagesContainer = [False]
+rosDebugMessagesContainer = [True]
 print "[Loading lalsimutils.py : MonteCarloMarginalization version]"
 
 
@@ -1528,17 +1528,21 @@ def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all mod
 #     also strips the pylal binding and goes directly to a numpy array.
 def extend_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqRequired):
     # The raw psd object is a pylal wrapper of the timeseries, which is different from the swig bindings
+    # and which is *also* different than the raw numpy array assumed in lalsimutils.py (above)
     # Allocate new series
-    n = len(raw_psd.data) 
-    nRequired = int(fNyqRequired/dfRequired)     # one-sided PSD
-#    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired,lal.lalHertzUnit, nRequired )
- #   psdNew.data.data = np.zeros(len(psdNew.data.data))
-    psdNew = np.zeros(nRequired)
-    facStretch = int(nRequired/n)  # should be power of 2
+    n = len(raw_psd.data)                                     # odd number for one-sided PSD
+    nRequired = int(fNyqRequired/dfRequired)+1     # odd number for one-sided PSD
+    facStretch = int((nRequired-1)/(n-1))  # n-1 should be power of 2
+    if rosDebugMessagesContainer[0]:
+        print " extending psd of length ", n, " to ", nRequired, " elements requires a factor of ", facStretch
+    #    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired,lal.lalHertzUnit, nRequired )
+    #   psdNew.data.data = np.zeros(len(psdNew.data.data))
+    # psdNew = np.zeros(nRequired)   
     # Populate the series.  Slow because it is a python loop
-    for i in np.arange(n):
-        for j in np.arange(facStretch):
-            psdNew[facStretch*i+j] = raw_psd.data[i]  # 
+    # for i in np.arange(n):
+    #     for j in np.arange(facStretch):
+    #         psdNew[facStretch*i+j] = raw_psd.data[i]  # 
+    psdNew = (np.array([raw_psd.data for j in np.arange(facStretch)])).transpose().flatten()  # a bit too large, but that's fine for our purposes
     return psdNew
 def get_psd_series_from_xmldoc(fname, inst):
     from glue.ligolw import utils
