@@ -57,10 +57,7 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
 
 for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     print "Reading PSD for instrument %s from %s" % (inst, psdf)
-    psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
-    print "Frequency binning: %f, length %d" % (psd_dict[inst].deltaF, len(psd_dict[inst].data.data))
-    psd_dict[inst] = lalsimutils.extend_psd_series_to_sampling_requirements(psd_dict[inst], data_dict[inst].deltaF, len(data_dict[inst].data.data)*data_dict[inst].deltaF)
-    #print "Frequency binning: %f, length %d" % (psd_dict[inst].deltaF, len(psd_dict[inst].data.data))
+    psd_dict[inst] = lalsimutils.get_intp_psd_series_from_xmldoc(psdf, inst)
 
 #
 # Sanity checks
@@ -140,7 +137,7 @@ rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLik
 t_ref_wind = 2e-3
 
 # FIXME: Never really used
-dmin = 1. * 1.e6 * swiglal.LAL_PC_SI   # min distance
+dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
 #dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
 dmax = estimateUpperDistanceBoundInMpc(rholms, cross_terms)
 print "Estimated outer fiducial radius for event (Mpc): %f" %dmax
