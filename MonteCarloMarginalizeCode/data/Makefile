@@ -1,4 +1,5 @@
 
+SHELL:=/bin/bash
 gid=G78339
 ldf_server=ldr.ligo.caltech.edu:443
 
