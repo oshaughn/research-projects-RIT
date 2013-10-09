@@ -11,8 +11,7 @@ from optparse import OptionParser
 
 import numpy
 
-from glue import lal
-import lal as swiglal
+import lal
 from glue.ligolw import utils, lsctables, table
 
 import lalsimutils
@@ -57,10 +56,7 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
 
 for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     print "Reading PSD for instrument %s from %s" % (inst, psdf)
-    psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
-    print "Frequency binning: %f, length %d" % (psd_dict[inst].deltaF, len(psd_dict[inst].data.data))
-    psd_dict[inst] = lalsimutils.extend_psd_series_to_sampling_requirements(psd_dict[inst], data_dict[inst].deltaF, len(data_dict[inst].data.data)*data_dict[inst].deltaF)
-    #print "Frequency binning: %f, length %d" % (psd_dict[inst].deltaF, len(psd_dict[inst].data.data))
+    psd_dict[inst] = lalsimutils.get_intp_psd_series_from_xmldoc(psdf, inst)
 
 #
 # Sanity checks
@@ -68,7 +64,6 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
 # can't FIXME: Yep, we're all totally nuts.
 if sorted(psd_dict.keys()) != sorted(data_dict.keys()):
     print >>sys.stderr, "Got a different set of instruments based on data and PSDs provided."
-    exit(-1)
 
 #
 # Testing
@@ -97,7 +92,9 @@ ampO =0 # sets which modes to include in the physical signal
 Lmax = 2 # sets which modes to include
 
 # FIXME: Come back to this
-fiducial_epoch = event_time   # Use actual injection GPS time (assumed from trigger)
+fiducial_epoch = lal.LIGOTimeGPS()
+fiducial_epoch.gpsSeconds = event_time.seconds
+fiducial_epoch.gpsNanoSeconds = event_time.nanoseconds
 fref_time_off = 0   #  time relative to fiducial epoch, used to identify window to look in.  Checked empirically.
 # epoch + event = time of event at f_ref
 # FIXME: Geocentric? Detector specific?
@@ -118,20 +115,20 @@ P = lalsimutils.ChooseWaveformParams(
     phi = 0.0,
     psi = 0.0,
     # internally we use SI units
-    m1 = m1*swiglal.LAL_MSUN_SI,
-    m2 = m2*swiglal.LAL_MSUN_SI,
+    m1 = m1 * lal.LAL_MSUN_SI,
+    m2 = m2 * lal.LAL_MSUN_SI,
     ampO = ampO,
     fref = opts.reference_freq,
     tref = fiducial_epoch,
     deltaT = 1./fSample,
-    dist = factored_likelihood.distMpcRef*1.e6*swiglal.LAL_PC_SI,
+    dist = factored_likelihood.distMpcRef * 1.e6 * lal.LAL_PC_SI,
     deltaF = df)
 
 
 #
 # Perform the Precompute stage
 #
-rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(fiducial_epoch, P, data_dict, psd_dict, Lmax, analyticPSD_Q=False)
+rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(fiducial_epoch, P, data_dict, psd_dict, Lmax, analyticPSD_Q=True)
 
 #
 # Set up parameters and bounds
@@ -140,7 +137,7 @@ rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLik
 t_ref_wind = 2e-3
 
 # FIXME: Never really used
-dmin = 1. * 1.e6 * swiglal.LAL_PC_SI   # min distance
+dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
 #dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
 dmax = estimateUpperDistanceBoundInMpc(rholms, cross_terms)
 print "Estimated outer fiducial radius for event (Mpc): %f" %dmax
@@ -287,7 +284,7 @@ res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function,
 #    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
     full_output=True
     )
-tGPSEnd = swiglal.GPSTimeNow()
+tGPSEnd = lal.GPSTimeNow()
 print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
