@@ -82,5 +82,5 @@ local_cit.cache:
 		--gaps \
 		-t V1Online \
 		--server ${ldf_server}\
-		-s $(shell echo "`ligolw_print -t coinc_inspiral -c end_time coinc.xml` - 4" | bc) \
-		-e $(shell echo "`ligolw_print -t coinc_inspiral -c end_time coinc.xml` + 4" | bc) >> local_cit.cache
+		-s $(shell echo "`ligolw_print -t coinc_inspiral -c end_time coinc.xml` - 1300" | bc) \
+		-e $(shell echo "`ligolw_print -t coinc_inspiral -c end_time coinc.xml` + 100" | bc) >> local_cit.cache
