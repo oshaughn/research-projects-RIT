@@ -278,6 +278,9 @@ class InnerProduct:
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
                     self.weights[i] = 1./psd[i]
+                    length = 2*(self.FDlen-1)
+                    self.longweights[length/2 - i+1] = 1./psd[i]
+                    self.longweights[length/2 + i-1] = 1./psd[i]
 
     def ip(self, h1, h2):
         """
@@ -474,6 +477,9 @@ class Overlap(InnerProduct):
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
                     self.weights[i] = 1./psd[i]
+                    length = 2*(self.FDlen-1)
+                    self.longweights[length/2 - i+1] = 1./psd[i]
+                    self.longweights[length/2 + i-1] = 1./psd[i]
 
 
 
@@ -596,6 +602,11 @@ class ComplexOverlap(InnerProduct):
             for i in range(self.minIdx,self.wgstlen):
                 if psd[i] != 0.:
                     self.weights[i] = 1./psd[i]
+                    length = self.wvlen
+                    self.longweights[length/2 - i+1] = 1./psd[i]
+                    self.longweights[length/2 + i-1] = 1./psd[i]
+                    self.longpsdLAL.data.data[length/2-i+1] =1./ psd[i]
+                    self.longpsdLAL.data.data[length/2+i-1] = 1./psd[i]
 
     def ip(self, h1, h2):
         """

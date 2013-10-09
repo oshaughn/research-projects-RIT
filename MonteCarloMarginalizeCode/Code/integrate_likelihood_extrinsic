@@ -22,6 +22,19 @@ import mcsampler
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
+# extend_psd_series_to_sampling_requirements: 
+#     takes a conventional 1-sided PSD and extends into a 2-sided PSD array
+def extend_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqRequired):
+    # Allocate new series
+    n = len(raw_psd.data.data)
+    nRequired = int(fNyqRequired/dfRequired)     # one-sided PSD
+    psdNew = lal.CreateCOMPLEX16FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired,lal.lalHertzUnit, nRequired )
+    facStretch = nRequired/n  # should be power of 2
+    # Populate the series.  Slow because it is a python loop
+    for i in numpy.arange(n):
+        for j in numpy.arange(facStretch):
+            psdNew.data.data[facStrectch*i+j] = raw_psd.data.data[i]
+    return psdNew
 # FIXME: Move to separate library
 def get_psd_series_from_xmldoc(fname, inst):
     from glue.ligolw import utils
@@ -63,6 +76,8 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
 for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     print "Reading PSD for instrument %s from %s" % (inst, psdf)
     psd_dict[inst] = get_psd_series_from_xmldoc(psdf, inst)
+    print "Frequency binning: %f, length %d" % (psd_dict[inst].deltaF, len(psd_dict[inst].data.data))
+    psd_dict[inst] = extend_psd_series_to_sampling_requirements(psd_dict[inst], data_dict[inst].deltaF, len(data_dict[inst].data.data)*data_dict[inst].deltaF)
     print "Frequency binning: %f, length %d" % (psd_dict[inst].deltaF, len(psd_dict[inst].data.data))
 
 #
