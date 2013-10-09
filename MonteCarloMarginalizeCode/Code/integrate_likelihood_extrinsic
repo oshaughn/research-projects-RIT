@@ -1,0 +1,298 @@
+#!/usr/bin/env python
+
+"""
+Integrate the extrinsic parameters of the prefactored likelihood function.
+"""
+
+#from pylal import Fr
+import sys
+import functools
+from optparse import OptionParser
+
+import numpy
+
+from glue import lal
+import lal as swiglal
+from glue.ligolw import utils, lsctables, table
+
+import lalsimutils
+import factored_likelihood
+import mcsampler
+#import ourio
+
+__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
+
+# FIXME: Move to separate library
+def get_psd_series_from_xmldoc(fname, inst):
+    from glue.ligolw import utils
+    from pylal.series import read_psd_xmldoc
+    return read_psd_xmldoc(utils.load_filename(fname))[inst]
+
+#
+# Option parsing
+#
+
+optp = OptionParser()
+optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
+optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
+optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
+optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
+optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
+opts, args = optp.parse_args()
+
+#
+# Gather information from the detection pipeline
+#
+xmldoc = utils.load_filename(opts.coinc_xml)
+coinc_table = table.get_table(xmldoc, lsctables.CoincInspiralTable.tableName)
+assert len(coinc_table) == 1
+coinc_row = coinc_table[0]
+event_time = coinc_row.get_end()
+print "Coinc XML loaded, event time: %s" % str(coinc_row.get_end())
+
+#
+# Load in data and PSDs
+#
+data_dict, psd_dict = {}, {}
+
+for inst, chan in map(lambda c: c.split("="), opts.channel_name):
+    print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
+    data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=int(event_time)-1300, stop=int(event_time)+100)
+    print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF, len(data_dict[inst].data.data))
+
+for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
+    print "Reading PSD for instrument %s from %s" % (inst, psdf)
+    psd_dict[inst] = get_psd_series_from_xmldoc(psdf, inst)
+    print "Frequency binning: %f, length %d" % (psd_dict[inst].deltaF, len(psd_dict[inst].data.data))
+
+#
+# Sanity checks
+#
+# can't FIXME: Yep, we're all totally nuts.
+if sorted(psd_dict.keys()) != sorted(data_dict.keys()):
+    print >>sys.stderr, "Got a different set of instruments based on data and PSDs provided."
+    exit(-1)
+
+#
+# Testing
+#
+sngl_inspiral_table = table.get_table(xmldoc, lsctables.SnglInspiralTable.tableName)
+assert len(sngl_inspiral_table) == len(coinc_row.ifos.split(","))
+m1, m2 = None, None
+for sngl_row in sngl_inspiral_table:
+    # NOTE: gstlal is exact match, but other pipelines may not be
+    assert m1 is None or (sngl_row.mass1 == m1 and sngl_row.mass2 == m2)
+    m1, m2 = sngl_row.mass1, sngl_row.mass2
+# FIXME: Keep this and organize
+# TARGET INJECTED SIGNAL (for reference and calibration of results)
+# TODO: Have an "injection" xml for reference?
+#Psig = xml_to_ChooseWaveformParams_array("mdc.xml.gz")[0]  # Load in the physical parameters of the injection (=first element)
+
+# FIXME: Turn into cmd line options
+# minimum frequency of template
+template_min_freq = 25  # too long can be a memory and time hog, particularly at 16 kHz
+# minimum frequency of inner product integration
+ip_min_freq = 30
+
+# Template descriptors
+ampO =0 # sets which modes to include in the physical signal
+Lmax = 2 # sets which modes to include
+
+# FIXME: Come back to this
+fiducial_epoch = event_time   # Use actual injection GPS time (assumed from trigger)
+fref_time_off = 0   #  time relative to fiducial epoch, used to identify window to look in.  Checked empirically.
+# epoch + event = time of event at f_ref
+# FIXME: Geocentric? Detector specific?
+print "Offset from event end time to f_ref %f" % fref_time_off
+
+df = data_dict['H1'].deltaF  
+# FIXME: More descriptive here
+fSample = len(data_dict['H1'].data.data)*data_dict['H1'].deltaF  # Note two-sided
+
+# Struct to hold template parameters
+# FIXME: Lots of hardcoding going on here
+P = lalsimutils.ChooseWaveformParams(
+    fmin = template_min_freq, 
+    radec = False, 
+    incl = 0.0,
+    phiref = 0.0, 
+    theta = 0.0, 
+    phi = 0.0,
+    psi = 0.0,
+    m1 = m1,
+    m2 = m2,
+    ampO = ampO,
+    fref = opts.reference_freq,
+    tref = fiducial_epoch,
+    deltaT = 1./fSample,
+    dist = 100*1.e6*swiglal.LAL_PC_SI,
+    deltaF = df)
+
+
+#
+# Perform the Precompute stage
+#
+rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(fiducial_epoch, P, data_dict, psd_dict, Lmax, analyticPSD_Q=False)
+
+#
+# Set up parameters and bounds
+#
+# FIXME: Make t_ref_wind a cmd line parameter?
+t_ref_wind = 2e-3
+
+# FIXME: Never really used
+dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
+#dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
+dmax = estimateUpperDistanceBoundInMpc(rholms, cross_terms)
+print "Estimated outer fiducial radius for event (Mpc): %f" %dmax
+
+param_limits = { "psi": (0, 2*numpy.pi),
+    "phi_orb": (0, 2*numpy.pi),
+    "distance": (dmin, dmax),
+    "right_ascension": (0, 2*numpy.pi),
+    "declination": (-numpy.pi/2, numpy.pi/2),
+    # FIXME: Is this already relative to the fiducial epoch or not?
+    "t_ref": (fiducial_epoch-t_ref_wind, fiducial_epoch+t_ref_wind),
+    "inclination": (-numpy.pi/2, numpy.pi/2)
+}
+
+#
+# Parameter integral sampling strategy
+#
+params = {}
+for param, limits in param_limits.iteritems():
+    params[param] = functools.partial(mcsampler.uniform_samp_vector(), *limits[param] )
+sampler = mcsampler.MCSampler()
+
+# FIXME: Address this problem?
+# PROBLEM: Underlying prior samplers are not uniform.  We need two stages
+
+#
+# Psi -- polarization angle
+# sampler: uniform in [0, pi)
+#
+psi_sampler = functools.partial(mcsampler.uniform_samp_vector, 
+    param_limits["psi"][0], param_limits["psi"][1])
+sampler.add_parameter("psi", 
+    pdf = psi_sampler, 
+    cdf_inv = None, 
+    left_limit = param_limits["psi"][0], 
+    right_limit = param_limits["psi"][1],
+    prior_pdf = mcsampler.uniform_samp_psi)
+
+#
+# Phi - orbital phase
+# sampler: uniform in [0, 2*pi)
+#
+phi_sampler = functools.partial(mcsampler.uniform_samp_vector, 
+    param_limits["phi_orb"][0], param_limits["phi_orb"][1])
+sampler.add_parameter("phi_orb",
+    pdf = phi_sampler,
+    cdf_inv = None, 
+    left_limit = param_limits["phi_orb"][0], 
+    right_limit = param_limits["phi_orb"][1],
+    prior_pdf = mcsampler.uniform_samp_phase)
+
+#
+# inclination - angle of system angular momentum with line of sight
+# sampler: uniform in cos [-pi, pi)
+#
+incl_sampler = mcsampler.dec_samp_vector
+sampler.add_parameter("inclination", 
+    pdf = incl_sampler, 
+    cdf_inv = None, 
+    left_limit = param_limits["inclination"][0], 
+    right_limit = param_limits["inclination"][1],
+    prior_pdf = mcsampler.uniform_samp_theta)
+
+#
+# Distance - luminosity distance to source in parsecs
+# sampler: uniform volume over [1 Mpc, Dmax)
+#
+dist_sampler = functools.partial(mcsampler.quadratic_samp_vector, dmax)
+sampler.add_parameter("dist", 
+    pdf = dist_sampler, 
+    cdf_inv = None,
+    left_limit = param_limits["distance"][0], 
+    right_limit = param_limits["distance"][1],
+    prior_pdf = np.vectorize(lambda x: x**2/(3*Dmax**3)))
+
+#
+# Right ascension - angle in radians from prime meridian plus hour angle
+# sampler: uniform in (0, 2pi)
+#
+ra_sampler = functools.partial(mcsampler.uniform_samp_vector,
+    param_limits["right_ascension"][0], param_limits["right_ascension"][1])
+sampler.add_parameter("right_ascension", 
+    pdf = ra_sampler, 
+    cdf_inv = None, 
+    left_limit = ra_min, 
+    right_limit = ra_max, 
+    prior_pdf = mcsampler.uniform_samp_phase)
+
+#
+# declination - angle in radians from the north pole piercing the celestial sky
+# sampler: uniform in cos [-pi, pi)
+#
+dec_sampler = mcsampler.dec_samp_vector
+sampler.add_parameter("declination", 
+    pdf = dec_sampler, 
+    cdf_inv = None, 
+    left_limit = param_limits["declination"][0], 
+    right_limit = param_limits["declination"][1],
+    prior_pdf = mcsampler.uniform_samp_dec)
+
+#
+# tref - GPS time of geocentric end time
+# FIXME: end time or 100 Hz?
+# sampler: uniform in +/-2 ms window around estimated end time 
+#
+tref_sampler = functools.partial(mcsampler.uniform_samp_vector,
+    param_limits["tref"][0], param_limits["tref"][1])
+sampler.add_parameter("tref", 
+    pdf = tref_sampler, 
+    cdf_inv = None, 
+    left_limit = param_limits["tref"][0], 
+    right_limit = param_limits["tref"][1],
+    # FIXME:What goes here?
+    prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
+
+#
+# Call the likelihood function for various extrinsic parameter values
+#
+nEvals = 0
+def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
+    lnL = numpy.zeros(phi.shape)
+    i = 0
+#    print " Likelihood results :  "
+#    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
+    for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
+        P.phi = ph # right ascension
+        P.theta = th # declination
+        P.tref = fiducial_epoch + tr # ref. time (rel to epoch for data taking)
+        P.phiref = phr # ref. orbital phase
+        P.incl = ic # inclination
+        P.psi = ps # polarization angle
+        P.dist = di # luminosity distance
+
+        lnL[i] = FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+        i+=1
+
+    nEvals+=i 
+    return numpy.exp(lnL)
+
+res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, 
+    "right_ascension", "declination", "tref", "phi_orb", "inclnation", "psi", "distance", 
+    n=200, nmax=nMaxEvals, neff=100,
+    # FIXME: What here?
+    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
+    full_output=True
+    )
+tGPSEnd = lal.GPSTimeNow()
+print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
+print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
+
+# FIXME: Synch with other I/O routines
+# Save the sampled points to a file
+# Only store some
+ourio.dumpSamplesToFile("test_like_and_samp-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
