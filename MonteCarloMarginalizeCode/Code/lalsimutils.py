@@ -1522,3 +1522,25 @@ def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all mod
         for m in np.arange(-L, L+1):
             mylist.append((L,m))
     return mylist
+
+# extend_psd_series_to_sampling_requirements: 
+#     takes a conventional 1-sided PSD and extends into a longer 1-sided PSD array by filling intervening samples
+#     also strips the pylal binding and goes directly to a numpy array.
+def extend_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqRequired):
+    # The raw psd object is a pylal wrapper of the timeseries, which is different from the swig bindings
+    # Allocate new series
+    n = len(raw_psd.data) 
+    nRequired = int(fNyqRequired/dfRequired)     # one-sided PSD
+#    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired,lal.lalHertzUnit, nRequired )
+ #   psdNew.data.data = np.zeros(len(psdNew.data.data))
+    psdNew = np.zeros(nRequired)
+    facStretch = int(nRequired/n)  # should be power of 2
+    # Populate the series.  Slow because it is a python loop
+    for i in np.arange(n):
+        for j in np.arange(facStretch):
+            psdNew[facStretch*i+j] = raw_psd.data[i]  # 
+    return psdNew
+def get_psd_series_from_xmldoc(fname, inst):
+    from glue.ligolw import utils
+    from pylal.series import read_psd_xmldoc
+    return read_psd_xmldoc(utils.load_filename(fname))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
