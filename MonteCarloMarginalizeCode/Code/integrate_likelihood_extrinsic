@@ -64,7 +64,6 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
 # can't FIXME: Yep, we're all totally nuts.
 if sorted(psd_dict.keys()) != sorted(data_dict.keys()):
     print >>sys.stderr, "Got a different set of instruments based on data and PSDs provided."
-    exit(-1)
 
 #
 # Testing
@@ -93,7 +92,9 @@ ampO =0 # sets which modes to include in the physical signal
 Lmax = 2 # sets which modes to include
 
 # FIXME: Come back to this
-fiducial_epoch = event_time   # Use actual injection GPS time (assumed from trigger)
+fiducial_epoch = lal.LIGOTimeGPS()
+fiducial_epoch.gpsSeconds = event_time.seconds
+fiducial_epoch.gpsNanoSeconds = event_time.nanoseconds
 fref_time_off = 0   #  time relative to fiducial epoch, used to identify window to look in.  Checked empirically.
 # epoch + event = time of event at f_ref
 # FIXME: Geocentric? Detector specific?
