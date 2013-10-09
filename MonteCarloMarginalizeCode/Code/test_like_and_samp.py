@@ -1,10 +1,12 @@
 import sys
 from optparse import OptionParser
 
-import numpy
+import numpy as np
 from matplotlib import pylab as plt
 
 from glue.lal import Cache
+import lal
+import lalsimulation as lalsim
 import lalsimutils
 
 """
@@ -14,7 +16,7 @@ test_like_and_samp.py:  Testing the likelihood evaluation and sampler, working i
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
-from factored_likelihood import *
+import factored_likelihood
 import ourio
 
 checkInputs = False
@@ -87,7 +89,7 @@ else:
     m1 = 4*lal.LAL_MSUN_SI
     m2 = 3*lal.LAL_MSUN_SI
 
-    Psig = ChooseWaveformParams(
+    Psig = lalsimutils.ChooseWaveformParams(
         m1 = m1,m2 =m2,
         fmin = fminWavesSignal, 
         fref=fref, ampO=ampO,
@@ -97,14 +99,14 @@ else:
                                 tref = theEpochFiducial,
         deltaT=1./fSample
                                 )
-    df = findDeltaF(Psig)
+    df = lalsimutils.findDeltaF(Psig)
     Psig.print_params()
     Psig.deltaF = df
-    data_dict['H1'] = non_herm_hoff(Psig)
+    data_dict['H1'] = factored_likelihood.non_herm_hoff(Psig)
     Psig.detector = 'L1'
-    data_dict['L1'] = non_herm_hoff(Psig)
+    data_dict['L1'] = factored_likelihood.non_herm_hoff(Psig)
     Psig.detector = 'V1'
-    data_dict['V1'] = non_herm_hoff(Psig)
+    data_dict['V1'] = factored_likelihood.non_herm_hoff(Psig)
 
 # TODO: Read PSD from XML
 psd_dict = {}
@@ -119,7 +121,7 @@ rho2Net = 0
 print  " Amplitude report :"
 fminSNR =30
 for det in detectors:
-    IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=Psig.deltaF,psd=psd_dict[det])
+    IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=Psig.deltaF,psd=psd_dict[det])
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
     print det, " rho = ", rhoDet
@@ -144,7 +146,7 @@ if checkInputs:
 
 
 # Struct to hold template parameters
-P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
+P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
          fref=fref,
@@ -157,10 +159,10 @@ P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.
 #
 # Perform the Precompute stage
 #
-rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict,psd_dict, Lmax, analyticPSD_Q)
+rholms_intp, crossTerms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict,psd_dict, Lmax, analyticPSD_Q)
 print "Finished Precomputation..."
 print "====Generating metadata from precomputed results ====="
-distBoundGuess = estimateUpperDistanceBoundInMpc(rholms, crossTerms)
+distBoundGuess = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, crossTerms)
 print " distance probably less than ", distBoundGuess, " Mpc"
 
 print "====Loading metadata from previous runs (if any): sampler-seed-data.dat ====="
@@ -171,17 +173,17 @@ if checkInputs == True:
     print " ======= UV test: Recover the SNR of the injection  =========="
     print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] "
     for det in detectors:
-        lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
+        lnLModel = factored_likelihood.SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
         print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det], "      [last two equal?]"
     print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters  =========="
-    lnL = FactoredLogLikelihood(theEpochFiducial,Psig, rholms_intp, crossTerms, Lmax)
+    lnL = factored_likelihood.FactoredLogLikelihood(theEpochFiducial,Psig, rholms_intp, crossTerms, Lmax)
     print "  : Evan's code : ", lnL, " versus rho^2/2 ", rho2Net/2
-    print "  : Timing issues (checkme!) : fiducial = ", stringGPSNice(theEpochFiducial)
+    print "  : Timing issues (checkme!) : fiducial = ", lalsimutils.stringGPSNice(theEpochFiducial)
 
     print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (* STILL TIME OFFSET *)  =========="
     tmin = np.max(float(epoch_post - theEpochFiducial),tWindowReference[0]+0.03)   # the minimum time used is set by the rolling condition
 #    tvals = np.linspace(tmin,tWindowReference[1],4*fSample*(tWindowReference[1]-tmin))
-    tvals = np.linspace(tWindowExplore[0]+tEventFiducial,tWindowExplore[1]+tEventFiducial,fSample*(tWindowExplore[1]-tWindowExplore[0]))
+    tvals = np.linspace(factored_likelihood.tWindowExplore[0]+tEventFiducial,factored_likelihood.tWindowExplore[1]+tEventFiducial,fSample*(factored_likelihood.tWindowExplore[1]-factored_likelihood.tWindowExplore[0]))
     for det in detectors:
         lnLData = map( lambda x: SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
         lnLDataEstimate = np.ones(len(tvals))*rhoExpected[det]*rhoExpected[det]
@@ -203,7 +205,7 @@ if checkInputs == True:
     lnL = np.zeros(len(tvals))
     for indx in np.arange(len(tvals)):
             P.tref =  theEpochFiducial+tvals[indx]
-            lnL[indx] =  FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, 2)
+            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, 2)
     lnLEstimate = np.ones(len(tvals))*rho2Net/2
     plt.figure(1)
     tvalsPlot = tvals 
@@ -226,7 +228,7 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
     global nEvals
     global pdfFullPrior
 
-    lnL = numpy.zeros(phi.shape)
+    lnL = np.zeros(phi.shape)
     i = 0
 #    print " Likelihood results :  "
 #    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
@@ -239,12 +241,12 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.psi = ps # polarization angle
         P.dist = di # luminosity distance
 
-        lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+        lnL[i] = factored_likelihood.FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
 #        if i<len(phi)-10:
 #            LSum[i+1] = LSum[i]+np.exp(lnL[i])
-#        if (numpy.mod(i,1000)==10 and i>100):
+#        if (np.mod(i,1000)==10 and i>100):
 #            print " iteration Neff  lnL   sqrt(2max(lnL)) rho  sqrt(2 lnLmarg)   <lnL> "  # reminder
-        # if (numpy.mod(i,200)==10 and i>100):
+        # if (np.mod(i,200)==10 and i>100):
         #     Neff = LSum[i+1]/np.exp(np.max(lnL[:i]))   # should actually include sampling distribution and prior distribution correction in it
             # if rosDebugMessages:
             #     print "\t Params ", nEvals+i, " (RA, DEC, tref, phiref, incl, psi, dist) ="
@@ -256,7 +258,7 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
 
 
     nEvals+=i 
-    return numpy.exp(lnL)
+    return np.exp(lnL)
 
 import mcsampler
 sampler = mcsampler.MCSampler()
@@ -266,20 +268,20 @@ def uniform_samp(a, b, x):
    if type(x) is float:
        return 1/(b-a)
    else:
-       return numpy.ones(x.shape[0])/(b-a)
+       return np.ones(x.shape[0])/(b-a)
 
 # set up bounds on parameters
 # Polarization angle
-psi_min, psi_max = 0, numpy.pi
+psi_min, psi_max = 0, np.pi
 # RA and dec
-ra_min, ra_max = 0, 2*numpy.pi
-dec_min, dec_max = -numpy.pi/2, numpy.pi/2
+ra_min, ra_max = 0, 2*np.pi
+dec_min, dec_max = -np.pi/2, np.pi/2
 # Reference time
 tref_min, tref_max = Tmin, Tmax
 # Inclination angle
-inc_min, inc_max = 0, numpy.pi
+inc_min, inc_max = 0, np.pi
 # orbital phi
-phi_min, phi_max = 0, 2*numpy.pi
+phi_min, phi_max = 0, 2*np.pi
 # distance
 dist_min, dist_max = Dmin, Dmax
 
@@ -288,7 +290,7 @@ import functools
 # The likelihood function assumes this function exists.
 # The integrator actually does a monte carlo integral of L*p using a sampling prior p_s.
 def pdfFullPrior(phi, theta, tref, phiref, incl, psi, dist): # remember theta is dec, 
-    return (np.cos(theta)/(4*np.pi)) * 1./(tWindowExplore[1]-tWindowExplore[0])*1/(3*Dmax**3)*np.cos(incl)/(4*np.pi)*1./(np.pi)
+    return (np.cos(theta)/(4*np.pi)) * 1./(factored_likelihood.tWindowExplore[1]-factored_likelihood.tWindowExplore[0])*1/(3*Dmax**3)*np.cos(incl)/(4*np.pi)*1./(np.pi)
 
 
 # Uniform sampling (in area) but nonuniform sampling in distance (*I hope*).  Auto-cdf inverse
@@ -301,7 +303,7 @@ if rosUseStrongPriorOnParameters:
     sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.05), None, dec_min, dec_max, 
                           prior_pdf= mcsampler.uniform_samp_dec)
     sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max, 
-                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
+                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, factored_likelihood.tWindowExplore[0],factored_likelihood.tWindowExplore[1]))
     sampler.add_parameter("phi", functools.partial(mcsampler.gauss_samp, Psig.phiref,0.5), None, phi_min, phi_max, 
                           prior_pdf = mcsampler.uniform_samp_phase)
     sampler.add_parameter("incl", functools.partial(mcsampler.gauss_samp, Psig.incl,0.3), None, inc_min, inc_max, 
@@ -320,7 +322,7 @@ else:
     sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.05), None, dec_min, dec_max, 
                           prior_pdf= mcsampler.uniform_samp_dec)
     sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max, 
-                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
+                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, factored_likelihood.tWindowExplore[0],factored_likelihood.tWindowExplore[1]))
     sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max,
                           prior_pdf = mcsampler.uniform_samp_phase)
     sampler.add_parameter("incl", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max,
@@ -343,7 +345,7 @@ if rosShowSamplerInputDistributions:
         xHigh = sampler.rlim[param]
         xvals = np.linspace(xLow,xHigh,500)
         pdfPrior = sampler.prior_pdf[param]  # Force type conversion in case we have non-float limits for some reasona
-        pdfvalsPrior = np.array(map(pdfPrior, xvals))  # do all the numpy operations by hand: no vectorization
+        pdfvalsPrior = np.array(map(pdfPrior, xvals))  # do all the np operations by hand: no vectorization
         pdf = sampler.pdf[param]
         cdf = sampler.cdf[param]
         pdfvals = pdf(xvals)
