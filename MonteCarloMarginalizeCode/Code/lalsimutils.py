@@ -269,11 +269,15 @@ class InnerProduct:
         self.longweights = np.zeros(2*(self.FDlen-1))  # for not hermetian inner products
         self.analyticPSD_Q = analyticPSD_Q
         if analyticPSD_Q == True:
+            if rosDebugMessagesContainer[0]:
+                print "  ... populating inner product weight array using analytic PSD ... "
             for i in range(self.minIdx,self.FDlen):        # populate weights for both hermetian and non-hermetian products
                 self.weights[i] = 1./self.psd(i*deltaF)
                 length = 2*(self.FDlen-1)
                 self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
                 self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
+            if rosDebugMessagesContainer[0]:
+                print "  ... finished populating inner product weight array using analytic PSD ... "
         else:
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
@@ -468,11 +472,15 @@ class Overlap(InnerProduct):
                 self.TDlen)
         # Compute the weights
         if analyticPSD_Q == True:
+            if rosDebugMessagesContainer[0]:
+                print "  ... populating inner product weight array using analytic PSD ... "
             for i in range(self.minIdx,self.FDlen):
                 self.weights[i] = 1./self.psd(i*deltaF)
                 length = 2*(self.FDlen-1)
                 self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
                 self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
+            if rosDebugMessagesContainer[0]:
+                print "  ... finished populating inner product weight array using analytic PSD ... "
         else:
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
@@ -1072,8 +1080,12 @@ def hlmoff(P, Lmax=2, Fp=None, Fc=None):
         TDlen = int(1./P.deltaF * 1./P.deltaT)
         assert TDlen == hxx.data.length
 
+    if rosDebugMessagesContainer[0]:
+        print "  ... starting Fourier transform: hlm(t)->hlm(f)"
     # FFT the hlms
     Hlms = lalsim.SphHarmFrequencySeriesFromSphHarmTimeSeries(hlms)
+    if rosDebugMessagesContainer[0]:
+        print "  ... finished Fourier transform: hlm(t)->hlm(f)"
 
     # Fixme
     if rosDebugMessagesContainer[0]:

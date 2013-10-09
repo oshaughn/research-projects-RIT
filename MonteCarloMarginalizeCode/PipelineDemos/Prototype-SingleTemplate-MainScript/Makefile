@@ -6,7 +6,17 @@
 gid=G78339
 ldf_server=ldr.ligo.caltech.edu:443
 
-all: psds bayestar_map get_data local.cache
+all: psds bayestar_map get_data local.cache setup
+
+test:
+	./integrate_likelihood_extrinsic --cache-file local.cache --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --channel-name V1=FAKE_h_16384Hz_4R --psd-file "H1=psd.xml.gz" --psd-file "L1=psd.xml.gz" --psd-file "V1=/psd.xml.gz" --coinc-xml coinc.xml
+
+setup:
+	ln -sf ../../Code/lalsimutils.py .
+	ln -sf ../../Code/factored_likelihood.py .
+	ln -sf ../../Code/ourio.py .
+	ln -sf ../../Code/mcsampler.py .
+	ln -sf ../../Code/integrate_likelihood_extrinsic .
 
 
 coinc.xml:
