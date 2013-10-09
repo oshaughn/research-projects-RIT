@@ -22,10 +22,13 @@ and computes the log likelihood for given values of extrinsic parameters
 Requires python SWIG bindings of the LIGO Algorithms Library (LAL)
 """
 
-from  lalsimutils import *   # WARNING: will not use same global variables consistently
-from scipy import integrate
+import lal
+import lalsimulation as lalsim
+import lalsimutils as lsu
+import numpy as np
+from scipy import interpolate, integrate
 from scipy import special
-import itertools
+from itertools import product
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -80,7 +83,7 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
     # Compute all hlm modes with l <= Lmax
     detectors = data_dict.keys()
     P.deltaF = data_dict[detectors[0]].deltaF   # FORCE DESIRED SIGNAL TIME
-    hlms = hlmoff(P, Lmax)
+    hlms = lsu.hlmoff(P, Lmax)
     h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms, 2, 2)
     h22Epoch = h22.epoch
     if rosDebugMessagesLong:
@@ -89,7 +92,7 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
             for m in np.arange(-Lmax, Lmax+1):
                 hxx = lalsim.SphHarmFrequencySeriesGetMode(hlms,int(L),int(m))  
                 if not(hxx is None):
-                    print " hlm(f) GPSTime for (l,m)= ",L,m, ": ", stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", stringGPSNice(epoch)
+                    print " hlm(f) GPSTime for (l,m)= ",L,m, ": ", lsu.stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", lsu.stringGPSNice(epoch)
 
 
     for det in detectors:
@@ -105,13 +108,13 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
         rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
         if rosDebugMessages:
             indxMax = np.argmax(np.abs(rho22.data.data))
-            print " ++ ", det, ": [rholm array] epoch of returned data vs fiducial ", stringGPSNice(rho22.epoch)
+            print " ++ ", det, ": [rholm array] epoch of returned data vs fiducial ", lsu.stringGPSNice(rho22.epoch)
             print " ++ ", det, ": [rholm array] best fit offset by ", indxMax, " which is dt = ", indxMax*rho22.deltaT
             print "   --Confirming epoch settings in the template signal Qlm(t) --"
             for L in np.arange(2,Lmax+1):
                 for m in np.arange(-Lmax, Lmax+1):
                     hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det],int(L),int(m))  
-                    print " Qlm(f) GPSTime for det(l,m)= ", det,L,m, ": ", stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", stringGPSNice(epoch)
+                    print " Qlm(f) GPSTime for det(l,m)= ", det,L,m, ": ", lsu.stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", lsu.stringGPSNice(epoch)
         # FIXME: Need to handle geocenter-detector time shift properly
         # NOTE: This array is almost certainly wrapped in time via the inverse FFT and is NOT starting at the epoch
 #        tShift =  float(h22Epoch - rho22)   # shift the data by the epoch specified by the returned data!
@@ -127,7 +130,7 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
         t = np.arange(rho22.data.length) * rho22.deltaT - tShiftDiscrete  # account for the timeseries, plus roll. This is always correct
         tShiftChangeTimeOrigin = float(rho22.epoch - epoch)   # rho22.epoch already includes signal length info: literally just origin change
         if rosDebugMessages:
-            print "  to change the time origin, we are translating by ", tShiftChangeTimeOrigin, " because the data series has time ",  stringGPSNice(rho22.epoch), " and the fiducial reference is ", stringGPSNice(epoch)
+            print "  to change the time origin, we are translating by ", tShiftChangeTimeOrigin, " because the data series has time ",  lsu.stringGPSNice(rho22.epoch), " and the fiducial reference is ", lsu.stringGPSNice(epoch)
         t = t + tShiftChangeTimeOrigin                           # account for zero of time being set to 'epoch'. 
         if rosDebugMessages:
             print " :   ", det, " -  Finished rholms, interpolating.  BEWARE ROLLING THE EVENT TIME"
@@ -202,7 +205,7 @@ def SingleDetectorLogLikelihoodModel( crossTermsDictionary,tref, RA,DEC, thS,phi
     # APPROXIMATING V BY U (appropriately swapped).  THIS APPROXIMATION MUST BE FIXED FOR PRECSSING SOURCES
     term2 = 0.
     if rosAvoidNestedLoops:
-        pairsOfPairs = itertools.product( keys,keys)  # loop over pairs might be faster than not
+        pairsOfPairs = product( keys,keys)  # loop over pairs might be faster than not
         for pPair in pairsOfPairs:
             pair1 = pPair[0]
             pair2 = pPair[1]
@@ -233,7 +236,7 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
 
     term1 = 0.
     if rosAvoidNestedLoops:
-        keys = constructLMIterator(Lmax)
+        keys = lsu.constructLMIterator(Lmax)
         for pair in keys: #rholms_intp:
             #        print " adding term to lnLdata ", pair
             term1+= np.conj(F*Ylms[pair])*rholms_intp[pair]( float(tshift))
@@ -340,7 +343,7 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
     global distMpcRef
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
-    keys = constructLMIterator(Lmax)
+    keys = lsu.constructLMIterator(Lmax)
     if rosDebugMessagesLong:
         print " looping over (l,m) pairs ", keys
 
@@ -358,7 +361,7 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
     # Eq. 26 of Richard's notes
     term2 = 0.
     if rosAvoidNestedLoops:
-        pairsOfPairs = itertools.product(  keys,keys)  # loop over pairs might be faster than not
+        pairsOfPairs = product(  keys,keys)  # loop over pairs might be faster than not
         for pPair in pairsOfPairs:
             pair1 = pPair[0]
             pair2 = pPair[1]
@@ -403,11 +406,11 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
     if analyticPSD_Q==False:
         assert data.deltaF == psd.deltaF
 #        print " ARGH NOT USING ANALYTIC PSD MAKE SURE WE ARE DOING THIS CORRECTLY "
-        IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd.data.data, False, True)
-        IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd.data.data, analyticPSD_Q=False)  # debugging, sanity checks
+        IP = lsu.ComplexOverlap(fmin, fNyq, data.deltaF, psd.data.data, False, True)
+        IPRegular = lsu.ComplexIP(fmin, fNyq, data.deltaF, psd.data.data, analyticPSD_Q=False)  # debugging, sanity checks
     else:
-        IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, analyticPSD_Q=True, full_output=True)
-        IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd)  # debugging, sanity checks
+        IP = lsu.ComplexOverlap(fmin, fNyq, data.deltaF, psd, analyticPSD_Q=True, full_output=True)
+        IPRegular = lsu.ComplexIP(fmin, fNyq, data.deltaF, psd)  # debugging, sanity checks
 
     print IP.fLow, IP.fNyq,IP.deltaF
     # Loop over modes and compute the overlap time series
@@ -426,10 +429,10 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
                 for m in range(-l,l+1):
                     rhoTS = lalsim.SphHarmTimeSeriesGetMode(rholms, l, m)
                     print  "     :  value of <hlm|data> ", l,m,  np.amax(np.abs(rhoTS.data.data))   #, " with length ", len(rhoTS.data.data)
-                    print "      : epoch ", stringGPSNice(rhoTS.epoch), " (should be 0 for template) compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch), " which should be related to padding, the choice of reference time, etc"
+                    print "      : epoch ", lsu.stringGPSNice(rhoTS.epoch), " (should be 0 for template) compare to fiducial epoch ", lsu.stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch), " which should be related to padding, the choice of reference time, etc"
     else:
         Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
-        keys = constructLMIterator(Lmax)  # nested lists are very bad for python
+        keys = lsu.constructLMIterator(Lmax)  # nested lists are very bad for python
 #        for l in range(2,Lmax+1):
 #            for m in range(-l,l+1):
         for pair in keys:
@@ -453,7 +456,7 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
                 else:
                     rhoRegular = IPRegular.ip(hlm,hlm)
                     print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular # ,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
-                    print "      : Qlm series starts at ", stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
+                    print "      : Qlm series starts at ", lsu.stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", lsu.stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
 
     # RETURN: Do not window or readjust the timeseries here.  This is done in the interpolation step.
     # TIMING : Epoch set 
@@ -538,9 +541,9 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
     # Create an instance of class to compute inner product
     if analyticPSD_Q==False:
         assert deltaF == psd.deltaF
-        IP = ComplexIP(fmin, fNyq, deltaF, psd.data.data, analyticPSD_Q=False)
+        IP = lsu.ComplexIP(fmin, fNyq, deltaF, psd.data.data, analyticPSD_Q=False)
     else:
-        IP = ComplexIP(fmin, fNyq, deltaF, psd, analyticPSD_Q=True)
+        IP = lsu.ComplexIP(fmin, fNyq, deltaF, psd, analyticPSD_Q=True)
 
     # Loop over modes and compute the inner products, store in a dictionary
     Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
@@ -548,8 +551,8 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
     crossTerms = {}
 
     if rosAvoidNestedLoops:
-        keys = constructLMIterator(Lmax)
-        pairsOfPairs = itertools.product(keys,keys)  # loop over pairs might be faster than not
+        keys = lsu.constructLMIterator(Lmax)
+        pairsOfPairs = product(keys,keys)  # loop over pairs might be faster than not
         for pPair in pairsOfPairs:
             pair1 = pPair[0]
             pair2 = pPair[1]
@@ -611,7 +614,7 @@ def ComputeYlms(Lmax, theta, phi):
     """
     Ylms = {}
     if rosAvoidNestedLoops:
-        keys = constructLMIterator(Lmax)
+        keys = lsu.constructLMIterator(Lmax)
         for pair in keys:
             l = int(pair[0])
             m = int(pair[1])
@@ -651,7 +654,7 @@ def non_herm_hoff(P):
             lalsim.InstrumentNameToLALDetector(P.detector))  # Propagates signal to the detector, including beampattern and time delay
     if rosDebugMessages:
         print " +++ Injection creation for detector ", P.detector, " ++ "
-        print  "   : Creating signal for injection with epoch ", float(hp.epoch), " and event time centered at ", stringGPSNice(P.tref)
+        print  "   : Creating signal for injection with epoch ", float(hp.epoch), " and event time centered at ", lsu.stringGPSNice(P.tref)
         Fp, Fc = lal.ComputeDetAMResponse(lalsim.InstrumentNameToLALDetector(P.detector).response, P.phi, P.theta, P.psi, lal.GreenwichMeanSiderealTime(hp.epoch))
         print "  : creating signal for injection with (det, t,RA, DEC,psi,Fp,Fx)= ", P.detector, float(P.tref), P.phi, P.theta, P.psi, Fp, Fc
     if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
