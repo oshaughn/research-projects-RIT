@@ -18,21 +18,24 @@
 A collection of useful data analysis routines
 built from the SWIG wrappings of LAL and LALSimulation.
 """
-
-import lal
-import lalsimulation as lalsim
-import lalinspiral
-import lalmetaio
-from glue.ligolw import lsctables, table, utils # check all are needed
-import numpy as np
 import copy
+
+import numpy as np
 from numpy import sin, cos
 from scipy import interpolate
 from scipy import signal
 #import scipy  # for decimate
 
-from pylal import frutils
+from glue.ligolw import lsctables, table, utils # check all are needed
 from glue.lal import Cache
+
+import lal
+import lalsimulation as lalsim
+import lalinspiral
+import lalmetaio
+
+from pylal import frutils
+from pylal.series import read_psd_xmldoc
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -1523,12 +1526,12 @@ def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all mod
             mylist.append((L,m))
     return mylist
 
-# extend_psd_series_to_sampling_requirements: 
-#     takes a conventional 1-sided PSD and extends into a longer 1-sided PSD array by filling intervening samples
-#     also strips the pylal binding and goes directly to a numpy array.
 def extend_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqRequired):
-    # The raw psd object is a pylal wrapper of the timeseries, which is different from the swig bindings
-    # and which is *also* different than the raw numpy array assumed in lalsimutils.py (above)
+    """
+    extend_psd_series_to_sampling_requirements: 
+    Takes a conventional 1-sided PSD and extends into a longer 1-sided PSD array by filling intervening samples, also strips the pylal binding and goes directly to a numpy array.
+    The raw psd object is a pylal wrapper of the timeseries, which is different from the swig bindings and which is *also* different than the raw numpy array assumed in lalsimutils.py (above)
+    """
     # Allocate new series
     n = len(raw_psd.data)                                     # odd number for one-sided PSD
     nRequired = int(fNyqRequired/dfRequired)+1     # odd number for one-sided PSD
@@ -1544,7 +1547,12 @@ def extend_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqRequired
     #         psdNew[facStretch*i+j] = raw_psd.data[i]  # 
     psdNew = (np.array([raw_psd.data for j in np.arange(facStretch)])).transpose().flatten()  # a bit too large, but that's fine for our purposes
     return psdNew
+
 def get_psd_series_from_xmldoc(fname, inst):
-    from glue.ligolw import utils
-    from pylal.series import read_psd_xmldoc
     return read_psd_xmldoc(utils.load_filename(fname))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+
+def get_intp_psd_series_from_xmldoc(fname, inst):
+    psd = get_psd_series_from_xmldoc(fname, inst)
+    f = np.arange(psd.f0, psd.deltaF*len(psd.data), psd.deltaF)
+    def intp_psd(freq):
+        return float("inf") if freq > psd.deltaF*len(psd.data) else interpolate.interp1d(f, psd.data)
