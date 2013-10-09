@@ -272,11 +272,15 @@ class InnerProduct:
         self.longweights = np.zeros(2*(self.FDlen-1))  # for not hermetian inner products
         self.analyticPSD_Q = analyticPSD_Q
         if analyticPSD_Q == True:
-            for i in range(self.minIdx,self.FDlen):        # populate weights for both hermetian and non-hermetian products
-                self.weights[i] = 1./self.psd(i*deltaF)
-                length = 2*(self.FDlen-1)
-                self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
-                self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
+            self.weights[self.minIdx:self.FDlen] = 1.0/self.psd(np.arange(self.minIdx, self.FDlen, 1))
+            # Take 1 sided PSD and make it 2 sided
+            self.longweights[1:1+len(self.weights)] = self.weights[::-1]
+            self.longweights[-(len(self.weights)+1):-1] = self.weights[:]
+            #for i in range(self.minIdx,self.FDlen):        # populate weights for both hermetian and non-hermetian products
+                #self.weights[i] = 1./self.psd(i*deltaF)
+                #length = 2*(self.FDlen-1)
+                #self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
+                #self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
         else:
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
@@ -1557,4 +1561,4 @@ def get_intp_psd_series_from_xmldoc(fname, inst):
     ifunc = interpolate.interp1d(f, psd.data)
     def intp_psd(freq):
         return float("inf") if freq > psd.deltaF*len(psd.data) else ifunc(freq)
-    return intp_psd
+    return np.vectorize(intp_psd)
