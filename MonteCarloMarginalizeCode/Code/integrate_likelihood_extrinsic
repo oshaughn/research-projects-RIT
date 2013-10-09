@@ -80,9 +80,7 @@ for sngl_row in sngl_inspiral_table:
     # NOTE: gstlal is exact match, but other pipelines may not be
     assert m1 is None or (sngl_row.mass1 == m1 and sngl_row.mass2 == m2)
     m1, m2 = sngl_row.mass1, sngl_row.mass2
-    # internally we use SI units
-    m1 = m1*lal.LAL_MSUN_SI
-    m2 = m2*lal.LAL_MSUN_SI
+
 # FIXME: Keep this and organize
 # TARGET INJECTED SIGNAL (for reference and calibration of results)
 # TODO: Have an "injection" xml for reference?
@@ -119,13 +117,14 @@ P = lalsimutils.ChooseWaveformParams(
     theta = 0.0, 
     phi = 0.0,
     psi = 0.0,
-    m1 = m1,
-    m2 = m2,
+    # internally we use SI units
+    m1 = m1*swiglal.LAL_MSUN_SI,
+    m2 = m2*swiglal.LAL_MSUN_SI,
     ampO = ampO,
     fref = opts.reference_freq,
     tref = fiducial_epoch,
     deltaT = 1./fSample,
-    dist = 100*1.e6*swiglal.LAL_PC_SI,
+    dist = factored_likelihood.distMpcRef*1.e6*swiglal.LAL_PC_SI,
     deltaF = df)
 
 
@@ -141,7 +140,7 @@ rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLik
 t_ref_wind = 2e-3
 
 # FIXME: Never really used
-dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
+dmin = 1. * 1.e6 * swiglal.LAL_PC_SI   # min distance
 #dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
 dmax = estimateUpperDistanceBoundInMpc(rholms, cross_terms)
 print "Estimated outer fiducial radius for event (Mpc): %f" %dmax
@@ -284,11 +283,11 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
 res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, 
     "right_ascension", "declination", "tref", "phi_orb", "inclnation", "psi", "distance", 
     n=200, nmax=nMaxEvals, neff=100,
-    # FIXME: What here?
-    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
+    # FIXME: What here?  ROS: an estimate of the peak lnL, and a threshold on what 
+#    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
     full_output=True
     )
-tGPSEnd = lal.GPSTimeNow()
+tGPSEnd = swiglal.GPSTimeNow()
 print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
