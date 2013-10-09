@@ -37,7 +37,7 @@ from glue.lal import Cache
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
-rosDebugMessagesContainer = [True]
+rosDebugMessagesContainer = [False]
 print "[Loading lalsimutils.py : MonteCarloMarginalization version]"
 
 

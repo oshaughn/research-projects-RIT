@@ -60,7 +60,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
     print "Frequency binning: %f, length %d" % (psd_dict[inst].deltaF, len(psd_dict[inst].data.data))
     psd_dict[inst] = lalsimutils.extend_psd_series_to_sampling_requirements(psd_dict[inst], data_dict[inst].deltaF, len(data_dict[inst].data.data)*data_dict[inst].deltaF)
-    print "Frequency binning: %f, length %d" % (psd_dict[inst].deltaF, len(psd_dict[inst].data.data))
+    #print "Frequency binning: %f, length %d" % (psd_dict[inst].deltaF, len(psd_dict[inst].data.data))
 
 #
 # Sanity checks
@@ -80,6 +80,9 @@ for sngl_row in sngl_inspiral_table:
     # NOTE: gstlal is exact match, but other pipelines may not be
     assert m1 is None or (sngl_row.mass1 == m1 and sngl_row.mass2 == m2)
     m1, m2 = sngl_row.mass1, sngl_row.mass2
+    # internally we use SI units
+    m1 = m1*lal.LAL_MSUN_SI
+    m2 = m2*lal.LAL_MSUN_SI
 # FIXME: Keep this and organize
 # TARGET INJECTED SIGNAL (for reference and calibration of results)
 # TODO: Have an "injection" xml for reference?
