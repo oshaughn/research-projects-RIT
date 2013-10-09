@@ -265,7 +265,10 @@ class InnerProduct:
         self.fLow = fLow
         self.fNyq = fNyq
         self.deltaF = deltaF
-        self.psd = psd
+        if analyticPSD_Q:
+            self.psd = np.vectorize(psd)
+        else:
+            self.psd = psd
         self.minIdx = int(fLow/deltaF)
         self.FDlen = int(fNyq/deltaF)+1
         self.weights = np.zeros(self.FDlen)
