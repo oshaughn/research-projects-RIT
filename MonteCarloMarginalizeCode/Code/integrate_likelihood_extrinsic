@@ -11,8 +11,7 @@ from optparse import OptionParser
 
 import numpy
 
-from glue import lal
-import lal as swiglal
+import lal
 from glue.ligolw import utils, lsctables, table
 
 import lalsimutils
@@ -115,20 +114,20 @@ P = lalsimutils.ChooseWaveformParams(
     phi = 0.0,
     psi = 0.0,
     # internally we use SI units
-    m1 = m1*swiglal.LAL_MSUN_SI,
-    m2 = m2*swiglal.LAL_MSUN_SI,
+    m1 = m1 * lal.LAL_MSUN_SI,
+    m2 = m2 * lal.LAL_MSUN_SI,
     ampO = ampO,
     fref = opts.reference_freq,
     tref = fiducial_epoch,
     deltaT = 1./fSample,
-    dist = factored_likelihood.distMpcRef*1.e6*swiglal.LAL_PC_SI,
+    dist = factored_likelihood.distMpcRef * 1.e6 * lal.LAL_PC_SI,
     deltaF = df)
 
 
 #
 # Perform the Precompute stage
 #
-rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(fiducial_epoch, P, data_dict, psd_dict, Lmax, analyticPSD_Q=False)
+rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(fiducial_epoch, P, data_dict, psd_dict, Lmax, analyticPSD_Q=True)
 
 #
 # Set up parameters and bounds
@@ -284,7 +283,7 @@ res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function,
 #    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
     full_output=True
     )
-tGPSEnd = swiglal.GPSTimeNow()
+tGPSEnd = lal.GPSTimeNow()
 print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
