@@ -297,6 +297,7 @@ class InnerProduct:
                     length = 2*(self.FDlen-1)
                     self.longweights[length/2 - i+1] = 1./psd[i]
                     self.longweights[length/2 + i-1] = 1./psd[i]
+                    # explicitly zero the nyquist binx
             if rosDebugMessagesContainer[0]:
                 print "  ... finished populating inner product weight array using a numerical PSD ... "
 

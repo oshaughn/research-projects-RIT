@@ -403,6 +403,7 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
         # MODIFIED: psd is raw numpy array
         print " ARGH NOT USING ANALYTIC PSD MAKE SURE WE ARE DOING THIS CORRECTLY "
         IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, False, True)
+        IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd, False,True)  # debugging, sanity checks
     else:
         IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, analyticPSD_Q=True, full_output=True)
         IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd)  # debugging, sanity checks
@@ -449,7 +450,7 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
                 if hlm is None:
                     print "          -- skipping ", l,m, " since it is not present "
                 else:
-                    rhoRegular = IPRegular.ip(hlm,hlm)
+#                    rhoRegular = IPRegular.ip(hlm,hlm)
                     print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular # ,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
                     print "      : Qlm series starts at ", stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
 
