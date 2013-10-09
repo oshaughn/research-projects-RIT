@@ -536,7 +536,7 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
     # Create an instance of class to compute inner product
     if analyticPSD_Q==False:
 #        assert deltaF == psd.deltaF
-        IP = ComplexIP(fmin, fNyq, data.deltaF, psd.data.data, analyticPSD_Q=False)
+        IP = ComplexIP(fmin, fNyq, data.deltaF, psd, analyticPSD_Q=False)
     else:
         IP = ComplexIP(fmin, fNyq, deltaF, psd, analyticPSD_Q=True)
 

@@ -289,12 +289,16 @@ class InnerProduct:
             if rosDebugMessagesContainer[0]:
                 print "  ... finished populating inner product weight array using analytic PSD ... "
         else:
+            if rosDebugMessagesContainer[0]:
+                print "  ... populating inner product weight array using a numerical PSD ... "
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
                     self.weights[i] = 1./psd[i]
                     length = 2*(self.FDlen-1)
                     self.longweights[length/2 - i+1] = 1./psd[i]
                     self.longweights[length/2 + i-1] = 1./psd[i]
+            if rosDebugMessagesContainer[0]:
+                print "  ... finished populating inner product weight array using a numerical PSD ... "
 
     def ip(self, h1, h2):
         """
@@ -492,13 +496,16 @@ class Overlap(InnerProduct):
             if rosDebugMessagesContainer[0]:
                 print "  ... finished populating inner product weight array using analytic PSD ... "
         else:
+            if rosDebugMessagesContainer[0]:
+                print "  ... populating inner product weight array using a numerical PSD ... "
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
                     self.weights[i] = 1./psd[i]
                     length = 2*(self.FDlen-1)
                     self.longweights[length/2 - i+1] = 1./psd[i]
                     self.longweights[length/2 + i-1] = 1./psd[i]
-
+            if rosDebugMessagesContainer[0]:
+                print "  ... finished populating inner product weight array using a numerical PSD ... "
 
 
     def ip(self, h1, h2):
