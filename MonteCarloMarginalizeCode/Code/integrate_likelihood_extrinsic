@@ -168,8 +168,8 @@ param_limits = { "psi": (0, 2*numpy.pi),
 # Parameter integral sampling strategy
 #
 params = {}
-for param, limits in param_limits.iteritems():
-    params[param] = functools.partial(mcsampler.uniform_samp_vector(), *limits )
+#for param, limits in param_limits.iteritems():
+#    params[param] = functools.partial(mcsampler.uniform_samp_vector(), limits[0], limits[1] )  # *limits didn't work, not sure why
 sampler = mcsampler.MCSampler()
 
 # FIXME: Address this problem?
@@ -223,7 +223,7 @@ sampler.add_parameter("dist",
     cdf_inv = None,
     left_limit = param_limits["distance"][0], 
     right_limit = param_limits["distance"][1],
-    prior_pdf = np.vectorize(lambda x: x**2/(3*Dmax**3)))
+    prior_pdf = numpy.vectorize(lambda x: x**2/(3*Dmax**3)))
 
 #
 # Right ascension - angle in radians from prime meridian plus hour angle
@@ -234,8 +234,8 @@ ra_sampler = functools.partial(mcsampler.uniform_samp_vector,
 sampler.add_parameter("right_ascension", 
     pdf = ra_sampler, 
     cdf_inv = None, 
-    left_limit = ra_min, 
-    right_limit = ra_max, 
+    left_limit = param_limits["right_ascension"][0],
+    right_limit =  param_limits["right_ascension"][1],
     prior_pdf = mcsampler.uniform_samp_phase)
 
 #
@@ -256,14 +256,14 @@ sampler.add_parameter("declination",
 # sampler: uniform in +/-2 ms window around estimated end time 
 #
 tref_sampler = functools.partial(mcsampler.uniform_samp_vector,
-    param_limits["tref"][0], param_limits["tref"][1])
-sampler.add_parameter("tref", 
+    param_limits["t_ref"][0], param_limits["t_ref"][1])
+sampler.add_parameter("t_ref", 
     pdf = tref_sampler, 
     cdf_inv = None, 
-    left_limit = param_limits["tref"][0], 
-    right_limit = param_limits["tref"][1],
+    left_limit = param_limits["t_ref"][0], 
+    right_limit = param_limits["t_ref"][1],
     # FIXME:What goes here?
-    prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
+    prior_pdf = functools.partial(mcsampler.uniform_samp_vector, factored_likelihood.tWindowExplore[0],factored_likelihood.tWindowExplore[1]))
 
 #
 # Call the likelihood function for various extrinsic parameter values
@@ -283,22 +283,23 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.psi = ps # polarization angle
         P.dist = di # luminosity distance
 
-        lnL[i] = FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+        lnL[i] = FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
         i+=1
 
     nEvals+=i 
     return numpy.exp(lnL)
 
+nMaxEvals = 1e6
 res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, 
-    "right_ascension", "declination", "tref", "phi_orb", "inclnation", "psi", "distance", 
+    "right_ascension", "declination", "t_ref", "phi_orb", "inclnation", "psi", "distance", 
     n=200, nmax=nMaxEvals, neff=100,
     # FIXME: What here?  ROS: an estimate of the peak lnL, and a threshold on what 
 #    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
     full_output=True
     )
 tGPSEnd = lal.GPSTimeNow()
-print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
-print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
+print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
+print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
 
 # FIXME: Synch with other I/O routines
 # Save the sampled points to a file
