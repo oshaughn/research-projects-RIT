@@ -1620,7 +1620,7 @@ def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqReq
     #    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired,lal.lalHertzUnit, nRequired )
     #   psdNew.data.data = np.zeros(len(psdNew.data.data))
     # psdNew = np.zeros(nRequired)   
-    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., df ,lal.lalHertzUnit, nRequired)
+    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., df ,lal.lalHertzUnit, n*facStretch)
     # Populate the series.  Slow because it is a python loop
     for i in np.arange(n):
         for j in np.arange(facStretch):
