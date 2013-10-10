@@ -302,7 +302,7 @@ class InnerProduct:
                     # explicitly zero the nyquist binx
             if rosDebugMessagesLongContainer[0]:
                 print "  ... finished populating inner product weight array using a numerical PSD ... "
-                print " note maximum weight is ", np.max(self.longweights)
+                print " note maximum weight is ", np.max(self.longweights),  " in bin ", np.argmax(self.longweights[:length/2]), " or frequency ", deltaF*np.argmax(self.longweights[:length/2])
 
     def ip(self, h1, h2):
         """
