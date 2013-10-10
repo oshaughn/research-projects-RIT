@@ -22,6 +22,7 @@ import ourio
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 rosDebugShowPriors = True  
+rosDebugShowExcruciatingLikelihoodDetail = False
 
 #
 # Option parsing
@@ -283,7 +284,8 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
     global nEvals
     lnL = numpy.zeros(phi.shape)
     i = 0
-    print " Likelihood results :  "
+    if rosDebugShowExcruciatingLikelihoodDetail:
+        print " Likelihood results :  "
 #    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
     for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
         P.phi = ph # right ascension
@@ -295,7 +297,8 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.dist = di # luminosity distance
 
         lnL[i] = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
-        print "  + likelihood evaluation : ", i, " :  ", lnL[i]
+        if  rosDebugShowExcruciatingLikelihoodDetail:
+            print "  + likelihood evaluation : ", i + nEvals, " :  ", lnL[i], " : overflow check ", np.exp(lnL[i])
         i+=1
 
     nEvals+=i 

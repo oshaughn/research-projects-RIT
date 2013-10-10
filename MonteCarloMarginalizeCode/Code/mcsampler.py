@@ -255,8 +255,8 @@ class MCSampler(object):
                         # FIXME: Non-portable change, breaks universality of the integration.
                         joint_p_s  = numpy.maximum(numpy.ones(len(joint_p_s))*1e-50,joint_p_s)
 
-                        numpy.testing.assert_array_less(0,joint_p_s)        # >0!
-                        numpy.testing.assert_array_less(0,joint_p_prior)   # >0!
+                        numpy.testing.assert_array_less(0,joint_p_s)        # >0!  (CANNOT be zero or negative for any sample point, else disaster. Human errors happen.)
+                        numpy.testing.assert_array_less(0,joint_p_prior)   # >0!  (could be zero if needed.)
 			if len(rv[0].shape) != 1:
 				rv = rv[0]
                         if bUseMultiprocessing:
