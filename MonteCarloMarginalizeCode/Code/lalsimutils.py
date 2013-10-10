@@ -40,8 +40,8 @@ from pylal.series import read_psd_xmldoc
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
-rosDebugMessagesContainer = [False]
-rosDebugMessagesLongContainer = [False]
+rosDebugMessagesContainer = [True]
+rosDebugMessagesLongContainer = [True]
 print "[Loading lalsimutils.py : MonteCarloMarginalization version]"
 
 
@@ -1572,7 +1572,7 @@ def regularize_psd_series_near_nyquist(raw_psd,DeltaFToZero):
     new_psd = raw_psd
     n = len(new_psd.data)
     for i in range(nToZero):
-        new_psd.data[n - nToZero-1] = 0.
+        new_psd.data[n - i-1] = 0.
 # Vectorized assignment would be better
 #    new_psd.data[n-nToZero-1,-1] = np.zeros(nToZero)
     return new_psd

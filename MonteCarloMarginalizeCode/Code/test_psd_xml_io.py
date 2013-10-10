@@ -13,6 +13,8 @@ import lalsimutils
 
 __author__ = "R. O'Shaughnessy"
 
+rosUseWindowing = True
+
 #
 # Option parsing
 #
@@ -34,9 +36,11 @@ psd_dict['V1'] = lalsimutils.get_psd_series_from_xmldoc(psdf, 'V1')
 fvals = psd_dict['H1'] .deltaF*np.arange(len(psd_dict['H1'].data))
 
 # Report on PSD -- in particular, on the nyquist bin
+detectors = psd_dict.keys()
 print "  === 'Nyquist bin' report  ==== "
-for det in psd_dict.keys():
-    print det, " has length ", len(psd_dict[det].data), " with nyquist bin value ",  psd_dict[det].data[-1], " which had better be EXACTLY zero for things to work; note second-to-last bin is ", psd_dict[det].data[-2], psd_dict[det].data[-3]
+for det in detectors:
+    df = psd_dict[det].deltaF
+    print det, " has length ", len(psd_dict[det].data), " with nyquist bin value ",  psd_dict[det].data[-1], " which had better be EXACTLY zero for things to work; note second-to-last bin is ", psd_dict[det].data[-2], psd_dict[det].data[-int(10/df)],psd_dict[det].data[-int(30/df)]
 print " ... so several bins may be anomalously small ... "
 for det in psd_dict.keys():
     pairups = np.transpose(np.array([fvals,psd_dict[det].data]))
@@ -45,7 +49,9 @@ for det in psd_dict.keys():
 
 # Plot the raw  PSD
 print " === Plotting === "
-for det in psd_dict.keys():
+for det in detectors:
+    if rosUseWindowing:
+        psd_dict[det] = lalsimutils.regularize_psd_series_near_nyquist(psd_dict[det], 80) # zero out 80 hz window near nyquist
     plt.loglog(fvals, psd_dict[det].data,label='psd:'+det)
 fn = np.frompyfunc(lambda x: lalsim.SimNoisePSDaLIGOZeroDetHighPower(x) if x>30 else 0,1,1)
 #psd_guess = np.log10(np.array(fn(fvals)))
@@ -53,8 +59,31 @@ psd_guess = np.zeros(len(fvals))
 psd_guess[1:-1] = np.array(map(lalsim.SimNoisePSDaLIGOZeroDetHighPower,fvals[1:-1]))
 plt.loglog(fvals,psd_guess,label='analytic')
 plt.legend()
+#plt.xlim(1e1,1e2)
 plt.show()
 
+#
+# 'Interpolate' PSD and replot  [option to use the 'regularize']
+#
+psd_extend = {}
+plt.clf()
+for det in detectors:
+#    plt.loglog(fvals, psd_dict[det].data,label='psd:'+det)
+    df = psd_dict[det].deltaF
+#    plt.loglog(fvals, psd_dict[det].data,label='psd:'+det)
+    psd_extend[det] = lalsimutils.extend_psd_series_to_sampling_requirements(psd_dict[det], df/2, len(psd_dict[det].data)*df)
+    fvals2 = df/2*np.arange(len(psd_extend[det]))
+    plt.loglog(fvals2, psd_extend[det],label=det)
+plt.legend()
+plt.show()
+
+#
+# Generate an inner product using this extended PSD.  [Only useful if we have debugging on]
+#
+for det in psd_dict.keys():
+    fNyq = float(len(psd_dict[det].data-1)*psd_dict[det].deltaF)
+    print det, fNyq
+#    IP = lalsimutils.ComplexIP(26., fNyq, psd_extend[det], analyticPSD_Q=False)
 
 #
 # Interpolate PSD

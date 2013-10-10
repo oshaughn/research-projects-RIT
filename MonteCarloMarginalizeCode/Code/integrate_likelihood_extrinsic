@@ -88,7 +88,7 @@ for sngl_row in sngl_inspiral_table:
 
 # FIXME: Turn into cmd line options
 # minimum frequency of template
-template_min_freq = 25  # too long can be a memory and time hog, particularly at 16 kHz
+template_min_freq = 30  # too long can be a memory and time hog, particularly at 16 kHz
 # minimum frequency of inner product integration
 ip_min_freq = 30
 
