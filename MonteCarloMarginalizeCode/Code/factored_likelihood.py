@@ -399,11 +399,10 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
 
     # Create an instance of class to compute inner product time series
     if analyticPSD_Q==False:
-        #assert data.deltaF == psd.deltaF
-        # MODIFIED: psd is raw numpy array
+        assert data.deltaF == psd.deltaF
         print " ARGH NOT USING ANALYTIC PSD MAKE SURE WE ARE DOING THIS CORRECTLY "
-        IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, False, True)
-        IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd, analyticPSD_Q=False)  # debugging, sanity checks
+        IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd.data.data, False, True)
+        IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd.data.data, analyticPSD_Q=False)  # debugging, sanity checks
     else:
         IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, analyticPSD_Q=True, full_output=True)
         IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd)  # debugging, sanity checks
@@ -536,8 +535,8 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
     """
     # Create an instance of class to compute inner product
     if analyticPSD_Q==False:
-#        assert deltaF == psd.deltaF
-        IP = ComplexIP(fmin, fNyq, deltaF, psd, analyticPSD_Q=False)
+        assert deltaF == psd.deltaF
+        IP = ComplexIP(fmin, fNyq, deltaF, psd.data.data, analyticPSD_Q=False)
     else:
         IP = ComplexIP(fmin, fNyq, deltaF, psd, analyticPSD_Q=True)
 

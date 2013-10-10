@@ -34,6 +34,13 @@ optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing c
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
 opts, args = optp.parse_args()
 
+# FIXME: Turn into cmd line options
+# minimum frequency of template
+template_min_freq = 30  # too long can be a memory and time hog, particularly at 16 kHz
+# minimum frequency of inner product integration
+ip_min_freq = 30
+
+
 #
 # Gather information from the detection pipeline
 #
@@ -57,8 +64,9 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
 
 for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     print "Reading PSD for instrument %s from %s" % (inst, psdf)
-    psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
-    psd_dict[inst] = lalsimutils.regularize_psd_series_near_nyquist(psd_dict[inst], 80) # zero out 80 hz window near nyquist
+    psd_dict[inst] = lalsimutils.pylal_psd_to_swig_psd(lalsimutils.get_psd_series_from_xmldoc(psdf, inst))
+    psd_dict[inst] = lalsimutils.regularize_swig_psd_series_near_nyquist(psd_dict[inst], 80) # zero out 80 hz window near nyquist
+    psd_dict[det] =  lalsimutils.enforce_swig_psd_fmin(psd_dict[inst], ip_min_freq)           # enforce fmin at the psd level, HARD CUTOFF
     print "Sanity check reporting  : min is ", numpy.min(psd_dict[inst]), " and maximum is ", numpy.max(psd_dict[inst])
     deltaF = data_dict[inst].deltaF
     psd_dict[inst] = lalsimutils.extend_psd_series_to_sampling_requirements(psd_dict[inst], deltaF, deltaF*len(data_dict[inst].data.data))
@@ -85,12 +93,6 @@ for sngl_row in sngl_inspiral_table:
 # TARGET INJECTED SIGNAL (for reference and calibration of results)
 # TODO: Have an "injection" xml for reference?
 #Psig = xml_to_ChooseWaveformParams_array("mdc.xml.gz")[0]  # Load in the physical parameters of the injection (=first element)
-
-# FIXME: Turn into cmd line options
-# minimum frequency of template
-template_min_freq = 30  # too long can be a memory and time hog, particularly at 16 kHz
-# minimum frequency of inner product integration
-ip_min_freq = 30
 
 # Template descriptors
 ampO =0 # sets which modes to include in the physical signal

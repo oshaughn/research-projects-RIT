@@ -26,33 +26,45 @@ opts, args = optp.parse_args()
 print opts, args
 print opts.psd_file
 #
-# Load in PSDs
+# Load in PSDs: original API
+#
+# psdf = opts.psd_file
+# psd_dict ={}
+# psd_dict['H1'] = lalsimutils.get_psd_series_from_xmldoc(psdf, 'H1')
+# psd_dict['L1'] = lalsimutils.get_psd_series_from_xmldoc(psdf, 'L1')
+# psd_dict['V1'] = lalsimutils.get_psd_series_from_xmldoc(psdf, 'V1')
+# fvals = psd_dict['H1'] .deltaF*np.arange(len(psd_dict['H1'].data))
+
+#
+# Load in PSDs: convert to swig first
 #
 psdf = opts.psd_file
 psd_dict ={}
-psd_dict['H1'] = lalsimutils.get_psd_series_from_xmldoc(psdf, 'H1')
-psd_dict['L1'] = lalsimutils.get_psd_series_from_xmldoc(psdf, 'L1')
-psd_dict['V1'] = lalsimutils.get_psd_series_from_xmldoc(psdf, 'V1')
-fvals = psd_dict['H1'] .deltaF*np.arange(len(psd_dict['H1'].data))
+psd_dict['H1'] =lalsimutils.pylal_psd_to_swig_psd( lalsimutils.get_psd_series_from_xmldoc(psdf, 'H1'))
+psd_dict['L1'] = lalsimutils.pylal_psd_to_swig_psd( lalsimutils.get_psd_series_from_xmldoc(psdf, 'L1'))
+psd_dict['V1'] = lalsimutils.pylal_psd_to_swig_psd( lalsimutils.get_psd_series_from_xmldoc(psdf, 'V1'))
+fvals = psd_dict['H1'] .deltaF*np.arange(len(psd_dict['H1'].data.data))
+
 
 # Report on PSD -- in particular, on the nyquist bin
 detectors = psd_dict.keys()
 print "  === 'Nyquist bin' report  ==== "
 for det in detectors:
     df = psd_dict[det].deltaF
-    print det, " has length ", len(psd_dict[det].data), " with nyquist bin value ",  psd_dict[det].data[-1], " which had better be EXACTLY zero for things to work; note second-to-last bin is ", psd_dict[det].data[-2], psd_dict[det].data[-int(10/df)],psd_dict[det].data[-int(30/df)]
+    print det, " has length ", len(psd_dict[det].data.data), " with nyquist bin value ",  psd_dict[det].data.data[-1], " which had better be EXACTLY zero for things to work; note second-to-last bin is ", psd_dict[det].data.data[-2], psd_dict[det].data.data[-int(10/df)],psd_dict[det].data.data[-int(30/df)]
 print " ... so several bins may be anomalously small ... "
 for det in psd_dict.keys():
-    pairups = np.transpose(np.array([fvals,psd_dict[det].data]))
-    badbins = [k[0] for k in pairups if k[0]>100 and  k[1]<100*psd_dict[det].data[-1]]
+    pairups = np.transpose(np.array([fvals,psd_dict[det].data.data]))
+    badbins = [k[0] for k in pairups if k[0]>100 and  k[1]<100*psd_dict[det].data.data[-1]]
     print " highest reliable frequency in ", det, " seems to be ", badbins[0]
 
 # Plot the raw  PSD
 print " === Plotting === "
 for det in detectors:
     if rosUseWindowing:
-        psd_dict[det] = lalsimutils.regularize_psd_series_near_nyquist(psd_dict[det], 80) # zero out 80 hz window near nyquist
-    plt.loglog(fvals, psd_dict[det].data,label='psd:'+det)
+        tmp =  lalsimutils.regularize_swig_psd_series_near_nyquist(psd_dict[det], 80) # zero out 80 hz window near nyquist
+        psd_dict[det] =  lalsimutils.enforce_swig_psd_fmin(tmp, 30.)
+    plt.loglog(fvals, psd_dict[det].data.data,label='psd:'+det)
 fn = np.frompyfunc(lambda x: lalsim.SimNoisePSDaLIGOZeroDetHighPower(x) if x>30 else 0,1,1)
 #psd_guess = np.log10(np.array(fn(fvals)))
 psd_guess = np.zeros(len(fvals))
@@ -65,15 +77,14 @@ plt.show()
 #
 # 'Interpolate' PSD and replot  [option to use the 'regularize']
 #
+print " === Interpolating and replotting === "
 psd_extend = {}
 plt.clf()
 for det in detectors:
-#    plt.loglog(fvals, psd_dict[det].data,label='psd:'+det)
     df = psd_dict[det].deltaF
-#    plt.loglog(fvals, psd_dict[det].data,label='psd:'+det)
-    psd_extend[det] = lalsimutils.extend_psd_series_to_sampling_requirements(psd_dict[det], df/2, len(psd_dict[det].data)*df)
-    fvals2 = df/2*np.arange(len(psd_extend[det]))
-    plt.loglog(fvals2, psd_extend[det],label=det)
+    psd_extend[det] = lalsimutils.extend_swig_psd_series_to_sampling_requirements(psd_dict[det], df/2, len(psd_dict[det].data.data)*df)
+    fvals2 = df/2*np.arange(len(psd_extend[det].data.data))
+    plt.loglog(fvals2, psd_extend[det].data.data,label=det)
 plt.legend()
 plt.show()
 

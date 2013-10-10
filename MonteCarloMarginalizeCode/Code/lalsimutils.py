@@ -1561,30 +1561,58 @@ def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all mod
             mylist.append((L,m))
     return mylist
 
-def regularize_psd_series_near_nyquist(raw_psd,DeltaFToZero):
+def pylal_psd_to_swig_psd(raw_pylal_psd):
+    """
+    pylal_psd_to_swig_psd
+    Why do I do a conversion? I am having trouble returning modified PSDs
+    """
+    data = raw_pylal_psd.data
+    df = raw_pylal_psd.deltaF
+    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., df ,lal.lalHertzUnit, len(data))
+    for i in range(len(data)):
+        psdNew.data.data[i] = data[i]   # don't mix memory management between pylal and swig
+    return psdNew
+
+def regularize_swig_psd_series_near_nyquist(raw_psd,DeltaFToZero):
     """
     regularize_psd_series_near_nyquist
     Near nyquist, some PSD bins are insane.  As a *temporary measure*, I am going to use this routine to
     explicitly zero out those frequency bins, using a 30 Hz window near nyquist
     """
+    global rosDebugMessagesContainer
     df = raw_psd.deltaF
-    nToZero = int(DeltaFToZero/df)
-    new_psd = raw_psd
-    n = len(new_psd.data)
+    nToZero = int(1.0* DeltaFToZero/df)
+    new_psd = raw_psd # copy.deepcopy(raw_psd)  # I actually don't need a copy
+    n = len(new_psd.data.data)
+    if rosDebugMessagesContainer[0]:
+        print " zeroing ", nToZero ," last elements of the psd, out of ",n
     for i in range(nToZero):
-        new_psd.data[n - i-1] = 0.
+        new_psd.data.data[n - i-1] = 0.
 # Vectorized assignment would be better
 #    new_psd.data[n-nToZero-1,-1] = np.zeros(nToZero)
     return new_psd
 
-def extend_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqRequired):
+def enforce_swig_psd_fmin(raw_psd, fmin):
+    global rosDebugMessagesContainer
+    df = raw_psd.deltaF
+    nToZero = int(1.0*fmin/df)
+    new_psd = raw_psd   # Not a copy - I can alter the original
+    n = len(new_psd.data.data)
+    if rosDebugMessagesContainer[0]:
+        print " zeroing ", nToZero ," first elements of the psd, out of ",n
+    for i in range(nToZero):
+        new_psd.data.data[i] = 0.
+    return new_psd
+
+def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqRequired):
     """
     extend_psd_series_to_sampling_requirements: 
     Takes a conventional 1-sided PSD and extends into a longer 1-sided PSD array by filling intervening samples, also strips the pylal binding and goes directly to a numpy array.
     The raw psd object is a pylal wrapper of the timeseries, which is different from the swig bindings and which is *also* different than the raw numpy array assumed in lalsimutils.py (above)
     """
     # Allocate new series
-    n = len(raw_psd.data)                                     # odd number for one-sided PSD
+    df = raw_psd.deltaF
+    n = len(raw_psd.data.data)                                     # odd number for one-sided PSD
     nRequired = int(fNyqRequired/dfRequired)+1     # odd number for one-sided PSD
     facStretch = int((nRequired-1)/(n-1))  # n-1 should be power of 2
     if rosDebugMessagesContainer[0]:
@@ -1592,11 +1620,12 @@ def extend_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqRequired
     #    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired,lal.lalHertzUnit, nRequired )
     #   psdNew.data.data = np.zeros(len(psdNew.data.data))
     # psdNew = np.zeros(nRequired)   
+    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., df ,lal.lalHertzUnit, nRequired)
     # Populate the series.  Slow because it is a python loop
-    # for i in np.arange(n):
-    #     for j in np.arange(facStretch):
-    #         psdNew[facStretch*i+j] = raw_psd.data[i]  # 
-    psdNew = (np.array([raw_psd.data for j in np.arange(facStretch)])).transpose().flatten()  # a bit too large, but that's fine for our purposes
+    for i in np.arange(n):
+        for j in np.arange(facStretch):
+            psdNew.data.data[facStretch*i+j] = raw_psd.data.data[i]  # 
+#    psdNew.data.data = (np.array([raw_psd.data.data for j in np.arange(facStretch)])).transpose().flatten()  # a bit too large, but that's fine for our purposes
     return psdNew
 
 def get_psd_series_from_xmldoc(fname, inst):
