@@ -1675,6 +1675,16 @@ allowing high trigger rates. \editremark{I wonder if this is useful}.
 * SUGGESTION FOR DATA GENERATION: slow because we completely regenerate the whole signal 3 times, rather than
   project the same signal onto each IFO
 
+\section{Design philosophy}
+
+\begin{verbatim}
+     - rapid prototyping to develop design
+     - identify routines, with unit tests. Unit tests provide documentation, validation, and debugging aid
+	- quasi-realistic 'unit tests' are built into the many test_* functions.
+	- not a pedant: life is short
+     - prefer strongly controlled circumstances for the unit tests, not end-to-end, to isolate features. 
+\end{verbatim}
+
 \section{Python implementation}
 
 \noindent \textbf{Input check}: 

@@ -33,7 +33,7 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 distMpcRef = 100
 tWindowReference = [-0.15,0.15]            # choose samples so we have this centered on the window
 tWindowExplore = [-0.05, 0.05]             # smaller window.  Avoid interpolation errors on the edge.
-rosDebugMessages = True
+rosDebugMessages = False
 rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
 rosDebugUseCForQTimeseries =False
 rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
@@ -78,6 +78,8 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
     print "  ++++ Template data being computed for the following binary +++ "
     P.print_params()
     # Compute all hlm modes with l <= Lmax
+    detectors = data_dict.keys()
+    P.deltaF = data_dict[detectors[0]].deltaF   # FORCE DESIRED SIGNAL TIME
     hlms = hlmoff(P, Lmax)
     h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms, 2, 2)
     h22Epoch = h22.epoch
