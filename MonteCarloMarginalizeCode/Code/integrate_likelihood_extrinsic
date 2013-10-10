@@ -58,7 +58,7 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
 for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     print "Reading PSD for instrument %s from %s" % (inst, psdf)
     psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
-    psd_dict[inst] = lalsimutils.regularize_psd_series_near_nyquist(psd_dict[inst])
+    psd_dict[inst] = lalsimutils.regularize_psd_series_near_nyquist(psd_dict[inst], 80) # zero out 80 hz window near nyquist
     print "Sanity check reporting  : min is ", numpy.min(psd_dict[inst]), " and maximum is ", numpy.max(psd_dict[inst])
     deltaF = data_dict[inst].deltaF
     psd_dict[inst] = lalsimutils.extend_psd_series_to_sampling_requirements(psd_dict[inst], deltaF, deltaF*len(data_dict[inst].data.data))

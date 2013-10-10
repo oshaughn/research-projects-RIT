@@ -403,7 +403,7 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
         # MODIFIED: psd is raw numpy array
         print " ARGH NOT USING ANALYTIC PSD MAKE SURE WE ARE DOING THIS CORRECTLY "
         IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, False, True)
-        IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd, False,True)  # debugging, sanity checks
+        IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd, analyticPSD_Q=False)  # debugging, sanity checks
     else:
         IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd, analyticPSD_Q=True, full_output=True)
         IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd)  # debugging, sanity checks
