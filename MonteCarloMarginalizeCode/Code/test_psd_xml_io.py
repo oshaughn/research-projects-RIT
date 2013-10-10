@@ -10,6 +10,7 @@ from glue.ligolw import utils, lsctables, table
 from matplotlib import pylab as plt
 
 import lalsimutils
+import factored_likelihood
 
 __author__ = "R. O'Shaughnessy"
 
@@ -51,7 +52,7 @@ detectors = psd_dict.keys()
 print "  === 'Nyquist bin' report  ==== "
 for det in detectors:
     df = psd_dict[det].deltaF
-    print det, " has length ", len(psd_dict[det].data.data), " with nyquist bin value ",  psd_dict[det].data.data[-1], " which had better be EXACTLY zero for things to work; note second-to-last bin is ", psd_dict[det].data.data[-2], psd_dict[det].data.data[-int(10/df)],psd_dict[det].data.data[-int(30/df)]
+    print det, " has length ", len(psd_dict[det].data.data), " with nyquist bin value ",  psd_dict[det].data.data[-1], " which had better be EXACTLY zero if we don't explicitly excise it.  Note also  second-to-last bin, etc are also low:  ", psd_dict[det].data.data[-2], psd_dict[det].data.data[-int(10/df)],psd_dict[det].data.data[-int(30/df)]
 print " ... so several bins may be anomalously small ... "
 for det in psd_dict.keys():
     pairups = np.transpose(np.array([fvals,psd_dict[det].data.data]))
@@ -82,22 +83,60 @@ psd_extend = {}
 plt.clf()
 for det in detectors:
     df = psd_dict[det].deltaF
-    psd_extend[det] = lalsimutils.extend_swig_psd_series_to_sampling_requirements(psd_dict[det], df/2, len(psd_dict[det].data.data)*df)
+    psd_extend[det] = lalsimutils.extend_swig_psd_series_to_sampling_requirements(psd_dict[det], df/2, (len(psd_dict[det].data.data)-1)*df)
     fvals2 = df/2*np.arange(len(psd_extend[det].data.data))
     plt.loglog(fvals2, psd_extend[det].data.data,label=det)
 plt.legend()
 plt.show()
 
 #
-# Generate an inner product using this extended PSD.  [Only useful if we have debugging on]
+# Generate an inner product using the original discrete PSD
+# Perform an inner product using it *and* using an analytic PSD
 #
+# Populate signal
+m1 = 10*lal.LAL_MSUN_SI
+m2 = 10*lal.LAL_MSUN_SI
+
+df = psd_dict[detectors[0]].deltaF
+fSample = df * 2 *( len(psd_dict[detectors[0]].data.data)-1)  # rescale
+print "To construct a signal, we  reconstruct the sampling rate and time window, consistent with the default PSD sampling: (fSample, 1/df) = ", fSample, 1/df
+Psig = lalsimutils.ChooseWaveformParams(
+    m1 = m1,m2 =m2,
+    fmin = 30, 
+    fref=100, ampO=0,
+    tref = lal.GPSTimeNow(),   # factored_likelihood requires GPS be assigned 
+    radec=True, theta=1.2, phi=2.4,
+    detector='H1', 
+    dist=25.*1.e6*lal.LAL_PC_SI,
+    deltaT=1./fSample,
+    deltaF = df
+    )
+data_dict={}
+data_dict['H1'] = factored_likelihood.non_herm_hoff(Psig)
+Psig.detector = 'L1'
+data_dict['L1'] = factored_likelihood.non_herm_hoff(Psig)
+Psig.detector = 'V1'
+data_dict['V1'] = factored_likelihood.non_herm_hoff(Psig)
+psd_analytic_dict = {}
+psd_analytic_dict['H1'] = lalsim.SimNoisePSDaLIGOZeroDetHighPower# lal.LIGOIPsd
+psd_analytic_dict['L1'] = lalsim.SimNoisePSDaLIGOZeroDetHighPower #lal.LIGOIPsd
+psd_analytic_dict['V1'] = lalsim.SimNoisePSDaLIGOZeroDetHighPower # lal.LIGOIPsd
+
+
 for det in psd_dict.keys():
-    fNyq = float(len(psd_dict[det].data-1)*psd_dict[det].deltaF)
-    print det, fNyq
-#    IP = lalsimutils.ComplexIP(26., fNyq, psd_extend[det], analyticPSD_Q=False)
+    fNyq = (len(psd_dict[det].data.data)-1)*psd_dict[det].deltaF
+    print fNyq
+    print " Length consistency requirements : ", 2*(len(psd_dict[det].data.data)-1), 2*fNyq/df  -1 , len(data_dict[det].data.data)
+    IP = lalsimutils.ComplexIP(fLow=30, fNyq=fNyq,deltaF=df,psd=psd_dict[det].data.data,analyticPSD_Q=False)
+    IPAnalytic = lalsimutils.ComplexIP(fLow=30, fNyq=fNyq,deltaF=df,psd=psd_analytic_dict[det],analyticPSD_Q=True)
+
+    rho1 = IP.norm(data_dict[det])
+    rho2 = IPAnalytic.norm(data_dict[det])
+
+    print det, rho1, rho2
 
 #
-# Interpolate PSD
+# Interpolate PSD and repeat the above test
 # 
 #    psd_dict[inst] = lalsimutils.extend_psd_series_to_sampling_requirements(psd_dict[inst], deltaF, deltaF*len(data_dict[inst].data.data))
 

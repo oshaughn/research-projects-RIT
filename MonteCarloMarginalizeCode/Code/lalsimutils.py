@@ -436,7 +436,7 @@ class ComplexIP(InnerProduct):
         """
         Compute norm of a COMPLEX16Frequency Series
         """
-        assert h.data.length==2*(self.FDlen-1)
+        assert h.data.length==len(self.longweights) #2*(self.FDlen-1)
         assert abs(h.deltaF-self.deltaF) <= 1.e-5
         length = h.data.length
         val = 0.
