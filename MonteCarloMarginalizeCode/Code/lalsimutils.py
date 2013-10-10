@@ -1554,6 +1554,19 @@ def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all mod
             mylist.append((L,m))
     return mylist
 
+def regularize_psd_series_near_nyquist(raw_psd):
+    """
+    regularize_psd_series_near_nyquist
+    Near nyquist, some PSD bins are insane.  As a *temporary measure*, I am going to use this routine to
+    explicitly zero out those frequency bins, using a 30 Hz window near nyquist
+    """
+    df = raw_psd.deltaF
+    nToZero = int(30/df)
+    new_psd = raw_psd
+    n = len(new_psd.data)
+    new_psd[n-nToZero-1,-1] = np.zeros(nToZero)
+    return new_psd
+
 def extend_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqRequired):
     """
     extend_psd_series_to_sampling_requirements: 
