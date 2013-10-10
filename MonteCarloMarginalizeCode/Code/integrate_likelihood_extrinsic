@@ -69,7 +69,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     psd_dict[inst] =  lalsimutils.enforce_swig_psd_fmin(psd_dict[inst], ip_min_freq)           # enforce fmin at the psd level, HARD CUTOFF
     print "Sanity check reporting  : min is ", numpy.min(psd_dict[inst]), " and maximum is ", numpy.max(psd_dict[inst])
     deltaF = data_dict[inst].deltaF
-    psd_dict[inst] = lalsimutils.extend_psd_series_to_sampling_requirements(psd_dict[inst], deltaF, deltaF*len(data_dict[inst].data.data))
+    psd_dict[inst] = lalsimutils.extend_swig_psd_series_to_sampling_requirements(psd_dict[inst], deltaF, deltaF*len(data_dict[inst].data.data))
 
 #
 # Sanity checks
