@@ -169,7 +169,7 @@ param_limits = { "psi": (0, 2*numpy.pi),
 #
 params = {}
 for param, limits in param_limits.iteritems():
-    params[param] = functools.partial(mcsampler.uniform_samp_vector(), *limits[param] )
+    params[param] = functools.partial(mcsampler.uniform_samp_vector(), *limits )
 sampler = mcsampler.MCSampler()
 
 # FIXME: Address this problem?
