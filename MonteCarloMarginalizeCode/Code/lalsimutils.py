@@ -40,7 +40,8 @@ from pylal.series import read_psd_xmldoc
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
-rosDebugMessagesContainer = [True]
+rosDebugMessagesContainer = [False]
+rosDebugMessagesLongContainer = [False]
 print "[Loading lalsimutils.py : MonteCarloMarginalization version]"
 
 
@@ -266,7 +267,7 @@ class InnerProduct:
         self.fNyq = fNyq
         self.deltaF = deltaF
         if analyticPSD_Q:
-            self.psd = np.vectorize(psd)
+            self.psd = np.frompyfunc(psd,1,1)
         else:
             self.psd = psd
         self.minIdx = int(fLow/deltaF)
@@ -275,21 +276,21 @@ class InnerProduct:
         self.longweights = np.zeros(2*(self.FDlen-1))  # for not hermetian inner products
         self.analyticPSD_Q = analyticPSD_Q
         if analyticPSD_Q == True:
-            if rosDebugMessagesContainer[0]:
+            if rosDebugMessagesLongContainer[0]:
                 print "  ... populating inner product weight array using analytic PSD ... "
-#            self.weights[self.minIdx:self.FDlen] = 1.0/self.psd(np.arange(self.minIdx, self.FDlen, 1))
-#            # Take 1 sided PSD and make it 2 sided
-#            self.longweights[1:1+len(self.weights)] = self.weights[::-1]
-#            self.longweights[-(len(self.weights)+1):-1] = self.weights[:]
             for i in range(self.minIdx,self.FDlen):        # populate weights for both hermetian and non-hermetian products
                 self.weights[i] = 1./self.psd(i*deltaF)
-                length = 2*(self.FDlen-1)
-                self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
-                self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
-            if rosDebugMessagesContainer[0]:
+#                self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
+#                self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
+#            self.weights[self.minIdx:self.FDlen] = 1.0/self.psd(np.arange(self.minIdx, self.FDlen, 1))   # this doesn't work -- not sure why
+#             # Take 1 sided PSD and make it 2 sided
+            length = 2*(self.FDlen-1)
+            self.longweights[1:1+len(self.weights)] = self.weights[::-1]
+            self.longweights[-(len(self.weights)+1):-1] = self.weights[:]
+            if rosDebugMessagesLongContainer[0]:
                 print "  ... finished populating inner product weight array using analytic PSD ... "
         else:
-            if rosDebugMessagesContainer[0]:
+            if rosDebugMessagesLongContainer[0]:
                 print "  ... populating inner product weight array using a numerical PSD ... "
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
@@ -298,7 +299,7 @@ class InnerProduct:
                     self.longweights[length/2 - i+1] = 1./psd[i]
                     self.longweights[length/2 + i-1] = 1./psd[i]
                     # explicitly zero the nyquist binx
-            if rosDebugMessagesContainer[0]:
+            if rosDebugMessagesLongContainer[0]:
                 print "  ... finished populating inner product weight array using a numerical PSD ... "
 
     def ip(self, h1, h2):
@@ -487,7 +488,7 @@ class Overlap(InnerProduct):
                 self.TDlen)
         # Compute the weights
         if analyticPSD_Q == True:
-            if rosDebugMessagesContainer[0]:
+            if rosDebugMessagesLongContainer[0]:
                 print "  ... populating inner product weight array using analytic PSD ... "
             for i in range(self.minIdx,self.FDlen):
                 self.weights[i] = 1./self.psd(i*deltaF)
@@ -497,7 +498,7 @@ class Overlap(InnerProduct):
             if rosDebugMessagesContainer[0]:
                 print "  ... finished populating inner product weight array using analytic PSD ... "
         else:
-            if rosDebugMessagesContainer[0]:
+            if rosDebugMessagesLongContainer[0]:
                 print "  ... populating inner product weight array using a numerical PSD ... "
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
@@ -505,7 +506,7 @@ class Overlap(InnerProduct):
                     length = 2*(self.FDlen-1)
                     self.longweights[length/2 - i+1] = 1./psd[i]
                     self.longweights[length/2 + i-1] = 1./psd[i]
-            if rosDebugMessagesContainer[0]:
+            if rosDebugMessagesLongContainer[0]:
                 print "  ... finished populating inner product weight array using a numerical PSD ... "
 
 

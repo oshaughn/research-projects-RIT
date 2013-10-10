@@ -34,7 +34,7 @@ distMpcRef = 100
 tWindowReference = [-0.15,0.15]            # choose samples so we have this centered on the window
 tWindowExplore = [-0.05, 0.05]             # smaller window.  Avoid interpolation errors on the edge.
 rosDebugMessages = True
-rosDebugMessagesLong = True           # use to debug antenna factors vs time. An important issue
+rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
 rosDebugUseCForQTimeseries =False
 rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
 #rosInterpolateVia = 'AmplitudePhase'       #  Interpolate in amplitude and phase (NOT reliable!! DO NOT USE. Makes code slower and less reliable!)
@@ -450,7 +450,7 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
                 if hlm is None:
                     print "          -- skipping ", l,m, " since it is not present "
                 else:
-#                    rhoRegular = IPRegular.ip(hlm,hlm)
+                    rhoRegular = IPRegular.ip(hlm,hlm)
                     print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular # ,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
                     print "      : Qlm series starts at ", stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
 
