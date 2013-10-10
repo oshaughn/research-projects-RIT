@@ -144,7 +144,7 @@ t_ref_wind = 2e-3
 # FIXME: Never really used
 dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
 #dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
-dmax = estimateUpperDistanceBoundInMpc(rholms, cross_terms)
+dmax = lalsimutils.estimateUpperDistanceBoundInMpc(rholms, cross_terms)
 print "Estimated outer fiducial radius for event (Mpc): %f" %dmax
 
 param_limits = { "psi": (0, 2*numpy.pi),
