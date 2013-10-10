@@ -156,8 +156,9 @@ t_ref_wind = 2e-3
 dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
 #dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
 Dmax = 100. * 1.e6 * lal.LAL_PC_SI # max distance FOR ANY SOURCE EVER.
-dmax = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, cross_terms)* 1.e6 * lal.LAL_PC_SI
-print "Estimated outer fiducial radius for event (Mpc): %f" %dmax
+dmaxMpc = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, cross_terms)
+dmax = dmaxMpc* 1.e6 * lal.LAL_PC_SI
+print "Estimated outer fiducial radius for event (Mpc): %f" %dmaxMpc
 
 param_limits = { "psi": (0, 2*numpy.pi),
     "phi_orb": (0, 2*numpy.pi),
@@ -282,7 +283,7 @@ if rosDebugShowPriors:
 nEvals = 0
 def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
     global nEvals
-    lnL = numpy.zeros(phi.shape)
+    lnL = numpy.zeros(phi.shape,dtype=numpy.float128)   # use EXTREMELY many bits
     i = 0
     if rosDebugShowExcruciatingLikelihoodDetail:
         print " Likelihood results :  "

@@ -94,6 +94,8 @@ to further refine subsequent iterations.  Convergence should get faster as we go
 
  - marginalization in $\psi$ is effective, but posteriors are extremely broad.  Fixme?  Check consistency with standard code?
 
+ - overflow in exponential for likelihood evaluation!  This sets maximum SNR. \editremark{needs to be dealt with}
+
 \section{What we are selling}
 
 \subsection{Early sale}
@@ -1486,6 +1488,25 @@ Single IFO test suite: why
 * confirm sampling distribution generated (in real test suite)
 
 * confirm 
+
+
+\subsubsection{Test suite 3: Full data-ingesting tool (single template)}
+\noindent \textbf{Rationale}: A full data- and psd-ingesting tool, working from stored PSDs and \texttt{.cache} files,
+provides a portable and immediately-usable tool for people to benchmark.
+
+\nointext \textbf{Discrete PSD code}: The  code path using a discrete PSD had not yet been tested. [It is now, sort of.]
+See \texttt{test\_psd\_xml\_io.py}.  Make sure we can (a) import; (b) interpolate; (c) set rational upper and lower
+frequency limits; and (d) perform inner products that produce correct answers.
+
+
+\noindent \textbf{Overflow!} \editremark{LONG TERM PROBLEM}: High-amplitude signals (e.g., $\ln L \gtrsim 709$) overflow
+the exponential.
+
+There is an explicit way around this: increase precision
+% http://stackoverflow.com/questions/18257882/setting-uniform-numpy-dtype-of-all-scalars-and-arrays-how-to-avoid-downcasting
+
+
+
 
 
 
