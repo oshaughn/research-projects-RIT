@@ -108,9 +108,10 @@ fref_time_off = 0   #  time relative to fiducial epoch, used to identify window 
 # FIXME: Geocentric? Detector specific?
 print "Offset from event end time to f_ref %f" % fref_time_off
 
-df = data_dict['H1'].deltaF  
+detectors = data_dict.keys()
+df = data_dict[detectors[0]].deltaF     # should not be hardcoded!
 # FIXME: More descriptive here
-fSample = len(data_dict['H1'].data.data)*data_dict['H1'].deltaF  # Note two-sided
+fSample = len(data_dict[detectors[0]].data.data)*data_dict[detectors[0]].deltaF  # Note two-sided
 
 # Struct to hold template parameters
 # FIXME: Lots of hardcoding going on here
