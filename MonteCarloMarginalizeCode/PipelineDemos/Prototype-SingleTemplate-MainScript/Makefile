@@ -11,6 +11,10 @@ all: psds bayestar_map get_data local.cache setup
 test:
 	./integrate_likelihood_extrinsic --cache-file local.cache --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --channel-name V1=FAKE_h_16384Hz_4R --psd-file "H1=psd.xml.gz" --psd-file "L1=psd.xml.gz" --psd-file "V1=/psd.xml.gz" --coinc-xml coinc.xml
 
+report:
+	echo "Injection data: mc, eta, deff (per instrument)"
+	ligolw_print coinc.xml  -t sngl_inspiral -c mchirp -c eta -c eff_distance
+
 setup:
 	ln -sf ../../Code/lalsimutils.py .
 	ln -sf ../../Code/factored_likelihood.py .

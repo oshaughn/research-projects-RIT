@@ -32,6 +32,8 @@ optp.add_option("-C", "--channel-name", action="append", help="instrument=channe
 optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
+optp.add_option("-s", "--seglen", type=int, default=110, help="Minimum segment duration surrounding coing to be analyzed. (Will be rounded up to next power of 2)")
+optp.add_option("-P", "--padding", type=int, default=10, help="Time window after the trigger to be included in the data segment")
 opts, args = optp.parse_args()
 
 # FIXME: Turn into cmd line options
@@ -56,7 +58,7 @@ print "Coinc XML loaded, event time: %s" % str(coinc_row.get_end())
 #
 data_dict, psd_dict = {}, {}
 
-start_pad, end_pad = 100, 10   # Let's not kill ourselves : I already picked fmin so the signal is short, why analyze the whole thing?
+start_pad, end_pad = opts.seglen-opts.padding, opts.padding 
 for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
     data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=int(event_time)-start_pad, stop=int(event_time)+end_pad)
@@ -287,25 +289,33 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.dist = di # luminosity distance
 
         lnL[i] = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
-        print "  + likelihood evaluation:  ", lnL[i]
+        print "  + likelihood evaluation : ", i, " :  ", lnL[i]
         i+=1
 
     nEvals+=i 
     return numpy.exp(lnL)
 
-nMaxEvals = 1e6
+nMaxEvals = 1e3
 res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, 
     "right_ascension", "declination", "t_ref", "phi_orb", "inclination", "psi", "distance", 
     n=10, nmax=nMaxEvals, neff=100,
-    # FIXME: What here?  ROS: an estimate of the peak lnL, and a threshold on what 
+    # FIXME: What here?  ROS: an estimate of the peak lnL, and a threshold on what should be returned
 #    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
-    full_output=True,verbose=True
+    full_output=True,verbose=True,extremely_verbose=False
     )
 tGPSEnd = lal.GPSTimeNow()
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
 
+try:
+    ourio.plotParameterDistributionsFromSamples("results", sampler, ret,  ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
+except:
+    print " No interactive plots for you! "
+
 # FIXME: Synch with other I/O routines
 # Save the sampled points to a file
 # Only store some
-ourio.dumpSamplesToFile("test_like_and_samp-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
+try:
+    ourio.dumpSamplesToFile("test_like_and_samp-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
+except:
+    print " No saved points for you !"

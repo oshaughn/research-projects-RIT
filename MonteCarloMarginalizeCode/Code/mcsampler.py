@@ -196,12 +196,13 @@ class MCSampler(object):
 		nmax = kwargs["nmax"] if kwargs.has_key("nmax") else float("inf")
 		neff = kwargs["neff"] if kwargs.has_key("neff") else float("inf")
 		n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
-                peakExpected = kwargs["igrandmax"] if kwargs.has_key("igrandmax") else 0
+                peakExpected = kwargs["igrandmax"] if kwargs.has_key("igrandmax") else 0   # Do integral as L/e^peakExpected, if possible
                 fracCrit = kwargs['igrand_threshold_fraction'] if kwargs.has_key('igrand_threshold_fraction') else 0 # default is to return all
                 bReturnPoints = kwargs['full_output'] if kwargs.has_key('full_output') else False
                 bUseMultiprocessing = kwargs['use_multiprocessing'] if kwargs.has_key('use_multiprocessing') else False
                 nProcesses = kwargs['nprocesses'] if kwargs.has_key('nprocesses') else 2
                 bShowEvaluationLog = kwargs['verbose'] if kwargs.has_key('verbose') else False
+                bShowEveryEvaluation = kwargs['extremely_verbose'] if kwargs.has_key('extremely_verbose') else False
 
                 if bShowEvaluationLog:
                         print " .... mcsampler : providing verbose output ..... "
@@ -253,6 +254,9 @@ class MCSampler(object):
                         # Be very careful: distance prior is in SI units,so the natural scale is 1/(10)^6 * 1/(10^24)
                         # FIXME: Non-portable change, breaks universality of the integration.
                         joint_p_s  = numpy.maximum(numpy.ones(len(joint_p_s))*1e-50,joint_p_s)
+
+                        numpy.testing.assert_array_less(0,joint_p_s)        # >0!
+                        numpy.testing.assert_array_less(0,joint_p_prior)   # >0!
 			if len(rv[0].shape) != 1:
 				rv = rv[0]
                         if bUseMultiprocessing:
@@ -260,6 +264,9 @@ class MCSampler(object):
                         else:
                                 fval = func(*rv)
 			int_val = fval*joint_p_prior /joint_p_s
+                        if bShowEveryEvaluation:
+                                for i in range(n):
+                                        print " Evaluation details: p,ps, L = ", joint_p_prior[i], joint_p_s[i], fval[i]
 
                         # Calculate max L (a useful convergence feature) for debug reporting.  Not used for integration
                         # Try to avoid nan's
