@@ -80,7 +80,7 @@ def saveParameterDistributions(fnameBase, sampler, samplerPrior):
         plt.legend()
         plt.savefig(fnameBase+str(param)+".pdf")
 
-def plotParameterDistributions(titleBase, sampler, samplerPrior):
+def plotParameterDistributions(titleBase, sampler):
     nFig = 0
     for param in sampler.params:
         nFig+=1
@@ -89,8 +89,8 @@ def plotParameterDistributions(titleBase, sampler, samplerPrior):
         xLow = sampler.llim[param]
         xHigh = sampler.rlim[param]
         xvals = np.linspace(xLow,xHigh,500)
-        pdfPrior = samplerPrior.pdf[param]
-        pdfvalsPrior = pdfPrior(xvals)/samplerPrior._pdf_norm[param]  # assume vectorized
+        pdfPrior = sampler.prior_pdf[param]
+        pdfvalsPrior = pdfPrior(xvals)
         pdf = sampler.pdf[param]
         cdf = sampler.cdf[param]
         pdfvals = pdf(xvals)/sampler._pdf_norm[param]

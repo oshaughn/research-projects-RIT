@@ -1471,7 +1471,12 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None):
     if stop is None:
         stop = cachef.to_segmentlistdict()[channel[0]][-1][-1]
     
-    ht = fcache.fetch(channel, start, stop)
+    try:
+        ht = fcache.fetch(channel, start, stop)
+    except:
+        print " Data not available in cache ", fname, channel, " for interval ", [start, stop]
+        return None
+        
     tmp = lal.CreateREAL8TimeSeries("h(t)", 
             lal.LIGOTimeGPS(float(ht.metadata.segments[0][0])),
             0., ht.metadata.dt, lal.lalDimensionlessUnit, len(ht))

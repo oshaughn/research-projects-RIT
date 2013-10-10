@@ -21,6 +21,7 @@ import ourio
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
+rosDebugShowPriors = True  
 
 #
 # Option parsing
@@ -268,6 +269,12 @@ sampler.add_parameter("t_ref",
     right_limit = param_limits["t_ref"][1],
     # FIXME:What goes here?
     prior_pdf = functools.partial(mcsampler.uniform_samp_vector, factored_likelihood.tWindowExplore[0],factored_likelihood.tWindowExplore[1]))
+
+if rosDebugShowPriors:
+    try:
+        ourio.plotParameterDistributions("input distributions", sampler)
+    except:
+        print " No prior plots for you!"
 
 #
 # Call the likelihood function for various extrinsic parameter values
