@@ -40,7 +40,7 @@ from pylal.series import read_psd_xmldoc
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
-rosDebugMessagesContainer = [False]
+rosDebugMessagesContainer = [True]
 rosDebugMessagesLongContainer = [False]
 print "[Loading lalsimutils.py : MonteCarloMarginalization version]"
 
@@ -1607,8 +1607,10 @@ def enforce_swig_psd_fmin(raw_psd, fmin):
 def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqRequired):
     """
     extend_psd_series_to_sampling_requirements: 
-    Takes a conventional 1-sided PSD and extends into a longer 1-sided PSD array by filling intervening samples, also strips the pylal binding and goes directly to a numpy array.
-    The raw psd object is a pylal wrapper of the timeseries, which is different from the swig bindings and which is *also* different than the raw numpy array assumed in lalsimutils.py (above)
+    Takes a conventional 1-sided PSD and extends into a longer 1-sided PSD array by filling intervening samples.
+    Currently only works by 'interpolating' between samples.
+    *Assumes* fNyq does not change.
+    Assumes the input and output are swig REAL8Timeseries objects
     """
     # Allocate new series
     df = raw_psd.deltaF
@@ -1616,11 +1618,11 @@ def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqReq
     nRequired = int(fNyqRequired/dfRequired)+1     # odd number for one-sided PSD
     facStretch = int((nRequired-1)/(n-1))  # n-1 should be power of 2
     if rosDebugMessagesContainer[0]:
-        print " extending psd of length ", n, " to ", nRequired, " elements requires a factor of ", facStretch
+        print " extending psd of length ", n, " to ", nRequired, "(i.e., fNyq = ", fNyqRequired, ") elements requires a factor of ", facStretch
     #    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired,lal.lalHertzUnit, nRequired )
     #   psdNew.data.data = np.zeros(len(psdNew.data.data))
     # psdNew = np.zeros(nRequired)   
-    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., df ,lal.lalHertzUnit, n*facStretch)
+    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired ,lal.lalHertzUnit, n*facStretch)
     # Populate the series.  Slow because it is a python loop
     for i in np.arange(n):
         for j in np.arange(facStretch):
