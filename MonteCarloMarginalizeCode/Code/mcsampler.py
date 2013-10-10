@@ -61,6 +61,8 @@ class MCSampler(object):
 		Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.
 		"""
 		self.params.add(params)
+                if rosDebugMessages: 
+                        print " Adding parameter ", params, " with limits ", [left_limit, right_limit]
 		if isinstance(params, tuple):
 			if left_limit is None:
 				self.llim[params] = list(float("-inf"))*len(params)

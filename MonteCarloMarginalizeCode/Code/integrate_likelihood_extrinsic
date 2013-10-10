@@ -151,7 +151,8 @@ t_ref_wind = 2e-3
 # FIXME: Never really used
 dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
 #dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
-dmax = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, cross_terms)
+Dmax = 100. * 1.e6 * lal.LAL_PC_SI # max distance FOR ANY SOURCE EVER.
+dmax = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, cross_terms)* 1.e6 * lal.LAL_PC_SI
 print "Estimated outer fiducial radius for event (Mpc): %f" %dmax
 
 param_limits = { "psi": (0, 2*numpy.pi),
@@ -223,7 +224,8 @@ sampler.add_parameter("distance",
     cdf_inv = None,
     left_limit = param_limits["distance"][0], 
     right_limit = param_limits["distance"][1],
-    prior_pdf = numpy.vectorize(lambda x: x**2/(3*Dmax**3)))
+    prior_pdf = numpy.vectorize(lambda x: x**2/(3*Dmax**3))
+)
 
 #
 # Right ascension - angle in radians from prime meridian plus hour angle
