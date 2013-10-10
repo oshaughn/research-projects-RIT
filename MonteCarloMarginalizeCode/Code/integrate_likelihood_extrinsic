@@ -160,7 +160,7 @@ param_limits = { "psi": (0, 2*numpy.pi),
     "right_ascension": (0, 2*numpy.pi),
     "declination": (-numpy.pi/2, numpy.pi/2),
     # FIXME: Is this already relative to the fiducial epoch or not?
-    "t_ref": (fiducial_epoch-t_ref_wind, fiducial_epoch+t_ref_wind),
+    "t_ref": (-t_ref_wind, t_ref_wind),
     "inclination": (-numpy.pi/2, numpy.pi/2)
 }
 
@@ -218,7 +218,7 @@ sampler.add_parameter("inclination",
 # sampler: uniform volume over [1 Mpc, Dmax)
 #
 dist_sampler = functools.partial(mcsampler.quadratic_samp_vector, dmax)
-sampler.add_parameter("dist", 
+sampler.add_parameter("distance", 
     pdf = dist_sampler, 
     cdf_inv = None,
     left_limit = param_limits["distance"][0], 
@@ -291,7 +291,7 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
 
 nMaxEvals = 1e6
 res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, 
-    "right_ascension", "declination", "t_ref", "phi_orb", "inclnation", "psi", "distance", 
+    "right_ascension", "declination", "t_ref", "phi_orb", "inclination", "psi", "distance", 
     n=200, nmax=nMaxEvals, neff=100,
     # FIXME: What here?  ROS: an estimate of the peak lnL, and a threshold on what 
 #    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
