@@ -17,7 +17,7 @@ from glue.ligolw import utils, lsctables, table
 import lalsimutils
 import factored_likelihood
 import mcsampler
-#import ourio
+import ourio
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -272,6 +272,7 @@ sampler.add_parameter("t_ref",
 #
 nEvals = 0
 def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
+    global nEvals
     lnL = numpy.zeros(phi.shape)
     i = 0
 #    print " Likelihood results :  "
@@ -285,7 +286,7 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.psi = ps # polarization angle
         P.dist = di # luminosity distance
 
-        lnL[i] = FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
+        lnL[i] = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
         i+=1
 
     nEvals+=i 

@@ -7,7 +7,10 @@ ourio.py :
 """
 
 import numpy as np
-from matplotlib import pylab as plt
+try:
+    from matplotlib import pylab as plt   # if this fails, don't do it.  Will let us run on the cluster
+except:
+    print "No matplotlib for you!"
 import lal   # rescale distance units if needed
 
 """
