@@ -266,12 +266,13 @@ class InnerProduct:
         self.fLow = fLow
         self.fNyq = fNyq
         self.deltaF = deltaF
+        self.minIdx = int(fLow/deltaF)
+        self.FDlen = int(fNyq/deltaF)+1
         if analyticPSD_Q:
             self.psd = np.frompyfunc(psd,1,1)
         else:
+            assert len(psd) >= self.FDlen  # we need at this much to populate the array
             self.psd = psd
-        self.minIdx = int(fLow/deltaF)
-        self.FDlen = int(fNyq/deltaF)+1
         self.weights = np.zeros(self.FDlen)
         self.longweights = np.zeros(2*(self.FDlen-1))  # for not hermetian inner products
         self.analyticPSD_Q = analyticPSD_Q
@@ -289,20 +290,24 @@ class InnerProduct:
             self.longweights[-(len(self.weights)+1):-1] = self.weights[:]
             if rosDebugMessagesLongContainer[0]:
                 print "  ... finished populating inner product weight array using analytic PSD ... "
-                print " note maximum weight is ", np.max(self.longweights), " in bin ", np.argmax(self.longweights[:length/2]), " or frequency ", deltaF*np.argmax(self.longweights[:length/2])
+                print " note maximum weight is ", np.max(self.longweights), " in bin ", np.argmax(self.longweights[length/2+1:-1]), " or frequency ", deltaF*np.argmax(self.longweights[length/2+1:-1])
+                print " equivalently in 1d array ", np.max(self.weights), " in bin ", np.argmax(self.weights), " at frequency ", self.deltaF*np.argmax(self.weights)
         else:
             if rosDebugMessagesLongContainer[0]:
                 print "  ... populating inner product weight array using a numerical PSD ... "
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
                     self.weights[i] = 1./psd[i]
-                    length = 2*(self.FDlen-1)
-                    self.longweights[length/2 - i+1] = 1./psd[i]
-                    self.longweights[length/2 + i-1] = 1./psd[i]
-                    # explicitly zero the nyquist binx
+                    # length = 2*(self.FDlen-1)
+                    # self.longweights[length/2 - i+1] = 1./psd[i]
+                    # self.longweights[length/2 + i-1] = 1./psd[i]
+            length = 2*(self.FDlen-1)
+            self.longweights[1:1+len(self.weights)] = self.weights[::-1]
+            self.longweights[-(len(self.weights)+1):-1] = self.weights[:]
             if rosDebugMessagesLongContainer[0]:
                 print "  ... finished populating inner product weight array using a numerical PSD ... "
-                print " note maximum weight is ", np.max(self.longweights),  " in bin ", np.argmax(self.longweights[:length/2]), " or frequency ", deltaF*np.argmax(self.longweights[:length/2])
+                print " note maximum weight is ", np.max(self.longweights), " in bin ", np.argmax(self.longweights[length/2+1:-1]), " or frequency ", deltaF*np.argmax(self.longweights[length/2+1:-1])
+                print " equivalently in 1d array ", np.max(self.weights), " in bin ", np.argmax(self.weights), " at frequency ", self.deltaF*np.argmax(self.weights)
 
     def ip(self, h1, h2):
         """
