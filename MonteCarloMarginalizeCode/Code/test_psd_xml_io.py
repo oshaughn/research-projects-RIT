@@ -7,7 +7,10 @@ import numpy as np
 import lal
 import lalsimulation as lalsim
 from glue.ligolw import utils, lsctables, table
-from matplotlib import pylab as plt
+try:
+    from matplotlib import pylab as plt
+except:
+    print " No interactive plots for you ! "
 
 import lalsimutils
 import factored_likelihood
@@ -139,5 +142,44 @@ for det in psd_dict.keys():
 # Interpolate PSD and repeat the above test
 # 
 #    psd_dict[inst] = lalsimutils.extend_psd_series_to_sampling_requirements(psd_dict[inst], deltaF, deltaF*len(data_dict[inst].data.data))
+#
+# Populate signal
+df = psd_extend[detectors[0]].deltaF
+fSample = df * 2 *( len(psd_extend[detectors[0]].data.data)-1)  # rescale
+print "To construct a signal, we  reconstruct the sampling rate and time window, consistent with the default PSD sampling: (fSample, 1/df) = ", fSample, 1/df
+Psig = lalsimutils.ChooseWaveformParams(
+    m1 = m1,m2 =m2,
+    fmin = 30, 
+    fref=100, ampO=0,
+    tref = lal.GPSTimeNow(),   # factored_likelihood requires GPS be assigned 
+    radec=True, theta=1.2, phi=2.4,
+    detector='H1', 
+    dist=25.*1.e6*lal.LAL_PC_SI,
+    deltaT=1./fSample,
+    deltaF = df
+    )
+data_dict={}
+data_dict['H1'] = factored_likelihood.non_herm_hoff(Psig)
+Psig.detector = 'L1'
+data_dict['L1'] = factored_likelihood.non_herm_hoff(Psig)
+Psig.detector = 'V1'
+data_dict['V1'] = factored_likelihood.non_herm_hoff(Psig)
+psd_analytic_dict = {}
+psd_analytic_dict['H1'] = lalsim.SimNoisePSDaLIGOZeroDetHighPower# lal.LIGOIPsd
+psd_analytic_dict['L1'] = lalsim.SimNoisePSDaLIGOZeroDetHighPower #lal.LIGOIPsd
+psd_analytic_dict['V1'] = lalsim.SimNoisePSDaLIGOZeroDetHighPower # lal.LIGOIPsd
+
+
+for det in psd_extend.keys():
+    fNyq = (len(psd_extend[det].data.data)-1)*psd_extend[det].deltaF
+    print fNyq
+    print " Length consistency requirements : ", 2*(len(psd_extend[det].data.data)-1), 2*fNyq/df  -1 , len(data_dict[det].data.data)
+    IP = lalsimutils.ComplexIP(fLow=30, fNyq=fNyq,deltaF=df,psd=psd_extend[det].data.data,analyticPSD_Q=False)
+    IPAnalytic = lalsimutils.ComplexIP(fLow=30, fNyq=fNyq,deltaF=df,psd=psd_analytic_dict[det],analyticPSD_Q=True)
+
+    rho1 = IP.norm(data_dict[det])
+    rho2 = IPAnalytic.norm(data_dict[det])
+
+    print det, rho1, rho2
 
 

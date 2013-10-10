@@ -155,7 +155,7 @@ t_ref_wind = 2e-3
 # FIXME: Never really used
 dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
 #dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
-Dmax = 100. * 1.e6 * lal.LAL_PC_SI # max distance FOR ANY SOURCE EVER.
+Dmax = 2000. * 1.e6 * lal.LAL_PC_SI # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 dmaxMpc = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, cross_terms)
 dmax = dmaxMpc* 1.e6 * lal.LAL_PC_SI
 print "Estimated outer fiducial radius for event (Mpc): %f" %dmaxMpc

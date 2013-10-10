@@ -194,7 +194,7 @@ class MCSampler(object):
 		# Determine stopping conditions
 		#
 		nmax = kwargs["nmax"] if kwargs.has_key("nmax") else float("inf")
-		neff = kwargs["neff"] if kwargs.has_key("neff") else float("inf")
+		neff = kwargs["neff"] if kwargs.has_key("neff") else numpy.float128("inf")
 		n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
                 peakExpected = kwargs["igrandmax"] if kwargs.has_key("igrandmax") else 0   # Do integral as L/e^peakExpected, if possible
                 fracCrit = kwargs['igrand_threshold_fraction'] if kwargs.has_key('igrand_threshold_fraction') else 0 # default is to return all
@@ -215,7 +215,7 @@ class MCSampler(object):
 		# TODO: Pin values via kwargs
 		#
 
-		int_val1 = 0
+		int_val1 = numpy.float128(0)
 		ntotal = 0
 		maxval = -float("Inf")
                 maxlnL = -float("Inf")
@@ -236,8 +236,8 @@ class MCSampler(object):
                 else:
                         nBinsToStore = 1e7    # don't store everything! stop!
                         nmax = nBinsToStore
-                theIntegrandFull = numpy.zeros(nmax)
-                theMaxFull = numpy.zeros(nmax)
+                theIntegrandFull = numpy.zeros(nmax,dtype=numpy.float128)
+                theMaxFull = numpy.zeros(nmax,dtype=numpy.float128)
 
 
                 if bShowEvaluationLog:

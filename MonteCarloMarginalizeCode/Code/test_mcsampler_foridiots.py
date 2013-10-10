@@ -10,7 +10,7 @@ samplerPrior = mcsampler.MCSampler()
 samplerPrior.add_parameter('x', np.vectorize(lambda x: 1.3), None, -1.5,1)  # is this correctly renormalized?
 
 # Do an MC integral with this sampler (=the measure specified by the sampler).
-ret = samplerPrior.integrate(np.vectorize(lambda x:1), 'x', nmax=1e4)
+ret = samplerPrior.integrate(np.vectorize(lambda x:1), 'x', nmax=1e4,verbose=True)
 print "Integral of 1 over this range ", [samplerPrior.llim['x'] ,samplerPrior.rlim['x'] ], " is ", ret, " needs to be ", samplerPrior.rlim['x'] -  samplerPrior.llim['x'] ," and (small)"
 # do an integral with a different prior
 samplerNewPrior = mcsampler.MCSampler()
@@ -34,7 +34,7 @@ plt.show()
 # Automated plotting 
 sampler = mcsampler.MCSampler()
 sampler.add_parameter('x', np.vectorize(lambda x: np.exp(-x**2/2)), None, -1,1)
-ourio.plotParameterDistributions('sampler-foridiots-example', sampler, samplerPrior)
+ourio.plotParameterDistributions('sampler-foridiots-example', sampler)
 
 
 #print "Integral of 1 over this range ", [samplerPrior.llim['y'] ,samplerPrior.rlim['y'] ], " is ", ret, " needs to be 1, because I used a normalized prior"
