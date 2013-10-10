@@ -402,7 +402,7 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
     # Create an instance of class to compute inner product time series
     if analyticPSD_Q==False:
         assert data.deltaF == psd.deltaF
-        print " ARGH NOT USING ANALYTIC PSD MAKE SURE WE ARE DOING THIS CORRECTLY "
+#        print " ARGH NOT USING ANALYTIC PSD MAKE SURE WE ARE DOING THIS CORRECTLY "
         IP = ComplexOverlap(fmin, fNyq, data.deltaF, psd.data.data, False, True)
         IPRegular = ComplexIP(fmin, fNyq, data.deltaF, psd.data.data, analyticPSD_Q=False)  # debugging, sanity checks
     else:
