@@ -289,6 +289,7 @@ class InnerProduct:
             self.longweights[-(len(self.weights)+1):-1] = self.weights[:]
             if rosDebugMessagesLongContainer[0]:
                 print "  ... finished populating inner product weight array using analytic PSD ... "
+                print " note maximum weight is ", np.max(self.longweights)
         else:
             if rosDebugMessagesLongContainer[0]:
                 print "  ... populating inner product weight array using a numerical PSD ... "
@@ -301,6 +302,7 @@ class InnerProduct:
                     # explicitly zero the nyquist binx
             if rosDebugMessagesLongContainer[0]:
                 print "  ... finished populating inner product weight array using a numerical PSD ... "
+                print " note maximum weight is ", np.max(self.longweights)
 
     def ip(self, h1, h2):
         """
