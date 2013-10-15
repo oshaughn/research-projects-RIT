@@ -501,9 +501,11 @@ class Overlap(InnerProduct):
                 print "  ... populating inner product weight array using analytic PSD ... "
             for i in range(self.minIdx,self.FDlen):
                 self.weights[i] = 1./self.psd(i*deltaF)
-                length = 2*(self.FDlen-1)
-                self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
-                self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
+                #self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
+                #self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
+            length = 2*(self.FDlen-1)
+            self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
+            self.longweights[len(self.weights)-1:] = self.weights[0:-1]
             if rosDebugMessagesContainer[0]:
                 print "  ... finished populating inner product weight array using analytic PSD ... "
         else:
@@ -512,9 +514,11 @@ class Overlap(InnerProduct):
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
                     self.weights[i] = 1./psd[i]
-                    length = 2*(self.FDlen-1)
-                    self.longweights[length/2 - i+1] = 1./psd[i]
-                    self.longweights[length/2 + i-1] = 1./psd[i]
+                    #self.longweights[length/2 - i+1] = 1./psd[i]
+                    #self.longweights[length/2 + i-1] = 1./psd[i]
+            length = 2*(self.FDlen-1)
+            self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
+            self.longweights[len(self.weights)-1:] = self.weights[0:-1]
             if rosDebugMessagesLongContainer[0]:
                 print "  ... finished populating inner product weight array using a numerical PSD ... "
 
