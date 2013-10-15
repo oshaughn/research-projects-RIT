@@ -89,7 +89,7 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
     if rosDebugMessagesLong:
         print "   --Confirming epoch settings in the template signal hlm(f) --"
         for L in np.arange(2,Lmax+1):
-            for m in np.arange(-Lmax, Lmax+1):
+            for m in np.arange(-L, L+1):
                 hxx = lalsim.SphHarmFrequencySeriesGetMode(hlms,int(L),int(m))  
                 if not(hxx is None):
                     print " hlm(f) GPSTime for (l,m)= ",L,m, ": ", lsu.stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", lsu.stringGPSNice(epoch)
@@ -112,7 +112,7 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
             print " ++ ", det, ": [rholm array] best fit offset by ", indxMax, " which is dt = ", indxMax*rho22.deltaT
             print "   --Confirming epoch settings in the template signal Qlm(t) --"
             for L in np.arange(2,Lmax+1):
-                for m in np.arange(-Lmax, Lmax+1):
+                for m in np.arange(-L, L+1):
                     hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det],int(L),int(m))  
                     print " Qlm(f) GPSTime for det(l,m)= ", det,L,m, ": ", lsu.stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", lsu.stringGPSNice(epoch)
         # FIXME: Need to handle geocenter-detector time shift properly
