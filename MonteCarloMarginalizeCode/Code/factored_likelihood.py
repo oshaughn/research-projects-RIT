@@ -710,3 +710,52 @@ def evaluateFast1dInterpolator(x,y,xlow,xhigh):
     return (y[indx]*(xhigh-x)  + y[indx+1]*(x-xlow))/(xhigh-xlow)
 def makeFast1dInterpolator(y,xlow,xhigh):
     return lambda x: evaluateFast1dInterpolator(x,y, xlow, xhigh)
+
+def NetworkLogLikelihoodTimeMarginalizedDiscrete(epoch,rholmsDictionary,crossTerms, tref, deltaTWindow, RA,DEC, thS,phiS,psi,  dist, Lmax, detList,array_output=False):
+    """
+    NetworkLogLikelihoodTimeMarginalizedDiscrete
+    Uses DiscreteSingleDetectorLogLikelihoodData to calculate the lnL(t) on a discrete grid.
+     - Mode 1: array_output = False
+       Computes \int L dt/T over tref+deltaTWindow (GPSTime + pair, with |deltaTWindow|=T)
+     - Mode 2: array_output = True
+       Returns lnL(t) as a raw numpy array.
+    """
+    global distMpcRef
+
+    Ylms = ComputeYlms(Lmax, thS,phiS)
+    distMpc = dist/(lal.LAL_PC_SI*1e6)
+
+    F = {}
+    tshift= {}
+    for det in detList:
+        if (det == "Fake"):
+            F[det]=1
+            tshift= tref - epoch
+        else:
+            F[det] = ComplexAntennaFactor(det, RA,DEC,psi,tref)
+
+    term2 = 0.
+
+    keys = constructLMIterator(Lmax)
+    for det in detList:
+        for pair1 in keys:
+            for pair2 in keys:
+                term2 += F[det] * np.conj(F[det]) * ( crossTerms[det][(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F[det]*F[det]*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[det][((pair1[0],-pair1[1]),pair2)]
+    term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
+
+
+    print detList
+    rho22 = lalsim.SphHarmTimeSeriesGetMode(rholmsDictionary[detList[0]], 2,2)
+
+    nBins =int( (deltaTWindow[1]-deltaTWindow[0])/rho22.deltaT)
+    term1 =np.zeros(nBins)
+    for det in detList:
+        term1+=DiscreteSingleDetectorLogLikelihoodData(epoch, rholmsDictionary, tref+deltaTWindow[0], nBins,RA,DEC, thS,phiS,psi,  dist, Lmax, det)
+
+    # Compute integral.  Note the NORMALIZATION interval is assumed to be tWindow.
+    # This is equivalent to dividing by 1/N in *this case*.  That formula will not hold if the prior and integration region are different.  
+    if array_output:
+        return term1+term2  # output is lnL(t), NO marginalization
+    else:
+        LmargTime = rho22.deltaT*np.sum(np.exp(term1+term2))/(deltaTWindow[1]-deltaTWindow[0])  
+        return np.log(LmargTime)
