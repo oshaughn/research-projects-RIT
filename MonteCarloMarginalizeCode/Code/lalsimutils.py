@@ -285,9 +285,11 @@ class InnerProduct:
 #                self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
 #            self.weights[self.minIdx:self.FDlen] = 1.0/self.psd(np.arange(self.minIdx, self.FDlen, 1))   # this doesn't work -- not sure why
 #             # Take 1 sided PSD and make it 2 sided
-            length = 2*(self.FDlen-1)
-            self.longweights[1:1+len(self.weights)] = self.weights[::-1]
-            self.longweights[-(len(self.weights)+1):-1] = self.weights[:]
+#            length = 2*(self.FDlen-1)
+            self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
+            self.longweights[len(self.weights)-1:] = self.weights[0:-1]
+            # self.longweights[0:len(self.weights)-1] = self.weights[::-1]
+            # self.longweights[(len(self.weights)-1):2*len(self.weights)-2] = self.weights[:]    # fills it twice with the zero bin
             if rosDebugMessagesLongContainer[0]:
                 print "  ... finished populating inner product weight array using analytic PSD ... "
                 print " note maximum weight is ", np.max(self.longweights), " in bin ", np.argmax(self.longweights[length/2+1:-1]), " or frequency ", deltaF*np.argmax(self.longweights[length/2+1:-1])
@@ -302,8 +304,8 @@ class InnerProduct:
                     # self.longweights[length/2 - i+1] = 1./psd[i]
                     # self.longweights[length/2 + i-1] = 1./psd[i]
             length = 2*(self.FDlen-1)
-            self.longweights[1:1+len(self.weights)] = self.weights[::-1]
-            self.longweights[-(len(self.weights)+1):-1] = self.weights[:]
+            self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
+            self.longweights[len(self.weights)-1:] = self.weights[0:-1]
             if rosDebugMessagesLongContainer[0]:
                 print "  ... finished populating inner product weight array using a numerical PSD ... "
                 print " note maximum weight is ", np.max(self.longweights), " in bin ", np.argmax(self.longweights[length/2+1:-1]), " or frequency ", deltaF*np.argmax(self.longweights[length/2+1:-1])
