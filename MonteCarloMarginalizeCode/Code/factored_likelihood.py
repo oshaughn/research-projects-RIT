@@ -759,3 +759,44 @@ def NetworkLogLikelihoodTimeMarginalizedDiscrete(epoch,rholmsDictionary,crossTer
     else:
         LmargTime = rho22.deltaT*np.sum(np.exp(term1+term2))/(deltaTWindow[1]-deltaTWindow[0])  
         return np.log(LmargTime)
+
+def DiscreteSingleDetectorLogLikelihoodData(epoch,rholmsDictionary, tStart,nBins, RA,DEC, thS,phiS,psi,  dist, Lmax, det):
+    """
+    DiscreteSingleDetectorLogLikelihoodData
+    Returns lnLdata array, evaluated at the geocenter, based on a DISCRETE timeshift.
+       - At low sampling rates, this procedure will be considerably time offset (~ ms). 
+         It will also be undersampled for use in integration. 
+    Return value is 
+       - a RAW numpy array
+       - associated with nBins following tStart
+    Uses 'tStart' (a GPSTime) to identify the current detector orientations and hence time of flight delay.  
+       - the assumption is that nBins will be very small
+    Does NOT 
+       - resample the  Q array : it is nearest-neighbor timeshifted before computing lnL
+    """
+    global distMpcRef
+
+    Ylms = ComputeYlms(Lmax, thS,phiS)
+    if (det == "Fake"):
+        F=1
+        tshift= tStart - epoch
+    else:
+        F = ComplexAntennaFactor(det, RA,DEC,psi,tStart)
+        detector = lalsim.DetectorPrefixToLALDetector(det)
+        tshift = ComputeArrivalTimeAtDetector(det, RA,DEC, tStart)  -  epoch   # detector time minus reference time (so far)
+    rholms_grid = rholmsDictionary[det]
+    distMpc = dist/(lal.LAL_PC_SI*1e6)
+
+    rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms_grid, 2,2)
+    nShiftL = int(  float(tshift)/rho22.deltaT)
+
+    term1 = 0.
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
+            rhoTSnow  =     rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms_grid, l,m)
+            term1 += np.conj(F * Ylms[(l,m)]) * np.roll(rhoTSnow.data.data,nShiftL)
+    term1 = np.real(term1) / (distMpc/distMpcRef)
+
+    nBinLow = int(( tStart + tshift  - rho22.epoch )/rho22.deltaT)   # time interval is specified in GEOCENTER, but rho is at each IFO
+
+    return term1[nBinLow:nBinLow+nBins]
