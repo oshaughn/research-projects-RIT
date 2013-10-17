@@ -330,7 +330,7 @@ if not opts.time_marginalization:
         n=10, nmax=nMaxEvals, neff=100,
         # FIXME: What here?  ROS: an estimate of the peak lnL, and a threshold on what should be returned
     #    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
-        full_output=True,verbose=True,extremely_verbose=False
+        full_output=True,verbose=True,extremely_verbose=False)
 
 else:
 
@@ -342,7 +342,7 @@ else:
             print " Likelihood results :  "
     #    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
         for ph, th, phr, ic, ps, di in zip(phi, theta, phiref, incl, psi, dist):
-            lnL[i] = factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete(fiducial_epoch, rholms, cross_terms, fiducial_epoch, (-t_ref_wind, t_ref_wind), ph, th, ic, phr, ps, di, Lmax, rholms.keys()):
+            lnL[i] = factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete(fiducial_epoch, rholms, cross_terms, fiducial_epoch, (-t_ref_wind, t_ref_wind), ph, th, ic, phr, ps, di, Lmax, rholms.keys())
             if  rosDebugShowExcruciatingLikelihoodDetail:
                 print "  + likelihood evaluation : ", i + nEvals, " :  ", lnL[i], " : overflow check ", np.exp(lnL[i])
             i+=1
@@ -362,6 +362,7 @@ else:
 tGPSEnd = lal.GPSTimeNow()
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
+exit()
 
 try:
     ourio.plotParameterDistributionsFromSamples("results", sampler, ret,  ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
