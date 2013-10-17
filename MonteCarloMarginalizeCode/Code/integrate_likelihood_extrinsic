@@ -44,6 +44,14 @@ optp.add_option("-P", "--padding", type=int, default=10, help="Time window after
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 
 #
+# Add the intrinsic parameters
+#
+intrinsic_params = OptionGroup(optp, "Intrinsic Parameters", "Intrinsic parameters (e.g component mass) to use.")
+intrinsic_params.add_option("--mass1", type=float, help="Value of first component mass, in solar masses. Required if not providing coinc tables.")
+intrinsic_params.add_option("--mass2", type=float, help="Value of second component mass, in solar masses. Required if not providing coinc tables.")
+optp.add_option_group(intrinsic_params)
+
+#
 # Add the pinnable parameters
 #
 pinnable = OptionGroup(optp, "Pinnable Parameters", "Specifying these command line options will pin the value of that parameter to the specified value with a probability of unity.")
@@ -105,13 +113,17 @@ if sorted(psd_dict.keys()) != sorted(data_dict.keys()):
 #
 # Testing
 #
-sngl_inspiral_table = table.get_table(xmldoc, lsctables.SnglInspiralTable.tableName)
-assert len(sngl_inspiral_table) == len(coinc_row.ifos.split(","))
-m1, m2 = None, None
-for sngl_row in sngl_inspiral_table:
-    # NOTE: gstlal is exact match, but other pipelines may not be
-    assert m1 is None or (sngl_row.mass1 == m1 and sngl_row.mass2 == m2)
-    m1, m2 = sngl_row.mass1, sngl_row.mass2
+if opts.mass1 is not None and opts.mass2 is not None:
+    m1, m2 = opts.mass1, opts.mass2
+else:
+    sngl_inspiral_table = table.get_table(xmldoc, lsctables.SnglInspiralTable.tableName)
+    assert len(sngl_inspiral_table) == len(coinc_row.ifos.split(","))
+    m1, m2 = None, None
+    for sngl_row in sngl_inspiral_table:
+        # NOTE: gstlal is exact match, but other pipelines may not be
+        assert m1 is None or (sngl_row.mass1 == m1 and sngl_row.mass2 == m2)
+        m1, m2 = sngl_row.mass1, sngl_row.mass2
+print "Performing integration for intrinsic parameters mass 1: %f, mass 2 %f" % (m1, m2)
 
 # FIXME: Keep this and organize
 # TARGET INJECTED SIGNAL (for reference and calibration of results)
