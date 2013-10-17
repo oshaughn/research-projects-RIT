@@ -4,13 +4,35 @@ import lalsimutils as lsu
 import effectiveFisher as eff
 import numpy as np
 import matplotlib.pyplot as plt
-from time import clock
+from time import clock, time
 from functools import partial
+from hashlib import md5
 
 start = clock()
 elapsed_time = lambda: clock()-start
 
 pts_per_job = 10 # How many intrinsic points to pass to each condor job
+
+def generate_job_id():
+    t = str( long( time() * 1000 ) )
+    r = str( long( np.random.random() * 100000000000000000L ) )
+    return md5(t + r).hexdigest()
+
+def write_extrinsic_marginalization_dag(Njobs, extr_sub,
+        fname='marginalize_extrinsic.dag'):
+    """
+    Write a dag to manage a set of parallel jobs to compute the likelihood
+    marginalized over extrinsic parameters at a set of extrinsic points.
+    """
+    dag = open(fname, 'w')
+    for i in xrange(Njobs):
+        job = generate_job_id()
+        line = 'JOB ' + job + ' ' + extr_sub + '\n'
+        dag.write(line)
+        line = 'VARS ' + job + ' ' + 'infile=\"m1_m2_pts_%i.txt\"\n\n' % i
+        dag.write(line)
+    dag.close()
+
 
 # Setup signal and IP class
 m1=10.*lal.LAL_MSUN_SI
@@ -131,6 +153,9 @@ for i in xrange(Njobs):
 
 elapsed = elapsed_time() - elapsed
 print "Time to distribute points, split and write to file:", elapsed
+
+write_extrinsic_marginalization_dag(Njobs, 'test.sub')
+
 
 #
 # N.B. Below here, the real code will divy up rand_grid into blocks of intrinsic
