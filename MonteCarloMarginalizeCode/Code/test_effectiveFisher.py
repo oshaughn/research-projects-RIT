@@ -10,12 +10,16 @@ from functools import partial
 start = clock()
 elapsed_time = lambda: clock()-start
 
+pts_per_job = 10 # How many intrinsic points to pass to each condor job
+
 # Setup signal and IP class
 m1=10.*lal.LAL_MSUN_SI
 m2=10.*lal.LAL_MSUN_SI
 PSIG = lsu.ChooseWaveformParams(m1=m1, m2=m2, approx=lalsim.TaylorT1)
-#PSIG.deltaF = findDeltaF(PSIG)
-PSIG.deltaF = 1./8.
+PTEST = PSIG.copy() # find deltaF for lower end of range we're looking in
+PTEST.m1 *= 0.9
+PTEST.m2 *= 0.9
+PSIG.deltaF = lsu.findDeltaF(PTEST)
 IP = lsu.Overlap(fLow=40., deltaF=PSIG.deltaF, psd=lal.LIGOIPsd)
 PTMPLT = PSIG.copy()
 hfSIG = lsu.norm_hoff(PSIG, IP)
@@ -27,7 +31,7 @@ param_names = ['Mc', 'eta']
 
 # Find appropriate parameter ranges
 param_ranges = eff.find_effective_Fisher_region(PSIG, IP, 0.90, param_names,
-        [[McSIG-0.5*lal.LAL_MSUN_SI,McSIG+0.5*lal.LAL_MSUN_SI],[0.05,0.25]])
+        [[0.9*McSIG,1.1*McSIG],[0.05,0.25]])
 print "Computing amibiguity function in the range:"
 for i, param in enumerate(param_names):
     if param=='Mc' or param=='m1' or param=='m2': # rescale output by MSUN
@@ -70,7 +74,7 @@ gam = eff.array_to_symmetric_matrix(fitgamma)
 evals, evecs, rot = eff.eigensystem(gam)
 
 elapsed = elapsed_time() - elapsed
-print "Time to compute Fisher matrix and its eigensystem:", elapsed
+print "Time to compute effective Fisher matrix and its eigensystem:", elapsed
 print "For a grid of size:", pts_per_dim, "\n"
 
 # Print information about the effective Fisher matrix
@@ -114,6 +118,19 @@ print "Requested", Nrandpts, "points inside the ellipsoid of",\
         match_cntr, "match."
 print "Kept", len(rand_grid), "points with physically allowed parameters."
 
+# Save grid of mass points to file
+#np.savetxt("Mc_eta_pts.txt", rand_grid)
+rand_grid2 = [lsu.m1m2(rand_grid[i][0], rand_grid[i][1]) # convert to m1, m2
+        for i in xrange(len(rand_grid))]
+#np.savetxt("m1_m2_pts.txt", rand_grid2)
+Njobs = int(np.ceil(len(rand_grid2)/float(pts_per_job)))
+rand_grid2 = np.array_split(rand_grid2, Njobs)
+for i in xrange(Njobs):
+        fname = "m1_m2_pts_%i.txt" % i
+        np.savetxt(fname, rand_grid2[i])
+
+elapsed = elapsed_time() - elapsed
+print "Time to distribute points, split and write to file:", elapsed
 
 #
 # N.B. Below here, the real code will divy up rand_grid into blocks of intrinsic
