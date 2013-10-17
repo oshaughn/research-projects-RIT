@@ -7,7 +7,7 @@ Integrate the extrinsic parameters of the prefactored likelihood function.
 #from pylal import Fr
 import sys
 import functools
-from optparse import OptionParser
+from optparse import OptionParser, OptionGroup
 
 import numpy
 
@@ -25,6 +25,11 @@ rosDebugShowPriors = True
 rosDebugShowExcruciatingLikelihoodDetail = False
 
 #
+# Pinnable parameters -- for command line processing
+#
+LIKELIHOOD_PINNABLE_PARAMS = ["right ascension", "declination"]
+
+#
 # Option parsing
 #
 
@@ -36,6 +41,17 @@ optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing c
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
 optp.add_option("-s", "--seglen", type=int, default=110, help="Minimum segment duration surrounding coing to be analyzed. (Will be rounded up to next power of 2)")
 optp.add_option("-P", "--padding", type=int, default=10, help="Time window after the trigger to be included in the data segment")
+optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
+
+#
+# Add the pinnable parameters
+#
+pinnable = OptionGroup(optp, "Pinnable Parameters", "Specifying these command line options will pin the value of that parameter to the specified value with a probability of unity.")
+for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
+    option = "--" + pin_param.replace(" ", "-")
+    pinnable.add_option(option, type=float, help="Pin the value of %s." % pin_param)
+optp.add_option_group(pinnable)
+
 opts, args = optp.parse_args()
 
 # FIXME: Turn into cmd line options
@@ -280,42 +296,73 @@ if rosDebugShowPriors:
 #
 # Call the likelihood function for various extrinsic parameter values
 #
+# FIXME: Clean this up
 nEvals = 0
-def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
-    global nEvals
-    lnL = numpy.zeros(phi.shape,dtype=numpy.float128)   # use EXTREMELY many bits
-    i = 0
-    if rosDebugShowExcruciatingLikelihoodDetail:
-        print " Likelihood results :  "
-#    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
-    for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
-        P.phi = ph # right ascension
-        P.theta = th # declination
-        P.tref = fiducial_epoch + tr # ref. time (rel to epoch for data taking)
-        P.phiref = phr # ref. orbital phase
-        P.incl = ic # inclination
-        P.psi = ps # polarization angle
-        P.dist = di # luminosity distance
-
-        lnL[i] = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
-        if  rosDebugShowExcruciatingLikelihoodDetail:
-            print "  + likelihood evaluation : ", i + nEvals, " :  ", lnL[i], " : overflow check ", np.exp(lnL[i])
-        i+=1
-
-    nEvals+=i 
-    return numpy.exp(lnL)
-
 nMaxEvals = 1e3
-res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, 
-    "right_ascension", "declination", "t_ref", "phi_orb", "inclination", "psi", "distance", 
-    n=10, nmax=nMaxEvals, neff=100,
-    # FIXME: What here?  ROS: an estimate of the peak lnL, and a threshold on what should be returned
-#    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
-    full_output=True,verbose=True,extremely_verbose=False
-    )
+if not opts.time_marginalization:
+
+    def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
+        global nEvals
+        lnL = numpy.zeros(phi.shape,dtype=numpy.float128)   # use EXTREMELY many bits
+        i = 0
+        if rosDebugShowExcruciatingLikelihoodDetail:
+            print " Likelihood results :  "
+    #    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
+        for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
+            P.phi = ph # right ascension
+            P.theta = th # declination
+            P.tref = fiducial_epoch + tr # ref. time (rel to epoch for data taking)
+            P.phiref = phr # ref. orbital phase
+            P.incl = ic # inclination
+            P.psi = ps # polarization angle
+            P.dist = di # luminosity distance
+    
+            lnL[i] = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
+            if  rosDebugShowExcruciatingLikelihoodDetail:
+                print "  + likelihood evaluation : ", i + nEvals, " :  ", lnL[i], " : overflow check ", np.exp(lnL[i])
+            i+=1
+    
+        nEvals+=i 
+        return numpy.exp(lnL)
+
+    res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, 
+        "right_ascension", "declination", "t_ref", "phi_orb", "inclination", "psi", "distance", 
+        n=10, nmax=nMaxEvals, neff=100,
+        # FIXME: What here?  ROS: an estimate of the peak lnL, and a threshold on what should be returned
+    #    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
+        full_output=True,verbose=True,extremely_verbose=False)
+
+else:
+
+    def likelihood_function(phi, theta, phiref, incl, psi, dist):
+        global nEvals
+        lnL = numpy.zeros(phi.shape,dtype=numpy.float128)   # use EXTREMELY many bits
+        i = 0
+        if rosDebugShowExcruciatingLikelihoodDetail:
+            print " Likelihood results :  "
+    #    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
+        for ph, th, phr, ic, ps, di in zip(phi, theta, phiref, incl, psi, dist):
+            lnL[i] = factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete(fiducial_epoch, rholms, cross_terms, fiducial_epoch, (-t_ref_wind, t_ref_wind), ph, th, ic, phr, ps, di, Lmax, rholms.keys())
+            if  rosDebugShowExcruciatingLikelihoodDetail:
+                print "  + likelihood evaluation : ", i + nEvals, " :  ", lnL[i], " : overflow check ", np.exp(lnL[i])
+            i+=1
+    
+        nEvals+=i 
+        return numpy.exp(lnL)
+
+    res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, 
+        "right_ascension", "declination", "phi_orb", "inclination", "psi", "distance", 
+        n=10, nmax=nMaxEvals, neff=100,
+        # FIXME: What here?  ROS: an estimate of the peak lnL, and a threshold on what should be returned
+    #    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
+        full_output=True,verbose=True,extremely_verbose=False
+        )
+
+
 tGPSEnd = lal.GPSTimeNow()
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
+exit()
 
 try:
     ourio.plotParameterDistributionsFromSamples("results", sampler, ret,  ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])

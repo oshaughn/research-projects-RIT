@@ -1651,3 +1651,10 @@ def get_intp_psd_series_from_xmldoc(fname, inst):
     def intp_psd(freq):
         return float("inf") if freq > psd.deltaF*len(psd.data) else ifunc(freq)
     return np.vectorize(intp_psd)
+
+def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all modes, as a list.  Useful for building iterators without nested lists
+    mylist = []
+    for L in np.arange(2, Lmax+1):
+        for m in np.arange(-L, L+1):
+            mylist.append((L,m))
+    return mylist

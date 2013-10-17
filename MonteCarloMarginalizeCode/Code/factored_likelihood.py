@@ -736,7 +736,7 @@ def NetworkLogLikelihoodTimeMarginalizedDiscrete(epoch,rholmsDictionary,crossTer
 
     term2 = 0.
 
-    keys = constructLMIterator(Lmax)
+    keys = lsu.constructLMIterator(Lmax)
     for det in detList:
         for pair1 in keys:
             for pair2 in keys:
