@@ -151,11 +151,12 @@ class MCSampler(object):
 		# This is mainly to ensure that the array can be "splatted", e.g.
 		# separated out into its components for matching with args. The case of
 		# one argument has to be handled specially.
+		res = []
 		for (cdf_rv, param) in zip(rvs_tmp, args):
 			if len(cdf_rv.shape) == 1:
-				res = [(self.pdf[param](cdf_rv)/self._pdf_norm[param], self.prior_pdf[param](cdf_rv), cdf_rv) for (cdf_rv, param) in zip(rvs_tmp, args)]
+				res.append((self.pdf[param](cdf_rv)/self._pdf_norm[param], self.prior_pdf[param](cdf_rv), cdf_rv))
 			else:
-				res = [(self.pdf[param](*cdf_rv)/self._pdf_norm[param], self.prior_pdf[param](*cdf_rv), cdf_rv) for (cdf_rv, param) in zip(rvs_tmp, args)]
+				res.append((self.pdf[param](*cdf_rv)/self._pdf_norm[param], self.prior_pdf[param](*cdf_rv), cdf_rv))
 
 		#
 		# Cache the samples we chose
