@@ -1,3 +1,4 @@
+import sys
 import lal
 import lalsimulation as lalsim
 import lalsimutils as lsu
@@ -7,6 +8,10 @@ import matplotlib.pyplot as plt
 from time import clock, time
 from functools import partial
 from hashlib import md5
+
+import itertools
+from glue.ligolw import utils, ligolw, lsctables, table
+from glue.ligolw.utils import process
 
 start = clock()
 elapsed_time = lambda: clock()-start
@@ -33,6 +38,17 @@ def write_extrinsic_marginalization_dag(Njobs, extr_sub,
         dag.write(line)
     dag.close()
 
+def write_sngl_params(grid, proc_id):
+    sngl_insp_table = lsctables.New(lsctables.SnglInspiralTable, ["mass1", "mass2", "event_id", "process_id"])
+    sngl_insp_table.sync_next_id()
+    for (m1, m2) in itertools.chain(*grid):
+        sngl_insp = sngl_insp_table.RowType()
+        sngl_insp.event_id = sngl_insp_table.get_next_id()
+        sngl_insp.mass1, sngl_insp.mass2 = m1/lal.LAL_MSUN_SI, m2/lal.LAL_MSUN_SI
+        sngl_insp.process_id = proc_id
+        sngl_insp_table.append(sngl_insp)
+
+    return sngl_insp_table
 
 # Setup signal and IP class
 m1=10.*lal.LAL_MSUN_SI
@@ -122,7 +138,7 @@ r2 = np.sqrt(2.*(1.-match_cntr)/evals[1])
 # Get pts. inside an ellipsoid oriented along eigenvectors...
 rand_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
 # Rotate to get coordinates in parameter basis
-rand_grid = np.array([ np.real(rot.dot(rand_grid[i]))
+rand_grid = np.array([ np.real( np.dot(rot, rand_grid[i]))
     for i in xrange(len(rand_grid)) ])
 # Put in convenient units,
 # change from parameter differential (i.e. dtheta)
@@ -156,6 +172,13 @@ print "Time to distribute points, split and write to file:", elapsed
 
 write_extrinsic_marginalization_dag(Njobs, 'test.sub')
 
+xmldoc = ligolw.Document()
+xmldoc.childNodes.append(ligolw.LIGO_LW())
+#proc_id = process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
+proc_id = process.register_to_xmldoc(xmldoc, sys.argv[0], {})
+proc_id = proc_id.process_id
+xmldoc.childNodes[0].appendChild(write_sngl_params(rand_grid2, proc_id))
+utils.write_filename(xmldoc, "m1m2_grid.xml.gz", gz=True)
 
 #
 # N.B. Below here, the real code will divy up rand_grid into blocks of intrinsic
