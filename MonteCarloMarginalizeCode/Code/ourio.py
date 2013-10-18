@@ -30,7 +30,7 @@ For simplicity we will assume samples are distributed througout
 """
 def dumpSamplesToFile(fname, samps, labels):
     headline = ' '.join(labels)
-    np.savetxt(fname, samps, header=headline,comments='')
+    np.savetxt(fname, samps)
     return 0
 
 
