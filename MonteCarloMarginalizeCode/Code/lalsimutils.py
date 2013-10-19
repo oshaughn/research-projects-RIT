@@ -277,39 +277,17 @@ class InnerProduct:
         self.longweights = np.zeros(2*(self.FDlen-1))  # for not hermetian inner products
         self.analyticPSD_Q = analyticPSD_Q
         if analyticPSD_Q == True:
-            if rosDebugMessagesLongContainer[0]:
-                print "  ... populating inner product weight array using analytic PSD ... "
             for i in range(self.minIdx,self.FDlen):        # populate weights for both hermetian and non-hermetian products
                 self.weights[i] = 1./self.psd(i*deltaF)
-#                self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
-#                self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
-#            self.weights[self.minIdx:self.FDlen] = 1.0/self.psd(np.arange(self.minIdx, self.FDlen, 1))   # this doesn't work -- not sure why
-#             # Take 1 sided PSD and make it 2 sided
-#            length = 2*(self.FDlen-1)
             self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
             self.longweights[len(self.weights)-1:] = self.weights[0:-1]
-            # self.longweights[0:len(self.weights)-1] = self.weights[::-1]
-            # self.longweights[(len(self.weights)-1):2*len(self.weights)-2] = self.weights[:]    # fills it twice with the zero bin
-            if rosDebugMessagesLongContainer[0]:
-                print "  ... finished populating inner product weight array using analytic PSD ... "
-                print " note maximum weight is ", np.max(self.longweights), " in bin ", np.argmax(self.longweights[length/2+1:-1]), " or frequency ", deltaF*np.argmax(self.longweights[length/2+1:-1])
-                print " equivalently in 1d array ", np.max(self.weights), " in bin ", np.argmax(self.weights), " at frequency ", self.deltaF*np.argmax(self.weights)
         else:
-            if rosDebugMessagesLongContainer[0]:
-                print "  ... populating inner product weight array using a numerical PSD ... "
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
                     self.weights[i] = 1./psd[i]
-                    # length = 2*(self.FDlen-1)
-                    # self.longweights[length/2 - i+1] = 1./psd[i]
-                    # self.longweights[length/2 + i-1] = 1./psd[i]
             length = 2*(self.FDlen-1)
             self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
             self.longweights[len(self.weights)-1:] = self.weights[0:-1]
-            if rosDebugMessagesLongContainer[0]:
-                print "  ... finished populating inner product weight array using a numerical PSD ... "
-                print " note maximum weight is ", np.max(self.longweights), " in bin ", np.argmax(self.longweights[length/2+1:-1]), " or frequency ", deltaF*np.argmax(self.longweights[length/2+1:-1])
-                print " equivalently in 1d array ", np.max(self.weights), " in bin ", np.argmax(self.weights), " at frequency ", self.deltaF*np.argmax(self.weights)
 
     def ip(self, h1, h2):
         """
@@ -345,8 +323,6 @@ class RealIP(InnerProduct):
         val = 0.
         maxIdx = min(h1.data.length,h2.data.length)
         val = np.sum(np.conj(h1.data.data)*h2.data.data*self.weights)
-        # for i in range(self.minIdx,maxIdx):
-        #     val += h1.data.data[i].conj() * h2.data.data[i]* self.weights[i]
         val = 4. * self.deltaF * np.real(val)
         return val
 
@@ -358,8 +334,6 @@ class RealIP(InnerProduct):
         assert abs(h.deltaF-self.deltaF) <= 1.e-5
         val = 0.
         val = np.sum(np.conj(h.data.data)*h.data.data*self.weights)
-        # for i in range(self.minIdx,h.data.length):
-        #     val += h.data.data[i] * h.data.data[i].conj() * self.weights[i]
         val = np.sqrt( 4. * self.deltaF * np.abs(val) )
         return val
 
@@ -387,8 +361,6 @@ class HermitianComplexIP(InnerProduct):
         val = 0.
         maxIdx = min(h1.data.length,h2.data.length)
         val = np.sum(np.conj(h1.data.data)*h2.data.data*self.weights)
-        # for i in range(self.minIdx,maxIdx):
-        #     val += h1.data.data[i].conj() * h2.data.data[i] * self.weights[i]
         val *= 4. * self.deltaF
         return val
 
@@ -427,10 +399,6 @@ class ComplexIP(InnerProduct):
         assert abs(h1.deltaF-h2.deltaF)<=1.e-5 and abs(h1.deltaF-self.deltaF)<=1.e-5
         val = 0.
         val = np.sum( np.conj(h1.data.data)*h2.data.data *self.longweights)
-        # for i in range(self.minIdx,length/2):
-        #     val += (h1.data.data[length/2-i].conj() * h2.data.data[length/2-i]\
-        #             + h1.data.data[length/2+i].conj()\
-        #             * h2.data.data[length/2+i]) * self.weights[i]
         val *= 2. * self.deltaF
         return val
 
@@ -443,10 +411,6 @@ class ComplexIP(InnerProduct):
         length = h.data.length
         val = 0.
         val = np.sum( np.conj(h.data.data)*h.data.data *self.longweights)
-        # for i in range(self.minIdx,length/2):
-        #     val += (h.data.data[length/2 - i] * h.data.data[length/2 -i].conj()\
-        #             + h.data.data[length/2+i]\
-        #             * h.data.data[length/2+i].conj()) * self.weights[i]
         val = np.sqrt( 2. * self.deltaF * np.abs(val) )
         return val
 
@@ -497,30 +461,18 @@ class Overlap(InnerProduct):
                 self.TDlen)
         # Compute the weights
         if analyticPSD_Q == True:
-            if rosDebugMessagesLongContainer[0]:
-                print "  ... populating inner product weight array using analytic PSD ... "
             for i in range(self.minIdx,self.FDlen):
                 self.weights[i] = 1./self.psd(i*deltaF)
-                #self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
-                #self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
             length = 2*(self.FDlen-1)
             self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
             self.longweights[len(self.weights)-1:] = self.weights[0:-1]
-            if rosDebugMessagesContainer[0]:
-                print "  ... finished populating inner product weight array using analytic PSD ... "
         else:
-            if rosDebugMessagesLongContainer[0]:
-                print "  ... populating inner product weight array using a numerical PSD ... "
             for i in range(self.minIdx,self.FDlen):
                 if psd[i] != 0.:
                     self.weights[i] = 1./psd[i]
-                    #self.longweights[length/2 - i+1] = 1./psd[i]
-                    #self.longweights[length/2 + i-1] = 1./psd[i]
             length = 2*(self.FDlen-1)
             self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
             self.longweights[len(self.weights)-1:] = self.weights[0:-1]
-            if rosDebugMessagesLongContainer[0]:
-                print "  ... finished populating inner product weight array using a numerical PSD ... "
 
 
     def ip(self, h1, h2):
@@ -556,8 +508,6 @@ class Overlap(InnerProduct):
         assert abs(h.deltaF-self.deltaF) <= 1.e-5
         val = 0.
         val = np.sum( np.conj(h.data.data)*h.data.data *self.weights)
-        # for i in range(self.minIdx,h.data.length):
-        #     val += h.data.data[i] * h.data.data[i].conj() * self.weights[i]
         val = np.sqrt( 4. * self.deltaF * np.abs(val) )
         return val
 
@@ -660,20 +610,8 @@ class ComplexOverlap(InnerProduct):
         # h(-N/2 df), ..., H(-df) h(0), h(df), ..., h(N/2 df)
         # In particular,freqs = +-i*df are in N/2+-i bins of array
         self.intgd.data.data = 2*np.conj(h1.data.data)*h2.data.data*self.longweights  # Dangerous!
-        # for i in range(self.wvlen):
-        #     self.intgd.data.data[i] = 2*( np.conj(h1.data.data[i])*h2.data.data[i]*self.weights[ np.abs(self.wvlen/2 -i)])
-            # self.intgd.data.data[i] = 2* ( h1.data.data[self.wvlen/2-i]\
-            #         * h2.data.data[self.wvlen/2-i].conj()\
-            #         + h1.data.data[self.wvlen/2+i]\
-            #         * h2.data.data[self.wvlen/2+i].conj() ) * self.weights[i]
-        # for i in range(self.minIdx,self.wvlen/2):
-            # self.intgd.data.data[i] = 2* ( h1.data.data[self.wvlen/2-i]\
-            #         * h2.data.data[self.wvlen/2-i].conj()\
-            #         + h1.data.data[self.wvlen/2+i]\
-            #         * h2.data.data[self.wvlen/2+i].conj() ) * self.weights[i]
         # Reverse FFT to get overlap for all possible reference times
         lal.COMPLEX16FreqTimeFFT(self.ovlp, self.intgd, self.revplan)
-        #self.ovlp.data.data = self.deltaF*np.fft.ifft(self.intgd.data.data)   # do it my own way, to be absolutely sure?
         rhoSeries = np.abs(self.ovlp.data.data)
         rho = rhoSeries.max()
         if self.full_output==False:
@@ -694,11 +632,6 @@ class ComplexOverlap(InnerProduct):
         val = 0.
         # Note monotonic packing of h(f)
         val = np.sum( np.conj(h.data.data)*h.data.data *self.longweights)
-        # for i in range(self.minIdx,self.wvlen/2):
-        #     val += ( h.data.data[self.wvlen/2-i]\
-        #             * h.data.data[self.wvlen/2-i].conj()\
-        #             + h.data.data[self.wvlen/2+i]\
-        #             * h.data.data[self.wvlen/2+i].conj() ) * self.weights[i]
         val = np.sqrt( 2. * self.deltaF * np.abs(val) )
         return val
 
@@ -1060,7 +993,6 @@ def hlmoft(P, Lmax=2, Fp=None, Fc=None):
     The linked list will contain all modes with l <= Lmax
     and all values of m for these l.
     """
-    global rosDebugMessagesContainer
     assert Lmax >= 2
     hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
             P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
@@ -1068,14 +1000,6 @@ def hlmoft(P, Lmax=2, Fp=None, Fc=None):
     # FIXME: Add ability to taper
     # COMMENT: Add ability to generate hlmoft at a nonzero GPS time directly.
     #      USUALLY we will use the hlms in template-generation mode, so will want the event at zero GPS time
-    # for L in np.arange(2,Lmax+1):
-    #     for m in np.arange(-Lmax, Lmax+1):
-    #         hxx = lalsim.SphHarmTimeSeriesGetMode(hlms,int(L),int(m))  
-    #         if rosDebugMessagesContainer[0]:
-    #             print " hlm(t) epoch after shift  (l,m)=", L,m,":  = ", stringGPSNice( hxx.epoch)
-    #         hxx.epoch = hxx.epoch + P.tref  # edit the actual pointer's data.  Critical to make sure the epoch is propagated in full into the template hlm's, so I know what index corresponds to the P.tref time!
-    #         if rosDebugMessagesContainer[0]:
-    #             print " hlm(t) epoch after shift  (l,m)=", L,m,":  = ", stringGPSNice( hxx.epoch)
 
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
@@ -1083,12 +1007,6 @@ def hlmoft(P, Lmax=2, Fp=None, Fc=None):
         assert TDlen >= hxx.data.length
         hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
 
-    # Debugging: Confirm with complete certainty that the epochs of all the modes are consistently propagated
-    if rosDebugMessagesContainer[0]:
-        for L in np.arange(2,Lmax+1):
-            for m in np.arange(-Lmax, Lmax+1):
-                hxx = lalsim.SphHarmTimeSeriesGetMode(hlms,int(L),int(m))  
-                print " hlm(t) epoch after resize, (l,m) ", L,m, stringGPSNice( hxx.epoch), " and buffer duration =   ", hxx.deltaT*len(hxx.data.data)
 
     return hlms
 
@@ -1101,7 +1019,6 @@ def hlmoff(P, Lmax=2, Fp=None, Fc=None):
     The linked list will contain all modes with l <= Lmax
     and all values of m for these l.
     """
-    global rosDebugMessagesContainer
 
     hlms = hlmoft(P, Lmax, Fp, Fc)
     hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
@@ -1112,19 +1029,8 @@ def hlmoff(P, Lmax=2, Fp=None, Fc=None):
         TDlen = int(1./P.deltaF * 1./P.deltaT)
         assert TDlen == hxx.data.length
 
-    if rosDebugMessagesContainer[0]:
-        print "  ... starting Fourier transform: hlm(t)->hlm(f)"
     # FFT the hlms
     Hlms = lalsim.SphHarmFrequencySeriesFromSphHarmTimeSeries(hlms)
-    if rosDebugMessagesContainer[0]:
-        print "  ... finished Fourier transform: hlm(t)->hlm(f)"
-
-    # Fixme
-    if rosDebugMessagesContainer[0]:
-        for L in np.arange(2,Lmax+1):
-            for m in np.arange(-Lmax, Lmax+1):
-                hxx = lalsim.SphHarmFrequencySeriesGetMode(Hlms,int(L),int(m))  
-                print " hlm(f) epoch after FFT, (l,m) ", L,m,  stringGPSNice(hxx.epoch)
 
     return Hlms
 
@@ -1549,8 +1455,6 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
             hoft.deltaT, hoft.sampleUnits, TDlen)
     # copy h(t) into a COMPLEX16 array which happens to be purely real
     hoftC.data.data = hoft.data.data + 0j
-#    for i in range(TDlen):
-#        hoftC.data.data[i] = hoft.data.data[i]
     FDlen = TDlen
     fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
     hoff = lal.CreateCOMPLEX16FrequencySeries("Template h(f)",
@@ -1600,7 +1504,6 @@ def regularize_swig_psd_series_near_nyquist(raw_psd,DeltaFToZero):
     for i in range(nToZero):
         new_psd.data.data[n - i-1] = 0.
 # Vectorized assignment would be better
-#    new_psd.data[n-nToZero-1,-1] = np.zeros(nToZero)
     return new_psd
 
 def enforce_swig_psd_fmin(raw_psd, fmin):
@@ -1630,9 +1533,6 @@ def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqReq
     facStretch = int((nRequired-1)/(n-1))  # n-1 should be power of 2
     if rosDebugMessagesContainer[0]:
         print " extending psd of length ", n, " to ", nRequired, "(i.e., fNyq = ", fNyqRequired, ") elements requires a factor of ", facStretch
-    #    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired,lal.lalHertzUnit, nRequired )
-    #   psdNew.data.data = np.zeros(len(psdNew.data.data))
-    # psdNew = np.zeros(nRequired)   
     psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired ,lal.lalHertzUnit, n*facStretch)
     # Populate the series.  Slow because it is a python loop
     for i in np.arange(n):
