@@ -39,7 +39,6 @@ tWindowExplore = [-0.05, 0.05]             # smaller window.  Avoid interpolatio
 rosDebugMessages = True
 rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
 rosDoNotRollTimeseries = False           # must be done if you have zero padding.  Should always work, since epoch shifted too.
-rosAvoidNestedLoops = False               # itertools is actually pretty darned slow.  Let's not use it.
 
 #
 # Main driver functions
@@ -172,16 +171,9 @@ def SingleDetectorLogLikelihoodModel( crossTermsDictionary,tref, RA,DEC, thS,phi
     # Eq. 26 of Richard's notes
     # APPROXIMATING V BY U (appropriately swapped).  THIS APPROXIMATION MUST BE FIXED FOR PRECSSING SOURCES
     term2 = 0.
-    if rosAvoidNestedLoops:
-        pairsOfPairs = product( keys,keys)  # loop over pairs might be faster than not
-        for pPair in pairsOfPairs:
-            pair1 = pPair[0]
-            pair2 = pPair[1]
+    for pair1 in keys:
+        for pair2 in keys:
             term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
-    else:
-        for pair1 in keys:
-            for pair2 in keys:
-                term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
     term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
     return term2
 
@@ -203,15 +195,9 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
     term1 = 0.
-    if rosAvoidNestedLoops:
-        keys = lsu.constructLMIterator(Lmax)
-        for pair in keys: #rholms_intp:
-            #        print " adding term to lnLdata ", pair
-            term1+= np.conj(F*Ylms[pair])*rholms_intp[pair]( float(tshift))
-    else:
-        for l in range(2,Lmax+1):
-            for m in range(-l,l+1):
-                term1 += np.conj(F * Ylms[(l,m)]) * rholms_intp[(l,m)]( float(tshift))
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
+            term1 += np.conj(F * Ylms[(l,m)]) * rholms_intp[(l,m)]( float(tshift))
     term1 = np.real(term1) / (distMpc/distMpcRef)
 
     return term1
@@ -308,27 +294,16 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
 
     # Eq. 35 of Richard's notes
     term1 = 0.
-    if rosAvoidNestedLoops:
-        for key in keys: #rholm_vals:
-            term1 += np.conj(F * Ylms[key]) * rholm_vals[key]
-    else:
-        for l in range(2,Lmax+1):
-            for m in range(-l,l+1):
-                term1 += np.conj(F * Ylms[(l,m)]) * rholm_vals[(l,m)]
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
+            term1 += np.conj(F * Ylms[(l,m)]) * rholm_vals[(l,m)]
     term1 = np.real(term1) / (distMpc/distMpcRef)
 
     # Eq. 26 of Richard's notes
     term2 = 0.
-    if rosAvoidNestedLoops:
-        pairsOfPairs = product(  keys,keys)  # loop over pairs might be faster than not
-        for pPair in pairsOfPairs:
-            pair1 = pPair[0]
-            pair2 = pPair[1]
+    for pair1 in rholm_vals:
+        for pair2 in rholm_vals:
             term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
-    else:
-        for pair1 in rholm_vals:
-            for pair2 in rholm_vals:
-                term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
     term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
 
     return term1 + term2
@@ -445,36 +420,17 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
 
     crossTerms = {}
 
-    if rosAvoidNestedLoops:
-        keys = lsu.constructLMIterator(Lmax)
-        pairsOfPairs = product(keys,keys)  # loop over pairs might be faster than not
-        for pPair in pairsOfPairs:
-            pair1 = pPair[0]
-            pair2 = pPair[1]
-            l = pair1[0]
-            m = pair1[1]
-            lp = pair2[0]
-            mp = pair2[1]
-            hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, int(l), int(m))
-            hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, int(lp), int(mp))
-            if hlm is None or hlpmp is None:
-                crossTerms[ ((l,m),(lp,mp)) ] = 0
-            else:
-                crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)  # need to be careful about left side to avoid type errors later when I do this loop
-            if rosDebugMessages:
-                print "       : U populated ", ((l,m), (lp,mp)), "  = ", crossTerms[(pair1,pair2) ]
-    else:
-        for l in range(2,Lmax+1):
-            for m in range(-l,l+1):
-                for lp in range(2,Lmax+1):
-                    for mp in range(-lp,lp+1):
-                        hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
-                        hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, lp, mp)
-                        if hlm is None or hlpmp is None:
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
+            for lp in range(2,Lmax+1):
+                for mp in range(-lp,lp+1):
+                    hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
+                    hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, lp, mp)
+                    if hlm is None or hlpmp is None:
                             crossTerms[ ((l,m),(lp,mp)) ] = 0
-                        else:
+                    else:
                             crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)  # need to be careful about left side to avoid type errors later when I do this loop
-                        if rosDebugMessages:
+                    if rosDebugMessages:
                             print "       : U populated ", ((l,m), (lp,mp)), "  = ", crossTerms[((l,m),(lp,mp)) ]
 
     return crossTerms
@@ -505,16 +461,9 @@ def ComputeYlms(Lmax, theta, phi):
     -l <= m <= l
     """
     Ylms = {}
-    if rosAvoidNestedLoops:
-        keys = lsu.constructLMIterator(Lmax)
-        for pair in keys:
-            l = int(pair[0])
-            m = int(pair[1])
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
             Ylms[ (l,m) ] = lal.SpinWeightedSphericalHarmonic(theta, phi,-2, l, m)
-    else:
-        for l in range(2,Lmax+1):
-            for m in range(-l,l+1):
-                Ylms[ (l,m) ] = lal.SpinWeightedSphericalHarmonic(theta, phi,-2, l, m)
 
     return Ylms
 
