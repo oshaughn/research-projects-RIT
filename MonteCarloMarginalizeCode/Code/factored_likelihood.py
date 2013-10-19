@@ -97,15 +97,6 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
         crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,1./2./P.deltaT, P.deltaF, analyticPSD_Q)
         rholms[det] = ComputeModeIPTimeSeries(epoch,hlms, data_dict[det],psd_dict[det], P.fmin, 1./2./P.deltaT, analyticPSD_Q)
         rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
-        if rosDebugMessages:
-            indxMax = np.argmax(np.abs(rho22.data.data))
-            print " ++ ", det, ": [rholm array] epoch of returned data vs fiducial ", lsu.stringGPSNice(rho22.epoch)
-            print " ++ ", det, ": [rholm array] best fit offset by ", indxMax, " which is dt = ", indxMax*rho22.deltaT
-            print "   --Confirming epoch settings in the template signal Qlm(t) --"
-            for L in np.arange(2,Lmax+1):
-                for m in np.arange(-L, L+1):
-                    hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det],int(L),int(m))  
-                    print " Qlm(f) GPSTime for det(l,m)= ", det,L,m, ": ", lsu.stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", lsu.stringGPSNice(epoch)
         # FIXME: Need to handle geocenter-detector time shift properly
         # NOTE: This array is almost certainly wrapped in time via the inverse FFT and is NOT starting at the epoch
         tShift =  float( P.tref -  epoch)   # shift the data by the time difference between the target data
@@ -120,8 +111,6 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
         t = np.arange(rho22.data.length) * rho22.deltaT - tShiftDiscrete  # account for the timeseries, plus roll. This is always correct
         tShiftChangeTimeOrigin = float(rho22.epoch - epoch)   # rho22.epoch already includes signal length info: literally just origin change
         t = t + tShiftChangeTimeOrigin                           # account for zero of time being set to 'epoch'. 
-        if rosDebugMessages:
-            print " :   ", det, " -  Finished rholms, interpolating.  BEWARE ROLLING THE EVENT TIME"
         rholms_intp[det] =  InterpolateRholms(rholms[det], t,nRollL, Lmax)
 
         print " shifting time by ", -tShiftDiscrete, " to allow for wraparound and to center the desired time "
@@ -522,7 +511,6 @@ def ComplexAntennaFactor(det, RA, DEC, psi, tref):
     'psi' is the polarization angle
     'tref' is the reference GPS time
     """
-    global rosDebugMessages
     detector = lalsim.DetectorPrefixToLALDetector(det)
     Fp, Fc = lal.ComputeDetAMResponse(detector.response, RA, DEC, psi, lal.GreenwichMeanSiderealTime(tref))
 
