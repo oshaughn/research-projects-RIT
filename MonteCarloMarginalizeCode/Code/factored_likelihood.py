@@ -1,4 +1,4 @@
-# Copyright (C) 2013  Evan Ochsner, R. O'Shaughnessy
+sros# Copyright (C) 2013  Evan Ochsner, R. O'Shaughnessy
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the
@@ -33,22 +33,13 @@ from itertools import product
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
-distMpcRef = 100
+distMpcRef = 100                                # a fiducial distance for the template source.
 tWindowReference = [-0.15,0.15]            # choose samples so we have this centered on the window
 tWindowExplore = [-0.05, 0.05]             # smaller window.  Avoid interpolation errors on the edge.
 rosDebugMessages = True
-rosDebugUseCForQTimeseries =False
 rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
-#rosInterpolateVia = 'AmplitudePhase'       #  Interpolate in amplitude and phase (NOT reliable!! DO NOT USE. Makes code slower and less reliable!)
-rosInterpolateVia = "Other"
 rosDoNotRollTimeseries = False           # must be done if you have zero padding.  Should always work, since epoch shifted too.
-#rosDoNotUseMemoryMode = True       # strip the memory mode.  I am seeing some strange features.
 rosAvoidNestedLoops = False               # itertools is actually pretty darned slow.  Let's not use it.
-rosInterpolationMethod = "NearestNeighbor"
-rosInterpolationMethod = "Interp1d"  # horribly slow!  Unusable prep time!
-rosInterpolationMethod = "PrecomputeSpline"
-rosInterpolationMethod = "ManualLinear"
-rosInterpolationMethod = "InterpolatedUnivariateSpline"
 
 #
 # Main driver functions
@@ -297,9 +288,6 @@ def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTer
 
     # if the coefficients of the exponential are too large, do the integral by hand, in the gaussian limit? NOT IMPLEMENTED YET
     if False: #xgterm2a+np.abs(term2b)+np.abs(term1)>100:
-#        psiCrit = - np.angle(term1/term2b)/2
-#        return term2a+np.real(term2b*np.exp(-4.j*psiCrit) + np.real(term1*np.exp(-2.j*psiCrit)) 
-#        return 0
         return term2a+ np.log(special.iv(0,np.abs(term1)))  # an approximation, ignoring term2b entirely! 
     else:
         # marginalize over phase.  Ideally done analytically. Only works if the terms are not too large -- otherwise overflow can occur. 
@@ -341,11 +329,6 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
         for pair1 in rholm_vals:
             for pair2 in rholm_vals:
                 term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
-    # for l in range(2,Lmax+1):
-    #     for m in range(-l,l+1):
-    #         for lp in range(2,Lmax+1):
-    #             for mp in range(-lp,lp+1):
-    #                 term2 += F * np.conj(F) * ( crossTerms[((l,m),(lp,mp))])* np.conj(Ylms[(l,m)]) * Ylms[(lp,mp)] + F*F*Ylms[(l,m)]*Ylms[(lp,mp)]*((-1)**l)*crossTerms[((l,-m),(lp,mp))]
     term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
 
     return term1 + term2
@@ -410,7 +393,6 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
     return rholms
 
 def InterpolateRholm(rholm, t,nRollL):
-    global rosInterpolateVia
     nBinMax = 2*(tWindowReference[1]-tWindowReference[0])/rholm.deltaT
     hxdat = np.roll(np.imag(rholm.data.data),nRollL)[:nBinMax]
     hpdat = np.roll(np.real(rholm.data.data), nRollL)[:nBinMax]
