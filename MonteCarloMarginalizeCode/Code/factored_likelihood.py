@@ -389,25 +389,21 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
     assert data.deltaF == h22.deltaF
     assert len(data.data.data) == len(h22.data.data)
 
-    if rosDebugUseCForQTimeseries:
-        psdData = IP.longpsdLAL
-        rholms = lalsim.SphHarmTimeSeriesFromSphHarmFrequencySeriesDataAndPSD(hlms, data, psdData)
-    else:
-        Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
-        keys = lsu.constructLMIterator(Lmax)  # nested lists are very bad for python
-        for pair in keys:
-            l = int(pair[0])
-            m = int(pair[1])
-            hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
-            if hlm is None:
-                # set a zero timeseries for that object
-                deltaT = len(data.data.data)/(2*fNyq)
-                rhoTS = lal.CreateCOMPLEX16TimeSeries("zero data",  lal.LIGOTimeGPS(0.), 0.,deltaT , lal.lalDimensionlessUnit,len(data.data.data))
-            else:
-                assert hlm.deltaF == data.deltaF
-                rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
-            rhoTS.epoch = data.epoch -h22.epoch
-            rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
+    Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
+    keys = lsu.constructLMIterator(Lmax)  # nested lists are very bad for python
+    for pair in keys:
+        l = int(pair[0])
+        m = int(pair[1])
+        hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
+        if hlm is None:
+            # set a zero timeseries for that object
+            deltaT = len(data.data.data)/(2*fNyq)
+            rhoTS = lal.CreateCOMPLEX16TimeSeries("zero data",  lal.LIGOTimeGPS(0.), 0.,deltaT , lal.lalDimensionlessUnit,len(data.data.data))
+        else:
+            assert hlm.deltaF == data.deltaF
+            rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
+        rhoTS.epoch = data.epoch -h22.epoch
+        rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
 
     # RETURN: Do not window or readjust the timeseries here.  This is done in the interpolation step.
     # TIMING : Epoch set 
