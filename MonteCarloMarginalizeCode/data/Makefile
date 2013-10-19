@@ -17,6 +17,7 @@ bayestar_map:
 H_remote.cache: coinc.xml
 	ligo_data_find \
 		-u file \
+		--gaps \
 		-o H \
 		-t H1_ER_C00_L1 \
 		--server ${ldf_server}\
@@ -26,6 +27,7 @@ H_remote.cache: coinc.xml
 L_remote.cache: coinc.xml
 	ligo_data_find \
 		-u file \
+		--gaps \
 		-o L \
 		-t L1_ER_C00_L1 \
 		--server ${ldf_server}\
@@ -35,11 +37,12 @@ L_remote.cache: coinc.xml
 V_remote.cache: coinc.xml
 	ligo_data_find \
 		-u file \
+		--gaps \
 		-o V \
 		-t V1Online \
 		--server ${ldf_server}\
-		-s $(shell echo "`ligolw_print -t coinc_inspiral -c end_time coinc.xml` - 4" | bc) \
-		-e $(shell echo "`ligolw_print -t coinc_inspiral -c end_time coinc.xml` + 4" | bc) > V_remote.cache
+		-s $(shell echo "`ligolw_print -t coinc_inspiral -c end_time coinc.xml` - 1300" | bc) \
+		-e $(shell echo "`ligolw_print -t coinc_inspiral -c end_time coinc.xml` + 100" | bc) > V_remote.cache
 
 get_data: H_remote.cache L_remote.cache V_remote.cache
 	mkdir -p ${gid}
