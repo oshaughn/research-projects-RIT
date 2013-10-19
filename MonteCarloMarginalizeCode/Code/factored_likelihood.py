@@ -427,38 +427,11 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
 def InterpolateRholm(rholm, t,nRollL):
     global rosInterpolateVia
     nBinMax = 2*(tWindowReference[1]-tWindowReference[0])/rholm.deltaT
-    if rosInterpolateVia == 'AmplitudePhase':
-        print " ... interpolating in ampltiude-phase ... "
-        if (rosInterpolateOnlyTimeWindow):
-            amp = np.roll(np.abs(rholm.data.data),nRollL)[:nBinMax]
-            phase = unwind_phase( np.roll(np.angle(rholm.data.data), nRollL) )[:nBinMax]
-            ampintp = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], amp, k=2)
-            phaseintp = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], phase, k=2)
-        else:
-            amp = np.roll(np.abs(rholm.data.data),nRollL)
-            phase = unwind_phase( np.roll(np.angle(rholm.data.data), nRollL) )
-            ampintp = interpolate.InterpolatedUnivariateSpline(t, amp, k=1)
-            phaseintp = interpolate.InterpolatedUnivariateSpline(t, phase, k=1)
-            return lambda ti: ampintp(ti)*np.exp(1j*phaseintp(ti))
-    else:
-        print " ... interpolating real, imaginary part ... "
-        hxdat = np.roll(np.imag(rholm.data.data),nRollL)[:nBinMax]
-        hpdat = np.roll(np.real(rholm.data.data), nRollL)[:nBinMax]
-        print "     : using method ", rosInterpolationMethod
-        if (rosInterpolationMethod == "InterpolatedUnivariateSpline"):
-            hx = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hxdat, k=3)
-            hp = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hpdat, k=3)
-        else:
-            if (rosInterpolationMethod == "ManualLinear"):
-                hx = makeFast1dInterpolator(hxdat, t[0], t[nBinMax])
-                hp = makeFast1dInterpolator(hpdat, t[0], t[nBinMax])
-            else:
-                hxRaw = interpolate.splrep(t[:nBinMax], hxdat)
-                hx = lambda x : interpolate.splev( x, hxRaw)
-                hpRaw = interpolate.splrep(t[:nBinMax], hpdat)
-                hp = lambda x : interpolate.splev( x, hpRaw)
-
-        return lambda ti: hp(ti) + 1j*hx(ti)
+    hxdat = np.roll(np.imag(rholm.data.data),nRollL)[:nBinMax]
+    hpdat = np.roll(np.real(rholm.data.data), nRollL)[:nBinMax]
+    hx = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hxdat, k=3)
+    hp = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hpdat, k=3)
+    return lambda ti: hp(ti) + 1j*hx(ti)
         
 
 
