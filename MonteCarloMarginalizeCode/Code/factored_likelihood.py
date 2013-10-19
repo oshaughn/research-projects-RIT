@@ -37,7 +37,6 @@ distMpcRef = 100
 tWindowReference = [-0.15,0.15]            # choose samples so we have this centered on the window
 tWindowExplore = [-0.05, 0.05]             # smaller window.  Avoid interpolation errors on the edge.
 rosDebugMessages = True
-rosDebugMessagesLong = False           # use to debug antenna factors vs time. An important issue
 rosDebugUseCForQTimeseries =False
 rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
 #rosInterpolateVia = 'AmplitudePhase'       #  Interpolate in amplitude and phase (NOT reliable!! DO NOT USE. Makes code slower and less reliable!)
@@ -67,7 +66,7 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
           as the interpolating functions.
           Their main use is to validate the interpolating functions
     """
-    global rosDebugMessages, rosDebugMessagesLong
+    global rosDebugMessages
     assert data_dict.keys() == psd_dict.keys()
     global distMpcRef
     detectors = data_dict.keys()
@@ -86,14 +85,6 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
     hlms = lsu.hlmoff(P, Lmax)
     h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms, 2, 2)
     h22Epoch = h22.epoch
-    if rosDebugMessagesLong:
-        print "   --Confirming epoch settings in the template signal hlm(f) --"
-        for L in np.arange(2,Lmax+1):
-            for m in np.arange(-L, L+1):
-                hxx = lalsim.SphHarmFrequencySeriesGetMode(hlms,int(L),int(m))  
-                if not(hxx is None):
-                    print " hlm(f) GPSTime for (l,m)= ",L,m, ": ", lsu.stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", lsu.stringGPSNice(epoch)
-
 
     for det in detectors:
         # Compute time-shift-dependent mode SNRs < h_lm(t) | d >
@@ -117,7 +108,6 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
                     print " Qlm(f) GPSTime for det(l,m)= ", det,L,m, ": ", lsu.stringGPSNice( hxx.epoch), " = ", float(hxx.epoch -epoch), " relative to the fiducial ", lsu.stringGPSNice(epoch)
         # FIXME: Need to handle geocenter-detector time shift properly
         # NOTE: This array is almost certainly wrapped in time via the inverse FFT and is NOT starting at the epoch
-#        tShift =  float(h22Epoch - rho22)   # shift the data by the epoch specified by the returned data!
         tShift =  float( P.tref -  epoch)   # shift the data by the time difference between the target data
         nRollL = int((np.abs(tWindowReference[0]) - tShift )/rho22.deltaT)   # this is a DISCRETE timeshift.
         nRollL +=  int(float((rho22.epoch - epoch))/rho22.deltaT)   # roll by more points if the epochs between the rho and fiducial are very different.  Important b/c I only interpolate a narrow window...if I miss the right epoch, the lnL(t) function will look like quadratic garbage.
@@ -129,8 +119,6 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
         # Time correspondence for these events, relative to the *fiducial* GPSTime 'epoch'
         t = np.arange(rho22.data.length) * rho22.deltaT - tShiftDiscrete  # account for the timeseries, plus roll. This is always correct
         tShiftChangeTimeOrigin = float(rho22.epoch - epoch)   # rho22.epoch already includes signal length info: literally just origin change
-        if rosDebugMessages:
-            print "  to change the time origin, we are translating by ", tShiftChangeTimeOrigin, " because the data series has time ",  lsu.stringGPSNice(rho22.epoch), " and the fiducial reference is ", lsu.stringGPSNice(epoch)
         t = t + tShiftChangeTimeOrigin                           # account for zero of time being set to 'epoch'. 
         if rosDebugMessages:
             print " :   ", det, " -  Finished rholms, interpolating.  BEWARE ROLLING THE EVENT TIME"
@@ -246,10 +234,6 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
                 term1 += np.conj(F * Ylms[(l,m)]) * rholms_intp[(l,m)]( float(tshift))
     term1 = np.real(term1) / (distMpc/distMpcRef)
 
-    if rosDebugMessagesLong:
-        print " Evaluating lnLData for parameters ", det, float(tref), " [via shift ", float(tshift),  " versus reference epoch ", float(epoch),"]",  RA, DEC, term1   #, thS,phiS,psi,dist
-
-
     return term1
 
 # Prototyping speed of time marginalization.  Not yet confirmed
@@ -344,8 +328,6 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
     keys = lsu.constructLMIterator(Lmax)
-    if rosDebugMessagesLong:
-        print " looping over (l,m) pairs ", keys
 
     # Eq. 35 of Richard's notes
     term1 = 0.
@@ -405,7 +387,6 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
     # Create an instance of class to compute inner product time series
     if analyticPSD_Q==False:
         assert data.deltaF == psd.deltaF
-#        print " ARGH NOT USING ANALYTIC PSD MAKE SURE WE ARE DOING THIS CORRECTLY "
         IP = lsu.ComplexOverlap(fmin, fNyq, data.deltaF, psd.data.data, False, True)
         IPRegular = lsu.ComplexIP(fmin, fNyq, data.deltaF, psd.data.data, analyticPSD_Q=False)  # debugging, sanity checks
     else:
@@ -422,19 +403,9 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
     if rosDebugUseCForQTimeseries:
         psdData = IP.longpsdLAL
         rholms = lalsim.SphHarmTimeSeriesFromSphHarmFrequencySeriesDataAndPSD(hlms, data, psdData)
-        if rosDebugMessagesLong:
-            print "   : C inner product timeseries complete "
-            Lmax = lalsim.SphHarmTimeSeriesGetMaxL(rholms)
-            for l in range(2,Lmax+1):
-                for m in range(-l,l+1):
-                    rhoTS = lalsim.SphHarmTimeSeriesGetMode(rholms, l, m)
-                    print  "     :  value of <hlm|data> ", l,m,  np.amax(np.abs(rhoTS.data.data))   #, " with length ", len(rhoTS.data.data)
-                    print "      : epoch ", lsu.stringGPSNice(rhoTS.epoch), " (should be 0 for template) compare to fiducial epoch ", lsu.stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch), " which should be related to padding, the choice of reference time, etc"
     else:
         Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
         keys = lsu.constructLMIterator(Lmax)  # nested lists are very bad for python
-#        for l in range(2,Lmax+1):
-#            for m in range(-l,l+1):
         for pair in keys:
             l = int(pair[0])
             m = int(pair[1])
@@ -448,15 +419,6 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
                 rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
             rhoTS.epoch = data.epoch -h22.epoch
             rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
-                # Sanity check
-            if rosDebugMessagesLong:
-                print  "     :  value of <hlm|data> ", l,m, rho, np.amax(np.abs(rhoTS.data.data))  # Debuging info
-                if hlm is None:
-                    print "          -- skipping ", l,m, " since it is not present "
-                else:
-                    rhoRegular = IPRegular.ip(hlm,hlm)
-                    print "      : sanity check <hlm|hlm>  (should be identical to U matrix diagonal entries later)", rho,rhoRegular # ,  " with length ", len(hlm.data.data), "->", len(rhoTS.data.data)
-                    print "      : Qlm series starts at ", lsu.stringGPSNice(rhoTS.epoch), " compare to fiducial epoch ", lsu.stringGPSNice(epoch), " difference = ", float(rhoTS.epoch-epoch)
 
     # RETURN: Do not window or readjust the timeseries here.  This is done in the interpolation step.
     # TIMING : Epoch set 
@@ -477,8 +439,6 @@ def InterpolateRholm(rholm, t,nRollL):
             phase = unwind_phase( np.roll(np.angle(rholm.data.data), nRollL) )
             ampintp = interpolate.InterpolatedUnivariateSpline(t, amp, k=1)
             phaseintp = interpolate.InterpolatedUnivariateSpline(t, phase, k=1)
-            #        ampintp = interpolate.interp1d(t, amp, kind='quadratic')
-            #        phaseintp = interpolate.interp1d(t, phase, kind='quadratic')
             return lambda ti: ampintp(ti)*np.exp(1j*phaseintp(ti))
     else:
         print " ... interpolating real, imaginary part ... "
@@ -489,9 +449,6 @@ def InterpolateRholm(rholm, t,nRollL):
             hx = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hxdat, k=3)
             hp = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hpdat, k=3)
         else:
-#            if (rosInterpolationMethod == "NearestNeighbor"):  # should ONLY do this if I upsample!
-#                hx = interpolate.interp1d(t[:nBinMax], hxdat, kind='nearest')
-#                hp = interpolate.interp1d(t[:nBinMax], hpdat, kind='nearest')
             if (rosInterpolationMethod == "ManualLinear"):
                 hx = makeFast1dInterpolator(hxdat, t[0], t[nBinMax])
                 hp = makeFast1dInterpolator(hpdat, t[0], t[nBinMax])
@@ -500,8 +457,6 @@ def InterpolateRholm(rholm, t,nRollL):
                 hx = lambda x : interpolate.splev( x, hxRaw)
                 hpRaw = interpolate.splrep(t[:nBinMax], hpdat)
                 hp = lambda x : interpolate.splev( x, hpRaw)
-#                hx = interpolate.interp1d(t[:nBinMax], hxdat, kind='quadratic')
-#                hp = interpolate.interp1d(t[:nBinMax], hpdat, kind='quadratic')
 
         return lambda ti: hp(ti) + 1j*hx(ti)
         
@@ -597,8 +552,6 @@ def ComplexAntennaFactor(det, RA, DEC, psi, tref):
     global rosDebugMessages
     detector = lalsim.DetectorPrefixToLALDetector(det)
     Fp, Fc = lal.ComputeDetAMResponse(detector.response, RA, DEC, psi, lal.GreenwichMeanSiderealTime(tref))
-    if rosDebugMessagesLong:
-        print " : Detector response in ComplexAntenna factor (det, t, RA, DEC, psi, Fp,Fx) ", det, float(tref), RA,DEC, psi, Fp, Fc
 
     return Fp + 1j * Fc
 
