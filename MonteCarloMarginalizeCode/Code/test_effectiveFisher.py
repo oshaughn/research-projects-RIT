@@ -3,11 +3,11 @@ import lal
 import lalsimulation as lalsim
 import lalsimutils as lsu
 import effectiveFisher as eff
+import dag_utils
 import numpy as np
 import matplotlib.pyplot as plt
-from time import clock, time
+from time import clock
 from functools import partial
-from hashlib import md5
 
 import itertools
 from glue.ligolw import utils, ligolw, lsctables, table
@@ -18,33 +18,14 @@ elapsed_time = lambda: clock()-start
 
 pts_per_job = 10 # How many intrinsic points to pass to each condor job
 
-def generate_job_id():
-    t = str( long( time() * 1000 ) )
-    r = str( long( np.random.random() * 100000000000000000L ) )
-    return md5(t + r).hexdigest()
-
-def write_extrinsic_marginalization_dag(Njobs, extr_sub,
-        fname='marginalize_extrinsic.dag'):
-    """
-    Write a dag to manage a set of parallel jobs to compute the likelihood
-    marginalized over extrinsic parameters at a set of extrinsic points.
-    """
-    dag = open(fname, 'w')
-    for i in xrange(Njobs):
-        job = generate_job_id()
-        line = 'JOB ' + job + ' ' + extr_sub + '\n'
-        dag.write(line)
-        line = 'VARS ' + job + ' ' + 'infile=\"m1_m2_pts_%i.txt\"\n\n' % i
-        dag.write(line)
-    dag.close()
-
 def write_sngl_params(grid, proc_id):
     sngl_insp_table = lsctables.New(lsctables.SnglInspiralTable, ["mass1", "mass2", "event_id", "process_id"])
     sngl_insp_table.sync_next_id()
     for (m1, m2) in itertools.chain(*grid):
         sngl_insp = sngl_insp_table.RowType()
         sngl_insp.event_id = sngl_insp_table.get_next_id()
-        sngl_insp.mass1, sngl_insp.mass2 = m1/lal.LAL_MSUN_SI, m2/lal.LAL_MSUN_SI
+        #sngl_insp.mass1, sngl_insp.mass2 = m1/lal.LAL_MSUN_SI, m2/lal.LAL_MSUN_SI
+        sngl_insp.mass1, sngl_insp.mass2 = m1, m2
         sngl_insp.process_id = proc_id
         sngl_insp_table.append(sngl_insp)
 
@@ -158,26 +139,28 @@ print "Kept", len(rand_grid), "points with physically allowed parameters."
 
 # Save grid of mass points to file
 #np.savetxt("Mc_eta_pts.txt", rand_grid)
-rand_grid2 = [lsu.m1m2(rand_grid[i][0], rand_grid[i][1]) # convert to m1, m2
-        for i in xrange(len(rand_grid))]
+rand_grid2 = np.array([lsu.m1m2(rand_grid[i][0], rand_grid[i][1]) # convert to m1, m2
+        for i in xrange(len(rand_grid))])
+rand_grid2 /= lal.LAL_MSUN_SI
 #np.savetxt("m1_m2_pts.txt", rand_grid2)
 Njobs = int(np.ceil(len(rand_grid2)/float(pts_per_job)))
-rand_grid2 = np.array_split(rand_grid2, Njobs)
+rand_grid3 = np.array_split(rand_grid2, Njobs)
 for i in xrange(Njobs):
         fname = "m1_m2_pts_%i.txt" % i
-        np.savetxt(fname, rand_grid2[i])
+        np.savetxt(fname, rand_grid3[i])
 
 elapsed = elapsed_time() - elapsed
 print "Time to distribute points, split and write to file:", elapsed
 
-write_extrinsic_marginalization_dag(Njobs, 'test.sub')
+dag_utils.write_integrate_likelihood_extrinsic_sub('test')
+dag_utils.write_extrinsic_marginalization_dag(rand_grid2, 'test.sub')
 
 xmldoc = ligolw.Document()
 xmldoc.childNodes.append(ligolw.LIGO_LW())
 #proc_id = process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
 proc_id = process.register_to_xmldoc(xmldoc, sys.argv[0], {})
 proc_id = proc_id.process_id
-xmldoc.childNodes[0].appendChild(write_sngl_params(rand_grid2, proc_id))
+xmldoc.childNodes[0].appendChild(write_sngl_params(rand_grid3, proc_id))
 utils.write_filename(xmldoc, "m1m2_grid.xml.gz", gz=True)
 
 #
