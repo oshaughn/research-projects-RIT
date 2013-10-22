@@ -180,12 +180,14 @@ class MCSampler(object):
         # NOTE: Will save points from other integrations before this if used more than once.
         self._cache.extend( [ rvs for rvs, ratio, rnd in zip(numpy.array(self._rvs).T, intg/prior, numpy.random.uniform(0, 1, len(prior))) if ratio < 1 or 1.0/ratio < rnd ] )
 
-    # TODO: Idea: have args and kwargs, and let the user pin values via
-    # kwargs and integrate through args
-    #def integrate(self, func, neff=1, nmax=float("inf"), *args):
+    # FIXME: Remove *args -- we'll use the function signature instead
     def integrate(self, func, *args, **kwargs):
         """
         Integrate func, by using n sample points. Right now, all params defined must be passed to args must be provided, but this will change soon.
+
+        Limitations:
+            func's signature must contain all parameters currently defined by the sampler, and with the same names. This is required so that the sample values can be passed consistently.
+
         kwargs:
         nmax -- total allowed number of sample points, will throw a warning if this number is reached before neff.
         neff -- Effective samples to collect before terminating. If not given, assume infinity
@@ -197,18 +199,26 @@ class MCSampler(object):
         #
         # Pin values
         #
-        tempcdfdict, temppdfdict = {}, {}
+        tempcdfdict, temppdfdict, temppriordict = {}, {}, {}
         for p, val in kwargs.iteritems():
             if p in self.params:
                 # Store the previous pdf/cdf in case it's already defined
                 tempcdfdict[p] = self.cdf_inv[p]
                 temppdfdict[p] = self.pdf[p]
+                temppriordict[p] = self.prior_pdf[p]
                 # Set a new one to always return the same value
                 self.pdf[p] = functools.partial(delta_func_pdf_vector, val)
+                self.prior_pdf[p] = functools.partial(delta_func_pdf_vector, val)
                 self.cdf_inv[p] = functools.partial(delta_func_samp_vector, val)
 
         # put it back in the args
-        args = tuple(list(args) + filter(lambda p: p in self.params, kwargs.keys()))
+        #args = tuple(list(args) + filter(lambda p: p in self.params, kwargs.keys()))
+        # This is a semi-hack to ensure that the integrand is called with
+        # the arguments in the right order
+        # FIXME: How dangerous is this?
+        args = func.func_code.co_varnames[:func.func_code.co_argcount]
+        if set(args) & self.params != set(args):
+            raise ValueError("All integrand variables must be represented by integral parameters.")
         
         #
         # Determine stopping conditions
@@ -323,8 +333,9 @@ class MCSampler(object):
 
 
         # If we were pinning any values, undo the changes we did before
-        self.cdf_inv = self.cdf_inv.update(tempcdfdict)
-        self.pdf = self.pdf.update(temppdfdict)
+        self.cdf_inv.update(tempcdfdict)
+        self.pdf.update(temppdfdict)
+        self.prior_pdf.update(temppriordict)
 
         # Select points to be returned.
         # Downselect the points passed back: only use high likelihood values. (Hardcoded threshold specific to our problem. Return of these points should probably be optional)
