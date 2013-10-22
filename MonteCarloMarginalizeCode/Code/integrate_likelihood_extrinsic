@@ -28,7 +28,19 @@ rosDebugShowExcruciatingLikelihoodDetail = False
 #
 # Pinnable parameters -- for command line processing
 #
-LIKELIHOOD_PINNABLE_PARAMS = ["right ascension", "declination"]
+LIKELIHOOD_PINNABLE_PARAMS = ["right_ascension", "declination"]
+
+def get_pinned_params(opts):
+    """
+    Retrieve a dictionary of user pinned parameters and their pin values.
+    """
+    return dict([(p,v) for p, v in opts.__dict__.iteritems() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None]) 
+
+def get_unpinned_params(opts, params):
+    """
+    Retrieve a set of unpinned parameters.
+    """
+    return params - set([p for p, v in opts.__dict__.iteritems() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None])
 
 #
 # Option parsing
@@ -59,7 +71,7 @@ optp.add_option_group(intrinsic_params)
 #
 pinnable = OptionGroup(optp, "Pinnable Parameters", "Specifying these command line options will pin the value of that parameter to the specified value with a probability of unity.")
 for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
-    option = "--" + pin_param.replace(" ", "-")
+    option = "--" + pin_param.replace("_", "-")
     pinnable.add_option(option, type=float, help="Pin the value of %s." % pin_param)
 optp.add_option_group(pinnable)
 
@@ -318,6 +330,20 @@ if rosDebugShowPriors:
         print " No prior plots for you!"
 
 #
+# Determine pinned and non-pinned parameters
+#
+pinned_params = get_pinned_params(opts)
+unpinned_params = get_unpinned_params(opts, sampler.params)
+print "parameter\t\tlower limit\tupper limit\tpinned?\tpin value"
+for p in sampler.params:
+    if pinned_params.has_key(p):
+        pinned, value = True, "1.2%g" % pinned_params[p]
+    else:
+        pinned, value = False, ""
+        
+    print "%s\t\t%1.2g\t%1.2g\t%s\t%s" % (p, sampler.llim[p], sampler.rlim[p], str(pinned), value)
+
+#
 # Call the likelihood function for various extrinsic parameter values
 #
 # FIXME: Clean this up
@@ -325,14 +351,23 @@ nEvals = 0
 nMaxEvals = 1e3
 if not opts.time_marginalization:
 
-    def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
+    #
+    # A note of caution:
+    # In order to make the pinning interface work consistently, the names of 
+    # parameters given to the sampler must match the argument names in the
+    # called function. This is because the sampler has to reconstruct the
+    # argument order to pass the right values, and it can only do that by
+    # comparing the parameter names it knows to the arguments that are passed
+    # to it.
+    #
+    def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
         global nEvals
-        lnL = numpy.zeros(phi.shape,dtype=numpy.float128)   # use EXTREMELY many bits
+        lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)   # use EXTREMELY many bits
         i = 0
         if rosDebugShowExcruciatingLikelihoodDetail:
             print " Likelihood results :  "
     #    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
-        for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
+        for ph, th, tr, phr, ic, ps, di in zip(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
             P.phi = ph # right ascension
             P.theta = th # declination
             P.tref = fiducial_epoch + tr # ref. time (rel to epoch for data taking)
@@ -349,23 +384,19 @@ if not opts.time_marginalization:
         nEvals+=i 
         return numpy.exp(lnL)
 
-    res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, 
-        "right_ascension", "declination", "t_ref", "phi_orb", "inclination", "psi", "distance", 
-        n=10, nmax=nMaxEvals, neff=100,
-        # FIXME: What here?  ROS: an estimate of the peak lnL, and a threshold on what should be returned
-    #    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
-        full_output=True,verbose=True,extremely_verbose=False)
+    pinned_params.update({"n": 10, "nmax": nMaxEvals, "neff": 100, "full_output": True, "verbose": True, "extremely_verbose": False})
+    res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else:
 
-    def likelihood_function(phi, theta, phiref, incl, psi, dist):
+    def likelihood_function(right_ascension, declination, phi_orb, inclination, psi, distance):
         global nEvals
-        lnL = numpy.zeros(phi.shape,dtype=numpy.float128)   # use EXTREMELY many bits
+        lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)   # use EXTREMELY many bits
         i = 0
         if rosDebugShowExcruciatingLikelihoodDetail:
             print " Likelihood results :  "
     #    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
-        for ph, th, phr, ic, ps, di in zip(phi, theta, phiref, incl, psi, dist):
+        for ph, th, phr, ic, ps, di in zip(right_ascension, declination, phi_orb, inclination, psi, distance):
             lnL[i] = factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete(fiducial_epoch, rholms, cross_terms, fiducial_epoch, (-t_ref_wind, t_ref_wind), ph, th, ic, phr, ps, di, Lmax, rholms.keys())
             if  rosDebugShowExcruciatingLikelihoodDetail:
                 print "  + likelihood evaluation : ", i + nEvals, " :  ", lnL[i], " : overflow check ", np.exp(lnL[i])
@@ -386,12 +417,13 @@ else:
 tGPSEnd = lal.GPSTimeNow()
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
-exit()
 
+"""
 try:
     ourio.plotParameterDistributionsFromSamples("results", sampler, ret,  ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
 except:
     print " No interactive plots for you! "
+"""
 
 # FIXME: Synch with other I/O routines
 # Save the sampled points to a file
