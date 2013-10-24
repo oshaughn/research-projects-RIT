@@ -35,7 +35,7 @@ TestDictionaryDefault["lnLDataPlot"]            = False
 
 def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, data_dict, psd_dict, analyticPSD_Q,Psig,rholms,rholms_intp, crossTerms, detectors, Lmax,opts):
 
-    keysPairs = factored_likelihood.constructLMIterator(Lmax)
+    keysPairs = lalsimutils.constructLMIterator(Lmax)
 
     df = data_dict[detectors[0]].deltaF
 #    fSample = opts.srate  # this may be reset by the data -- be careful.  SHOULD recalculate from deltaF and length of data
