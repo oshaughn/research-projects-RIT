@@ -1,0 +1,248 @@
+#!/usr/bin/env python
+
+"""
+Compute the likelihood of parameters of a GW signal given some data
+that has been marginalized over extrinsic parameters. Creates a dag workflow
+to perform this calculation.
+"""
+
+import sys
+from glue.ligolw import utils, ligolw, lsctables, table
+from glue.ligolw.utils import process
+import lal
+import lalsimulation as lalsim
+import lalsimutils as lsu
+import effectiveFisher as eff
+import dag_utils
+import numpy as np
+from functools import partial
+from optparse import OptionParser, OptionGroup
+
+__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
+
+#
+# Pinnable parameters -- for command line processing
+#
+LIKELIHOOD_PINNABLE_PARAMS = ["right ascension", "declination"]
+
+#
+# Option parsing
+#
+
+optp = OptionParser()
+optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
+optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
+optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
+optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
+optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
+optp.add_option("-s", "--seglen", type=int, default=110, help="Minimum segment duration surrounding coing to be analyzed. (Will be rounded up to next power of 2)")
+optp.add_option("-e", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
+optp.add_option("-P", "--padding", type=int, default=10, help="Time window after the trigger to be included in the data segment")
+optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
+
+#
+# Add the intrinsic parameters
+#
+intrinsic_params = OptionGroup(optp, "Intrinsic Parameters", "Intrinsic parameters (e.g component mass) to use.")
+intrinsic_params.add_option("--mass1", type=float, help="Value of first component mass, in solar masses. Required if not providing coinc tables.")
+intrinsic_params.add_option("--mass2", type=float, help="Value of second component mass, in solar masses. Required if not providing coinc tables.")
+optp.add_option_group(intrinsic_params)
+
+#
+# Add the pinnable parameters
+#
+pinnable = OptionGroup(optp, "Pinnable Parameters", "Specifying these command line options will pin the value of that parameter to the specified value with a probability of unity.")
+for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
+    option = "--" + pin_param.replace(" ", "-")
+    pinnable.add_option(option, type=float, help="Pin the value of %s." % pin_param)
+optp.add_option_group(pinnable)
+
+opts, args = optp.parse_args()
+
+#
+# Get trigger information from coinc xml file
+#
+
+# Get end time from coinc inspiral table or command line
+if opts.coinc_xml is not None:
+    xmldoc = utils.load_filename(opts.coinc_xml)
+    coinc_table = table.get_table(xmldoc, lsctables.CoincInspiralTable.tableName)
+    assert len(coinc_table) == 1
+    coinc_row = coinc_table[0]
+    event_time = coinc_row.get_end()
+    print "Coinc XML loaded, event time: %s" % str(coinc_row.get_end())
+elif opts.event_time is not None:
+    event_time = glue.lal.LIGOTimeGPS(opts.event_time)
+    print "Event time from command line: %s" % str(event_time)
+else:
+    raise ValueError("Either --coinc-xml or --event-time must be provided to parse event time.")
+
+# get masses from sngl_inspiral_table
+if opts.mass1 is not None and opts.mass2 is not None:
+    m1, m2 = opts.mass1, opts.mass2
+elif opts.coinc_xml is not None:
+    sngl_inspiral_table = table.get_table(xmldoc, lsctables.SnglInspiralTable.tableName)
+    assert len(sngl_inspiral_table) == len(coinc_row.ifos.split(","))
+    m1, m2 = None, None
+    for sngl_row in sngl_inspiral_table:
+        # NOTE: gstlal is exact match, but other pipelines may not be
+        assert m1 is None or (sngl_row.mass1 == m1 and sngl_row.mass2 == m2)
+        m1, m2 = sngl_row.mass1, sngl_row.mass2
+else:
+    raise ValueError("Need either --mass1 --mass2 or --coinc-xml to retrieve masses.")
+m1_SI = m1 * lal.LAL_MSUN_SI
+m2_SI = m2 * lal.LAL_MSUN_SI
+print "Computing marginalized likelihood in a neighborhood about intrinsic parameters mass 1: %f, mass 2 %f" % (m1, m2)
+
+#
+# FIXME: Hardcoded values - eventually promote to command line arguments
+#
+template_min_freq = 30.
+ip_min_freq = 30.
+approx = lalsim.TaylorT1
+eff_fisher_psd = lal.LIGOIPsd
+analyticPSD_Q = True
+# The next 4 lines set the maximum size of the region to explore
+min_mc_factor = 0.9
+max_mc_factor = 1.1
+min_eta = 0.05
+max_eta = 0.25
+# Control evaluation of the effective Fisher grid
+NMcs = 11
+NEtas = 11
+wide_match = 0.90
+match_cntr = 0.97 # Fill an ellipsoid of this match
+fit_cntr = match_cntr # Do the effective Fisher fit with pts above this match
+Nrandpts = 200 # Requested number of pts to put inside the ellipsoid
+
+#
+# Setup signal and IP class
+#
+param_names = ['Mc', 'eta']
+PSIG = lsu.ChooseWaveformParams(
+        m1=m1_SI, m2=m2_SI,
+        fmin=template_min_freq,
+        approx=lalsim.TaylorT1
+        )
+# Find a deltaF sufficient for entire range to be explored
+PTEST = PSIG.copy()
+PTEST.m1 *= min_mc_factor
+PTEST.m2 *= min_mc_factor
+PSIG.deltaF = lsu.findDeltaF(PTEST)
+
+PTMPLT = PSIG.copy()
+
+IP = lsu.Overlap(fLow = ip_min_freq,
+        deltaF = PSIG.deltaF,
+        psd = eff_fisher_psd,
+        analyticPSD_Q = analyticPSD_Q
+        )
+
+hfSIG = lsu.norm_hoff(PSIG, IP)
+McSIG = lsu.mchirp(m1_SI, m2_SI)
+etaSIG = lsu.symRatio(m1_SI, m2_SI)
+
+# Find appropriate parameter ranges
+min_mc = McSIG * min_mc_factor
+max_mc = McSIG * max_mc_factor
+param_ranges = eff.find_effective_Fisher_region(PSIG, IP, wide_match,
+        param_names, [[min_mc, max_mc],[min_eta, max_eta]])
+print "Computing amibiguity function in the range:"
+for i, param in enumerate(param_names):
+    if param=='Mc' or param=='m1' or param=='m2': # rescale output by MSUN
+        print "\t", param, ":", np.array(param_ranges[i])/lal.LAL_MSUN_SI,\
+                "(Msun)"
+    else:
+        print "\t", param, ":", param_ranges[i]
+
+# setup uniform parameter grid for effective Fisher
+pts_per_dim = [NMcs, NEtas]
+Mcpts, etapts = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
+etapts = map(lsu.sanitize_eta, etapts)
+McMESH, etaMESH = eff.multi_dim_meshgrid(Mcpts, etapts)
+McFLAT, etaFLAT = eff.multi_dim_flatgrid(Mcpts, etapts)
+dMcMESH = McMESH - McSIG
+detaMESH = etaMESH - etaSIG
+dMcFLAT = McFLAT - McSIG
+detaFLAT = etaFLAT - etaSIG
+grid = eff.multi_dim_grid(Mcpts, etapts)
+
+# Change units on Mc
+dMcFLAT_MSUN = dMcFLAT / lal.LAL_MSUN_SI
+dMcMESH_MSUN = dMcMESH / lal.LAL_MSUN_SI
+McMESH_MSUN = McMESH / lal.LAL_MSUN_SI
+McSIG_MSUN = McSIG / lal.LAL_MSUN_SI
+
+# Evaluate ambiguity function on the grid
+rhos = np.array(eff.evaluate_ip_on_grid(hfSIG, PTMPLT, IP, param_names, grid))
+rhogrid = rhos.reshape(NMcs, NEtas)
+
+# Fit to determine effective Fisher matrix
+cut = rhos > fit_cntr
+fitgamma = eff.effectiveFisher(eff.residuals2d, rhos[cut], dMcFLAT_MSUN[cut],
+        detaFLAT[cut])
+# Find the eigenvalues/vectors of the effective Fisher matrix
+gam = eff.array_to_symmetric_matrix(fitgamma)
+evals, evecs, rot = eff.eigensystem(gam)
+
+# Print information about the effective Fisher matrix
+# and its eigensystem
+print "Least squares fit finds g_Mc,Mc = ", fitgamma[0]
+print "                        g_Mc,eta = ", fitgamma[1]
+print "                        g_eta,eta = ", fitgamma[2]
+
+print "\nFisher matrix:"
+print "eigenvalues:", evals
+print "eigenvectors:"
+print evecs
+print "rotation taking eigenvectors into Mc, eta basis:"
+print rot
+
+#
+# Distribute points inside predicted ellipsoid of certain level of overlap
+#
+r1 = np.sqrt(2.*(1.-match_cntr)/evals[0]) # ellipse radii along eigendirections
+r2 = np.sqrt(2.*(1.-match_cntr)/evals[1])
+# Get pts. inside an ellipsoid oriented along eigenvectors...
+rand_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
+# Rotate to get coordinates in parameter basis
+rand_grid = np.array([ np.real( np.dot(rot, rand_grid[i]))
+    for i in xrange(len(rand_grid)) ])
+# Put in convenient units,
+# change from parameter differential (i.e. dtheta)
+# to absolute parameter value (i.e. theta = theta_true + dtheta)
+rand_dMcs_MSUN, rand_detas = tuple(np.transpose(rand_grid)) # dMc, deta
+rand_Mcs = rand_dMcs_MSUN * lal.LAL_MSUN_SI + McSIG # Mc (kg)
+rand_etas = rand_detas + etaSIG # eta
+
+# Prune points with unphysical values of eta from rand_grid
+rand_etas = np.array(map(partial(lsu.sanitize_eta, exception=np.NAN), rand_etas))
+rand_grid = np.transpose((rand_Mcs,rand_etas))
+phys_cut = ~np.isnan(rand_grid).any(1) # cut to remove unphysical pts
+rand_grid = rand_grid[phys_cut]
+print "Requested", Nrandpts, "points inside the ellipsoid of",\
+        match_cntr, "match."
+print "Kept", len(rand_grid), "points with physically allowed parameters."
+
+# Convert to m1, m2
+m1m2_grid = np.array([lsu.m1m2(rand_grid[i][0], rand_grid[i][1])
+        for i in xrange(len(rand_grid))])
+m1m2_grid /= lal.LAL_MSUN_SI
+
+# Write the sub file and DAG
+sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
+        tag='test',
+        cache=opts.cache_file,
+        channels=opts.channel_name,
+        psds=opts.psd_file,
+        coinc=opts.coinc_xml,
+        fref=opts.reference_freq,
+        seglen=opts.seglen,
+        tref=opts.event_time,
+        pad=opts.padding,
+        time_marg=opts.time_marginalization
+        )
+dag_name = dag_utils.write_extrinsic_marginalization_dag(m1m2_grid, sub_name)
+
+print "Created a DAG named %s\n" % dag_name
+print "This will run %i instances of %s in parallel\n" % (len(rand_grid), sub_name)
