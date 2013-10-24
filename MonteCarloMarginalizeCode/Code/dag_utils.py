@@ -111,7 +111,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate',
     if coinc is not None:
         line += ' --coinc-xml %s' % coinc
     if fref is not None:
-        line += ' --reference-frequency %.16g' % fref
+        line += ' --reference-freq %.16g' % fref
     if seglen is not None:
         line += ' --seglen %i' % seglen
     if tref is not None:
