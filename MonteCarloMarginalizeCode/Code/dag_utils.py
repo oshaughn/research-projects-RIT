@@ -58,14 +58,19 @@ def write_extrinsic_marginalization_dag(m1m2, extr_sub,
         line = 'VARS ' + job + ' ' + 'm1=\"%.16g\" m2=\"%.16g\"\n' % (m1m2[i][0], m1m2[i][1])
         dag.write(line)
     dag.close()
+    return fname
 
+# FIXME: Keep in sync with arguments of integrate_likelihood_extrinsic
 def write_integrate_likelihood_extrinsic_sub(tag='integrate',
-        cache='../data/local.cache', coinc='../data/coinc.xml',
-        channelH1='FAKE-STRAIN',channelL1='FAKE-STRAIN',
-        channelV1='FAKE_h_16384Hz_4R',
-        psdH1='../data/psd.xml.gz',
-        psdL1='../data/psd.xml.gz',
-        psdV1='../data/psd.xml.gz'
+        cache='local.cache',
+        channels=None,
+        psds=None,
+        coinc=None,
+        fref=None,
+        seglen=None,
+        tref=None,
+        pad=None,
+        time_marg=False
         ):
     """
     Write a submit file for launching jobs to marginalize the likelihood over
@@ -85,14 +90,37 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate',
         - 'psdH1/L1/V1' is the path to an XML file specifying the PSD of
           each of the H1, L1, V1 detectors.
 
-    N.B. This function does not return a value, but will write a DAG file.
+    Outputs:
+        - The name of the sub file that was generated.
     """
     # FIXME: Handle the case when we don't have data for some detector!
+    assert len(psds) == len(channels)
     fname = tag + '.sub'
     sub = open(fname, 'w')
     sub.write('executable=integrate_likelihood_extrinsic\n')
     sub.write('universe=vanilla\n')
-    line = 'arguments= --cache-file %s --channel-name H1=%s --channel-name L1=%s --channel-name V1=%s --psd-file H1=%s --psd-file L1=%s --psd-file V1=%s --coinc-xml %s --mass1 $(m1) --mass2 $(m2)\n' % (cache, channelH1, channelL1, channelV1, psdH1, psdL1, psdV1, coinc)
+    line = 'arguments='
+    if cache is not None:
+        line += ' --cache-file %s' % cache
+    if channels is not None:
+        for chan in channels:
+            line += ' --channel-name %s' % chan
+    if psds is not None:
+        for psd in psds:
+            line += ' --psd-file %s' % psd
+    if coinc is not None:
+        line += ' --coinc-xml %s' % coinc
+    if fref is not None:
+        line += ' --reference-frequency %.16g' % fref
+    if seglen is not None:
+        line += ' --seglen %i' % seglen
+    if tref is not None:
+        line += ' --event-time %.16g' % tref
+    if pad is not None:
+        line += ' --padding %i' % pad
+    if time_marg is True:
+        line += ' --time-marginalization'
+    line += ' --mass1 $(m1) --mass2 $(m2)\n'
     sub.write(line)
     sub.write('getenv=True\n')
     line = 'output=%s-$(cluster).out\n' % (tag)
@@ -105,4 +133,4 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate',
     sub.write('notification=never\n')
     sub.write('queue\n')
     sub.close()
-
+    return fname
