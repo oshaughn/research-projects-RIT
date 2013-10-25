@@ -70,7 +70,8 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate',
         seglen=None,
         tref=None,
         pad=None,
-        time_marg=False
+        time_marg=False,
+        log_dir=None
         ):
     """
     Write a submit file for launching jobs to marginalize the likelihood over
@@ -93,7 +94,6 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate',
     Outputs:
         - The name of the sub file that was generated.
     """
-    # FIXME: Handle the case when we don't have data for some detector!
     assert len(psds) == len(channels)
     fname = tag + '.sub'
     sub = open(fname, 'w')
@@ -123,9 +123,15 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate',
     line += ' --mass1 $(m1) --mass2 $(m2)\n'
     sub.write(line)
     sub.write('getenv=True\n')
-    line = 'output=%s-$(cluster).out\n' % (tag)
+    if log_dir is not None:
+        line = 'output=%s/%s-$(cluster).out\n' % (log_dir, tag)
+    else:
+        line = 'output=%s-$(cluster).out\n' % (tag)
     sub.write(line)
-    line = 'error=%s-$(cluster).err\n' % (tag)
+    if log_dir is not None:
+        line = 'error=%s/%s-$(cluster).err\n' % (log_dir, tag)
+    else:
+        line = 'error=%s-$(cluster).err\n' % (tag)
     sub.write(line)
     line = 'log=%s.log\n' % (tag)
     sub.write(line)
