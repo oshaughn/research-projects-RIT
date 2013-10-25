@@ -6,7 +6,10 @@ that has been marginalized over extrinsic parameters. Creates a dag workflow
 to perform this calculation.
 """
 
+import os
 import sys
+import stat
+import glue.lal
 from glue.ligolw import utils, ligolw, lsctables, table
 from glue.ligolw.utils import process
 import lal
@@ -19,6 +22,12 @@ from functools import partial
 from optparse import OptionParser, OptionGroup
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
+
+def mkdir(dir_name):
+    try :
+        os.mkdir(dir_name)
+    except OSError:
+        pass
 
 #
 # Pinnable parameters -- for command line processing
@@ -59,6 +68,15 @@ optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
 
+# Print command line to a file to recall what was run
+cmdname='command.sh'
+cmd = open(cmdname, 'w')
+cmd.write('#!/usr/bin/env bash\n')
+cmd.write(" ".join(sys.argv) )
+cmd.close()
+st = os.stat(cmdname)
+os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+
 #
 # Get trigger information from coinc xml file
 #
@@ -97,6 +115,7 @@ print "Computing marginalized likelihood in a neighborhood about intrinsic param
 #
 # FIXME: Hardcoded values - eventually promote to command line arguments
 #
+log_dir='logs' # directory to hold
 template_min_freq = 30.
 ip_min_freq = 30.
 approx = lalsim.TaylorT1
@@ -230,6 +249,7 @@ m1m2_grid = np.array([lsu.m1m2(rand_grid[i][0], rand_grid[i][1])
 m1m2_grid /= lal.LAL_MSUN_SI
 
 # Write the sub file and DAG
+mkdir(log_dir) # Make a directory to hold log files of jobs
 sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         tag='test',
         cache=opts.cache_file,
@@ -240,7 +260,8 @@ sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         seglen=opts.seglen,
         tref=opts.event_time,
         pad=opts.padding,
-        time_marg=opts.time_marginalization
+        time_marg=opts.time_marginalization,
+        log_dir=log_dir
         )
 dag_name = dag_utils.write_extrinsic_marginalization_dag(m1m2_grid, sub_name)
 
