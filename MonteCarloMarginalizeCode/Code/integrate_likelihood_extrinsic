@@ -62,6 +62,7 @@ optp.add_option("-m", "--time-marginalization", action="store_true", help="Perfo
 # Add the intrinsic parameters
 #
 intrinsic_params = OptionGroup(optp, "Intrinsic Parameters", "Intrinsic parameters (e.g component mass) to use.")
+intrinsic_params.add_option("--pin-to-sim", help="Pin values to sim_inspiral table entry.")
 intrinsic_params.add_option("--mass1", type=float, help="Value of first component mass, in solar masses. Required if not providing coinc tables.")
 intrinsic_params.add_option("--mass2", type=float, help="Value of second component mass, in solar masses. Required if not providing coinc tables.")
 optp.add_option_group(intrinsic_params)
@@ -83,6 +84,15 @@ template_min_freq = 30  # too long can be a memory and time hog, particularly at
 # minimum frequency of inner product integration
 ip_min_freq = 30
 
+#
+# Gather information about a injection put in the data
+#
+if opts.pin_to_sim is not None:
+    xmldoc = utils.load_filename(opts.pin_to_sim)
+    sim_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
+    assert len(sim_table) == 1
+    sim_row = sim_table[0]
+    #event_time = sim_row.get_end()
 
 #
 # Gather information from the detection pipeline
@@ -197,6 +207,22 @@ P = lalsimutils.ChooseWaveformParams(
 # Perform the Precompute stage
 #
 rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(fiducial_epoch, P, data_dict, psd_dict, Lmax, analyticPSD_Q=False)
+
+if opts.pin_to_sim:
+    """
+    P.phi = sim_row.longitude # right ascension
+    P.theta = sim_row.latitude # declination
+    # FIXME:
+    P.tref = sim_row.h_end_time+sim_row.h_end_time_ns*1e-9
+    P.phiref = sim_row.coa_phase # ref. orbital phase
+    P.incl = sim_row.inclination # inclination
+    P.psi = sim_row.polarization # polarization angle
+    P.dist = sim_row.distance * 1e6 * lal.LAL_PC_SI # luminosity distance
+    """
+    P.copy_sim_inspiral(sim_row)
+
+    print "Pinned likelihood: %g" % factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
+    exit()
 
 #
 # Set up parameters and bounds
