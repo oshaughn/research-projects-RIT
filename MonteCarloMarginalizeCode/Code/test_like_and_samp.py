@@ -171,8 +171,8 @@ if opts.coinc:
         dist=factored_likelihood.distMpcRef*1e6*lal.LAL_PC_SI,    # default distance
         fref=fref, 
         tref = event_time_gps,
-        ampO=ampO,
-                                )  # FIXME: Parameter mapping from trigger space to search space
+        ampO=ampO      
+        )  # FIXME: Parameter mapping from trigger space to search space
     if rosDebugMessagesDictionary["DebugMessages"]:
         print " === Coinc table : estimated signal [overridden if injection] ==="
         Psig.print_params()

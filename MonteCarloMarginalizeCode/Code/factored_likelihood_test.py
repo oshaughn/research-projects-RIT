@@ -44,6 +44,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
 
     rhoExpected = {}
     rhoExpectedAlt = {}
+    rhoFake = {}
     tWindowReference = factored_likelihood.tWindowReference
     tWindowExplore =     factored_likelihood.tWindowExplore
     tEventFiducial    = float(Psig.tref - theEpochFiducial)
@@ -68,6 +69,22 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
             rho2Net += rhoDet*rhoDet
             print det, rhoDet, rhoDet2, " [via IP and Overlap]; both should agree with analytic expectations (if zero noise)."
         print "Network : ", np.sqrt(rho2Net)
+
+
+        print " .... Generating the zero-noise template  (in case the real data is noisy), to estimate its amplitude at the signal  ..... "
+        print "      [for some signals (coincs) the distance is not set, so the amplitude will be set to a fiducial distance. The value will be off] "
+        data_fake_dict ={}
+        rho2Net = 0
+        for det in detectors:
+            data_fake_dict[det] = lal.ResizeCOMPLEX16FrequencySeries(factored_likelihood.non_herm_hoff(Psig), 0, len(data_dict[det].data.data))  # Pad if needed!
+            if analyticPSD_Q:
+                IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],analyticPSD_Q=analyticPSD_Q)
+            else:
+                IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det].data.data,analyticPSD_Q=analyticPSD_Q)
+            rhoFake[det] = IP.norm(data_fake_dict[det])   # Reset
+            rho2Net += rhoFake[det]*rhoFake[det]
+            print " Fake data :", det, rhoFake[det]
+        print " Fake network :", rho2Net
 
     if TestDictionary["DataReportTime"]:
         print " == Timing report == "
@@ -205,6 +222,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
         tvalsPlot = tvals 
         plt.plot(tvalsPlot, lnL,label='lnL(t)')
         plt.plot(tvalsPlot, lnLEstimate,label="$rho^2/2(net)$")
+        plt.ylim(-2*rho2Net,2*rho2Net)   # ends of the sequence can be crap. This just sets the plot range for user convenience, so it's ok to hack it.
         tEventRelative =float( Psig.tref - theEpochFiducial)
         print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
         plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
