@@ -7,6 +7,13 @@ setup:
 	find -L signal_hoft_no_noise -name '*.gwf' -print | lalapps_path2cache > test1-0noise.cache
 
 
+test-fiducial-data:
+	python test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file test1-0noise.cache --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --channel-name V1=FAKE-STRAIN --force-read-full-frames --psd psd.xml.gz --show-psd --show-likelihood-versus-time --show-sampler-inputs --show-sampler-results --Niter 1000000 --save-sampler-file fiducial-0noise --save-threshold-fraction 0.95
+
+test-fiducial-data-noisy:
+	python test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file test1.cache --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --channel-name V1=FAKE-STRAIN --force-read-full-frames --psd psd.xml.gz --show-psd --show-likelihood-versus-time --show-sampler-inputs --show-sampler-results --Niter 1000000 --save-sampler-file fiducial-0noise --save-threshold-fraction 0.95
+
+
 test:
 # test hlm generation, overlaps
 #	python test_hlm.py   # shows that hlm's generate via our wrapper.  SHOULD BE TESTED with other approximants.
