@@ -1,0 +1,37 @@
+#!/usr/bin/env python
+import sys
+from collections import defaultdict
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot
+
+import numpy
+
+from pylal.series import read_psd_xmldoc
+from glue.ligolw import utils
+
+psdd = defaultdict(list)
+for arg in sys.argv[1:]:
+    for k, v in read_psd_xmldoc(utils.load_filename(arg)).iteritems():
+        psdd[k].append((arg, v))
+
+assert len(psdd.keys()) == 3
+
+pyplot.figure()
+i = 1
+for d, tup in psdd.iteritems():
+    pyplot.subplot(3, 1, i)
+    pyplot.grid()
+    pyplot.loglog()
+    i += 1
+    for (file, series) in tup:
+        print d, file
+        f = numpy.arange(series.f0, len(series.data)*series.deltaF, series.deltaF)
+        pyplot.title(d)
+        pyplot.plot(f, series.data, '-', label=file)
+    #pyplot.legend()
+    pyplot.xlim([4e1,2e3])
+    pyplot.ylim([1e-51,1e-45])
+
+pyplot.savefig("psds.png")
