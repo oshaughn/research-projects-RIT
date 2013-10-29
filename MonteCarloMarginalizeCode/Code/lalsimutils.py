@@ -279,10 +279,7 @@ class InnerProduct:
         self.analyticPSD_Q = analyticPSD_Q
         if analyticPSD_Q == True:
             for i in range(self.minIdx,self.FDlen):        # populate weights for both hermetian and non-hermetian products
-                print i*deltaF
                 self.weights[i] = 1./self.psd(i*deltaF)
-                print i*deltaF
-                assert self.weights[i] != 0
             self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
             self.longweights[len(self.weights)-1:] = self.weights[0:-1]
         else:
@@ -292,7 +289,6 @@ class InnerProduct:
             length = 2*(self.FDlen-1)
             self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
             self.longweights[len(self.weights)-1:] = self.weights[0:-1]
-        assert sum(self.longweights) != 0
 
     def ip(self, h1, h2):
         """
@@ -478,7 +474,6 @@ class Overlap(InnerProduct):
             length = 2*(self.FDlen-1)
             self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
             self.longweights[len(self.weights)-1:] = self.weights[0:-1]
-        assert sum(self.longweights) != 0
 
 
     def ip(self, h1, h2):
@@ -603,7 +598,6 @@ class ComplexOverlap(InnerProduct):
                     self.longweights[length/2 + i-1] = 1./psd[i]
                     self.longpsdLAL.data.data[length/2-i+1] =1./ psd[i]
                     self.longpsdLAL.data.data[length/2+i-1] = 1./psd[i]
-        assert sum(self.longweights) != 0
 
     def ip(self, h1, h2):
         """
