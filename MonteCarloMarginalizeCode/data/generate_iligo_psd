@@ -1,0 +1,36 @@
+#!/usr/bin/env python
+import numpy
+import lalsimulation
+
+from glue.ligolw import utils
+
+from pylal.series import make_psd_xmldoc
+
+from pylal.xlal.datatypes.ligotimegps import LIGOTimeGPS
+from pylal.xlal.datatypes.real8frequencyseries import REAL8FrequencySeries
+from pylal.xlal.datatypes.lalunit import LALUnit
+
+from optparse import OptionParser
+
+optp = OptionParser()
+optp.add_option("-n", "--nyquist", type=float, default=2048.0, help="Set the nyquist frequency of the PSD. Default is 2048 Hz.")
+optp.add_option("-d", "--delta-f", type=float, default=1.0/16, help="Set frequency bin size in Hz. Default is 1/16 Hz.")
+optp.add_option("-f", "--low-frequency", type=float, default=0.0, help="Set the low frequency in Hz of the output PSD. Default is zero.")
+opts, args = optp.parse_args()
+
+# Generate iLIGO PSD
+#fnyq, df, f0 = 2048, 1./16, 0.0
+fnyq, df, f0 = opts.nyquist, opts.delta_f, opts.low_frequency
+f = numpy.arange(f0, fnyq, df)
+psd = numpy.array(map(lalsimulation.SimNoisePSDiLIGOSRD, f))
+psd[0] = 0
+
+# Generate the frequency series
+epoch = LIGOTimeGPS(0.0)
+psddict = {}
+for d in ["H1", "L1", "V1"]:
+    psd_s = REAL8FrequencySeries(name="iLIGO PSD", epoch=epoch, f0=f0, deltaF=df, sampleUnits=LALUnit(""), data=psd)
+    psddict[d] = psd_s
+
+xmldoc = make_psd_xmldoc(psddict)
+utils.write_filename(xmldoc, "HLV-ILIGO_PSD.xml.gz", gz=True)
