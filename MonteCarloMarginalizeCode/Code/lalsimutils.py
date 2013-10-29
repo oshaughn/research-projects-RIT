@@ -36,6 +36,7 @@ import lalmetaio
 
 from pylal import frutils
 from pylal.series import read_psd_xmldoc
+import pylal
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -1546,11 +1547,40 @@ def get_psd_series_from_xmldoc(fname, inst):
 
 def get_intp_psd_series_from_xmldoc(fname, inst):
     psd = get_psd_series_from_xmldoc(fname, inst)
-    f = np.arange(psd.f0, psd.deltaF*len(psd.data), psd.deltaF)
-    ifunc = interpolate.interp1d(f, psd.data)
+    return intp_psd_series(psd)
+
+def resample_psd_series(psd, df=None, fmin=None, fmax=None):
+    # handle pylal REAL8FrequencySeries
+    if isinstance(psd, pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
+        psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.deltaF*len(psd.data), psd.deltaF, psd.data
+    # handle SWIG REAL8FrequencySeries
+    elif isinstance(psd, lal.REAL8FrequencySeries):
+        psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.deltaF*len(psd.data.data), psd.deltaF, psd.data.data
+    # die horribly
+    else:
+        raise ValueError("resample_psd_series: Don't know how to handle %s." % type(psd))
+    fmin = fmin or psd_fmin
+    fmax = fmax or psd_fmax
+    df = df or psd_df
+
+    f = np.arange(psd_fmin, psd_fmin + psd_fmax, psd_df)
+    ifunc = interpolate.interp1d(f, data)
     def intp_psd(freq):
-        return float("inf") if freq > psd.deltaF*len(psd.data) else ifunc(freq)
-    return np.vectorize(intp_psd)
+        return float("inf") if freq >= psd_fmax-psd_df or ifunc(freq) == 0.0 else ifunc(freq)
+    intp_psd = np.vectorize(intp_psd)
+    psd_intp = intp_psd(np.arange(fmin, fmax, df))
+
+    tmpepoch = lal.LIGOTimeGPS(float(psd.epoch))
+    # FIXME: Reenable when we figure out generic error
+    """
+    tmpunit = lal.Unit()
+    lal.ParseUnitString(tmpunit, str(psd.sampleUnits))
+    """
+    tmpunit = lal.lalSecondUnit
+    new_psd = lal.CreateREAL8FrequencySeries(epoch = tmpepoch, deltaF=df, f0 = fmin, sampleUnits = tmpunit, name = psd.name, length=len(psd_intp))
+    new_psd.data.data = psd_intp
+    return new_psd
+
 
 def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all modes, as a list.  Useful for building iterators without nested lists
     mylist = []
