@@ -184,7 +184,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
             plt.figure(2)
             plt.xlabel('t(s) [not geocentered]')
             plt.ylabel('lnLdata')
-            plt.plot(tvalsDiscrete, lnLDataDiscrete,label='Ldata(t):discrete+'+det)
+#            plt.plot(tvalsDiscrete, lnLDataDiscrete,label='Ldata(t):discrete+'+det)
             plt.title('lnLdata(t) discrete, MANUAL TIME SHIFT to geocenter')
             plt.legend()
         tEventRelative =float( Psig.tref - theEpochFiducial)

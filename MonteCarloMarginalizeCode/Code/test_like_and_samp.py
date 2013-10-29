@@ -9,6 +9,7 @@ import lal
 import lalsimulation as lalsim
 import lalsimutils
 
+
 """
 test_like_and_samp.py:  Testing the likelihood evaluation and sampler, working in conjunction
 
@@ -17,19 +18,22 @@ test_like_and_samp.py:  Testing the likelihood evaluation and sampler, working i
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 import factored_likelihood
+import factored_likelihood_test
 import ourio
+import ourparams
+
+opts, rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
+print opts
 
 checkInputs = False
 
 rosUseDifferentWaveformLengths = False    
 rosUseRandomTemplateStartingFrequency = False
 
-rosUseTargetedDistance = True
-rosUseStrongPriorOnParameters = False
-rosDebugMessages = False
-rosShowSamplerInputDistributions = True
+rosDebugMessages = opts.verbose
+rosShowSamplerInputDistributions = opts.plot_ShowSamplerInputs
 rosShowRunningConvergencePlots = True
-rosShowTerminalSampleHistograms = True
+rosShowTerminalSampleHistograms = opts.plot_ShowSampler
 rosSaveHighLikelihoodPoints = True
 rosUseThresholdForReturn = False
 rosUseMultiprocessing= False
@@ -37,17 +41,17 @@ rosDebugCheckPriorIntegral = False
 nMaxEvals = 1e4
 
 if rosUseThresholdForReturn and nMaxEvals > 5e4:  # I usually only want to restrict the return set when I am testing
-    fracThreshold = 0.95
+    fracThreshold = opts.points_threshold_match
 else:
     fracThreshold = 0.0
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
 tEventFiducial = 0                                                                 # relative to GPS reference
 
-optp = OptionParser()
-optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
-optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
-opts, args = optp.parse_args()
+# optp = OptionParser()
+# optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
+# optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
+# opts, args = optp.parse_args()
 
 det_dict = {}
 rhoExpected ={}
@@ -57,17 +61,12 @@ if opts.channel_name is not None and opts.cache_file is None:
 elif opts.channel_name is not None:
     det_dict = dict(map(lambda cname: cname.split("="), opts.channel_name))
 
-Niter = 5 # Number of times to call likelihood function
-Tmax = 0.05 # max ref. time
-Tmin = -0.05 # min ref. time
-Dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
-Dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
 
-ampO =0 # sets which modes to include in the physical signal
-Lmax = 2 # sets which modes to include
-fref = 100
-fminWavesSignal = 25  # too long can be a memory and time hog, particularly at 16 kHz
-fSample = 4096*4
+ampO =opts.amporder # sets which modes to include in the physical signal
+Lmax = opts.Lmax # sets which modes to include
+fref = opts.fref
+fminWavesSignal = opts.fmin_Template  # too long can be a memory and time hog, particularly at 16 kHz
+fSample = opts.srate
 
 if rosUseDifferentWaveformLengths: 
     fminWavesTemplate = fminWavesSignal+0.005
@@ -119,7 +118,7 @@ print " == Data report == "
 detectors = data_dict.keys()
 rho2Net = 0
 print  " Amplitude report :"
-fminSNR =30
+fminSNR =opts.fmin_SNR
 for det in detectors:
     IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=Psig.deltaF,psd=psd_dict[det])
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
@@ -168,56 +167,23 @@ print " distance probably less than ", distBoundGuess, " Mpc"
 print "====Loading metadata from previous runs (if any): sampler-seed-data.dat ====="
 
 
-if checkInputs == True:
 
-    print " ======= UV test: Recover the SNR of the injection  =========="
-    print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] "
-    for det in detectors:
-        lnLModel = factored_likelihood.SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
-        print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det], "      [last two equal?]"
-    print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters  =========="
-    lnL = factored_likelihood.FactoredLogLikelihood(theEpochFiducial,Psig, rholms_intp, crossTerms, Lmax)
-    print "  : Evan's code : ", lnL, " versus rho^2/2 ", rho2Net/2
-    print "  : Timing issues (checkme!) : fiducial = ", lalsimutils.stringGPSNice(theEpochFiducial)
+TestDictionary = factored_likelihood_test.TestDictionaryDefault
+TestDictionary["DataReport"]             = True
+TestDictionary["DataReportTime"]       = True
+TestDictionary["UVReport"]              = True
+TestDictionary["UVReflection"]          = True
+TestDictionary["QReflection"]          = True
+TestDictionary["lnLModelAtKnown"]  = True
+TestDictionary["lnLDataAtKnownPlusOptimalTimePhase"] = False
+TestDictionary["lnLAtKnown"]           = True
+TestDictionary["lnLAtKnownMarginalizeTime"]  = False
+TestDictionary["lnLDataPlot"]            = True
 
-    print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (* STILL TIME OFFSET *)  =========="
-    tmin = np.max(float(epoch_post - theEpochFiducial),tWindowReference[0]+0.03)   # the minimum time used is set by the rolling condition
-#    tvals = np.linspace(tmin,tWindowReference[1],4*fSample*(tWindowReference[1]-tmin))
-    tvals = np.linspace(factored_likelihood.tWindowExplore[0]+tEventFiducial,factored_likelihood.tWindowExplore[1]+tEventFiducial,fSample*(factored_likelihood.tWindowExplore[1]-factored_likelihood.tWindowExplore[0]))
-    for det in detectors:
-        lnLData = map( lambda x: SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
-        lnLDataEstimate = np.ones(len(tvals))*rhoExpected[det]*rhoExpected[det]
-        plt.figure(1)
-        tvalsPlot = tvals 
-        plt.plot(tvalsPlot, lnLData,label='Ldata(t)+'+det)
-        plt.plot(tvalsPlot, lnLDataEstimate,label="$rho^2("+det+")$")
-    tEventRelative =float( Psig.tref - theEpochFiducial)
-    print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is ", tEventRelative
-    plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
-    plt.title("lnLdata (interpolated) vs narrow time interval")
-    plt.xlabel('t(s)')
-    plt.ylabel('lnLdata')
+#opts.fmin_SNR=40
 
-    print " ======= rholm test: Plot the lnL timeseries at the injection parameters (* STILL TIME)  =========="
-    tmin = np.max(float(epoch_post - theEpochFiducial),tWindowReference[0]+0.03)   # the minimum time used is set by the rolling condition
-    tvals = np.linspace(tmin,tWindowReference[1],4*fSample*(tWindowReference[1]-tmin))
-    P = Psig.copy()
-    lnL = np.zeros(len(tvals))
-    for indx in np.arange(len(tvals)):
-            P.tref =  theEpochFiducial+tvals[indx]
-            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, 2)
-    lnLEstimate = np.ones(len(tvals))*rho2Net/2
-    plt.figure(1)
-    tvalsPlot = tvals 
-    plt.plot(tvalsPlot, lnL,label='lnL(t)')
-    plt.plot(tvalsPlot, lnLEstimate,label="$rho^2/2(net)$")
-    tEventRelative =float( Psig.tref - theEpochFiducial)
-    print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
-    plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
-    plt.title("lnL (interpolated) vs narrow time interval")
-    plt.xlim(Tmin,Tmax)  # the window we actually use
-    plt.legend()
-    plt.savefig("test_like_and_samp-lnLvsTime.pdf")
+factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, epoch_post, data_dict, psd_dict, analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, detectors,Lmax)
+
 
 
 #
@@ -230,8 +196,6 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
 
     lnL = np.zeros(phi.shape)
     i = 0
-#    print " Likelihood results :  "
-#    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
     for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
         P.phi = ph # right ascension
         P.theta = th # declination
@@ -239,21 +203,9 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.phiref = phr # ref. orbital phase
         P.incl = ic # inclination
         P.psi = ps # polarization angle
-        P.dist = di # luminosity distance
+        P.dist = di*lal.LAL_PC_SI # luminosity distance.  The sampler assumes Mpc; P requires SI
 
         lnL[i] = factored_likelihood.FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
-#        if i<len(phi)-10:
-#            LSum[i+1] = LSum[i]+np.exp(lnL[i])
-#        if (np.mod(i,1000)==10 and i>100):
-#            print " iteration Neff  lnL   sqrt(2max(lnL)) rho  sqrt(2 lnLmarg)   <lnL> "  # reminder
-        # if (np.mod(i,200)==10 and i>100):
-        #     Neff = LSum[i+1]/np.exp(np.max(lnL[:i]))   # should actually include sampling distribution and prior distribution correction in it
-            # if rosDebugMessages:
-            #     print "\t Params ", nEvals+i, " (RA, DEC, tref, phiref, incl, psi, dist) ="
-            #     print "\t", i, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL[i]
-            #     print "\t sampler probability of draws", sampler.cdf['ra'](P.phi), sampler.cdf['dec'](P.theta),sampler.cdf['tref'](float(P.tref - theEpochFiducial)), sampler.cdf['phi'](P.phiref), sampler.cdf['incl'](P.incl), sampler.cdf['psi'](P.psi), sampler.cdf['dist'](P.dist)
-            # logLmarg =np.log(np.mean(np.exp(lnL[:i])))
-#            print nEvals+i, Neff,  lnL[i],   np.sqrt(2*np.max(lnL[:i])), np.sqrt(rho2Net), np.sqrt(2*logLmarg), np.mean(lnL[:i])
         i+=1
 
 
@@ -263,74 +215,8 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
 import mcsampler
 sampler = mcsampler.MCSampler()
 
-# Sampling distribution
-def uniform_samp(a, b, x):
-   if type(x) is float:
-       return 1/(b-a)
-   else:
-       return np.ones(x.shape[0])/(b-a)
-
-# set up bounds on parameters
-# Polarization angle
-psi_min, psi_max = 0, np.pi
-# RA and dec
-ra_min, ra_max = 0, 2*np.pi
-dec_min, dec_max = -np.pi/2, np.pi/2
-# Reference time
-tref_min, tref_max = Tmin, Tmax
-# Inclination angle
-inc_min, inc_max = 0, np.pi
-# orbital phi
-phi_min, phi_max = 0, 2*np.pi
-# distance
-dist_min, dist_max = Dmin, Dmax
-
-import functools
-# Define the true prior PDF
-# The likelihood function assumes this function exists.
-# The integrator actually does a monte carlo integral of L*p using a sampling prior p_s.
-def pdfFullPrior(phi, theta, tref, phiref, incl, psi, dist): # remember theta is dec, 
-    return (np.cos(theta)/(4*np.pi)) * 1./(factored_likelihood.tWindowExplore[1]-factored_likelihood.tWindowExplore[0])*1/(3*Dmax**3)*np.cos(incl)/(4*np.pi)*1./(np.pi)
-
-
-# Uniform sampling (in area) but nonuniform sampling in distance (*I hope*).  Auto-cdf inverse
-if rosUseStrongPriorOnParameters:
-    sampler.add_parameter("psi", functools.partial(mcsampler.gauss_samp, Psig.psi, 0.5), None, psi_min, psi_max, 
-                          prior_pdf =mcsampler.uniform_samp_psi  )
-    # Use few degree square prior : at SNR 20 in 3 detetors.  This is about 10 deg square
-    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.05), None, ra_min, ra_max, 
-                          prior_pdf = mcsampler.uniform_samp_phase)
-    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.05), None, dec_min, dec_max, 
-                          prior_pdf= mcsampler.uniform_samp_dec)
-    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max, 
-                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, factored_likelihood.tWindowExplore[0],factored_likelihood.tWindowExplore[1]))
-    sampler.add_parameter("phi", functools.partial(mcsampler.gauss_samp, Psig.phiref,0.5), None, phi_min, phi_max, 
-                          prior_pdf = mcsampler.uniform_samp_phase)
-    sampler.add_parameter("incl", functools.partial(mcsampler.gauss_samp, Psig.incl,0.3), None, inc_min, inc_max, 
-                          prior_pdf = mcsampler.uniform_samp_theta)
-    if rosUseTargetedDistance:
-        sampler.add_parameter("dist", functools.partial(mcsampler.quadratic_samp_vector,  distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max, prior_pdf = np.vectorize(lambda x: x**2/(3*Dmax**3)))
-    else:
-        sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max,prior_pdf =np.vectorize( lambda x: x**2/(3*Dmax**3)))
-else:
-    # PROBLEM: Underlying prior samplers are not uniform.  We need two stages
-    sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max,
-                          prior_pdf =mcsampler.uniform_samp_psi )
-    # Use few degree square prior : at SNR 20 in 3 detetors.  This is about 10 deg square
-    sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.05), None, ra_min, ra_max, 
-                          prior_pdf = mcsampler.uniform_samp_phase)
-    sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.05), None, dec_min, dec_max, 
-                          prior_pdf= mcsampler.uniform_samp_dec)
-    sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.005), None, tref_min, tref_max, 
-                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, factored_likelihood.tWindowExplore[0],factored_likelihood.tWindowExplore[1]))
-    sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max,
-                          prior_pdf = mcsampler.uniform_samp_phase)
-    sampler.add_parameter("incl", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max,
-                          prior_pdf = mcsampler.uniform_samp_theta)
-    if rosUseTargetedDistance:
-        sampler.add_parameter("dist", functools.partial(mcsampler.quadratic_samp_vector,  distBoundGuess*1e6*lal.LAL_PC_SI ), None, dist_min, dist_max, prior_pdf = np.vectorize(lambda x: x**2/(3*Dmax**3)))
-    else:
-        sampler.add_parameter("dist", functools.partial(mcsampler.gauss_samp_withfloor, Psig.dist, Psig.dist*0.1, 0.001/Psig.dist), None, dist_min, dist_max,prior_pdf =np.vectorize( lambda x: x**2/(3*Dmax**3)))
+# Populate sampler 
+ourparams.PopulateSamplerParameters(sampler, theEpochFiducial,tEventFiducial, distBoundGuess, Psig, opts)
 
 
 if rosShowSamplerInputDistributions:
@@ -350,24 +236,18 @@ if rosShowSamplerInputDistributions:
         cdf = sampler.cdf[param]
         pdfvals = pdf(xvals)
         cdfvals = cdf(xvals)
-        if str(param) ==  "dist":
-            xvvals = xvals/(1e6*lal.LAL_PC_SI)       # plot in Mpc, not m.  Note PDF has to change
-            pdfvalsPrior = pdfvalsPrior * (1e6*lal.LAL_PC_SI) # rescale units
-            pdfvals = pdfvals * (1e6*lal.LAL_PC_SI) # rescale units
         plt.plot(xvals,pdfvalsPrior,label="prior:"+str(param),linestyle='--')
         plt.plot(xvals,pdfvals,label=str(param))
         plt.plot(xvals,cdfvals,label='cdf:'+str(param))
         plt.xlabel(str(param))
         plt.legend()
         plt.savefig("test_like_and_samp-"+str(param)+".pdf")
-#    plt.show()
+    plt.show()
 
-if rosDebugCheckPriorIntegral:
-    res, var = mcsampler.sanityCheckSamplerIntegrateUnity(sampler, "ra", "dec", "tref", "phi", "incl", "psi", "dist",nmax=nMaxEvals)
-    print " Integration of unity ", res, " which is probably NOT =1, because our sampler has a very narrow PDF."
+
 
 tGPSStart = lal.GPSTimeNow()
-res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=200,nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100,igrand_threshold_fraction=fracThreshold,use_multiprocessing=rosUseMultiprocessing,verbose=True)
+res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=opts.nskip,nmax=opts.nmax,igrandmax=rho2Net/2,full_output=True,neff=opts.neff,igrand_threshold_fraction=fracThreshold,use_multiprocessing=rosUseMultiprocessing,verbose=True,extremely_verbose=opts.super_verbose)
 tGPSEnd = lal.GPSTimeNow()
 print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
 print " lnLmarg is ", np.log(res), " with nominal relative sampling error ", np.sqrt(var)/res, " but a more reasonable estimate based on the lnL history is ", np.std(lnLmarg - np.log(res))
@@ -398,53 +278,6 @@ if rosShowTerminalSampleHistograms:
     plt.ylabel('lnL')
     plt.legend()
     ourio.plotParameterDistributionsFromSamples("results", sampler, ret,  ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
-    # print " ==== TERMINAL 1D HISTOGRAMS: Sampling and posterior === "
-    # plt.figure(1)
-    # plt.clf()
-    # hist, bins  = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,density=True)
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="dist:sampled")
-    # hist,bins = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,weights=np.exp(lnL),density=True)
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="dist:post")
-    # plt.xlabel("d (Mpc)")
-    # plt.title("Sampling and posterior distribution: d ")
-    # plt.legend()
-    # plt.figure(2)
-    # plt.clf()
-    # hist, bins  = np.histogram(tref,bins=50,density=True)
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="tref:sampled")
-    # hist, bins  = np.histogram(tref,bins=50,density=True,weights=np.exp(lnL))
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="tref:post")
-    # plt.xlim(-0.01+tEventFiducial,0.01+tEventFiducial)
-    # plt.xlabel("t (s)")
-    # plt.title("Sampling and posterior distribution: t ")
-    # plt.legend()
-    # plt.figure(3)
-    # plt.clf()
-    # hist, bins  = np.histogram(incl,bins=50,normed=True)
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="incl:sampled")
-    # hist, bins  = np.histogram(incl,bins=50,normed=True,weights=np.exp(lnL))
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="incl:post")
-    # plt.xlabel("incl")
-    # plt.title("Sampling and posterior distribution: incl ")
-    # plt.legend()
-    # plt.figure(4)
-    # plt.clf()
-    # hist, bins  = np.histogram(psi,bins=50,normed=True)
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="psi:sampled")
-    # hist, bins  = np.histogram(psi,bins=50,normed=True,weights=np.exp(lnL))
-    # center = (bins[:-1]+bins[1:])/2
-    # plt.plot(center,hist,label="psi:post")
-    # plt.xlabel("psi")
-    # plt.title("Sampling and posterior distribution: psi ")
-    # plt.legend()
-    # plt.show()
     print " ==== TERMINAL 2D HISTOGRAMS: Sampling and posterior === "
         # Distance-inclination
     ra,dec,tref,phi,incl, psi,dist,lnL = np.transpose(ret)  # unpack. This can include all or some of the data set. The default configuration returns *all* points
