@@ -190,6 +190,8 @@ if opts.inj:
     print " ++ Targeting event at time ++ ", lalsimutils.stringGPSNice(Psig.tref)
     print " +++ WARNING: ADOPTING STRONG PRIORS +++ "
     rosUseStrongPriorOnParameters= True
+    Psig.print_params()
+    print "---- End injeciton parameters ----"
 
 # TRY TO READ IN DATA: if data specified, use it and construct the detector list from it. Otherwise...
 if opts.channel_name and    (opts.opt_ReadWholeFrameFilesInCache):
@@ -274,7 +276,9 @@ psd_dict = {}
 if not(opts.psd_file):
     analyticPSD_Q = True # For simplicity, using an analytic PSD
     for det in data_dict.keys():
-        psd_dict[det] = lalsim.SimNoisePSDaLIGOZeroDetHighPower   #lal.LIGOIPsd    # Preserves key equality in data_dict , psd_dict
+#        psd_dict[det] = lalsim.SimNoisePSDaLIGOZeroDetHighPower   #lal.LIGOIPsd    # Preserves key equality in data_dict , psd_dict
+#        psd_dict[det] = lal.LIGOIPsd    # Preserves key equality in data_dict , psd_dict
+        psd_dict[det] = lalsim.SimNoisePSDiLIGOSRD    # Preserves key equality in data_dict , psd_dict.  this is Chris' 'iLIGO' PSD, for test data
 
 else:
     analyticPSD_Q = False # For simplicity, using an analytic PSD
@@ -375,7 +379,7 @@ TestDictionary["DataReport"]             = True
 TestDictionary["DataReportTime"]       = True
 TestDictionary["UVReport"]              = True
 TestDictionary["UVReflection"]          = True
-TestDictionary["QReflection"]          = True
+TestDictionary["QReflection"]          = False
 TestDictionary["lnLModelAtKnown"]  = True
 TestDictionary["lnLDataAtKnownPlusOptimalTimePhase"] = False
 TestDictionary["lnLAtKnown"]           = True
