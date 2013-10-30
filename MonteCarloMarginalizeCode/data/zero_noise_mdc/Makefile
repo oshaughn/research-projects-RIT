@@ -12,6 +12,11 @@ LIGO_FRAME_DURATION=64 # s
 LIGO_FRAME_DURATION_COMB=64 # s
 LIGO_N_FRAMES=1
 
+EVENT_TIME=1000000014.236547946
+
+test_ile: zero_noise.cache
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0
+
 zero_noise.cache: H1_zero_noise.cache L1_zero_noise.cache V1_zero_noise.cache
 	cat {H,L,V}1_zero_noise.cache > zero_noise.cache
 
@@ -26,3 +31,7 @@ L1_zero_noise.cache:
 V1_zero_noise.cache:
 	gstlal_fake_frames --gps-start-time ${START} --gps-end-time ${STOP} --injections ${INJ_XML} --channel V1=${INJ_CHANNEL_NAME} --verbose --data-source silence --output-channel ${INJ_CHANNEL_NAME} --frame-type ${INJECTION_FRAME_TYPE} --output-path ${INJECTION_DEST} --frame-duration ${LIGO_FRAME_DURATION} --frames-per-file ${LIGO_N_FRAMES}
 	find ${INJECTION_DEST}/ -name "V-*.gwf" | lalapps_path2cache > V1_zero_noise.cache
+
+clean:
+	rm *.cache
+	rm -rf zero_noise_mdc/
