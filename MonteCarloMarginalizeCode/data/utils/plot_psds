@@ -31,7 +31,7 @@ for d, tup in psdd.iteritems():
         pyplot.title(d)
         pyplot.plot(f, series.data, '-', label=file)
     #pyplot.legend()
-    pyplot.xlim([4e1,2e3])
-    pyplot.ylim([1e-51,1e-45])
+    pyplot.xlim([1e1,2e3])
+    pyplot.ylim([1e-46,1e-40])
 
 pyplot.savefig("psds.png")
