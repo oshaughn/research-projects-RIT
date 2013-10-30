@@ -179,6 +179,7 @@ print "Offset from event end time to f_ref %f" % fref_time_off
 
 detectors = data_dict.keys()
 df = data_dict[detectors[0]].deltaF     # should not be hardcoded!
+fPSD = (psd_dict[detectors[0]].data.length - 1) * psd_dict[detectors[0]].deltaF
 # FIXME: More descriptive here
 fSample = len(data_dict[detectors[0]].data.data)*data_dict[detectors[0]].deltaF  # Note two-sided
 
@@ -206,7 +207,7 @@ P = lalsimutils.ChooseWaveformParams(
 #
 # Perform the Precompute stage
 #
-rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(fiducial_epoch, P, data_dict, psd_dict, Lmax, analyticPSD_Q=False)
+rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(fiducial_epoch, P, data_dict, psd_dict, Lmax, fPSD, analyticPSD_Q=False)
 
 if opts.pin_to_sim:
     """

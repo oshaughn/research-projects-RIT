@@ -43,7 +43,8 @@ rosDoNotRollTimeseries = False           # must be done if you have zero padding
 #
 # Main driver functions
 #
-def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=False):
+def PrecomputeLikelihoodTerms(epoch, P, data_dict, psd_dict, Lmax, fMax,
+        analyticPSD_Q=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -84,8 +85,10 @@ def PrecomputeLikelihoodTerms(epoch,P, data_dict, psd_dict, Lmax,analyticPSD_Q=F
             print " : Computing for ", det, " df, fNyq  = ", df, fNyq
         # Compute cross terms < h_lm | h_l'm' >
         #print " :   ", det, " -  : Building cross term matrix "
-        crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,1./2./P.deltaT, P.deltaF, analyticPSD_Q)
-        rholms[det] = ComputeModeIPTimeSeries(epoch,hlms, data_dict[det],psd_dict[det], P.fmin, 1./2./P.deltaT, analyticPSD_Q)
+        crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,
+                fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q)
+        rholms[det] = ComputeModeIPTimeSeries(epoch,hlms, data_dict[det],
+                psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, analyticPSD_Q)
         rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
         # FIXME: Need to handle geocenter-detector time shift properly
         # NOTE: This array is almost certainly wrapped in time via the inverse FFT and is NOT starting at the epoch
@@ -308,8 +311,8 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
 
     return term1 + term2
 
-def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=False,
-        tref=None, N=None):
+def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fMax,
+        fNyq, analyticPSD_Q=False, tref=None, N=None):
     """
     Compute the complex-valued overlap between
     each member of a SphHarmFrequencySeries 'hlms' 
@@ -332,15 +335,10 @@ def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fNyq, analyticPSD_Q=Fal
     assert tref==None and N==None
 
     # Create an instance of class to compute inner product time series
-    if analyticPSD_Q==False:
-        assert data.deltaF == psd.deltaF
-        IP = lsu.ComplexOverlap(fmin, fNyq, data.deltaF, psd.data.data, False, True)
-        IPRegular = lsu.ComplexIP(fmin, fNyq, data.deltaF, psd.data.data, analyticPSD_Q=False)  # debugging, sanity checks
-    else:
-        IP = lsu.ComplexOverlap(fmin, fNyq, data.deltaF, psd, analyticPSD_Q=True, full_output=True)
-        IPRegular = lsu.ComplexIP(fmin, fNyq, data.deltaF, psd)  # debugging, sanity checks
+    IP = lsu.ComplexOverlap(fmin, fMax, fNyq, data.deltaF, psd,
+            analyticPSD_Q, full_output=True)
 
-    print IP.fLow, IP.fNyq,IP.deltaF
+    print IP.fLow, IP.fNyq, IP.deltaF
     # Loop over modes and compute the overlap time series
     rholms = None
     h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms,2,2)
@@ -398,7 +396,8 @@ def InterpolateRholms(rholms, t, nRollL, Lmax):
 
     return rholm_intp
 
-def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
+def ComputeModeCrossTermIP(hlms, psd, fmin, fMax, fNyq, deltaF,
+        analyticPSD_Q=False):
     """
     Compute the 'cross terms' between waveform modes, i.e.
     < h_lm | h_l'm' >.
@@ -409,11 +408,7 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fNyq, deltaF, analyticPSD_Q=False):
     i.e. ((l,m),(l',m'))
     """
     # Create an instance of class to compute inner product
-    if analyticPSD_Q==False:
-        assert deltaF == psd.deltaF
-        IP = lsu.ComplexIP(fmin, fNyq, deltaF, psd.data.data, analyticPSD_Q=False)
-    else:
-        IP = lsu.ComplexIP(fmin, fNyq, deltaF, psd, analyticPSD_Q=True)
+    IP = lsu.ComplexIP(fmin, fMax, fNyq, deltaF, psd, analyticPSD_Q)
 
     # Loop over modes and compute the inner products, store in a dictionary
     Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
