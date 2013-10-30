@@ -36,6 +36,7 @@ import lalmetaio
 
 from pylal import frutils
 from pylal.series import read_psd_xmldoc
+import pylal
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -44,6 +45,7 @@ rosDebugMessagesContainer = [False]
 rosDebugMessagesLongContainer = [False]
 print "[Loading lalsimutils.py : MonteCarloMarginalization version]"
 
+TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 
 #
 # Class to hold arguments of ChooseWaveform functions
@@ -257,37 +259,52 @@ def xml_to_ChooseWaveformParams_array(fname, minrow=None, maxrow=None,
 #
 # Classes for computing inner products of waveforms
 #
-class InnerProduct:
+class InnerProduct(object):
     """
     Base class for inner products
     """
-    def __init__(self, fLow=10., fNyq=2048., deltaF=1./8.,
+    def __init__(self, fLow=10., fMax=None, fNyq=2048., deltaF=1./8.,
             psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower, analyticPSD_Q=True):
-        self.fLow = fLow
-        self.fNyq = fNyq
+        self.fLow = fLow # min limit of integration
+        self.fMax = fMax # max limit of integration
+        self.fNyq = fNyq # max freq. in arrays whose IP will be computed
         self.deltaF = deltaF
-        self.minIdx = int(fLow/deltaF)
-        self.FDlen = int(fNyq/deltaF)+1
-        if analyticPSD_Q:
-            self.psd = np.frompyfunc(psd,1,1)
+        self.len1side = int(fNyq/deltaF)+1 # length of Hermitian arrays
+        self.len2side = 2*(self.len1side-1) # length of non-Hermitian arrays
+        self.weights = np.zeros(self.len1side)
+        self.weights2side = np.zeros(self.len2side)
+        if self.fMax is None:
+            self.fMax = self.fNyq
+        assert self.fMax <= self.fNyq
+        self.minIdx = int(round(self.fLow/deltaF))
+        self.maxIdx = int(round(self.fMax/deltaF))
+        # Fill 1-sided (Herm.) weights from psd
+        if analyticPSD_Q is True:
+            for i in range(self.minIdx,self.maxIdx): # set weights = 1/Sn(f)
+                self.weights[i] = 1./psd(i*deltaF)
+        elif analyticPSD_Q is False:
+            if isinstance(psd, lal.REAL8FrequencySeries):
+                assert psd.f0 == 0. # don't want heterodyned psd
+                assert abs(psd.deltaF - self.deltaF) <= TOL_DF
+                fPSD = (psd.data.length - 1) * psd.deltaF # -1 b/c start at f=0
+                assert self.fMax <= fPSD
+                for i in range(self.minIdx,self.maxIdx):
+                    if psd.data.data[i] != 0.:
+                        self.weights[i] = 1./psd.data.data[i]
+            else: # if we get here psd must be an array
+                fPSD = (len(psd) - 1) * self.deltaF # -1 b/c start at f=0
+                assert self.fMax <= fPSD
+                for i in range(self.minIdx,self.maxIdx):
+                    if psd[i] != 0.:
+                        self.weights[i] = 1./psd[i]
         else:
-            assert len(psd) >= self.FDlen  # we need at this much to populate the array
-            self.psd = psd
-        self.weights = np.zeros(self.FDlen)
-        self.longweights = np.zeros(2*(self.FDlen-1))  # for not hermetian inner products
-        self.analyticPSD_Q = analyticPSD_Q
-        if analyticPSD_Q == True:
-            for i in range(self.minIdx,self.FDlen):        # populate weights for both hermetian and non-hermetian products
-                self.weights[i] = 1./self.psd(i*deltaF)
-            self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
-            self.longweights[len(self.weights)-1:] = self.weights[0:-1]
-        else:
-            for i in range(self.minIdx,self.FDlen):
-                if psd[i] != 0.:
-                    self.weights[i] = 1./psd[i]
-            length = 2*(self.FDlen-1)
-            self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
-            self.longweights[len(self.weights)-1:] = self.weights[0:-1]
+            raise ValueError("analyticPSD_Q must be either True or False")
+        # Create 2-sided (non-Herm.) weights from 1-sided (Herm.) weights
+        # They should be packed monotonically, e.g.
+        # W(-N/2 df), ..., W(-df) W(0), W(df), ..., W( (N/2-1) df)
+        # In particular,freqs = +-i*df are in N/2+-i bins of array
+        self.weights2side[:len(self.weights)] = self.weights[::-1]
+        self.weights2side[len(self.weights)-1:] = self.weights[0:-1]
 
     def ip(self, h1, h2):
         """
@@ -300,6 +317,7 @@ class InnerProduct:
         Compute norm of a COMPLEX16Frequency Series
         """
         raise Exception("This is the base InnerProduct class! Use a subclass")
+
 
 class RealIP(InnerProduct):
     """
@@ -317,11 +335,10 @@ class RealIP(InnerProduct):
         """
         Compute inner product between two COMPLEX16Frequency Series
         """
-        assert h1.data.length <= self.FDlen
-        assert h2.data.length <= self.FDlen
-        assert abs(h1.deltaF-h2.deltaF)<=1.e-5 and abs(h1.deltaF-self.deltaF)<=1.e-5
-        val = 0.
-        maxIdx = min(h1.data.length,h2.data.length)
+        assert h1.data.length == self.len1side
+        assert h2.data.length == self.len1side
+        assert abs(h1.deltaF-h2.deltaF) <= TOL_DF\
+                and abs(h1.deltaF-self.deltaF) <= TOL_DF
         val = np.sum(np.conj(h1.data.data)*h2.data.data*self.weights)
         val = 4. * self.deltaF * np.real(val)
         return val
@@ -330,12 +347,12 @@ class RealIP(InnerProduct):
         """
         Compute norm of a COMPLEX16Frequency Series
         """
-        assert h.data.length <= self.FDlen
-        assert abs(h.deltaF-self.deltaF) <= 1.e-5
-        val = 0.
+        assert h.data.length == self.len1side
+        assert abs(h.deltaF-self.deltaF) <= TOL_DF
         val = np.sum(np.conj(h.data.data)*h.data.data*self.weights)
         val = np.sqrt( 4. * self.deltaF * np.abs(val) )
         return val
+
 
 class HermitianComplexIP(InnerProduct):
     """
@@ -355,11 +372,10 @@ class HermitianComplexIP(InnerProduct):
         """
         Compute inner product between two COMPLEX16Frequency Series
         """
-        assert h1.data.length <= self.FDlen
-        assert h2.data.length <= self.FDlen
-        assert abs(h1.deltaF-h2.deltaF)<=1.e-5 and abs(h1.deltaF-self.deltaF)<=1.e-5
-        val = 0.
-        maxIdx = min(h1.data.length,h2.data.length)
+        assert h1.data.length == self.len1side
+        assert h2.data.length == self.len1side
+        assert abs(h1.deltaF-h2.deltaF) <= TOL_DF\
+                and abs(h1.deltaF-self.deltaF) <= TOL_DF
         val = np.sum(np.conj(h1.data.data)*h2.data.data*self.weights)
         val *= 4. * self.deltaF
         return val
@@ -368,13 +384,12 @@ class HermitianComplexIP(InnerProduct):
         """
         Compute norm of a COMPLEX16Frequency Series
         """
-        assert h.data.length <= self.FDlen
-        assert abs(h.deltaF-self.deltaF) <= 1.e-5
-        val = 0.
-        for i in range(self.minIdx,h.data.length):
-            val += h.data.data[i] * h.data.data[i].conj() * self.weights[i]
+        assert h.data.length == self.len1side
+        assert abs(h.deltaF-self.deltaF) <= TOL_DF
+        val = np.sum(np.conj(h.data.data)*h.data.data*self.weights)
         val = np.sqrt( 4. * self.deltaF * np.abs(val) )
         return val
+
 
 class ComplexIP(InnerProduct):
     """
@@ -395,10 +410,11 @@ class ComplexIP(InnerProduct):
         """
         Compute inner product between two COMPLEX16Frequency Series
         """
-        assert h1.data.length==h2.data.length==2*(self.FDlen-1)
-        assert abs(h1.deltaF-h2.deltaF)<=1.e-5 and abs(h1.deltaF-self.deltaF)<=1.e-5
+        assert h1.data.length==h2.data.length==self.len2side
+        assert abs(h1.deltaF-h2.deltaF) <= TOL_DF\
+                and abs(h1.deltaF-self.deltaF) <= TOL_DF
         val = 0.
-        val = np.sum( np.conj(h1.data.data)*h2.data.data *self.longweights)
+        val = np.sum( np.conj(h1.data.data)*h2.data.data*self.weights2side )
         val *= 2. * self.deltaF
         return val
 
@@ -406,11 +422,11 @@ class ComplexIP(InnerProduct):
         """
         Compute norm of a COMPLEX16Frequency Series
         """
-        assert h.data.length==len(self.longweights) #2*(self.FDlen-1)
-        assert abs(h.deltaF-self.deltaF) <= 1.e-5
+        assert h.data.length==self.len2side
+        assert abs(h.deltaF-self.deltaF) <= TOL_DF
         length = h.data.length
         val = 0.
-        val = np.sum( np.conj(h.data.data)*h.data.data *self.longweights)
+        val = np.sum( np.conj(h.data.data)*h.data.data*self.weights2side )
         val = np.sqrt( 2. * self.deltaF * np.abs(val) )
         return val
 
@@ -430,63 +446,36 @@ class Overlap(InnerProduct):
         The index of the above time series at which the maximum occurs
         The phase rotation which maximizes the real-valued overlap
     """
-    def __init__(self, fLow=10., fNyq=2048., deltaF=1./8.,
+    def __init__(self, fLow=10., fMax=None, fNyq=2048., deltaF=1./8.,
             psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower, analyticPSD_Q=True,
-            full_output=False, revplan=None, intgd=None, ovlp=None):
-        self.fLow = fLow
-        self.fNyq = fNyq
-        self.deltaF = deltaF
-        self.psd = psd
-        self.minIdx = int(fLow/deltaF)
-        self.FDlen = int(fNyq/deltaF)+1
-        self.TDlen = 2*(self.FDlen-1)
-        self.deltaT = 1./self.deltaF/self.TDlen
-        self.weights = np.zeros(self.FDlen)
-        self.longweights = np.zeros(2*(self.FDlen-1))  # for not hermetian inner products
-        self.analyticPSD_Q = analyticPSD_Q
-        self.full_output=full_output
-        self.revplan = revplan
-        self.intgd=intgd
-        self.ovlp=ovlp
-        # Create FFT plan and workspace vectors if not provided
-        if self.revplan==None:
-            self.revplan=lal.CreateReverseCOMPLEX16FFTPlan(self.TDlen, 0)
-        if self.intgd==None:
-            self.intgd = lal.CreateCOMPLEX16FrequencySeries("SNR integrand", 
-                lal.LIGOTimeGPS(0.), 0., self.deltaF,
-                lal.lalHertzUnit, self.TDlen)
-        if self.ovlp==None:
-            self.ovlp = lal.CreateCOMPLEX16TimeSeries("Complex overlap", 
+            full_output=False):
+        super(Overlap, self).__init__(fLow, fMax, fNyq, deltaF, psd,
+                analyticPSD_Q) # Call base constructor
+        self.full_output = full_output
+        self.deltaT = 1./self.deltaF/self.len2side
+        self.revplan = lal.CreateReverseCOMPLEX16FFTPlan(self.len2side, 0)
+        self.intgd = lal.CreateCOMPLEX16FrequencySeries("SNR integrand", 
+                lal.LIGOTimeGPS(0.), 0., self.deltaF, lal.lalHertzUnit,
+                self.len2side)
+        self.ovlp = lal.CreateCOMPLEX16TimeSeries("Complex overlap", 
                 lal.LIGOTimeGPS(0.), 0., self.deltaT, lal.lalDimensionlessUnit,
-                self.TDlen)
-        # Compute the weights
-        if analyticPSD_Q == True:
-            for i in range(self.minIdx,self.FDlen):
-                self.weights[i] = 1./self.psd(i*deltaF)
-            length = 2*(self.FDlen-1)
-            self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
-            self.longweights[len(self.weights)-1:] = self.weights[0:-1]
-        else:
-            for i in range(self.minIdx,self.FDlen):
-                if psd[i] != 0.:
-                    self.weights[i] = 1./psd[i]
-            length = 2*(self.FDlen-1)
-            self.longweights[:len(self.weights)] = self.weights[::-1]          # Note length requirements
-            self.longweights[len(self.weights)-1:] = self.weights[0:-1]
-
+                self.len2side)
 
     def ip(self, h1, h2):
         """
         Compute inner product between two COMPLEX16Frequency Series
         """
-        assert h1.data.length <= self.FDlen
-        assert h2.data.length <= self.FDlen
+        assert h1.data.length <= self.len1side
+        assert h2.data.length <= self.len1side
+        assert abs(h1.deltaF-h2.deltaF) <= TOL_DF\
+                and abs(h1.deltaF-self.deltaF) <= TOL_DF
         # Tabulate the SNR integrand
         maxIdx = min(h1.data.length,h2.data.length)
-        for i in range(self.TDlen):
+        for i in range(self.len1side):
             self.intgd.data.data[i] = 0.
         for i in range(self.minIdx,maxIdx):
-            self.intgd.data.data[i] = 4.*np.conj(h1.data.data[i])*h2.data.data[i]*self.weights[i]
+            self.intgd.data.data[i] = 4.*np.conj(h1.data.data[i])\
+                    *h2.data.data[i]*self.weights[i]
         # Reverse FFT to get overlap for all possible reference times
         lal.COMPLEX16FreqTimeFFT(self.ovlp, self.intgd, self.revplan)
         rhoSeries = np.abs(self.ovlp.data.data)
@@ -504,8 +493,8 @@ class Overlap(InnerProduct):
         """
         Compute norm of a COMPLEX16Frequency Series
         """
-        assert h.data.length <= self.FDlen
-        assert abs(h.deltaF-self.deltaF) <= 1.e-5
+        assert h.data.length <= self.len1side
+        assert abs(h.deltaF-self.deltaF) <= TOL_DF
         val = 0.
         val = np.sum( np.conj(h.data.data)*h.data.data *self.weights)
         val = np.sqrt( 4. * self.deltaF * np.abs(val) )
@@ -524,9 +513,9 @@ class Overlap(InnerProduct):
         rho, ovlp, rhoIdx, rhoPhase = IP.ip(h1, h2)
         plot(t, abs(ovlp))
         """
-        tShift = np.arange(self.TDlen) * self.deltaT
-        for i in range(self.FDlen,self.TDlen):
-            tShift[i] -= self.TDlen * self.deltaT
+        tShift = np.arange(self.len2side) * self.deltaT
+        for i in range(self.len1side,self.len2side):
+            tShift[i] -= self.len2side * self.deltaT
         return tShift
 
 class ComplexOverlap(InnerProduct):
@@ -549,67 +538,32 @@ class ComplexOverlap(InnerProduct):
         The index of the above time series at which the maximum occurs
         The phase rotation which maximizes the real-valued overlap
     """
-    def __init__(self, fLow=10., fNyq=2048., deltaF=1./8.,
+    def __init__(self, fLow=10., fMax=None, fNyq=2048., deltaF=1./8.,
             psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower, analyticPSD_Q=True,
-            full_output=False, revplan=None, intgd=None, ovlp=None):
-        self.fLow = fLow
-        self.fNyq = fNyq
-        self.deltaF = deltaF
-        self.psd = psd
-        self.minIdx = int(fLow/deltaF)
-        self.wgtslen = int(fNyq/deltaF)+1
-        self.wvlen = 2*(self.wgtslen-1)
-        self.deltaT = 1./self.deltaF/self.wvlen
-        self.weights = np.zeros(self.wgtslen)
-        self.longweights = np.zeros(2*(self.wgtslen-1))  # for not hermetian inner products
-        self.longpsdLAL = lal.CreateCOMPLEX16FrequencySeries("PSD",lal.LIGOTimeGPS(0.), 0., self.deltaF,lal.lalHertzUnit, self.wvlen)
-        self.analyticPSD_Q = analyticPSD_Q
+            full_output=False):
+        super(ComplexOverlap, self).__init__(fLow, fMax, fNyq, deltaF, psd,
+                analyticPSD_Q) # Call base constructor
         self.full_output=full_output
-        self.revplan = revplan
-        self.intgd=intgd
-        self.ovlp=ovlp
-        # Create FFT plan and workspace vectors if not provided
-        if self.revplan==None:
-            self.revplan=lal.CreateReverseCOMPLEX16FFTPlan(self.wvlen, 0)
-        if self.intgd==None:
-            self.intgd = lal.CreateCOMPLEX16FrequencySeries("SNR integrand", 
+        self.deltaT = 1./self.deltaF/self.len2side
+        # Create FFT plan and workspace vectors
+        self.revplan=lal.CreateReverseCOMPLEX16FFTPlan(self.len2side, 0)
+        self.intgd = lal.CreateCOMPLEX16FrequencySeries("SNR integrand", 
                 lal.LIGOTimeGPS(0.), 0., self.deltaF,
-                lal.lalHertzUnit, self.wvlen)
-        if self.ovlp==None:
-            self.ovlp = lal.CreateCOMPLEX16TimeSeries("Complex overlap", 
+                lal.lalHertzUnit, self.len2side)
+        self.ovlp = lal.CreateCOMPLEX16TimeSeries("Complex overlap", 
                 lal.LIGOTimeGPS(0.), 0., self.deltaT, lal.lalDimensionlessUnit,
-                self.wvlen)
-        # Compute the weights
-        if analyticPSD_Q == True:
-            for i in range(self.minIdx,self.wgtslen):
-                self.weights[i] = 1./self.psd(i*deltaF)
-                length = self.wvlen
-                self.longweights[length/2 - i+1] = 1./self.psd(i*deltaF)
-                self.longweights[length/2 + i-1] = 1./self.psd(i*deltaF)
-                self.longpsdLAL.data.data[length/2-i+1] = self.psd(i*deltaF)
-                self.longpsdLAL.data.data[length/2+i-1] = self.psd(i*deltaF)
-        else:
-            for i in range(self.minIdx,self.wgtslen):
-                if psd[i] != 0.:
-                    self.weights[i] = 1./psd[i]
-                    length = self.wvlen
-                    self.longweights[length/2 - i+1] = 1./psd[i]
-                    self.longweights[length/2 + i-1] = 1./psd[i]
-                    self.longpsdLAL.data.data[length/2-i+1] =1./ psd[i]
-                    self.longpsdLAL.data.data[length/2+i-1] = 1./psd[i]
+                self.len2side)
 
     def ip(self, h1, h2):
         """
-        Compute inner product between two COMPLEX16Frequency Series
+        Compute inner product between two non-Hermitian COMPLEX16FrequencySeries
         """
-        assert h1.data.length==h2.data.length==self.wvlen
+        assert h1.data.length==h2.data.length==self.len2side
+        assert abs(h1.deltaF-h2.deltaF) <= TOL_DF\
+                and abs(h1.deltaF-self.deltaF) <= TOL_DF
         # Tabulate the SNR integrand
-        for i in range(self.wvlen):
-            self.intgd.data.data[i] = 0.
-        # Note packing of h(f) is monotonic when h(t) is complex:
-        # h(-N/2 df), ..., H(-df) h(0), h(df), ..., h(N/2 df)
-        # In particular,freqs = +-i*df are in N/2+-i bins of array
-        self.intgd.data.data = 2*np.conj(h1.data.data)*h2.data.data*self.longweights  # Dangerous!
+        self.intgd.data.data = 2*np.conj(h1.data.data)\
+                *h2.data.data*self.weights2side
         # Reverse FFT to get overlap for all possible reference times
         lal.COMPLEX16FreqTimeFFT(self.ovlp, self.intgd, self.revplan)
         rhoSeries = np.abs(self.ovlp.data.data)
@@ -625,13 +579,11 @@ class ComplexOverlap(InnerProduct):
 
     def norm(self, h):
         """
-        Compute inner product between two COMPLEX16Frequency Series
+        Compute norm of a non-Hermitian COMPLEX16FrequencySeries
         """
-        assert h.data.length==self.wvlen
-        assert abs(h.deltaF-self.deltaF) <= 1.e-5
-        val = 0.
-        # Note monotonic packing of h(f)
-        val = np.sum( np.conj(h.data.data)*h.data.data *self.longweights)
+        assert h.data.length==self.len2side
+        assert abs(h.deltaF-self.deltaF) <= TOL_DF
+        val = np.sum( np.conj(h.data.data)*h.data.data *self.weights2side)
         val = np.sqrt( 2. * self.deltaF * np.abs(val) )
         return val
 
@@ -648,11 +600,10 @@ class ComplexOverlap(InnerProduct):
         rho, ovlp, rhoIdx, rhoPhase = IP.ip(h1, h2)
         plot(t, abs(ovlp))
         """
-        tShift = np.arange(self.wvlen) * self.deltaT
-        for i in range(self.FDlen,self.wvlen):
-            tShift[i] -= self.wvlen * self.deltaT
+        tShift = np.arange(self.len2side) * self.deltaT
+        for i in range(self.len1side,self.len2side):
+            tShift[i] -= self.len2side * self.deltaT
         return tShift
-
 
 
 #
@@ -1546,11 +1497,40 @@ def get_psd_series_from_xmldoc(fname, inst):
 
 def get_intp_psd_series_from_xmldoc(fname, inst):
     psd = get_psd_series_from_xmldoc(fname, inst)
-    f = np.arange(psd.f0, psd.deltaF*len(psd.data), psd.deltaF)
-    ifunc = interpolate.interp1d(f, psd.data)
+    return intp_psd_series(psd)
+
+def resample_psd_series(psd, df=None, fmin=None, fmax=None):
+    # handle pylal REAL8FrequencySeries
+    if isinstance(psd, pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
+        psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.deltaF*len(psd.data), psd.deltaF, psd.data
+    # handle SWIG REAL8FrequencySeries
+    elif isinstance(psd, lal.REAL8FrequencySeries):
+        psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.deltaF*len(psd.data.data), psd.deltaF, psd.data.data
+    # die horribly
+    else:
+        raise ValueError("resample_psd_series: Don't know how to handle %s." % type(psd))
+    fmin = fmin or psd_fmin
+    fmax = fmax or psd_fmax
+    df = df or psd_df
+
+    f = np.arange(psd_fmin, psd_fmin + psd_fmax, psd_df)
+    ifunc = interpolate.interp1d(f, data)
     def intp_psd(freq):
-        return float("inf") if freq > psd.deltaF*len(psd.data) else ifunc(freq)
-    return np.vectorize(intp_psd)
+        return float("inf") if freq >= psd_fmax-psd_df or ifunc(freq) == 0.0 else ifunc(freq)
+    intp_psd = np.vectorize(intp_psd)
+    psd_intp = intp_psd(np.arange(fmin, fmax, df))
+
+    tmpepoch = lal.LIGOTimeGPS(float(psd.epoch))
+    # FIXME: Reenable when we figure out generic error
+    """
+    tmpunit = lal.Unit()
+    lal.ParseUnitString(tmpunit, str(psd.sampleUnits))
+    """
+    tmpunit = lal.lalSecondUnit
+    new_psd = lal.CreateREAL8FrequencySeries(epoch = tmpepoch, deltaF=df, f0 = fmin, sampleUnits = tmpunit, name = psd.name, length=len(psd_intp))
+    new_psd.data.data = psd_intp
+    return new_psd
+
 
 def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all modes, as a list.  Useful for building iterators without nested lists
     mylist = []
