@@ -20,13 +20,13 @@ for arg in sys.argv[2:]:
 pyplot.figure()
 pyplot.title(ifo)
 for fname, series in psdd.iteritems():
-    pyplot.grid()
     pyplot.loglog()
     f = numpy.arange(series.f0, len(series.data)*series.deltaF, series.deltaF)
     pyplot.plot(f, series.data, '-', label=fname)
     pyplot.xlim([1e1,2e3])
     pyplot.ylim([1e-46,1e-26])
 
+pyplot.grid()
 pyplot.legend()
 
 pyplot.savefig("psd_single.png")
