@@ -24,6 +24,24 @@ from hashlib import md5
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
+# Taken from
+# http://pythonadventures.wordpress.com/2011/03/13/equivalent-of-the-which-command-in-python/
+import os
+def is_exe(fpath):
+    return os.path.exists(fpath) and os.access(fpath, os.X_OK)
+
+def which(program):
+    fpath, fname = os.path.split(program)
+    if fpath:
+        if is_exe(program):
+            return program
+    else:
+        for path in os.environ["PATH"].split(os.pathsep):
+            exe_file = os.path.join(path, program)
+            if is_exe(exe_file): return exe_file
+
+    return None
+
 def generate_job_id():
     """
     Generate a unique md5 hash for use as a job ID.
@@ -97,7 +115,8 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate',
     assert len(psds) == len(channels)
     fname = tag + '.sub'
     sub = open(fname, 'w')
-    sub.write('executable=integrate_likelihood_extrinsic\n')
+    exe = which("integrate_likelihood_extrinsic")
+    sub.write('executable=%s\n' % exe)
     sub.write('universe=vanilla\n')
     line = 'arguments='
     if cache is not None:
