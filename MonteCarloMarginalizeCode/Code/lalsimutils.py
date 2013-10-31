@@ -985,6 +985,26 @@ def hlmoff(P, Lmax=2, Fp=None, Fc=None):
 
     return Hlms
 
+def conj_hlmoff(P, Lmax=2, Fp=None, Fc=None):
+    hlms = hlmoft(P, Lmax, Fp, Fc)
+    hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
+    if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
+        TDlen = nextPow2(hxx.data.length)
+        hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
+    else: # Check zero-padding was done to expected length
+        TDlen = int(1./P.deltaF * 1./P.deltaT)
+        assert TDlen == hxx.data.length
+
+    # Conjugate each mode before taking FFT
+    for l in range(2, Lmax+1):
+        for m in range(-l, l+1):
+            hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, l, m)
+            hxx.data.data = np.conj(hxx.data.data)
+    # FFT the hlms
+    Hlms = lalsim.SphHarmFrequencySeriesFromSphHarmTimeSeries(hlms)
+
+    return Hlms
+
 
 def complex_hoft(P, sgn=-1):
     """
