@@ -57,3 +57,10 @@ clean:
 	rm -rf ${INJECTION_DEST}
 	rm *.cache
 	rm *.png
+
+ros_test_likelihood:
+# Copy frame files from CIT: not everyone has gstlal installed.
+	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/iligo_noise_mdc/iligo_noise_mdc .
+	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/HLV-ILIGO_PSD.xml.gz .
+	find iligo_noise_mdc -name "*.gwf" | lalapps_path2cache > iligo_noise.cache
+	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --force-read-full-frames --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0

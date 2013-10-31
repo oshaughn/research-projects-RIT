@@ -41,6 +41,10 @@ def ParseStandardArguments():
     # Infrastructure choices:
     parser.add_argument("--skip-interpolation",dest="opt_SkipInterpolation",default=False,action='store_true')  # skip interpolation : saves time, but some things will crash later
 
+    # Template parameters (forced)
+    parser.add_argument("--mass1", default=False,type=float)
+    parser.add_argument("--mass2", default=False,type=float)
+
     # Noise model
     parser.add_argument("--psd-file",dest='psd_file',default=None, help="psd-file for all instruments. Assumes PSD for all instruments is provided in the file.  If None, uses an analytic PSD")
 #    parser.add_argument("--psd-file",dest='psd_file',default=None, help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments. If None, uses an analytic PSD.  Implemented for compatibility with Pankow")

@@ -38,3 +38,14 @@ V1_zero_noise.cache:
 clean:
 	rm *.cache
 	rm -rf zero_noise_mdc/
+
+
+ros_test_likelihood:
+# Copy frame files from CIT: not everyone has gstlal installed.
+	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/zero_noise_mdc/zero_noise_mdc .
+	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/HLV-ILIGO_PSD.xml.gz .
+	find zero_noise_mdc -name "*.gwf" | lalapps_path2cache > zero_noise.cache
+# TEST VERSION 1: Analytic (iLIGO) PSD model
+#	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --force-read-full-frames --seglen 10  --mass1 4.0 --mass2 4.0
+# TEST VERSION 2: Read PSD from file
+	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --force-read-full-frames --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0

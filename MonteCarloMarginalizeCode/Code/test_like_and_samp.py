@@ -194,6 +194,12 @@ if opts.inj:
     Psig.print_params()
     print "---- End injeciton parameters ----"
 
+# Use forced parameters, if provided
+if opts.mass1:
+    Psig.m1 = opts.mass1*lal.LAL_MSUN_SI
+if opts.mass2:
+    Psig.m2 = opts.mass2*lal.LAL_MSUN_SI
+
 # TRY TO READ IN DATA: if data specified, use it and construct the detector list from it. Otherwise...
 if opts.channel_name and    (opts.opt_ReadWholeFrameFilesInCache):
     for inst, chan in map(lambda c: c.split("="), opts.channel_name):
@@ -287,17 +293,25 @@ else:
     df = data_dict[detectors[0]].deltaF
     for det in detectors:
         print "Reading PSD for instrument %s from %s" % (det, opts.psd_file)
-        psd_dict[det] = lalsimutils.pylal_psd_to_swig_psd(lalsimutils.get_psd_series_from_xmldoc(opts.psd_file, det))
-        psd_dict[det] = lalsimutils.regularize_swig_psd_series_near_nyquist(psd_dict[det], 80) # zero out 80 hz window near nyquist
-        psd_dict[det] =  lalsimutils.enforce_swig_psd_fmin(psd_dict[det], fminSNR)           # enforce fmin at the psd level, HARD CUTOFF
-        tmp = psd_dict[det].data.data
-        print "Sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), " and maximum is ", np.max(psd_dict[det].data.data)
+        psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(opts.psd_file, det)
         deltaF = data_dict[det].deltaF
-        # remember the PSD is one-sided, but h(f) is two-sided. The lengths are not equal.
-        psd_dict[det] = lalsimutils.extend_swig_psd_series_to_sampling_requirements(psd_dict[det], df, df*(len(data_dict[det].data.data)/2))
-        print "Post-extension the new PSD has 1/df = ", 1./psd_dict[det].deltaF, " (data 1/df = ", 1./deltaF, ") and length ", len(psd_dict[det].data.data)
-        tmp = psd_dict[det].data.data
-        print "Post-extension sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), " and maximum is ", np.max(psd_dict[det].data.data)
+        fmin = psd_dict[det].f0
+        fmax = fmin + psd_dict[det].deltaF*len(psd_dict[det].data)-deltaF
+        print "PSD deltaF before interpolation %f" % psd_dict[det].deltaF
+        psd_dict[det] = lalsimutils.resample_psd_series(psd_dict[det], deltaF)
+        print "PSD deltaF after interpolation %f" % psd_dict[det].deltaF
+
+        # psd_dict[det] = lalsimutils.pylal_psd_to_swig_psd(lalsimutils.get_psd_series_from_xmldoc(opts.psd_file, det))
+        # psd_dict[det] = lalsimutils.regularize_swig_psd_series_near_nyquist(psd_dict[det], 80) # zero out 80 hz window near nyquist
+        # psd_dict[det] =  lalsimutils.enforce_swig_psd_fmin(psd_dict[det], fminSNR)           # enforce fmin at the psd level, HARD CUTOFF
+        # tmp = psd_dict[det].data.data
+        # print "Sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), " and maximum is ", np.max(psd_dict[det].data.data)
+        # deltaF = data_dict[det].deltaF
+        # # remember the PSD is one-sided, but h(f) is two-sided. The lengths are not equal.
+        # psd_dict[det] = lalsimutils.extend_swig_psd_series_to_sampling_requirements(psd_dict[det], df, df*(len(data_dict[det].data.data)/2))
+        # print "Post-extension the new PSD has 1/df = ", 1./psd_dict[det].deltaF, " (data 1/df = ", 1./deltaF, ") and length ", len(psd_dict[det].data.data)
+        # tmp = psd_dict[det].data.data
+        # print "Post-extension sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), " and maximum is ", np.max(psd_dict[det].data.data)
 
 # This code is a DUPLICATE TEST, used to initialize the peak log likelihood.
 # I use this threshold to identify points for further investigation.
@@ -308,9 +322,9 @@ print  " Amplitude report :"
 fminSNR =opts.fmin_SNR
 for det in detectors:
     if analyticPSD_Q:
-        IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det])
+        IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],fmax=fmaxSNR)
     else:
-        IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det].data.data,analyticPSD_Q=False)
+        IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det].data.data,fMax=fmaxSNR,analyticPSD_Q=False)
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
     print det, " rho = ", rhoDet
@@ -389,7 +403,7 @@ TestDictionary["lnLDataPlot"]            = True
 
 #opts.fmin_SNR=40
 
-factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, epoch_post, data_dict, psd_dict, analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, detectors,Lmax)
+factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, epoch_post, data_dict, psd_dict, fmaxSNR,analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, detectors,Lmax)
 
 
 

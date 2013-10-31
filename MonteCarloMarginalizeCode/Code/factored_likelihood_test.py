@@ -33,7 +33,7 @@ TestDictionaryDefault["lnLAtKnownMarginalizeTime"]  = False
 TestDictionaryDefault["lnLDataPlot"]            = False
 
 
-def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, data_dict, psd_dict, analyticPSD_Q,Psig,rholms,rholms_intp, crossTerms, detectors, Lmax):
+def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, data_dict, psd_dict, fmaxSNR, analyticPSD_Q,Psig,rholms,rholms_intp, crossTerms, detectors, Lmax):
 
     fmin_SNR=30
     keysPairs = lalsimutils.constructLMIterator(Lmax)
@@ -59,11 +59,11 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
         rho2Net = 0
         for det in detectors:
             if analyticPSD_Q:
-                IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],analyticPSD_Q=analyticPSD_Q)
-                IPOverlap = lalsimutils.ComplexOverlap(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],analyticPSD_Q=analyticPSD_Q,full_output=True)  # Use for debugging later
+                IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],fMax=fmaxSNR, analyticPSD_Q=analyticPSD_Q)
+                IPOverlap = lalsimutils.ComplexOverlap(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],fMax=fmaxSNR, analyticPSD_Q=analyticPSD_Q,full_output=True)  # Use for debugging later
             else:
-                IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det].data.data,analyticPSD_Q=analyticPSD_Q)
-                IPOverlap = lalsimutils.ComplexOverlap(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det].data.data,analyticPSD_Q=analyticPSD_Q,full_output=True)              
+                IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det].data.data,fMax=fmaxSNR, analyticPSD_Q=analyticPSD_Q)
+                IPOverlap = lalsimutils.ComplexOverlap(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det].data.data,fMax=fmaxSNR, analyticPSD_Q=analyticPSD_Q,full_output=True)              
             rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
             rhoExpectedAlt[det] = rhoDet2 = IPOverlap.norm(data_dict[det])
             rho2Net += rhoDet*rhoDet
@@ -78,9 +78,9 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
         for det in detectors:
             data_fake_dict[det] = lal.ResizeCOMPLEX16FrequencySeries(factored_likelihood.non_herm_hoff(Psig), 0, len(data_dict[det].data.data))  # Pad if needed!
             if analyticPSD_Q:
-                IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],analyticPSD_Q=analyticPSD_Q)
+                IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],fMax=fmaxSNR, analyticPSD_Q=analyticPSD_Q)
             else:
-                IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det].data.data,analyticPSD_Q=analyticPSD_Q)
+                IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det].data.data,fMax=fmaxSNR, analyticPSD_Q=analyticPSD_Q)
             rhoFake[det] = IP.norm(data_fake_dict[det])   # Reset
             rho2Net += rhoFake[det]*rhoFake[det]
             print " Fake data :", det, rhoFake[det]
