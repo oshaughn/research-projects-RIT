@@ -63,7 +63,7 @@ def ParseStandardArguments():
     # Lower frequencies 
     parser.add_argument("--fmin-snr", dest='fmin_SNR', type=float, default=30)
     parser.add_argument("--fmin-template", dest='fmin_Template', type=float, default=30)
-#    parser.add_argument("--fmax-snr", dest='fmax_SNR', type=float, default=2000)
+    parser.add_argument("--fmax-snr", dest='fmax_SNR', type=float, default=2000)
 
     # Options to set template physics
     parser.add_argument("--fref", dest='fref', type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")

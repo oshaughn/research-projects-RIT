@@ -108,6 +108,7 @@ Lmax = opts.Lmax # sets which modes to include
 fref = opts.fref
 fminWavesSignal = opts.fmin_Template  # too long can be a memory and time hog, particularly at 16 kHz
 fminSNR =opts.fmin_SNR
+fmaxSNR = opts.fmax_SNR
 fSample = opts.srate
 
 if opts.channel_name is not None and opts.cache_file is None:
@@ -364,7 +365,7 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
 #
 # Perform the Precompute stage
 #
-rholms_intp, crossTerms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict,psd_dict, Lmax, analyticPSD_Q)
+rholms_intp, crossTerms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q)
 print "Finished Precomputation..."
 print "====Generating metadata from precomputed results ====="
 distBoundGuess = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, crossTerms)

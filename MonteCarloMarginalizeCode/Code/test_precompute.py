@@ -56,6 +56,7 @@ if (rosUseRandomTemplateStartingFrequency):
     print "   --- Generating a random template starting frequency  ---- " 
     fminWavesTemplate += 5*np.random.random_sample()
 fminSNR = 25
+fmaxSNR = 2000
 fSample = 4096*4
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
@@ -152,7 +153,7 @@ P =  lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=
          deltaT=1./fSample,
          tref=theEpochFiducial,
          deltaF=df)
-rholms_intp, crossTerms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict, psd_dict, Lmax, analyticPSD_Q)
+rholms_intp, crossTerms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict, psd_dict, Lmax, fmaxSNR, analyticPSD_Q)
 
 
 TestDictionary = factored_likelihood_test.TestDictionaryDefault
@@ -164,7 +165,7 @@ TestDictionary["QReflection"]          = False
 TestDictionary["lnLModelAtKnown"]  = True
 TestDictionary["lnLDataAtKnownPlusOptimalTimePhase"] = False
 TestDictionary["lnLAtKnown"]           = True
-TestDictionary["lnLAtKnownMarginalizeTime"]  = True
+TestDictionary["lnLAtKnownMarginalizeTime"]  = False
 TestDictionary["lnLDataPlot"]            = True
 
 #opts.fmin_SNR=40
