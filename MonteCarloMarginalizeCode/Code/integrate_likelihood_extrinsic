@@ -115,7 +115,7 @@ else:
 #
 data_dict, psd_dict = {}, {}
 
-start_pad, end_pad = opts.seglen-opts.padding, opts.padding 
+start_pad, end_pad = opts.seglen+opts.padding, opts.padding
 for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
     data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=int(event_time)-start_pad, stop=int(event_time)+end_pad)
