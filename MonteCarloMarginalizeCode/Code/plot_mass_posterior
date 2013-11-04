@@ -1,0 +1,41 @@
+#!/usr/bin/env python
+import sys
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot
+
+import numpy
+
+from glue.ligolw import utils, table, lsctables
+
+mass_points = table.get_table(utils.load_filename(sys.argv[1]), lsctables.SnglInspiralTable.tableName)
+
+like = [row.snr for row in mass_points]
+mass_points = [(row.mass1, row.mass2) for row in mass_points]
+m1, m2 = numpy.array(mass_points).T
+
+"""
+m1_m, m2_m = 1.4, 1.4
+#mass_points = numpy.random.rand(2000).reshape(2,1000)*1.0 + 1.0
+m1 = numpy.random.rand(10000)*1.0 + 1.0
+m2 = numpy.random.rand(10000)*1.0 + 1.0
+
+mass_points = [numpy.exp(-(m1i-m1_m)**2/2-(m2i-m1_m)**2/2) for m1i, m2i in zip(m1, m2)]
+"""
+
+m1g, m2g = numpy.meshgrid(numpy.arange(1.0,2.0,0.1), numpy.arange(1.0,2.0,0.1))
+m1m2 = numpy.array(zip(m1g.flatten(), m2g.flatten()))
+
+#from scipy.interpolate import griddata
+#int_like = griddata((m1,m2), like, m1m2)
+from matplotlib.mlab import griddata
+int_like = griddata(m1, m2, like, m1g, m2g)
+
+pyplot.contourf(m1g, m2g, int_like)
+pyplot.colorbar()
+pyplot.grid()
+pyplot.scatter(m1, m2, s=5.0, c=like)
+pyplot.savefig("m1m2_likelihood.png")
+pyplot.xlabel("mass1")
+pyplot.ylabel("mass2")
