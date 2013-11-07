@@ -76,25 +76,40 @@ first read.
 % Keppel http://adsabs.harvard.edu/cgi-bin/nph-data_query?bibcode=2012arXiv1208.2340K&link_type=ABSTRACT
 
 
-\editremark{MISC}
+\begin{widetext}
 
-* Convergence rate diagnostic for whether sampler is working
+\noindent \textbf{Action items}
 
-* Complex $h(t)$.
+\begin{verbatim}
+- Richard:
+  - Convergence rate theory for sampler
+  - Sky sampler check
+  - Bughunt
+- Evan : 
+  - dag layout  (perhaps stochastic banks? perhaps tmptbank + jitter)
+     Harvest from pycbc if needed
 
-* \editremark{priming future with past}: Each MC evaluation provides information about intrinsic parameters, which we can use
-to further refine subsequent iterations.  Convergence should get faster as we go.
+- Chris
 
-\editremark{Code generation/loop}
-
-- harvest from pycbc -- save reinventing the wheel
+ - modified sampler: sky location done directly (via explicit loop)
 
 
-\editremark{Bugs}
+Feedback for Chris
+  - neff has a fencepost error
 
- - marginalization in $\psi$ is effective, but posteriors are extremely broad.  Fixme?  Check consistency with standard code?
+\end{verbatim}
+\end{widetext}
 
- - overflow in exponential for likelihood evaluation!  This sets maximum SNR. \editremark{needs to be dealt with}
+%% Long term
+%%   - dag 
+%%   - priming future with past: Each MC evaluation provides information about intrinsic parameters, which we can use to further refine subsequent iterations.  Convergence should get faster as we go.
+
+%%   - filtering to allow us to work with downsampled data (if viable).
+%%     May be tricky because of timing and sky location issues.
+
+%%   - psd issues and high frequency: will truncating the PSD at say 2048 due to sampling 
+%%     contaminate our recovered parameters if time resolution (i.e., SNR) ought to be  very high?
+
 
 \section{What we are selling}
 
@@ -114,7 +129,6 @@ particularly for selecting among models of competing sophistication.
 Our code provides an  reliable evidence calculation, with well-understood error bars.
 \end{itemize}
 
-\noindent \textbf{Playing to the crowd 0}: 
 
 \noindent \textbf{Playing to the crowd}: At the Sept LVC in Hannover, the PE group identified waveform systematics as a
 core issue needing futher development.  To address waveform systematics (i.e., varying PN order; modified GR) as well as
@@ -130,7 +144,7 @@ gaussian noise.
 
 \subsection{The reduced likelihood}
 \noindent \textbf{Gravitational wave signal}: Paramters $\lambda,\theta$ for $\lambda$ intrinsic parameters (slow) and
-$\theta$ extrinsic parameters (fast).  The code provides $h(t|\lambda,\theta)$ in the Earth's barycenter or, more
+$\theta$ extrinsic parameters (fast).  The code provides $h(t|\lambda,\theta)$ in the Earth's geocenter or, more
 usefeul, $h_{lm}$, a spin-weighted spherical harmonic decomposition relative to the emission direction $\hat{N}$
 \begin{shaded}
 \begin{itemize}
@@ -245,7 +259,7 @@ The total likelihood is the product of individual detectors' likelihoods:
 \textbf{Efficiency of terms?}: As described below, the two terms in the log likelihood
 \begin{itemize}
 \item \emph{Model-only term}: This time-translation-independent $L_{\rm model}$ can be efficienly calculated from $\tilde{h}$ in the
-  barycenter, for any sky location [Eq. \editremark{X}], from an O(N) operation.  To get $\tilde{h}$ in the barycenter for
+  geocenter, for any sky location [Eq. \editremark{X}], from an O(N) operation.  To get $\tilde{h}$ in the geocenter for
   an arbitrary \emph{emission} direction, we need to sum over $\tilde{h}_{lm}(f)$ via
   Eq. (\ref{eq:def:hSpinWeightEmissionDirection})
 \item \emph{Data term}: The other term can be efficiently computed for all times, sky locations, and emission directions
@@ -263,14 +277,14 @@ Using the notation in  \citet{gwastro-mergers-HeeSuk-CompareToPE-Aligned}, we de
 \end{eqnarray}
 The first term is time-translation invariant and ``easy'' to evaluate ``once and for all'' -- see later tricks with
 $h_{lm}$.   The second term can be resummed by substituting the value of $H_k$ in terms of translations, beampatterns,
-and $h(t)$ at the barycenter.  So...
+and $h(t)$ at the geocenter.  So...
 
 
 \noindent \textbf{Coherent likelihood for a stationary network}: Assume $\vec{x}_k$ and $F_k$ are  stationary, so
 $\tilde{H}_k(f)$ is easily evaluated and substituted: 
 %\editremark{fix definitions: be consistent with old notation; make sure I include both terms}
 \begin{align}
-\label{eq:def:BarycenteredInnerProductWithData}
+\label{eq:def:GeocenteredInnerProductWithData}
 \sum_k \qmstateproduct{H_k}{\hat{H}_k}_k 
 & = 
  \sum_k \frac{1}{2}\left [ \qmstateproduct{ F_k h +  F_k^*{\cal I}h}{e^{i\omega \hat{k}\cdot \hat{x}_k} \hat{H}_k}_k
@@ -286,14 +300,14 @@ S_{\rm ref}^{-1} = \frac{1}{N_{\rm det}} \sum_k S_{k}(f)^{-1} \quad ;\text{or} \
 \end{eqnarray}
 %
 In this form, the translated detector data carries all information about the sky location; no information about the
-source is used.  The data from each detector is \emph{barycentered} by first applying the \emph{inverse} time
+source is used.  The data from each detector is \emph{geocentered} by first applying the \emph{inverse} time
 translation operation; then the beampattern response and detector PSD, as a weight.
 %
 
-Similarly, the signal amplitude can be expressed using barycentered quantities.  Taking care to allow for different PSDs
+Similarly, the signal amplitude can be expressed using geocentered quantities.  Taking care to allow for different PSDs
 in different detectors, we find
 \begin{align}
-\label{eq:CalculateRhoFromBarycenterStrain}
+\label{eq:CalculateRhoFromGeocenterStrain}
 \rho^2& \equiv \sum_k \qmstateproduct{H_k}{H_k}_k 
  =  \frac{1}{2}\qmoperatorelement{h}{\sum_k F_k^* F_k\frac{S_{\rm ref}}{S_k}}{h}_{\rm ref} 
  + \frac{1}{4}\qmoperatorelement{h}{\sum_k F_k^* F_k^* \frac{S_{\rm ref}}{S_k}}{{\cal I} h}_{\rm ref}  
@@ -308,7 +322,7 @@ where the last expression implicitly defines the operators $\sigma(f|\hat{k}), \
 \zeta \equiv \sum_k F_k F_k \frac{S_{\rm ref}(f)}{S_k(f)} 
 \end{eqnarray}
 
-\noindent \textbf{Why do we care, mark 1}: This operation [Eq. (\ref{eq:def:BarycenteredInnerProductWithData})] allows us to quickly explore any individual sky location.  And to
+\noindent \textbf{Why do we care, mark 1}: This operation [Eq. (\ref{eq:def:GeocenteredInnerProductWithData})] allows us to quickly explore any individual sky location.  And to
 explore alternative sky locations (via all possible time translations of the raw data): just reconstruct ${\cal S}$ from
 the raw data streams slightly differently.   And to reduce the number of FFTs we need to perform for time translation:
 having constructed ${\cal S}$, it needs to be fourier transformed only once to make the network SNR timeseries.
@@ -527,7 +541,7 @@ initial signal generation, fourier, comparison against data and inverse FFT, no 
 If fourier transforms dominate our computational cost, this postprocessing-only approach will be much faster.
 
 \begin{widetext}
-\noindent \emph{Longhand Implementation}: Explicit non-barycentered expressions allowing for timeshifts or sky position
+\noindent \emph{Longhand Implementation}: Explicit non-geocentered expressions allowing for timeshifts or sky position
 shifts have the form \editremark{missing polarization angle explicitly in this construct}
 \begin{align}
 \label{eq:IndividualDetectorLikelihoodTimeseries:ViaSpinWeightBasis}
@@ -559,8 +573,8 @@ This situation should be contrasted with the assumptions implicit in the F stati
 
 
 %% \begin{shaded}
-%% \noindent \textbf{Barycentering and $\rho^2$}:  We described how to barycenter the data in
-%% Eq. (\ref{eq:def:BarycenteredInnerProductWithData}).  Similar expressions let us barycenter the signal amplitude
+%% \noindent \textbf{Geocentering and $\rho^2$}:  We described how to geocenter the data in
+%% Eq. (\ref{eq:def:GeocenteredInnerProductWithData}).  Similar expressions let us geocenter the signal amplitude
 %% calculation: 
 %% \begin{eqnarray}
 %% \rho^2 \equiv \sum_k \qmstateproduct{H_k}{H_k}_k
@@ -596,7 +610,7 @@ This situation should be contrasted with the assumptions implicit in the F stati
 %% \end{align} 
 %% % POINT: Relation to ``coherent network amplitude''
 %% The form of this expansion suggests that the following quantity can reasonably be called the ``complex network
-%% response'' to a signal $h$ in the Earth's barycenter:
+%% response'' to a signal $h$ in the Earth's geocenter:
 %% \begin{eqnarray}
 %% {\cal S} h \equiv [\sigma  + \frac{1}{2} \zeta^{\dag} {\cal I} ] h
 %% \end{eqnarray}
@@ -638,7 +652,7 @@ $L_{\rm data}$ and $L_{\rm model}$ for any event time via
 \end{align}
 Assuming $P,Q$ are interpolated off a small number of basis points, this expression can be evaluated ``analytically''.
 \item \emph{Signal term}:  The scheme for computing $L_{\rm model}$ was outlined in
-  Eq. \ref{eq:CalculateRhoFromBarycenterStrain}.     To minimize the number of re-evaluations, let's make any dependence on
+  Eq. \ref{eq:CalculateRhoFromGeocenterStrain}.     To minimize the number of re-evaluations, let's make any dependence on
   $\psi_J$ and $d$ explicit
 \begin{align}
 \tilde{h}(f|\lambda,\hat{n},d_{\rm ref}) &\equiv \tilde{h}_{\rm ref}(f) = \sum_{lm} \tilde{h}_{lm}(f|\lambda) \Y{-2}_{lm}(\hat{n}) \\
@@ -712,248 +726,9 @@ An integral over this 4d space can be done by monte carlo -- preferably using an
 
 
 
-
-\subsection{Extrinsic marginalization: Localized sources in $t,\hat{k}$ via time-of-flight }
-\label{sec:sub:MarginalizeViaTimeOfFlight}
-
-\noindent \textbf{Arrival-time sampling}: Physical sources will have well-determined arrival times at each detector,
-for any significant template.  In our notation, for each detector $k$, each intrinsc parameters $\lambda$, and each
-$(l,m)$ there is some pair of real numbers $\rho_{k,lm},t_{k,lm}$  that describes the local maximum's event time and
-signal magnitude:
-\begin{eqnarray}
-\rho_{k,lm} \equiv |Q_{k,lm}(t_{k,lm})|/\sqrt{U_{k,lm,lm}}
-\end{eqnarray}
-where $Q$ has a local maximum at $t_{k,lm}$.  
-[To order of magnitude $\rho_{k,lm}$ is similar to the signal amplitude $\qmstateproduct{\hat{H}_k}{\hat{H}_k}_k$ of the
-data in that detector, if a signal is present.]
-%
-Based on this information, a simple a priori \emph{estimate} for the arrival times $t_1\ldots t_3$ in each detector are possible
-[fixing some $(l,m)$ pair -- say (2,2)]: we can build a distribution.
-
-\noindent \emph{Change of variables}: The arrival times are in 1-1 relationship with candidate
-event times and sky locations,when physical.  to solve, re-express the arrival times in each detector in terms of the
-sky location and barycenter:
-\begin{eqnarray}
-t_1 = t + \hat{k}\cdot \vec{x}_1 
-      = t - \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_1 \\
-t_2  = t - \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_2 \\
-t_3  = t - \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_3 
-\end{eqnarray}
-Note in particular that the measure transforms according to
-\begin{eqnarray}
- dt_1 dt_2 dt_3  = \sin\theta d\theta d\phi dt (\vec{x}_3-\vec{x}_2)\times(\vec{x}_1-\vec{x}_2)\cdot\hat{n}(\theta,\phi)
-\end{eqnarray}
-%% coordinate = {t, th, ph};
-%% nhat[th_, ph_] := {Sin[th] Cos[ph], Sin[th] Sin[ph], Cos[th]}
-%% expr1 = t - {x1, y1, z1}.nhat[th, ph]
-%% expr2 = t - {x2, y2, z2}.nhat[th, ph]
-%% expr3 = t - {x3, y3, z3}.nhat[th, ph]
-%% mydet = Det[{Table[D[expr1, coordinate[[k]]], {k, 1, 3}],
-%%     Table[D[expr2, coordinate[[k]]], {k, 1, 3}],
-%%     Table[D[expr3, coordinate[[k]]], {k, 1, 3}]}] // FullSimplify
-%%  v1 = {x1, y1, z1}
-%% v2 = {x2, y2, z2}
-%% v3 = {x3, y3, z3}
-%% expr = Cross[v3 - v2, v2 - v1].nhat[th, ph] // FullSimplify
-%% expr + 1/Sin[th] mydet // Simplify
-
-\begin{shaded}
-\noindent \textbf{Inverting these equations in practice: Abstractly}: For each event time we know $\vec{x}_k$ and hence the normal
-to the plane of the detectors, $\vec{V}\equiv (\vec{x}_3 -\vec{x}_2)\times(\vec{x}_1-\vec{x}_2)$.  When $\hat{n}\propto
-\vec{V}$, then $\hat{n}\cdot (x_1+x_2+x_3)=0$ and hence
-\begin{eqnarray}
-t = \frac{1}{3}[t_1+t_2+t_3 + \hat{V}\cdot(x_1+x_2+x_3)] 
-\end{eqnarray}
-The solution for $\hat{n}$ follows by linear algebra, plus scaling to satisfy a constraint:
-\begin{eqnarray}
-\begin{bmatrix}
-\tau_{21} \\ \tau_{31} \\ Z
-\end{bmatrix}
-=
-\begin{bmatrix}
-\vec{x}_{21} \\ \vec{x}_{31} \\  \hat{V}
-\end{bmatrix}
-\begin{bmatrix}
-n_x \\ n_y \\ n_z
-\end{bmatrix}
-\end{eqnarray}
-This matrix equation by construction is invertible and tells us the components of $\hat{n}$.  In general they are not
-normalized; only discrete choices for $Z$ produce a normalized unit vector $\hat{n}.\hat{n}$; and the quadratic equation
-generally has two solutions.
-
-\noindent \textbf{Inverting these equations: Using polar coordinates}: Choose a coordinate system so $x_2-x_1 =|\Delta
-r_{21}| \hat{z}$ and so $\hat{x}$ is in the detector plane, forming a right-handed coordinate system.  In this coordinate system we know $\cos \theta = -\Delta r_{21}/(t_2-t_1)$.  The remaining polar angle
-must satisfy 
-\begin{eqnarray}
-\hat{n} = \cos \theta \hat{z} + \hat{x}\sin\theta \cos \phi + \hat{y} \sin\theta \sin\phi \\
-\hat{n}\cdot \Delta r_{31} =  \cos \theta \hat{z}.\Delta r_{31} + \sin \theta \cos \phi \hat{x} \cdot \Delta r_{31} \\
-\phi = \cos^{-1} - \frac{(t_3-t_1)  - |\Delta r_{31}| \cos \theta_{21}\cos \theta_{31} }{ \sin \theta_{21}  \hat{x}\cdot
-  \Delta r_{31}}
-\end{eqnarray}
-
-\end{shaded}
-
-\begin{shaded}
-\noindent \textbf{Example of distribution: Uncorrelated events?}: One distribution possibility is random times in each detector:
-\begin{align}
-p_k(t_k) dt_k &= \frac{dt_k}{\sqrt{2\pi  \sigma_t^2/\rho_{k,lm}^2}} \exp - (t_k - t_{k,lm})^2 \rho_{k,lm}^2/2\sigma_t^2 \\
-p_1 p_2 p_3 dt_1 dt_2 dt_3 &= \frac{dt_1 dt_2 dt_3 \rho_{1,lm}\rho_{2,lm}\rho_{3,lm}}{(2\pi \sigma_t^2)^{3/2}}
- \exp - \frac{1}{2\sigma_t^2}\left[ (t_1 - t_{1,lm})^2 \rho_{1,lm}^2 + (t_2 - t_{2,lm})^2 \rho_{2,lm}^2 + (t_3 -
-   t_{3,lm})^2 \rho_{3,lm}^2 \right]]
-\end{align}
-Is is trivial to sample normally-distributed  arrival times $t_1,t_2,t_3$ in each detector.  But these can generate
-nonphysical possibilities.
-
-\noindent \textbf{Modified distribution: Hard constraints}: A better distribution uses physically-restricted \emph{delay
-  time} distributions.  As a concrete example, we know  $\tau_{21}\equiv t_2-t_1$ satisfies $|tau_{12}| \le |r_2
--r_1|/c$ and could draw any delay time for that angle (equivalently, drawing uniformly in the cosine $\hat{n}\cdot
-\Delta r_{21}/|\Delta r_{21}$).  For multiple detectors, however, the process of uniform draws introduces an asymmetry:
-fixing the first delay time $\tau_{21}$ constrains the physically realizable options for $\tau_{31}$.
-\end{shaded}
-
-
-\noindent \textbf{Lower-dimensional trigonometric sampling}:  The above distributions draw 3d samples in $\hat{n},t$.
-After marginalizing over time, the independent-arrival-time model \textbf{implies} a gaussian sky location posterior
-\cite{2011CQGra..28j5021F}, of the form [rewriting $\sigma_t/\rho_{1lm} = \sigma_1$ et cetera]
-\begin{eqnarray}
-p(\hat{n}|t_1,t_2,t_3) \propto \exp(- (\hat{n}-N(t_1,t_2,t_3)).D.(\hat{n}-N(t_1,t_2,t_3))/2)
-\end{eqnarray}
-[This derivation ignores edge effects.]
-
-\begin{shaded}
-The derivation sheds light on the above (and how to generalize our timing solution if the timing errors are unequal).
-Let $\bar{t}_k = t_k+\hat{n}\cdot \vec{x}_k$ be the barycentered arrival time derived from $t_k$ and the proposed direction
-\begin{eqnarray}
-{\cal O}\equiv \Gamma_{kk}(t-\hat{k}\cdot \vec{x}_k -t_k)^2 \equiv \sum_k\Gamma_{kk}(t-\bar{t}_k)^2 
-= \bar{\Gamma} t^2 - 2 (\sum_k \Gamma_{kk} \bar{t}_k)t + \sum_k \Gamma_{kk}\bar{t}_k^2 
-= \bar{\Gamma}(t-t_*)^2 - \bar{\Gamma} t_*^2  + \sum_k \Gamma_{kk}\bar{t}_k^2 
-\end{eqnarray}
-When all arrival time errors  \emph{symmetric}, then the time $t$ which maximizes the likelihood is  independent of the
-sky location $\hat{n}$; in general, however, the optimal time $t_*$ is
-\begin{eqnarray}
-t_*  = (\sum_k \Gamma_{kk} \bar{t}_k)/\sum_k \Gamma_{kk} \equiv \left<\bar{t}\right>
-\end{eqnarray}
-where I use a suitable ``average'' notation to weight over interferometers. 
-Completing the square leads to a marginalized quadratic (after integrating out other variables)
-\begin{eqnarray}
-{\cal O}_{\rm marg}\equiv - \bar{\Gamma} t_*^2  + \sum_k \Gamma_{kk}\bar{t}_k^2  
- = \bar{\Gamma}\left[ -\left<\bar{t}\right>^2 + \left<\bar{t}^2 \right> \right]
- = \bar{\Gamma}\left[ -\left<t_{\rm measured}+\hat{n}\vec{x}\right>^2 + \left<(t_{\rm measured}+\hat{n}\vec{x})^2
-  \right>
- \right]
-\end{eqnarray}
-Now reorganize the expression to group terms quadratic and linear in $\hat{n}$ to identify the best-fit sky position, et
-cetera:
-\begin{eqnarray}
-{\cal O}_{\rm marg} \equiv 
-{\color{blue}\bar{\Gamma}n_a n_b \left[
-   -\left<\vec{x}_a\right>\left<\vec{x}_b\right> + \left<\vec{x}_a \vec{x}_b\right>
- \right]
-}
-+{ 2 \bar{\Gamma}n_a  \left[
-   -\left<\vec{x}_a \right>\left<t_{\rm measured}\right> + \left< t_{\rm measured} \vec{x}_b\right>
- \right]
-}
-+  \bar{\Gamma}  \left[
- -\left<t_{\rm measured}\right>^2 + \left<(t_{\rm measured})^2 \right>
- \right]
-\end{eqnarray}
-The first  term (blue) tell us the shape of the sky position posterior on the plane of the sky.  The second term
-(combined with the first) tells us the best-fitting sky position
-\end{shaded}
-
-\subsection{Extrinsic marginalization: Distance }
-
-\noindent \textbf{``Physical'' distance distribution}: The distance prior is dominated by the largest distances allowed.  Conversely,
-the distance posterior is of order unity.
-%
-For any \emph{individual} sky location, inclination,  and template, the actual distance posterior has the form [Eq. \ref{eq:ComputeRhoViaInnerProductMatrix}]editremark{See eqna}
-\begin{eqnarray}
-p(r)dr \propto  r^2 dr \exp \left[ -\rho_{\rm ref}^2 (d_{\rm ref}/d)^2//2 + \qmstateproduct{{\cal S}(\hat{n})}{h_{\rm
-      ref}}_{\rm ref} (d_{\rm
-    ref}/d) \right]
-\end{eqnarray}
-where ${\cal S}(\hat{n})$ is a sky-position-dependent resumming of the data into quasi-coherent form; where
-$\qmstateproduct{.}{.}_{\rm ref}$ refers to the weighted inner product described near
-Eq. (\ref{eq:def:BarycenteredInnerProductWithData}); and where $h_{\rm ref}$ and $\rho_{\rm ref}$ refer to the signal
-and signal amplitude at the proposed model parameters, evaluated at $d=d_{\rm ref}$.  
-%
-
-For any specific source orientation and sky location, the physical distance distribution is extremely narrow.
-Marginalizing over orientations, the distance distribution becomes broad.  By implication, if the
-same sampling distribution must be used for all orientations, the sampling distribution must \emph{also} be broad.  So
-we can't use this.
-
-
-\begin{shaded}
-\noindent \textbf{Distance targeting with trigger [tempate-dependent sampling]}:  One proposal is a form like this
-So in practice the distance distribution has the form
-\begin{eqnarray}
-p(r)dr \propto r^2 dr \exp[ (-(r_0/r)^2/2 + (r_o/r)){\cal A}]
-\end{eqnarray}
-for some constants $r_o$ and ${\cal A}$ to be provided \editremark{provide a specific formula}.  An example of distance-targeted sampling is shown in Figure
-\ref{fig:Milestones:DemoSampler:Mathematica}.  
-
-Is this useful?  \textbf{Is is not a very useful form}:
-\begin{itemize}
-\item  if the amplitude is large (=comparable to expected) this procedure sets an EXTREMELY tight prior on the signal amplitude, but
-only a loose prior on the distance (=because of inclination degeneracy)
-
-\item this kind of prior sets a natural \emph{lower} limit, but not a strong upper one: as $r \rightarrow \infty$, the
-  exponential approaches a constant
-\end{itemize}
-
-We can modify this expression to use a 
-
-\noindent \textbf{Distance targeting with template [tempate-dependent sampling]}: We are free to \emph{use a different
-  sampling distribution at each template.}  Suppose we have a candidate template.  Putting that source at a
-reference distance ($d_{\rm ref}=100 Mpc$) in any one detector tells us the distance posterior for that template \emph{automatically}: we
-are free to use that posterior as a sampling distribution.   \editremark{write down}
-\end{shaded}
-
-
-\noindent \textbf{Ad hoc distance distributions}: Suppose we can place a confident upper bound on the source distance (e.g.,
-from the peak amplitude).  A good sampling distribution covers the whole range, with plausible behavior at small
-distances.
-%
-I don't see a good reason to use a tightly peaked sampling prior, except to exclude zero; options include  uniform over
-that range; volumetric with cutoff; or something else (e.g., a parabola over that range).
-
-
-
-\noindent \textbf{Data-dependent distance distributions}: We are free to use any sampling distribution to evaluate the
-integral, including a data-dependent one.   A signal with a strong peak in $\qmstateproduct{\hat{H}}{h}$ -- equvalently,
-in the $Q_{k,lm}$ -- must be close by.  Precisely how close depends on the orientation source orientation; however, we
-can confidently place an upper bound, using an optimally oriented source (derived independently from each IFO).
-
-So,  reconstruct the optimally oriented distance using Eq. (\ref{eq:SpecialCase:SingleIFOOptimalOrientation}), a model for the distance to an
-optimally oriented source overhead a single detector:
-\begin{eqnarray}
-\bar{Q}_k \equiv  \text{max}_t |Q_{k,22}| \simeq \frac{d_{\rm ref}}{2 d} \sqrt{\frac{5}{4\pi}} U_{k,22,22} \\
-\hat{d} \equiv \frac{1}{n_{det}}\sum_k\frac{U_{k,22,22}}{\bar{Q}_k} \frac{d_{\rm ref}}{2} \sqrt{\frac{5}{4\pi}}
-\end{eqnarray}
-Not the best estimate...so we should pad it with a lorentzian. \editremark{implement}
-
-\end{widetext}
-
-
-\subsection{Discussion: what could we do for speed? (*)}
-
-%* minimize the number of FFT evaluations -- for example, bootstrap the translation operation to each detector
-
-* clever likelihood evaluation (e.g., chunk the likeihood into time-frequency bins, and taper between bins? Good idea,
-LOTS of infrastructure: basically wavelet-basis idea.  Or just use \textbf{two} time-frequency bins: 64 sec close to the
-source and anything before 64 sec at a lower sample rate (256 Hz?).  Potentially dangerous for higher harmonics)
-
-* Reject extremely low likelihoods early on: if the log likelihood is very close to zero at the FFT stage for any modes,
-don't bother.  [This hopefully should never happen, if our intrinsic search is good.]
-
-
-
-
 \subsection{Appendix: Review of Monte Carlo theory}
 
-\noindent \textbf{Document mone carlo and error}: So we're on the same page, Monte Carlo integration is well-documented in \href{http://nr.com}{Nuumerical Recipies}; in
+\noindent \textbf{Document monte carlo and error}: So we're on the same page, Monte Carlo integration is well-documented in \href{http://nr.com}{Nuumerical Recipies}; in
 GSL; and in the \href{http://reference.wolfram.com/mathematica/tutorial/NIntegrateIntegrationStrategies.html}{Mathematica documentation}.  We will probably \emph{not} use sophisticated algoritms (e.g.,
 ``\href{http://www.gnu.org/software/gsl/manual/html_node/VEGAS.html#VEGAS}{vegas}'' in GSL; fixed or adaptive stratification; etc) at first: we want to easily convert samples into a posterior distribution.
 
@@ -967,6 +742,13 @@ To specify an arbitrary distribution with shape $\propto f(x)$ over $[x_0,x_1]$,
   interpolated samples; $P^{-1}(x)$ from the reversed samples $F_\alpha,x_\alpha$; and the posterior as $f(x)/F(1)$.
   Store $f,F(1), P,P^{-1}$
 \item \emph{Sampler object}: Generate random samples via $P^{-1}(z)$ for $z\in[0,1]$ uniform.
+
+\item \textbf{Important caveats}:
+ If we approximate the right hand side by a Monte Carlo integral
+\[
+	\int L p dx = \int L p/p_s  p_s dx
+\]
+then we *cannot* choose a sampling distribution$ p_s$ which assigns zero measure to any volume V with $\int_V p >0.$
 \end{itemize}
 
 \noindent \emph{Evaluating expression and error}: From our sample points, evaluate the average $L$ and error
@@ -979,6 +761,7 @@ To specify an arbitrary distribution with shape $\propto f(x)$ over $[x_0,x_1]$,
  = \frac{1}{N}[\left<X^2\right> - \left<X\right>^2] 
 \end{eqnarray}
 \end{subequations}
+
 
 
 \noindent \emph{Effective volume v1}: If $L$ has support in a very small region, then only a very small number of
@@ -1011,8 +794,80 @@ found.  (We can never be sure -- we're always dividing by the maximum seen so fa
 confidence many random trials have found numbers consistent with the same order of magnitude.)
 \end{shaded}
 
-\noindent \emph{Reconstructing posterior}: Store the samples $x_k$.  While nominally memory-intensive, \textbf{only a handful of
-  points contribute to $N_{\rm eff}$ significantly}; it's straightforward to eliminate the vast bulk of zero-likelihood samples
+\noindent \textbf{Reconstructing posterior}: The measured data will be denoted ${\cal D}$ for emphasis.  Store the
+samples $x_k$ for $k=1 \ldots N$; the likelihood values $\ln L(x_k|{\cal D})\equiv \ln L_k$;
+and the prior and sampling prior at those values ($p(x_k)$ and $p_s(x_k)$.   The marginalized posterior $p_1(x|{\cal D}$ in any one dimension is a
+density of the form
+\begin{eqnarray}
+p_1(x_1|{\cal D}) dx_1 \equiv \int p(x|{\cal D} dx = \frac{dx_1}{Z} \int dx_{2}\ldots dx_n p(x_2)\ldots p(x_n)L(x_1\ldots x_n) 
+\end{eqnarray}
+and similarly in multiple dimensions.   The posterior can be approximated by a weighted histogram.  Without loss of
+generality, omit all dimensions $n>1$ and construct a density estimator $\hat{p}_1$ (see
+\href{file://localhost//Users/oshaughn/unixhome/NotesAndReferences/ReferenceSheets/math/ProbabilityAndMeasure/ContinuouStatistics/cont_statistics}{ROS notes}):
+\begin{eqnarray}
+\hat{p}_1(z) \equiv \frac{1}{N \hat{Z}}\sum_{k=1}^N K(x,x_k) \frac{L_k p_k}{p_{s,k}} 
+\; ; \qquad
+\hat{Z} \equiv \frac{1}{N} \sum_{k=1}^N \frac{L_k p_k}{p_{s,k}}
+\end{eqnarray}
+where $K(x,y)$ is some normalized ($\int K(x,y) dx = 1$) kernel for density estimation and where $\hat{Z}$ is our running
+estimate for the evidence ($Z = \int L p dx$).  Exactly the same procedure works in higher dimensions with
+higher-dimensional sampling kernels.
+\begin{shaded}
+\noindent \textbf{Think before coding 1: Periodicity}: 
+For nonperiodic parameters like distance and time, translation invariant kernels work fine.  For periodic parameters,
+various modifications are possible (e.g., translation-invariant kernels on the periodic domain, with compact support).
+Just don't be an idiot.
+
+\noindent \textbf{Think before coding 2: Number}:  Nominally you need to know how many samples you have drawn from  to
+conserve probability: $1/N$ is an explicit prefactor in the evidence.  For estimating the \emph{posterior density}, however, $N$ only enters explicitly through $N
+\hat{Z}$.  So you can \textbf{without worry throw away irrelevant terms for density estimation}
+
+Suppose you truncate to $N_*$ samples $x_{k,*}$, throwing away the vast majority.  For self-consistency, you adopt the
+running estimate $\hat{Z}_*$ based only on those $N_*$ samples.  By construction, this estimate is an excellent
+approximation to the sum
+\begin{eqnarray}
+N \hat{Z} \equiv N_* \hat{Z}_* + \sum_{k>N_*} L_k p_k/p_{s,k}  \simeq N_* \hat{Z}_* + \text{infinitesimal}
+\end{eqnarray}
+This expression shows that the \emph{evidence} cannot be approximated reliably with only a subset of samples: $\hat{Z}_*
+=\hat{Z}N_*/N$.
+
+That said, for density estimation, you don't need (or want!) the absolute normalization. Substituting this expression  into the kernel density estimate
+\begin{eqnarray}
+\hat{p}_1(z)  = \frac{1}{N \hat{Z}} [\sum_{k=1}^{N_*} (L p/p_s)_k K(z,x_k) + \sum_{k=N_*} (L p/p_s)_k K(z,x_k)]
+\end{eqnarray}
+and neglecting small terms in the sum, we explicitly find \textbf{the kernel density estimate could have been
+  constructed by neglecting ``irrelevant'' samples from the start}:
+\begin{eqnarray}
+\hat{p}_1(z) \simeq \frac{1}{N_* \hat{Z}_*}[\sum_{k=1}^{N_*} (L p/p_s)_k K(z,x_k)] \equiv \hat{p}_{1,*}(z)
+\end{eqnarray}
+
+
+\noindent \emph{What's the threshold?}: Literally, we can throw away anything that doesn't contribute to the integral.
+That's easiest to do post-facto (e.g., keep everything, then only return values that provide more than $99.99999\%$ of
+the probability, say).  
+
+A priori it's harder but still possible.  For example, $N$ will never be greater than $10^{10}$ (say); if $L p/p_s$
+evaluates to significantly less than $10^{-10}$, we can always ignore that point, since that term will never contribute
+significantly to $\hat{Z}$ or $\hat{p}$ [our estimates for the evidence and posterior.]
+%
+Is this useful?  Yes.  The vast majority of samples will satisfy this condition (e.g., wrong phase)
+\end{shaded}
+
+
+
+
+\ForRichardOnly{
+\subsection{Discussion: what could we do for speed? (*)}
+
+%* minimize the number of FFT evaluations -- for example, bootstrap the translation operation to each detector
+
+* clever likelihood evaluation (e.g., chunk the likeihood into time-frequency bins, and taper between bins? Good idea,
+LOTS of infrastructure: basically wavelet-basis idea.  Or just use \textbf{two} time-frequency bins: 64 sec close to the
+source and anything before 64 sec at a lower sample rate (256 Hz?).  Potentially dangerous for higher harmonics)
+
+* Reject extremely low likelihoods early on: if the log likelihood is very close to zero at the FFT stage for any modes,
+don't bother.  [This hopefully should never happen, if our intrinsic search is good.]
+}
 
 
 
@@ -1021,17 +876,94 @@ Monte carlo calculations converge as $1/\sqrt{N}$; increasing our accuracy can b
 %
 Conversely, the range of parameter space that contributes significantly to the integrand ($V_{\rm eff}$) is extremely
 small, scaling as a fraction $\rho^{-d_{\rm eff}}$ of the total parameter volume.  [$d_{\rm eff}$ is defined in \cite{gwastro-mergers-HeeSuk-CompareToPE-Aligned}
+\textbf{FILL THIS IN LATER}
+%% \begin{shaded}
+%% Notes for 
+
+%% we expect the rate to grow slowly and steadily past a certain point, as we populate a region
+%% 			$V_{eff}$. Note most volume in Veff is significantly far away from the peak -- near the threshold.
+%% 			For us most of the volume will contribute at $\delta \rho^2/2 ~ 2$ or more 
+%% \end{shaded}
 
 \begin{shaded}
-Notes for 
+\noindent \textbf{Data-dependent sampling}: Our monte carlo integral is performed using \emph{precomputed} quantities;
+we might as well use them.  But how?
+\begin{itemize}
+\item \emph{Prior must be pure!}: Don't put data-dependent information into the prior unless  you're \emph{certain} you
+  aren't double-counting the information provided by the data! It's simplest to use a ``pure'' prior (e.g., random sky
+  position, orientation, time).
 
-we expect the rate to grow slowly and steadily past a certain point, as we populate a region
-			$V_{eff}$. Note most volume in Veff is significantly far away from the peak -- near the threshold.
-			For us most of the volume will contribute at $\delta \rho^2/2 ~ 2$ or more 
+\item \emph{Sampling can be data-dependent!}: We use a sampling prior to evaluate the integral.  Asymptotically, the
+  integral cannot depend on the sampling prior -- so we are free to use \emph{any} plausible sampling prior, including a
+  data-dependent one.  In particular, if we have an \textbf{algorithm} to \textbf{deterministically} select a sampling
+  prior given our precomputed quantities, use it!
+
+Let's not be stupid --we still want something moderately broad.  But we can certainly focus attention on regions likely
+to be significant.  In particular, we can identify the event time, sky location, distance-inclination correlation, et cetera
+\end{itemize}
 \end{shaded}
+
+\subsection{Appendix: Useful quantities for debugging}
+
+\noindent \textbf{Orientation-averaged amplitude}: The $Q_{k,lm}(t)$ provide a ``signal amplitude versus time'' for each
+mode.  These  $\sum_L(2L+1)$ different timeseries enter in the likelihood but are too many functions to diagnose simple
+questions, like (a) when did ``the event'' happen in each detector; and (b) how strong  was it?  
+%
+For each detector $k$, define the  ``orientation-averaged signal amplitude'' $q_k$:
+\begin{eqnarray}
+q_k(t|\lambda) &\equiv& \frac{\sum_{lm} |Q_{k,lm}(t)|^2}{\sum_{lm}U_{k,lm,lm}} 
+ = \frac{\int d\Omega  |\qmstateproduct{h(t,\hat{n})}{H_k}_k|^2}{\int \qmstateproduct{h(\hat{n})}{h(\hat{n})} d\Omega}
+% \nonumber \\  &=& 
+= \qmoperatorelement{H_k}{\frac{\int d\Omega \qmstate{h(t,\hat{n})}\qmstateKet{h(t,\hat{n})}}{
+\int \qmstateproduct{h(\hat{n})}{h(\hat{n})} d\Omega
+}}{H_k}_k \\
+p_k &\equiv & = \qmoperatorelement{H_k}{\int d\Omega \qmstate{{\cal I} h(t,\hat{n})}\qmstateKet{{\cal I}  h(t,\hat{n})}}{H_k}_k \\
+\end{eqnarray}
+Roughly speaking, this function will have a peak when the signal is strong, with magnitude related to the signal's
+strength \editremark{expression}
+
+\begin{shaded}
+\noindent \textbf{$q$ in real data and modal $\chi^2$}: The quantity $q_k$ is clean in zero-noise data.  In noisy data,
+as  a sum-of-squares, it  fluctuates wildly, with amplitude in direct proportion to the number of modes involved
+in the sum.
+
+That said, only two modes contribute significantly; modes should contribute in proportion to their diagonal $U$
+component.  Noise fluctuations are not consistent with the relative amplitudes required for a plausible signal.  We can
+therefore define a ``modal $\chi^2$'' timeseries: \editremark{how does this work if $U=0$?}
+\begin{eqnarray}
+(\sum_{lm} |Q_{lm}|^2/U_{lm,lm})/(\sum_{lm} 1/U_{lm,lm})
+\end{eqnarray}
+Modes with small $U$ cannot realistically contribute to the sum.
+
+\editremark{Need a definition for an SNR-like timeseries that is more robust to noise}
+\end{shaded}
+
 
 \begin{widetext}
 \section{Stage 1: Prototype code}
+\subsection{Summary: The test sequence}
+
+Richard's test sequence
+\begin{verbatim}
+test_precompute_singleifo.py # validate Q, U, Ldata for a single interferometer, with data fuzzing
+test_precompute.py           # validate delay times and F's (i.e., polarization, timing, sky location)
+test_psd_xml_io.py           # validate reading and use of numerical PSDs. Note fmax, fmin
+test_mcsampler_foridiots.py  # document the MC integrator by example
+test_mcsampler_skymaps.py    # document the MC integrator's skymap draws, by example
+test_like_and_samp.py        # full end-to-end check of all components together, with flexible options
+                             #    - sanity checks (Lmarg <=Lmax; sampler ok; likelihoods evaluate;
+                             #                     skymap works; option parsing; ...)
+                             #      Plot and debug L(t)
+                             #    - recover posterior (overall; with fixed parameters; etc)
+                             #    - convergence rate
+test_effectivefisher.py      # Demonstrate fisher matrix generation. (Evan)
+test_generate_pipeline.py    # Integration with standard option parsing, including
+                             #    - coinc reading to select the signal
+                             #    - using numerical PSDs
+\end{verbatim}
+
+
+
 \subsection{Milestones and Benchmarks: Injection and template code }
 \noindent \textbf{Data generation}: Make sure I can make synthetic data with a known amplitude, parameters, approximant, etc.  [Should be trivial with
   existing codebase: XML readers, etc.] For nonstandard codebases [ROS], confirm scalings
@@ -1148,15 +1080,42 @@ amplitude of an optimally oriented source directly over a single detector (with 
 = (d_{\rm ref}/d)^2\frac{1}{2}\qmstateproduct{h_{22}}{h_{22}} |\Y{-2}_{22}|^2
 =\frac{(d_{\rm ref}/d)^2}{2} \qmstateproduct{h_{22}}{h_{22}} \frac{5}{4\pi} \nonumber 
 \equiv  U_{22,22} \frac{5}{8\pi} (d_{\rm ref}/d)^2
+\label{eq:Test:SNRFaceOnSingleIFO}
 \end{eqnarray}
 where the first inner product is evaluated using a specific distance and where the second is using data at $d_{\rm
   ref}$. 
 In particular, for a $4+3 M_\odot$ fiducial source at 25 Mpc [in data] but 100 Mpc reference should have single-IFO amplitude $\rho\simeq 21$
-(depemding on the approximant used), we expect $U_{22,22}\simeq 8\pi/5 \rho^2 \simeq 137.5$.  My mathematica code does
-this. \editremark{Python pending}
+(depemding on the approximant used), we expect $U_{22,22}\simeq 8\pi/5 \rho^2 \simeq 137.5$.  My mathematica code
+\textbf{and python} does
+this, for iLIGO noise
 %% ConstructNonRedshiftingDhAt[{"InitialLIGO",   "SRD"}, {"NewtonianInspiralOnly", "NoTermination"}, 4, 3.]
 %% 8*%/(25 Mega Parsec)
 
+\noindent \textbf{Edge-on case}: An edge-on case (with random polarization) helps us confirm the code is correctly
+processing $\psi$.  [Python case: Because $\psi$ is implemented through several code paths (e.g., detector response; manually), it is
+\emph{far} from clear these approaches are consistent.]
+% CODE TEST CASE
+%    test_precompute_singleifo.py    # change rosUseEdgeOn
+For the quadrupole-dominated case \textbf{without memory} ($(l,m)=(2,\pm 2)$) and with reflection symmetry,
+\textbf{assuming $\phi=0$}, this means
+\begin{align}
+\rho_1^2 &= \frac{1}{2}\qmstateproduct{h(d)}{h(d)} 
+=  (d_{\rm ref}/d)^2 \qmstateproduct{h_{22}}{h_{2,-2}}|\Y{-2}_{2,2}(\pi/2,0)|^2[1+ \frac{\cos 4(\psi+\phi) + \cos 4(\psi-\phi)}{2}] 
+\\ &
+= \frac{5}{16\pi}U_{22,22}(d_{\rm   ref}/d)^2\frac{1+\cos 4\psi \cos 4\phi}{2} \nonumber \\
+ &= \frac{5}{64\pi}U_{22,22}(d_{\rm   ref}/d)^2 \cos^2 2\psi = \rho_{1,opt}^2 (\frac{\cos^22\psi}{2})^2 \qquad \phi=0
+\label{eq:ConsistencyTest:SingleIFO:PsiPhi}
+\end{align}
+where we assume \textbf{perfect} orthogonality of cross terms (and zero memory). 
+%% << RotationAndHarmonics`
+%% SpinWeightedSphericalHarmonicY[-2, 2, 2, Pi/2, 0]^2
+For the 4+3 $M_\odot$ fiducial source at 25 Mpc [in data] face-on I expect $\rho_{1,opt}\simeq 21$ (see above) and
+therefore edge-on $\rho_{1,edge}\simeq \rho_{1,opt}/2$ [see Eq. (\ref{eq:Test:SNRFaceOnSingleIFO}] or
+$\rho_{1,edge}\simeq 10.5$
+%% (2*SpinWeightedSphericalHarmonicY[-2, 2, 2, Pi/2, 0]^2)/
+%%  SpinWeightedSphericalHarmonicY[-2, 2, 2, 0, 0]^221.*Sqrt[%]
+% << PhysicalApplications`Astrophysics`GravitationalWaves`Detectors`Detector`
+% w[0, 0, \[Psi], Pi/2] // PowerExpand
 
 \noindent \textbf{General single-detector expression}: Does this expression reduce to the usual single-detector
 expression [Eq. (\ref{eq:SingleIFO:AmplitudeSquared})], evaluated in terms of $h_{+}(\hat{n})=\hat{z}$ (the plus polarization along the z axis) and geometrical
@@ -1247,7 +1206,35 @@ Plot $L_{\rm data}$ over the sky at the injected parameters; show a maximum occu
 \ln L_{\rm data} = \rho^2 \quad
 \ln L = \rho^2/2
 \]
+
+\item \emph{Dependence on $\phi,\psi$}: The dependence of $\ln L, \ln L_{\rm data}$, and $\ln L_{\rm model}$ versus
+  $\psi,\psi$ is particularly simple and amenable to tests, particularly for the \textbf{single-detector} cases with (a) face-on systems; (b) edge-on systems:
+\begin{itemize}
+\item \emph{Face on}: $\ln L_{\rm model} = \rho_1^2/2 $ should be independent of $\phi,\psi$.  
+
+should oscillate in $\phi,\psi$ ; see
+  Eq.(\ref{eq:ConsistencyTest:SingleIFO:PsiPhi}).  
+$\ln L_{\rm data}$ should oscillate
+  sinusoidally -- at $cos 4\psi$, see 
+\item \emph{Edge on}: $\ln L_{\rm model} = \rho_1^2/2 $ should oscillate in $\phi,\psi$ ; see
+  Eq.(\ref{eq:ConsistencyTest:SingleIFO:PsiPhi}).  
 \end{itemize}
+
+\begin{shaded}
+
+\noindent \textbf{Reproducible plot: Versus $\psi$ and/or $\psi$}: A sanity check can be to \emph{always} plot the likelihood versus
+$\psi$, at the injection parameters; the best fit should be the peak value.  As a \textbf{memoryless
+  first approximation}, $\ln L(\psi)$ should be $\propto \cos 2\psi$ if edge-on; if face on, proportional to a constant
+ plus $\cos 4(\psi \pm \phi)$ (with the sign depending on which term dominates.
+
+
+\noindent \emph{Edge on versus $\psi$} \textbf{including memory}: As a function of $\psi$  the expected dependence is
+\emph{nearly} sinusoidal...but memory terms (and non-orthogonality of $(2,\pm 2)$  significantly influence our fiducial case.
+
+
+\end{shaded}
+\end{itemize}
+
 
 
 \subsubsection{Python implementation: Special checks}
@@ -1333,7 +1320,13 @@ A python implementation suffers from dynamic type checking.
 \end{shaded}
 
 
-\subsection{Milestones and Benchmarks: Real and synthetic data access}
+\subsubsection{Milestones and benchmarks: Marginalized likelihoods (*)}
+
+\editremark{URGENT DOCUMENTATION NEED}
+
+\noindent \textbf{Single-IFO test}: 
+
+\subsection{Milestones and Benchmarks: Real and synthetic data access; PSD; skymaps}
 
 \noindent \textbf{Frame reading and writing}: Code to read and write to frames [glue, Fr : done]
 
@@ -1349,7 +1342,42 @@ cache file from existing .gwf files is as easy as \texttt{lalapps\_path2cache}; 
 \end{verbatim}
 \end{shaded}
 
+\noindent \textbf{PSD file reading and use}: Numerical PSDs can't be used blindly out of the box; you need to implement
+code to handle
+\begin{itemize}
+\item  insane behavior at extremely low or
+high frequencies.  Hard cuts on $f_{min,max}$ are needed.  
+\item interpolation to the desired sampling rate
+\end{itemize}
+These changes are \textbf{not} cleanly implemented: the user has to read a PSD file and manually call routines to
+``correct' it to the desired behavior.
 
+Ideally the tests below should be performed on both numerical and 
+\begin{itemize}
+\item \emph{Plot PSDs}: Show the PSDs look sane and agree with the target PSD.  Identify targeted cutoffs.  Replot with cutoffs imposed
+\item \emph{Inner products with PSDs}: Perform inner products with a numerical and analytic PSD.  The two should
+  reasonably agree (for approximate PSDs) and \textbf{exactly} agree (for analytic PSDs stored to disk). \textbf{Do the
+    latter check}
+\end{itemize}
+
+\noindent \textbf{Skymaps} Bayestar provides a quick and dirty skymap for each event.  
+
+ Bayestar \emph{output} skymaps are literally 1d arrays of real numbers, with each
+number being a skymap weight and the \emph{array index} being a sky pixel.  
+
+\begin{itemize}
+\item \emph{Read,plot skymap}: Interface test
+\item \emph{Generate random samples from skymap}: The skmap is an array $w_k$ for $k=0\ldots 2^{n_s}-1$, with each $k$
+  coresponding to a pixel, with $\sum_k w_k=1$.  Use a cumulative-sum array $W_k = \sum_{q\le k} w_k$ and a random
+  variable to create a random discrete index $k$ from a uniform random variable $x$:
+\begin{eqnarray}
+k : W_k > x \text{and} W_{k+1} < x
+\end{eqnarray}
+The convert this array into a pixel. Plot the random samples and show they look like what we want
+\end{itemize}
+
+\noindent  \emph{Other methods}: Chris P has other implementations, like rejection sampling.  There's no point -- this
+should be just as effective.
 
 \subsection{Milestones and Benchmarks: Marginalization (*)}
 
@@ -1397,6 +1425,10 @@ if we pass back entire arrays; time needed to evaluate;
 correlation length of $\hat{L}$ if the sampling distribution is too narrow or insufficiently multimodal; et cetera.  How well do we need to tune the sampling distribution?
 
 
+\subsubsection{Test suite 0b: Skymap sampling with Bayestar}
+
+
+\editremark{need to be able to generate random skymaps}
 
 
 \subsubsection{Test suite 1: Single IFO}
@@ -1432,18 +1464,19 @@ Overlay the sequence with an error estimate; do we believe our error estimate fr
 \item \emph{Posterior distribution plausible}: Confirm posterior distributions are recovered.  Compare against the
   sampling distributions to insure nothing horrible happens. 
 \begin{itemize}
-\item \emph{No railing}: We don't hit a limit in distance or other hard cutoffxo
+\item \emph{No railing}: We don't hit a limit in distance or other hard cutoff
 \end{itemize}
 
-\item \textbf{Confirm normalization}: Chris' code provides a way to do integrals of the form $\int X dx$ via $p_s$ by
+\item \textbf{Confirm normalization}: Richard added  a way to do integrals of the form $\int X dx$ via $p_s$ by
   evaluating $\int (X/p_s)  p_s dx$ \textbf{as well as} [new addition] $\int X p dx$ by evaluating $\int (X p/p_s)p_s
   dx$.  The latter lets us clearly separate the likelihood from the prior.
 
-We had better have $L_{\rm marg} = \int L p dx \le \text{max} L$ for real-data results.
+We had better have $L_{\rm marg} = \int L p dx \le \text{max} L$ for real-data results. \editremark{CURRENTLY FAILS WITH
+REAL DATA}
 
 
 \item  \textbf{Test sampling distributions that depend on the data}: Some sampling distributions can infer the event
-  time (barycentered), distance, sky location, inclination, et cetera from the data (e.g. from the $U$ and $Q$).  
+  time (geocentered), distance, sky location, inclination, et cetera from the data (e.g. from the $U$ and $Q$).  
 
 For a single-IFO model, a distance distribution helps most.
 
@@ -1476,9 +1509,17 @@ Recover the distance distribution;  sky position error box; and event time distr
 
 * discuss whether 2d samplers will be needed -- for example in distance-inclination.
 
-\subsubsection{Test suite 2: 3-IFO}
+\subsubsection{Test suite 2: 3-IFO }
+Why an incremental step to a 3-IFO test suite?  The 3-IFO test suite
 
 
+\textbf{Confirm normalization }:  $L_{\rm marg} = \int L p dx \le \text{max} L$ in the full code
+\begin{itemize}
+\item synthetic data tests
+\item Parsing real data  \editremark{CURRENTLY FAILS WITH
+REAL DATA}
+
+\end{itemize}
 
 \noindent \textbf{Report on timescales: Marginalized integral}: Con
 
@@ -1490,13 +1531,18 @@ Single IFO test suite: why
 * confirm 
 
 
-\subsubsection{Test suite 3: Full data-ingesting tool (single template)}
+\subsubsection{Test suite 3: Full data-injesting tool}
 \noindent \textbf{Rationale}: A full data- and psd-ingesting tool, working from stored PSDs and \texttt{.cache} files,
-provides a portable and immediately-usable tool for people to benchmark.
+provides a portable and immediately-usable tool for people to benchmark.  However, critical differences exist between
+the \emph{model}
 
-\nointext \textbf{Discrete PSD code}: The  code path using a discrete PSD had not yet been tested. [It is now, sort of.]
+
+\noindent \textbf{Action on real data}: Real noisy can have \emph{lines}.
+
+\noindent \textbf{Discrete PSD code}: The  code path using a discrete PSD had not yet been tested. [It is now, sort of.]
 See \texttt{test\_psd\_xml\_io.py}.  Make sure we can (a) import; (b) interpolate; (c) set rational upper and lower
 frequency limits; and (d) perform inner products that produce correct answers.
+\editremark{NOT WORKING WELL, neds to wait}
 
 
 \noindent \textbf{Overflow!} \editremark{LONG TERM PROBLEM}: High-amplitude signals (e.g., $\ln L \gtrsim 709$) overflow
@@ -1513,6 +1559,7 @@ There is an explicit way around this: increase precision
 \subsubsection{Milestones and benchmarks: Nonuniform sampling (*)} 
 Uniform sampling won't work -- we need a narrow prior using time-of-flight information
 
+\ForRichardOnly{
 \begin{figure*}
 \includegraphics{Figures/fig-mma-DemoSampler.pdf}
 \caption{\label{fig:Milestones:DemoSampler:Mathematica}\textbf{Example sampler results (Mathematica)}: Example of a
@@ -1520,6 +1567,7 @@ Uniform sampling won't work -- we need a narrow prior using time-of-flight infor
   time distribution (center); and distance distribution (right).   The distance-targeted sampler uses a common distance distribution
 }
 \end{figure*}
+}
 
 \noindent \textbf{Time-of-flight sampler}: Generate random arrival times; convert to a sky position and arrival time.
 Examples of these samplers are shown in Figure \ref{fig:Milestones:DemoSampler:Mathematica}.
@@ -1544,11 +1592,20 @@ our code and another procedure for exploring the extrinsic space.
 
 \subsection{Milestones and Benchmarks:  Intrinsic exploration (*)}
 
+[Evan's code]
+
 \noindent \textbf{Document prototype exploration procedure}: Trigger values to seed mass range? Fisher matrix?
 
 
-\noindent \textbf{Implement, demonstrate serial code}: Just do it
+\noindent \textbf{Basic infrastructure checks}: Confirm we can dump output in the targeted format (e.g., text files) and
+generate a dag \editremark{XXX}
+\begin{itemize}
+\item \emph{Fisher matrix code runs}: The code generates points
+\item \emph{Code output}: The code outputs points in the targeted format
+\item \emph{DAG generation}: A DAG is generated, including (a) data retrieval; (b) runs
 
+\item \emph{DAG completion}
+\end{itemize}
 
 
 
@@ -1559,8 +1616,14 @@ our code and another procedure for exploring the extrinsic space.
 \noindent \textbf{GraceDB event rate}: Processing time needed for realtime followup is roughly 1/hour.
 
 \noindent \textbf{Operation count}: Fortunately the huge data set is only processed once to generate a \emph{very small}
-set of intermediate quantities.  After a few O(N) operations, the \emph{actionable} memory usage is very small
+set of intermediate quantities.  After a few O(N) operations, the \emph{actionable} memory usage is very small.
 
+
+\noindent \emph{Precompute count}: Typical cores are Gflop.  That means each second of $16kHz$ data (with one flop per
+op) requires a few $\mu s$.   
+%% Rflop = 7 Giga FLOP/Second 
+%% nops = 16384*Ts  FLOP
+%% nops/Rflop // SI // N
 
 \noindent \textbf{Memory usage: Computation}: A stupid approach is to use a fixed sampling rate for all time.
 %
@@ -1586,7 +1649,7 @@ the raw data and template or (b) some intelligent representation (e.g., amplitud
 a distribution object and require certain features:
 
 * request bound on each parameter (e.g., could identify 'light ring normal' and 'light ring width'; 'time
-window.barycenter', etc. )
+window.geocenter', etc. )
 
 * return random sample from each parameter
 
@@ -1686,6 +1749,235 @@ coincidence) provides a final coherent stage with a confidence statistic (eviden
 If we use exact bank coincidence and a low-dimension $(l,m)$ space, the operations will be sub-minute (few seconds) --
 allowing high trigger rates. \editremark{I wonder if this is useful}.
 
+\part{Deprecated notes}
+
+\ForRichardOnly{
+\section{Some stuff we are not using}
+
+\subsection{Extrinsic marginalization: Localized sources in $t,\hat{k}$ via time-of-flight }
+\label{sec:sub:MarginalizeViaTimeOfFlight}
+
+\noindent \textbf{Arrival-time sampling}: Physical sources will have well-determined arrival times at each detector,
+for any significant template.  In our notation, for each detector $k$, each intrinsc parameters $\lambda$, and each
+$(l,m)$ there is some pair of real numbers $\rho_{k,lm},t_{k,lm}$  that describes the local maximum's event time and
+signal magnitude:
+\begin{eqnarray}
+\rho_{k,lm} \equiv |Q_{k,lm}(t_{k,lm})|/\sqrt{U_{k,lm,lm}}
+\end{eqnarray}
+where $Q$ has a local maximum at $t_{k,lm}$.  
+[To order of magnitude $\rho_{k,lm}$ is similar to the signal amplitude $\qmstateproduct{\hat{H}_k}{\hat{H}_k}_k$ of the
+data in that detector, if a signal is present.]
+%
+Based on this information, a simple a priori \emph{estimate} for the arrival times $t_1\ldots t_3$ in each detector are possible
+[fixing some $(l,m)$ pair -- say (2,2)]: we can build a distribution.
+
+\noindent \emph{Change of variables}: The arrival times are in 1-1 relationship with candidate
+event times and sky locations,when physical.  to solve, re-express the arrival times in each detector in terms of the
+sky location and geocenter:
+\begin{eqnarray}
+t_1 = t + \hat{k}\cdot \vec{x}_1 
+      = t - \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_1 \\
+t_2  = t - \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_2 \\
+t_3  = t - \hat{n}(\theta_S,\phi_S)\cdot \vec{x}_3 
+\end{eqnarray}
+Note in particular that the measure transforms according to
+\begin{eqnarray}
+ dt_1 dt_2 dt_3  = \sin\theta d\theta d\phi dt (\vec{x}_3-\vec{x}_2)\times(\vec{x}_1-\vec{x}_2)\cdot\hat{n}(\theta,\phi)
+\end{eqnarray}
+%% coordinate = {t, th, ph};
+%% nhat[th_, ph_] := {Sin[th] Cos[ph], Sin[th] Sin[ph], Cos[th]}
+%% expr1 = t - {x1, y1, z1}.nhat[th, ph]
+%% expr2 = t - {x2, y2, z2}.nhat[th, ph]
+%% expr3 = t - {x3, y3, z3}.nhat[th, ph]
+%% mydet = Det[{Table[D[expr1, coordinate[[k]]], {k, 1, 3}],
+%%     Table[D[expr2, coordinate[[k]]], {k, 1, 3}],
+%%     Table[D[expr3, coordinate[[k]]], {k, 1, 3}]}] // FullSimplify
+%%  v1 = {x1, y1, z1}
+%% v2 = {x2, y2, z2}
+%% v3 = {x3, y3, z3}
+%% expr = Cross[v3 - v2, v2 - v1].nhat[th, ph] // FullSimplify
+%% expr + 1/Sin[th] mydet // Simplify
+
+\begin{shaded}
+\noindent \textbf{Inverting these equations in practice: Abstractly}: For each event time we know $\vec{x}_k$ and hence the normal
+to the plane of the detectors, $\vec{V}\equiv (\vec{x}_3 -\vec{x}_2)\times(\vec{x}_1-\vec{x}_2)$.  When $\hat{n}\propto
+\vec{V}$, then $\hat{n}\cdot (x_1+x_2+x_3)=0$ and hence
+\begin{eqnarray}
+t = \frac{1}{3}[t_1+t_2+t_3 + \hat{V}\cdot(x_1+x_2+x_3)] 
+\end{eqnarray}
+The solution for $\hat{n}$ follows by linear algebra, plus scaling to satisfy a constraint:
+\begin{eqnarray}
+\begin{bmatrix}
+\tau_{21} \\ \tau_{31} \\ Z
+\end{bmatrix}
+=
+\begin{bmatrix}
+\vec{x}_{21} \\ \vec{x}_{31} \\  \hat{V}
+\end{bmatrix}
+\begin{bmatrix}
+n_x \\ n_y \\ n_z
+\end{bmatrix}
+\end{eqnarray}
+This matrix equation by construction is invertible and tells us the components of $\hat{n}$.  In general they are not
+normalized; only discrete choices for $Z$ produce a normalized unit vector $\hat{n}.\hat{n}$; and the quadratic equation
+generally has two solutions.
+
+\noindent \textbf{Inverting these equations: Using polar coordinates}: Choose a coordinate system so $x_2-x_1 =|\Delta
+r_{21}| \hat{z}$ and so $\hat{x}$ is in the detector plane, forming a right-handed coordinate system.  In this coordinate system we know $\cos \theta = -\Delta r_{21}/(t_2-t_1)$.  The remaining polar angle
+must satisfy 
+\begin{eqnarray}
+\hat{n} = \cos \theta \hat{z} + \hat{x}\sin\theta \cos \phi + \hat{y} \sin\theta \sin\phi \\
+\hat{n}\cdot \Delta r_{31} =  \cos \theta \hat{z}.\Delta r_{31} + \sin \theta \cos \phi \hat{x} \cdot \Delta r_{31} \\
+\phi = \cos^{-1} - \frac{(t_3-t_1)  - |\Delta r_{31}| \cos \theta_{21}\cos \theta_{31} }{ \sin \theta_{21}  \hat{x}\cdot
+  \Delta r_{31}}
+\end{eqnarray}
+
+\end{shaded}
+
+\begin{shaded}
+\noindent \textbf{Example of distribution: Uncorrelated events?}: One distribution possibility is random times in each detector:
+\begin{align}
+p_k(t_k) dt_k &= \frac{dt_k}{\sqrt{2\pi  \sigma_t^2/\rho_{k,lm}^2}} \exp - (t_k - t_{k,lm})^2 \rho_{k,lm}^2/2\sigma_t^2 \\
+p_1 p_2 p_3 dt_1 dt_2 dt_3 &= \frac{dt_1 dt_2 dt_3 \rho_{1,lm}\rho_{2,lm}\rho_{3,lm}}{(2\pi \sigma_t^2)^{3/2}}
+ \exp - \frac{1}{2\sigma_t^2}\left[ (t_1 - t_{1,lm})^2 \rho_{1,lm}^2 + (t_2 - t_{2,lm})^2 \rho_{2,lm}^2 + (t_3 -
+   t_{3,lm})^2 \rho_{3,lm}^2 \right]]
+\end{align}
+Is is trivial to sample normally-distributed  arrival times $t_1,t_2,t_3$ in each detector.  But these can generate
+nonphysical possibilities.
+
+\noindent \textbf{Modified distribution: Hard constraints}: A better distribution uses physically-restricted \emph{delay
+  time} distributions.  As a concrete example, we know  $\tau_{21}\equiv t_2-t_1$ satisfies $|tau_{12}| \le |r_2
+-r_1|/c$ and could draw any delay time for that angle (equivalently, drawing uniformly in the cosine $\hat{n}\cdot
+\Delta r_{21}/|\Delta r_{21}$).  For multiple detectors, however, the process of uniform draws introduces an asymmetry:
+fixing the first delay time $\tau_{21}$ constrains the physically realizable options for $\tau_{31}$.
+\end{shaded}
+
+
+\noindent \textbf{Lower-dimensional trigonometric sampling}:  The above distributions draw 3d samples in $\hat{n},t$.
+After marginalizing over time, the independent-arrival-time model \textbf{implies} a gaussian sky location posterior
+\cite{2011CQGra..28j5021F}, of the form [rewriting $\sigma_t/\rho_{1lm} = \sigma_1$ et cetera]
+\begin{eqnarray}
+p(\hat{n}|t_1,t_2,t_3) \propto \exp(- (\hat{n}-N(t_1,t_2,t_3)).D.(\hat{n}-N(t_1,t_2,t_3))/2)
+\end{eqnarray}
+[This derivation ignores edge effects.]
+
+\begin{shaded}
+The derivation sheds light on the above (and how to generalize our timing solution if the timing errors are unequal).
+Let $\bar{t}_k = t_k+\hat{n}\cdot \vec{x}_k$ be the geocentered arrival time derived from $t_k$ and the proposed direction
+\begin{eqnarray}
+{\cal O}\equiv \Gamma_{kk}(t-\hat{k}\cdot \vec{x}_k -t_k)^2 \equiv \sum_k\Gamma_{kk}(t-\bar{t}_k)^2 
+= \bar{\Gamma} t^2 - 2 (\sum_k \Gamma_{kk} \bar{t}_k)t + \sum_k \Gamma_{kk}\bar{t}_k^2 
+= \bar{\Gamma}(t-t_*)^2 - \bar{\Gamma} t_*^2  + \sum_k \Gamma_{kk}\bar{t}_k^2 
+\end{eqnarray}
+When all arrival time errors  \emph{symmetric}, then the time $t$ which maximizes the likelihood is  independent of the
+sky location $\hat{n}$; in general, however, the optimal time $t_*$ is
+\begin{eqnarray}
+t_*  = (\sum_k \Gamma_{kk} \bar{t}_k)/\sum_k \Gamma_{kk} \equiv \left<\bar{t}\right>
+\end{eqnarray}
+where I use a suitable ``average'' notation to weight over interferometers. 
+Completing the square leads to a marginalized quadratic (after integrating out other variables)
+\begin{eqnarray}
+{\cal O}_{\rm marg}\equiv - \bar{\Gamma} t_*^2  + \sum_k \Gamma_{kk}\bar{t}_k^2  
+ = \bar{\Gamma}\left[ -\left<\bar{t}\right>^2 + \left<\bar{t}^2 \right> \right]
+ = \bar{\Gamma}\left[ -\left<t_{\rm measured}+\hat{n}\vec{x}\right>^2 + \left<(t_{\rm measured}+\hat{n}\vec{x})^2
+  \right>
+ \right]
+\end{eqnarray}
+Now reorganize the expression to group terms quadratic and linear in $\hat{n}$ to identify the best-fit sky position, et
+cetera:
+\begin{eqnarray}
+{\cal O}_{\rm marg} \equiv 
+{\color{blue}\bar{\Gamma}n_a n_b \left[
+   -\left<\vec{x}_a\right>\left<\vec{x}_b\right> + \left<\vec{x}_a \vec{x}_b\right>
+ \right]
+}
++{ 2 \bar{\Gamma}n_a  \left[
+   -\left<\vec{x}_a \right>\left<t_{\rm measured}\right> + \left< t_{\rm measured} \vec{x}_b\right>
+ \right]
+}
++  \bar{\Gamma}  \left[
+ -\left<t_{\rm measured}\right>^2 + \left<(t_{\rm measured})^2 \right>
+ \right]
+\end{eqnarray}
+The first  term (blue) tell us the shape of the sky position posterior on the plane of the sky.  The second term
+(combined with the first) tells us the best-fitting sky position
+\end{shaded}
+} % End hide
+
+
+\subsection{Extrinsic marginalization: Distance }
+
+\noindent \textbf{``Physical'' distance distribution}: The distance prior is dominated by the largest distances allowed.  Conversely,
+the distance posterior is of order unity.
+%
+For any \emph{individual} sky location, inclination,  and template, the actual distance posterior has the form [Eq. \ref{eq:ComputeRhoViaInnerProductMatrix}]editremark{See eqna}
+\begin{eqnarray}
+p(r)dr \propto  r^2 dr \exp \left[ -\rho_{\rm ref}^2 (d_{\rm ref}/d)^2//2 + \qmstateproduct{{\cal S}(\hat{n})}{h_{\rm
+      ref}}_{\rm ref} (d_{\rm
+    ref}/d) \right]
+\end{eqnarray}
+where ${\cal S}(\hat{n})$ is a sky-position-dependent resumming of the data into quasi-coherent form; where
+$\qmstateproduct{.}{.}_{\rm ref}$ refers to the weighted inner product described near
+Eq. (\ref{eq:def:GeocenteredInnerProductWithData}); and where $h_{\rm ref}$ and $\rho_{\rm ref}$ refer to the signal
+and signal amplitude at the proposed model parameters, evaluated at $d=d_{\rm ref}$.  
+%
+
+For any specific source orientation and sky location, the physical distance distribution is extremely narrow.
+Marginalizing over orientations, the distance distribution becomes broad.  By implication, if the
+same sampling distribution must be used for all orientations, the sampling distribution must \emph{also} be broad.  So
+we can't use this.
+
+
+\begin{shaded}
+\noindent \textbf{Distance targeting with trigger [tempate-dependent sampling]}:  One proposal is a form like this
+So in practice the distance distribution has the form
+\begin{eqnarray}
+p(r)dr \propto r^2 dr \exp[ (-(r_0/r)^2/2 + (r_o/r)){\cal A}]
+\end{eqnarray}
+for some constants $r_o$ and ${\cal A}$ to be provided \editremark{provide a specific formula}.  An example of distance-targeted sampling is shown in Figure
+\ref{fig:Milestones:DemoSampler:Mathematica}.  
+
+Is this useful?  \textbf{Is is not a very useful form}:
+\begin{itemize}
+\item  if the amplitude is large (=comparable to expected) this procedure sets an EXTREMELY tight prior on the signal amplitude, but
+only a loose prior on the distance (=because of inclination degeneracy)
+
+\item this kind of prior sets a natural \emph{lower} limit, but not a strong upper one: as $r \rightarrow \infty$, the
+  exponential approaches a constant
+\end{itemize}
+
+We can modify this expression to use a 
+
+\noindent \textbf{Distance targeting with template [tempate-dependent sampling]}: We are free to \emph{use a different
+  sampling distribution at each template.}  Suppose we have a candidate template.  Putting that source at a
+reference distance ($d_{\rm ref}=100 Mpc$) in any one detector tells us the distance posterior for that template \emph{automatically}: we
+are free to use that posterior as a sampling distribution.   \editremark{write down}
+\end{shaded}
+
+
+\noindent \textbf{Ad hoc distance distributions}: Suppose we can place a confident upper bound on the source distance (e.g.,
+from the peak amplitude).  A good sampling distribution covers the whole range, with plausible behavior at small
+distances.
+%
+I don't see a good reason to use a tightly peaked sampling prior, except to exclude zero; options include  uniform over
+that range; volumetric with cutoff; or something else (e.g., a parabola over that range).
+
+
+
+\noindent \textbf{Data-dependent distance distributions}: We are free to use any sampling distribution to evaluate the
+integral, including a data-dependent one.   A signal with a strong peak in $\qmstateproduct{\hat{H}}{h}$ -- equvalently,
+in the $Q_{k,lm}$ -- must be close by.  Precisely how close depends on the orientation source orientation; however, we
+can confidently place an upper bound, using an optimally oriented source (derived independently from each IFO).
+
+So,  reconstruct the optimally oriented distance using Eq. (\ref{eq:SpecialCase:SingleIFOOptimalOrientation}), a model for the distance to an
+optimally oriented source overhead a single detector:
+\begin{eqnarray}
+\bar{Q}_k \equiv  \text{max}_t |Q_{k,22}| \simeq \frac{d_{\rm ref}}{2 d} \sqrt{\frac{5}{4\pi}} U_{k,22,22} \\
+\hat{d} \equiv \frac{1}{n_{det}}\sum_k\frac{U_{k,22,22}}{\bar{Q}_k} \frac{d_{\rm ref}}{2} \sqrt{\frac{5}{4\pi}}
+\end{eqnarray}
+Not the best estimate...so we should pad it with a lorentzian. \editremark{implement}
+
+\end{widetext}
 
 
 \part{Richard's notes to self}
@@ -1698,13 +1990,43 @@ allowing high trigger rates. \editremark{I wonder if this is useful}.
 
 \section{Design philosophy}
 
+Software development research and my experience suggests data fuzzing and persistnt unit tests are a much better way to
+identify and prevent bugs than code/patch review.  Code and patch review, like congress, allows only incremental
+improvement to an existing codebase.  It just doesn't find bugs.  
+
+A ``clean'' code (=only having ``used'' routines), supported by documented ``investigations'', works best under
+extremely controlled circumstances -- for example, modular code with deliverables, where the inputs, outputs, and
+approximations needed are set up and thoroughly documented.  The code structure needs to be frozen at design stage.  
+And it's extremely difficult to unit test changes without multiple copies of the codebase.
+
+Before distilling to a ``clean'' code, a \textbf{development} code (``hackathon mode'') can identify approximations and
+choices, document and validate deliverables with unit tests.  Unit tests, if well written, are excellent documentation.
+
+The challenge from going to a development branch to a ``clean'' branch is distillation -- you need to make sure that
+doesn't introduce errors when code is eliminated and ``simplified''.
+
+Finally, patches as a method of communication.  On a large-scale project, patch review is only as good as the people
+involved, and requires perfect dilligence.  People don't function that way.  So patch review is a nice reporting tool
+for management and nominal Q/A, to guarantee people are well-behaved (e.g., like TERs)...but doesn't by itself
+provide any added value to code quality or correctness.
+  A better method is embedded tests.
 \begin{verbatim}
+PRINCIPLES: Development
      - rapid prototyping to develop design
      - identify routines, with unit tests. Unit tests provide documentation, validation, and debugging aid
 	- quasi-realistic 'unit tests' are built into the many test_* functions.
 	- not a pedant: life is short
      - prefer strongly controlled circumstances for the unit tests, not end-to-end, to isolate features. 
 \end{verbatim}
+
+\subsection{Assorted rants}
+
+\noindent \textbf{For loops}: For loops with human-entered limits produce (fencepost) errors \textbf{very} frequently.
+These errors are among the most difficult to identify through code review. 
+Any sane programmer uses language or library features (e.g., map; iterators; etc) to avoid manual iteration.  In
+numerical code, these features often come with added benefits (e.g., parallelization and/or vectorization under the hood).  
+\textbf{Don't use for loops. Just don't.} Let computers do what they're good at (perfect dilligence, attention to
+detail) and humans do what they're good at (design).
 
 \section{Python implementation}
 
@@ -1803,7 +2125,14 @@ http://docs.python.org/dev/library/threading.html#
 http://docs.python.org/dev/library/multiprocessing.html
 http://stackoverflow.com/questions/2846653/python-multithreading-for-dummies
 \end{verbatim}
+
+\subsection{Pipeline generation (*)}
+
+
 \appendix
+
+
+
 \section{Gravy issues: Things to think about but not critical now}
 
 % http://www.physics.gla.ac.uk/igr/GWbursts2012/pages/program/slides/MondayPM/Favata.pdf
