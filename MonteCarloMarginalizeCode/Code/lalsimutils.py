@@ -861,6 +861,13 @@ def hoff_FD(P, Fp=None, Fc=None):
         htilde = hptilde
     else:
         raise ValueError('Must use P.radec=False for FD approximant (for now)')
+    # N.B. TaylorF2(RedSpin)(Tidal)  stop filling the output array at ISCO.
+    # The Hermitian inner product classes now expect the arrays to be a
+    # power of two plus one. Therefore, we zero-pad the output
+    # so it will work with lalsimutils inner products
+    FDlen = int(1./P.deltaF/P.deltaT/2.+1)
+    if htilde.data.length != FDlen:
+        htilde = lal.ResizeCOMPLEX16FrequencySeries(htilde, 0, FDlen)
     return htilde
 
 def norm_hoff(P, IP, Fp=None, Fc=None, fwdplan=None):
