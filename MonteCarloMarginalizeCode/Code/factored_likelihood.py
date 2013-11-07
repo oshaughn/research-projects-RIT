@@ -134,7 +134,7 @@ def FactoredLogLikelihood(epoch, extr_params, rholms_intp, crossTerms, Lmax):
     psi = extr_params.psi
     dist = extr_params.dist
 
-    Ylms = ComputeYlms(Lmax, incl, phiref)
+    Ylms = ComputeYlms(Lmax, incl, -phiref)
 
     lnL = 0.
     for det in detectors:
@@ -162,7 +162,7 @@ def SingleDetectorLogLikelihoodModel( crossTermsDictionary,tref, RA,DEC, thS,phi
     global distMpcRef
 
     crossTerms = crossTermsDictionary[det]
-    Ylms = ComputeYlms(Lmax, thS,phiS)
+    Ylms = ComputeYlms(Lmax, thS, -phiS)
     if (det == "Fake"):
         F=1
     else:
@@ -186,7 +186,7 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
     """
     global distMpcRef
 
-    Ylms = ComputeYlms(Lmax, thS,phiS)
+    Ylms = ComputeYlms(Lmax, thS, -phiS)
     if (det == "Fake"):
         F=1
         tshift= tref - epoch
@@ -212,7 +212,7 @@ def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms, tref
     """
     global distMpcRef
 
-    Ylms = ComputeYlms(Lmax, thS,phiS)
+    Ylms = ComputeYlms(Lmax, thS, -phiS)
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
     F = {}
@@ -249,7 +249,7 @@ def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTer
     """
     global distMpcRef
 
-    Ylms = ComputeYlms(Lmax, thS,phiS)
+    Ylms = ComputeYlms(Lmax, thS, -phiS)
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
     F = {}
@@ -558,7 +558,7 @@ def NetworkLogLikelihoodTimeMarginalizedDiscrete(epoch,rholmsDictionary,crossTer
     """
     global distMpcRef
 
-    Ylms = ComputeYlms(Lmax, thS,phiS)
+    Ylms = ComputeYlms(Lmax, thS, -phiS)
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
     F = {}
@@ -612,7 +612,7 @@ def DiscreteSingleDetectorLogLikelihoodData(epoch,rholmsDictionary, tStart,nBins
     """
     global distMpcRef
 
-    Ylms = ComputeYlms(Lmax, thS,phiS)
+    Ylms = ComputeYlms(Lmax, thS, -phiS)
     if (det == "Fake"):
         F=1
         tshift= tStart - epoch
