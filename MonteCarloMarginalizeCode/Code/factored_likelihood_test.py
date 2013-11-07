@@ -2,6 +2,15 @@
 """"
 factored_likelihood_test.py
 Standard test suite for the likelihood infrastructure.
+Figure index:
+    1: likelihood vs time (windowed; geocentered; time zero at theEpochFiducial)
+    2: ingredients vs time (windowed; *not* geocentered; time zero at theEpcochFiducial)
+    3: ingredients vs time (*not* windowed; *not* geocentered)
+    4:  ... as above, but time zero at first time sample (PENDING)
+    5: likelihood vs psi
+    6: likelihood vs psi
+    7: likelihood vs psi,phi
+    10: h(f)
 """
 
 
@@ -13,6 +22,7 @@ import lalsimulation as lalsim
 import factored_likelihood
 try:
     from matplotlib import pylab as plt
+    from mpl_toolkits.mplot3d import Axes3D
 except:
     print "No plots for you!"
 import sys
@@ -20,17 +30,22 @@ import scipy.optimize
 from scipy import integrate
 
 TestDictionaryDefault = {}
-TestDictionaryDefault["DataReport"]             = False
-TestDictionaryDefault["DataReportTime"]       = False
-TestDictionaryDefault["UVReport"]              = False
-TestDictionaryDefault["UVReflection"]          = False
+TestDictionaryDefault["DataReport"]             = True
+TestDictionaryDefault["DataPlot"]             = False
+TestDictionaryDefault["DataReportTime"]       = True
+TestDictionaryDefault["UVReport"]              = True
+TestDictionaryDefault["UVReflection"]          = True
 TestDictionaryDefault["QReflection"]          = False
-TestDictionaryDefault["QSquaredTimeseries"] = False
-TestDictionaryDefault["lnLModelAtKnown"]  = False
+TestDictionaryDefault["QSquaredTimeseries"] = True
+TestDictionaryDefault["Rho22Timeseries"]     = True
+TestDictionaryDefault["lnLModelAtKnown"]  = True
 TestDictionaryDefault["lnLDataAtKnownPlusOptimalTimePhase"] = False
-TestDictionaryDefault["lnLAtKnown"]           = False
-TestDictionaryDefault["lnLAtKnownMarginalizeTime"]  = False
-TestDictionaryDefault["lnLDataPlot"]            = False
+TestDictionaryDefault["lnLAtKnown"]           = True
+TestDictionaryDefault["lnLAtKnownMarginalizeTime"]  = True
+TestDictionaryDefault["lnLDataPlot"]            = True
+TestDictionaryDefault["lnLDataPlotVersusPsi"]            = True
+TestDictionaryDefault["lnLDataPlotVersusPhi"]            = True
+TestDictionaryDefault["lnLDataPlotVersusPhiPsi"]            = True
 
 
 def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, data_dict, psd_dict, fmaxSNR, analyticPSD_Q,Psig,rholms,rholms_intp, crossTerms, detectors, Lmax):
@@ -48,6 +63,8 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
     tWindowReference = factored_likelihood.tWindowReference
     tWindowExplore =     factored_likelihood.tWindowExplore
     tEventFiducial    = float(Psig.tref - theEpochFiducial)
+    plt.figure(0)  # Make sure not overwritten
+    plt.title("Placeholder - reset to this screen")
 
     rho2Net =0
     print " ++ WARNING : Some tests depend on others.  Not made robust yet ++ "
@@ -180,7 +197,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
     # lnLdata (plot)
     if TestDictionary["lnLDataPlot"]:
 
-        # Plot the interpolated lnLData
+        # Plot the interpolated lnLData versus *time*
         print " ======= lnLdata timeseries at the injection parameters =========="
         tmin = np.max(float(epoch_post - theEpochFiducial),tWindowReference[0]+0.03)   # the minimum time used is set by the rolling condition
         tvals = np.linspace(tWindowExplore[0]+tEventFiducial,tWindowExplore[1]+tEventFiducial,fSample*(tWindowExplore[1]-tWindowExplore[0]))
@@ -191,6 +208,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
             plt.xlabel('t(s) [geocentered]')
             plt.ylabel('lnLdata')
             plt.title("lnLdata (interpolated) vs narrow time interval")
+            plt.ylim(-800,800)   # sometimes we get yanked off the edges.  Larger than this isn't likely
             tvalsPlot = tvals 
             plt.plot(tvalsPlot, lnLData,label='Ldata(t)+'+det)
             plt.plot(tvalsPlot, lnLDataEstimate,label="$rho^2("+det+")$")
@@ -216,7 +234,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
         lnL = np.zeros(len(tvals))
         for indx in np.arange(len(tvals)):
             P.tref =  theEpochFiducial+tvals[indx]
-            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, 2)
+            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, Lmax)
         lnLEstimate = np.ones(len(tvals))*rho2Net/2
         plt.figure(1)
         tvalsPlot = tvals 
@@ -228,6 +246,87 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
         plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
         plt.title("lnL (interpolated) vs narrow time interval")
         plt.legend()
+
+    # lnLdata (plot)
+    if TestDictionary["lnLDataPlotVersusPsi"]:
+        print " ======= Code test: Plot the lnL versus psi, at the injection parameters =========="
+        psivals = np.linspace(0, 2*np.pi,500)
+        P = Psig.copy()
+        P.tref =Psig.tref    #Probably already created. Be careful re recreating, some memory management issues
+        lnL = np.zeros(len(psivals))
+        for indx in np.arange(len(psivals)):
+            P.psi =  psivals[indx]
+            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, 2)
+        lnLEstimate = np.ones(len(psivals))*rho2Net/2
+        plt.figure(5)
+        plt.plot(psivals, lnL,label='lnL(phi)')
+        plt.plot(psivals, lnLEstimate,label="$rho^2/2(net)$")
+        psiEvent = Psig.psi 
+        plt.ylabel('lnL')
+        plt.xlabel('$\psi$')
+        plt.plot([psiEvent,psiEvent],[0,rho2Net], color='k',linestyle='--')
+        plt.plot([psiEvent+np.pi,psiEvent+np.pi],[0,rho2Net], color='k',linestyle='--')   # add second line
+        plt.plot([psiEvent+2*np.pi,psiEvent+2*np.pi],[0,rho2Net], color='k',linestyle='--')   # add third line
+        plt.title("lnL (interpolated) vs phase (psi)")
+        plt.legend()
+
+    # lnL (plot)
+    if TestDictionary["lnLDataPlotVersusPhi"]:  # here phi means *phiref*, not *phiS*
+        print " ======= Code test: Plot the lnL versus phi, at the injection parameters =========="
+        phivals = np.linspace(0, 2*np.pi,500)
+        P = Psig.copy()
+        P.tref =Psig.tref    #Probably already created. Be careful re recreating, some memory management issues
+        lnL = np.zeros(len(phivals))
+        lnLdata = {}
+        for indx in np.arange(len(phivals)):
+            P.phiref =  phivals[indx]
+            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, 2)
+        for det in detectors:
+            lnLdata[det] = np.zeros(len(phivals))
+            for indx in np.arange(len(phivals)):
+                P.phiref =  phivals[indx]
+                lnLdata[det][indx] =  factored_likelihood.SingleDetectorLogLikelihoodData(theEpochFiducial, rholms_intp,P.tref,P.phi,P.theta,P.incl,-P.phiref,P.psi,P.dist, Lmax,det)
+            
+        lnLEstimate = np.ones(len(phivals))*rho2Net/2
+        plt.figure(6)
+        plt.plot(phivals, lnL,label='lnL(phi)')
+        plt.plot(phivals, lnLEstimate,label="$rho^2/2(net)$")
+        for det in detectors:
+            plt.plot(phivals, lnLdata[det],label='lnLdata(phi):'+det) 
+        phiEvent = Psig.phiref
+        plt.ylabel('lnL')
+        plt.xlabel('$\phi$')
+        plt.plot([phiEvent,phiEvent],[0,rho2Net], color='k',linestyle='-')
+        plt.plot([phiEvent+np.pi,phiEvent+np.pi],[0,rho2Net], color='k',linestyle='--')         # not a physically required extrema, but often a good approx
+        plt.plot([phiEvent+2*np.pi,phiEvent+2*np.pi],[0,rho2Net], color='k',linestyle='-')   # add second line
+        plt.title("lnL (interpolated) vs phase (phi)")
+        plt.legend()
+
+    # lnLdata (plot)
+    if TestDictionary["lnLDataPlotVersusPhiPsi"]:
+        print " ======= Code test: Plot the lnL versus phi,psi, at the injection parameters =========="
+        psivals = np.linspace(0, 2*np.pi,50)
+        phivals = np.linspace(0, 2*np.pi,50)
+        psivals, phivals = np.meshgrid(psivals,phivals)
+        P = Psig.copy()
+        P.tref =Psig.tref    #Probably already created. Be careful re recreating, some memory management issues
+        lnL = np.zeros(psivals.shape)
+        for indx in np.arange(psivals.shape[0]):
+            for y in np.arange(psivals.shape[1]):
+                P.psi =  psivals[indx,y]
+                P.phiref =  phivals[indx,y]
+                lnL[indx,y] =  factored_likelihood.FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, 2)
+
+        myfig = plt.figure(7)
+        ax = myfig.add_subplot(111, projection='3d')
+        ax.plot_wireframe(psivals,phivals,lnL)
+#        ax.plot_wireframe(psivals,phivals,phivals)  # Confirm I am plotting what I think I am
+        ax.set_xlabel('psi')
+        ax.set_ylabel('phi')
+        ax.set_zlabel('lnL')
+
+    if TestDictionary["lnLDataPlotVersusPsi"] or TestDictionary["lnLDataPlot"] or TestDictionary["DataReport"] or TestDictionary["lnLDataPlotVersusPhiPsi"]:
         plt.show()
+
 
     return True

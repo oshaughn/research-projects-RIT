@@ -36,6 +36,10 @@ Examples:
         python test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file test1.cache --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --channel-name V1=FAKE_h_16384Hz_4R
         python test_like_and_samp.py  --cache-file test1.cache --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --channel-name V1=FAKE_h_16384Hz_4R  
 
+  # Run with a synthetic injected signal with a nontrivial polarization, inclination (edge on), time, and phase
+        python test_like_and_samp.py --signal-inclination 1.5708 --signal-time 0.02 --signal-polarization 0.3 --signal-phase -0.7  # test inclination, polarization propagated consistently
+
+
 """
 import sys
 
@@ -259,6 +263,19 @@ if len(data_dict) is 0:
             print "    Template duration  : ", timeSegmentLength
             sys.exit(0)
 
+    if opts.signal_incl:
+        Psig.incl = opts.signal_incl
+    if opts.signal_psi:
+        Psig.psi = opts.signal_psi
+    if opts.signal_phiref:
+        Psig.phi = opts.signal_phiref
+    if opts.signal_tref:
+        if np.abs(opts.signal_tref) < 1000:
+            Psig.tref = theEpochFiducial+opts.signal_tref  
+        else:
+            Psig.tref = opts.signal_tref
+            theEpochFiducial=opts.signal_tref
+
     df = lalsimutils.findDeltaF(Psig)
     Psig.print_params()
     Psig.deltaF = df
@@ -322,7 +339,7 @@ print  " Amplitude report :"
 fminSNR =opts.fmin_SNR
 for det in detectors:
     if analyticPSD_Q:
-        IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],fmax=fmaxSNR)
+        IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],fMax=fmaxSNR)
     else:
         IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det].data.data,fMax=fmaxSNR,analyticPSD_Q=False)
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])

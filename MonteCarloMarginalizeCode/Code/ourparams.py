@@ -95,6 +95,12 @@ def ParseStandardArguments():
     parser.add_argument("--super-verbose", action="store_true", dest="super_verbose", default=False)
     parser.add_argument("-q", "--quiet", action="store_false", dest="verbose", default=False)
 
+    # Test options
+    parser.add_argument("--signal-inclination", dest="signal_incl",default=False,type=float)
+    parser.add_argument("--signal-polarization", dest="signal_psi",default=False,type=float)
+    parser.add_argument("--signal-phase", dest="signal_phiref",default=False,type=float)
+    parser.add_argument("--signal-time", dest="signal_tref",default=False,type=float,help="If a small floating point number (<1000), added to the fiducial epoch to shift the injection time. Otherwise, the GPS time of the injection; the reference time is set to that event time.")
+
     # Interactive plots
     parser.add_argument("--show-sampler-results",dest='plot_ShowSampler', action='store_true', default=False,help ="Show interactive plots from sampler results. ")
     parser.add_argument("--show-sampler-inputs",dest='plot_ShowSamplerInputs', action='store_true', default=False,help ="Show interactive plots from sampler *inputs*. ")
