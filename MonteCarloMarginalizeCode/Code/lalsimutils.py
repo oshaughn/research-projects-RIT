@@ -941,6 +941,25 @@ def norm_hoff_FD(P, IP, Fp=None, Fc=None):
     htilde.data.data /= norm
     return htilde
 
+def non_herm_hoff(P):
+    """
+    Generate a FD waveform with two-sided spectrum. i.e. not assuming
+    the Hermitian symmetry applies
+    """
+    htR = hoft(P) # Generate real-valued TD waveform
+    fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(htR.data.length,0)
+    htC = lal.CreateCOMPLEX16TimeSeries("hoft", htR.epoch, htR.f0,
+            htR.deltaT, htR.sampleUnits, htR.data.length)
+    # copy h(t) into a COMPLEX16 array which happens to be purely real
+    for i in range(htR.data.length):
+        htC.data.data[i] = htR.data.data[i]
+    hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)",
+            htR.epoch, htR.f0, 1./htR.deltaT/htR.data.length, lal.lalHertzUnit, 
+            htR.data.length)
+    lal.COMPLEX16TimeFreqFFT(hf, htC, fwdplan)
+    return hf
+
+
 
 def hlmoft(P, Lmax=2, Fp=None, Fc=None):
     """
