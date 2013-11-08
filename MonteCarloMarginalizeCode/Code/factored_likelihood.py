@@ -134,6 +134,11 @@ def FactoredLogLikelihood(epoch, extr_params, rholms_intp, crossTerms, Lmax):
     psi = extr_params.psi
     dist = extr_params.dist
 
+    # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
+    # the source frame, rather than actively rotating the binary.
+    # Said another way, the m^th harmonic of the waveform should transform as
+    # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
+    # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
     Ylms = ComputeYlms(Lmax, incl, -phiref)
 
     lnL = 0.
@@ -162,6 +167,11 @@ def SingleDetectorLogLikelihoodModel( crossTermsDictionary,tref, RA,DEC, thS,phi
     global distMpcRef
 
     crossTerms = crossTermsDictionary[det]
+    # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
+    # the source frame, rather than actively rotating the binary.
+    # Said another way, the m^th harmonic of the waveform should transform as
+    # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
+    # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
     Ylms = ComputeYlms(Lmax, thS, -phiS)
     if (det == "Fake"):
         F=1
@@ -186,6 +196,11 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
     """
     global distMpcRef
 
+    # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
+    # the source frame, rather than actively rotating the binary.
+    # Said another way, the m^th harmonic of the waveform should transform as
+    # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
+    # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
     Ylms = ComputeYlms(Lmax, thS, -phiS)
     if (det == "Fake"):
         F=1
@@ -212,6 +227,11 @@ def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms, tref
     """
     global distMpcRef
 
+    # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
+    # the source frame, rather than actively rotating the binary.
+    # Said another way, the m^th harmonic of the waveform should transform as
+    # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
+    # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
     Ylms = ComputeYlms(Lmax, thS, -phiS)
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
@@ -249,6 +269,11 @@ def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTer
     """
     global distMpcRef
 
+    # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
+    # the source frame, rather than actively rotating the binary.
+    # Said another way, the m^th harmonic of the waveform should transform as
+    # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
+    # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
     Ylms = ComputeYlms(Lmax, thS, -phiS)
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
@@ -558,6 +583,11 @@ def NetworkLogLikelihoodTimeMarginalizedDiscrete(epoch,rholmsDictionary,crossTer
     """
     global distMpcRef
 
+    # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
+    # the source frame, rather than actively rotating the binary.
+    # Said another way, the m^th harmonic of the waveform should transform as
+    # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
+    # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
     Ylms = ComputeYlms(Lmax, thS, -phiS)
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
@@ -612,6 +642,11 @@ def DiscreteSingleDetectorLogLikelihoodData(epoch,rholmsDictionary, tStart,nBins
     """
     global distMpcRef
 
+    # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
+    # the source frame, rather than actively rotating the binary.
+    # Said another way, the m^th harmonic of the waveform should transform as
+    # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
+    # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
     Ylms = ComputeYlms(Lmax, thS, -phiS)
     if (det == "Fake"):
         F=1
