@@ -12,7 +12,9 @@ CMAP = { "right_ascension": "longitude",
     "polarization": "polarization",
     "t_ref": lambda r, t: r.set_time_geocent(LIGOTimeGPS(float(t))),
     "coa_phase": "coa_phase",
-    "distance": "distance"
+    "distance": "distance",
+    "mass1": "mass1",
+    "mass2": "mass2"
 }
 
 sim_valid_cols = ["process_id", "simulation_id", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2"]
