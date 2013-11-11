@@ -30,7 +30,7 @@ rosDebugShowExcruciatingLikelihoodDetail = False
 #
 # Pinnable parameters -- for command line processing
 #
-LIKELIHOOD_PINNABLE_PARAMS = ["right_ascension", "declination"]
+LIKELIHOOD_PINNABLE_PARAMS = ["right_ascension", "declination", "psi", "distance", "phi_orb", "t_ref", "inclination"]
 
 def get_pinned_params(opts):
     """
