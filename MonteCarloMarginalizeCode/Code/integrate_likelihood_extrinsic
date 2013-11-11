@@ -19,7 +19,7 @@ import glue.lal
 import lalsimutils
 import factored_likelihood
 import mcsampler
-import ourio
+#import ourio
 import xmlutils
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
@@ -225,7 +225,7 @@ if opts.pin_to_sim:
     print "\tdistance", P.dist, sim_row.distance * 1e6 * lal.LAL_PC_SI # luminosity distance
 
     logL = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
-    print "Pinned log likelihood: %g, (%g in \"SNR\")" % (logL, numpy.sqrt(-2*logL))
+    print "Pinned log likelihood: %g, (%g in \"SNR\")" % (logL, numpy.sqrt(2*logL))
     exit()
 
 #
