@@ -23,8 +23,9 @@ for fname, series in psdd.iteritems():
     pyplot.loglog()
     f = numpy.arange(series.f0, len(series.data)*series.deltaF, series.deltaF)
     pyplot.plot(f, series.data, '-', label=fname)
-    pyplot.xlim([1e1,2e3])
+    pyplot.xlim([1e1,8e3])
     pyplot.ylim([1e-46,1e-26])
+    #pyplot.ylim([1e15,1e18])
 
 pyplot.grid()
 pyplot.legend()

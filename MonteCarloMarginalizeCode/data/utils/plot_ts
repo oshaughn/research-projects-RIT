@@ -23,6 +23,7 @@ for d in ["H1", "L1", "V1"]:
     t = numpy.arange(float(series.epoch), float(series.epoch)+len(series.data.data)*series.deltaT, series.deltaT)
     pyplot.title(d)
     pyplot.plot(t, series.data.data, '-', label=d)
+    pyplot.xlim([1e9+14, 1e9+14.3])
     pyplot.legend()
 
 pyplot.savefig("ts.png")
