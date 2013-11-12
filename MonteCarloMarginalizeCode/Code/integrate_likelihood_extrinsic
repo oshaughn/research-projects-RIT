@@ -25,7 +25,6 @@ import xmlutils
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 rosDebugShowPriors = True  
-rosDebugShowExcruciatingLikelihoodDetail = False
 
 #
 # Pinnable parameters -- for command line processing
@@ -82,9 +81,15 @@ optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
 
-# FIXME: Turn into cmd line options
-# minimum frequency of template
-template_min_freq = 30  # too long can be a memory and time hog, particularly at 16 kHz
+#
+# Hardcoded variables
+#
+template_min_freq = 30 # minimum frequency of template
+ip_min_freq = 30 # minimum frequency of inner product integration
+ampO = 0 # sets which modes to include in the physical signal
+Lmax = 2 # sets which modes to include
+t_ref_wind = 2e-3 # Interpolate in a window +/- this width about event time
+nMaxEvals = 1e3 # Max number of extrinsic points to evaluate at
 
 #
 # Gather information about a injection put in the data
@@ -94,7 +99,6 @@ if opts.pin_to_sim is not None:
     sim_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
     assert len(sim_table) == 1
     sim_row = sim_table[0]
-    #event_time = sim_row.get_end()
 
 #
 # Gather information from the detection pipeline
@@ -135,15 +139,12 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
     print "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF
 
-#
-# Sanity checks
-#
-# can't FIXME: Yep, we're all totally nuts.
+# Ensure data and PSDs keyed to same detectors
 if sorted(psd_dict.keys()) != sorted(data_dict.keys()):
     print >>sys.stderr, "Got a different set of instruments based on data and PSDs provided."
 
 #
-# Testing
+# Set masses
 #
 if opts.mass1 is not None and opts.mass2 is not None:
     m1, m2 = opts.mass1, opts.mass2
@@ -159,14 +160,8 @@ else:
     raise ValueError("Need either --mass1 --mass2 or --coinc-xml to retrieve masses.")
 print "Performing integration for intrinsic parameters mass 1: %f, mass 2 %f" % (m1, m2)
 
-# FIXME: Keep this and organize
-# TARGET INJECTED SIGNAL (for reference and calibration of results)
-# TODO: Have an "injection" xml for reference?
-#Psig = xml_to_ChooseWaveformParams_array("mdc.xml.gz")[0]  # Load in the physical parameters of the injection (=first element)
 
 # Template descriptors
-ampO =0 # sets which modes to include in the physical signal
-Lmax = 2 # sets which modes to include
 
 # FIXME: Come back to this
 fiducial_epoch = lal.LIGOTimeGPS()
@@ -175,10 +170,9 @@ fiducial_epoch.gpsNanoSeconds = event_time.nanoseconds
 fref_time_off = 0   #  time relative to fiducial epoch, used to identify window to look in.  Checked empirically.
 # epoch + event = time of event at f_ref
 # FIXME: Geocentric? Detector specific?
-print "Offset from event end time to f_ref %f" % fref_time_off
 
 detectors = data_dict.keys()
-df = data_dict[detectors[0]].deltaF     # should not be hardcoded!
+df = data_dict[detectors[0]].deltaF
 fPSD = (psd_dict[detectors[0]].data.length - 1) * psd_dict[detectors[0]].deltaF
 # FIXME: More descriptive here
 fSample = len(data_dict[detectors[0]].data.data)*data_dict[detectors[0]].deltaF  # Note two-sided
@@ -193,7 +187,6 @@ P = lalsimutils.ChooseWaveformParams(
     theta = 0.0, 
     phi = 0.0,
     psi = 0.0,
-    # internally we use SI units
     m1 = m1 * lal.LAL_MSUN_SI,
     m2 = m2 * lal.LAL_MSUN_SI,
     ampO = ampO,
@@ -207,7 +200,8 @@ P = lalsimutils.ChooseWaveformParams(
 #
 # Perform the Precompute stage
 #
-rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(fiducial_epoch, P, data_dict, psd_dict, Lmax, fPSD, analyticPSD_Q=False)
+rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(
+        fiducial_epoch, P, data_dict, psd_dict, Lmax, fPSD, analyticPSD_Q=False)
 
 if opts.pin_to_sim:
     P.copy_lsctables_sim_inspiral(sim_row)
@@ -245,8 +239,6 @@ if opts.pin_to_sim:
 #
 # Set up parameters and bounds
 #
-# FIXME: Make t_ref_wind a cmd line parameter?
-t_ref_wind = 2e-3
 
 dmin = 1.    # min distance
 dmax = 180.  # max distance
@@ -270,12 +262,7 @@ param_limits = { "psi": (0, 2*numpy.pi),
 # Parameter integral sampling strategy
 #
 params = {}
-#for param, limits in param_limits.iteritems():
-#    params[param] = functools.partial(mcsampler.uniform_samp_vector(), limits[0], limits[1] )  # *limits didn't work, not sure why
 sampler = mcsampler.MCSampler()
-
-# FIXME: Address this problem?
-# PROBLEM: Underlying prior samplers are not uniform.  We need two stages
 
 #
 # Psi -- polarization angle
@@ -305,7 +292,7 @@ sampler.add_parameter("phi_orb",
 
 #
 # inclination - angle of system angular momentum with line of sight
-# sampler: uniform in cos [-pi, pi)
+# sampler: cos(incl) uniform in [-1, 1)
 #
 incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
 sampler.add_parameter("inclination", 
@@ -343,7 +330,7 @@ sampler.add_parameter("right_ascension",
 
 #
 # declination - angle in radians from the north pole piercing the celestial sky
-# sampler: uniform in cos [-pi, pi)
+# sampler: cos(dec) uniform in [-1, 1)
 #
 dec_sampler = mcsampler.dec_samp_vector
 sampler.add_parameter("declination", 
@@ -355,7 +342,6 @@ sampler.add_parameter("declination",
 
 #
 # tref - GPS time of geocentric end time
-# FIXME: end time or 100 Hz?
 # sampler: uniform in +/-2 ms window around estimated end time 
 #
 tref_sampler = functools.partial(mcsampler.uniform_samp_vector,
@@ -365,7 +351,6 @@ sampler.add_parameter("t_ref",
     cdf_inv = None, 
     left_limit = param_limits["t_ref"][0], 
     right_limit = param_limits["t_ref"][1],
-    # FIXME:What goes here?
     prior_pdf = functools.partial(mcsampler.uniform_samp_vector, factored_likelihood.tWindowExplore[0],factored_likelihood.tWindowExplore[1]))
 
 if rosDebugShowPriors:
@@ -398,7 +383,6 @@ if pinned_params.has_key("t_ref"):
 #
 # Call the likelihood function for various extrinsic parameter values
 #
-# FIXME: Clean this up
 nEvals = 0
 n_max = int(1e5)
 if not opts.time_marginalization:
@@ -412,14 +396,14 @@ if not opts.time_marginalization:
     # comparing the parameter names it knows to the arguments that are passed
     # to it.
     #
-    def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
+    def likelihood_function(right_ascension, declination, t_ref, phi_orb,
+            inclination, psi, distance):
         global nEvals
-        lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)   # use EXTREMELY many bits
+        # use EXTREMELY many bits
+        lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
         i = 0
-        if rosDebugShowExcruciatingLikelihoodDetail:
-            print " Likelihood results :  "
-    #    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
-        for ph, th, tr, phr, ic, ps, di in zip(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
+        for ph, th, tr, phr, ic, ps, di in zip(right_ascension, declination,
+                t_ref, phi_orb, inclination, psi, distance):
             P.phi = ph # right ascension
             P.theta = th # declination
             P.tref = fiducial_epoch + tr # ref. time (rel to epoch for data taking)
@@ -428,9 +412,8 @@ if not opts.time_marginalization:
             P.psi = ps # polarization angle
             P.dist = di* 1.e6 * lal.LAL_PC_SI # luminosity distance
     
-            lnL[i] = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
-            if  rosDebugShowExcruciatingLikelihoodDetail:
-                print "  + likelihood evaluation : ", i + nEvals, " :  ", lnL[i], " : overflow check ", np.exp(lnL[i])
+            lnL[i] = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,
+                    P, rholms_intp, cross_terms, Lmax)
             i+=1
     
         nEvals+=i 
@@ -439,19 +422,20 @@ if not opts.time_marginalization:
     pinned_params.update({"n": 10, "nmax": n_max, "neff": 100, "full_output": True, "verbose": True, "extremely_verbose": False, "save_intg": True})
     res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
-else:
+else: # Sum over time for every point in other extrinsic params
 
-    def likelihood_function(right_ascension, declination, phi_orb, inclination, psi, distance):
+    def likelihood_function(right_ascension, declination, phi_orb, inclination,
+            psi, distance):
         global nEvals
-        lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)   # use EXTREMELY many bits
+        # use EXTREMELY many bits
+        lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
         i = 0
-        if rosDebugShowExcruciatingLikelihoodDetail:
-            print " Likelihood results :  "
-    #    print " iteration Neff  lnL   sqrt(2max(lnL))  rho  sqrt(2 lnLmarg)   <lnL> "
-        for ph, th, phr, ic, ps, di in zip(right_ascension, declination, phi_orb, inclination, psi, distance):
-            lnL[i] = factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete(fiducial_epoch, rholms, cross_terms, fiducial_epoch, (-t_ref_wind, t_ref_wind), ph, th, ic, phr, ps, di, Lmax, rholms.keys())
-            if  rosDebugShowExcruciatingLikelihoodDetail:
-                print "  + likelihood evaluation : ", i + nEvals, " :  ", lnL[i], " : overflow check ", np.exp(lnL[i])
+        for ph, th, phr, ic, ps, di in zip(right_ascension, declination,
+                phi_orb, inclination, psi, distance):
+            lnL[i] = factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete(fiducial_epoch,
+                    rholms, cross_terms, fiducial_epoch,
+                    (-t_ref_wind, t_ref_wind), ph, th, ic, phr, ps, di,
+                    Lmax, rholms.keys())
             i+=1
     
         nEvals+=i 
