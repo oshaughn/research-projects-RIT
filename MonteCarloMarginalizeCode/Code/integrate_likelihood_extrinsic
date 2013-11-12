@@ -240,14 +240,9 @@ if opts.pin_to_sim:
 # Set up parameters and bounds
 #
 
-dmin = 1.    # min distance
-dmax = 180.  # max distance
-# FIXME: Reenable when we understand what it does
-"""
-dmaxMpc = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, cross_terms)
-dmax = dmaxMpc
-print "Estimated outer fiducial radius for event (Mpc): %f" %dmaxMpc
-"""
+# FIXME: Never really used
+dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
+dmax = 2000. * 1.e6 * lal.LAL_PC_SI # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 
 param_limits = { "psi": (0, 2*numpy.pi),
     "phi_orb": (0, 2*numpy.pi),
@@ -304,7 +299,7 @@ sampler.add_parameter("inclination",
 
 #
 # Distance - luminosity distance to source in parsecs
-# sampler: uniform volume over [1 Mpc, dmax)
+# sampler: uniform volume over [dmin, dmax)
 #
 dist_sampler = functools.partial(mcsampler.quadratic_samp_vector, dmax)
 sampler.add_parameter("distance", 
@@ -317,7 +312,7 @@ sampler.add_parameter("distance",
 
 #
 # Right ascension - angle in radians from prime meridian plus hour angle
-# sampler: uniform in (0, 2pi)
+# sampler: uniform in [0, 2pi)
 #
 ra_sampler = functools.partial(mcsampler.uniform_samp_vector,
     param_limits["right_ascension"][0], param_limits["right_ascension"][1])
