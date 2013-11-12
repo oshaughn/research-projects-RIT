@@ -15,6 +15,7 @@ import lal
 from glue.ligolw import utils, lsctables, table, ligolw
 from glue.ligolw.utils import process
 import glue.lal
+import pylal
 
 import lalsimutils
 import factored_likelihood
@@ -132,12 +133,23 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
 
     deltaF = data_dict[inst].deltaF
-    fmin = psd_dict[inst].f0
-    fmax = fmin + psd_dict[inst].deltaF*len(psd_dict[inst].data)-deltaF
+    if psd_dict[inst].deltaF != deltaF:
+        # FIXME: Can we remove the printfs? Seems to work fine now...
+        print "PSD deltaF before interpolation %f" % psd_dict[inst].deltaF
+        psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
+        print "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF
+    assert psd_dict[inst].deltaF == deltaF
+    # Highest freq. at which PSD is defined
+    if isinstance(psd_dict[inst],
+            pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
+        fmax = psd_dict[inst].f0 + deltaF * (len(psd_dict[inst].data) - 1)
+    elif isinstance(psd_dict[inst], lal.REAL8FrequencySeries):
+        fmax = psd_dict[inst].f0 + deltaF * (psd_dict[inst].data.length - 1)
+    # Assert upper limit of IP integral does not go past where PSD defined
+    assert opts.fmax is None or opts.fmax >= fmax
+    if opts.fmax > fmax:
+        fmax = opts.fmax # fmax is now the upper freq. of IP integral
 
-    print "PSD deltaF before interpolation %f" % psd_dict[inst].deltaF
-    psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
-    print "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF
 
 # Ensure data and PSDs keyed to same detectors
 if sorted(psd_dict.keys()) != sorted(data_dict.keys()):
@@ -171,11 +183,11 @@ fref_time_off = 0   #  time relative to fiducial epoch, used to identify window 
 # epoch + event = time of event at f_ref
 # FIXME: Geocentric? Detector specific?
 
-detectors = data_dict.keys()
-df = data_dict[detectors[0]].deltaF
-fPSD = (psd_dict[detectors[0]].data.length - 1) * psd_dict[detectors[0]].deltaF
-# FIXME: More descriptive here
-fSample = len(data_dict[detectors[0]].data.data)*data_dict[detectors[0]].deltaF  # Note two-sided
+# data_dict holds 2-sided FrequencySeries, so their length is the same as
+# that of the original TimeSeries that was FFT'd = Nsamples
+# Also, deltaF = 1/T, with T = the duration (in sec) of the original TimeSeries
+# Therefore 1/(data.length*deltaF) = T/Nsamples = deltaT
+deltaT = 1./ (data_dict[data_dict.keys()[0]].data.length * deltaF)
 
 # Struct to hold template parameters
 # FIXME: Lots of hardcoding going on here
@@ -192,16 +204,22 @@ P = lalsimutils.ChooseWaveformParams(
     ampO = ampO,
     fref = opts.reference_freq,
     tref = fiducial_epoch,
-    deltaT = 1./fSample,
+    deltaT = deltaT, # N.B. implicitly assuming all IFO data has same length
     dist = factored_likelihood.distMpcRef * 1.e6 * lal.LAL_PC_SI,
-    deltaF = df)
+    deltaF = deltaF # N.B. implicitly assuming all IFO data have same deltaF!
+    )
 
 
 #
 # Perform the Precompute stage
 #
+
+# N.B. There is an implicit assumption all detectors use the same
+# upper frequency limit for their inner product integrals
+# N.B. P.fmin is being used to set the lower freq. limit of the IP integrals
+# while in principal we may want to set it separately
 rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(
-        fiducial_epoch, P, data_dict, psd_dict, Lmax, fPSD, analyticPSD_Q=False)
+        fiducial_epoch, P, data_dict, psd_dict, Lmax, fmax, analyticPSD_Q=False)
 
 if opts.pin_to_sim:
     P.copy_lsctables_sim_inspiral(sim_row)
@@ -445,7 +463,6 @@ else: # Sum over time for every point in other extrinsic params
         )
 
 
-tGPSEnd = lal.GPSTimeNow()
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
 
