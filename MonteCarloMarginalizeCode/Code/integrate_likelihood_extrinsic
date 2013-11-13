@@ -85,8 +85,6 @@ opts, args = optp.parse_args()
 # FIXME: Turn into cmd line options
 # minimum frequency of template
 template_min_freq = 30  # too long can be a memory and time hog, particularly at 16 kHz
-# minimum frequency of inner product integration
-ip_min_freq = 30
 
 #
 # Gather information about a injection put in the data
@@ -132,8 +130,6 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     deltaF = data_dict[inst].deltaF
     fmin = psd_dict[inst].f0
     fmax = fmin + psd_dict[inst].deltaF*len(psd_dict[inst].data)-deltaF
-    assert opts.fmax is None or opts.fmax >= fmax
-    #fmax = opts.fmax or (fmin + psd_dict[inst].deltaF*len(psd_dict[inst].data))
 
     print "PSD deltaF before interpolation %f" % psd_dict[inst].deltaF
     psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
@@ -226,6 +222,24 @@ if opts.pin_to_sim:
 
     logL = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
     print "Pinned log likelihood: %g, (%g in \"SNR\")" % (logL, numpy.sqrt(2*logL))
+    tref = float(P.tref)
+    #tvals = numpy.arange(tref-5.0, tref+5.0, 0.001)
+    tvals = numpy.arange(tref-0.01, tref+0.01, 0.0001)
+    logLs = []
+    for t in tvals:
+        P.tref = lal.LIGOTimeGPS(t)
+        logLs.append(factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax))
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib import pyplot
+    print "Maximum logL is %g" % max(logLs)
+    pyplot.plot(tvals-tref, logLs)
+    pyplot.ylabel("log Likelihood")
+    pyplot.xlabel("time (relative to %10.5f)" % tref)
+    pyplot.axvline(0, color="k")
+    pyplot.title("lnL(t),\n value at event time: %f" % logL)
+    pyplot.grid()
+    pyplot.savefig("logL.png")
     exit()
 
 #
@@ -414,7 +428,7 @@ if not opts.time_marginalization:
         nEvals+=i 
         return numpy.exp(lnL)
 
-    pinned_params.update({"n": 10, "nmax": nMaxEvals, "neff": 100, "full_output": True, "verbose": True, "extremely_verbose": False})
+    pinned_params.update({"n": 10, "nmax": nMaxEvals, "neff": 100, "full_output": True, "verbose": True, "extremely_verbose": False, "save_intg": True})
     res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else:
@@ -454,10 +468,14 @@ if opts.output_file:
     process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
     if opts.save_samples:
         samples = sampler._rvs
+        # FIXME: Does sim insp do kpc or mpc
+        samples["distance"] = samples["distance"]/1e6/lal.LAL_PC_SI
         samples["polarization"] = samples["psi"]
         samples["coa_phase"] = samples["phi_orb"]
         samples["latitude"] = samples["declination"]
         samples["longitude"] = samples["right_ascension"]
+        samples["loglikelihood"] = numpy.log(samples["integrand"])
+        #samples["loglikelihood"] = samples["integrand"]
         samples["mass1"] = numpy.ones(samples["psi"].shape)*opts.mass1
         samples["mass2"] = numpy.ones(samples["psi"].shape)*opts.mass2
         xmlutils.append_samples_to_xmldoc(xmldoc, samples)
