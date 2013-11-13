@@ -3,8 +3,11 @@ import types
 import numpy
 
 from glue.lal import LIGOTimeGPS
-from glue.ligolw import ligolw, lsctables, table
+from glue.ligolw import ligolw, lsctables, table, ilwd
 from glue.ligolw.utils import process
+
+def assign_id(row, i):
+    row.simulation_id = ilwd.ilwdchar("sim_inspiral_table:sim_inspiral:%d" % i)
 
 CMAP = { "right_ascension": "longitude",
     "declination": "latitude",
@@ -14,10 +17,17 @@ CMAP = { "right_ascension": "longitude",
     "coa_phase": "coa_phase",
     "distance": "distance",
     "mass1": "mass1",
-    "mass2": "mass2"
+    "mass2": "mass2",
+    # SHOEHORN ALERT
+    "sample_n": assign_id,
+    "loglikelihood": "alpha1",
+    "int_val": "alpha2",
+    "int_var": "alpha3"
 }
 
-sim_valid_cols = ["process_id", "simulation_id", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2"]
+# FIXME: Find way to intersect given cols with valid cols when making table.
+# Otherwise, we'll have to add them manually and ensure they all exist
+sim_valid_cols = ["process_id", "simulation_id", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha1"] #, "alpha2", "alpha3"]
 sngl_valid_cols = ["process_id", "event_id", "snr"]
 multi_valid_cols = ["process_id", "event_id", "snr"]
 
@@ -35,6 +45,7 @@ def append_samples_to_xmldoc(xmldoc, sampdict):
     values = numpy.array([sampdict[k] for k in keys], object)
     
     # Flatten the keys
+    import collections
     keys = reduce(list.__add__, [list(i) if isinstance(i, tuple) else [i] for i in keys])
 
     # Get the process
@@ -42,8 +53,14 @@ def append_samples_to_xmldoc(xmldoc, sampdict):
     procid = table.get_table(xmldoc, lsctables.ProcessTable.tableName)[-1].process_id
     
     # map the samples to sim inspiral rows
-    for vrow in values.T:
-        si_table.append(samples_to_siminsp_row(si_table, **dict(zip(keys, vrow.flatten()))))
+    # NOTE :The list comprehension is to preserve the grouping of multiple 
+    # parameters across the transpose operation. It's probably not necessary,
+    # so if speed dictates, it can be reworked by flattening before arriving 
+    # here
+    for vrow in numpy.array(zip(*[vrow.T for vrow in values]), dtype=numpy.object):
+        #si_table.append(samples_to_siminsp_row(si_table, **dict(zip(keys, vrow.flatten()))))
+        vrow = reduce(list.__add__, [list(i) if isinstance(i, collections.Iterable) else [i] for i in vrow])
+        si_table.append(samples_to_siminsp_row(si_table, **dict(zip(keys, vrow))))
         si_table[-1].process_id = procid
 
     if new_table:
@@ -79,8 +96,9 @@ def append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, **cols):
 def samples_to_siminsp_row(table, colmap={}, **sampdict):
     row = table.RowType()
     row.simulation_id = table.get_next_id()
-    #mapping = CMAP.update(colmap)
     for key, col in CMAP.iteritems():
+        if key not in sampdict:
+            continue
         if isinstance(col, types.FunctionType):
             col(row, sampdict[key])
         else:
@@ -100,6 +118,16 @@ def likelihood_to_snglinsp_row(table, loglikelihood, **cols):
 # TESTING
 import sys
 if __file__ == sys.argv[0]:
+    import numpy
+
+    # Not used yet
+    del CMAP["int_var"]
+    del CMAP["int_val"]
+    del CMAP["sample_n"]
+
+    # Reworked to resemble usage in pipeline
+    del CMAP["mass1"]
+    del CMAP["mass2"]
     CMAP[("mass1", "mass2")] = ("mass1", "mass2")
     ar = numpy.random.random((len(CMAP), 10))
     samp_dict = dict(zip(CMAP, ar))
@@ -108,6 +136,9 @@ if __file__ == sys.argv[0]:
     del CMAP[("mass1", "mass2")]
     CMAP["mass1"] = "mass1"
     CMAP["mass2"] = "mass2"
+
+    samp_dict["samp_n"] = numpy.array(range(0,10))
+    CMAP["sample_n"] = "sample_n"
     
     xmldoc = ligolw.Document()
     xmldoc.appendChild(ligolw.LIGO_LW())
@@ -118,7 +149,6 @@ if __file__ == sys.argv[0]:
     def gaussian(x, mu=0, std=1):
         return 1/numpy.sqrt(numpy.pi*2)/std * numpy.exp(-(x-mu)**2/2/std**2)
 
-    import numpy
     m1m, m2m = 1.4, 1.5
     m1, m2 = numpy.random.random(2000).reshape(2,1000)*1.0+1.0
     loglikes = [gaussian(m1i, m1m)*gaussian(m2i, m2m) for m1i, m2i in zip(m1, m2)]
