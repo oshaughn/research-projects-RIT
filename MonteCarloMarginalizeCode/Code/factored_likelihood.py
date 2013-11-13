@@ -65,28 +65,24 @@ def PrecomputeLikelihoodTerms(epoch, P, data_dict, psd_dict, Lmax, fMax,
     rholms_intp = {}
     crossTerms = {}
 
-    # Fix fiducial distance at which precomputations are performed: distance scaling applied later
+    # Compute hlms at a reference distance, distance scaling is applied later
     P.dist = distMpcRef*1e6*lal.LAL_PC_SI
 
     print "  ++++ Template data being computed for the following binary +++ "
     P.print_params()
     # Compute all hlm modes with l <= Lmax
     detectors = data_dict.keys()
-    P.deltaF = data_dict[detectors[0]].deltaF   # FORCE DESIRED SIGNAL TIME
+    # Zero-pad to same length as data - NB: Assuming all FD data same resolution
+    P.deltaF = data_dict[detectors[0]].deltaF
     hlms = lsu.hlmoff(P, Lmax)
     h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms, 2, 2)
     h22Epoch = h22.epoch
 
     for det in detectors:
-        # Compute time-shift-dependent mode SNRs < h_lm(t) | d >
-        df = data_dict[det].deltaF
-        fNyq = df*len(data_dict[det].data.data)/2
-        if rosDebugMessages:
-            print " : Computing for ", det, " df, fNyq  = ", df, fNyq
         # Compute cross terms < h_lm | h_l'm' >
-        #print " :   ", det, " -  : Building cross term matrix "
         crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,
                 fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q)
+        # Compute rholm(t) = < h_lm(t) | d >
         rholms[det] = ComputeModeIPTimeSeries(epoch,hlms, data_dict[det],
                 psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, analyticPSD_Q)
         rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
