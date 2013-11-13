@@ -38,8 +38,6 @@ rosUseRandomTemplateStartingFrequency = False
 
 approxSignal = lalsim.TaylorT4
 approxTemplate = lalsim.TaylorT4
-#approxSignal = lalsim.EOBNRv2HM      # if using EOB, make sure to use a full 16kHz sampling rate
-#approxTemplate = lalsim.EOBNRv2HM
 
 #
 # Produce data with a coherent signal in H1, L1, V1
@@ -170,6 +168,6 @@ TestDictionary["lnLDataPlot"]            = True
 
 #opts.fmin_SNR=40
 
-factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, epoch_post, data_dict, psd_dict, analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, detectors,Lmax)
+factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, epoch_post, data_dict, psd_dict, fmaxSNR, analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, detectors,Lmax)
 sys.exit(0)
 
