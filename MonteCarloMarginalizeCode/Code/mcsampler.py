@@ -166,8 +166,9 @@ class MCSampler(object):
             self._rvs = dict(zip(args, rvs_tmp))
         else:
             rvs_tmp = dict(zip(args, rvs_tmp))
-            for p, ar in self._rvs.iteritems():
-                self._rvs[p] = numpy.hstack( (ar, rvs_tmp[p]) )
+            #for p, ar in self._rvs.iteritems():
+            for p in self.params:
+                self._rvs[p] = numpy.hstack( (self._rvs[p], rvs_tmp[p]) )
 
         #
         # Pack up the result if the user wants a dictonary instead
@@ -192,6 +193,7 @@ class MCSampler(object):
         nmax -- total allowed number of sample points, will throw a warning if this number is reached before neff.
         neff -- Effective samples to collect before terminating. If not given, assume infinity
         n -- Number of samples to integrate in a 'chunk' -- default is 1000
+        save_integrand -- Save the evaluated value of the integrand at the sample points with the sample point
 
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """
@@ -226,6 +228,8 @@ class MCSampler(object):
         nmax = kwargs["nmax"] if kwargs.has_key("nmax") else float("inf")
         neff = kwargs["neff"] if kwargs.has_key("neff") else numpy.float128("inf")
         n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
+        save_intg = kwargs["save_intg"] if kwargs.has_key("save_intg") else False
+
         peakExpected = kwargs["igrandmax"] if kwargs.has_key("igrandmax") else 0   # Do integral as L/e^peakExpected, if possible
         fracCrit = kwargs['igrand_threshold_fraction'] if kwargs.has_key('igrand_threshold_fraction') else 0 # default is to return all
         bReturnPoints = kwargs['full_output'] if kwargs.has_key('full_output') else False
@@ -290,6 +294,13 @@ class MCSampler(object):
                 fval = p.map(lambda x : func(*x), numpy.transpose(rv))
             else:
                 fval = func(*rv)
+
+            if save_intg:
+                if self._rvs.has_key("integrand"):
+                    self._rvs["integrand"] = numpy.hstack( (self._rvs["integrand"], fval) )
+                else:
+                    self._rvs["integrand"] = fval
+
             int_val = fval*joint_p_prior /joint_p_s
             if bShowEveryEvaluation:
                 for i in range(n):
