@@ -20,10 +20,7 @@ import lalsimutils
 import factored_likelihood
 import mcsampler
 #import ourio
-<<<<<<< HEAD
 import xmlutils
-=======
->>>>>>> zero_noise_mdc/Makefile: add fref=0
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -87,7 +84,7 @@ opts, args = optp.parse_args()
 
 # FIXME: Turn into cmd line options
 # minimum frequency of template
-template_min_freq = 30  # too long can be a memory and time hog, particularly at 16 kHz
+template_min_freq = 40  # too long can be a memory and time hog, particularly at 16 kHz
 
 #
 # Gather information about a injection put in the data
@@ -227,7 +224,7 @@ if opts.pin_to_sim:
     print "Pinned log likelihood: %g, (%g in \"SNR\")" % (logL, numpy.sqrt(2*logL))
     tref = float(P.tref)
     #tvals = numpy.arange(tref-5.0, tref+5.0, 0.001)
-    tvals = numpy.arange(tref-0.05, tref+0.05, 0.0001)
+    tvals = numpy.arange(tref-0.01, tref+0.01, 0.0001)
     logLs = []
     for t in tvals:
         P.tref = lal.LIGOTimeGPS(t)
@@ -235,14 +232,14 @@ if opts.pin_to_sim:
     import matplotlib
     matplotlib.use("Agg")
     from matplotlib import pyplot
+    print "Maximum logL is %g" % max(logLs)
     pyplot.plot(tvals-tref, logLs)
     pyplot.ylabel("log Likelihood")
-    pyplot.xlabel("time (relative to %10.2f)" % tref)
+    pyplot.xlabel("time (relative to %10.5f)" % tref)
     pyplot.axvline(0, color="k")
     pyplot.title("lnL(t),\n value at event time: %f" % logL)
     pyplot.grid()
     pyplot.savefig("logL.png")
->>>>>>> zero_noise_mdc/Makefile: add fref=0
     exit()
 
 #
