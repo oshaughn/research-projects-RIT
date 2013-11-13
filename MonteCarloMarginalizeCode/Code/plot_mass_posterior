@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import sys
+from optparse import OptionParser
 
 import matplotlib
 matplotlib.use("Agg")
@@ -9,33 +10,43 @@ import numpy
 
 from glue.ligolw import utils, table, lsctables
 
-mass_points = table.get_table(utils.load_filename(sys.argv[1]), lsctables.SnglInspiralTable.tableName)
+optp = OptionParser()
+optp.add_option("--dimension1", help="Plot this column along the x-axis")
+optp.add_option("--dimension2", help="Plot this column along the y-axis")
+optp.add_option("--show-points", action="store_true", help="Scatter plot the points used.")
+opts, args = optp.parse_args()
 
-like = [row.snr for row in mass_points]
-mass_points = [(row.mass1, row.mass2) for row in mass_points]
-m1, m2 = numpy.array(mass_points).T
+if opts.dimension1 in ["mass1", "mass2"] and opts.dimension2 in ["mass1", "mass2"]:
+    points = table.get_table(utils.load_filename(args[0]), lsctables.SnglInspiralTable.tableName)
+    like = [row.snr for row in points]
+    # FIXME: order
+    points = [(row.mass1, row.mass2) for row in points]
+    d1, d2 = numpy.array(points).T
+else:
+    points = table.get_table(utils.load_filename(args[0]), lsctables.SimInspiralTable.tableName)
+    # FIXME: Hardcoded bad column name
+    like = [row.alpha1 for row in points]
+    points = [(getattr(row, opts.dimension1), getattr(row, opts.dimension2)) for row in points]
+    d1, d2 = numpy.array(points).T
 
-"""
-m1_m, m2_m = 1.4, 1.4
-#mass_points = numpy.random.rand(2000).reshape(2,1000)*1.0 + 1.0
-m1 = numpy.random.rand(10000)*1.0 + 1.0
-m2 = numpy.random.rand(10000)*1.0 + 1.0
+d1min, d1max = min(d1), max(d1)
+d2min, d2max = min(d2), max(d2)
+d1step, d2step = (d1max-d1min)/100.0, (d2max-d2min)/100.0
 
-mass_points = [numpy.exp(-(m1i-m1_m)**2/2-(m2i-m1_m)**2/2) for m1i, m2i in zip(m1, m2)]
-"""
-
-m1g, m2g = numpy.meshgrid(numpy.arange(1.0,2.0,0.1), numpy.arange(1.0,2.0,0.1))
-m1m2 = numpy.array(zip(m1g.flatten(), m2g.flatten()))
+#d1g, d2g = numpy.meshgrid(numpy.arange(1.0,2.0,0.1), numpy.arange(1.0,2.0,0.1))
+d1g, d2g = numpy.meshgrid(numpy.arange(d1min, d1max, d1step), numpy.arange(d2min, d2max, d2step))
+d1d2 = numpy.array(zip(d1g.flatten(), d2g.flatten()))
 
 #from scipy.interpolate import griddata
-#int_like = griddata((m1,m2), like, m1m2)
+#int_like = griddata((d1,d2), like, d1d2)
 from matplotlib.mlab import griddata
-int_like = griddata(m1, m2, like, m1g, m2g)
+int_like = griddata(d1, d2, like, d1g, d2g)
 
-pyplot.contourf(m1g, m2g, int_like)
+pyplot.contourf(d1g, d2g, int_like, 20)
 pyplot.colorbar()
 pyplot.grid()
-pyplot.scatter(m1, m2, s=5.0, c=like)
-pyplot.savefig("m1m2_likelihood.png")
-pyplot.xlabel("mass1")
-pyplot.ylabel("mass2")
+if opts.show_points:
+    pyplot.scatter(d1, d2, s=5.0, c=like)
+pyplot.xlabel(opts.dimension1)
+pyplot.ylabel(opts.dimension2)
+pyplot.savefig("%s_%s_likelihood.png" % (opts.dimension1, opts.dimension2))
