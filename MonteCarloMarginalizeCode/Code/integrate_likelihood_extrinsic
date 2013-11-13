@@ -86,7 +86,6 @@ opts, args = optp.parse_args()
 # Hardcoded variables
 #
 template_min_freq = 30 # minimum frequency of template
-ip_min_freq = 30 # minimum frequency of inner product integration
 ampO = 0 # sets which modes to include in the physical signal
 Lmax = 2 # sets which modes to include
 t_ref_wind = 2e-3 # Interpolate in a window +/- this width about event time
@@ -252,6 +251,9 @@ if opts.pin_to_sim:
     pyplot.title("lnL(t),\n value at event time: %f" % logL)
     pyplot.grid()
     pyplot.savefig("logL.png")
+    integral = numpy.sum( numpy.exp(logLs) * deltaT )
+    print "Integral over t of likelihood is:", integral
+    print "The log of the integral is:", numpy.log(integral)
     exit()
 
 #
