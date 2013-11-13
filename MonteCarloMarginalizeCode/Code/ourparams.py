@@ -154,26 +154,31 @@ dist_min, dist_max = Dmin, Dmax
 
 def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoundGuess, Psig, opts):
 
+    pinned_params ={}
+
+
     # Uniform sampling (in area) but nonuniform sampling in distance (*I hope*).  Auto-cdf inverse
     if not(opts.opt_UseSkymap):
         if opts.opt_UseKnownSkyPosition:
             print " +++ USING INJECTED SKY POSITION TO NARROW THE SKY SEARCH REGION "
-            sampler.add_parameter("ra", functools.partial(mcsampler.gauss_samp, Psig.phi,0.03), None, ra_min, ra_max, 
+            sampler.add_parameter("right_ascension", functools.partial(mcsampler.gauss_samp, Psig.phi,0.03), None, ra_min, ra_max, 
                               prior_pdf = mcsampler.uniform_samp_phase)
-            sampler.add_parameter("dec", functools.partial(mcsampler.gauss_samp, Psig.theta,0.03), None, dec_min, dec_max, 
+            sampler.add_parameter("declination", functools.partial(mcsampler.gauss_samp, Psig.theta,0.03), None, dec_min, dec_max, 
                               prior_pdf= mcsampler.uniform_samp_dec)
         else:
             if opts.fixparams.count('ra') and Psig:
                 print "  ++++ Fixing ra to injected value +++ "
-                sampler.add_pinned_parameter('ra', Psig.phi )
+                pinned_params['right_ascension'] = Psig.phi
+                #sampler.add_pinned_parameter('ra', Psig.phi )
             else:
-                sampler.add_parameter("ra", mcsampler.uniform_samp_phase, None, ra_min, ra_max, 
+                sampler.add_parameter("right_ascension", mcsampler.uniform_samp_phase, None, ra_min, ra_max, 
                                       prior_pdf = mcsampler.uniform_samp_phase)
-            if opts.fixparams.count('dec') and Psig:
+            if opts.fixparams.count('decclination') and Psig:
                     print "  ++++ Fixing dec to injected value +++ "
-                    sampler.add_pinned_parameter('dec', Psig.theta )
+                    pinned_params['declination'] = Psig.theta
+                    #sampler.add_pinned_parameter('dec', Psig.theta )
             else:
-                sampler.add_parameter("dec",mcsampler.uniform_samp_dec, None, dec_min, dec_max, 
+                sampler.add_parameter("declination",mcsampler.uniform_samp_dec, None, dec_min, dec_max, 
                           prior_pdf= mcsampler.uniform_samp_dec)
     # Override *everything* if I have a skymap used
     else:
@@ -220,37 +225,42 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
 
     if opts.fixparams.count('psi') and Psig:
         print "  ++++ Fixing psi to injected value +++ "
-        sampler.add_pinned_parameter('psi', Psig.psi )
+        pinned_params['psi'] = Psig.psi
+#        sampler.add_pinned_parameter('psi', Psig.psi )
     else:
         sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max,
                       prior_pdf =mcsampler.uniform_samp_psi )
     if opts.fixparams.count('tref') and Psig:
         print "  ++++ Fixing time to injected value +++ "
-        sampler.add_pinned_parameter("tref", float(Psig.tref - theEpochFiducial) )
+        pinned_params['t_ref']  = float(Psig.tref - theEpochFiducial)
+        #sampler.add_pinned_parameter("tref", float(Psig.tref - theEpochFiducial) )
     else:
-        sampler.add_parameter("tref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.01), None, tref_min, tref_max, 
+        sampler.add_parameter("t_ref", functools.partial(mcsampler.gauss_samp, tEventFiducial, 0.01), None, tref_min, tref_max, 
                       prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
     # Phase (angle of L)
     if opts.fixparams.count('phi') and Psig:
             print "  ++++ Fixing phi to injected value +++ "
-            sampler.add_pinned_parameter("phi", Psig.phiref )
+            pinned_params['phi_orb'] = Psig.phiref
+#            sampler.add_pinned_parameter("phi", Psig.phiref )
     else:
-        sampler.add_parameter("phi", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max,
+        sampler.add_parameter("phi_orb", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max,
                       prior_pdf = mcsampler.uniform_samp_phase)
     # Inclination (angle of L; nonspinning)
-    if opts.fixparams.count('inc') and Psig:
+    if opts.fixparams.count('incl') and Psig:
         print "  ++++ Fixing incl to injected value +++ "
-        sampler.add_pinned_parameter("incl", Psig.incl )
+        pinned_params['inclination'] = Psig.incl
+#        sampler.add_pinned_parameter("incl", Psig.incl )
     else:
-        sampler.add_parameter("incl", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max,
+        sampler.add_parameter("inclination", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max,
                       prior_pdf = mcsampler.uniform_samp_theta)
 
     # Distance
     if opts.fixparams.count('dist') and Psig:
             print "  ++++ Fixing distance to injected value +++ "
-            sampler.add_pinned_parameter("dist", Psig.dist/(1e6*lal.LAL_PC_SI) )
+            pinned_params['distance'] = Psig.dist/(1e6*lal.LAL_PC_SI)
+            #sampler.add_pinned_parameter("dist", Psig.dist/(1e6*lal.LAL_PC_SI) )
     else:
-        sampler.add_parameter("dist",
+        sampler.add_parameter("distance",
                           functools.partial(mcsampler.quadratic_samp_vector, distBoundGuess), None, dist_min, dist_max,
 #                          functools.partial(mcsampler.uniform_samp_vector,0, distBoundGuess), None, dist_min, dist_max,
 #                          functools.partial(mcsampler.quadratic_samp_withfloor_vector, distBoundGuess, dist_max, 0.001), None, dist_min, dist_max,
@@ -258,4 +268,4 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
                          )
 #        sampler.add_parameter("dist", functools.partial(mcsampler.quadratic_samp_vector,  distBoundGuess ), None, dist_min, dist_max, prior_pdf = numpy.vectorize(lambda x: x**2/(3.*numpy.power(dist_max,3))))
         
-    return True
+    return pinned_params

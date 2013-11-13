@@ -416,7 +416,10 @@ TestDictionary["lnLModelAtKnown"]  = True
 TestDictionary["lnLDataAtKnownPlusOptimalTimePhase"] = False
 TestDictionary["lnLAtKnown"]           = True
 TestDictionary["lnLAtKnownMarginalizeTime"]  = False
-TestDictionary["lnLDataPlot"]            = True
+TestDictionary["lnLDataPlot"]            = opts.plot_ShowLikelihoodVersusTime
+TestDictionary["lnLDataPlotVersusPsi"]            = opts.plot_ShowLikelihoodVersusTime
+TestDictionary["lnLDataPlotVersusPhi"]            = opts.plot_ShowLikelihoodVersusTime
+TestDictionary["lnLDataPlotVersusPhiPsi"]            = opts.plot_ShowLikelihoodVersusTime
 
 #opts.fmin_SNR=40
 
@@ -428,13 +431,13 @@ factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpoch
 # Call the likelihood function for various extrinsic parameter values
 #
 nEvals = 0
-def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
+def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance): # right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
     global nEvals
     global pdfFullPrior
 
-    lnL = np.zeros(phi.shape)
+    lnL = np.zeros(right_ascension.shape)
     i = 0
-    for ph, th, tr, phr, ic, ps, di in zip(phi, theta, tref, phiref, incl, psi, dist):
+    for ph, th, tr, phr, ic, ps, di in zip(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
         P.phi = ph # right ascension
         P.theta = th # declination
         P.tref = theEpochFiducial + tr # ref. time (rel to epoch for data taking)
@@ -454,7 +457,8 @@ import mcsampler
 sampler = mcsampler.MCSampler()
 
 # Populate sampler 
-ourparams.PopulateSamplerParameters(sampler, theEpochFiducial,tEventFiducial, distBoundGuess, Psig, opts)
+pinned_params = ourparams.PopulateSamplerParameters(sampler, theEpochFiducial,tEventFiducial, distBoundGuess, Psig, opts)
+unpinned_params = set(sampler.params) - set(pinned_params)
 
 if opts.plot_ShowPSD:
     for det in psd_dict.keys():
@@ -506,7 +510,10 @@ if  rosShowSamplerInputDistributions or opts.plot_ShowPSD:  # minimize number of
 
 
 tGPSStart = lal.GPSTimeNow()
-res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=opts.nskip,nmax=opts.nmax,igrandmax=rho2Net/2,full_output=True,neff=opts.neff,igrand_threshold_fraction=fracThreshold,use_multiprocessing=rosUseMultiprocessing,verbose=True,extremely_verbose=opts.super_verbose)
+print unpinned_params
+print pinned_params
+res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params,n=opts.nskip,nmax=opts.nmax,igrandmax=rho2Net/2,full_output=True,neff=opts.neff,igrand_threshold_fraction=fracThreshold,verbose=True,extremely_verbose=opts.super_verbose, **pinned_params)
+#res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)  # doing violence to flexibility to be compatible with Chris' pinning
 tGPSEnd = lal.GPSTimeNow()
 print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
 print " lnLmarg is ", np.log(res), " with nominal relative sampling error ", np.sqrt(var)/res, " but a more reasonable estimate based on the lnL history is ", np.std(lnLmarg - np.log(res))
