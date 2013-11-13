@@ -1548,10 +1548,10 @@ def get_intp_psd_series_from_xmldoc(fname, inst):
 def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     # handle pylal REAL8FrequencySeries
     if isinstance(psd, pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
-        psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.deltaF*len(psd.data), psd.deltaF, psd.data
+        psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data), psd.deltaF, psd.data
     # handle SWIG REAL8FrequencySeries
     elif isinstance(psd, lal.REAL8FrequencySeries):
-        psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.deltaF*len(psd.data.data), psd.deltaF, psd.data.data
+        psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data.data), psd.deltaF, psd.data.data
     # die horribly
     else:
         raise ValueError("resample_psd_series: Don't know how to handle %s." % type(psd))
@@ -1559,7 +1559,7 @@ def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     fmax = fmax or psd_fmax
     df = df or psd_df
 
-    f = np.arange(psd_fmin, psd_fmin + psd_fmax, psd_df)
+    f = np.arange(psd_fmin, psd_fmax, psd_df)
     ifunc = interpolate.interp1d(f, data)
     def intp_psd(freq):
         return float("inf") if freq >= psd_fmax-psd_df or ifunc(freq) == 0.0 else ifunc(freq)
@@ -1573,7 +1573,9 @@ def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     lal.ParseUnitString(tmpunit, str(psd.sampleUnits))
     """
     tmpunit = lal.lalSecondUnit
-    new_psd = lal.CreateREAL8FrequencySeries(epoch = tmpepoch, deltaF=df, f0 = fmin, sampleUnits = tmpunit, name = psd.name, length=len(psd_intp))
+    new_psd = lal.CreateREAL8FrequencySeries(epoch = tmpepoch, deltaF=df,
+            f0 = fmin, sampleUnits = tmpunit, name = psd.name,
+            length=len(psd_intp))
     new_psd.data.data = psd_intp
     return new_psd
 
