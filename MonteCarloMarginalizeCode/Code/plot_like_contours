@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import sys
+import types
 from optparse import OptionParser
 
 import matplotlib
@@ -14,6 +15,7 @@ optp = OptionParser()
 optp.add_option("--dimension1", help="Plot this column along the x-axis")
 optp.add_option("--dimension2", help="Plot this column along the y-axis")
 optp.add_option("--show-points", action="store_true", help="Scatter plot the points used.")
+optp.add_option("--show-mdc", help="Mark MDC values from provided XML on the plots.")
 opts, args = optp.parse_args()
 
 if opts.dimension1 in ["mass1", "mass2"] and opts.dimension2 in ["mass1", "mass2"]:
@@ -22,8 +24,38 @@ if opts.dimension1 in ["mass1", "mass2"] and opts.dimension2 in ["mass1", "mass2
     # FIXME: order
     points = [(row.mass1, row.mass2) for row in points]
     d1, d2 = numpy.array(points).T
+elif opts.dimension2 is None:
+    points = table.get_table(utils.load_filename(args[0]), lsctables.SimInspiralTable.tableName)
+
+    if opts.show_mdc:
+        sim = table.get_table(utils.load_filename(opts.show_mdc), lsctables.SimInspiralTable.tableName)
+        assert len(sim) == 1
+        sim = getattr(sim[0], opts.dimension1)
+        pyplot.axvline(sim)
+
+    # FIXME: We really need to get over this whole seconds/nanoseconds thing
+    for point in points:
+        point.geocent_end_time = point.geocent_end_time + 1e-9*point.geocent_end_time_ns
+        # FIXME: HACKHACK
+        if opts.show_mdc and opts.dimension1 == "geocent_end_time":
+            point.geocent_end_time += sim
+
+    # FIXME: Hardcoded bad column name
+    points = [(getattr(row, opts.dimension1), row.alpha1) for row in points]
+    points = numpy.array(sorted(points)).T
+    
+    pyplot.plot(points[0], points[1], 'k-')
+    pyplot.grid()
+    pyplot.xlabel(opts.dimension1)
+
+    pyplot.savefig("%s_likelihood.png" % opts.dimension1)
+    exit()
+
 else:
     points = table.get_table(utils.load_filename(args[0]), lsctables.SimInspiralTable.tableName)
+    # FIXME: We really need to get over this whole seconds/nanoseconds thing
+    for point in points:
+        point.geocent_end_time = point.geocent_end_time + 1e-9*point.geocent_end_time_ns
     # FIXME: Hardcoded bad column name
     like = [row.alpha1 for row in points]
     points = [(getattr(row, opts.dimension1), getattr(row, opts.dimension2)) for row in points]
