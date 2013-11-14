@@ -82,6 +82,7 @@ rosUseDifferentWaveformLengths = False
 rosUseRandomTemplateStartingFrequency = False
 
 rosDebugMessages = opts.verbose
+rosDebugShowExcruciatingLikelihoodDetail = opts.super_verbose
 rosShowSamplerInputDistributions = opts.plot_ShowSamplerInputs
 rosShowRunningConvergencePlots = True
 rosShowTerminalSampleHistograms = opts.plot_ShowSampler
@@ -429,6 +430,7 @@ factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpoch
 
 #
 # Call the likelihood function for various extrinsic parameter values
+# Uses the (already-allocated) template structure "P" structure *only* to pass parameters.  All parameters used should be specified.
 #
 nEvals = 0
 def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance): # right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
@@ -444,9 +446,12 @@ def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclinatio
         P.phiref = phr # ref. orbital phase
         P.incl = ic # inclination
         P.psi = ps # polarization angle
-        P.dist = di*lal.LAL_PC_SI # luminosity distance.  The sampler assumes Mpc; P requires SI
-
+        P.dist = di*1e6*lal.LAL_PC_SI # luminosity distance.  The sampler assumes Mpc; P requires SI
         lnL[i] = factored_likelihood.FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+        if rosDebugShowExcruciatingLikelihoodDetail:
+            P.print_params()
+            print "  + likelihood evaluation : ", i + nEvals, [ph, th, tr, phr, ic, ps, di], " :  ", lnL[i], " : overflow check ", np.exp(lnL[i])
+            print "GPS :", lalsimutils.stringGPSNice(theEpochFiducial)
         i+=1
 
 
@@ -510,10 +515,15 @@ if  rosShowSamplerInputDistributions or opts.plot_ShowPSD:  # minimize number of
 
 
 tGPSStart = lal.GPSTimeNow()
-print unpinned_params
-print pinned_params
-res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params,n=opts.nskip,nmax=opts.nmax,igrandmax=rho2Net/2,full_output=True,neff=opts.neff,igrand_threshold_fraction=fracThreshold,verbose=True,extremely_verbose=opts.super_verbose, **pinned_params)
-#res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)  # doing violence to flexibility to be compatible with Chris' pinning
+print " Unpinned : ", unpinned_params
+print " Pinned : ",  pinned_params
+pinned_params.update({"n": opts.nskip, "nmax": opts.nmax, "neff": opts.neff, "full_output": True, "verbose":True, "extremely_verbose": opts.super_verbose,"igrand_threshold_fraction": fracThreshold, "igrandmax":rho2Net/2})
+print " Params ", pinned_params
+res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+#res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "right_ascension", "declination", "t_ref","phi_orb", "inclination", "psi", "distance",n=opts.nskip,nmax=opts.nmax,igrandmax=rho2Net/2,full_output=True,neff=opts.neff,igrand_threshold_fraction=fracThreshold,verbose=True,extremely_verbose=opts.super_verbose )
+#res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)  # doing violence to flexibility to be compatible with Chris' pinni
+#res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params,n=opts.nskip,nmax=opts.nmax,igrandmax=rho2Net/2,full_output=True,neff=opts.neff,igrand_threshold_fraction=fracThreshold,verbose=True,extremely_verbose=opts.super_verbose)
+
 tGPSEnd = lal.GPSTimeNow()
 print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
 print " lnLmarg is ", np.log(res), " with nominal relative sampling error ", np.sqrt(var)/res, " but a more reasonable estimate based on the lnL history is ", np.std(lnLmarg - np.log(res))
