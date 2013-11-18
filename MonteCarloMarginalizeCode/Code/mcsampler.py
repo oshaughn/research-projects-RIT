@@ -65,6 +65,7 @@ class MCSampler(object):
         if rosDebugMessages: 
             print " Adding parameter ", params, " with limits ", [left_limit, right_limit]
         if isinstance(params, tuple):
+            assert all(lambda lim: lim[0] < rlim[0], zip(left_limit, right_limit))
             if left_limit is None:
                 self.llim[params] = list(float("-inf"))*len(params)
             else:
@@ -74,6 +75,7 @@ class MCSampler(object):
             else:
                 self.rlim[params] = right_limit
         else:
+            assert left_limit < right_limit
             if left_limit is None:
                 self.llim[params] = float("-inf")
             else:
