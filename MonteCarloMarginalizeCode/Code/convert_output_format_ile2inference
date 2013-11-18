@@ -1,0 +1,37 @@
+#!/usr/bin/env python
+""""
+ACTION
+ - Reads in ile output.  Outputs flat ascii file, compatible with tools that parse lalinference output
+EXAMPLES
+  gsiscp ldas-jobs.ligo.caltech.edu:~pankow/param_est/data/zero_noise_mdc/unpin_single/zero_noise_tref_unpinned.xml.gz 
+  python convert_output_format_ile2inference zero_noise_tref_unpinned.xml.gz  | more
+
+
+
+"""
+
+
+import sys
+from optparse import OptionParser
+import numpy as np
+from glue.ligolw import utils, table, lsctables
+
+def mc(m1,m2):
+    return np.power(m1*m2, 3./5.)/np.power(m1+m2, 1./5.)
+def eta(m1,m2):
+    return m1*m2/(np.power(m1+m2, 2))
+
+optp = OptionParser()
+opts, args = optp.parse_args()
+
+
+points = table.get_table(utils.load_filename(args[0]), lsctables.SimInspiralTable.tableName)
+like = [row.alpha1 for row in points]  # hardcoded name
+
+
+
+print "m1 m2 mc eta  tref phiorb incl psi ra dec dist lnL"
+for indx in np.arange(len(points)):
+    pt = points[indx]
+    print pt.mass1, pt.mass2, mc(pt.mass1,pt.mass2), eta(pt.mass1,pt.mass2),pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns,pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, like[indx]
+#    print pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, ind like[indx]
