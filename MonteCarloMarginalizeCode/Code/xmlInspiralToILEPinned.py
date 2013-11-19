@@ -33,17 +33,19 @@ if "right_ascension" in params:
 if "declination" in params:
     print " --declination ", row.latitude,
 
-if "phi_orb" in params:
-    print " -- phi-orb ", row.coa_phase,
-
 if "inclination" in params:
     print " --inclination ", row.inclination,
 
 if "polarization" in params:
-    print " --polarization ", row.polarization,
+    print " --psi ", row.polarization,
 
+
+if "phi_orb" in params:
+    print " --phi-orb ", row.coa_phase,
+
+import lal
 if "distance" in params:
-    print " --distance ", row.distance,
+    print " --distance ", row.distance*lal.LAL_PC_SI*1e6,   # currently, idiotically
 
 if "t_ref" in params:
     print " --time ", row.geocent_end_time + 1.0e-9*row.geocent_end_time_ns
