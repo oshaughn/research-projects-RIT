@@ -248,13 +248,14 @@ if opts.pin_to_sim:
 # FIXME: Make t_ref_wind a cmd line parameter?
 t_ref_wind = 2e-3
 
-# FIXME: Never really used
 dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
-#dmax = 110. * 1.e6 * lal.LAL_PC_SI # max distance
-Dmax = 2000. * 1.e6 * lal.LAL_PC_SI # max distance FOR ANY SOURCE EVER. EUCLIDEAN
+dmax = 180. * 1.e6 * lal.LAL_PC_SI # max distance
+# FIXME: Reenable when we understand what it does
+"""
 dmaxMpc = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, cross_terms)
 dmax = dmaxMpc* 1.e6 * lal.LAL_PC_SI
 print "Estimated outer fiducial radius for event (Mpc): %f" %dmaxMpc
+"""
 
 param_limits = { "psi": (0, 2*numpy.pi),
     "phi_orb": (0, 2*numpy.pi),
@@ -316,7 +317,7 @@ sampler.add_parameter("inclination",
 
 #
 # Distance - luminosity distance to source in parsecs
-# sampler: uniform volume over [1 Mpc, Dmax)
+# sampler: uniform volume over [1 Mpc, dmax)
 #
 dist_sampler = functools.partial(mcsampler.quadratic_samp_vector, dmax)
 sampler.add_parameter("distance", 
@@ -324,7 +325,7 @@ sampler.add_parameter("distance",
     cdf_inv = None,
     left_limit = param_limits["distance"][0], 
     right_limit = param_limits["distance"][1],
-    prior_pdf = numpy.vectorize(lambda x: x**2/(3*Dmax**3))
+    prior_pdf = numpy.vectorize(lambda x: x**2/(3*dmax**3))
 )
 
 #
@@ -376,23 +377,30 @@ if rosDebugShowPriors:
 #
 # Determine pinned and non-pinned parameters
 #
+
 pinned_params = get_pinned_params(opts)
 unpinned_params = get_unpinned_params(opts, sampler.params)
 print "parameter\t\tlower limit\tupper limit\tpinned?\tpin value"
+plen = len(sorted(sampler.params, key=lambda p: len(p))[-1])
 for p in sampler.params:
     if pinned_params.has_key(p):
-        pinned, value = True, "1.2%g" % pinned_params[p]
+        pinned, value = True, "%1.3g" % pinned_params[p]
     else:
         pinned, value = False, ""
+    p = p + " "*min(0, plen-len(p))
         
-    print "%s\t\t%1.2g\t%1.2g\t%s\t%s" % (p, sampler.llim[p], sampler.rlim[p], str(pinned), value)
+    print "%s\t\t%1.3g\t%1.3g\t%s\t%s" % (p, sampler.llim[p], sampler.rlim[p], str(pinned), value)
+
+# Special case: t_ref is assumed to be relative to the epoch
+if pinned_params.has_key("t_ref"):
+    pinned_params["t_ref"] -= float(fiducial_epoch)
 
 #
 # Call the likelihood function for various extrinsic parameter values
 #
 # FIXME: Clean this up
 nEvals = 0
-nMaxEvals = 1e3
+n_max = int(1e5)
 if not opts.time_marginalization:
 
     #
@@ -428,7 +436,7 @@ if not opts.time_marginalization:
         nEvals+=i 
         return numpy.exp(lnL)
 
-    pinned_params.update({"n": 10, "nmax": nMaxEvals, "neff": 100, "full_output": True, "verbose": True, "extremely_verbose": False, "save_intg": True})
+    pinned_params.update({"n": 10, "nmax": n_max, "neff": 100, "full_output": True, "verbose": True, "extremely_verbose": False, "save_intg": True})
     res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else:
@@ -451,7 +459,7 @@ else:
 
     res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, 
         "right_ascension", "declination", "phi_orb", "inclination", "psi", "distance", 
-        n=10, nmax=nMaxEvals, neff=100,
+        n=10, nmax=n_max, neff=100,
         # FIXME: What here?  ROS: an estimate of the peak lnL, and a threshold on what should be returned
     #    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
         full_output=True,verbose=True,extremely_verbose=False
