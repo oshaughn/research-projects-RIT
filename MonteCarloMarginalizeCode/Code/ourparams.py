@@ -252,10 +252,18 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
 #        sampler.add_pinned_parameter("incl", Psig.incl )
 
     # Distance
+    def quadratic_samp_withfloor(rmaxQuad,rmaxFlat,pFlat,x):
+            ret = 0.
+            if x<rmaxQuad:
+                ret+= (1-pFlat)* x*x/(3*numpy.power(rmaxQuad,3))
+            if x<rmaxFlat:
+                ret +=pFlat/rmaxFlat
+            return  ret
+    quadratic_samp_withfloor_vector = numpy.vectorize(quadratic_samp_withfloor, otypes=[numpy.float])
     sampler.add_parameter("distance",
-                          functools.partial(mcsampler.quadratic_samp_vector, distBoundGuess), None, dist_min, dist_max,
+#                          functools.partial(mcsampler.quadratic_samp_vector, distBoundGuess), None, dist_min, dist_max,
 #                          functools.partial(mcsampler.uniform_samp_vector,0, distBoundGuess), None, dist_min, dist_max,
-#                          functools.partial(mcsampler.quadratic_samp_withfloor_vector, distBoundGuess, dist_max, 0.001), None, dist_min, dist_max,
+                          functools.partial( quadratic_samp_withfloor_vector, distBoundGuess, dist_max, 0.001), None, dist_min, dist_max,
                          prior_pdf = functools.partial(mcsampler.quadratic_samp_vector, dist_max)
                          )
 #        sampler.add_parameter("dist", functools.partial(mcsampler.quadratic_samp_vector,  distBoundGuess ), None, dist_min, dist_max, prior_pdf = numpy.vectorize(lambda x: x**2/(3.*numpy.power(dist_max,3))))
