@@ -170,7 +170,7 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
                                       prior_pdf = mcsampler.uniform_samp_phase)
             sampler.add_parameter("declination",mcsampler.uniform_samp_dec, None, dec_min, dec_max, 
                           prior_pdf= mcsampler.uniform_samp_dec)
-            if opts.fixparams.count('ra') and Psig:
+            if opts.fixparams.count('right_ascension') and Psig:
                 print "  ++++ Fixing ra to injected value +++ "
                 pinned_params['right_ascension'] = Psig.phi
                 #sampler.add_pinned_parameter('ra', Psig.phi )

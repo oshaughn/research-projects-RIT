@@ -532,12 +532,13 @@ print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
 # Save the sampled points to a file
 # Only store some
-ourio.dumpSamplesToFile("test_like_and_samp-dump.dat", ret, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
-np.savetxt('test_like_and_samp-result.dat', [res])
-np.savetxt('test_like_and_samp-dump-lnLmarg.dat',lnLmarg)
+fnameBase = opts.points_file_base
+ourio.dumpSamplesToFile(fnameBase+"-points.dat", ret, ['ra','dec', 'tref', 'phiref', 'incl', 'psi', 'dist', 'p', 'ps', 'lnL'])
+np.savetxt(fnameBase+'-result.dat', [res])
+np.savetxt(fnameBase+'-dump-lnLmarg.dat',lnLmarg)
 
-if checkInputs:
-    plt.show()
+# if checkInputs:
+#     plt.show()
 
 
 # Plot terminal histograms from the sampled points and log likelihoods
