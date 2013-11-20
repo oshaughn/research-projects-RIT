@@ -33,18 +33,22 @@ from itertools import product
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
-distMpcRef = 100                                # a fiducial distance for the template source.
-tWindowReference = [-0.15,0.15]            # choose samples so we have this centered on the window
-tWindowExplore = [-0.05, 0.05]             # smaller window.  Avoid interpolation errors on the edge.
+################################################################################
+#
+#                     Code used by main executable
+#
+################################################################################
+
+
+distMpcRef = 100 # a fiducial distance for the template source.
+tWindowExplore = [-0.05, 0.05] # smaller window.  Avoid interpolation errors on the edge.
 rosDebugMessages = True
-rosInterpolateOnlyTimeWindow = True       # Ability to only interpolate the target time window.
-rosDoNotRollTimeseries = False           # must be done if you have zero padding.  Should always work, since epoch shifted too.
 
 #
-# Main driver functions
+# Precomputation functions
 #
-def PrecomputeLikelihoodTerms(epoch, P, data_dict, psd_dict, Lmax, fMax,
-        analyticPSD_Q=False):
+def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
+        psd_dict, Lmax, fMax, analyticPSD_Q=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -75,38 +79,176 @@ def PrecomputeLikelihoodTerms(epoch, P, data_dict, psd_dict, Lmax, fMax,
     # Zero-pad to same length as data - NB: Assuming all FD data same resolution
     P.deltaF = data_dict[detectors[0]].deltaF
     hlms = lsu.hlmoff(P, Lmax)
-    h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms, 2, 2)
-    h22Epoch = h22.epoch
 
     for det in detectors:
         # Compute cross terms < h_lm | h_l'm' >
         crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,
                 fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q)
         # Compute rholm(t) = < h_lm(t) | d >
-        rholms[det] = ComputeModeIPTimeSeries(epoch,hlms, data_dict[det],
+        rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
                 psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, analyticPSD_Q)
         rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
-        # FIXME: Need to handle geocenter-detector time shift properly
-        # NOTE: This array is almost certainly wrapped in time via the inverse FFT and is NOT starting at the epoch
-        tShift =  float( P.tref -  epoch)   # shift the data by the time difference between the target data
-        nRollL = int((np.abs(tWindowReference[0]) - tShift )/rho22.deltaT)   # this is a DISCRETE timeshift.
-        nRollL +=  int(float((rho22.epoch - epoch))/rho22.deltaT)   # roll by more points if the epochs between the rho and fiducial are very different.  Important b/c I only interpolate a narrow window...if I miss the right epoch, the lnL(t) function will look like quadratic garbage.
-        if rosDoNotRollTimeseries:
-            nRollL = 0
-        tShiftDiscrete = nRollL*rho22.deltaT
-        if rosDebugMessages:
-            print "  : must shift by ", nRollL, " corresponding to a time shift = ", tShiftDiscrete, " to make sure the reference time ", float(P.tref), " has a long window", float(tShift)
-        # Time correspondence for these events, relative to the *fiducial* GPSTime 'epoch'
-        t = np.arange(rho22.data.length) * rho22.deltaT - tShiftDiscrete  # account for the timeseries, plus roll. This is always correct
-        tShiftChangeTimeOrigin = float(rho22.epoch - epoch)   # rho22.epoch already includes signal length info: literally just origin change
-        t = t + tShiftChangeTimeOrigin                           # account for zero of time being set to 'epoch'. 
-        rholms_intp[det] =  InterpolateRholms(rholms[det], t,nRollL, Lmax)
+        # This is the event time at the detector
+        t_det = ComputeArrivalTimeAtDetector(det, P.phi, P.theta,event_time_geo)
+        # The is the difference between the time of the leading edge of the
+        # time window we wish to compute the likelihood in, and
+        # the time corresponding to the first sample in the rholms
+        t_shift =  float(t_det - t_window - rho22.epoch)
+        assert t_shift > 0
+        # tThe leading edge of our time window of interest occurs
+        # this many samples into the rholms
+        N_shift = int( t_shift / rho22.deltaT )
+        # Number of samples in the window [t_ref - t_window, t_ref + t_window]
+        N_window = int( 2 * t_window / rho22.deltaT )
+        # The vector of time steps within our window of interest
+        # for which we have discrete values of the rholms
+        # N.B. I don't do simply rho22.epoch + t_shift, b/c t_shift is the
+        # precise desired time, while we round and shift an integer number of
+        # steps of size deltaT
+        # FIXME: When we prune rather than roll, this series will become shorter
+        t = np.arange(rho22.data.length) * rho22.deltaT\
+                + float(rho22.epoch + N_shift * rho22.deltaT )
+        print "For detector", det, "..."
+        print "\tData starts at %.20g" % float(data_dict[det].epoch)
+        print "\trholm starts at %.20g" % float(rho22.epoch)
+        print "\tEvent time at detector is: %.18g" % float(t_det)
+        print "\tInterpolation window has half width %g" % t_window
+        print "\tComputed t_shift = %.20g" % t_shift
+        print "\t(t_shift should be t_det - t_window - t_rholm = %.20g)" %\
+                (t_det - t_window - float(rho22.epoch))
+        print "\tInterpolation starts at time %.20g" % t[0]
+        print "\t(Should start at t_event - t_window = %.20g)" %\
+                (float(rho22.epoch + N_shift * rho22.deltaT))
+        # The minus N_shift indicates we need to roll left
+        # to bring the desired samples to the front of the array
+        rholms_intp[det] =  InterpolateRholms(rholms[det], t, -N_shift,
+                N_window, Lmax)
 
-        print " shifting time by ", -tShiftDiscrete, " to allow for wraparound and to center the desired time "
-        epoch_interp = rho22.epoch - tShiftDiscrete  # Moving the zero of time back to account for rolling the timeseries
+    return rholms_intp, crossTerms, rholms
 
-    return rholms_intp, crossTerms, rholms, epoch_interp
 
+def ComputeModeCrossTermIP(hlms, psd, fmin, fMax, fNyq, deltaF,
+        analyticPSD_Q=False):
+    """
+    Compute the 'cross terms' between waveform modes, i.e.
+    < h_lm | h_l'm' >.
+    The inner product is weighted by power spectral density 'psd' and
+    integrated over the interval [-fNyq, -fmin] \union [fmin, fNyq]
+
+    Returns a dictionary of inner product values keyed by tuples of mode indices
+    i.e. ((l,m),(l',m'))
+    """
+    # Create an instance of class to compute inner product
+    IP = lsu.ComplexIP(fmin, fMax, fNyq, deltaF, psd, analyticPSD_Q)
+
+    # Loop over modes and compute the inner products, store in a dictionary
+    Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
+
+    crossTerms = {}
+
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
+            for lp in range(2,Lmax+1):
+                for mp in range(-lp,lp+1):
+                    hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
+                    hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, lp, mp)
+                    # FIXME: Zero the m=0 modes or no???
+                    if hlm is None or hlpmp is None or m==0 or mp==0:
+                    #if hlm is None or hlpmp is None:
+                            crossTerms[ ((l,m),(lp,mp)) ] = 0
+                    else:
+                            crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)  # need to be careful about left side to avoid type errors later when I do this loop
+                    if rosDebugMessages:
+                            print "       : U populated ", ((l,m), (lp,mp)), "  = ", crossTerms[((l,m),(lp,mp)) ]
+
+    return crossTerms
+
+
+def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax,
+        fNyq, analyticPSD_Q=False):
+    """
+    Compute the complex-valued overlap between
+    each member of a SphHarmFrequencySeries 'hlms'
+    and the interferometer data COMPLEX16FrequencySeries 'data',
+    weighted the power spectral density REAL8FrequencySeries 'psd'.
+
+    The integrand is non-zero in the range: [-fNyq, -fmin] \union [fmin, fNyq].
+    This integrand is then inverse-FFT'd to get the inner product
+    at a discrete series of time shifts.
+
+    Returns a SphHarmTimeSeries object containing the complex inner product
+    for discrete values of the reference time tref.  The epoch of the SphHarmTimeSeries object
+    is set to account for the transformation
+    """
+
+    # Create an instance of class to compute inner product time series
+    IP = lsu.ComplexOverlap(fmin, fMax, fNyq, data.deltaF, psd,
+            analyticPSD_Q, full_output=True)
+
+    print IP.fLow, IP.fNyq, IP.deltaF
+    # Loop over modes and compute the overlap time series
+    rholms = None
+    h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms,2,2)
+    assert data.deltaF == h22.deltaF
+    assert len(data.data.data) == len(h22.data.data)
+
+    Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
+    keys = lsu.constructLMIterator(Lmax)  # nested lists are very bad for python
+    for pair in keys:
+        l = int(pair[0])
+        m = int(pair[1])
+        hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
+        # FIXME: Zero the m=0 modes or no???
+        if hlm is None:
+        #if hlm is None or m == 0:
+            # set a zero timeseries for that object
+            deltaT = len(data.data.data)/(2*fNyq)
+            rhoTS = lal.CreateCOMPLEX16TimeSeries("zero data",
+                    lal.LIGOTimeGPS(0.), 0.,deltaT , lal.lalDimensionlessUnit,
+                    data.data.length)
+        else:
+            assert hlm.deltaF == data.deltaF
+            rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
+        rhoTS.epoch = data.epoch -h22.epoch
+        rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
+
+    return rholms
+
+
+def InterpolateRholms(rholms, t, N_roll, N_window, Lmax):
+    """
+    Return a dictionary keyed on mode index tuples, (l,m)
+    where each value is an interpolating function of the overlap against data
+    as a function of time shift:
+    rholm_intp(t) = < h_lm(t) | d >
+
+    'rholms' is a SphHarmTimeSeries containing discrete time series of
+    < h_lm(t_i) | d >
+    't' is an array of the discrete times:
+    [t_0, t_1, ..., t_N]
+    'Lmax' is the largest l index of the SphHarmTimeSeries
+    """
+    rholm_intp = {}
+    for l in range(2, Lmax+1):
+        for m in range(-l,l+1):
+            rholm = lalsim.SphHarmTimeSeriesGetMode(rholms, l, m)
+            rholm_intp[ (l,m) ] = InterpolateRholm(rholm, t, N_roll, N_window)
+
+    return rholm_intp
+
+
+def InterpolateRholm(rholm, t, N_roll, N_window):
+    h_re = np.roll(np.real(rholm.data.data), N_roll)[:N_window]
+    h_im = np.roll(np.imag(rholm.data.data), N_roll)[:N_window]
+    # spline interpolate the real and imaginary parts of the time series
+    h_real = interpolate.InterpolatedUnivariateSpline(t[:N_window], h_re, k=3)
+    h_imag = interpolate.InterpolatedUnivariateSpline(t[:N_window], h_im, k=3)
+    return lambda ti: h_real(ti) + 1j*h_imag(ti)
+
+
+#
+# Evaluate log likelihood
+#
 def FactoredLogLikelihood(epoch, extr_params, rholms_intp, crossTerms, Lmax):
     """
     Compute the log-likelihood = -1/2 < d - h | d - h > from:
@@ -142,16 +284,105 @@ def FactoredLogLikelihood(epoch, extr_params, rholms_intp, crossTerms, Lmax):
         CT = crossTerms[det]
         F = ComplexAntennaFactor(det, RA, DEC, psi, tref)
 
-        tshifted = ComputeArrivalTimeAtDetector(det, RA, DEC, tref)  -  epoch # detector time minus fiducial time zero used in rholms.
-        shifted_rholms = {}  # preallocate space with the right keys
-        for key in rholms_intp[det]: #  det_rholms_intp.keys():
+        # This is the GPS time at the detector
+        t_det = ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
+        det_rholms = {}  # rholms evaluated at time at detector
+        for key in rholms_intp[det]:
             func = rholms_intp[det][key]
-            shifted_rholms[key] = func(float(tshifted))
+            det_rholms[key] = func(float(t_det))
 
-        lnL += SingleDetectorLogLikelihood(shifted_rholms, CT, Ylms, F, dist, Lmax)
+        lnL += SingleDetectorLogLikelihood(det_rholms, CT, Ylms, F, dist, Lmax)
 
     return lnL
 
+def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
+    """
+    DOCUMENT ME!!!
+    """
+    global distMpcRef
+    distMpc = dist/(lal.LAL_PC_SI*1e6)
+
+    keys = lsu.constructLMIterator(Lmax)
+
+    # Eq. 35 of Richard's notes
+    term1 = 0.
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
+            term1 += np.conj(F * Ylms[(l,m)]) * rholm_vals[(l,m)]
+    term1 = np.real(term1) / (distMpc/distMpcRef)
+
+    # Eq. 26 of Richard's notes
+    term2 = 0.
+    for pair1 in rholm_vals:
+        for pair2 in rholm_vals:
+            term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])\
+                    * np.conj(Ylms[pair1]) * Ylms[pair2]\
+                    + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])\
+                    * crossTerms[((pair1[0],-pair1[1]),pair2)]
+    term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
+
+    return term1 + term2
+
+
+#
+# Utility functions
+#
+
+def ComplexAntennaFactor(det, RA, DEC, psi, tref):
+    """
+    Function to compute the complex-valued antenna pattern function:
+    F+ + i Fx
+
+    'det' is a detector prefix string (e.g. 'H1')
+    'RA' and 'DEC' are right ascension and declination (in radians)
+    'psi' is the polarization angle
+    'tref' is the reference GPS time
+    """
+    detector = lalsim.DetectorPrefixToLALDetector(det)
+    Fp, Fc = lal.ComputeDetAMResponse(detector.response, RA, DEC, psi, lal.GreenwichMeanSiderealTime(tref))
+
+    return Fp + 1j * Fc
+
+def ComputeYlms(Lmax, theta, phi):
+    """
+    Return a dictionary keyed by tuples
+    (l,m)
+    that contains the values of all
+    -2Y_lm(theta,phi)
+    with
+    l <= Lmax
+    -l <= m <= l
+    """
+    Ylms = {}
+    for l in range(2,Lmax+1):
+        for m in range(-l,l+1):
+            Ylms[ (l,m) ] = lal.SpinWeightedSphericalHarmonic(theta, phi,-2, l, m)
+
+    return Ylms
+
+def ComputeArrivalTimeAtDetector(det, RA, DEC, tref):
+    """
+    Function to compute the time of arrival at a detector
+    from the time of arrival at the geocenter.
+
+    'det' is a detector prefix string (e.g. 'H1')
+    'RA' and 'DEC' are right ascension and declination (in radians)
+    'tref' is the reference time at the geocenter.  It can be either a float (in which case the return is a float) or a GPSTime object (in which case it returns a GPSTime)
+    """
+    detector = lalsim.DetectorPrefixToLALDetector(det)
+    # if tref is a float or a GPSTime object,
+    # it shoud be automagically converted in the appropriate way
+    return tref + lal.TimeDelayFromEarthCenter(detector.location, RA, DEC, tref)
+
+
+
+
+
+################################################################################
+#
+#             Experimental code to be deleted or promoted
+#
+################################################################################
 
 #
 # Internal functions
@@ -307,193 +538,6 @@ def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTer
         LmargPsi = integrate.quad(fnIntegrand,0,np.pi,limit=100,epsrel=1e-4)[0]
         return np.log(LmargPsi)
 
-def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
-    """
-    DOCUMENT ME!!!
-    """
-    global distMpcRef
-    distMpc = dist/(lal.LAL_PC_SI*1e6)
-
-    keys = lsu.constructLMIterator(Lmax)
-
-    # Eq. 35 of Richard's notes
-    term1 = 0.
-    for l in range(2,Lmax+1):
-        for m in range(-l,l+1):
-            term1 += np.conj(F * Ylms[(l,m)]) * rholm_vals[(l,m)]
-    term1 = np.real(term1) / (distMpc/distMpcRef)
-
-    # Eq. 26 of Richard's notes
-    term2 = 0.
-    for pair1 in rholm_vals:
-        for pair2 in rholm_vals:
-            term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
-    term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
-
-    return term1 + term2
-
-def ComputeModeIPTimeSeries(epoch,hlms, data, psd, fmin, fMax,
-        fNyq, analyticPSD_Q=False, tref=None, N=None):
-    """
-    Compute the complex-valued overlap between
-    each member of a SphHarmFrequencySeries 'hlms' 
-    and the interferometer data COMPLEX16FrequencySeries 'data',
-    weighted the power spectral density REAL8FrequencySeries 'psd'.
-
-    The integrand is non-zero in the range: [-fNyq, -fmin] \union [fmin, fNyq].
-    This integrand is then inverse-FFT'd to get the inner product
-    at a discrete series of time shifts.
-
-    Returns a SphHarmTimeSeries object containing the complex inner product
-    for discrete values of the reference time tref.  The epoch of the SphHarmTimeSeries object
-    is set to account for the transformation
-
-    Can optionally give arguments to return only the inner product reference
-    times in the range: [tref - N * deltaT, tref + N * deltaT]
-    where deltaT is the time step size stored in 'hlms'
-    """
-    # FIXME: For now not handling tref, N
-    assert tref==None and N==None
-
-    # Create an instance of class to compute inner product time series
-    IP = lsu.ComplexOverlap(fmin, fMax, fNyq, data.deltaF, psd,
-            analyticPSD_Q, full_output=True)
-
-    print IP.fLow, IP.fNyq, IP.deltaF
-    # Loop over modes and compute the overlap time series
-    rholms = None
-    h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms,2,2)
-    assert data.deltaF == h22.deltaF
-    assert len(data.data.data) == len(h22.data.data)
-
-    Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
-    keys = lsu.constructLMIterator(Lmax)  # nested lists are very bad for python
-    for pair in keys:
-        l = int(pair[0])
-        m = int(pair[1])
-        hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
-        if hlm is None:
-            # set a zero timeseries for that object
-            deltaT = len(data.data.data)/(2*fNyq)
-            rhoTS = lal.CreateCOMPLEX16TimeSeries("zero data",  lal.LIGOTimeGPS(0.), 0.,deltaT , lal.lalDimensionlessUnit,len(data.data.data))
-        else:
-            assert hlm.deltaF == data.deltaF
-            rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
-        rhoTS.epoch = data.epoch -h22.epoch
-        rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
-
-    # RETURN: Do not window or readjust the timeseries here.  This is done in the interpolation step.
-    # TIMING : Epoch set 
-    return rholms
-
-def InterpolateRholm(rholm, t,nRollL):
-    nBinMax = 2*(tWindowReference[1]-tWindowReference[0])/rholm.deltaT
-    hxdat = np.roll(np.imag(rholm.data.data),nRollL)[:nBinMax]
-    hpdat = np.roll(np.real(rholm.data.data), nRollL)[:nBinMax]
-    hx = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hxdat, k=3)
-    hp = interpolate.InterpolatedUnivariateSpline(t[:nBinMax], hpdat, k=3)
-    return lambda ti: hp(ti) + 1j*hx(ti)
-        
-
-
-def InterpolateRholms(rholms, t, nRollL, Lmax):
-    """
-    Return a dictionary keyed on mode index tuples, (l,m)
-    where each value is an interpolating function of the overlap against data
-    as a function of time shift:
-    rholm_intp(t) = < h_lm(t) | d >
-
-    'rholms' is a SphHarmTimeSeries containing discrete time series of
-    < h_lm(t_i) | d >
-    't' is an array of the discrete times:
-    [t_0, t_1, ..., t_N]
-    'Lmax' is the largest l index of the SphHarmTimeSeries
-    """
-    rholm_intp = {}
-    for l in range(2, Lmax+1):
-        for m in range(-l,l+1):
-            rholm = lalsim.SphHarmTimeSeriesGetMode(rholms, l, m)
-            rholm_intp[ (l,m) ] = InterpolateRholm(rholm,  t,nRollL)
-
-    return rholm_intp
-
-def ComputeModeCrossTermIP(hlms, psd, fmin, fMax, fNyq, deltaF,
-        analyticPSD_Q=False):
-    """
-    Compute the 'cross terms' between waveform modes, i.e.
-    < h_lm | h_l'm' >.
-    The inner product is weighted by power spectral density 'psd' and
-    integrated over the interval [-fNyq, -fmin] \union [fmin, fNyq]
-
-    Returns a dictionary of inner product values keyed by tuples of mode indices
-    i.e. ((l,m),(l',m'))
-    """
-    # Create an instance of class to compute inner product
-    IP = lsu.ComplexIP(fmin, fMax, fNyq, deltaF, psd, analyticPSD_Q)
-
-    # Loop over modes and compute the inner products, store in a dictionary
-    Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
-
-    crossTerms = {}
-
-    for l in range(2,Lmax+1):
-        for m in range(-l,l+1):
-            for lp in range(2,Lmax+1):
-                for mp in range(-lp,lp+1):
-                    hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
-                    hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, lp, mp)
-                    if hlm is None or hlpmp is None:
-                            crossTerms[ ((l,m),(lp,mp)) ] = 0
-                    else:
-                            crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)  # need to be careful about left side to avoid type errors later when I do this loop
-                    if rosDebugMessages:
-                            print "       : U populated ", ((l,m), (lp,mp)), "  = ", crossTerms[((l,m),(lp,mp)) ]
-
-    return crossTerms
-
-def ComplexAntennaFactor(det, RA, DEC, psi, tref):
-    """
-    Function to compute the complex-valued antenna pattern function:
-    F+ + i Fx
-
-    'det' is a detector prefix string (e.g. 'H1')
-    'RA' and 'DEC' are right ascension and declination (in radians)
-    'psi' is the polarization angle
-    'tref' is the reference GPS time
-    """
-    detector = lalsim.DetectorPrefixToLALDetector(det)
-    Fp, Fc = lal.ComputeDetAMResponse(detector.response, RA, DEC, psi, lal.GreenwichMeanSiderealTime(tref))
-
-    return Fp + 1j * Fc
-
-def ComputeYlms(Lmax, theta, phi):
-    """
-    Return a dictionary keyed by tuples
-    (l,m)
-    that contains the values of all
-    -2Y_lm(theta,phi)
-    with
-    l <= Lmax
-    -l <= m <= l
-    """
-    Ylms = {}
-    for l in range(2,Lmax+1):
-        for m in range(-l,l+1):
-            Ylms[ (l,m) ] = lal.SpinWeightedSphericalHarmonic(theta, phi,-2, l, m)
-
-    return Ylms
-
-def ComputeArrivalTimeAtDetector(det, RA, DEC, tref): 
-    """
-    Function to compute the time of arrival at a detector
-    from the time of arrival at the geocenter.
-
-    'det' is a detector prefix string (e.g. 'H1')
-    'RA' and 'DEC' are right ascension and declination (in radians)
-    'tref' is the reference time at the geocenter.  It can be either a float (in which case the return is a float) or a GPSTime object (in which case it returns a GPSTime)
-    """
-    detector = lalsim.DetectorPrefixToLALDetector(det)
-    return tref + lal.TimeDelayFromEarthCenter(detector.location, RA, DEC, tref)  # if tref is a float or a GPSTime object, it shoud be automagically converted in the appropriate way
 
 # Create complex FD data that does not assume Hermitianity - i.e.
 # contains positive and negative freq. content
