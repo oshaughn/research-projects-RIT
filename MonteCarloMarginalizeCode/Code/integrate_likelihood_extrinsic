@@ -85,7 +85,7 @@ opts, args = optp.parse_args()
 #
 # Hardcoded variables
 #
-template_min_freq = 30 # minimum frequency of template
+template_min_freq = 40 # minimum frequency of template
 ampO = 0 # sets which modes to include in the physical signal
 Lmax = 2 # sets which modes to include
 t_ref_wind = 2e-3 # Interpolate in a window +/- this width about event time
@@ -217,8 +217,51 @@ P = lalsimutils.ChooseWaveformParams(
 # upper frequency limit for their inner product integrals
 # N.B. P.fmin is being used to set the lower freq. limit of the IP integrals
 # while in principal we may want to set it separately
-rholms_intp, cross_terms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(
-        fiducial_epoch, P, data_dict, psd_dict, Lmax, fmax, analyticPSD_Q=False)
+
+t_window = 0.15
+rholms_intp, cross_terms, rholms=factored_likelihood.PrecomputeLikelihoodTerms(
+        fiducial_epoch, t_window, P, data_dict, psd_dict, Lmax, fmax,
+        analyticPSD_Q=False)
+
+# XXX: DEBUG!!!
+#rhoH = rholms['H1']
+#rhoL = rholms['L1']
+#rhoV = rholms['V1']
+#rho22H = lalsimutils.lalsim.SphHarmTimeSeriesGetMode(rhoH, 2, 2)
+#rho22L = lalsimutils.lalsim.SphHarmTimeSeriesGetMode(rhoL, 2, 2)
+#rho22V = lalsimutils.lalsim.SphHarmTimeSeriesGetMode(rhoV, 2, 2)
+
+#detH1 = lalsimutils.lalsim.InstrumentNameToLALDetector('H1')
+#detL1 = lalsimutils.lalsim.InstrumentNameToLALDetector('L1')
+#detV1 = lalsimutils.lalsim.InstrumentNameToLALDetector('V1')
+#trefH = lalsimutils.lal.TimeDelayFromEarthCenter(detH1.location,
+#        sim_row.longitude, sim_row.latitude, fiducial_epoch)
+#trefL = lalsimutils.lal.TimeDelayFromEarthCenter(detL1.location,
+#        sim_row.longitude, sim_row.latitude, fiducial_epoch)
+#trefV = lalsimutils.lal.TimeDelayFromEarthCenter(detV1.location,
+#        sim_row.longitude, sim_row.latitude, fiducial_epoch)
+
+#tH = float(rho22H.epoch) + numpy.arange(rho22H.data.length) * rho22H.deltaT
+#tL = float(rho22L.epoch) + numpy.arange(rho22L.data.length) * rho22L.deltaT
+#tV = float(rho22V.epoch) + numpy.arange(rho22V.data.length) * rho22V.deltaT
+
+#ttH = trefH - t_window + numpy.arange(rho22H.data.length) * rho22H.deltaT
+#ttL = trefL - t_window + numpy.arange(rho22L.data.length) * rho22L.deltaT
+#ttV = trefV - t_window + numpy.arange(rho22V.data.length) * rho22V.deltaT
+
+#import matplotlib
+#matplotlib.use("TkAgg")
+#from matplotlib import pyplot as plt
+#plt.plot(tH, numpy.abs(rho22H.data.data), 'b-', marker='o', ms=4)
+#plt.plot(tL, numpy.abs(rho22L.data.data), 'g-', marker='o', ms=4)
+#plt.plot(tV, numpy.abs(rho22V.data.data), 'm-', marker='o', ms=4)
+#plt.axvline(fiducial_epoch, color='k')
+#plt.axvline(fiducial_epoch + trefH, color='b')
+#plt.axvline(fiducial_epoch + trefL, color='g')
+#plt.axvline(fiducial_epoch + trefV, color='m')
+#plt.xlim(float(fiducial_epoch) - 0.05, float(fiducial_epoch) + 0.05)
+#plt.title('Time series of (rho22 | d)')
+#plt.show()
 
 if opts.pin_to_sim:
     P.copy_lsctables_sim_inspiral(sim_row)
@@ -235,7 +278,7 @@ if opts.pin_to_sim:
     print "Pinned log likelihood: %g, (%g in \"SNR\")" % (logL, numpy.sqrt(2*logL))
     tref = float(P.tref)
     #tvals = numpy.arange(tref-5.0, tref+5.0, 0.001)
-    tvals = numpy.arange(tref-0.01, tref+0.01, 0.0001)
+    tvals = numpy.arange(tref-0.01, tref+0.01, 0.00001)
     logLs = []
     for t in tvals:
         P.tref = lal.LIGOTimeGPS(t)
@@ -243,7 +286,14 @@ if opts.pin_to_sim:
     import matplotlib
     matplotlib.use("Agg")
     from matplotlib import pyplot
-    print "Maximum logL is %g" % max(logLs)
+    print "Maximum logL is %g, (%g in \"SNR\")" % (max(logLs), numpy.sqrt(2*max(logLs)))
+    print "Which occurs at sample", numpy.argmax(logLs)
+    print "This corresponds to time %.20g" % tvals[numpy.argmax(logLs)]
+    print "The data event time is:  %.20g" % sim_row.get_time_geocent()
+    print "Difference from geocenter t_ref is %.20g" %\
+            (tvals[numpy.argmax(logLs)] - sim_row.get_time_geocent())
+    print "This difference in discrete samples: %.20g" %\
+            ((tvals[numpy.argmax(logLs)]-sim_row.get_time_geocent())/P.deltaT)
     pyplot.plot(tvals-tref, logLs)
     pyplot.ylabel("log Likelihood")
     pyplot.xlabel("time (relative to %10.5f)" % tref)
