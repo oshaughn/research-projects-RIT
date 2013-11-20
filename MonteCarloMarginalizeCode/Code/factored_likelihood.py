@@ -670,4 +670,8 @@ def DiscreteSingleDetectorLogLikelihoodData(epoch,rholmsDictionary, tStart,nBins
 
     nBinLow = int(( tStart + tshift  - rho22.epoch )/rho22.deltaT)   # time interval is specified in GEOCENTER, but rho is at each IFO
 
-    return term1[nBinLow:nBinLow+nBins]
+    if (nBinLow>-1):
+        return term1[nBinLow:nBinLow+nBins]
+    else:
+        tmp = np.roll(term1,nBinLow) # Good enough
+        return tmp[0:nBins] # Good enough
