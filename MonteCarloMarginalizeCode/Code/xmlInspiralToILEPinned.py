@@ -45,7 +45,7 @@ if "phi_orb" in params:
 
 import lal
 if "distance" in params:
-    print " --distance ", row.distance*lal.LAL_PC_SI*1e6,   # currently, idiotically
+    print " --distance ", row.distance # *lal.LAL_PC_SI*1e6,   # currently, idiotically
 
 if "t_ref" in params:
     print " --time ", row.geocent_end_time + 1.0e-9*row.geocent_end_time_ns
