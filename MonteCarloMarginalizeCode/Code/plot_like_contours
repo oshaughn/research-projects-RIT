@@ -21,6 +21,7 @@ optp.add_option("--dimension2", help="Plot this column along the y-axis")
 optp.add_option("--full-likelihood", action="store_true", help="Take exponential of loglikelihood")
 optp.add_option("--show-points", action="store_true", help="Scatter plot the points used.")
 optp.add_option("--show-mdc", help="Mark MDC values from provided XML on the plots.")
+optp.add_option("--fig-extension",help="Type of figure (png,pdf,jpg)",default="png")
 opts, args = optp.parse_args()
 
 if opts.dimension1 in ["mass1", "mass2"] and opts.dimension2 in ["mass1", "mass2"]:
@@ -87,7 +88,7 @@ elif opts.dimension2 is None:
     top.grid()
     bottom.grid()
 
-    pyplot.savefig("%s_likelihood.png" % opts.dimension1)
+    pyplot.savefig(opts.dimension1+"_likelihood." +opts.fig_extension )
     exit()
 
 else:
@@ -155,4 +156,5 @@ if opts.show_points:
     pyplot.scatter(d1, d2, s=5.0, c=like)
 pyplot.xlabel(opts.dimension1)
 pyplot.ylabel(opts.dimension2)
-pyplot.savefig("%s_%s_likelihood.png" % (opts.dimension1, opts.dimension2))
+pyplot.savefig(opts.dimension1+"_"+opts.dimension2+"_likelihood." +opts.fig_extension )
+#pyplot.savefig("%s_%s_likelihood.png" % (opts.dimension1, opts.dimension2))
