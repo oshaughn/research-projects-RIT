@@ -43,6 +43,13 @@ clean:
 	rm -rf zero_noise_mdc/
 
 
+ros_test_data:
+	touch H1_zero_noise.cache
+	touch L1_zero_noise.cache
+	touch V1_zero_noise.cache
+	find ${INJECTION_DEST}/ -name "*.gwf" | lalapps_path2cache > zero_noise.cache
+	python ../../Code/test_data_vs_template.py --inj mdc.xml.gz --cache zero_noise.cache  # plot data and template.  Do they agree?
+
 ros_test_ile:
 	touch H1_zero_noise.cache
 	touch L1_zero_noise.cache
