@@ -93,6 +93,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
         data_fake_dict ={}
         rho2Net = 0
         for det in detectors:
+            Psig.detector= det
             data_fake_dict[det] = lal.ResizeCOMPLEX16FrequencySeries(factored_likelihood.non_herm_hoff(Psig), 0, len(data_dict[det].data.data))  # Pad if needed!
             if analyticPSD_Q:
                 IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],fMax=fmaxSNR, analyticPSD_Q=analyticPSD_Q)
@@ -212,18 +213,22 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
             tvalsPlot = tvals 
             plt.plot(tvalsPlot, lnLData,label='Ldata(t)+'+det)
             plt.plot(tvalsPlot, lnLDataEstimate,label="$rho^2("+det+")$")
-            nBinsDiscrete = int(fSample*0.1)
-            tStartOffsetDiscrete = tWindowExplore[0]   # timeshift correction *should* already performed by DiscreteSingleDetectorLogLikelihood
+            nBinsDiscrete =  len(data_dict[det].data.data)#int(fSample*1)                      # plot all of data, straight up!
+            tStartOffsetDiscrete = 0 #tWindowExplore[0]-0.5   # timeshift correction *should* already performed by DiscreteSingleDetectorLogLikelihood
             tvalsDiscrete = tStartOffsetDiscrete +np.arange(nBinsDiscrete) *1.0/fSample
             lnLDataDiscrete = factored_likelihood.DiscreteSingleDetectorLogLikelihoodData(theEpochFiducial,rholms, theEpochFiducial+tStartOffsetDiscrete, nBinsDiscrete, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det)
             plt.figure(2)
             plt.xlabel('t(s) [not geocentered]')
             plt.ylabel('lnLdata')
-#            plt.plot(tvalsDiscrete, lnLDataDiscrete,label='Ldata(t):discrete+'+det)
-            plt.title('lnLdata(t) discrete, MANUAL TIME SHIFT to geocenter')
+            nSkip = 1 # len(tvalsDiscrete)/4096   # Go to fixed number of points
+            lnLDataEstimate = np.ones(len(tvalsDiscrete))*rhoExpected[det]*rhoExpected[det]
+            plt.plot(tvalsDiscrete, lnLDataEstimate,label="$rho^2("+det+")$")
+            plt.plot(tvalsDiscrete[::nSkip], lnLDataDiscrete[::nSkip],label='Ldata(t):discrete+'+det)
+            plt.title('lnLdata(t) discrete, NO TIME SHIFTS')
             plt.legend()
         tEventRelative =float( Psig.tref - theEpochFiducial)
         print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is ", tEventRelative
+        plt.figure(1)
         plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
         plt.title("lnLdata (interpolated) vs narrow time interval")
 

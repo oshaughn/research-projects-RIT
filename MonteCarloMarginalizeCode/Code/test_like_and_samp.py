@@ -254,7 +254,7 @@ if len(data_dict) is 0:
             ampO=ampO,
             radec=True, theta=1.2, phi=2.4,
             detector='H1', 
-            dist=250.*1.e6*lal.LAL_PC_SI,    # move back to aLIGO distances
+            dist=25.*1.e6*lal.LAL_PC_SI,  
             deltaT=1./fSample
                                 )
         timeSegmentLength  = -float(lalsimutils.hoft(Psig).epoch)
