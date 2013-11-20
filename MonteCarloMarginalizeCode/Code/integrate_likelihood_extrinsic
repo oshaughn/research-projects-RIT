@@ -248,12 +248,12 @@ if opts.pin_to_sim:
 # FIXME: Make t_ref_wind a cmd line parameter?
 t_ref_wind = 2e-3
 
-dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
-dmax = 180. * 1.e6 * lal.LAL_PC_SI # max distance
+dmin = 1.    # min distance
+dmax = 180.  # max distance
 # FIXME: Reenable when we understand what it does
 """
 dmaxMpc = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, cross_terms)
-dmax = dmaxMpc* 1.e6 * lal.LAL_PC_SI
+dmax = dmaxMpc
 print "Estimated outer fiducial radius for event (Mpc): %f" %dmaxMpc
 """
 
@@ -426,7 +426,7 @@ if not opts.time_marginalization:
             P.phiref = phr # ref. orbital phase
             P.incl = ic # inclination
             P.psi = ps # polarization angle
-            P.dist = di # luminosity distance
+            P.dist = di* 1.e6 * lal.LAL_PC_SI # luminosity distance
     
             lnL[i] = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
             if  rosDebugShowExcruciatingLikelihoodDetail:
