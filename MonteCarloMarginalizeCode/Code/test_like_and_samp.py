@@ -108,13 +108,21 @@ tWindowExplore =     factored_likelihood.tWindowExplore
 
 approxSignal = lalsim.GetApproximantFromString(opts.approx)
 approxTemplate = approxSignal
-ampO =opts.amporder # sets which modes to include in the physical signal
-Lmax = opts.Lmax # sets which modes to include
+ampO =opts.amporder # sets which modes to include in the template (and signal, if injected)
+Lmax = opts.Lmax # sets which modes to include in the template.  Print warning if inconsistent.
 fref = opts.fref
 fminWavesSignal = opts.fmin_Template  # too long can be a memory and time hog, particularly at 16 kHz
 fminSNR =opts.fmin_SNR
 fmaxSNR = opts.fmax_SNR
 fSample = opts.srate
+
+if ampO ==-1 and Lmax < 5:
+    print " +++ WARNING ++++ "
+    print "  : Lmax is ", Lmax, " which may be insufficient to resolve all higher harmonics in the signal! "
+
+if (ampO+2)> Lmax:
+    print " +++ WARNING ++++ "
+    print "  : Lmax is ", Lmax, " which may be insufficient to resolve all higher harmonics in the signal! "
 
 if opts.channel_name is not None and opts.cache_file is None:
     print >>sys.stderr, "Cache file required when requesting channel data."	
