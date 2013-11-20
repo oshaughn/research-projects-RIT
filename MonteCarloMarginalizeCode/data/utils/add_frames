@@ -1,0 +1,35 @@
+#!/usr/bin/env python
+import sys
+
+import numpy
+
+from pylal import Fr
+from glue.lal import Cache
+
+import lalsimutils
+
+d1 = lalsimutils.frame_data_to_hoft(sys.argv[1], sys.argv[3] + ":FAKE-STRAIN")
+d2 = lalsimutils.frame_data_to_hoft(sys.argv[2], sys.argv[3] + ":FAKE-STRAIN")
+
+assert numpy.round(1/d1.deltaT) == numpy.round(1/d2.deltaT)
+print "Epochs %10.5f %10.5f" % (float(d1.epoch), float(d2.epoch))
+
+print "Data RMS before addition: %1.10g, %1.10g" % (d1.data.data.std(), d2.data.data.std())
+dsum = d1.data.data + d2.data.data
+print "Data RMS after addition: %1.10g" % dsum.std()
+
+start, dur = int(d1.epoch), int(d1.deltaT*len(d1.data.data))
+channellist = {
+    "name": "%s:FAKE-STRAIN" % (sys.argv[3]),
+    "data": dsum,
+    "start": float(d1.epoch),
+    "dx": d1.deltaT,
+    "kind": "SIM",
+    "type": 1 }
+
+#
+# Write frame
+#
+
+fname = "%s-%s_ILIGO_BNS_COMB-%d-%d.gwf" % (sys.argv[3][0], sys.argv[3], start, dur)
+Fr.frputvect(filename = fname, channellist = [channellist], verbose=0)
