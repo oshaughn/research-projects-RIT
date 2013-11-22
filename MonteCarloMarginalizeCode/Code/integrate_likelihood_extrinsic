@@ -89,7 +89,7 @@ template_min_freq = 40 # minimum frequency of template
 ampO = 0 # sets which modes to include in the physical signal
 Lmax = 2 # sets which modes to include
 t_ref_wind = 2e-3 # Interpolate in a window +/- this width about event time
-nMaxEvals = 1e3 # Max number of extrinsic points to evaluate at
+n_max = int(1e5) # Max number of extrinsic points to evaluate at
 
 #
 # Gather information about a injection put in the data
@@ -451,7 +451,6 @@ if pinned_params.has_key("t_ref"):
 # Call the likelihood function for various extrinsic parameter values
 #
 nEvals = 0
-n_max = int(1e5)
 if not opts.time_marginalization:
 
     #
