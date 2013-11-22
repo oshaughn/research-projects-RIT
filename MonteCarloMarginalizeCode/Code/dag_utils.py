@@ -80,7 +80,7 @@ def write_extrinsic_marginalization_dag(m1m2, extr_sub,
     return fname
 
 # FIXME: Keep in sync with arguments of integrate_likelihood_extrinsic
-def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=None, **kwargs):
+def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=None, ncopies=1, **kwargs
     """
     Write a submit file for launching jobs to marginalize the likelihood over
     extrinsic parameters.
@@ -98,6 +98,8 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
           H1, L1 and V1 detectors.
         - 'psdH1/L1/V1' is the path to an XML file specifying the PSD of
           each of the H1, L1, V1 detectors.
+        - 'ncopies' is the number of runs with identical input parameters to
+          submit per condor 'cluster'
 
     Outputs:
         - The name of the sub file that was generated.
@@ -143,14 +145,14 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
         line = 'output=%s-$(cluster).out\n' % (tag)
     sub.write(line)
     if log_dir is not None:
-        line = 'error=%s/%s-$(cluster).err\n' % (log_dir, tag)
+        line = 'error=%s/%s-$(cluster)-$(process).err\n' % (log_dir, tag)
     else:
-        line = 'error=%s-$(cluster).err\n' % (tag)
+        line = 'error=%s-$(cluster)-$(process).err\n' % (tag)
     sub.write(line)
     line = 'log=%s.log\n' % (tag)
     sub.write(line)
     sub.write('request_memory=2048\n')
     sub.write('notification=never\n')
-    sub.write('queue\n')
+    sub.write('queue %d\n' % ncopies)
     sub.close()
     return fname
