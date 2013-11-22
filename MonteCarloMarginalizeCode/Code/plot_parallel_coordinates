@@ -1,4 +1,20 @@
 #!/usr/bin/env python
+# Copyright (C) 2013 Chris Pankow
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 2 of the License, or (at your
+# option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+# Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
 import sys
 
 import matplotlib
@@ -11,16 +27,40 @@ import numpy
 from glue.ligolw import utils, table, lsctables
 from glue.segments import segment
 
-samples = table.get_table(utils.load_filename(sys.argv[1]), lsctables.SimInspiralTable.tableName)
+from optparse import OptionParser
 
-#
-# Hack around nanoseconds
-#
-for row in samples:
-    row.geocent_end_time = row.geocent_end_time + 1e-9*row.geocent_end_time_ns
+optp = OptionParser()
+optp.add_option("--plot-param", action="append", help="Plot this parameter, give multiple times for multiple arguments.")
+optp.add_option("--top-n", type=int, default=1000, help="Take only the top N events in likelihood. Default is 1000.")
+opts, args = optp.parse_args()
 
-# Need to know how many axes we need
-# FIXME: Assume 7 for now
+if len(args) != 1:
+    raise ValueError("Can't handle more than one argument currently.")
+
+try:
+    samples = table.get_table(utils.load_filename(args[0]), lsctables.SimInspiralTable.tableName)
+
+    #
+    # Hack around nanoseconds
+    #
+    for row in samples:
+        row.geocent_end_time = row.geocent_end_time + 1e-9*row.geocent_end_time_ns
+    if len(opts.plot_param) > 0:
+        dims = opts.plot_param
+    else:
+        #FIXME: Bad default
+        dims = ["polarization", "coa_phase", "distance", "inclination", "latitude", "longitude", "geocent_end_time", "alpha1"]
+
+# FIXME: Catch the right exception
+except:
+
+    # FIXME: Need proper header
+    dims = ["efac", "equad", "jitter", "red_amp", "red_index", "alpha1"]
+    from collections import namedtuple
+    Sample = namedtuple("Sample", dims)
+    samples = []
+    for row in numpy.loadtxt(args[0]):
+        samples.append( Sample(**dict(zip(dims, row))) )
 
 # TODO: Density of lines will tell us how 'high' this should be
 pyplot.figure()
@@ -36,12 +76,10 @@ samples = sorted(samples, key=lambda r: r.alpha1)
 #
 # Normalize the sample values between 0-1
 #
-# TODO: End time
-dims = ["polarization", "coa_phase", "distance", "inclination", "latitude", "longitude", "geocent_end_time", "alpha1"]
 sample_dict, prange = {}, {}
 for dim in dims:
     #d = [getattr(r, dim) for r in samples if r.alpha1 > 0]
-    d = [getattr(r, dim) for r in samples][-1000:]
+    d = [getattr(r, dim) for r in samples][-opts.top_n:]
     dmin, dmax = min(d), max(d)
     drange = dmax-dmin
     if drange == 0:
@@ -55,7 +93,7 @@ for dim in dims:
 # Get a color scale for the integrand value
 #
 #loglike = [r.alpha1 for r in samples if r.alpha1 > 0]
-loglike = [r.alpha1 for r in samples][-1000:]
+loglike = [r.alpha1 for r in samples][-opts.top_n:]
 lmin, lmax = min(loglike), max(loglike)
 sample_dict["loglikelihood"] = numpy.array(loglike)
 
@@ -73,7 +111,7 @@ for j, logl in enumerate(loglike):
         if prev_val is None:
             prev_val = val
             continue
-        pyplot.plot([axes_xloc[i-1], axes_xloc[i]], [prev_val, val], color=cval, linewidth=0.5))
+        pyplot.plot([axes_xloc[i-1], axes_xloc[i]], [prev_val, val], color=cval, linewidth=0.5)
         # like to opacity
         #pyplot.plot([axes_xloc[i-1], axes_xloc[i]], [prev_val, val], color='k', alpha=sm.norm(logl))
         prev_val = val
@@ -112,4 +150,4 @@ pyplot.xticks(axes_xloc, [prange[d] for d in dims])
 pyplot.yticks([], [])
 
 # the 'tight' is so the figure doesn't cut off the bottm of the tick labels
-pyplot.savefig("parallel1.png", bbox_inches='tight')
+pyplot.savefig("parallel.png", bbox_inches='tight')
