@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+import sys
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot
+import matplotlib.cm
+
+import numpy
+
+from glue.ligolw import utils, table, lsctables
+from glue.segments import segment
+
+samples = table.get_table(utils.load_filename(sys.argv[1]), lsctables.SimInspiralTable.tableName)
+
+#
+# Hack around nanoseconds
+#
+for row in samples:
+    row.geocent_end_time = row.geocent_end_time + 1e-9*row.geocent_end_time_ns
+
+# Need to know how many axes we need
+# FIXME: Assume 7 for now
+
+# TODO: Density of lines will tell us how 'high' this should be
+pyplot.figure()
+pyplot.xlim([0, 9])
+#pyplot.ylim([0, numpy.pi*2])
+pyplot.ylim([0, 1])
+
+#
+# Plot high likelihoods last
+#
+samples = sorted(samples, key=lambda r: r.alpha1)
+
+#
+# Normalize the sample values between 0-1
+#
+# TODO: End time
+dims = ["polarization", "coa_phase", "distance", "inclination", "latitude", "longitude", "geocent_end_time", "alpha1"]
+sample_dict, prange = {}, {}
+for dim in dims:
+    #d = [getattr(r, dim) for r in samples if r.alpha1 > 0]
+    d = [getattr(r, dim) for r in samples][-1000:]
+    dmin, dmax = min(d), max(d)
+    drange = dmax-dmin
+    if drange == 0:
+        sample_dict[dim] = numpy.ones(len(d))*0.5
+    else:
+        sample_dict[dim] = (numpy.array(d)-dmin)/drange
+    print dim, dmin, dmax, drange
+    prange[dim] = segment(dmin, dmax)
+
+#
+# Get a color scale for the integrand value
+#
+#loglike = [r.alpha1 for r in samples if r.alpha1 > 0]
+loglike = [r.alpha1 for r in samples][-1000:]
+lmin, lmax = min(loglike), max(loglike)
+sample_dict["loglikelihood"] = numpy.array(loglike)
+
+intg_norm = matplotlib.colors.Normalize(dmin, dmax)
+sm = matplotlib.cm.ScalarMappable(norm=intg_norm)
+
+axes_xloc = range(1,2*len(dims)+1, 2)
+
+for j, logl in enumerate(loglike):
+    prev_val = None
+    cval = matplotlib.cm.hot_r(sm.norm(logl))
+    for i, d in enumerate(dims):
+        # FIXME: look up slow?
+        val = sample_dict[d][j]
+        if prev_val is None:
+            prev_val = val
+            continue
+        pyplot.plot([axes_xloc[i-1], axes_xloc[i]], [prev_val, val], color=cval, linewidth=0.5))
+        # like to opacity
+        #pyplot.plot([axes_xloc[i-1], axes_xloc[i]], [prev_val, val], color='k', alpha=sm.norm(logl))
+        prev_val = val
+
+#
+# Draw the pseudo axes for the sample dimenions
+#
+for xloc in axes_xloc:
+    pyplot.axvline(xloc, 0, 1, color='k', linewidth=5)
+
+#
+# So we know what the colors actually mean
+#
+sm.set_array(sample_dict["loglikelihood"])
+sm.cmap = matplotlib.cm.hot_r
+pyplot.colorbar(sm)
+
+#
+# Label the pseudo axes properly
+#
+pyplot.xticks(axes_xloc, ["%s %1.2g" % (d, prange[d][0]) for d in dims], rotation=60)
+
+#
+# Get another axis to label the extent
+#
+ax1 = pyplot.gca()
+ax2 = pyplot.gca().twiny()
+for xloc in axes_xloc:
+    ax2.axvline(xloc, 0, 1, color='k', linewidth=5)
+ax2.set_xlim(ax1.get_xlim())
+
+for dim, val in prange.iteritems():
+    prange[dim] = "%1.2g" % val[1]
+pyplot.xticks(axes_xloc, [prange[d] for d in dims])
+
+pyplot.yticks([], [])
+
+# the 'tight' is so the figure doesn't cut off the bottm of the tick labels
+pyplot.savefig("parallel1.png", bbox_inches='tight')
