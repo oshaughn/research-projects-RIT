@@ -29,32 +29,33 @@ from glue.segments import segment
 
 from optparse import OptionParser
 
+import xmlutils
+
 optp = OptionParser()
 optp.add_option("--plot-param", action="append", help="Plot this parameter, give multiple times for multiple arguments.")
 optp.add_option("--top-n", type=int, default=1000, help="Take only the top N events in likelihood. Default is 1000.")
 opts, args = optp.parse_args()
 
 try:
-    tmp = None
-    for arg in args:
-        print arg
-        samples = table.get_table(utils.load_filename(args[0]), lsctables.SimInspiralTable.tableName)
-
-        #
-        # Hack around nanoseconds
-        #
-        for row in samples:
-            row.geocent_end_time = row.geocent_end_time + 1e-9*row.geocent_end_time_ns
-        if tmp is None:
-            tmp = samples
-        else:
-            tmp.extend(samples)
-
     if len(opts.plot_param) > 0:
         dims = opts.plot_param
     else:
         #FIXME: Bad default
         dims = ["polarization", "coa_phase", "distance", "inclination", "latitude", "longitude", "geocent_end_time", "alpha1"]
+
+    tmp = None
+    for arg in args:
+        try:
+            samples = table.get_table(utils.load_filename(arg), lsctables.SimInspiralTable.tableName)
+        except:
+            #dims = ["polarization", "coa_phase", "distance", "inclination", "latitude", "longitude", "geocent_end_time", "geocent_end_time_ns", "alpha1"]
+            #dims = ["polarization", "coa_phase", "distance", "latitude", "longitude", "geocent_end_time", "geocent_end_time_ns", "alpha1"]
+            samples = xmlutils.db_to_samples(arg, lsctables.SimInspiralTable, dims)
+
+        if tmp is None:
+            tmp = samples
+        else:
+            tmp.extend(samples)
 
     samples = tmp
 
