@@ -139,8 +139,14 @@ def db_to_samples(db_fname, tbltype, cols):
 
     try:
         connection = sqlite3.connect(db_fname)
-        for res in connection.execute(sql):
-            samples.append(Sample(**dict(zip(cols, res))))
+        connection.row_factory = sqlite3.Row
+        for row in connection.execute(sql):
+            # FIXME: UGH!
+            res = dict(zip(cols, row))
+            if "geocent_end_time" in res.keys() and "geocent_end_time_ns" in res.keys():
+                res["geocent_end_time"] += res["geocent_end_time_ns"]
+
+            samples.append(Sample(**res))
     finally:
         connection.close()
 
