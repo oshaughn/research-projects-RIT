@@ -1,4 +1,6 @@
 import types
+import sqlite3
+from collections import namedtuple
 
 import numpy
 
@@ -114,6 +116,35 @@ def likelihood_to_snglinsp_row(table, loglikelihood, **cols):
     row.snr = numpy.sqrt(2*numpy.abs(loglikelihood))
 
     return row
+
+def db_to_samples(db_fname, tbltype, cols):
+    """
+    Pull samples from db_fname and return object that resembles a row from an XML table.
+    """
+    # FIXME: Get columns from db
+    #if cols is None:
+        #colsspec = "*"
+    #else:
+    colsspec = ", ".join(cols)
+
+    if tbltype == lsctables.SimInspiralTable:
+        sql = """select %s from sim_inspiral""" % colsspec
+    elif tbltype == lsctables.SnglInspiralTable:
+        sql = """select %s from sim_inspiral""" % colsspec
+    else:
+        raise ValueError("Don't know SQL for table %s" % tbltype.tableName)
+
+    Sample = namedtuple("Sample", cols)
+    samples = []
+
+    try:
+        connection = sqlite3.connect(db_fname)
+        for res in connection.execute(sql):
+            samples.append(Sample(**dict(zip(cols, res))))
+    finally:
+        connection.close()
+
+    return samples
 
 # TESTING
 import sys
