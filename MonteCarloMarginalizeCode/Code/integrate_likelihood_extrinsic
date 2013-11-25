@@ -63,6 +63,16 @@ optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
 
 #
+# Add the integration options
+#
+integration_params = OptionGroup(optp, "Integration Parameters", "Control the integration with these options.")
+# Default is actually None, but that tells the integrator to go forever or until n_eff is hit.
+integration_params.add_option("--n-max", type=int, help="Total number of samples points to draw. If this number is hit before n_eff, then the integration will terminate. Default is 'infinite'.")
+integration_params.add_option("--n-eff", type=int, default=100, help="Total number of effective samples points to calculate before the integration will terminate. Default is 100")
+integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
+optp.add_option_group(integration_params)
+
+#
 # Add the intrinsic parameters
 #
 intrinsic_params = OptionGroup(optp, "Intrinsic Parameters", "Intrinsic parameters (e.g component mass) to use.")
@@ -89,7 +99,16 @@ template_min_freq = 40 # minimum frequency of template
 ampO = 0 # sets which modes to include in the physical signal
 Lmax = 2 # sets which modes to include
 t_ref_wind = 2e-3 # Interpolate in a window +/- this width about event time
-n_max = int(1e5) # Max number of extrinsic points to evaluate at
+n_max = opts.n_max # Max number of extrinsic points to evaluate at
+n_eff = opts.n_eff # Effective number of points evaluated
+
+#
+# Initialize the RNG, if needed
+#
+# TODO: Do we seed a given instance of the integrator, or set it for all
+# or both?
+if opts.seed is not None:
+    numpy.random.seed(opts.seed)
 
 #
 # Gather information about a injection put in the data
@@ -485,7 +504,7 @@ if not opts.time_marginalization:
         nEvals+=i 
         return numpy.exp(lnL)
 
-    pinned_params.update({"n": 10, "nmax": n_max, "neff": 100, "full_output": True, "verbose": True, "extremely_verbose": False, "save_intg": True})
+    pinned_params.update({"n": 10, "nmax": n_max, "neff": n_eff, "full_output": True, "verbose": True, "extremely_verbose": False, "save_intg": True})
     res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else: # Sum over time for every point in other extrinsic params
