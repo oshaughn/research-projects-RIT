@@ -15,6 +15,8 @@ import numpy
 
 from glue.ligolw import utils, table, lsctables
 
+import xmlutils
+
 optp = OptionParser()
 optp.add_option("--dimension1", help="Plot this column along the x-axis")
 optp.add_option("--dimension2", help="Plot this column along the y-axis")
@@ -25,17 +27,16 @@ optp.add_option("--fig-extension",help="Type of figure (png,pdf,jpg)",default="p
 opts, args = optp.parse_args()
 
 if opts.dimension1 in ["mass1", "mass2"] and opts.dimension2 in ["mass1", "mass2"]:
-    points = table.get_table(utils.load_filename(args[0]), lsctables.SnglInspiralTable.tableName)
+    try:
+        points = table.get_table(utils.load_filename(args[0]), lsctables.SnglInspiralTable.tableName)
+    except:
+        # FIXME: hardcoding
+        points = xmlutils.db_to_samples(args[0], lsctables.SnglInspiralTable, [opts.dimension1, opts.dimension2, "snr"])
     like = [row.snr for row in points]
     # FIXME: order
     points = [(row.mass1, row.mass2) for row in points]
     d1, d2 = numpy.array(points).T
 elif opts.dimension2 is None:
-    points = table.get_table(utils.load_filename(args[0]), lsctables.SimInspiralTable.tableName)
-
-    fig = pyplot.figure()
-    bottom = pyplot.subplot2grid((3,1), (2,0))
-    top = pyplot.subplot2grid((3,1), (0,0), rowspan=2)
 
     if opts.show_mdc:
         sim = table.get_table(utils.load_filename(opts.show_mdc), lsctables.SimInspiralTable.tableName)
@@ -45,15 +46,24 @@ elif opts.dimension2 is None:
         else:
             sim = getattr(sim[0], opts.dimension1)
 
+    try:
+        points = table.get_table(utils.load_filename(args[0]), lsctables.SimInspiralTable.tableName)
+
+        # FIXME: We really need to get over this whole seconds/nanoseconds thing
+        for point in points:
+            point.geocent_end_time = point.geocent_end_time + 1e-9*point.geocent_end_time_ns
+
+    except:
+        # FIXME: hardcoding
+        points = xmlutils.db_to_samples(args[0], lsctables.SimInspiralTable, [opts.dimension1, "alpha1"])
+
+    fig = pyplot.figure()
+    bottom = pyplot.subplot2grid((3,1), (2,0))
+    top = pyplot.subplot2grid((3,1), (0,0), rowspan=2)
+
+    if opts.show_mdc:
         top.axvline(sim)
         bottom.axvline(sim)
-
-    # FIXME: We really need to get over this whole seconds/nanoseconds thing
-    for point in points:
-        point.geocent_end_time = point.geocent_end_time + 1e-9*point.geocent_end_time_ns
-        # FIXME: HACKHACK
-        if opts.show_mdc and opts.dimension1 == "geocent_end_time":
-            point.geocent_end_time += sim
 
     # FIXME: Hardcoded bad column name
     points = [(getattr(row, opts.dimension1), row.alpha1) for row in points]
@@ -92,21 +102,26 @@ elif opts.dimension2 is None:
     exit()
 
 else:
-    # FIXME: HACKHACK
     if opts.show_mdc:
         sim = table.get_table(utils.load_filename(opts.show_mdc), lsctables.SimInspiralTable.tableName)
         assert len(sim) == 1
-        if opts.dimension1 == "geocent_end_time":
+        # FIXME: HACKHACK
+        if opts.dimension1 == "geocent_end_time" or opts.dimension2 == "geocent_end_time":
             sim = float(sim[0].get_end())
         else:
             sim = getattr(sim[0], opts.dimension1)
 
-    points = table.get_table(utils.load_filename(args[0]), lsctables.SimInspiralTable.tableName)
-    # FIXME: We really need to get over this whole seconds/nanoseconds thing
-    for point in points:
-        point.geocent_end_time = point.geocent_end_time + 1e-9*point.geocent_end_time_ns
-        if opts.show_mdc:
-            point.geocent_end_time += sim
+    try:
+        points = table.get_table(utils.load_filename(args[0]), lsctables.SimInspiralTable.tableName)
+
+        # FIXME: We really need to get over this whole seconds/nanoseconds thing
+        for point in points:
+            point.geocent_end_time = point.geocent_end_time + 1e-9*point.geocent_end_time_ns
+
+    except:
+        # FIXME: hardcoding
+        points = xmlutils.db_to_samples(args[0], lsctables.SimInspiralTable, [opts.dimension1, opts.dimension2, "alpha1"])
+
     # FIXME: Hardcoded bad column name
     like = [row.alpha1 for row in points]
     points = [(getattr(row, opts.dimension1), getattr(row, opts.dimension2)) for row in points]
@@ -156,5 +171,4 @@ if opts.show_points:
     pyplot.scatter(d1, d2, s=5.0, c=like)
 pyplot.xlabel(opts.dimension1)
 pyplot.ylabel(opts.dimension2)
-pyplot.savefig(opts.dimension1+"_"+opts.dimension2+"_likelihood." +opts.fig_extension )
-#pyplot.savefig("%s_%s_likelihood.png" % (opts.dimension1, opts.dimension2))
+pyplot.savefig("%s_%s_likelihood.%s" % (opts.dimension1, opts.dimension2, opts.fig_extension))
