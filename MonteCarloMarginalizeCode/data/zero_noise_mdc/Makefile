@@ -55,7 +55,7 @@ ros_test_ile:
 	touch L1_zero_noise.cache
 	touch V1_zero_noise.cache
 	find ${INJECTION_DEST}/ -name "*.gwf" | lalapps_path2cache > zero_noise.cache
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --seglen 10  --reference-freq 0.0 --padding 2 --output-file ile-ros-output.xml.gz --save-samples
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=HLV-ILIGO_PSD.xml.gz" --psd-file "L1=HLV-ILIGO_PSD.xml.gz" --psd-file "V1=HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --seglen 10  --reference-freq 0.0 --padding 2 --output-file ile-ros-output.xml.gz --save-samples
 
 ros_test_ile_pinned:
 	touch H1_zero_noise.cache

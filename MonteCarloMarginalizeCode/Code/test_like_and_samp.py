@@ -103,7 +103,7 @@ tEventFiducial = 0                                                              
 det_dict = {}
 rhoExpected ={}
 
-tWindowReference = factored_likelihood.tWindowReference
+tWindowReference =   factored_likelihood_test.tWindowReference
 tWindowExplore =     factored_likelihood.tWindowExplore
 
 approxSignal = lalsim.GetApproximantFromString(opts.approx)
@@ -405,7 +405,9 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
 #
 # Perform the Precompute stage
 #
-rholms_intp, crossTerms, rholms, epoch_post = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q)
+rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q)
+rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[detectors[0]], 2, 2)
+epoch_post = rho22.epoch # Suggested change
 print "Finished Precomputation..."
 print "====Generating metadata from precomputed results ====="
 distBoundGuess = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, crossTerms)

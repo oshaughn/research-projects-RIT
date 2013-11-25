@@ -29,6 +29,8 @@ import sys
 import scipy.optimize
 from scipy import integrate
 
+tWindowReference = [-0.15, 0.15]
+
 TestDictionaryDefault = {}
 TestDictionaryDefault["DataReport"]             = True
 TestDictionaryDefault["DataPlot"]             = False
@@ -49,6 +51,7 @@ TestDictionaryDefault["lnLDataPlotVersusPhiPsi"]            = True
 
 
 def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, data_dict, psd_dict, fmaxSNR, analyticPSD_Q,Psig,rholms,rholms_intp, crossTerms, detectors, Lmax):
+    global tWindowReference
 
     fmin_SNR=30
     keysPairs = lalsimutils.constructLMIterator(Lmax)
@@ -60,7 +63,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
     rhoExpected = {}
     rhoExpectedAlt = {}
     rhoFake = {}
-    tWindowReference = factored_likelihood.tWindowReference
+#    tWindowReference =  tWindowReference
     tWindowExplore =     factored_likelihood.tWindowExplore
     tEventFiducial    = float(Psig.tref - theEpochFiducial)
     plt.figure(0)  # Make sure not overwritten
@@ -171,7 +174,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
             print " ======= UV test: Recover the SNR of the injection  =========="
             print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] "
             for det in detectors:
-                lnLModel = factored_likelihood.SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
+                lnLModel = factored_likelihood.SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, Lmax, det)
                 print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det], "      [last two equal (in zero noise)?]"
 
     # lnL (known parameters)
@@ -185,7 +188,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
     if TestDictionary["lnLAtKnownMarginalizeTime"]:
             print " ======= \int L dt/T: Consistency across multiple methods  =========="
 #            lnLmargT1 = factored_likelihood.NetworkLogLikelihoodTimeMarginalized(theEpochFiducial,rholms_intp, crossTerms, Psig.tref,  tWindowExplore, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, detectors)
-            lnLmargT2 = factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete(theEpochFiducial,rholms, crossTerms, Psig.tref, tWindowExplore, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, detectors)
+            lnLmargT2 = factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete(theEpochFiducial,rholms, crossTerms, Psig.tref, tWindowExplore, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, detectors)
             def fn(x):
                 P2 = Psig.copy()
                 P2.tref = theEpochFiducial+x  
@@ -203,7 +206,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
         tmin = np.max(float(epoch_post - theEpochFiducial),tWindowReference[0]+0.03)   # the minimum time used is set by the rolling condition
         tvals = np.linspace(tWindowExplore[0]+tEventFiducial,tWindowExplore[1]+tEventFiducial,fSample*(tWindowExplore[1]-tWindowExplore[0]))
         for det in detectors:
-            lnLData = map( lambda x: factored_likelihood.SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det), tvals)
+            lnLData = map( lambda x: factored_likelihood.SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, det), tvals)
             lnLDataEstimate = np.ones(len(tvals))*rhoExpected[det]*rhoExpected[det]
             plt.figure(1)
             plt.xlabel('t(s) [geocentered]')
@@ -216,7 +219,8 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
             nBinsDiscrete =  len(data_dict[det].data.data)#int(fSample*1)                      # plot all of data, straight up!
             tStartOffsetDiscrete = 0 #tWindowExplore[0]-0.5   # timeshift correction *should* already performed by DiscreteSingleDetectorLogLikelihood
             tvalsDiscrete = tStartOffsetDiscrete +np.arange(nBinsDiscrete) *1.0/fSample
-            lnLDataDiscrete = factored_likelihood.DiscreteSingleDetectorLogLikelihoodData(theEpochFiducial,rholms, theEpochFiducial+tStartOffsetDiscrete, nBinsDiscrete, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, det)
+            lnLDataDiscrete = factored_likelihood.DiscreteSingleDetectorLogLikelihoodData(theEpochFiducial,rholms, theEpochFiducial+tStartOffsetDiscrete, nBinsDiscrete, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, det)
+            tvalsDiscrete = tvalsDiscrete[:len(lnLDataDiscrete)]
             plt.figure(2)
             plt.xlabel('t(s) [not geocentered]')
             plt.ylabel('lnLdata')
