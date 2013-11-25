@@ -47,6 +47,12 @@ try:
     for arg in args:
         try:
             samples = table.get_table(utils.load_filename(arg), lsctables.SimInspiralTable.tableName)
+
+            #
+            # Hack around nanoseconds
+            #
+            for row in samples:
+                row.geocent_end_time = row.geocent_end_time + 1e-9*row.geocent_end_time_ns
         except:
             #dims = ["polarization", "coa_phase", "distance", "inclination", "latitude", "longitude", "geocent_end_time", "geocent_end_time_ns", "alpha1"]
             #dims = ["polarization", "coa_phase", "distance", "latitude", "longitude", "geocent_end_time", "geocent_end_time_ns", "alpha1"]
