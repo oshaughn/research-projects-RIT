@@ -34,7 +34,7 @@ if opts.dimension1 in ["mass1", "mass2"] and opts.dimension2 in ["mass1", "mass2
         except:
             # FIXME: hardcoding
             tbl = xmlutils.db_to_samples(arg, lsctables.SnglInspiralTable, [opts.dimension1, opts.dimension2, "snr"])
-        like.extend( [numpy.exp(row.snr**2/) for row in tbl] )
+        like.extend( [numpy.exp(row.snr**2/2) for row in tbl] )
         # FIXME: order
         points.extend( [(row.mass1, row.mass2) for row in tbl] )
     d1, d2 = numpy.array(points).T
