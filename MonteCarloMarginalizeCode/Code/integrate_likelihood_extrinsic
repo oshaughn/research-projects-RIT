@@ -545,7 +545,8 @@ if opts.output_file:
     if opts.save_samples:
         samples = sampler._rvs
         # FIXME: Does sim insp do kpc or mpc
-        samples["distance"] = samples["distance"]/1e6/lal.LAL_PC_SI
+        samples["distance"] = samples["distance"]
+        samples["t_ref"] += float(fiducial_epoch)
         samples["polarization"] = samples["psi"]
         samples["coa_phase"] = samples["phi_orb"]
         samples["latitude"] = samples["declination"]
