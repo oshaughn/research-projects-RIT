@@ -121,6 +121,9 @@ def db_to_samples(db_fname, tbltype, cols):
     """
     Pull samples from db_fname and return object that resembles a row from an XML table.
     """
+    if "geocent_end_time" in cols:
+        cols.append("geocent_end_time_ns")
+
     # FIXME: Get columns from db
     #if cols is None:
         #colsspec = "*"
@@ -130,7 +133,7 @@ def db_to_samples(db_fname, tbltype, cols):
     if tbltype == lsctables.SimInspiralTable:
         sql = """select %s from sim_inspiral""" % colsspec
     elif tbltype == lsctables.SnglInspiralTable:
-        sql = """select %s from sim_inspiral""" % colsspec
+        sql = """select %s from sngl_inspiral""" % colsspec
     else:
         raise ValueError("Don't know SQL for table %s" % tbltype.tableName)
 
@@ -143,8 +146,8 @@ def db_to_samples(db_fname, tbltype, cols):
         for row in connection.execute(sql):
             # FIXME: UGH!
             res = dict(zip(cols, row))
-            if "geocent_end_time" in res.keys() and "geocent_end_time_ns" in res.keys():
-                res["geocent_end_time"] += res["geocent_end_time_ns"]
+            if "geocent_end_time" in res.keys():
+                res["geocent_end_time"] += res["geocent_end_time_ns"]*1e-9
 
             samples.append(Sample(**res))
     finally:
