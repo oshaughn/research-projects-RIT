@@ -89,7 +89,9 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate',
         tref=None,
         pad=None,
         time_marg=False,
-        log_dir=None
+        log_dir=None,
+        save_samples=False,
+        output_file=None
         ):
     """
     Write a submit file for launching jobs to marginalize the likelihood over
@@ -139,6 +141,10 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate',
         line += ' --padding %i' % pad
     if time_marg is True:
         line += ' --time-marginalization'
+    if save_samples is True:
+        line += ' --save-samples'
+        if output_file is not None:
+            line += ' --output-file %s' % output_file
     line += ' --mass1 $(m1) --mass2 $(m2)\n'
     sub.write(line)
     sub.write('getenv=True\n')
