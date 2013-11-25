@@ -1031,6 +1031,43 @@ def conj_hlmoff(P, Lmax=2, Fp=None, Fc=None):
 
     return Hlms
 
+def SphHarmTimeSeries_to_dict(hlms, Lmax):
+    """
+    Convert a SphHarmTimeSeries SWIG-wrapped linked list into a dictionary.
+
+    The keys are tuples of integers of the form (l,m)
+    and a key-value pair will be created for each (l,m) with
+    2 <= l <= Lmax, |m| <= l for which
+    lalsimulation.SphHarmTimeSeriesGetMode(hlms, l, m)
+    returns a non-null pointer.
+    """
+    hlm_dict = {}
+    for l in range(2, Lmax+1):
+        for m in range(-l, l+1):
+            hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, l, m)
+            if hxx is not None:
+                hlm_dict[(l,m)] = hxx
+
+    return hlm_dict
+
+def SphHarmFrequencySeries_to_dict(hlms, Lmax):
+    """
+    Convert a SphHarmFrequencySeries SWIG-wrapped linked list into a dictionary.
+
+    The keys are tuples of integers of the form (l,m)
+    and a key-value pair will be created for each (l,m) with
+    2 <= l <= Lmax, |m| <= l for which
+    lalsimulation.SphHarmFrequencySeriesGetMode(hlms, l, m)
+    returns a non-null pointer.
+    """
+    hlm_dict = {}
+    for l in range(2, Lmax+1):
+        for m in range(-l, l+1):
+            hxx = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
+            if hxx is not None:
+                hlm_dict[(l,m)] = hxx
+
+    return hlm_dict
 
 def complex_hoft(P, sgn=-1):
     """
