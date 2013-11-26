@@ -18,6 +18,7 @@
 A collection of routines to manage Condor workflows (DAGs).
 """
 
+import os
 import numpy as np
 from time import time
 from hashlib import md5
@@ -79,18 +80,7 @@ def write_extrinsic_marginalization_dag(m1m2, extr_sub,
     return fname
 
 # FIXME: Keep in sync with arguments of integrate_likelihood_extrinsic
-def write_integrate_likelihood_extrinsic_sub(tag='integrate',
-        cache='local.cache',
-        channels=None,
-        psds=None,
-        coinc=None,
-        fref=None,
-        seglen=None,
-        tref=None,
-        pad=None,
-        time_marg=False,
-        log_dir=None
-        ):
+def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=None, **kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over
     extrinsic parameters.
@@ -112,35 +102,40 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate',
     Outputs:
         - The name of the sub file that was generated.
     """
-    assert len(psds) == len(channels)
+    assert len(kwargs["psd_file"]) == len(kwargs["channel_name"])
     fname = tag + '.sub'
     sub = open(fname, 'w')
-    exe = which("integrate_likelihood_extrinsic")
+    exe = exe or which("integrate_likelihood_extrinsic")
     sub.write('executable=%s\n' % exe)
     sub.write('universe=vanilla\n')
-    line = 'arguments='
-    if cache is not None:
-        line += ' --cache-file %s' % cache
-    if channels is not None:
-        for chan in channels:
-            line += ' --channel-name %s' % chan
-    if psds is not None:
-        for psd in psds:
-            line += ' --psd-file %s' % psd
-    if coinc is not None:
-        line += ' --coinc-xml %s' % coinc
-    if fref is not None:
-        line += ' --reference-freq %.16g' % fref
-    if seglen is not None:
-        line += ' --seglen %i' % seglen
-    if tref is not None:
-        line += ' --event-time %.16g' % tref
-    if pad is not None:
-        line += ' --padding %i' % pad
-    if time_marg is True:
-        line += ' --time-marginalization'
-    line += ' --mass1 $(m1) --mass2 $(m2)\n'
-    sub.write(line)
+
+    ###
+    # FIXME: Am I reinventing pipeline.py here?
+    argstr = 'arguments='
+    if kwargs.has_key("output_file"):
+        #
+        # Need to modify the output file so it's unique
+        #
+        fname, ext = os.path.splitext(kwargs["output_file"])
+        argstr += ' --output-file %s-$(cluster)-$(process)%s' % (fname, ext)
+        del kwargs["output_file"]
+        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+            argstr += ' --save-samples'
+            del kwargs["save_samples"]
+
+    # FIXME: Get valid options from a module
+    for opt, param in kwargs.iteritems():
+        if isinstance(param, list) or isinstance(param, tuple):
+            argstr += " " + " ".join(["--%s=%s" % (opt.replace("_", "-"), p) for p in param])
+        elif param is True:
+            argstr += " --%s" % opt.replace("_", "-")
+        elif not param:
+            continue
+        else:
+            argstr += " --%s=%s" % (opt.replace("_", "-"), param)
+    argstr += ' --mass1 $(m1) --mass2 $(m2)\n'
+    sub.write(argstr)
+
     sub.write('getenv=True\n')
     if log_dir is not None:
         line = 'output=%s/%s-$(cluster).out\n' % (log_dir, tag)
