@@ -67,7 +67,7 @@ optp.add_option("-S", "--save-samples", action="store_true", help="Save sample p
 #
 integration_params = OptionGroup(optp, "Integration Parameters", "Control the integration with these options.")
 # Default is actually None, but that tells the integrator to go forever or until n_eff is hit.
-integration_params.add_option("--n-max", type=int, help="Total number of samples points to draw. If this number is hit before n_eff, then the integration will terminate. Default is 'infinite'.")
+integration_params.add_option("--n-max", type=int, help="Total number of samples points to draw. If this number is hit before n_eff, then the integration will terminate. Default is 'infinite'.",default=1e7)
 integration_params.add_option("--n-eff", type=int, default=100, help="Total number of effective samples points to calculate before the integration will terminate. Default is 100")
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
 optp.add_option_group(integration_params)
@@ -151,11 +151,11 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
 
     deltaF = data_dict[inst].deltaF
-    if psd_dict[inst].deltaF != deltaF:
+#    if psd_dict[inst].deltaF != deltaF:
         # FIXME: Can we remove the printfs? Seems to work fine now...
-        print "PSD deltaF before interpolation %f" % psd_dict[inst].deltaF
-        psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
-        print "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF
+    print "PSD deltaF before interpolation %f" % psd_dict[inst].deltaF
+    psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
+    print "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF
     assert psd_dict[inst].deltaF == deltaF
     # Highest freq. at which PSD is defined
     if isinstance(psd_dict[inst],
@@ -330,8 +330,8 @@ if opts.pin_to_sim:
 #
 
 # FIXME: Never really used
-dmin = 1. * 1.e6 * lal.LAL_PC_SI   # min distance
-dmax = 2000. * 1.e6 * lal.LAL_PC_SI # max distance FOR ANY SOURCE EVER. EUCLIDEAN
+dmin = 1.    # min distance
+dmax = 2000.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 
 param_limits = { "psi": (0, 2*numpy.pi),
     "phi_orb": (0, 2*numpy.pi),
