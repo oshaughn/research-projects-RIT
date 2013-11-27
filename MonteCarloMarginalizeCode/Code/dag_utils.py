@@ -80,7 +80,7 @@ def write_extrinsic_marginalization_dag(m1m2, extr_sub,
     return fname
 
 # FIXME: Keep in sync with arguments of integrate_likelihood_extrinsic
-def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=None, ncopies=1, **kwargs
+def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=None, ncopies=1, **kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over
     extrinsic parameters.
@@ -140,9 +140,9 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
 
     sub.write('getenv=True\n')
     if log_dir is not None:
-        line = 'output=%s/%s-$(cluster).out\n' % (log_dir, tag)
+        line = 'output=%s/%s-$(cluster)-$(process).out\n' % (log_dir, tag)
     else:
-        line = 'output=%s-$(cluster).out\n' % (tag)
+        line = 'output=%s-$(cluster)-$(process).out\n' % (tag)
     sub.write(line)
     if log_dir is not None:
         line = 'error=%s/%s-$(cluster)-$(process).err\n' % (log_dir, tag)
