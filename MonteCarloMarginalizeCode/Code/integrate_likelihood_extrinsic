@@ -4,7 +4,6 @@
 Integrate the extrinsic parameters of the prefactored likelihood function.
 """
 
-#from pylal import Fr
 import sys
 import functools
 from optparse import OptionParser, OptionGroup
@@ -20,12 +19,9 @@ import pylal
 import lalsimutils
 import factored_likelihood
 import mcsampler
-#import ourio
 import xmlutils
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
-
-rosDebugShowPriors = True  
 
 #
 # Pinnable parameters -- for command line processing
@@ -99,6 +95,10 @@ template_min_freq = 40 # minimum frequency of template
 ampO = 0 # sets which modes to include in the physical signal
 Lmax = 2 # sets which modes to include
 t_ref_wind = 2e-3 # Interpolate in a window +/- this width about event time
+
+#
+# Integrator options
+#
 n_max = opts.n_max # Max number of extrinsic points to evaluate at
 n_eff = opts.n_eff # Effective number of points evaluated
 
@@ -143,7 +143,7 @@ data_dict, psd_dict = {}, {}
 start_pad, end_pad = opts.seglen+opts.padding, opts.padding
 for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
-    data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=int(event_time)-start_pad, stop=int(event_time)+end_pad)
+    data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=float(event_time)-start_pad, stop=float(event_time)+end_pad)
     print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF, len(data_dict[inst].data.data))
 
 for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
@@ -151,18 +151,18 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
 
     deltaF = data_dict[inst].deltaF
-#    if psd_dict[inst].deltaF != deltaF:
-        # FIXME: Can we remove the printfs? Seems to work fine now...
-    print "PSD deltaF before interpolation %f" % psd_dict[inst].deltaF
     psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
     print "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF
+
     assert psd_dict[inst].deltaF == deltaF
+
     # Highest freq. at which PSD is defined
     if isinstance(psd_dict[inst],
             pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
         fmax = psd_dict[inst].f0 + deltaF * (len(psd_dict[inst].data) - 1)
     elif isinstance(psd_dict[inst], lal.REAL8FrequencySeries):
         fmax = psd_dict[inst].f0 + deltaF * (psd_dict[inst].data.length - 1)
+
     # Assert upper limit of IP integral does not go past where PSD defined
     assert opts.fmax is None or opts.fmax >= fmax
     if opts.fmax > fmax:
@@ -191,15 +191,13 @@ else:
 print "Performing integration for intrinsic parameters mass 1: %f, mass 2 %f" % (m1, m2)
 
 
+#
 # Template descriptors
+#
 
-# FIXME: Come back to this
 fiducial_epoch = lal.LIGOTimeGPS()
 fiducial_epoch.gpsSeconds = event_time.seconds
 fiducial_epoch.gpsNanoSeconds = event_time.nanoseconds
-fref_time_off = 0   #  time relative to fiducial epoch, used to identify window to look in.  Checked empirically.
-# epoch + event = time of event at f_ref
-# FIXME: Geocentric? Detector specific?
 
 # data_dict holds 2-sided FrequencySeries, so their length is the same as
 # that of the original TimeSeries that was FFT'd = Nsamples
@@ -208,7 +206,6 @@ fref_time_off = 0   #  time relative to fiducial epoch, used to identify window 
 deltaT = 1./ (data_dict[data_dict.keys()[0]].data.length * deltaF)
 
 # Struct to hold template parameters
-# FIXME: Lots of hardcoding going on here
 P = lalsimutils.ChooseWaveformParams(
     fmin = template_min_freq, 
     radec = False, 
@@ -242,46 +239,6 @@ rholms_intp, cross_terms, rholms=factored_likelihood.PrecomputeLikelihoodTerms(
         fiducial_epoch, t_window, P, data_dict, psd_dict, Lmax, fmax,
         analyticPSD_Q=False)
 
-# XXX: DEBUG!!!
-#rhoH = rholms['H1']
-#rhoL = rholms['L1']
-#rhoV = rholms['V1']
-#rho22H = lalsimutils.lalsim.SphHarmTimeSeriesGetMode(rhoH, 2, 2)
-#rho22L = lalsimutils.lalsim.SphHarmTimeSeriesGetMode(rhoL, 2, 2)
-#rho22V = lalsimutils.lalsim.SphHarmTimeSeriesGetMode(rhoV, 2, 2)
-
-#detH1 = lalsimutils.lalsim.InstrumentNameToLALDetector('H1')
-#detL1 = lalsimutils.lalsim.InstrumentNameToLALDetector('L1')
-#detV1 = lalsimutils.lalsim.InstrumentNameToLALDetector('V1')
-#trefH = lalsimutils.lal.TimeDelayFromEarthCenter(detH1.location,
-#        sim_row.longitude, sim_row.latitude, fiducial_epoch)
-#trefL = lalsimutils.lal.TimeDelayFromEarthCenter(detL1.location,
-#        sim_row.longitude, sim_row.latitude, fiducial_epoch)
-#trefV = lalsimutils.lal.TimeDelayFromEarthCenter(detV1.location,
-#        sim_row.longitude, sim_row.latitude, fiducial_epoch)
-
-#tH = float(rho22H.epoch) + numpy.arange(rho22H.data.length) * rho22H.deltaT
-#tL = float(rho22L.epoch) + numpy.arange(rho22L.data.length) * rho22L.deltaT
-#tV = float(rho22V.epoch) + numpy.arange(rho22V.data.length) * rho22V.deltaT
-
-#ttH = trefH - t_window + numpy.arange(rho22H.data.length) * rho22H.deltaT
-#ttL = trefL - t_window + numpy.arange(rho22L.data.length) * rho22L.deltaT
-#ttV = trefV - t_window + numpy.arange(rho22V.data.length) * rho22V.deltaT
-
-#import matplotlib
-#matplotlib.use("TkAgg")
-#from matplotlib import pyplot as plt
-#plt.plot(tH, numpy.abs(rho22H.data.data), 'b-', marker='o', ms=4)
-#plt.plot(tL, numpy.abs(rho22L.data.data), 'g-', marker='o', ms=4)
-#plt.plot(tV, numpy.abs(rho22V.data.data), 'm-', marker='o', ms=4)
-#plt.axvline(fiducial_epoch, color='k')
-#plt.axvline(fiducial_epoch + trefH, color='b')
-#plt.axvline(fiducial_epoch + trefL, color='g')
-#plt.axvline(fiducial_epoch + trefV, color='m')
-#plt.xlim(float(fiducial_epoch) - 0.05, float(fiducial_epoch) + 0.05)
-#plt.title('Time series of (rho22 | d)')
-#plt.show()
-
 if opts.pin_to_sim:
     P.copy_lsctables_sim_inspiral(sim_row)
     print "Pinned parameters from sim_inspiral"
@@ -296,7 +253,6 @@ if opts.pin_to_sim:
     logL = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
     print "Pinned log likelihood: %g, (%g in \"SNR\")" % (logL, numpy.sqrt(2*logL))
     tref = float(P.tref)
-    #tvals = numpy.arange(tref-5.0, tref+5.0, 0.001)
     tvals = numpy.arange(tref-0.01, tref+0.01, 0.00001)
     logLs = []
     for t in tvals:
@@ -329,7 +285,6 @@ if opts.pin_to_sim:
 # Set up parameters and bounds
 #
 
-# FIXME: Never really used
 dmin = 1.    # min distance
 dmax = 2000.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 
@@ -439,12 +394,6 @@ sampler.add_parameter("t_ref",
     right_limit = param_limits["t_ref"][1],
     prior_pdf = functools.partial(mcsampler.uniform_samp_vector, factored_likelihood.tWindowExplore[0],factored_likelihood.tWindowExplore[1]))
 
-if rosDebugShowPriors:
-    try:
-        ourio.plotParameterDistributions("input distributions", sampler)
-    except:
-        print " No prior plots for you!"
-
 #
 # Determine pinned and non-pinned parameters
 #
@@ -467,9 +416,13 @@ if pinned_params.has_key("t_ref"):
     pinned_params["t_ref"] -= float(fiducial_epoch)
 
 #
+# Merge options into one big ol' kwargs dict
+#
+pinned_params.update({"n": min(100, n_max), "nmax": n_max, "neff": n_eff, "full_output": True, "verbose": True, "extremely_verbose": False, "save_intg": True})
+
+#
 # Call the likelihood function for various extrinsic parameter values
 #
-nEvals = 0
 if not opts.time_marginalization:
 
     #
@@ -483,7 +436,6 @@ if not opts.time_marginalization:
     #
     def likelihood_function(right_ascension, declination, t_ref, phi_orb,
             inclination, psi, distance):
-        global nEvals
         # use EXTREMELY many bits
         lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
         i = 0
@@ -501,17 +453,14 @@ if not opts.time_marginalization:
                     P, rholms_intp, cross_terms, Lmax)
             i+=1
     
-        nEvals+=i 
         return numpy.exp(lnL)
 
-    pinned_params.update({"n": 10, "nmax": n_max, "neff": n_eff, "full_output": True, "verbose": True, "extremely_verbose": False, "save_intg": True})
     res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else: # Sum over time for every point in other extrinsic params
 
     def likelihood_function(right_ascension, declination, phi_orb, inclination,
             psi, distance):
-        global nEvals
         # use EXTREMELY many bits
         lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
         i = 0
@@ -523,17 +472,9 @@ else: # Sum over time for every point in other extrinsic params
                     Lmax, rholms.keys())
             i+=1
     
-        nEvals+=i 
         return numpy.exp(lnL)
 
-    res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, 
-        "right_ascension", "declination", "phi_orb", "inclination", "psi", "distance", 
-        n=10, nmax=n_max, neff=100,
-        # FIXME: What here?  ROS: an estimate of the peak lnL, and a threshold on what should be returned
-    #    igrandmax=rho2Net/2, igrand_threshold_fraction=0.95,
-        full_output=True,verbose=True,extremely_verbose=False
-        )
-
+    res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)

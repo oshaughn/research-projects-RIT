@@ -118,8 +118,8 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
         #
         # Need to modify the output file so it's unique
         #
-        fname, ext = os.path.splitext(kwargs["output_file"])
-        argstr += ' --output-file %s-$(cluster)-$(process)%s' % (fname, ext)
+        ofname, ext = os.path.splitext(kwargs["output_file"])
+        argstr += ' --output-file %s-$(cluster)-$(process)%s' % (ofname, ext)
         del kwargs["output_file"]
         if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
             argstr += ' --save-samples'
