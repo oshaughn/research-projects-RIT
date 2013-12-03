@@ -49,7 +49,7 @@ class MCSampler(object):
         """
         self.params = set()
         self.pdf = {}
-        self._pdf_norm = defaultdict(lambda: 1)
+        self._pdf_norm = defaultdict(lambda: 1.0)
         self._rvs = {}
         self._cache = []
         self.cdf = {}
@@ -203,15 +203,18 @@ class MCSampler(object):
         #
         # Pin values
         #
-        tempcdfdict, temppdfdict, temppriordict = {}, {}, {}
+        tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
+        temppdfnormdict = defaultdict(lambda: 1.0)
         for p, val in kwargs.iteritems():
             if p in self.params:
                 # Store the previous pdf/cdf in case it's already defined
                 tempcdfdict[p] = self.cdf_inv[p]
                 temppdfdict[p] = self.pdf[p]
+                temppdfnormdict[p] = self._pdf_norm[p]
                 temppriordict[p] = self.prior_pdf[p]
                 # Set a new one to always return the same value
                 self.pdf[p] = functools.partial(delta_func_pdf_vector, val)
+                self._pdf_norm[p] = 1.0
                 self.prior_pdf[p] = functools.partial(delta_func_pdf_vector, val)
                 self.cdf_inv[p] = functools.partial(delta_func_samp_vector, val)
 
@@ -348,6 +351,7 @@ class MCSampler(object):
         # If we were pinning any values, undo the changes we did before
         self.cdf_inv.update(tempcdfdict)
         self.pdf.update(temppdfdict)
+        self._pdf_norm.update(temppdfnormdict)
         self.prior_pdf.update(temppriordict)
 
         # Select points to be returned.
