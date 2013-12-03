@@ -91,7 +91,7 @@ opts, args = optp.parse_args()
 #
 # Hardcoded variables
 #
-template_min_freq = 40 # minimum frequency of template
+template_min_freq = 30 # minimum frequency of template
 ampO = 0 # sets which modes to include in the physical signal
 Lmax = 2 # sets which modes to include
 t_ref_wind = 2e-3 # Interpolate in a window +/- this width about event time
@@ -493,7 +493,6 @@ if opts.output_file:
         samples["latitude"] = samples["declination"]
         samples["longitude"] = samples["right_ascension"]
         samples["loglikelihood"] = numpy.log(samples["integrand"])
-        #samples["loglikelihood"] = samples["integrand"]
         samples["mass1"] = numpy.ones(samples["psi"].shape)*opts.mass1
         samples["mass2"] = numpy.ones(samples["psi"].shape)*opts.mass2
         xmlutils.append_samples_to_xmldoc(xmldoc, samples)
