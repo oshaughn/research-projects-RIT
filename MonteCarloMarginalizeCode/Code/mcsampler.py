@@ -183,7 +183,11 @@ class MCSampler(object):
         # NOTE: Will save points from other integrations before this if used more than once.
         self._cache.extend( [ rvs for rvs, ratio, rnd in zip(numpy.array(self._rvs).T, intg/prior, numpy.random.uniform(0, 1, len(prior))) if ratio < 1 or 1.0/ratio < rnd ] )
 
-    # FIXME: Remove *args -- we'll use the function signature instead
+    #
+    # FIXME: The priors are not strictly part of the MC integral, and so any
+    # internal reference to them needs to be moved to a subclass which handles
+    # the incovnenient part os doing the \int p/p_s L d\theta integral.
+    #
     def integrate(self, func, *args, **kwargs):
         """
         Integrate func, by using n sample points. Right now, all params defined must be passed to args must be provided, but this will change soon.
@@ -301,10 +305,17 @@ class MCSampler(object):
                 fval = func(*rv)
 
             if save_intg:
+                # FIXME: See warning at beginning of function. The prior values
+                # need to be moved out of this, as they are not part of MC
+                # integration
                 if self._rvs.has_key("integrand"):
                     self._rvs["integrand"] = numpy.hstack( (self._rvs["integrand"], fval) )
+                    self._rvs["joint_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
+                    self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
                 else:
                     self._rvs["integrand"] = fval
+                    self._rvs["joint_prior"] = joint_p_prior
+                    self._rvs["joint_s_prior"] = joint_p_prior
 
             int_val = fval*joint_p_prior /joint_p_s
             if bShowEveryEvaluation:
