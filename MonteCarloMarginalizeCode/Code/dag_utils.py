@@ -101,8 +101,9 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
         #
         # Need to modify the output file so it's unique
         #
-        ofname, ext = os.path.splitext(kwargs["output_file"])
-        ile_job.add_file_opt("output-file", "%s-%s%s" % (ofname, uniq_str, ext))
+        ofname = kwargs["output_file"].split(".")
+        ofname, ext = ofname[0], ".".join(ofname[1:])
+        ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
         if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
