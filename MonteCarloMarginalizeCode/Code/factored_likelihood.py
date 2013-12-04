@@ -74,49 +74,49 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
 
     for det in detectors:
-        # Compute cross terms < h_lm | h_l'm' >
-        crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,
-                fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q)
-        # Compute rholm(t) = < h_lm(t) | d >
-        rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
-                psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, analyticPSD_Q)
-        rhoXX = rholms[det][rholms[det].keys()[0]]
         # This is the event time at the detector
         t_det = ComputeArrivalTimeAtDetector(det, P.phi, P.theta,event_time_geo)
         # The is the difference between the time of the leading edge of the
         # time window we wish to compute the likelihood in, and
         # the time corresponding to the first sample in the rholms
-        t_shift =  float(t_det - t_window - rhoXX.epoch)
+        rho_epoch = data_dict[det].epoch - hlms[hlms.keys()[0]].epoch
+        t_shift =  float(t_det - t_window - rho_epoch)
         assert t_shift > 0
         # tThe leading edge of our time window of interest occurs
         # this many samples into the rholms
-        N_shift = int( t_shift / rhoXX.deltaT )
+        N_shift = int( t_shift / P.deltaT )
         # Number of samples in the window [t_ref - t_window, t_ref + t_window]
-        N_window = int( 2 * t_window / rhoXX.deltaT )
+        N_window = int( 2 * t_window / P.deltaT )
+        # Compute cross terms < h_lm | h_l'm' >
+        crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,
+                fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q)
+        # Compute rholm(t) = < h_lm(t) | d >
+        rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
+                psd_dict[det], P.fmin, fMax, 1./2./P.deltaT,
+                N_shift, N_window, rho_epoch, analyticPSD_Q)
+        rhoXX = rholms[det][rholms[det].keys()[0]]
         # The vector of time steps within our window of interest
         # for which we have discrete values of the rholms
-        # N.B. I don't do simply rhoXX.epoch + t_shift, b/c t_shift is the
+        # N.B. I don't do simply rho_epoch + t_shift, b/c t_shift is the
         # precise desired time, while we round and shift an integer number of
         # steps of size deltaT
-        # FIXME: When we prune rather than roll, this series will become shorter
-        t = np.arange(rhoXX.data.length) * rhoXX.deltaT\
-                + float(rhoXX.epoch + N_shift * rhoXX.deltaT )
+        t = np.arange(N_window) * P.deltaT\
+                + float(rho_epoch + N_shift * P.deltaT )
         if verbose:
             print "For detector", det, "..."
             print "\tData starts at %.20g" % float(data_dict[det].epoch)
-            print "\trholm starts at %.20g" % float(rhoXX.epoch)
+            print "\trholm starts at %.20g" % float(rho_epoch)
             print "\tEvent time at detector is: %.18g" % float(t_det)
             print "\tInterpolation window has half width %g" % t_window
             print "\tComputed t_shift = %.20g" % t_shift
             print "\t(t_shift should be t_det - t_window - t_rholm = %.20g)" %\
-                    (t_det - t_window - float(rhoXX.epoch))
+                    (t_det - t_window - float(rho_epoch))
             print "\tInterpolation starts at time %.20g" % t[0]
             print "\t(Should start at t_event - t_window = %.20g)" %\
-                    (float(rhoXX.epoch + N_shift * rhoXX.deltaT))
+                    (float(rho_epoch + N_shift * P.deltaT))
         # The minus N_shift indicates we need to roll left
         # to bring the desired samples to the front of the array
-        rholms_intp[det] =  InterpolateRholms(rholms[det], t, -N_shift,
-                N_window)
+        rholms_intp[det] =  InterpolateRholms(rholms[det], t)
 
     return rholms_intp, crossTerms, rholms
 
@@ -347,7 +347,7 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist):
     return term1 + term2
 
 def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
-        analyticPSD_Q=False):
+        N_shift, N_window, rho_epoch, analyticPSD_Q=False):
     """
     Compute the complex-valued overlap between
     each member of a SphHarmFrequencySeries 'hlms'
@@ -373,22 +373,24 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
 
     # Loop over modes and compute the overlap time series
     for pair in hlms.keys():
-        rho, rholms[pair], rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
-        rholms[pair].epoch = data.epoch - hlms[pair].epoch
+        rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
+        rhoTS.epoch = data.epoch - hlms[pair].epoch
+        rholms[pair] = lal.CutCOMPLEX16TimeSeries(rhoTS, N_shift, N_window)
+        rholms[pair].epoch = rho_epoch
 
     return rholms
 
-def InterpolateRholm(rholm, t, N_roll, N_window):
-    h_re = np.roll(np.real(rholm.data.data), N_roll)[:N_window]
-    h_im = np.roll(np.imag(rholm.data.data), N_roll)[:N_window]
+def InterpolateRholm(rholm, t):
+    h_re = np.real(rholm.data.data)
+    h_im = np.imag(rholm.data.data)
     # spline interpolate the real and imaginary parts of the time series
-    h_real = interpolate.InterpolatedUnivariateSpline(t[:N_window], h_re, k=3)
-    h_imag = interpolate.InterpolatedUnivariateSpline(t[:N_window], h_im, k=3)
+    h_real = interpolate.InterpolatedUnivariateSpline(t, h_re, k=3)
+    h_imag = interpolate.InterpolatedUnivariateSpline(t, h_im, k=3)
     return lambda ti: h_real(ti) + 1j*h_imag(ti)
         
 
 
-def InterpolateRholms(rholms, t, N_roll, N_window):
+def InterpolateRholms(rholms, t):
     """
     Return a dictionary keyed on mode index tuples, (l,m)
     where each value is an interpolating function of the overlap against data
@@ -403,7 +405,7 @@ def InterpolateRholms(rholms, t, N_roll, N_window):
     rholm_intp = {}
     for mode in rholms.keys():
         rholm = rholms[mode]
-        rholm_intp[ mode ] = InterpolateRholm(rholm, t, N_roll, N_window)
+        rholm_intp[ mode ] = InterpolateRholm(rholm, t)
 
     return rholm_intp
 
