@@ -252,9 +252,13 @@ m1m2_grid = np.array([lsu.m1m2(rand_grid[i][0], rand_grid[i][1])
 m1m2_grid /= lal.LAL_MSUN_SI
 
 # Write the sub file and DAG
+from glue import pipeline
+dag = pipeline.CondorDAG(log=os.getcwd())
+
 mkdir(log_dir) # Make a directory to hold log files of jobs
-sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
-        tag='test',
+
+ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
+        tag='integrate',
         log_dir=log_dir,
         cache_file=opts.cache_file,
         channel_name=opts.channel_name,
@@ -269,7 +273,18 @@ sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         output_file=opts.output_file,
         ncopies=opts.n_copies
         )
-dag_name = dag_utils.write_extrinsic_marginalization_dag(m1m2_grid, sub_name)
+ile_job_type.write_sub_file()
+
+for m1, m2 in m1m2_grid:
+    node = pipeline.CondorDAGNode(ile_job_type)
+    node.add_macro("macromass1", m1)
+    node.add_macro("macromass2", m2)
+    node.set_category("ILE")
+    dag.add_node(node)
+
+dag_name="marginalize_extrinsic_parameters"
+dag.set_dag_file(dag_name)
+dag.write_concrete_dag()
 
 print "Created a DAG named %s\n" % dag_name
-print "This will run %i instances of %s in parallel\n" % (len(rand_grid), sub_name)
+print "This will run %i instances of %s in parallel\n" % (len(rand_grid), ile_sub_name)
