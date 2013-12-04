@@ -487,7 +487,14 @@ class Overlap(InnerProduct):
             # Return max overlap, full overlap time series and other info
             rhoIdx = rhoSeries.argmax()
             rhoPhase = np.angle(self.ovlp.data.data[rhoIdx])
-            return rho, self.ovlp, rhoIdx, rhoPhase
+            # N.B. Copy rho(t) to a new TimeSeries, so we don't return a
+            # reference to the TimeSeries belonging to the class (self.ovlp),
+            # which will be overwritten if its ip() method is called again later
+            rhoTS = lal.CreateCOMPLEX16TimeSeries("Complex overlap",
+                lal.LIGOTimeGPS(0.), 0., self.deltaT, lal.lalDimensionlessUnit,
+                self.len2side)
+            rhoTS.data.data[:] = self.ovlp.data.data[:]
+            return rho, rhoTS, rhoIdx, rhoPhase
 
     def norm(self, h):
         """
@@ -575,7 +582,14 @@ class ComplexOverlap(InnerProduct):
             # Return max overlap, full overlap time series and other info
             rhoIdx = rhoSeries.argmax()
             rhoPhase = np.angle(self.ovlp.data.data[rhoIdx])
-            return rho, self.ovlp, rhoIdx, rhoPhase
+            # N.B. Copy rho(t) to a new TimeSeries, so we don't return a
+            # reference to the TimeSeries belonging to the class (self.ovlp),
+            # which will be overwritten if its ip() method is called again later
+            rhoTS = lal.CreateCOMPLEX16TimeSeries("Complex overlap",
+                lal.LIGOTimeGPS(0.), 0., self.deltaT, lal.lalDimensionlessUnit,
+                self.len2side)
+            rhoTS.data.data[:] = self.ovlp.data.data[:]
+            return rho, rhoTS, rhoIdx, rhoPhase
 
     def norm(self, h):
         """
