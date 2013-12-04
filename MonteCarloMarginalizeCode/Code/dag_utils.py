@@ -82,7 +82,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
     assert len(kwargs["psd_file"]) == len(kwargs["channel_name"])
 
     exe = exe or which("integrate_likelihood_extrinsic")
-    ile_job = pipeline.CondorDAGJob(universe="standard", executable=exe)
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
 
@@ -92,7 +92,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
     #
     # Logging options
     #
-    uniq_str = "$(cluster)-$(process)"
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
     ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
@@ -134,3 +134,31 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
     ile_job.add_condor_cmd('request_memory', '2048')
     
     return ile_job, ile_sub_name
+
+def write_result_coalescence_sub(tag='coalesce', exe=None, log_dir=None, output_dir="./"):
+    """
+    Write a submit file for launching jobs to coalesce ILE output
+    """
+
+    exe = exe or which("ligolw_sqlite")
+    sql_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    sql_sub_name = tag + '.sub'
+    sql_job.set_sub_file(sql_sub_name)
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(cluster)-$(process)"
+    sql_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    sql_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    sql_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    sql_job.add_arg("*$(macromassid)*.xml.gz")
+    sql_job.add_opt("database", "ILE_$(macrosmassid).sqlite")
+    sql_job.add_opt("verbose", None)
+
+    sql_job.add_condor_cmd('getenv', 'True')
+    sql_job.add_condor_cmd('request_memory', '2048')
+    
+    return sql_job, sql_sub_name

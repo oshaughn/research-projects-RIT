@@ -118,7 +118,7 @@ print "Computing marginalized likelihood in a neighborhood about intrinsic param
 #
 # FIXME: Hardcoded values - eventually promote to command line arguments
 #
-log_dir='logs' # directory to hold
+log_dir='logs/' # directory to hold
 template_min_freq = 30.
 ip_min_freq = 30.
 approx = lalsim.TaylorT1
@@ -135,7 +135,7 @@ NEtas = 11
 wide_match = 0.90
 match_cntr = 0.97 # Fill an ellipsoid of this match
 fit_cntr = match_cntr # Do the effective Fisher fit with pts above this match
-Nrandpts = 200 # Requested number of pts to put inside the ellipsoid
+Nrandpts = 10 # Requested number of pts to put inside the ellipsoid
 
 #
 # Setup signal and IP class
@@ -275,12 +275,30 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         )
 ile_job_type.write_sub_file()
 
-for m1, m2 in m1m2_grid:
-    node = pipeline.CondorDAGNode(ile_job_type)
-    node.add_macro("macromass1", m1)
-    node.add_macro("macromass2", m2)
-    node.set_category("ILE")
-    dag.add_node(node)
+sql_job_type, sql_job_name = dag_utils.write_result_coalescence_sub(tag="coalesce", log_dir=log_dir)
+sql_job_type.write_sub_file()
+
+for i, (m1, m2) in enumerate(m1m2_grid):
+    ile_node = pipeline.CondorDAGNode(ile_job_type)
+    ile_node.add_macro("macromass1", m1)
+    ile_node.add_macro("macromass2", m2)
+
+    mass_grouping = "MASS_SET_%d" % i
+
+    # This is to identify output from groupings of the sane mass point
+    ile_node.add_macro("macromassid", mass_grouping)
+
+    ile_node.set_category("ILE")
+    dag.add_node(ile_node)
+
+    sql_node = pipeline.CondorDAGNode(sql_job_type)
+    sql_node.add_parent(ile_node)
+
+    # This is to identify output from groupings of the sane mass point
+    sql_node.add_macro("macromassid", mass_grouping)
+
+    sql_node.set_category("SQL")
+    dag.add_node(sql_node)
 
 dag_name="marginalize_extrinsic_parameters"
 dag.set_dag_file(dag_name)
