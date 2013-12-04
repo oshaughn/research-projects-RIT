@@ -49,7 +49,7 @@ class MCSampler(object):
         """
         self.params = set()
         self.pdf = {}
-        self._pdf_norm = defaultdict(lambda: 1)
+        self._pdf_norm = defaultdict(lambda: 1.0)
         self._rvs = {}
         self._cache = []
         self.cdf = {}
@@ -183,7 +183,11 @@ class MCSampler(object):
         # NOTE: Will save points from other integrations before this if used more than once.
         self._cache.extend( [ rvs for rvs, ratio, rnd in zip(numpy.array(self._rvs).T, intg/prior, numpy.random.uniform(0, 1, len(prior))) if ratio < 1 or 1.0/ratio < rnd ] )
 
-    # FIXME: Remove *args -- we'll use the function signature instead
+    #
+    # FIXME: The priors are not strictly part of the MC integral, and so any
+    # internal reference to them needs to be moved to a subclass which handles
+    # the incovnenient part os doing the \int p/p_s L d\theta integral.
+    #
     def integrate(self, func, *args, **kwargs):
         """
         Integrate func, by using n sample points. Right now, all params defined must be passed to args must be provided, but this will change soon.
@@ -203,15 +207,18 @@ class MCSampler(object):
         #
         # Pin values
         #
-        tempcdfdict, temppdfdict, temppriordict = {}, {}, {}
+        tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
+        temppdfnormdict = defaultdict(lambda: 1.0)
         for p, val in kwargs.iteritems():
             if p in self.params:
                 # Store the previous pdf/cdf in case it's already defined
                 tempcdfdict[p] = self.cdf_inv[p]
                 temppdfdict[p] = self.pdf[p]
+                temppdfnormdict[p] = self._pdf_norm[p]
                 temppriordict[p] = self.prior_pdf[p]
                 # Set a new one to always return the same value
                 self.pdf[p] = functools.partial(delta_func_pdf_vector, val)
+                self._pdf_norm[p] = 1.0
                 self.prior_pdf[p] = functools.partial(delta_func_pdf_vector, val)
                 self.cdf_inv[p] = functools.partial(delta_func_samp_vector, val)
 
@@ -298,10 +305,17 @@ class MCSampler(object):
                 fval = func(*rv)
 
             if save_intg:
+                # FIXME: See warning at beginning of function. The prior values
+                # need to be moved out of this, as they are not part of MC
+                # integration
                 if self._rvs.has_key("integrand"):
                     self._rvs["integrand"] = numpy.hstack( (self._rvs["integrand"], fval) )
+                    self._rvs["joint_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
+                    self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
                 else:
                     self._rvs["integrand"] = fval
+                    self._rvs["joint_prior"] = joint_p_prior
+                    self._rvs["joint_s_prior"] = joint_p_prior
 
             int_val = fval*joint_p_prior /joint_p_s
             if bShowEveryEvaluation:
@@ -348,6 +362,7 @@ class MCSampler(object):
         # If we were pinning any values, undo the changes we did before
         self.cdf_inv.update(tempcdfdict)
         self.pdf.update(temppdfdict)
+        self._pdf_norm.update(temppdfnormdict)
         self.prior_pdf.update(temppriordict)
 
         # Select points to be returned.
