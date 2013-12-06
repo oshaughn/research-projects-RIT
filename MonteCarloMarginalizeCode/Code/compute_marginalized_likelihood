@@ -137,7 +137,7 @@ NEtas = 11
 wide_match = 0.90
 match_cntr = 0.97 # Fill an ellipsoid of this match
 fit_cntr = match_cntr # Do the effective Fisher fit with pts above this match
-Nrandpts = 10 # Requested number of pts to put inside the ellipsoid
+Nrandpts = 200 # Requested number of pts to put inside the ellipsoid
 
 #
 # Setup signal and IP class
@@ -268,7 +268,7 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         coinc_xml=opts.coinc_xml,
         reference_freq=opts.reference_freq,
         seglen=opts.seglen,
-        event_time=opts.event_time,
+        event_time=event_time,
         padding=opts.padding,
         time_marginalization=opts.time_marginalization,
         save_samples=opts.save_samples,
