@@ -54,10 +54,10 @@ def ParseStandardArguments():
     parser.add_argument("-C","--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
     parser.add_argument("--force-read-full-frames", dest='opt_ReadWholeFrameFilesInCache', action='store_true')
     parser.add_argument("--inj-xml", dest='inj', default=None,help="inspiral XML file containing injection information.")
-    parser.add_argument("--event", dest="event_id", default=0,help="event ID of injection XML to use.")
+    parser.add_argument("--event",type=int, dest="event_id", default=0,help="event ID of injection XML to use.")
     parser.add_argument("--coinc-xml", dest='coinc', help="gstlal_inspiral XML file containing coincidence information.")
     parser.add_argument("--seglen", dest='seglen', type=int, default=32, help="Minimum segment duration surrounding coing to be analyzed. (Will be rounded up to next power of 2).  ")
-    parser.add_argument( "--padding", dest='padding',  type=int, default=10, help="Time window after the trigger to be included in the data segment")
+    parser.add_argument( "--padding", dest='padding',  type=int, default=2, help="Time window after the trigger to be included in the data segment.")
     parser.add_argument("--srate", dest='srate', type=int, default=4096, help="Sampling rate to use. Data filtered down to this rate, PSD extended up to this rate. Can conflict with stored PSD file.")
 
     # Sampling prior
@@ -70,7 +70,7 @@ def ParseStandardArguments():
     parser.add_argument("--fmax-snr", dest='fmax_SNR', type=float, default=2000)
 
     # Options to set template physics
-    parser.add_argument("--fref", dest='fref', type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
+    parser.add_argument("--fref", dest='fref', type=float, default=100.0, help="Waveform reference frequency [template]. Required, default is 100 Hz.")
     parser.add_argument("--amporder", dest='amporder', type=int, default=0, help="Amplitude order of PN waveforms")
     parser.add_argument("--Lmax", dest="Lmax", type=int, default=2, help="Lmax (>=2) to use")
     parser.add_argument( "--order",dest='order', type=int, default=-1, help="Phase order of PN waveforms")
@@ -88,7 +88,7 @@ def ParseStandardArguments():
     parser.add_argument("--fix-inclination", action='append_const', dest='fixparams',const='incl')
     parser.add_argument("--fix-phase", action='append_const', dest='fixparams',const='phi')
 
-    parser.add_argument("--force-gps-time", dest='force_gps_time', default=None,type=float)
+    parser.add_argument("--force-gps-time", dest='force_gps_time', default=None,type=numpy.float64)
 
     # Extra options to set verbosity level
     parser.add_argument("-v", "--verbose", action="store_true", dest="verbose", default=False)
@@ -110,6 +110,19 @@ def ParseStandardArguments():
     # File output and conditions controlling output
     parser.add_argument("--save-sampler-file", dest="points_file_base",default="sampler-output-file")
     parser.add_argument("--save-threshold-fraction", dest="points_threshold_match",type=float,default=0.0,help="Roughly speaking, target match for points to be returned.  In practice, all points with L> \sqrt{P}L_{max} are returned")
+    parser.add_argument("--save-metadata", dest="force_store_metadata",action="store_true")
+#    parser.add_argument("--save-metadata-file", dest="fname_metadata",default=None)
+    parser.add_argument("--use-metadata", dest="force_use_metadata",action="store_true")
+    parser.add_argument("--use-metadata-file", dest="fname_metadata",default=None)
+
+    # DAG generation (only for dag-generating scripts)
+    parser.add_argument("--code-dir", default=None,help="dag: Where to look for source (needed for safe submit files)")
+    parser.add_argument("--n-queue", default=1,type=int, help="dag: How many jobs to queue")
+    parser.add_argument("--n-intrinsic", default=100,type=int, help="dag: How many intrinsic points to sample")
+
+    # Unused: To suck up parameters by letting me do search/replace on text files
+    parser.add_argument("--unused-argument", default=None, help="Used to sop up arguments I want to replace")
+
 
     args = parser.parse_args()
     # Connect debugging options to argument parsing
@@ -151,6 +164,7 @@ phi_min, phi_max = 0, 2*numpy.pi
 dist_min, dist_max = Dmin, Dmax
 
 
+pFocusEachDimension = 0.03
 
 def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoundGuess, Psig, opts):
 
