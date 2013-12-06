@@ -301,7 +301,7 @@ for i, (m1, m2) in enumerate(m1m2_grid):
     # The sql node needs to run a PRE script in order to coalesce the data into
     # a cache
     sql_node.set_pre_script(dag_utils.which("coalesce.sh"))
-    sql_node.add_pre_script_arg("$JOBID")
+    sql_node.add_pre_script_arg(mass_grouping)
 
     # This is to identify output from groupings of the sane mass point
     sql_node.add_macro("macromassid", mass_grouping)
