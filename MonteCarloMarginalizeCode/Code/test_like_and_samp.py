@@ -98,7 +98,7 @@ fracThreshold = opts.points_threshold_match
 
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
-tEventFiducial = 0                                                                 # relative to GPS reference
+tEventFiducial =   -2                                                                # relative to GPS reference
 
 det_dict = {}
 rhoExpected ={}
@@ -406,7 +406,7 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
 # Perform the Precompute stage
 #
 rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q)
-rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[detectors[0]], 2, 2)
+rho22 =rholms[detectors[0]][( 2, 2)]
 epoch_post = rho22.epoch # Suggested change
 print "Finished Precomputation..."
 print "====Generating metadata from precomputed results ====="

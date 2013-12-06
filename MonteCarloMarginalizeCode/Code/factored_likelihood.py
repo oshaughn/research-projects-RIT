@@ -535,7 +535,7 @@ def estimateUpperDistanceBoundInMpc(rholms,crossTerms):
     nDet = 0
     for det in rholms:
         nDet+=1
-        rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
+        rho22 = rholms[det][( 2, 2)]
         Qbar+=np.abs(crossTerms[det][(2,2), (2,2)])/np.max(np.abs(rho22.data.data))   # one value for each detector
     fudgeFactor = 1.1  # let's give ourselves a buffer -- we can't afford to be too tight
     return fudgeFactor*distMpcRef* Qbar/nDet *np.sqrt(5/(4.*np.pi))/2.
@@ -593,7 +593,7 @@ def NetworkLogLikelihoodTimeMarginalizedDiscrete(epoch,rholmsDictionary,crossTer
 
 
     print detList
-    rho22 = lalsim.SphHarmTimeSeriesGetMode(rholmsDictionary[detList[0]], 2,2)
+    rho22 = rholmsDictionary[detList[0]][( 2,2)]
 
     nBins =int( (deltaTWindow[1]-deltaTWindow[0])/rho22.deltaT)
     term1 =np.zeros(nBins)
@@ -640,13 +640,13 @@ def DiscreteSingleDetectorLogLikelihoodData(epoch,rholmsDictionary, tStart,nBins
     rholms_grid = rholmsDictionary[det]
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
-    rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms_grid, 2,2)
+    rho22 = rholms_grid[( 2,2)]
     nShiftL = int(  float(tshift)/rho22.deltaT)
 
     term1 = 0.
     for l in range(2,Lmax+1):
         for m in range(-l,l+1):
-            rhoTSnow  =     rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms_grid, l,m)
+            rhoTSnow  =     rho22 = rholms_grid[( l,m)]
             term1 += np.conj(F * Ylms[(l,m)]) * np.roll(rhoTSnow.data.data,nShiftL)
     term1 = np.real(term1) / (distMpc/distMpcRef)
 
