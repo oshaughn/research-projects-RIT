@@ -1456,6 +1456,9 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0):
     """
     ht = frame_data_to_hoft(fname, channel, start, stop)
 
+    ht_window = lal.CreateTukeyREAL8Window(len(ht.data.data), 0.99)
+    ht.data.data *= ht_window.data.data
+
     tmplen = ht.data.length
     if TDlen == -1:
         TDlen = tmplen
@@ -1489,6 +1492,9 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
     hoft = frame_data_to_hoft(fname, channel, start, stop)
+
+    hoft_window = lal.CreateTukeyREAL8Window(len(hoft.data.data), 0.01)
+    hoft.data.data *= hoft_window.data.data
 
     tmplen = hoft.data.length
     if TDlen == -1:
