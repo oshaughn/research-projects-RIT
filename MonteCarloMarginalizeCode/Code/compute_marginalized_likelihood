@@ -273,6 +273,8 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         time_marginalization=opts.time_marginalization,
         save_samples=opts.save_samples,
         output_file=opts.output_file,
+        n_eff=opts.n_eff,
+        n_max=opts.n_max,
         ncopies=opts.n_copies
         )
 ile_job_type.write_sub_file()
