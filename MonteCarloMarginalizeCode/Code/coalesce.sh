@@ -1,24 +1,18 @@
 #!/bin/bash
 
-JOBID=$1
+massset=$1
 
-# Need the MASSID, since it won't be available to this script
-massset=""
-# FIXME: Verify they're all from the same mass set
-while read fname; do
-    # Strip path
-    fname=`basename ${fname}`
-    # Strip extension
-    fbasename=${fname%:*}
-    # Get mass set ID
-    massset=`echo ${fbasename} | awk -F"-" '{print $2}'`
-done < <(find . -name "*${JOBID}*.xml.gz")
+#touch pre_coalesce_${JOBID}.log
+
+#echo $1 >> pre_coalesce_${JOBID}.log
+
+#ls >> pre_coalesce_${JOBID}.log
 
 if [[ -z "${massset}" ]]; then
     echo "No mass ID found for this job ID."
-    exit 1
+    exit 123
 fi
 
 ocache=ILE_${massset}.cache
 
-find . -name "*${JOBID}*.xml.gz" | lalapps_path2cache -a > ${ocache}
+find . -name "*${massset}*.xml.gz" | lalapps_path2cache -a > ${ocache}
