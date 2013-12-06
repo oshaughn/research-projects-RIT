@@ -1,5 +1,5 @@
-START=1000000000
-STOP=1000000064
+START=999999000
+STOP=1000001000
 DUR=$(shell python -c "print ${STOP}-${START}")
 
 INJ_CHANNEL_NAME=FAKE-STRAIN
@@ -18,7 +18,7 @@ plot_ts: H1_zero_noise.cache L1_zero_noise.cache V1_zero_noise.cache
 	../utils/plot_ts zero_noise.cache
 
 test_ile_dag: zero_noise.cache
-	../../Code/compute_marginalized_likelihood --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --seglen 10 --mass1 4.0 --mass2 4.0
+	../../Code/compute_marginalized_likelihood --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --seglen 10 --padding 2.0 --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file zero_noise.xml.gz
 
 test_ile: zero_noise.cache
 	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --seglen 10 --pin-to-sim mdc.xml.gz --reference-freq 0.0 --padding 2
