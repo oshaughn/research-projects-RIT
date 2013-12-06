@@ -156,7 +156,7 @@ def write_result_coalescence_sub(tag='coalesce', exe=None, log_dir=None, output_
     sql_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
     sql_job.add_arg("*$(macromassid)*.xml.gz")
-    sql_job.add_opt("database", "ILE_$(macrosmassid).sqlite")
+    sql_job.add_opt("database", "ILE_$(macromassid).sqlite")
     sql_job.add_opt("verbose", None)
 
     sql_job.add_condor_cmd('getenv', 'True')
