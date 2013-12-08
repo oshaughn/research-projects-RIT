@@ -510,10 +510,6 @@ def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclinatio
         P.psi = ps # polarization angle
         P.dist = di*1e6*lal.LAL_PC_SI # luminosity distance.  The sampler assumes Mpc; P requires SI
         lnL[i] = factored_likelihood.FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
-        if rosDebugShowExcruciatingLikelihoodDetail:
-            P.print_params()
-            print "  + likelihood evaluation : ", i + nEvals, [ph, th, tr, phr, ic, ps, di], " :  ", lnL[i], " : overflow check ", np.exp(lnL[i])
-            print "GPS :", lalsimutils.stringGPSNice(theEpochFiducial)
         i+=1
 
 
@@ -524,6 +520,7 @@ import mcsampler
 sampler = mcsampler.MCSampler()
 
 # Populate sampler 
+## WARNING: CP has changed pinning interface again.  Need to rework
 pinned_params = ourparams.PopulateSamplerParameters(sampler, theEpochFiducial,tEventFiducial, distBoundGuess, Psig, opts)
 unpinned_params = set(sampler.params) - set(pinned_params)
 
@@ -555,7 +552,7 @@ if rosShowSamplerInputDistributions:
     print "  PROBLEM: Build in/hardcoded via uniform limits on each parameter! Need to add measure factors "
     nFig = 0
     for param in sampler.params:
-      if not(sampler.pinned[param]) and not(isinstance(param,tuple)):
+      if  not(isinstance(param,tuple)): # not(sampler.pinned[param]) and
         nFig+=1
         plt.figure(nFig)
         plt.clf()
@@ -592,6 +589,7 @@ res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_
 #res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params,n=opts.nskip,nmax=opts.nmax,igrandmax=rho2Net/2,full_output=True,neff=opts.neff,igrand_threshold_fraction=fracThreshold,verbose=True,extremely_verbose=opts.super_verbose)
 
 tGPSEnd = lal.GPSTimeNow()
+ntotal = len(sampler._rvs)  # Not true in general
 print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
 print " lnLmarg is ", np.log(res), " with nominal relative sampling error ", np.sqrt(var)/res, " but a more reasonable estimate based on the lnL history is ", np.std(lnLmarg - np.log(res))
 print " expected largest value is ", rho2Net/2, "and observed largest lnL is ", np.max(np.transpose(ret)[-1])
