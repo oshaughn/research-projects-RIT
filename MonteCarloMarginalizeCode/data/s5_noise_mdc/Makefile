@@ -11,7 +11,7 @@ INJ_XML=mdc.xml.gz
 INJECTION_FRAME_TYPE=s5_noise_mdc
 
 INJECTION_DEST=s5_noise_mdc/
-EVENT_TIME=
+EVENT_TIME=`ligolw_print -c geocent_end_time -c geocent_end_time_ns -d "." mdc.xml.gz`
 
 LIGO_FRAME_DURATION=64 # s
 LIGO_FRAME_DURATION_COMB=64 # s
@@ -19,8 +19,8 @@ LIGO_N_FRAMES=1
 
 PSD_FILE=/home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/HLV-ILIGO_PSD.xml.gz
 
-test_ile_dag: s5_noise.cache
-	../../Code/compute_marginalized_likelihood --cache-file /home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/s5_noise_mdc/s5_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --seglen 10 --padding 2.0 --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file s5_noise.xml.gz --n-copies 10
+test_ile_dag: s5_mdc.cache
+	../../Code/compute_marginalized_likelihood --cache-file /home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/s5_noise_mdc/s5_mdc.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --seglen 10 --padding 2.0 --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file s5_noise.xml.gz --n-copies 10
 
 test_ile_sim_only_noise: s5_noise.cache
 	../../Code/integrate_likelihood_extrinsic --cache-file s5_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 1.4 --mass2 1.4 --seglen 30 --pin-to-sim mdc.xml.gz --reference-freq 0.0 --padding 2
