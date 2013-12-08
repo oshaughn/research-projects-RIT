@@ -1,5 +1,5 @@
-START=1000000000
-STOP=1000000064
+START=999999000
+STOP=1000001000
 DUR=$(shell python -c "print ${STOP}-${START}")
 
 INJ_CHANNEL_NAME=FAKE-STRAIN
@@ -12,10 +12,12 @@ LIGO_FRAME_DURATION=64 # s
 LIGO_FRAME_DURATION_COMB=64 # s
 LIGO_N_FRAMES=1
 
+PSD_FILE=/home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/HLV-ILIGO_PSD.xml.gz
+
 EVENT_TIME=1000000014.236547946
 
 test_ile_dag: iligo_noise.cache
-	../../Code/compute_marginalized_likelihood --cache-file iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --seglen 10 --mass1 4.0 --mass2 4.0 --padding 2.0 --save-samples --reference-freq 0.0 --output-file ile_test.xml.gz --n-copies 10
+	../../Code/compute_marginalized_likelihood --cache-file /home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/iligo_noise_mdc/iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --seglen 10 --padding 2.0 --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file iligo_noise.xml.gz --n-copies 10
 
 test_like_and_samp: iligo_noise.cache
 	../../Code/test_like_and_samp.py --cache-file iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file ../HLV-ILIGO_PSD.xml.gz --mass1 4.0 --mass2 4.0 --seglen 10 --inj-xml mdc.xml.gz
