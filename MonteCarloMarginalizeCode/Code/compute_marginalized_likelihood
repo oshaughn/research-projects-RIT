@@ -51,6 +51,8 @@ optp.add_option("-m", "--time-marginalization", action="store_true", help="Perfo
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-n", "--n-copies", type=int, default=1, help="Number of copies to do of a given run. Default is 1.")
+optp.add_option("--n-max", type=int, default=1000000, help="Maximum number of throws to use in integrator.")
+optp.add_option("--n-eff", type=int, default=1000, help="Maximum number of effective samples to reach before terminating.")
 
 #
 # Add the intrinsic parameters
@@ -118,7 +120,7 @@ print "Computing marginalized likelihood in a neighborhood about intrinsic param
 #
 # FIXME: Hardcoded values - eventually promote to command line arguments
 #
-log_dir='logs' # directory to hold
+log_dir='logs/' # directory to hold
 template_min_freq = 30.
 ip_min_freq = 30.
 approx = lalsim.TaylorT1
@@ -252,9 +254,13 @@ m1m2_grid = np.array([lsu.m1m2(rand_grid[i][0], rand_grid[i][1])
 m1m2_grid /= lal.LAL_MSUN_SI
 
 # Write the sub file and DAG
+from glue import pipeline
+dag = pipeline.CondorDAG(log=os.getcwd())
+
 mkdir(log_dir) # Make a directory to hold log files of jobs
-sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
-        tag='test',
+
+ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
+        tag='integrate',
         log_dir=log_dir,
         cache_file=opts.cache_file,
         channel_name=opts.channel_name,
@@ -262,14 +268,50 @@ sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         coinc_xml=opts.coinc_xml,
         reference_freq=opts.reference_freq,
         seglen=opts.seglen,
-        event_time=opts.event_time,
+        event_time=event_time,
         padding=opts.padding,
         time_marginalization=opts.time_marginalization,
         save_samples=opts.save_samples,
         output_file=opts.output_file,
+        n_eff=opts.n_eff,
+        n_max=opts.n_max,
         ncopies=opts.n_copies
         )
-dag_name = dag_utils.write_extrinsic_marginalization_dag(m1m2_grid, sub_name)
+ile_job_type.write_sub_file()
+
+sql_job_type, sql_job_name = dag_utils.write_result_coalescence_sub(tag="coalesce", log_dir=log_dir)
+sql_job_type.write_sub_file()
+
+for i, (m1, m2) in enumerate(m1m2_grid):
+    ile_node = pipeline.CondorDAGNode(ile_job_type)
+    ile_node.add_macro("macromass1", m1)
+    ile_node.add_macro("macromass2", m2)
+
+    mass_grouping = "MASS_SET_%d" % i
+
+    # This is to identify output from groupings of the sane mass point
+    ile_node.add_macro("macromassid", mass_grouping)
+
+    ile_node.set_category("ILE")
+    dag.add_node(ile_node)
+
+    sql_node = pipeline.CondorDAGNode(sql_job_type)
+    sql_node.add_parent(ile_node)
+
+    # The sql node needs to run a PRE script in order to coalesce the data into
+    # a cache
+    sql_node.set_pre_script(dag_utils.which("coalesce.sh"))
+    sql_node.add_pre_script_arg(mass_grouping)
+
+    # This is to identify output from groupings of the sane mass point
+    sql_node.add_macro("macromassid", mass_grouping)
+
+    sql_node.set_category("SQL")
+    dag.add_node(sql_node)
+
+dag_name="marginalize_extrinsic_parameters"
+dag.set_dag_file(dag_name)
+dag.write_concrete_dag()
 
 print "Created a DAG named %s\n" % dag_name
-print "This will run %i instances of %s in parallel\n" % (len(rand_grid), sub_name)
+print "This will run %i instances of %s in parallel\n" % (len(rand_grid), ile_sub_name)

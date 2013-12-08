@@ -487,7 +487,14 @@ class Overlap(InnerProduct):
             # Return max overlap, full overlap time series and other info
             rhoIdx = rhoSeries.argmax()
             rhoPhase = np.angle(self.ovlp.data.data[rhoIdx])
-            return rho, self.ovlp, rhoIdx, rhoPhase
+            # N.B. Copy rho(t) to a new TimeSeries, so we don't return a
+            # reference to the TimeSeries belonging to the class (self.ovlp),
+            # which will be overwritten if its ip() method is called again later
+            rhoTS = lal.CreateCOMPLEX16TimeSeries("Complex overlap",
+                lal.LIGOTimeGPS(0.), 0., self.deltaT, lal.lalDimensionlessUnit,
+                self.len2side)
+            rhoTS.data.data[:] = self.ovlp.data.data[:]
+            return rho, rhoTS, rhoIdx, rhoPhase
 
     def norm(self, h):
         """
@@ -575,7 +582,14 @@ class ComplexOverlap(InnerProduct):
             # Return max overlap, full overlap time series and other info
             rhoIdx = rhoSeries.argmax()
             rhoPhase = np.angle(self.ovlp.data.data[rhoIdx])
-            return rho, self.ovlp, rhoIdx, rhoPhase
+            # N.B. Copy rho(t) to a new TimeSeries, so we don't return a
+            # reference to the TimeSeries belonging to the class (self.ovlp),
+            # which will be overwritten if its ip() method is called again later
+            rhoTS = lal.CreateCOMPLEX16TimeSeries("Complex overlap",
+                lal.LIGOTimeGPS(0.), 0., self.deltaT, lal.lalDimensionlessUnit,
+                self.len2side)
+            rhoTS.data.data[:] = self.ovlp.data.data[:]
+            return rho, rhoTS, rhoIdx, rhoPhase
 
     def norm(self, h):
         """
@@ -1442,6 +1456,9 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0):
     """
     ht = frame_data_to_hoft(fname, channel, start, stop)
 
+    ht_window = lal.CreateTukeyREAL8Window(len(ht.data.data), 0.99)
+    ht.data.data *= ht_window.data.data
+
     tmplen = ht.data.length
     if TDlen == -1:
         TDlen = tmplen
@@ -1475,6 +1492,9 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
     hoft = frame_data_to_hoft(fname, channel, start, stop)
+
+    hoft_window = lal.CreateTukeyREAL8Window(len(hoft.data.data), 0.01)
+    hoft.data.data *= hoft_window.data.data
 
     tmplen = hoft.data.length
     if TDlen == -1:

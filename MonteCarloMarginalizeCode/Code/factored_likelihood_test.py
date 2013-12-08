@@ -142,8 +142,8 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
     if TestDictionary["QReflection"]:   # Only valid for nonprecessing
             constraint1 = 0
             for det in detectors:
-                hxx = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
-                hyy = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, -2)
+                hxx = rholms[det][( 2, 2)]
+                hyy = rholms[det][( 2, -2)]
                 for i in np.arange(len(hxx.data.data)):
                     constraint1+= np.abs(hxx.data.data[i]-np.conj(hyy.data.data[i]))**2
             print "   : Reflection symmetry constraint (Q22,Q2-2) with raw data: : 0 ~= ", constraint1/len(hxx.data.data)    # error per point 

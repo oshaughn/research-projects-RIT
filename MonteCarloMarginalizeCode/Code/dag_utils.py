@@ -23,11 +23,12 @@ import numpy as np
 from time import time
 from hashlib import md5
 
-__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
+from glue import pipeline
+
+__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
 # Taken from
 # http://pythonadventures.wordpress.com/2011/03/13/equivalent-of-the-which-command-in-python/
-import os
 def is_exe(fpath):
     return os.path.exists(fpath) and os.access(fpath, os.X_OK)
 
@@ -52,33 +53,6 @@ def generate_job_id():
     r = str( long( np.random.random() * 100000000000000000L ) )
     return md5(t + r).hexdigest()
 
-def write_extrinsic_marginalization_dag(m1m2, extr_sub,
-        fname='marginalize_extrinsic.dag'):
-    """
-    Write a dag to manage a set of parallel jobs to compute the likelihood
-    marginalized over extrinsic parameters at a set of extrinsic points.
-
-    Inputs:
-        - 'm1m2' is an N x 2 array of values for mass1 and mass2 of a binary
-          (in units of solar masses). Each of the N mass pairs will
-          become a node in the DAG.
-        - 'extr_sub' is a string giving the path to a condor submit file for
-          launching a job to marginalize over extrinsic parameters.
-        - 'fname' is the name of the DAG file to be output.
-
-    N.B. This function does not return a value, but will write a DAG file.
-    """
-    dag = open(fname, 'w')
-    Njobs = len(m1m2)
-    for i in xrange(Njobs):
-        job = generate_job_id()
-        line = 'JOB ' + job + ' ' + extr_sub + '\n'
-        dag.write(line)
-        line = 'VARS ' + job + ' ' + 'm1=\"%.16g\" m2=\"%.16g\"\n' % (m1m2[i][0], m1m2[i][1])
-        dag.write(line)
-    dag.close()
-    return fname
-
 # FIXME: Keep in sync with arguments of integrate_likelihood_extrinsic
 def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=None, ncopies=1, **kwargs):
     """
@@ -102,57 +76,91 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
           submit per condor 'cluster'
 
     Outputs:
-        - The name of the sub file that was generated.
+        - An instance of the CondorDAGJob that was generated for ILE
     """
-    assert len(kwargs["psd_file"]) == len(kwargs["channel_name"])
-    fname = tag + '.sub'
-    sub = open(fname, 'w')
-    exe = exe or which("integrate_likelihood_extrinsic")
-    sub.write('executable=%s\n' % exe)
-    sub.write('universe=vanilla\n')
 
-    ###
-    # FIXME: Am I reinventing pipeline.py here?
-    argstr = 'arguments='
+    assert len(kwargs["psd_file"]) == len(kwargs["channel_name"])
+
+    exe = exe or which("integrate_likelihood_extrinsic")
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
     if kwargs.has_key("output_file"):
         #
         # Need to modify the output file so it's unique
         #
-        ofname, ext = os.path.splitext(kwargs["output_file"])
-        argstr += ' --output-file %s-$(cluster)-$(process)%s' % (ofname, ext)
+        ofname = kwargs["output_file"].split(".")
+        ofname, ext = ofname[0], ".".join(ofname[1:])
+        ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
         if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
-            argstr += ' --save-samples'
+            ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
+    #
+    # Add normal arguments
     # FIXME: Get valid options from a module
+    #
     for opt, param in kwargs.iteritems():
         if isinstance(param, list) or isinstance(param, tuple):
-            argstr += " " + " ".join(["--%s=%s" % (opt.replace("_", "-"), p) for p in param])
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
         elif param is True:
-            argstr += " --%s" % opt.replace("_", "-")
-        elif not param:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None:
             continue
         else:
-            argstr += " --%s=%s" % (opt.replace("_", "-"), param)
-    argstr += ' --mass1 $(m1) --mass2 $(m2)\n'
-    sub.write(argstr)
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
 
-    sub.write('getenv=True\n')
-    if log_dir is not None:
-        line = 'output=%s/%s-$(cluster)-$(process).out\n' % (log_dir, tag)
-    else:
-        line = 'output=%s-$(cluster)-$(process).out\n' % (tag)
-    sub.write(line)
-    if log_dir is not None:
-        line = 'error=%s/%s-$(cluster)-$(process).err\n' % (log_dir, tag)
-    else:
-        line = 'error=%s-$(cluster)-$(process).err\n' % (tag)
-    sub.write(line)
-    line = 'log=%s.log\n' % (tag)
-    sub.write(line)
-    sub.write('request_memory=2048\n')
-    sub.write('notification=never\n')
-    sub.write('queue %d\n' % ncopies)
-    sub.close()
-    return fname
+    #
+    # Macro based options
+    #
+    ile_job.add_var_opt("mass1")
+    ile_job.add_var_opt("mass2")
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', '2048')
+    
+    return ile_job, ile_sub_name
+
+def write_result_coalescence_sub(tag='coalesce', exe=None, log_dir=None, output_dir="./"):
+    """
+    Write a submit file for launching jobs to coalesce ILE output
+    """
+
+    exe = exe or which("ligolw_sqlite")
+    sql_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    sql_sub_name = tag + '.sub'
+    sql_job.set_sub_file(sql_sub_name)
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(cluster)-$(process)"
+    sql_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    sql_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    sql_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    sql_job.add_opt("input-cache", "ILE_$(macromassid).cache")
+    #sql_job.add_arg("*$(macromassid)*.xml.gz")
+    sql_job.add_opt("database", "ILE_$(macromassid).sqlite")
+    sql_job.add_opt("verbose", None)
+
+    sql_job.add_condor_cmd('getenv', 'True')
+    sql_job.add_condor_cmd('request_memory', '2048')
+    
+    return sql_job, sql_sub_name

@@ -41,7 +41,7 @@ rosDebugMessages = True
 # Main driver functions
 #
 def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
-        psd_dict, Lmax, fMax, analyticPSD_Q=False):
+        psd_dict, Lmax, fMax, analyticPSD_Q=False, verbose=True):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -54,7 +54,6 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
           as the interpolating functions.
           Their main use is to validate the interpolating functions
     """
-    global rosDebugMessages
     assert data_dict.keys() == psd_dict.keys()
     global distMpcRef
     detectors = data_dict.keys()
@@ -71,51 +70,53 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     detectors = data_dict.keys()
     # Zero-pad to same length as data - NB: Assuming all FD data same resolution
     P.deltaF = data_dict[detectors[0]].deltaF
-    hlms = lsu.hlmoff(P, Lmax)
+    hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
+    hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
 
     for det in detectors:
-        # Compute cross terms < h_lm | h_l'm' >
-        crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,
-                fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q)
-        # Compute rholm(t) = < h_lm(t) | d >
-        rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
-                psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, analyticPSD_Q)
-        rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
         # This is the event time at the detector
         t_det = ComputeArrivalTimeAtDetector(det, P.phi, P.theta,event_time_geo)
         # The is the difference between the time of the leading edge of the
         # time window we wish to compute the likelihood in, and
         # the time corresponding to the first sample in the rholms
-        t_shift =  float(t_det - t_window - rho22.epoch)
+        rho_epoch = data_dict[det].epoch - hlms[hlms.keys()[0]].epoch
+        t_shift =  float(t_det - t_window - rho_epoch)
         assert t_shift > 0
         # tThe leading edge of our time window of interest occurs
         # this many samples into the rholms
-        N_shift = int( t_shift / rho22.deltaT )
+        N_shift = int( t_shift / P.deltaT )
         # Number of samples in the window [t_ref - t_window, t_ref + t_window]
-        N_window = int( 2 * t_window / rho22.deltaT )
+        N_window = int( 2 * t_window / P.deltaT )
+        # Compute cross terms < h_lm | h_l'm' >
+        crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,
+                fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q)
+        # Compute rholm(t) = < h_lm(t) | d >
+        rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
+                psd_dict[det], P.fmin, fMax, 1./2./P.deltaT,
+                N_shift, N_window, rho_epoch, analyticPSD_Q)
+        rhoXX = rholms[det][rholms[det].keys()[0]]
         # The vector of time steps within our window of interest
         # for which we have discrete values of the rholms
-        # N.B. I don't do simply rho22.epoch + t_shift, b/c t_shift is the
+        # N.B. I don't do simply rho_epoch + t_shift, b/c t_shift is the
         # precise desired time, while we round and shift an integer number of
         # steps of size deltaT
-        # FIXME: When we prune rather than roll, this series will become shorter
-        t = np.arange(rho22.data.length) * rho22.deltaT\
-                + float(rho22.epoch + N_shift * rho22.deltaT )
-        print "For detector", det, "..."
-        print "\tData starts at %.20g" % float(data_dict[det].epoch)
-        print "\trholm starts at %.20g" % float(rho22.epoch)
-        print "\tEvent time at detector is: %.18g" % float(t_det)
-        print "\tInterpolation window has half width %g" % t_window
-        print "\tComputed t_shift = %.20g" % t_shift
-        print "\t(t_shift should be t_det - t_window - t_rholm = %.20g)" %\
-                (t_det - t_window - float(rho22.epoch))
-        print "\tInterpolation starts at time %.20g" % t[0]
-        print "\t(Should start at t_event - t_window = %.20g)" %\
-                (float(rho22.epoch + N_shift * rho22.deltaT))
+        t = np.arange(N_window) * P.deltaT\
+                + float(rho_epoch + N_shift * P.deltaT )
+        if verbose:
+            print "For detector", det, "..."
+            print "\tData starts at %.20g" % float(data_dict[det].epoch)
+            print "\trholm starts at %.20g" % float(rho_epoch)
+            print "\tEvent time at detector is: %.18g" % float(t_det)
+            print "\tInterpolation window has half width %g" % t_window
+            print "\tComputed t_shift = %.20g" % t_shift
+            print "\t(t_shift should be t_det - t_window - t_rholm = %.20g)" %\
+                    (t_det - t_window - float(rho_epoch))
+            print "\tInterpolation starts at time %.20g" % t[0]
+            print "\t(Should start at t_event - t_window = %.20g)" %\
+                    (float(rho_epoch + N_shift * P.deltaT))
         # The minus N_shift indicates we need to roll left
         # to bring the desired samples to the front of the array
-        rholms_intp[det] =  InterpolateRholms(rholms[det], t, -N_shift,
-                N_window, Lmax)
+        rholms_intp[det] =  InterpolateRholms(rholms[det], t)
 
     return rholms_intp, crossTerms, rholms
 
@@ -161,7 +162,7 @@ def FactoredLogLikelihood(epoch, extr_params, rholms_intp, crossTerms, Lmax):
             func = rholms_intp[det][key]
             det_rholms[key] = func(float(t_det))
 
-        lnL += SingleDetectorLogLikelihood(det_rholms, CT, Ylms, F, dist, Lmax)
+        lnL += SingleDetectorLogLikelihood(det_rholms, CT, Ylms, F, dist)
 
     return lnL
 
@@ -320,20 +321,17 @@ def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTer
         LmargPsi = integrate.quad(fnIntegrand,0,np.pi,limit=100,epsrel=1e-4)[0]
         return np.log(LmargPsi)
 
-def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
+def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist):
     """
     DOCUMENT ME!!!
     """
     global distMpcRef
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
-    keys = lsu.constructLMIterator(Lmax)
-
     # Eq. 35 of Richard's notes
     term1 = 0.
-    for l in range(2,Lmax+1):
-        for m in range(-l,l+1):
-            term1 += np.conj(F * Ylms[(l,m)]) * rholm_vals[(l,m)]
+    for mode in rholm_vals:
+        term1 += np.conj(F * Ylms[mode]) * rholm_vals[mode]
     term1 = np.real(term1) / (distMpc/distMpcRef)
 
     # Eq. 26 of Richard's notes
@@ -348,8 +346,8 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist, Lmax):
 
     return term1 + term2
 
-def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax,
-        fNyq, analyticPSD_Q=False):
+def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
+        N_shift, N_window, rho_epoch, analyticPSD_Q=False):
     """
     Compute the complex-valued overlap between
     each member of a SphHarmFrequencySeries 'hlms'
@@ -364,73 +362,55 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax,
     for discrete values of the reference time tref.  The epoch of the SphHarmTimeSeries object
     is set to account for the transformation
     """
+    rholms = {}
+    assert data.deltaF == hlms[hlms.keys()[0]].deltaF
+    assert data.data.length == hlms[hlms.keys()[0]].data.length
+    deltaT = data.data.length/(2*fNyq)
 
     # Create an instance of class to compute inner product time series
     IP = lsu.ComplexOverlap(fmin, fMax, fNyq, data.deltaF, psd,
             analyticPSD_Q, full_output=True)
 
-    print IP.fLow, IP.fNyq, IP.deltaF
     # Loop over modes and compute the overlap time series
-    rholms = None
-    h22 = lalsim.SphHarmFrequencySeriesGetMode(hlms,2,2)
-    assert data.deltaF == h22.deltaF
-    assert len(data.data.data) == len(h22.data.data)
-
-    Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
-    keys = lsu.constructLMIterator(Lmax)  # nested lists are very bad for python
-    for pair in keys:
-        l = int(pair[0])
-        m = int(pair[1])
-        hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
-        # FIXME: Zero the m=0 modes or no???
-        if hlm is None:
-        #if hlm is None or m == 0:
-            # set a zero timeseries for that object
-            deltaT = len(data.data.data)/(2*fNyq)
-            rhoTS = lal.CreateCOMPLEX16TimeSeries("zero data",
-                    lal.LIGOTimeGPS(0.), 0.,deltaT , lal.lalDimensionlessUnit,
-                    data.data.length)
-        else:
-            assert hlm.deltaF == data.deltaF
-            rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlm, data)
-        rhoTS.epoch = data.epoch -h22.epoch
-        rholms = lalsim.SphHarmTimeSeriesAddMode(rholms, rhoTS, l, m)
+    for pair in hlms.keys():
+        rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
+        rhoTS.epoch = data.epoch - hlms[pair].epoch
+        rholms[pair] = lal.CutCOMPLEX16TimeSeries(rhoTS, N_shift, N_window)
+        rholms[pair].epoch = rho_epoch
 
     return rholms
 
-def InterpolateRholm(rholm, t, N_roll, N_window):
-    h_re = np.roll(np.real(rholm.data.data), N_roll)[:N_window]
-    h_im = np.roll(np.imag(rholm.data.data), N_roll)[:N_window]
+def InterpolateRholm(rholm, t):
+    h_re = np.real(rholm.data.data)
+    h_im = np.imag(rholm.data.data)
     # spline interpolate the real and imaginary parts of the time series
-    h_real = interpolate.InterpolatedUnivariateSpline(t[:N_window], h_re, k=3)
-    h_imag = interpolate.InterpolatedUnivariateSpline(t[:N_window], h_im, k=3)
+    h_real = interpolate.InterpolatedUnivariateSpline(t, h_re, k=3)
+    h_imag = interpolate.InterpolatedUnivariateSpline(t, h_im, k=3)
     return lambda ti: h_real(ti) + 1j*h_imag(ti)
         
 
 
-def InterpolateRholms(rholms, t, N_roll, N_window, Lmax):
+def InterpolateRholms(rholms, t):
     """
     Return a dictionary keyed on mode index tuples, (l,m)
     where each value is an interpolating function of the overlap against data
     as a function of time shift:
     rholm_intp(t) = < h_lm(t) | d >
 
-    'rholms' is a SphHarmTimeSeries containing discrete time series of
+    'rholms' is a dictionary keyed on (l,m) containing discrete time series of
     < h_lm(t_i) | d >
     't' is an array of the discrete times:
     [t_0, t_1, ..., t_N]
-    'Lmax' is the largest l index of the SphHarmTimeSeries
     """
     rholm_intp = {}
-    for l in range(2, Lmax+1):
-        for m in range(-l,l+1):
-            rholm = lalsim.SphHarmTimeSeriesGetMode(rholms, l, m)
-            rholm_intp[ (l,m) ] = InterpolateRholm(rholm, t, N_roll, N_window)
+    for mode in rholms.keys():
+        rholm = rholms[mode]
+        rholm_intp[ mode ] = InterpolateRholm(rholm, t)
 
     return rholm_intp
 
 def ComputeModeCrossTermIP(hlms, psd, fmin, fMax, fNyq, deltaF,
-        analyticPSD_Q=False):
+        analyticPSD_Q=False, verbose=True):
     """
     Compute the 'cross terms' between waveform modes, i.e.
     < h_lm | h_l'm' >.
@@ -443,27 +423,17 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fMax, fNyq, deltaF,
     # Create an instance of class to compute inner product
     IP = lsu.ComplexIP(fmin, fMax, fNyq, deltaF, psd, analyticPSD_Q)
 
-    # Loop over modes and compute the inner products, store in a dictionary
-    Lmax = lalsim.SphHarmFrequencySeriesGetMaxL(hlms)
-
     crossTerms = {}
 
-    for l in range(2,Lmax+1):
-        for m in range(-l,l+1):
-            for lp in range(2,Lmax+1):
-                for mp in range(-lp,lp+1):
-                    hlm = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
-                    hlpmp = lalsim.SphHarmFrequencySeriesGetMode(hlms, lp, mp)
-                    # FIXME: Zero the m=0 modes or no???
-                    #if hlm is None or hlpmp is None or m==0 or mp==0:
-                    if hlm is None or hlpmp is None:
-                            crossTerms[ ((l,m),(lp,mp)) ] = 0
-                    else:
-                            crossTerms[ ((l,m),(lp,mp)) ] = IP.ip(hlm, hlpmp)  # need to be careful about left side to avoid type errors later when I do this loop
-                    if rosDebugMessages:
-                            print "       : U populated ", ((l,m), (lp,mp)), "  = ", crossTerms[((l,m),(lp,mp)) ]
+    for mode1 in hlms.keys():
+        for mode2 in hlms.keys():
+            crossTerms[ (mode1,mode2) ] = IP.ip(hlms[mode1], hlms[mode2])
+            if verbose:
+                print "       : U populated ", (mode1, mode2), "  = ",\
+                        crossTerms[(mode1,mode2) ]
 
     return crossTerms
+
 
 def ComplexAntennaFactor(det, RA, DEC, psi, tref):
     """
@@ -565,7 +535,7 @@ def estimateUpperDistanceBoundInMpc(rholms,crossTerms):
     nDet = 0
     for det in rholms:
         nDet+=1
-        rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[det], 2, 2)
+        rho22 = rholms[det][( 2, 2)]
         Qbar+=np.abs(crossTerms[det][(2,2), (2,2)])/np.max(np.abs(rho22.data.data))   # one value for each detector
     fudgeFactor = 1.1  # let's give ourselves a buffer -- we can't afford to be too tight
     return fudgeFactor*distMpcRef* Qbar/nDet *np.sqrt(5/(4.*np.pi))/2.
@@ -623,7 +593,7 @@ def NetworkLogLikelihoodTimeMarginalizedDiscrete(epoch,rholmsDictionary,crossTer
 
 
     print detList
-    rho22 = lalsim.SphHarmTimeSeriesGetMode(rholmsDictionary[detList[0]], 2,2)
+    rho22 = rholmsDictionary[detList[0]][( 2,2)]
 
     nBins =int( (deltaTWindow[1]-deltaTWindow[0])/rho22.deltaT)
     term1 =np.zeros(nBins)
@@ -670,13 +640,13 @@ def DiscreteSingleDetectorLogLikelihoodData(epoch,rholmsDictionary, tStart,nBins
     rholms_grid = rholmsDictionary[det]
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
-    rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms_grid, 2,2)
+    rho22 = rholms_grid[( 2,2)]
     nShiftL = int(  float(tshift)/rho22.deltaT)
 
     term1 = 0.
     for l in range(2,Lmax+1):
         for m in range(-l,l+1):
-            rhoTSnow  =     rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms_grid, l,m)
+            rhoTSnow  =     rho22 = rholms_grid[( l,m)]
             term1 += np.conj(F * Ylms[(l,m)]) * np.roll(rhoTSnow.data.data,nShiftL)
     term1 = np.real(term1) / (distMpc/distMpcRef)
 

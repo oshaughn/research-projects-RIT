@@ -75,22 +75,36 @@ import ourparams
 
 opts, rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 print opts
+print rosDebugMessagesDictionary
 
-checkInputs = False
+if opts.super_verbose:
+    from subprocess import call
+    call(["lal-version"])
+
+def mean_and_dev(arr, wt):
+    av = np.average(arr, weights=wt)
+    var = np.average(arr*arr, weights=wt)
+    return [av, var - av*av]
+
+def pcum_at(val,arr, wt):
+    nm = np.sum(wt)
+    return np.sum(wt[np.where(val < arr)]/nm)
+
+__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
+
+
+checkInputs = opts.plot_ShowLikelihoodVersusTime
 
 rosUseDifferentWaveformLengths = False    
 rosUseRandomTemplateStartingFrequency = False
 
-rosDebugMessages = opts.verbose
-rosDebugShowExcruciatingLikelihoodDetail = opts.super_verbose
+rosUseTargetedDistance = True
+rosUseStrongPriorOnParameters = False
 rosShowSamplerInputDistributions = opts.plot_ShowSamplerInputs
 rosShowRunningConvergencePlots = True
-rosShowTerminalSampleHistograms = opts.plot_ShowSampler
-rosSaveHighLikelihoodPoints = True
-rosUseThresholdForReturn = False
+rosShowTerminalSampleHistograms = True
 rosUseMultiprocessing= False
 rosDebugCheckPriorIntegral = False
-
 nMaxEvals = int(opts.nmax)
 print " Running at most ", nMaxEvals, " iterations"
 
@@ -98,7 +112,7 @@ fracThreshold = opts.points_threshold_match
 
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
-tEventFiducial = 0                                                                 # relative to GPS reference
+tEventFiducial =   -2                                                                # relative to GPS reference
 
 det_dict = {}
 rhoExpected ={}
@@ -213,6 +227,16 @@ if opts.mass1:
 if opts.mass2:
     Psig.m2 = opts.mass2*lal.LAL_MSUN_SI
 
+if opts.force_gps_time:
+    print " +++ USER HAS OVERRIDDEN FIDUCIAL EPOCH +++ "
+    print "  The zero of time (and the region to be windowed) will be changed; you had better know what you are doing.  "
+    print "    original " ,lalsimutils.stringGPSNice(theEpochFiducial)
+    print "    new      ", opts.force_gps_time
+    theEpochFiducial = lal.GPSTimeNow()
+    theEpochFiducial.gpsSeconds = int(opts.force_gps_time)
+    theEpochFiducial.gpsNanoSeconds =  int(1e9*(opts.force_gps_time - int(opts.force_gps_time)))
+
+
 # TRY TO READ IN DATA: if data specified, use it and construct the detector list from it. Otherwise...
 if opts.channel_name and    (opts.opt_ReadWholeFrameFilesInCache):
     for inst, chan in map(lambda c: c.split("="), opts.channel_name):
@@ -317,15 +341,27 @@ else:
     analyticPSD_Q = False # For simplicity, using an analytic PSD
     detectors = data_dict.keys()
     df = data_dict[detectors[0]].deltaF
+    fNyq = (len(data_dict[detectors[0]].data.data)/2)*df
+    print " == Loading numerical PSD =="
     for det in detectors:
         print "Reading PSD for instrument %s from %s" % (det, opts.psd_file)
-        psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(opts.psd_file, det)
+
+        # "Standard" PSD parsing code used on master.
+        psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(opts.psd_file, det)  # pylal type!
+        tmp = psd_dict[det].data
+        print "Sanity check reporting : pre-extension, min is ", np.min(tmp), " and maximum is ", np.max(tmp)
         deltaF = data_dict[det].deltaF
         fmin = psd_dict[det].f0
         fmax = fmin + psd_dict[det].deltaF*len(psd_dict[det].data)-deltaF
         print "PSD deltaF before interpolation %f" % psd_dict[det].deltaF
         psd_dict[det] = lalsimutils.resample_psd_series(psd_dict[det], deltaF)
         print "PSD deltaF after interpolation %f" % psd_dict[det].deltaF
+        print "Post-extension the new PSD has 1/df = ", 1./psd_dict[det].deltaF, " (data 1/df = ", 1./deltaF, ") and length ", len(psd_dict[det].data.data)
+        tmp = psd_dict[det].data.data
+        nBad = np.argmin(tmp[np.nonzero(tmp)])
+        fBad = nBad*deltaF
+        print "Post-extension sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), "(at n=", np.argmin(tmp[np.nonzero(tmp)])," or f=", fBad, ")  and maximum is ", np.max(psd_dict[det].data.data)
+        print
 
         # psd_dict[det] = lalsimutils.pylal_psd_to_swig_psd(lalsimutils.get_psd_series_from_xmldoc(opts.psd_file, det))
         # psd_dict[det] = lalsimutils.regularize_swig_psd_series_near_nyquist(psd_dict[det], 80) # zero out 80 hz window near nyquist
@@ -362,7 +398,7 @@ if checkInputs:
     P.tref = Psig.tref
     for det in detectors:
         P.detector=det   # we do 
-        hT = hoft(P)
+        hT = lalsimutils.hoft(P)
         tvals = float(P.tref - theEpochFiducial) + hT.deltaT*np.arange(len(hT.data.data))
         plt.figure(1)
         plt.plot(tvals, hT.data.data,label=det)
@@ -395,6 +431,7 @@ if opts.opt_UseSkymap:
 P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
          m1=m1,m2=m2,
          ampO=ampO,
+         approx=approxTemplate,
          fref=fref,
          tref=theEpochFiducial,
          deltaT=1./fSample,
@@ -406,24 +443,39 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
 # Perform the Precompute stage
 #
 rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q)
-rho22 = lalsim.SphHarmTimeSeriesGetMode(rholms[detectors[0]], 2, 2)
+rho22 =rholms[detectors[0]][( 2, 2)]
 epoch_post = rho22.epoch # Suggested change
 print "Finished Precomputation..."
 print "====Generating metadata from precomputed results ====="
 distBoundGuess = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, crossTerms)
 print " distance probably less than ", distBoundGuess, " Mpc"
 
-print "====Loading metadata from previous runs (if any): sampler-seed-data.dat ====="
-
-
+try:
+    print "====Loading metadata from previous runs (if any): <base>-seed-data.dat ====="
+    if not opts.force_use_metadata:
+        print " ... this data will NOT be used to change the samplers... "
+    metadata ={}
+    fnameBase = opts.points_file_base
+    if opts.fname_metadata:
+        fname = opts.fname_metadata
+    else:
+        fname =  fnameBase+"-seed-data.pkl"
+    print " ... trying to open ", fname
+    with open(fname,'r') as f:
+        metadata = pickle.load(f)
+        print " Loaded metadata file :", metadata
+except:
+    print " === Skipping metadata step ==="
 
 TestDictionary = factored_likelihood_test.TestDictionaryDefault
-TestDictionary["DataReport"]             = True
-TestDictionary["DataReportTime"]       = True
-TestDictionary["UVReport"]              = True
-TestDictionary["UVReflection"]          = True
-TestDictionary["QReflection"]          = False
-TestDictionary["lnLModelAtKnown"]  = True
+# TestDictionary["DataReport"]             = True
+# TestDictionary["DataReportTime"]             = False
+TestDictionary["UVReport"]              =  analytic_signal  # this report is very confusing for real data
+# TestDictionary["UVReflection"]          = True
+# TestDictionary["QReflection"]          = False
+TestDictionary["QSquaredTimeseries"] = False # opts.plot_ShowLikelihoodVersusTime    # should be command-line option to control this plot specifically
+TestDictionary["Rho22Timeseries"]      = False
+TestDictionary["lnLModelAtKnown"]  =  analytic_signal  # this report is very confusing for real data
 TestDictionary["lnLDataAtKnownPlusOptimalTimePhase"] = False
 TestDictionary["lnLAtKnown"]           = True
 TestDictionary["lnLAtKnownMarginalizeTime"]  = False
@@ -491,14 +543,19 @@ if opts.plot_ShowPSD:
         plt.xlabel('f (Hz)')
         plt.ylabel('Sh $Hz^{-1}$')
         plt.title('PSDs used')
-
-
+    # Comparison plot: iLIGO
+    Sh = map(lal.LIGOIPsd,fvals)
+    plt.plot(np.log10(fvals),np.log10(Sh),label="Sh:iLIGO")
+    Sh = map(lalsim.SimNoisePSDaLIGOZeroDetHighPower,fvals)
+    plt.plot(np.log10(fvals),np.log10(Sh),label="Sh:aLIGO")
+    plt.legend()
 
 if rosShowSamplerInputDistributions:
     print " ====== Plotting prior and sampling distributions ==== "
     print "  PROBLEM: Build in/hardcoded via uniform limits on each parameter! Need to add measure factors "
     nFig = 0
     for param in sampler.params:
+      if not(sampler.pinned[param]) and not(isinstance(param,tuple)):
         nFig+=1
         plt.figure(nFig)
         plt.clf()
@@ -540,15 +597,104 @@ print " lnLmarg is ", np.log(res), " with nominal relative sampling error ", np.
 print " expected largest value is ", rho2Net/2, "and observed largest lnL is ", np.max(np.transpose(ret)[-1])
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
+print "==Profiling info==="
+print "   - Time per L evaluation ", float(tGPSEnd-tGPSStart)/ntotal
+print "   - Time per neff             ", float(tGPSEnd-tGPSStart)/neff
+
+
 # Save the sampled points to a file
 # Only store some
 fnameBase = opts.points_file_base
-ourio.dumpSamplesToFile(fnameBase+"-points.dat", ret, ['ra','dec', 'tref', 'phiref', 'incl', 'psi', 'dist', 'p', 'ps', 'lnL'])
-np.savetxt(fnameBase+'-result.dat', [res])
-np.savetxt(fnameBase+'-dump-lnLmarg.dat',lnLmarg)
+retSorted = ret[ np.argsort(ret[:,-1])]
+ourio.dumpSamplesToFile(fnameBase+"-points.dat", retSorted, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'p', 'ps', 'lnL']) 
+sampArray = Psig.list_params()  # Eventually, make this used. Note odd structure in list
+#np.savetxt(fnameBase+"-params.dat", np.array(sampArray))
+print " Parameters : ", sampArray
+ourio.dumpSamplesToFile(fnameBase+'-result.dat', np.array([[res, np.sqrt(var), np.max(ret[:,-1]),ntotal,neff, P.m1/lal.LAL_MSUN_SI,P.m2/lal.LAL_MSUN_SI]]), ['Z', 'sigmaZ', 'lnLmax','N', 'Neff','m1','m2'])  # integral, std dev,  total number of points
+#np.savetxt(fnameBase+'-result.dat', [res, np.sqrt(var), ntotal])   # integral, std dev,  total number of points. Be SURE we do not lose precision!
+np.savetxt(fnameBase+'-dump-lnLmarg.dat',lnLmarg[::opts.nskip])  # only print output periodically -- otherwise far too large files!
 
-# if checkInputs:
-#     plt.show()
+if neff > 5 or opts.force_store_metadata:  # A low threshold but not completely implausible.  Often we are not clueless 
+    print "==== Computing and saving metadata for future runs: <base>-seed-data.dat ====="
+    print " Several effective points producted; generating metadata file "
+    if neff < 20:
+        print "  +++ WARNING +++ : Very few effective samples were found. Be VERY careful about using this as input to subsequent searches! "
+    metadata={}
+    weights = np.exp(ret[:,-1])*ret[:,-3]/ret[:,-2]
+    metadata["ra"] =  mean_and_dev(ret[:,0], weights)
+    metadata["dec"] = mean_and_dev(ret[:,1], weights)
+    metadata["tref"] =  mean_and_dev(ret[:,2], weights)
+    metadata["phi"] =  mean_and_dev(ret[:,3], weights)
+    metadata["incl"] =  mean_and_dev(ret[:,4], weights)
+    metadata["psi"] =  mean_and_dev(ret[:,5], weights)
+    metadata["dist"] =  mean_and_dev(ret[:,6], weights)
+    with open(fnameBase+"-seed-data.dat",'w') as f:
+        for key in ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist']:
+            f.write(key + " " + str(metadata[key][0]) + ' '+ str(metadata[key][1]) + '\n')
+    fnameBase = opts.points_file_base
+    if opts.fname_metadata:
+        fname = opts.fname_metadata
+    else:
+        fname =  fnameBase+"-seed-data.pkl"
+    with open(fname,'w') as f:
+        pickle.dump(metadata,f)
+
+if opts.inj:
+    print "==== PP data: <base>-pp-instance.dat ====="
+    lnLAt = factored_likelihood.LikelihoodWrapper(theEpochFiducial, Psig, tWindowExplore, rholms, rholms_intp, crossTerms, Lmax,opts)
+    # Evaluate best data point
+    ppdata = {}
+    weights = np.exp(ret[:,-1])*ret[:,-3]/ret[:,-2]
+    ppdata['ra'] = [Psig.phi,pcum_at(Psig.phi,ret[:,0],weights)]
+    ppdata['dec'] = [Psig.theta,pcum_at(Psig.theta,ret[:,1], weights)]
+    ppdata['tref'] = [factored_likelihood.stringGPSNice(Psig.tref),pcum_at(Psig.tref-theEpochFiducial,ret[:,2], weights)]
+    ppdata['phi'] = [Psig.phiref,pcum_at(Psig.phiref,ret[:,3], weights)]
+    ppdata['incl'] = [Psig.incl,pcum_at(Psig.incl,ret[:,4], weights)]
+    ppdata['psi'] = [Psig.psi,pcum_at(Psig.psi,ret[:,5], weights)]
+    ppdata['dist'] = [Psig.dist/(1e6*lal.LAL_PC_SI),pcum_at(Psig.dist/(1e6*lal.LAL_PC_SI),ret[:,6], weights)]
+    ppdata['lnL'] =  [lnLAt, pcum_at(lnLAt, ret[:,-1], weights)]
+
+    # Dump data: p(<x)
+    with open(fnameBase+"-pp-data.dat",'w') as f:
+        for key in ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL']: 
+            f.write(key + " " + str(ppdata[key][0]) + ' '+ str(ppdata[key][1]) + '\n')
+
+
+# Save the outputs in CP's format, for comparison.  NOT YET ACTIVE CODE
+if  opts.points_file_base:
+    print "==== Exporting to xml: <base>.xml.gz ====="
+    xmldoc = ligolw.Document()
+    xmldoc.appendChild(ligolw.LIGO_LW())
+    process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
+    samples = {}
+    samples["distance"]= ret[:,6]
+    samples["t_ref"] = ret[:,2]
+    samples["polarization"]= ret[:,5]
+    samples["coa_phase"]= ret[:,3]
+    samples["latitude"]= ret[:,1]
+    samples["longitude"]= ret[:,0]
+    samples["inclination"]= ret[:,4]
+    samples["loglikelihood"]= ret[:,-1]
+    samples["p"]= ret[:,-3]
+    samples["ps"]= ret[:,-2]
+    # samples = sampler._rvs
+    # samples["distance"] = samples["distance"]
+    # samples["polarization"] = samples["psi"]
+    # samples["coa_phase"] = samples["phi"]
+    # samples["latitude"] = samples["dec"]
+    # samples["inclination"] = samples["incl"]
+    # samples["polarization"] = samples["psi"]
+    # samples["longitude"] = samples["ra"]
+    # samples["loglikelihood"] = numpy.log(samples["integrand"])
+    m1 = P.m1/lal.LAL_MSUN_SI
+    m2 = P.m2/lal.LAL_MSUN_SI
+    samples["mass1"] = numpy.ones(samples["polarization"].shape)*m1
+    samples["mass2"] = numpy.ones(samples["polarization"].shape)*m2
+#    utils.write_fileobj(xmldoc,sys.stdout)
+    xmlutils.append_samples_to_xmldoc(xmldoc, samples)
+#    utils.write_fileobj(xmldoc,sys.stdout)
+    xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res), **{"mass1": m1, "mass2": m2})
+    utils.write_filename(xmldoc, opts.points_file_base+".xml.gz", gz=True)
 
 
 # Plot terminal histograms from the sampled points and log likelihoods
