@@ -54,6 +54,7 @@ optp.add_option("-s", "--seglen", type=int, default=110, help="Minimum segment d
 optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
 optp.add_option("-e", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
 optp.add_option("-P", "--padding", type=float, default=10, help="Time window after the trigger to be included in the data segment")
+optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
@@ -143,7 +144,7 @@ data_dict, psd_dict = {}, {}
 start_pad, end_pad = opts.seglen+opts.padding, opts.padding
 for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
-    data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=float(event_time)-start_pad, stop=float(event_time)+end_pad)
+    data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=float(event_time)-start_pad, stop=float(event_time)+end_pad, window_shape=opts.window_shape)
     print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF, len(data_dict[inst].data.data))
 
 for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
