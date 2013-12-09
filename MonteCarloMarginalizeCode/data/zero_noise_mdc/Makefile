@@ -12,7 +12,9 @@ LIGO_FRAME_DURATION=64 # s
 LIGO_FRAME_DURATION_COMB=64 # s
 LIGO_N_FRAMES=1
 
-PSD_FILE=/home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/HLV-ILIGO_PSD.xml.gz
+BASE_DIR=$(shell pwd)/
+PSD_FILE=${BASE_DIR}/../HLV-ILIGO_PSD.xml.gz
+
 
 EVENT_TIME=1000000014.236547946
 
@@ -20,7 +22,7 @@ plot_ts: H1_zero_noise.cache L1_zero_noise.cache V1_zero_noise.cache
 	../utils/plot_ts zero_noise.cache
 
 test_ile_dag: zero_noise.cache
-	../../Code/compute_marginalized_likelihood --cache-file /home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/zero_noise_mdc/zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --seglen 10 --padding 2.0 --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file zero_noise.xml.gz --n-copies 10
+	../../Code/compute_marginalized_likelihood --cache-file ${BASE_DIR}/zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --seglen 10 --padding 2.0 --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file zero_noise.xml.gz --n-copies 10
 
 test_ile: zero_noise.cache
 	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --seglen 10 --pin-to-sim mdc.xml.gz --reference-freq 0.0 --padding 2
@@ -44,6 +46,11 @@ clean:
 	rm *.cache
 	rm -rf zero_noise_mdc/
 
+ros_setup:
+# Copy frame files from CIT: not everyone has gstlal installed.
+	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/zero_noise_mdc/zero_noise_mdc .
+	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/HLV-ILIGO_PSD.xml.gz .
+	find zero_noise_mdc -name "*.gwf" | lalapps_path2cache > zero_noise.cache
 
 ros_test_data:
 	touch H1_zero_noise.cache
@@ -87,14 +94,10 @@ ros_test_ile_pinned:
 	mv ile-ros-output.xml.gz ile-ros-pintest-DCosI.xml.gz
 
 ros_test_likelihood:
-# Copy frame files from CIT: not everyone has gstlal installed.
-	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/zero_noise_mdc/zero_noise_mdc .
-	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/HLV-ILIGO_PSD.xml.gz .
-	find zero_noise_mdc -name "*.gwf" | lalapps_path2cache > zero_noise.cache
 # TEST VERSION 1: Analytic (iLIGO) PSD model
 #	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --force-read-full-frames --seglen 10  --mass1 4.0 --mass2 4.0
 # TEST VERSION 2: Read PSD from file
-	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --force-read-full-frames --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0 --show-likelihood-versus-time --Lmax 4 --amporder -1
+	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0  --Lmax 2 --amporder -1 --show-likelihood-versus-time --show-sampler-inputs --show-psd   --seglen 16 # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
 
 
 ros_test_likelihood_pinned:
