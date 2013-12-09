@@ -289,7 +289,7 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
     sampler.add_parameter("distance",
 #                          functools.partial(mcsampler.quadratic_samp_vector, distBoundGuess), None, dist_min, dist_max,
 #                          functools.partial(mcsampler.uniform_samp_vector,0, distBoundGuess), None, dist_min, dist_max,
-                          functools.partial( uniform_samp_withfloor_vector, np.min([distBoundGuess,dist_max]), dist_max, 0.001), None, dist_min, dist_max,
+                          functools.partial( uniform_samp_withfloor_vector, numpy.min([distBoundGuess,dist_max]), dist_max, 0.001), None, dist_min, dist_max,
                          prior_pdf = functools.partial(mcsampler.quadratic_samp_vector, dist_max)
                          )
 #        sampler.add_parameter("dist", functools.partial(mcsampler.quadratic_samp_vector,  distBoundGuess ), None, dist_min, dist_max, prior_pdf = numpy.vectorize(lambda x: x**2/(3.*numpy.power(dist_max,3))))

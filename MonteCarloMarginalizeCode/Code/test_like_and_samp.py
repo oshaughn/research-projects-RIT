@@ -480,9 +480,9 @@ TestDictionary["lnLDataAtKnownPlusOptimalTimePhase"] = False
 TestDictionary["lnLAtKnown"]           = True
 TestDictionary["lnLAtKnownMarginalizeTime"]  = False
 TestDictionary["lnLDataPlot"]            = opts.plot_ShowLikelihoodVersusTime
-TestDictionary["lnLDataPlotVersusPsi"]            = opts.plot_ShowLikelihoodVersusTime
-TestDictionary["lnLDataPlotVersusPhi"]            = opts.plot_ShowLikelihoodVersusTime
-TestDictionary["lnLDataPlotVersusPhiPsi"]            = opts.plot_ShowLikelihoodVersusTime
+TestDictionary["lnLDataPlotVersusPsi"]            = False # opts.plot_ShowLikelihoodVersusTime
+TestDictionary["lnLDataPlotVersusPhi"]            = False # opts.plot_ShowLikelihoodVersusTime
+TestDictionary["lnLDataPlotVersusPhiPsi"]            = False # opts.plot_ShowLikelihoodVersusTime
 
 #opts.fmin_SNR=40
 
@@ -605,9 +605,9 @@ print "   - Time per neff             ", float(tGPSEnd-tGPSStart)/neff
 fnameBase = opts.points_file_base
 retSorted = ret[ np.argsort(ret[:,-1])]
 ourio.dumpSamplesToFile(fnameBase+"-points.dat", retSorted, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'p', 'ps', 'lnL']) 
-sampArray = Psig.list_params()  # Eventually, make this used. Note odd structure in list
+#sampArray = Psig.list_params()  # Eventually, make this used. Note odd structure in list
 #np.savetxt(fnameBase+"-params.dat", np.array(sampArray))
-print " Parameters : ", sampArray
+#print " Parameters : ", sampArray
 ourio.dumpSamplesToFile(fnameBase+'-result.dat', np.array([[res, np.sqrt(var), np.max(ret[:,-1]),ntotal,neff, P.m1/lal.LAL_MSUN_SI,P.m2/lal.LAL_MSUN_SI]]), ['Z', 'sigmaZ', 'lnLmax','N', 'Neff','m1','m2'])  # integral, std dev,  total number of points
 #np.savetxt(fnameBase+'-result.dat', [res, np.sqrt(var), ntotal])   # integral, std dev,  total number of points. Be SURE we do not lose precision!
 np.savetxt(fnameBase+'-dump-lnLmarg.dat',lnLmarg[::opts.nskip])  # only print output periodically -- otherwise far too large files!
