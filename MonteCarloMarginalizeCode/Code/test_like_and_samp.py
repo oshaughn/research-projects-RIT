@@ -42,11 +42,14 @@ Examples:
 
 """
 import sys
+import pickle
 
 import numpy as np
 
 from glue.lal import Cache
-from glue.ligolw import utils, lsctables, table
+from glue.ligolw import utils, lsctables, table, ligolw
+from glue.ligolw.utils import process
+
 
 import lal
 import lalsimulation as lalsim
@@ -70,9 +73,10 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gr
 
 import factored_likelihood
 import factored_likelihood_test
-import ourio
-import ourparams
 
+import xmlutils
+import ourparams
+import ourio
 opts, rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 print opts
 print rosDebugMessagesDictionary
@@ -589,13 +593,14 @@ res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_
 #res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params,n=opts.nskip,nmax=opts.nmax,igrandmax=rho2Net/2,full_output=True,neff=opts.neff,igrand_threshold_fraction=fracThreshold,verbose=True,extremely_verbose=opts.super_verbose)
 
 tGPSEnd = lal.GPSTimeNow()
-ntotal = len(sampler._rvs)  # Not true in general
+print sampler._rvs.keys(), len(sampler._rvs)
+ntotal = opts.nmax  # Not true in general
 print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
 print " lnLmarg is ", np.log(res), " with nominal relative sampling error ", np.sqrt(var)/res, " but a more reasonable estimate based on the lnL history is ", np.std(lnLmarg - np.log(res))
 print " expected largest value is ", rho2Net/2, "and observed largest lnL is ", np.max(np.transpose(ret)[-1])
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
-print "==Profiling info==="
+print "==Profiling info (assuming MAXIMUM evals hit)==="
 print "   - Time per L evaluation ", float(tGPSEnd-tGPSStart)/ntotal
 print "   - Time per neff             ", float(tGPSEnd-tGPSStart)/neff
 
@@ -639,13 +644,13 @@ if neff > 5 or opts.force_store_metadata:  # A low threshold but not completely 
 
 if opts.inj:
     print "==== PP data: <base>-pp-instance.dat ====="
-    lnLAt = factored_likelihood.LikelihoodWrapper(theEpochFiducial, Psig, tWindowExplore, rholms, rholms_intp, crossTerms, Lmax,opts)
+    lnLAt = factored_likelihood.FactoredLogLikelihood(theEpochFiducial, Psig, rholms_intp, crossTerms, Lmax)
     # Evaluate best data point
     ppdata = {}
     weights = np.exp(ret[:,-1])*ret[:,-3]/ret[:,-2]
     ppdata['ra'] = [Psig.phi,pcum_at(Psig.phi,ret[:,0],weights)]
     ppdata['dec'] = [Psig.theta,pcum_at(Psig.theta,ret[:,1], weights)]
-    ppdata['tref'] = [factored_likelihood.stringGPSNice(Psig.tref),pcum_at(Psig.tref-theEpochFiducial,ret[:,2], weights)]
+    ppdata['tref'] = [lalsimutils.stringGPSNice(Psig.tref),pcum_at(Psig.tref-theEpochFiducial,ret[:,2], weights)]
     ppdata['phi'] = [Psig.phiref,pcum_at(Psig.phiref,ret[:,3], weights)]
     ppdata['incl'] = [Psig.incl,pcum_at(Psig.incl,ret[:,4], weights)]
     ppdata['psi'] = [Psig.psi,pcum_at(Psig.psi,ret[:,5], weights)]
@@ -658,8 +663,8 @@ if opts.inj:
             f.write(key + " " + str(ppdata[key][0]) + ' '+ str(ppdata[key][1]) + '\n')
 
 
-# Save the outputs in CP's format, for comparison.  NOT YET ACTIVE CODE
-if  opts.points_file_base:
+# Save the outputs in CP's format, for comparison.  NOT YET ACTIVE CODE -- xmlutils has a bug on master (lacking terms in dictionary)
+if  False: # opts.points_file_base:
     print "==== Exporting to xml: <base>.xml.gz ====="
     xmldoc = ligolw.Document()
     xmldoc.appendChild(ligolw.LIGO_LW())
@@ -686,12 +691,12 @@ if  opts.points_file_base:
     # samples["loglikelihood"] = numpy.log(samples["integrand"])
     m1 = P.m1/lal.LAL_MSUN_SI
     m2 = P.m2/lal.LAL_MSUN_SI
-    samples["mass1"] = numpy.ones(samples["polarization"].shape)*m1
-    samples["mass2"] = numpy.ones(samples["polarization"].shape)*m2
+    samples["mass1"] = np.ones(samples["polarization"].shape)*m1
+    samples["mass2"] = np.ones(samples["polarization"].shape)*m2
 #    utils.write_fileobj(xmldoc,sys.stdout)
     xmlutils.append_samples_to_xmldoc(xmldoc, samples)
 #    utils.write_fileobj(xmldoc,sys.stdout)
-    xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res), **{"mass1": m1, "mass2": m2})
+    xmlutils.append_likelihood_result_to_xmldoc(xmldoc, np.log(res), **{"mass1": m1, "mass2": m2})
     utils.write_filename(xmldoc, opts.points_file_base+".xml.gz", gz=True)
 
 
