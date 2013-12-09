@@ -47,7 +47,7 @@ import pickle
 import numpy as np
 
 from glue.lal import Cache
-from glue.ligolw import utils, lsctables, table, ligolw
+from glue.ligolw import utils, lsctables, table, ligolw,  git_version
 from glue.ligolw.utils import process
 
 
@@ -81,9 +81,18 @@ opts, rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 print opts
 print rosDebugMessagesDictionary
 
-if opts.super_verbose:
-    from subprocess import call
-    call(["lal-version"])
+if opts.verbose:
+    try:
+        from subprocess import call
+        print " ---- LAL Version ----"
+        call(["lal-version"])
+        print " ---- GLUE Version ----"
+        call(["ligolw_print",  "--version"])
+        print " ---- pylal Version ----"
+        call(["pylal_version"])
+    except:
+        print "  ... trouble printing version numbers "
+    print " Glue tag ", git_version.id
 
 def mean_and_dev(arr, wt):
     av = np.average(arr, weights=wt)
