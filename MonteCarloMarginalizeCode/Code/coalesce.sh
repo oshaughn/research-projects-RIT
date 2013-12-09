@@ -15,4 +15,4 @@ fi
 
 ocache=ILE_${massset}.cache
 
-find . -name "*${massset}*.xml.gz" | lalapps_path2cache -a > ${ocache}
+find . -name "*-${massset}-*.xml.gz" | lalapps_path2cache -a > ${ocache}
