@@ -54,7 +54,8 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
     global tWindowReference
 
     fmin_SNR=30
-    keysPairs = lalsimutils.constructLMIterator(Lmax)
+#    keysPairs = lalsimutils.constructLMIterator(Lmax)
+    keysPairs = rholms_intp[detectors[0]].keys()
 
     df = data_dict[detectors[0]].deltaF
 #    fSample = opts.srate  # this may be reset by the data -- be careful.  SHOULD recalculate from deltaF and length of data
