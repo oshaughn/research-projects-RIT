@@ -227,12 +227,12 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
             indx = bplot._healpix_lookup(smap,  ra, dec) # note bplot takes lon (=ra, really), lat (dec). Not sure why
             return smap[indx]
 
-        sampler.add_parameter(("ra", "dec"), 
+        sampler.add_parameter(("right_ascension", "declination"), 
                               None, 
                               bayestar_cdf_inv_vector, (ra_min, dec_min), (ra_max, dec_max))
-        sampler.prior_pdf[("ra", "dec")] = numpy.vectorize(lambda x,y: 1./len(smap)) # 1/number of pixels
-        sampler.pdf[("ra", "dec")] =          numpy.vectorize(bayestar_pdf_radec)              # look up value at targteed pixel 
-        sampler._pdf_norm[("ra", "dec")] = 1
+        sampler.prior_pdf[("right_ascension", "declination")] = numpy.vectorize(lambda x,y: 1./len(smap)) # 1/number of pixels
+        sampler.pdf[("right_ascension", "declination")] =          numpy.vectorize(bayestar_pdf_radec)              # look up value at targteed pixel 
+        sampler._pdf_norm[("right_ascension", "declination")] = 1
 
 
     sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max,
