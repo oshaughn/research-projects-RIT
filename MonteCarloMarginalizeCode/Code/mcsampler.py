@@ -311,11 +311,11 @@ class MCSampler(object):
                 if self._rvs.has_key("integrand"):
                     self._rvs["integrand"] = numpy.hstack( (self._rvs["integrand"], fval) )
                     self._rvs["joint_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
-                    self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
+                    self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_s) )
                 else:
                     self._rvs["integrand"] = fval
                     self._rvs["joint_prior"] = joint_p_prior
-                    self._rvs["joint_s_prior"] = joint_p_prior
+                    self._rvs["joint_s_prior"] = joint_p_s
 
             int_val = fval*joint_p_prior /joint_p_s
             if bShowEveryEvaluation:
