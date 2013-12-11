@@ -688,9 +688,9 @@ if  True: # opts.points_file_base:
     samples["latitude"]= ret[:,1]
     samples["longitude"]= ret[:,0]
     samples["inclination"]= ret[:,4]
-    samples["loglikelihood"]= ret[:,-1]
-    samples["p"]= ret[:,-3]
-    samples["ps"]= ret[:,-2]
+    samples["loglikelihood"]= ret[:,-1]  #alpha1
+    samples["joint_prior"]= ret[:,-3]     #alpha2
+    samples["joint_s_prior"]= ret[:,-2]  #alpha3
     # samples = sampler._rvs
     # samples["distance"] = samples["distance"]
     # samples["polarization"] = samples["psi"]

@@ -12,6 +12,8 @@ def assign_id(row, i):
     row.simulation_id = ilwd.ilwdchar("sim_inspiral_table:sim_inspiral:%d" % i)
 
 CMAP = { "right_ascension": "longitude",
+    "longitude":"longitude",
+    "latitude":"latitude",
     "declination": "latitude",
     "inclination": "inclination",
     "polarization": "polarization",
@@ -22,6 +24,9 @@ CMAP = { "right_ascension": "longitude",
     "mass2": "mass2",
     # SHOEHORN ALERT
     "sample_n": assign_id,
+    "alpha1":"alpha1",
+    "alpha2":"alpha2",
+    "alpha3":"alpha3",
     "loglikelihood": "alpha1",
     "joint_prior": "alpha2",
     "joint_s_prior": "alpha3"
