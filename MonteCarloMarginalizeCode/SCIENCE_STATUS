@@ -1,0 +1,29 @@
+
+URGENT PRIORITIES
+
+* "Ringing": Investigate how to control (inverse power spectrum, windowing, etc), propose patch, quantify error residual, and commit
+   - Tukey window 'temporary' solution
+   - Implement PSD truncation, revisit next meeting
+
+* Fixes and implementations
+   - distance prior  : uniform distance. Cutoff uniform across masses. 10*BNS distance (300 Mpc)
+   - time prior : investigate whether best-fit time shifts much vs mass. 
+          Preliminary answer: Is our 2ms window too tight? [tool: lalsimutils/overlap]
+   - convergence: neff, how implemented, when to stop
+      * code cleanup in mcsampler
+
+
+
+TABLED UNTIL AFTER CODE WORKING
+
+
+* Priors
+ - Distancce prior: Cutoff
+ - Time prior    : investigate safe inteval. Concrete examples with different injections (and gracedb)
+                     : template (model/model, mass/mass) mismatches and timeshifts, re prior
+
+
+* Study injection change with truncation window (e.g., inverse PSD truncation)
+
+* Sampling in mass space
+
