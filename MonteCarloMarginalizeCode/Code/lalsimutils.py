@@ -1406,14 +1406,19 @@ def NINJA_data_to_norm_hoff(fname, IP, TDlen=0, scaleT=1., scaleH=1.,
     hf.data.data /= norm
     return hf
 
-def frame_data_to_hoft(fname, channel, start=None, stop=None):
+def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
+        verbose=True):
     """
     Function to read in data in the frame format and convert it to 
     a REAL8TimeSeries. fname is the path to a LIGO cache file.
-    """
-    global rosDebugMessagesContainer
 
-    if rosDebugMessagesContainer[0]:
+    Applies a Tukey window to the data with shape parameter 'window_shape'.
+    N.B. if window_shape=0, the window is the identity function
+         if window_shape=1, the window becomes a Hann window
+         if 0<window_shape<1, the data will transition from zero to full
+            strength over that fraction of each end of the data segment.
+    """
+    if verbose:
         print " ++ Loading from cache ", fname, channel
     with open(fname) as cfile:
         cachef = Cache.fromfile(cfile)
@@ -1421,7 +1426,7 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None):
         # FIXME: HACKHACKHACK
         if cachef[i].observatory != channel[0]:
             del cachef[i]
-    if rosDebugMessagesContainer[0]:
+    if verbose:
         print cachef.to_segmentlistdict()
     fcache = frutils.FrameCache(cachef)
     # FIXME: Horrible, horrible hack -- will only work if all requested channels
@@ -1438,22 +1443,30 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None):
             0., ht.metadata.dt, lal.lalDimensionlessUnit, len(ht))
     print   "  ++ Frame data sampling rate ", 1./tmp.deltaT, " and epoch ", stringGPSNice(tmp.epoch)
     tmp.data.data[:] = ht
+    # Window the data - N.B. default is identity (no windowing)
+    hoft_window = lal.CreateTukeyREAL8Window(tmp.data.length, window_shape)
+    tmp.data.data *= hoft_window.data.data
+
     return tmp
 
-def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0):
+def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
+        window_shape=0., verbose=True):
     """
     Function to read in data in the frame format
     and convert it to a COMPLEX16FrequencySeries holding
     h(f) = FFT[ h(t) ]
 
+    Before the FFT, applies a Tukey window with shape parameter 'window_shape'.
+    N.B. if window_shape=0, the window is the identity function
+         if window_shape=1, the window becomes a Hann window
+         if 0<window_shape<1, the data will transition from zero to full
+            strength over that fraction of each end of the data segment.
+
     If TDlen == -1, do not zero-pad the TD waveform before FFTing
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
-    ht = frame_data_to_hoft(fname, channel, start, stop)
-
-    ht_window = lal.CreateTukeyREAL8Window(len(ht.data.data), 0.99)
-    ht.data.data *= ht_window.data.data
+    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose)
 
     tmplen = ht.data.length
     if TDlen == -1:
@@ -1475,7 +1488,8 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0):
     return hf
 
 
-def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
+def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
+        window_shape=0., verbose=True):
     """
     Function to read in data in the frame format
     and convert it to a COMPLEX16FrequencySeries 
@@ -1483,16 +1497,19 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
     Create complex FD data that does not assume Hermitianity - i.e.
     contains positive and negative freq. content
 
+    Before the FFT, applies a Tukey window with shape parameter 'window_shape'.
+    N.B. if window_shape=0, the window is the identity function
+         if window_shape=1, the window becomes a Hann window
+         if 0<window_shape<1, the data will transition from zero to full
+            strength over that fraction of each end of the data segment.
+
     If TDlen == -1, do not zero-pad the TD waveform before FFTing
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
-    hoft = frame_data_to_hoft(fname, channel, start, stop)
+    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose)
 
-    hoft_window = lal.CreateTukeyREAL8Window(len(hoft.data.data), 0.01)
-    hoft.data.data *= hoft_window.data.data
-
-    tmplen = hoft.data.length
+    tmplen = ht.data.length
     if TDlen == -1:
         TDlen = tmplen
     elif TDlen==0:
@@ -1500,20 +1517,20 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0):
     else:
         assert TDlen >= tmplen
 
-    hoft = lal.ResizeREAL8TimeSeries(hoft, 0, TDlen)
-    hoftC = lal.CreateCOMPLEX16TimeSeries("hoft", hoft.epoch, hoft.f0,
-            hoft.deltaT, hoft.sampleUnits, TDlen)
+    ht = lal.ResizeREAL8TimeSeries(ht, 0, TDlen)
+    hoftC = lal.CreateCOMPLEX16TimeSeries("h(t)", ht.epoch, ht.f0,
+            ht.deltaT, ht.sampleUnits, TDlen)
     # copy h(t) into a COMPLEX16 array which happens to be purely real
-    hoftC.data.data = hoft.data.data + 0j
+    hoftC.data.data = ht.data.data + 0j
     FDlen = TDlen
     fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
-    hoff = lal.CreateCOMPLEX16FrequencySeries("Template h(f)",
-            hoft.epoch, hoft.f0, 1./hoft.deltaT/TDlen, lal.lalHertzUnit,
+    hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)",
+            ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lal.lalHertzUnit,
             FDlen)
-    lal.COMPLEX16TimeFreqFFT(hoff, hoftC, fwdplan)
-    if rosDebugMessagesContainer[0]:
-        print " ++ Loaded data h(f) of length n= ", len(hoff.data.data), " (= ", len(hoff.data.data)*hoft.deltaT, "s) at sampling rate ", 1./hoft.deltaT    
-    return hoff
+    lal.COMPLEX16TimeFreqFFT(hf, hoftC, fwdplan)
+    if verbose:
+        print " ++ Loaded data h(f) of length n= ", hf.data.length, " (= ", len(hf.data.data)*ht.deltaT, "s) at sampling rate ", 1./ht.deltaT    
+    return hf
 
 
 def stringGPSNice(tgps):
