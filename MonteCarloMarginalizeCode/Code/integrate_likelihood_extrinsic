@@ -312,7 +312,7 @@ if opts.pin_to_sim:
 #
 
 dmin = 1.    # min distance
-dmax = 2000.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
+dmax = 300.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 
 param_limits = { "psi": (0, 2*numpy.pi),
     "phi_orb": (0, 2*numpy.pi),
@@ -482,7 +482,7 @@ if not opts.time_marginalization:
     
         return numpy.exp(lnL)
 
-    res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+    res, var, ret, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else: # Sum over time for every point in other extrinsic params
 
@@ -501,7 +501,7 @@ else: # Sum over time for every point in other extrinsic params
     
         return numpy.exp(lnL)
 
-    res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+    res, var, ret, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
