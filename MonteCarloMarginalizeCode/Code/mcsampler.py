@@ -241,7 +241,6 @@ class MCSampler(object):
 
         peakExpected = kwargs["igrandmax"] if kwargs.has_key("igrandmax") else 0   # Do integral as L/e^peakExpected, if possible
         fracCrit = kwargs['igrand_threshold_fraction'] if kwargs.has_key('igrand_threshold_fraction') else 0 # default is to return all
-        bReturnPoints = kwargs['full_output'] if kwargs.has_key('full_output') else False
         bUseMultiprocessing = kwargs['use_multiprocessing'] if kwargs.has_key('use_multiprocessing') else False
         nProcesses = kwargs['nprocesses'] if kwargs.has_key('nprocesses') else 2
         bShowEvaluationLog = kwargs['verbose'] if kwargs.has_key('verbose') else False
@@ -260,23 +259,6 @@ class MCSampler(object):
         maxlnL = -float("Inf")
         eff_samp = 0
         mean, std = None, None 
-
-        #
-        # TODO: Allocate memory to return values
-        #
-        if bReturnPoints:
-            theGoodPoints = numpy.zeros((nmax,len(args)))
-            theGoodlnL = numpy.zeros(nmax)
-
-        # Need FULL history to calculate neff!  No substitutes!
-        # Be careful to allocate the larger of n and nmax
-        if nmax < float("inf"):
-            nbinsToStore = int(numpy.max([nmax,n]))
-        else:
-            nBinsToStore = 1e7    # don't store everything! stop!
-            nmax = nBinsToStore
-        theMaxFull = numpy.zeros(nmax,dtype=numpy.float128)
-
 
         if bShowEvaluationLog:
             print "iteration Neff  rhoMax rhoExpected  sqrt(2*Lmarg)  Lmarg"
@@ -350,13 +332,7 @@ class MCSampler(object):
             if ntotal >= nmax and neff != float("inf"):
                 print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
 
-            # Store our sample points
-            if bReturnPoints:
-                for i in range(0, int(n)):
-                    theGoodPoints[nEval+i] = numpy.transpose(rv)[i]
-                    theGoodlnL[nEval+i] = numpy.log(fval[i])
             nEval +=n  # duplicate variable to ntotal.  Need to disentangle
-
 
         # If we were pinning any values, undo the changes we did before
         self.cdf_inv.update(tempcdfdict)
@@ -364,30 +340,7 @@ class MCSampler(object):
         self._pdf_norm.update(temppdfnormdict)
         self.prior_pdf.update(temppriordict)
 
-        # Select points to be returned.
-        # Downselect the points passed back: only use high likelihood values. (Hardcoded threshold specific to our problem. Return of these points should probably be optional)
-        if bReturnPoints:
-            if fracCrit > 0:
-                lnLcrit = numpy.power(fracCrit*numpy.sqrt(2*maxlnL),2)/2  # fraction of the SNR being returned
-            else:
-                lnLcrit = -100  # return everything
-            datReduced = numpy.array([ list(theGoodPoints[i])+ [theGoodlnL[i]] for i in range(nEval) if theGoodlnL[i] > lnLcrit ])
-
-            #  Note size is TRUNCATED: only re-evaluated every n points!
-            # Need to stretch the buffer, so I have one Lmarg per evaluation
-#           LmargArrayRaw = numpy.cumsum(int_val)/(numpy.arange(1,len(int_val)+1)) # array of partial sums.
-            #LmargArrayRaw = numpy.cumsum(theIntegrandFull)/(numpy.arange(1,len(theIntegrandFull)+1)) # array of partial sums.
-            #LmargArray = LmargArrayRaw
-            # numpy.zeros(nEval)
-            # LmargArray[0] = LmargArrayRaw[0]
-            # for i in numpy.arange(1,nEval-1):
-            #         LmargArray[i+1] == LmargArray[i]
-            #         if numpy.mod(i , n ==0):
-            #                 LmargArray[i+1] == LmargArrayRaw[(i-1)/n]
-
-            return int_val1/ntotal, var/ntotal, datReduced, eff_samp
-        else:
-            return int_val1/ntotal, var/ntotal
+        return int_val1/ntotal, var/ntotal, eff_samp
                 
 
 ### UTILITIES: Predefined distributions
