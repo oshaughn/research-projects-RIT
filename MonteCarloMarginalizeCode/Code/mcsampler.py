@@ -275,7 +275,6 @@ class MCSampler(object):
         else:
             nBinsToStore = 1e7    # don't store everything! stop!
             nmax = nBinsToStore
-        theIntegrandFull = numpy.zeros(nmax,dtype=numpy.float128)
         theMaxFull = numpy.zeros(nmax,dtype=numpy.float128)
 
 
@@ -330,12 +329,8 @@ class MCSampler(object):
             maxval = [max(maxval, int_val[0]) if int_val[0] != 0 else maxval]
             for v in int_val[1:]:
                 maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
-                for i in range(0, int(n)-1):
-                    theIntegrandFull[nEval+i] = int_val[i]  # FIXME: Could do this by using maxval[-1] intelligently, rather than storing and resumming all
-#                        theIntegrandMaxSoFar = numpy.maximum.accumulate(theIntegrandFull) # For debugging only.  FIXME: should split into max over new data and old
 
 #           eff_samp = (int_val.cumsum()/maxval)[-1] + eff_samp   # ROS: This is wrong (monotonic over blocks of size 'n').  neff can reset to 1 at any time.
-            eff_samp = numpy.sum((theIntegrandFull/maxval[-1])[:(ntotal+n-1)])
             # FIXME: Need to bring in the running stddev here
             var = cumvar(int_val, mean, std, ntotal)[-1]
             # FIXME: Reenable caching
@@ -381,8 +376,8 @@ class MCSampler(object):
             #  Note size is TRUNCATED: only re-evaluated every n points!
             # Need to stretch the buffer, so I have one Lmarg per evaluation
 #           LmargArrayRaw = numpy.cumsum(int_val)/(numpy.arange(1,len(int_val)+1)) # array of partial sums.
-            LmargArrayRaw = numpy.cumsum(theIntegrandFull)/(numpy.arange(1,len(theIntegrandFull)+1)) # array of partial sums.
-            LmargArray = LmargArrayRaw
+            #LmargArrayRaw = numpy.cumsum(theIntegrandFull)/(numpy.arange(1,len(theIntegrandFull)+1)) # array of partial sums.
+            #LmargArray = LmargArrayRaw
             # numpy.zeros(nEval)
             # LmargArray[0] = LmargArrayRaw[0]
             # for i in numpy.arange(1,nEval-1):
@@ -390,7 +385,7 @@ class MCSampler(object):
             #         if numpy.mod(i , n ==0):
             #                 LmargArray[i+1] == LmargArrayRaw[(i-1)/n]
 
-            return int_val1/ntotal, var/ntotal, datReduced, numpy.log(LmargArray), eff_samp
+            return int_val1/ntotal, var/ntotal, datReduced, eff_samp
         else:
             return int_val1/ntotal, var/ntotal
                 
