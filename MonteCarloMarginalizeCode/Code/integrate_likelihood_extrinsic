@@ -445,7 +445,7 @@ if pinned_params.has_key("t_ref"):
 #
 # Merge options into one big ol' kwargs dict
 #
-pinned_params.update({"n": min(100, n_max), "nmax": n_max, "neff": n_eff, "full_output": True, "verbose": True, "extremely_verbose": False, "save_intg": True})
+pinned_params.update({"n": min(100, n_max), "nmax": n_max, "neff": n_eff, "verbose": True, "extremely_verbose": False, "save_intg": True})
 
 #
 # Call the likelihood function for various extrinsic parameter values

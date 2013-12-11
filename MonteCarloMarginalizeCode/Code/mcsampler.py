@@ -239,8 +239,6 @@ class MCSampler(object):
         n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
         save_intg = kwargs["save_intg"] if kwargs.has_key("save_intg") else False
 
-        peakExpected = kwargs["igrandmax"] if kwargs.has_key("igrandmax") else 0   # Do integral as L/e^peakExpected, if possible
-        fracCrit = kwargs['igrand_threshold_fraction'] if kwargs.has_key('igrand_threshold_fraction') else 0 # default is to return all
         bUseMultiprocessing = kwargs['use_multiprocessing'] if kwargs.has_key('use_multiprocessing') else False
         nProcesses = kwargs['nprocesses'] if kwargs.has_key('nprocesses') else 2
         bShowEvaluationLog = kwargs['verbose'] if kwargs.has_key('verbose') else False
@@ -261,8 +259,7 @@ class MCSampler(object):
         mean, std = None, None 
 
         if bShowEvaluationLog:
-            print "iteration Neff  rhoMax rhoExpected  sqrt(2*Lmarg)  Lmarg"
-        nEval =0
+            print "iteration Neff  rhoMax sqrt(2*Lmarg)  Lmarg"
 
         while eff_samp < neff and ntotal < nmax:
             # Draw our sample points
@@ -271,6 +268,7 @@ class MCSampler(object):
             # Calculate the overall p_s assuming each pdf is independent
             joint_p_s = numpy.prod(p_s, axis=0)
             joint_p_prior = numpy.prod(p_prior, axis=0)
+
             # ROS fix: Underflow issue: prevent probability from being zero!  This only weakly distorts our result in implausible regions
             # Be very careful: distance prior is in SI units,so the natural scale is 1/(10)^6 * 1/(10^24)
             # FIXME: Non-portable change, breaks universality of the integration.
@@ -278,6 +276,7 @@ class MCSampler(object):
 
             numpy.testing.assert_array_less(0,joint_p_s)        # >0!  (CANNOT be zero or negative for any sample point, else disaster. Human errors happen.)
             numpy.testing.assert_array_less(0,joint_p_prior)   # >0!  (could be zero if needed.)
+
             if len(rv[0].shape) != 1:
                 rv = rv[0]
             if bUseMultiprocessing:
@@ -298,41 +297,41 @@ class MCSampler(object):
                     self._rvs["joint_prior"] = joint_p_prior
                     self._rvs["joint_s_prior"] = joint_p_s
 
-            int_val = fval*joint_p_prior /joint_p_s
+            # Calculate the integral over this chunk
+            int_val = fval * joint_p_prior / joint_p_s
+
             if bShowEveryEvaluation:
                 for i in range(n):
                     print " Evaluation details: p,ps, L = ", joint_p_prior[i], joint_p_s[i], fval[i]
 
-            # Calculate max L (a useful convergence feature) for debug reporting.  Not used for integration
+            # Calculate max L (a useful convergence feature) for debug 
+            # reporting.  Not used for integration
             # Try to avoid nan's
             maxlnL = numpy.log(numpy.max([numpy.exp(maxlnL), numpy.max(fval),numpy.exp(-100)]))   # note if f<0, this will return nearly 0
-            # Calculate the effective samples via max over the current evaluations
-            # Requires populationg theIntegrandFull, a history of all integrand evaluations.
+
+            # Calculate the effective samples via max over the current 
+            # evaluations
             maxval = [max(maxval, int_val[0]) if int_val[0] != 0 else maxval]
             for v in int_val[1:]:
                 maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
-#           eff_samp = (int_val.cumsum()/maxval)[-1] + eff_samp   # ROS: This is wrong (monotonic over blocks of size 'n').  neff can reset to 1 at any time.
-            # FIXME: Need to bring in the running stddev here
+            # running stddev
             var = cumvar(int_val, mean, std, ntotal)[-1]
-            # FIXME: Reenable caching
-            #self.save_points(int_val, joint_p_s)
-            #print "%d samples saved" % len(self._cache)
+            # running integral
             int_val1 += int_val.sum()
-
+            # running number of evaluations
             ntotal += n
+            # FIXME: Likely redundant with int_val1
             mean = int_val1
             maxval = maxval[-1]
 
             eff_samp = int_val1/maxval
 
             if bShowEvaluationLog:
-                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*peakExpected), numpy.sqrt(2*numpy.log(int_val1/ntotal)), int_val1/ntotal
+                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/ntotal)), int_val1/ntotal
 
             if ntotal >= nmax and neff != float("inf"):
                 print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
-
-            nEval +=n  # duplicate variable to ntotal.  Need to disentangle
 
         # If we were pinning any values, undo the changes we did before
         self.cdf_inv.update(tempcdfdict)
