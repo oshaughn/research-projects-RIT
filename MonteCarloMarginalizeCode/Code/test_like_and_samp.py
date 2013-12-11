@@ -113,7 +113,7 @@ rosUseRandomTemplateStartingFrequency = False
 
 rosUseTargetedDistance = True
 rosUseStrongPriorOnParameters = False
-rosShowSamplerInputDistributions = opts.plot_ShowSamplerInputs
+rosShowSamplerInputDistributions = False #opts.plot_ShowSamplerInputs
 rosShowRunningConvergencePlots = True
 rosShowTerminalSampleHistograms = True
 rosUseMultiprocessing= False
@@ -594,15 +594,17 @@ if  rosShowSamplerInputDistributions or opts.plot_ShowPSD:  # minimize number of
 tGPSStart = lal.GPSTimeNow()
 print " Unpinned : ", unpinned_params
 print " Pinned : ",  pinned_params
-pinned_params.update({"n": opts.nskip, "nmax": opts.nmax, "neff": opts.neff, "full_output": True, "verbose":True, "extremely_verbose": opts.super_verbose,"igrand_threshold_fraction": fracThreshold, "igrandmax":rho2Net/2})
+pinned_params.update({"n": opts.nskip, "nmax": opts.nmax, "neff": opts.neff, "full_output": True, "verbose":True, "extremely_verbose": opts.super_verbose,"igrand_threshold_fraction": fracThreshold, "igrandmax":rho2Net/2, "save_intg":True})
 print " Params ", pinned_params
 res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
-#res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "right_ascension", "declination", "t_ref","phi_orb", "inclination", "psi", "distance",n=opts.nskip,nmax=opts.nmax,igrandmax=rho2Net/2,full_output=True,neff=opts.neff,igrand_threshold_fraction=fracThreshold,verbose=True,extremely_verbose=opts.super_verbose )
-#res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)  # doing violence to flexibility to be compatible with Chris' pinni
-#res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params,n=opts.nskip,nmax=opts.nmax,igrandmax=rho2Net/2,full_output=True,neff=opts.neff,igrand_threshold_fraction=fracThreshold,verbose=True,extremely_verbose=opts.super_verbose)
+
+print sampler._rvs.keys()
+retNew = [sampler._rvs["right_ascension"], sampler._rvs['declination'],sampler._rvs['t_ref'], sampler._rvs['phi_orb'],sampler._rvs['inclination'], sampler._rvs['psi'], sampler._rvs['psi'], sampler._rvs['distance'], sampler._rvs["joint_prior"], sampler._rvs["joint_s_prior"],np.log(sampler._rvs["integrand"])]
+retNew = map(list, zip(*retNew))
+ret = np.array(retNew)
 
 tGPSEnd = lal.GPSTimeNow()
-print sampler._rvs.keys(), len(sampler._rvs)
+print "Parameters returned by this integral ",  sampler._rvs.keys(), len(sampler._rvs)
 ntotal = opts.nmax  # Not true in general
 print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
 print " lnLmarg is ", np.log(res), " with nominal relative sampling error ", np.sqrt(var)/res, " but a more reasonable estimate based on the lnL history is ", np.std(lnLmarg - np.log(res))
@@ -673,7 +675,7 @@ if opts.inj:
 
 
 # Save the outputs in CP's format, for comparison.  NOT YET ACTIVE CODE -- xmlutils has a bug on master (lacking terms in dictionary)
-if  False: # opts.points_file_base:
+if  True: # opts.points_file_base:
     print "==== Exporting to xml: <base>.xml.gz ====="
     xmldoc = ligolw.Document()
     xmldoc.appendChild(ligolw.LIGO_LW())
@@ -710,7 +712,8 @@ if  False: # opts.points_file_base:
 
 
 # Plot terminal histograms from the sampled points and log likelihoods
-if rosShowTerminalSampleHistograms:
+# FIXME: Needs to be rewritten to work with the new sampler names
+if False: #rosShowTerminalSampleHistograms:
     print " ==== CONVERGENCE PLOTS (**beware: potentially truncated data!**) === "
     plt.figure(99)
     plt.clf()
