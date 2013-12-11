@@ -342,9 +342,13 @@ class MCSampler(object):
             #self.save_points(int_val, joint_p_s)
             #print "%d samples saved" % len(self._cache)
             int_val1 += int_val.sum()
+
             ntotal += n
             mean = int_val1
             maxval = maxval[-1]
+
+            eff_samp = int_val1/maxval
+
             if bShowEvaluationLog:
                 print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*peakExpected), numpy.sqrt(2*numpy.log(int_val1/ntotal)), int_val1/ntotal
 
