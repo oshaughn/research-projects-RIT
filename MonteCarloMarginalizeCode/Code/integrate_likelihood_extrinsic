@@ -371,7 +371,8 @@ sampler.add_parameter("inclination",
 # Distance - luminosity distance to source in parsecs
 # sampler: uniform volume over [dmin, dmax)
 #
-dist_sampler = functools.partial(mcsampler.uniform_samp_vector, dmin, dmax)
+dist_sampler = functools.partial(mcsampler.uniform_samp_vector, 
+    param_limits["distance"][0], param_limits["distance"][1])
 sampler.add_parameter("distance", 
     pdf = dist_sampler, 
     cdf_inv = None,
