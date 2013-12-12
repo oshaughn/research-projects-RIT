@@ -2,17 +2,22 @@
 URGENT PRIORITIES
 
 * "Ringing": Investigate how to control (inverse power spectrum, windowing, etc), propose patch, quantify error residual, and commit
+   - increase time buffer  duration [>8s]
    - Tukey window 'temporary' solution
    - Implement PSD truncation, revisit next meeting
 
 * Fixes and implementations
-   - distance prior  : uniform distance. Cutoff uniform across masses. 10*BNS distance (300 Mpc)
    - time prior : investigate whether best-fit time shifts much vs mass. 
           Preliminary answer: Is our 2ms window too tight? [tool: lalsimutils/overlap]
-   - convergence: neff, how implemented, when to stop
-      * code cleanup in mcsampler
 
+* Zero noise simulations
+    - ILE + zero_noise_mdc 
+         - scaling of Z, neff,  with number of trials
+         - possibly use increasing number of parameters
+         - make sure redoble : add to zero_noise_mdc/Makefile
 
+* Convergence and data storage
+    - how many poins should we keep
 
 TABLED UNTIL AFTER CODE WORKING
 
@@ -27,3 +32,12 @@ TABLED UNTIL AFTER CODE WORKING
 
 * Sampling in mass space
 
+
+
+RECORD
+
+* Priors 
+   - distance prior [2013-12-11]  : uniform distance. Cutoff uniform across masses. 10*BNS distance (300 Mpc)
+
+* Convergence
+   - neff [2013-12-11] implementation fixed, mcsampler cleaned
