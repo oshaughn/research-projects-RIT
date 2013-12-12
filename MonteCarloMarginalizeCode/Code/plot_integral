@@ -1,0 +1,81 @@
+#!/usr/bin/env python
+import sys
+import os
+from xml.sax import SAXException
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot
+
+import numpy
+
+from glue.ligolw import lsctables, table, utils
+
+from statutils import cumvar
+import xmlutils
+
+def plot_integral(samp, fname=None):
+    """
+    Effectively regenerates the process which happens in MCSampler.integrate, but keeps track of the values for plotting.
+    """
+    fval, joint_prior, joint_p_s = numpy.array([ (s.alpha1, s.alpha2, s.alpha3) for s in samp]).T
+    n = len(fval)
+    int_val = numpy.exp(fval/joint_p_s*joint_prior)
+    maxval = [int_val[0] or -float("Inf")]
+    for v in int_val[1:]:
+        maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
+    eff_samp = int_val.cumsum()/maxval
+
+    pyplot.figure()
+    pyplot.subplot(311)
+    pyplot.title("Integral estimate")
+    n_itr = range(1, len(int_val)+1)
+    pyplot.loglog()
+
+    int_est = int_val.cumsum()/numpy.linspace(1,n,n)
+    err_est = numpy.sqrt(cumvar(int_val)/n_itr)
+    pyplot.fill_between(n_itr, numpy.maximum(int_est - err_est, numpy.ones(int_est.shape)*1e-100), int_est + err_est, alpha=0.5)
+
+    pyplot.plot(n_itr, int_est, 'r-')
+    pyplot.ylabel("integral val")
+    #pyplot.twinx()
+    #pyplot.ylabel("integral std")
+    #pyplot.plot(n_itr, numpy.sqrt(cumvar(int_val)/n_itr), 'b-')
+    pyplot.grid()
+
+    pyplot.subplot(312)
+    pyplot.title("Maximum over iterations")
+    #pyplot.loglog()
+    pyplot.semilogx()
+    pyplot.plot(n_itr, numpy.log10(maxval), 'k-')
+    #pyplot.plot(n_itr, numpy.log10(int_val), 'b-')
+    pyplot.grid()
+
+    pyplot.subplot(313)
+    pyplot.title("Effective samples")
+    pyplot.semilogx()
+    pyplot.ylabel("N_eff")
+    pyplot.plot(n_itr, eff_samp, 'k-')
+    pyplot.twinx()
+    pyplot.ylabel("ratio N_eff/N")
+    pyplot.plot(n_itr, eff_samp/n_itr, 'b-')
+    pyplot.grid()
+    pyplot.subplots_adjust(hspace=0.5)
+    pyplot.savefig(fname or "integral.png")
+    pyplot.close()
+
+#
+# Main
+#
+
+for arg in sys.argv[1:]:
+    try:
+        samples = table.get_table(utils.load_filename(arg), lsctables.SimInspiralTable.tableName)
+    # FIXME: Get right exception
+    except SAXException:
+        samples = xmlutils.db_to_samples(arg, lsctables.SimInspiralTable, ("alpha1", "alpha2", "alpha3"))
+
+    base_name = os.path.basename(arg)
+    base_name = base_name.split(".")[0]
+    plot_name = base_name + ".png"
+    plot_integral(samples, plot_name)
