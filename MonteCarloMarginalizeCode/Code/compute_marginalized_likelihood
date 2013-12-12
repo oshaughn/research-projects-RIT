@@ -275,6 +275,17 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         )
 ile_job_type.write_sub_file()
 
+#
+# Make the posterior plot here since we need to make it the child of every sql
+# node in the DAG
+#
+pos_plot_job_type, pos_plot_job_name = dag_utils.write_posterior_plot_sub(tag="pos_plot", log_dir=log_dir)
+pos_plot_job_type.write_sub_file()
+pos_plot_node = pipeline.CondorDAGNode(pos_plot_job_type)
+pos_plot_node.set_pre_script(dag_utils.which("coalesce.sh"))
+pos_plot_node.set_category("PLOT")
+dag.add_node(pos_plot_node)
+
 sql_job_type, sql_job_name = dag_utils.write_result_coalescence_sub(tag="coalesce", log_dir=log_dir)
 sql_job_type.write_sub_file()
 
@@ -304,6 +315,8 @@ for i, (m1, m2) in enumerate(m1m2_grid):
 
     sql_node.set_category("SQL")
     dag.add_node(sql_node)
+
+    pos_plot_node.add_parent(sql_node)
 
 dag_name="marginalize_extrinsic_parameters"
 dag.set_dag_file(dag_name)
