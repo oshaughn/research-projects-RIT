@@ -31,13 +31,13 @@ test_ile_dag: iligo_bns.cache
 	../../Code/compute_marginalized_likelihood --cache-file /home/pankow/param_est/research-projects/MonteCarloMarginalizeCode/data/iligo_bns_mdc/iligo_bns.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --seglen 30 --padding 2.0 --mass1 1.4 --mass2 1.4 --reference-freq 0.0 --save-samples --output-file iligo_bns.xml.gz --n-copies 10
 
 test_ile_sim_zero_noise: iligo_bns.cache
-	../../Code/integrate_likelihood_extrinsic --cache-file iligo_bns.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 1.4 --mass2 1.4 --seglen 30 --pin-to-sim mdc.xml.gz --reference-freq 0.0 --padding 2
+	../../Code/integrate_likelihood_extrinsic --cache-file iligo_bns.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 1.4 --mass2 1.4 --pin-to-sim mdc.xml.gz --reference-freq 0.0
 
 test_ile_sim_with_noise: iligo_bns_combined.cache
-	../../Code/integrate_likelihood_extrinsic --cache-file iligo_bns_combined.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 1.4 --mass2 1.4 --seglen 30 --pin-to-sim mdc.xml.gz --reference-freq 0.0 --padding 2
+	../../Code/integrate_likelihood_extrinsic --cache-file iligo_bns_combined.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 1.4 --mass2 1.4 --pin-to-sim mdc.xml.gz --reference-freq 0.0
 
 test_ile_sim_only_noise: iligo_noise.cache
-	../../Code/integrate_likelihood_extrinsic --cache-file iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 1.4 --mass2 1.4 --seglen 30 --pin-to-sim mdc.xml.gz --reference-freq 0.0 --padding 2
+	../../Code/integrate_likelihood_extrinsic --cache-file iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 1.4 --mass2 1.4 --pin-to-sim mdc.xml.gz --reference-freq 0.0
 
 iligo_bns.cache: H1_iligo_bns.cache L1_iligo_bns.cache V1_iligo_bns.cache
 	cat {H,L,V}1_iligo_bns.cache > iligo_bns.cache
