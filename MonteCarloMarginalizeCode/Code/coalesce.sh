@@ -10,7 +10,7 @@ massset=$1
 
 if [[ -z "${massset}" ]]; then
     echo "No mass ID found for this job ID."
-    exit 123
+    cat *.cache > ILE_all.cache
 fi
 
 ocache=ILE_${massset}.cache
