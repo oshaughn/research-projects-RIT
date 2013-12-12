@@ -1,0 +1,27 @@
+#!/usr/bin/env python
+import sys
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot
+import numpy
+
+from glue.ligolw import lsctables
+import xmlutils
+
+import bayesutils
+
+params = ["inclination", "distance", "longitude", "latitude", "geocent_end_time", "coa_phase", "polarization", "alpha1", "alpha2", "alpha3"]
+p_syms = ["$\\iota$", "d", "$\\delta$", "$\\alpha$", "t", "$\\phi$", "$\\psi$"]
+samples = xmlutils.db_to_samples(sys.argv[1], lsctables.SimInspiralTable, params)
+
+# calculate weights for each sample
+weights = [numpy.exp(s.alpha1)*s.alpha2/s.alpha3 for s in samples]
+
+# unpack
+samples = numpy.array( [getattr(s, p) for s in samples for p in params[:7]] )
+samples.shape = (len(weights), 7)
+
+# FIXME: labels, title and injection
+bayesutils.triplot(samples, weights=weights, labels=p_syms, title=None, inj=None)
+pyplot.savefig("triplot.png")

@@ -312,7 +312,7 @@ if opts.pin_to_sim:
 #
 
 dmin = 1.    # min distance
-dmax = 2000.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
+dmax = 300.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 
 param_limits = { "psi": (0, 2*numpy.pi),
     "phi_orb": (0, 2*numpy.pi),
@@ -371,7 +371,8 @@ sampler.add_parameter("inclination",
 # Distance - luminosity distance to source in parsecs
 # sampler: uniform volume over [dmin, dmax)
 #
-dist_sampler = functools.partial(mcsampler.quadratic_samp_vector, dmax)
+dist_sampler = functools.partial(mcsampler.uniform_samp_vector, 
+    param_limits["distance"][0], param_limits["distance"][1])
 sampler.add_parameter("distance", 
     pdf = dist_sampler, 
     cdf_inv = None,
@@ -444,7 +445,7 @@ if pinned_params.has_key("t_ref"):
 #
 # Merge options into one big ol' kwargs dict
 #
-pinned_params.update({"n": min(100, n_max), "nmax": n_max, "neff": n_eff, "full_output": True, "verbose": True, "extremely_verbose": False, "save_intg": True})
+pinned_params.update({"n": min(100, n_max), "nmax": n_max, "neff": n_eff, "verbose": True, "extremely_verbose": False, "save_intg": True})
 
 #
 # Call the likelihood function for various extrinsic parameter values
@@ -481,7 +482,7 @@ if not opts.time_marginalization:
     
         return numpy.exp(lnL)
 
-    res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+    res, var, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else: # Sum over time for every point in other extrinsic params
 
@@ -500,7 +501,7 @@ else: # Sum over time for every point in other extrinsic params
     
         return numpy.exp(lnL)
 
-    res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+    res, var, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)

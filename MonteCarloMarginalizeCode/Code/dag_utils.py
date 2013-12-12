@@ -161,6 +161,6 @@ def write_result_coalescence_sub(tag='coalesce', exe=None, log_dir=None, output_
     sql_job.add_opt("verbose", None)
 
     sql_job.add_condor_cmd('getenv', 'True')
-    sql_job.add_condor_cmd('request_memory', '2048')
+    sql_job.add_condor_cmd('request_memory', '1024')
     
     return sql_job, sql_sub_name
