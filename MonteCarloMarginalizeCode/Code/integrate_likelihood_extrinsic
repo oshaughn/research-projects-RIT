@@ -191,6 +191,8 @@ P = lalsimutils.ChooseWaveformParams(
 if opts.data_start_time is not None and opts.data_end_time is not None:
     start_time =  opts.data_start_time
     end_time =  opts.data_end_time
+    print "Fetching data segment with start=", start_time
+    print "                             end=", end_time
 
 # Automatically choose data segment bounds so region of interest isn't corrupted
 else:
@@ -199,6 +201,10 @@ else:
     T_seg = T_tmplt + T_spec # A safe time before and after event time
     start_time = float(event_time) - T_seg
     end_time = float(event_time) + T_seg
+    print "Fetching data segment with start=", start_time
+    print "                             end=", end_time
+    print "\t\tEvent time is: ", float(event_time)
+    print "\t\tT_seg is: ", T_seg
 
 #
 # Load in data and PSDs
