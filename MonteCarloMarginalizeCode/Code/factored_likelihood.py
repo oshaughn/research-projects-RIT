@@ -41,7 +41,8 @@ rosDebugMessages = True
 # Main driver functions
 #
 def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
-        psd_dict, Lmax, fMax, analyticPSD_Q=False, verbose=True):
+        psd_dict, Lmax, fMax, analyticPSD_Q=False,
+        inv_spec_trunc_Q=False, T_spec=0., verbose=True):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -89,11 +90,12 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         N_window = int( 2 * t_window / P.deltaT )
         # Compute cross terms < h_lm | h_l'm' >
         crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,
-                fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q)
+                fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
+                inv_spec_trunc_Q, T_spec)
         # Compute rholm(t) = < h_lm(t) | d >
         rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
-                psd_dict[det], P.fmin, fMax, 1./2./P.deltaT,
-                N_shift, N_window, rho_epoch, analyticPSD_Q)
+                psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, N_shift, N_window,
+                analyticPSD_Q, inv_spec_trunc_Q, T_spec)
         rhoXX = rholms[det][rholms[det].keys()[0]]
         # The vector of time steps within our window of interest
         # for which we have discrete values of the rholms
@@ -347,7 +349,8 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist):
     return term1 + term2
 
 def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
-        N_shift, N_window, rho_epoch, analyticPSD_Q=False):
+        N_shift, N_window, analyticPSD_Q=False,
+        inv_spec_trunc_Q=False, T_spec=0.):
     """
     Compute the complex-valued overlap between
     each member of a SphHarmFrequencySeries 'hlms'
@@ -359,8 +362,8 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
     at a discrete series of time shifts.
 
     Returns a SphHarmTimeSeries object containing the complex inner product
-    for discrete values of the reference time tref.  The epoch of the SphHarmTimeSeries object
-    is set to account for the transformation
+    for discrete values of the reference time tref.  The epoch of the
+    SphHarmTimeSeries object is set to account for the transformation
     """
     rholms = {}
     assert data.deltaF == hlms[hlms.keys()[0]].deltaF
@@ -369,14 +372,13 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
 
     # Create an instance of class to compute inner product time series
     IP = lsu.ComplexOverlap(fmin, fMax, fNyq, data.deltaF, psd,
-            analyticPSD_Q, full_output=True)
+            analyticPSD_Q, inv_spec_trunc_Q, T_spec, full_output=True)
 
     # Loop over modes and compute the overlap time series
     for pair in hlms.keys():
         rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
         rhoTS.epoch = data.epoch - hlms[pair].epoch
         rholms[pair] = lal.CutCOMPLEX16TimeSeries(rhoTS, N_shift, N_window)
-        rholms[pair].epoch = rho_epoch
 
     return rholms
 
@@ -410,7 +412,7 @@ def InterpolateRholms(rholms, t):
     return rholm_intp
 
 def ComputeModeCrossTermIP(hlms, psd, fmin, fMax, fNyq, deltaF,
-        analyticPSD_Q=False, verbose=True):
+        analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0., verbose=True):
     """
     Compute the 'cross terms' between waveform modes, i.e.
     < h_lm | h_l'm' >.
@@ -421,7 +423,8 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fMax, fNyq, deltaF,
     i.e. ((l,m),(l',m'))
     """
     # Create an instance of class to compute inner product
-    IP = lsu.ComplexIP(fmin, fMax, fNyq, deltaF, psd, analyticPSD_Q)
+    IP = lsu.ComplexIP(fmin, fMax, fNyq, deltaF, psd, analyticPSD_Q,
+            inv_spec_trunc_Q, T_spec)
 
     crossTerms = {}
 
