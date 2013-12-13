@@ -43,6 +43,9 @@ def ParseStandardArguments():
 
     # Noise model
     parser.add_argument("--psd-file",dest='psd_file',default=None, help="psd-file for all instruments. Assumes PSD for all instruments is provided in the file.  If None, uses an analytic PSD")
+    parser.add_argument("--psd-truncate-inverse",dest="psd_TruncateInverse",default=False,action='store_true')
+    parser.add_argument("--psd-truncate-inverse-time",dest="psd_TruncateInverseTime",default=32,type=float)
+
 #    parser.add_argument("--psd-file",dest='psd_file',default=None, help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments. If None, uses an analytic PSD.  Implemented for compatibility with Pankow")
 
     # Data or injection

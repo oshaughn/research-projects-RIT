@@ -122,6 +122,88 @@ def DataInverseFourier(hf):   # Complex fft wrapper (COMPLEX16Freq ->COMPLEX16Ti
     lal.COMPLEX16FreqTimeFFT( ht, hf, revplan)  
     # assume memory freed by swig python
     return ht
+## TEST and DEMO of truncate_inverse_psd
+# fNyq = 2048
+# df = 1/64
+# psd = lalsimutils.get_psd_series_from_xmldoc("psd.xml.gz")
+# psd = lalsimutils.resample_psd_series(psd, df, 0, fNyq)
+# psd = lal.ResizeREAL8FrequencySeries(psd,0, fNyq/df+1)
+# psdNew = lalsimutils.truncate_inverse_psd(psd,8,40,2000)   # impose hard limits at 40,2000 Hz
+def truncate_inverse_psd(swig_psd,Tkeep,fmin,fmax):
+    """
+    Takes swig_psd, Tkeep,fmax.  Conputes inverse 1/psd^(1/2) (iFFT of sqrt(weights2side)) in the time domain, zeroing all except [-Tkeep/2, Tkeep/2]
+    around t=0, inverse-fft's, and returns a 'revised' PSD, corresponding to a revised (finite-length) time duration filter.   
+   *Requires* PSD  initialized up to its nyquist frequency, in swig format, with pow2+1  entries.
+
+    *fmin* and *fmax* are supplied explicitly by the user, to *ensure* any hard cutoffs are explicitly included in the PSD model,
+    using *exactly* the same code paths used elsewhere/previously
+        [Even without lines, the low-frequency cutoff introduces long-duration 'ringing' into the whitening filter, which this program is intended to truncate]
+        [*WARNING*: This means that in *subsequent* uses of this PSD, you need to set flow = 0 ! ]
+
+    Implemented using 'IP' infrastructure  (IP.intgd = freq; IP.ovlp = time) to allocate memory and map the PSD arrays,
+    to insure consistent length requirements and bin alignment (i.e., code path) as implementation used in inner product.
+    (Ideally, should probably use IP to return the inverse FFT too)
+
+    For comparison: https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_find_chirp_s_p_data_8c_source.html#l00431
+    Reference: Section 4.7 in Duncan's thesis http://arxiv.org/pdf/0705.1514v1.pdf 
+    """
+
+    # Create frequencies : df, fNyq
+    df = swig_psd.deltaF
+    fNyq = df * (len(swig_psd.data.data) -1)   # Implicit assumption about odd length of raw psd file
+    T = 1/df  # = N deltaT
+    # We cannot truncate if the timescale is too short. Return untruncated PSD (not safe; perhaps die?)
+    if T<1.5*Tkeep:
+        return swig_psd
+    # Proceed: make safety copy of swig_psd, to prevent accidentally changing it by numpy magic (e.g., side effects in IP)
+    swig_psd_copy = lal.CutREAL8FrequencySeries(swig_psd,0, len(swig_psd.data.data)) # swig passes pointers, don't change the original array by accident
+
+    # Create, extract 'weights2side' [PSD in array form] and two pre-allocated buffers
+#    print " Creating IP structure, truncating the PSD over the range ", [fmin, fmax]
+    # Master branch arguments
+    IP = lalsimutils.ComplexOverlap(fLow=fmin, fMax=fmax,fNyq=fNyq, deltaF=swig_psd_copy.deltaF,psd=swig_psd_copy.data.data, analyticPSD_Q=False)
+    npts = len(IP.intgd.data.data)  # = IP.len2side
+    wt = lal.CutCOMPLEX16FrequencySeries(IP.intgd,0,npts)  # instantiate 2-sided freq series, copied from IP.  [associated timeseries in 'IP.ovlp'-> xt]
+    wt.data.data = np.sqrt(IP.weights2side) # populate with weights (=1/sqrt(PSD)].  This includes any truncation (flow, fmax, etc)
+
+    # SCALE FACTOR
+    #   - concern we did not keep enough numerical precision to preserve zeros
+    wtScale = np.abs(np.max(wt.data.data[np.nonzero(wt.data.data)]))
+    wt.data.data = wt.data.data/wtScale
+    # Inverse FFT to create timeseries (ROS wrapper)
+    xt = DataInverseFourier(wt)
+
+    # Truncate the series, targeting a specific duration.  (Up to user to make sure these durations are sane)
+    dt =xt.deltaT
+    nSamplesToZero = int((T-Tkeep)/dt/2)  # The ifft array in *time* has t=0 at the first sample. Zero out the middle 2*nSamplesToZero points
+    nSamples = xt.data.length
+    xt.data.data[nSamplesToZero+1:nSamples-nSamplesToZero] = 0.   # Be careful re potential fencepost error here.
+    # FFT the truncated weights
+    wtNew = DataFourier(xt)
+
+
+    # Allocate and populate a *one-sided* REAL8FrequencySeries, of correct length. [Remember, we assume fully allocated PSD at start]
+    # Avoid direct numpy assignment, since mixing memory models produces segfaults
+    swig_psd_out = lal.CutREAL8FrequencySeries(swig_psd,0, swig_psd.data.length)  # make *another* copy, to write into
+    #swig_psd_out.data.data = np.zeros(len(swig_psd_out.data.data))
+    tmp =  wtNew.data.data[0:npts/2+1]  # Assign data from first half, including f=0 bin. BE CAREFUL re potential fenceposts
+    
+    tmp = tmp[::-1]                               # Reverse so f=0 is first bin. Remember f=0 is one past midpoint in original array
+    tmpSquare = np.abs(tmp)**2            #  create 1/S^2 array. Because the FFT is 2-sided, there is a small complex part created. Use np.abs() to force real.
+    for i in np.arange(swig_psd_out.data.length - 1):
+        swig_psd_out.data.data[i]=0
+        if tmpSquare[i]:   # avoid underflow
+            swig_psd_out.data.data[i] = 1./tmpSquare[i]  # assign
+    # Set the zero and nyquist bin
+    swig_psd_out.data.data[0] = np.inf
+    swig_psd_out.data.data[-1] =0.
+    # Apply scale factor at end
+    swig_psd_out.data.data *= 1/np.power(wtScale,2)  # re-insert scale factor. Remember wt scales as longweights. This tries to keep numbers in the FFT's of order unity, to avoid precision loss
+
+    # Return truncated PSD
+    print "   Truncated PSD created "
+    return swig_psd_out
+
 
 def fakeGaussianDataFrequency(amp, sigma,deltaT,npts,window='Tukey', window_beta=0.01):
     return DataFourier(fakeGaussianDataTime(amp,sigma,deltaT,npts,window=window,window_beta=window_beta))
@@ -462,15 +544,15 @@ else:
         print
 
         # Inverse PSD truncation (optional)
-        # if opts.psd_TruncateInverse:
-        #     Tleft = opts.psd_TruncateInverseTime
-        #     print "  Attempting to truncate inverse PSD, using target length ", Tleft
-        #     psd_dict[det] = lalsimutils.truncate_inverse_psd(psd_dict[det],Tleft,opts.fmin_SNR,opts.fmax_SNR)
-        #     print "  Confirm returned PSD is sane " , psd_dict[det].data.data[0], psd_dict[det].data.data[-1]
+        if opts.psd_TruncateInverse:
+            Tleft = opts.psd_TruncateInverseTime
+            print "  Attempting to truncate inverse PSD, using target length ", Tleft
+            psd_dict[det] = truncate_inverse_psd(psd_dict[det],Tleft,opts.fmin_SNR,opts.fmax_SNR)
+            print "  Confirm returned PSD is sane " , psd_dict[det].data.data[0], psd_dict[det].data.data[-1]
             
-        #     print " To use this PSD *precisely* will require changing fminSNR and fmaxSNR "
-        #     fminSNR=5
-        #     print "   SNR integrand ", [fminSNR, fNyq]
+            print " To use this PSD *precisely* will require changing fminSNR and fmaxSNR "
+            fminSNR=5
+            print "   SNR integrand ", [fminSNR, fNyq]
 
 
         #ARCHIVAL: Original non-interpolated method. Seems to fail asymptomatically (memory management?) for some PSD files
@@ -604,7 +686,15 @@ print " Reminder: signal duration, template duration, PSD truncQ, psdTruncT ", t
 
 #
 # Perform the Precompute stage
+#    - use a large tWindow : I want to retain the *entire* timeseries
+#    - will it work if tWindowReference[1] is large
 #
+#tWindowReference[1] = Psig.deltaT*len(data_dict[detectors[0]].data.data)
+#print tWindowReference[1]
+print "  ---- > Problem : Master automatically clips the timeseries duration; use a *hardcoded* large window, for now, to retain as much as plausible "
+print "          Note: if the window is too large, you hit t_shift < 0 "
+det0 = detectors[0]
+tWindowReference[1]= timeWaveformTemplate # data_dict[det0].data.epoch - 
 rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q)
 print "Done with precompute"
 print detectors, rholms.keys()
@@ -615,7 +705,7 @@ for det in detectors:
     ht = DataInverseFourier(data_dict[det])  # this had better be windowed, if the input is!
     tvals = np.arange(ht.data.length)*ht.deltaT + float(ht.epoch - theEpochFiducial)
     plt.plot(tvals,np.real(ht.data.data),label='h(t):'+det)
-plt.xlabel('t(s)')
+plt.xlabel('t(s): 0 at ' +  lalsimutils.stringGPSNice(theEpochFiducial))
 plt.ylabel('h (data)')
 plt.legend()
 plt.savefig("test-Q-response-ht.jpeg")
@@ -629,7 +719,7 @@ for det in detectors:
     rho22 =rholms[det][(2,2)]
     tvals = np.arange(rho22.data.length)*rho22.deltaT + float(rho22.epoch -theEpochFiducial) # use time alignment
     plt.plot(tvals,np.abs(rho22.data.data),label='rho22:'+det)
-plt.xlabel('t(s) [relative]')
+plt.xlabel('t(s) [relative]:  0 at ' +  lalsimutils.stringGPSNice(theEpochFiducial))
 plt.ylabel('Q22')
 plt.legend()
 plt.savefig("test-Q-response-rho22.jpeg")
@@ -672,7 +762,7 @@ for indx in np.arange(len(tvals)):
     lnL[indx] =  factored_likelihood.FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, Lmax)
 plt.clf()
 plt.plot(tvals,lnL,label='lnL')
-plt.xlabel('t - tEvent (s)')
+plt.xlabel('t - tEvent (s): relative to '+lalsimutils.stringGPSNice(theEpochFiducial))
 plt.ylabel('lnL')
 plt.savefig("test-Q-response-lnL.jpg")
 

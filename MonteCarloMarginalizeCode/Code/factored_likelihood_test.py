@@ -167,7 +167,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             print  " rho22 plot ", det, lalsimutils.stringGPSNice(q.epoch), lalsimutils.stringGPSNice(theEpochFiducial)
             tvals = float(q.epoch-theEpochFiducial) + np.arange(len(q.data.data))*q.deltaT  # rho timeseries are truncated, so short
             plt.plot(tvals,np.abs(q.data.data),label='rho22(t):'+det)
-            plt.xlabel('t(s) [not geocentered]')
+            plt.xlabel('t(s) [not geocentered] : relative to '+lalsimutils.stringGPSNice(theEpochFiducial))
             plt.ylabel('rho22')
             plt.title('q:'+lalsimutils.stringGPSNice(q.epoch))
         plt.legend()
@@ -213,7 +213,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             lnLData = map( lambda x: factored_likelihood.SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, det), tvals)
             lnLDataEstimate = np.ones(len(tvals))*rhoExpected[det]*rhoExpected[det]
             plt.figure(1)
-            plt.xlabel('t(s) [geocentered]')
+            plt.xlabel('t(s) [geocentered]relative to '+lalsimutils.stringGPSNice(theEpochFiducial))
             plt.ylabel('lnLdata')
             plt.title("lnLdata (interpolated) vs narrow time interval")
             indx = [k for  k,value in enumerate((tvals>tWindowExplore[0])  * (tvals<tWindowExplore[1])) if value] # gets results if true
@@ -230,7 +230,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             lnLDataDiscrete = factored_likelihood.DiscreteSingleDetectorLogLikelihoodData(theEpochFiducial,rholms, theEpochFiducial+tStartOffsetDiscrete, nBinsDiscrete, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, det)
             tvalsDiscrete = tvalsDiscrete[:len(lnLDataDiscrete)]
             plt.figure(2)
-            plt.xlabel('t(s) [not geocentered]')
+            plt.xlabel('t(s) [not geocentered] relative to '+lalsimutils.stringGPSNice(theEpochFiducial))
             plt.ylabel('lnLdata')
             nSkip = 1 # len(tvalsDiscrete)/4096   # Go to fixed number of points
             lnLDataEstimate = np.ones(len(tvalsDiscrete))*rhoExpected[det]*rhoExpected[det]
