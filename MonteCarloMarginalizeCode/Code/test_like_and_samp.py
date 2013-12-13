@@ -41,6 +41,19 @@ Examples:
 
 
 """
+try:
+    import matplotlib
+    #matplotlib.use("Agg")
+    matplotlib.use("GDK")
+    from matplotlib import pylab as plt
+    bNoInteractivePlots = True  # Move towards saved fig plots, for speed
+except:
+    print "- no matplotlib -"
+    bNoInteractivePlots = True
+
+
+
+
 import sys
 import pickle
 
@@ -55,10 +68,6 @@ import lal
 import lalsimulation as lalsim
 import lalsimutils
 
-try:
-    from matplotlib import pylab as plt
-except:
-    print "- no matplotlib -"
 
 try:
     import healpy
@@ -93,6 +102,11 @@ if opts.verbose:
     except:
         print "  ... trouble printing version numbers "
     print " Glue tag ", git_version.id
+    try:
+        import scipy   # used in lalsimutils; also printed in pylal-version
+        print " Scipy: ", scipy.__version__
+    except:
+        print " trouble printing scipy version"
 
 def mean_and_dev(arr, wt):
     av = np.average(arr, weights=wt)
@@ -125,7 +139,7 @@ fracThreshold = opts.points_threshold_match
 
 
 theEpochFiducial = lal.LIGOTimeGPS(1064023405.000000000)   # 2013-09-24 early am 
-tEventFiducial =   -2                                                                # relative to GPS reference
+tEventFiducial =   0                                                                # relative to GPS reference
 
 det_dict = {}
 rhoExpected ={}
@@ -138,10 +152,12 @@ approxTemplate = approxSignal
 ampO =opts.amporder # sets which modes to include in the template (and signal, if injected)
 Lmax = opts.Lmax # sets which modes to include in the template.  Print warning if inconsistent.
 fref = opts.fref
-fminWavesSignal = opts.fmin_Template  # too long can be a memory and time hog, particularly at 16 kHz
+fminWavesTemplate = opts.fmin_Template  # too long can be a memory and time hog, particularly at 16 kHz
+fminWavesSignal = opts.signal_fmin  # too long can be a memory and time hog, particularly at 16 kHz
 fminSNR =opts.fmin_SNR
-fmaxSNR = opts.fmax_SNR
+fmaxSNR =opts.fmax_SNR
 fSample = opts.srate
+window_beta = 0.01
 
 if ampO ==-1 and Lmax < 5:
     print " +++ WARNING ++++ "
@@ -157,16 +173,6 @@ if opts.channel_name is not None and opts.cache_file is None:
 elif opts.channel_name is not None:
     det_dict = dict(map(lambda cname: cname.split("="), opts.channel_name))
 
-
-
-if rosUseDifferentWaveformLengths: 
-    fminWavesTemplate = fminWavesSignal+0.005
-else:
-    if rosUseRandomTemplateStartingFrequency:
-         print "   --- Generating a random template starting frequency  ---- " 
-         fminWavesTemplate = fminWavesSignal+5.*np.random.random_sample()
-    else:
-        fminWavesTemplate = fminWavesSignal
 
 #
 # Produce data with a coherent signal in H1, L1, V1
@@ -235,11 +241,12 @@ if opts.inj:
     print "---- End injeciton parameters ----"
 
 # Use forced parameters, if provided
-if opts.mass1:
-    Psig.m1 = opts.mass1*lal.LAL_MSUN_SI
-if opts.mass2:
-    Psig.m2 = opts.mass2*lal.LAL_MSUN_SI
+if opts.template_mass1:
+    Psig.m1 = opts.template_mass1*lal.LAL_MSUN_SI
+if opts.template_mass2:
+    Psig.m2 = opts.template_mass2*lal.LAL_MSUN_SI
 
+# Reset origin of time, if required. (This forces different parts of data to be read- important! )
 if opts.force_gps_time:
     print " +++ USER HAS OVERRIDDEN FIDUCIAL EPOCH +++ "
     print "  The zero of time (and the region to be windowed) will be changed; you had better know what you are doing.  "
@@ -249,12 +256,42 @@ if opts.force_gps_time:
     theEpochFiducial.gpsSeconds = int(opts.force_gps_time)
     theEpochFiducial.gpsNanoSeconds =  int(1e9*(opts.force_gps_time - int(opts.force_gps_time)))
 
+# Create artificial "signal".  Needed to minimize duplicate code when I
+#  -  consistently test waveform duration
+#  - copy template parameters 
+#  - [test code] : generate plots vs time [test code], expected SNR, etc
+#       WARNING: Test code plots will not look perfect, because we don't know the true sky location (or phase, polarization, ...)
+if  not Psig and opts.channel_name:  # If data loaded but no signal generated
+    if (not opts.template_mass1) or (not opts.template_mass2) or (not opts.force_gps_time):
+        print " CANCEL: Specifying parameters via m1, m2, and time on the command line "
+        sys.exit(0)
+    Psig = lalsimutils.ChooseWaveformParams(approx=approxSignal,
+        fmin = fminWavesSignal, 
+        dist=factored_likelihood.distMpcRef*1e6*lal.LAL_PC_SI,    # default distance
+        fref=fref)
+    Psig.m1 = lal.LAL_MSUN_SI*opts.template_mass1
+    Psig.m2 = lal.LAL_MSUN_SI*opts.template_mass2
+    Psig.tref = lal.LIGOTimeGPS(0.000000000)  # Initialize as GPSTime object
+    Psig.tref += opts.force_gps_time # Pass value of float into it
+
+
+# TEST THE SEGMENT LENGTH TARGET
+if Psig:
+    timeSegmentLength  = -float(lalsimutils.hoft(Psig).epoch)
+    if rosDebugMessagesDictionary["DebugMessages"]:
+        print " Template duration : ", timeSegmentLength
+    if timeSegmentLength > opts.seglen:
+        print " +++ CATASTROPHE : You are requesting less data than your template target needs!  +++"
+        print "    Requested data size: ", opts.seglen
+        print "    Template duration  : ", timeSegmentLength
+        sys.exit(0)
+
 
 # TRY TO READ IN DATA: if data specified, use it and construct the detector list from it. Otherwise...
 if opts.channel_name and    (opts.opt_ReadWholeFrameFilesInCache):
     for inst, chan in map(lambda c: c.split("="), opts.channel_name):
         print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
-        data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan)
+        data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan,window_shape=window_beta)
         fSample = len(data_dict[inst].data.data)*data_dict[inst].deltaF
         df = data_dict[inst].deltaF
         if Psig:
@@ -271,7 +308,7 @@ if opts.channel_name and not (opts.opt_ReadWholeFrameFilesInCache):
         print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
         # FIXME: Assumes a frame file exists covering EXACTLY the needed interval!
         taper = lalsim.LAL_SIM_INSPIRAL_TAPER_STARTEND
-        data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=int(event_time)-start_pad, stop=int(event_time)+end_pad)
+        data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=int(event_time)-start_pad, stop=int(event_time)+end_pad,window_shape=window_beta)
         fSample = len(data_dict[inst].data.data)*data_dict[inst].deltaF
         df = data_dict[inst].deltaF
         if Psig:
@@ -281,7 +318,7 @@ if opts.channel_name and not (opts.opt_ReadWholeFrameFilesInCache):
 
 #        print " Sampling rate of data ", fSample
 
-# CREATE A DEFAULT INJECTION, IF NONEMADE TO THIS POINT
+# CREATE A DEFAULT "signal", if none made to this point.  
 analytic_signal = False
 if len(data_dict) is 0:
     analytic_signal = True
@@ -299,7 +336,7 @@ if len(data_dict) is 0:
             ampO=ampO,
             radec=True, theta=1.2, phi=2.4,
             detector='H1', 
-            dist=25.*1.e6*lal.LAL_PC_SI,  
+            dist=opts.signal_distMpc*1.e6*lal.LAL_PC_SI,    # move back to aLIGO distances
             deltaT=1./fSample
                                 )
         timeSegmentLength  = -float(lalsimutils.hoft(Psig).epoch)
@@ -323,6 +360,8 @@ if len(data_dict) is 0:
             theEpochFiducial=opts.signal_tref
 
     df = lalsimutils.findDeltaF(Psig)
+    if 1/df < opts.seglen:   # Allows user to change seglen of data for *analytic* models, on the command line. Particularly useful re testing PSD truncation
+        df = 1./lalsimutils.nextPow2(opts.seglen)
     Psig.print_params()
     Psig.deltaF = df
     data_dict['H1'] = factored_likelihood.non_herm_hoff(Psig)
@@ -341,7 +380,8 @@ if opts.force_gps_time:
     theEpochFiducial.gpsSeconds = int(opts.force_gps_time)
     theEpochFiducial.gpsNanoSeconds =  int(1e9*(opts.force_gps_time - int(opts.force_gps_time)))
 
-# TODO: Read PSD from XML
+
+# PSD reading
 psd_dict = {}
 if not(opts.psd_file):
     analyticPSD_Q = True # For simplicity, using an analytic PSD
@@ -377,7 +417,7 @@ else:
         print
 
         # psd_dict[det] = lalsimutils.pylal_psd_to_swig_psd(lalsimutils.get_psd_series_from_xmldoc(opts.psd_file, det))
-        # psd_dict[det] = lalsimutils.regularize_swig_psd_series_near_nyquist(psd_dict[det], 80) # zero out 80 hz window near nyquist
+        # psd_dict[det] = lalsimutils.regularize_swig_psd_series_near_nyquist(psd_dict[det], fNyq-opts.fmax_SNR) # zero out 80 hz window near nyquist
         # psd_dict[det] =  lalsimutils.enforce_swig_psd_fmin(psd_dict[det], fminSNR)           # enforce fmin at the psd level, HARD CUTOFF
         # tmp = psd_dict[det].data.data
         # print "Sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), " and maximum is ", np.max(psd_dict[det].data.data)
@@ -486,8 +526,7 @@ TestDictionary = factored_likelihood_test.TestDictionaryDefault
 TestDictionary["UVReport"]              =  analytic_signal  # this report is very confusing for real data
 # TestDictionary["UVReflection"]          = True
 # TestDictionary["QReflection"]          = False
-TestDictionary["QSquaredTimeseries"] = False # opts.plot_ShowLikelihoodVersusTime    # should be command-line option to control this plot specifically
-TestDictionary["Rho22Timeseries"]      = False
+TestDictionary["Rho22Timeseries"]      = True
 TestDictionary["lnLModelAtKnown"]  =  analytic_signal  # this report is very confusing for real data
 TestDictionary["lnLDataAtKnownPlusOptimalTimePhase"] = False
 TestDictionary["lnLAtKnown"]           = True
@@ -559,6 +598,9 @@ if opts.plot_ShowPSD:
     Sh = map(lalsim.SimNoisePSDaLIGOZeroDetHighPower,fvals)
     plt.plot(np.log10(fvals),np.log10(Sh),label="Sh:aLIGO")
     plt.legend()
+    plt.xlim(0,4)
+    plt.ylim(-50,-30)
+    plt.savefig("FLT-psd.jpg")  # really not in FLT, but the same kind of plot
 
 if rosShowSamplerInputDistributions:
     print " ====== Plotting prior and sampling distributions ==== "
@@ -583,10 +625,10 @@ if rosShowSamplerInputDistributions:
         plt.plot(xvals,cdfvals,label='cdf:'+str(param))
         plt.xlabel(str(param))
         plt.legend()
-        plt.savefig("test_like_and_samp-"+str(param)+".pdf")
+        plt.savefig("test_like_and_samp-"+str(param)+".jpg")
 
 
-if  rosShowSamplerInputDistributions or opts.plot_ShowPSD:  # minimize number of pauses
+if  (rosShowSamplerInputDistributions or opts.plot_ShowPSD) and not bNoInteractivePlots:  # minimize number of pauses
     plt.show()
 
 
@@ -596,7 +638,7 @@ print " Unpinned : ", unpinned_params
 print " Pinned : ",  pinned_params
 pinned_params.update({"n": opts.nskip, "nmax": opts.nmax, "neff": opts.neff, "full_output": True, "verbose":True, "extremely_verbose": opts.super_verbose,"igrand_threshold_fraction": fracThreshold, "igrandmax":rho2Net/2, "save_intg":True})
 print " Params ", pinned_params
-res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+res, var,  neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 print sampler._rvs.keys()
 retNew = [sampler._rvs["right_ascension"], sampler._rvs['declination'],sampler._rvs['t_ref'], sampler._rvs['phi_orb'],sampler._rvs['inclination'], sampler._rvs['psi'], sampler._rvs['psi'], sampler._rvs['distance'], sampler._rvs["joint_prior"], sampler._rvs["joint_s_prior"],np.log(sampler._rvs["integrand"])]
@@ -607,7 +649,7 @@ tGPSEnd = lal.GPSTimeNow()
 print "Parameters returned by this integral ",  sampler._rvs.keys(), len(sampler._rvs)
 ntotal = opts.nmax  # Not true in general
 print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
-print " lnLmarg is ", np.log(res), " with nominal relative sampling error ", np.sqrt(var)/res, " but a more reasonable estimate based on the lnL history is ", np.std(lnLmarg - np.log(res))
+print " lnLmarg is ", np.log(res), " with nominal relative sampling error ", np.sqrt(var)/res, " but a more reasonable estimate based on the lnL history is " #, np.std(lnLmarg - np.log(res))
 print " expected largest value is ", rho2Net/2, "and observed largest lnL is ", np.max(np.transpose(ret)[-1])
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
 
@@ -626,7 +668,7 @@ ourio.dumpSamplesToFile(fnameBase+"-points.dat", retSorted, ['ra','dec', 'tref',
 #print " Parameters : ", sampArray
 ourio.dumpSamplesToFile(fnameBase+'-result.dat', np.array([[res, np.sqrt(var), np.max(ret[:,-1]),ntotal,neff, P.m1/lal.LAL_MSUN_SI,P.m2/lal.LAL_MSUN_SI]]), ['Z', 'sigmaZ', 'lnLmax','N', 'Neff','m1','m2'])  # integral, std dev,  total number of points
 #np.savetxt(fnameBase+'-result.dat', [res, np.sqrt(var), ntotal])   # integral, std dev,  total number of points. Be SURE we do not lose precision!
-np.savetxt(fnameBase+'-dump-lnLmarg.dat',lnLmarg[::opts.nskip])  # only print output periodically -- otherwise far too large files!
+#np.savetxt(fnameBase+'-dump-lnLmarg.dat',lnLmarg[::opts.nskip])  # only print output periodically -- otherwise far too large files!
 
 if neff > 5 or opts.force_store_metadata:  # A low threshold but not completely implausible.  Often we are not clueless 
     print "==== Computing and saving metadata for future runs: <base>-seed-data.dat ====="
@@ -718,8 +760,8 @@ if False: #rosShowTerminalSampleHistograms:
     plt.figure(99)
     plt.clf()
     lnL = np.transpose(ret)[-1]
-    plt.plot(np.arange(len(lnLmarg)), lnLmarg,label="lnLmarg")
-    nExtend = np.max([len(lnL),len(lnLmarg)])
+#    plt.plot(np.arange(len(lnLmarg)), lnLmarg,label="lnLmarg")
+#    nExtend = np.max([len(lnL),len(lnLmarg)])
     plt.plot(np.arange(nExtend), np.ones(nExtend)*rho2Net/2,label="rho^2/2")
     plt.xlim(0,len(lnL))
     plt.xlabel('iteration')

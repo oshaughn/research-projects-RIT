@@ -41,10 +41,6 @@ def ParseStandardArguments():
     # Infrastructure choices:
     parser.add_argument("--skip-interpolation",dest="opt_SkipInterpolation",default=False,action='store_true')  # skip interpolation : saves time, but some things will crash later
 
-    # Template parameters (forced)
-    parser.add_argument("--mass1", default=False,type=float)
-    parser.add_argument("--mass2", default=False,type=float)
-
     # Noise model
     parser.add_argument("--psd-file",dest='psd_file',default=None, help="psd-file for all instruments. Assumes PSD for all instruments is provided in the file.  If None, uses an analytic PSD")
 #    parser.add_argument("--psd-file",dest='psd_file',default=None, help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments. If None, uses an analytic PSD.  Implemented for compatibility with Pankow")
@@ -66,7 +62,7 @@ def ParseStandardArguments():
 
     # Lower frequencies 
     parser.add_argument("--fmin-snr", dest='fmin_SNR', type=float, default=30)
-    parser.add_argument("--fmin-template", dest='fmin_Template', type=float, default=30)
+    parser.add_argument("--fmin-template", dest='fmin_Template', type=float, default=35)  # slightly higher than signal, so shorter and event is offset (satisfy Evan's t_shift>0 assert)
     parser.add_argument("--fmax-snr", dest='fmax_SNR', type=float, default=2000)
 
     # Options to set template physics
@@ -96,12 +92,17 @@ def ParseStandardArguments():
     parser.add_argument("-q", "--quiet", action="store_false", dest="verbose", default=False)
 
     # Test options
+    parser.add_argument("--mass1", dest="template_mass1", default=False, type=float)
+    parser.add_argument("--mass2", dest="template_mass2", default=False, type=float)
+    parser.add_argument("--signal-fmin",dest="signal_fmin",default=30,type=float)
+    parser.add_argument("--signal-distance",dest="signal_distMpc",default=25,type=float)
     parser.add_argument("--signal-inclination", dest="signal_incl",default=False,type=float)
     parser.add_argument("--signal-polarization", dest="signal_psi",default=False,type=float)
     parser.add_argument("--signal-phase", dest="signal_phiref",default=False,type=float)
     parser.add_argument("--signal-time", dest="signal_tref",default=False,type=float,help="If a small floating point number (<1000), added to the fiducial epoch to shift the injection time. Otherwise, the GPS time of the injection; the reference time is set to that event time.")
 
     # Interactive plots
+    parser.add_argument("--show-input-h",dest='plot_ShowH', action='store_true', default=False,help ="Show interactive plots of h(t). ")
     parser.add_argument("--show-sampler-results",dest='plot_ShowSampler', action='store_true', default=False,help ="Show interactive plots from sampler results. ")
     parser.add_argument("--show-sampler-inputs",dest='plot_ShowSamplerInputs', action='store_true', default=False,help ="Show interactive plots from sampler *inputs*. ")
     parser.add_argument("--show-likelihood-versus-time",dest="plot_ShowLikelihoodVersusTime", action='store_true',default=False,help="Show single-IFO likelihoods versus time. If injection parameters are known, also plot L(t) in the geocenter. Useful to confirm a signal has been correctly windowed at all!")

@@ -21,6 +21,12 @@ import lalsimulation as lalsim
 
 import factored_likelihood
 try:
+    import matplotlib
+    print " matplotlib backend ", matplotlib.get_backend()
+    if matplotlib.get_backend() is "MacOSX":
+        bSavePlots  = False
+    else:
+        bSavePlots = True
     from matplotlib import pylab as plt
     from mpl_toolkits.mplot3d import Axes3D
 except:
@@ -60,6 +66,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
     df = data_dict[detectors[0]].deltaF
 #    fSample = opts.srate  # this may be reset by the data -- be careful.  SHOULD recalculate from deltaF and length of data
     fSample = data_dict[detectors[0]].deltaF*len(data_dict[detectors[0]].data.data)
+
 
     rhoExpected = {}
     rhoExpectedAlt = {}
@@ -106,7 +113,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
             rhoFake[det] = IP.norm(data_fake_dict[det])   # Reset
             rho2Net += rhoFake[det]*rhoFake[det]
             print " Fake data :", det, rhoFake[det]
-        print " Fake network :", rho2Net
+        print " Fake network:", np.sqrt(rho2Net)
 
     if TestDictionary["DataReportTime"]:
         print " == Timing report == "
@@ -149,25 +156,20 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
                     constraint1+= np.abs(hxx.data.data[i]-np.conj(hyy.data.data[i]))**2
             print "   : Reflection symmetry constraint (Q22,Q2-2) with raw data: : 0 ~= ", constraint1/len(hxx.data.data)    # error per point 
 
-    # if TestDictionary["QSquaredTimeseries"]:
-    #     print " ======= Q^2 test: Plot versus time  =========="
-    #     plt.clf()
-    #     plt.figure(2)   # plot not geocentered
-    #     # Plot
-    #     for det in detectors:
-    #         q = factored_likelihood.QSumOfSquaresDiscrete(rholms[det],crossTerms[det])
-    #         tvals = float(q.epoch-theEpochFiducial) + np.arange(len(q.data.data))*q.deltaT
-    #         # restrict bin range, if length too long
-    #         if len(q.data.data)>6000:
-    #             nmin = int(float(Psig.tref - theEpochFiducial)/q.deltaT) - 500   # 1/16 s at 16 kHz, 1/4s at 4 kHz
-    #             nmax = nmin+500
-    #             plt.plot(tvals[nmin:nmax],np.abs(q.data.data)[nmin:nmax],label='q(t):'+det)
-    #         else:
-    #             plt.plot(tvals,np.abs(q.data.data),label='q(t):'+det)
-    #         plt.xlabel('t(s) [not geocentered]')
-    #         plt.ylabel('q')
-    #         plt.title('q:'+factored_likelihood.stringGPSNice(q.epoch))
-    #     plt.legend()
+    if TestDictionary["Rho22Timeseries"]:
+        print " ======= rho22: Plot versus time  =========="
+        plt.clf()
+        plt.figure(2)   # plot not geocentered
+        # Plot
+        for det in detectors:
+            q = rholms[det][(2,2)] # factored_likelihood.QSumOfSquaresDiscrete(rholms[det],crossTerms[det])
+            tvals = float(q.epoch-theEpochFiducial) + np.arange(len(q.data.data))*q.deltaT
+            plt.plot(tvals,np.abs(q.data.data),label='rho22(t):'+det)
+            plt.xlabel('t(s) [not geocentered]')
+            plt.ylabel('rho22')
+            plt.title('q:'+lalsimutils.stringGPSNice(q.epoch))
+        plt.legend()
+        plt.savefig("FLT-rho22.jpeg")
 
     # lnLmodel (known parameters). 
     #   Using conventional interpolated likelihood, so skip if not available
@@ -236,10 +238,13 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
         plt.figure(1)
         plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
         plt.title("lnLdata (interpolated) vs narrow time interval")
+        if bSavePlots:
+            plt.savefig("FLT-lnLData.pdf")
 
         print " ======= rholm test: Plot the lnL timeseries at the injection parameters =========="
         tmin = np.max(float(epoch_post - theEpochFiducial),tWindowExplore[0])   # the minimum time used is set by the rolling condition
-        tvals = np.linspace(tmin,tWindowReference[1],4*fSample*(tWindowExplore[1]-tmin))
+        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],fSample*(tWindowExplore[1]-tWindowExplore[0]))
+        print "  ... plotting over range ", [min(tvals), max(tvals)], " with npts = ", len(tvals)
         P = Psig.copy()
         lnL = np.zeros(len(tvals))
         for indx in np.arange(len(tvals)):
@@ -256,6 +261,8 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
         plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
         plt.title("lnL (interpolated) vs narrow time interval")
         plt.legend()
+        if bSavePlots:
+            plt.savefig("FLT-lnL.pdf")
 
     # lnLdata (plot)
     if TestDictionary["lnLDataPlotVersusPsi"]:
