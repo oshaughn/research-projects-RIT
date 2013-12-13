@@ -16,6 +16,8 @@ BASE_DIR=$(shell pwd)/
 PSD_FILE=${BASE_DIR}/../HLV-ILIGO_PSD.xml.gz
 
 EVENT_TIME=1000000014.236547946
+#DATA_START_TIME=$(shell python -c "print ${EVENT_TIME}-20")
+#DATA_END_TIME=$(shell python -c "print ${EVENT_TIME}+20")
 
 test_ile_dag: iligo_noise.cache
 	../../Code/compute_marginalized_likelihood --cache-file ${BASE_DIR}/iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --seglen 10 --padding 2.0 --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file iligo_noise.xml.gz --n-copies 10
@@ -24,7 +26,7 @@ test_like_and_samp: iligo_noise.cache
 	../../Code/test_like_and_samp.py --cache-file iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file ../HLV-ILIGO_PSD.xml.gz --mass1 4.0 --mass2 4.0 --seglen 10 --inj-xml mdc.xml.gz
 
 test_ile: iligo_noise.cache
-	../../Code/integrate_likelihood_extrinsic --cache-file iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --seglen 10 --pin-to-sim mdc.xml.gz --padding 2 --reference-freq 0.0
+	../../Code/integrate_likelihood_extrinsic --cache-file iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --pin-to-sim mdc.xml.gz --reference-freq 0.0 
 
 iligo_noise.cache: H1_iligo_noise.cache L1_iligo_noise.cache V1_iligo_noise.cache
 	cat {H,L,V}1_iligo_noise.cache > iligo_noise.cache
@@ -88,8 +90,13 @@ ros_setup:
 
 
 ros_test_ile:
-	../../Code/integrate_likelihood_extrinsic --cache-file iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=HLV-ILIGO_PSD.xml.gz" --psd-file "L1=HLV-ILIGO_PSD.xml.gz" --psd-file "V1=HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --seglen 10  --reference-freq 0.0 --padding 2 --output-file ile-ros-output.xml.gz --save-samples
+	../../Code/integrate_likelihood_extrinsic --cache-file iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=HLV-ILIGO_PSD.xml.gz" --psd-file "L1=HLV-ILIGO_PSD.xml.gz" --psd-file "V1=HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --data-start-time 1000000000  --data-end-time  1000000016   --reference-freq 0.0  --output-file ile-ros-output.xml.gz --save-samples
 
 ros_test_likelihood:
 	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0  --Lmax 2 --amporder -1 --show-likelihood-versus-time --show-sampler-inputs --show-psd   --seglen 16 # --sampling-prior-use-skymap skymap.fits.gz  --force-read-full-frames
 
+
+ros_test_response:
+	rm -f test-Q-response*  FLT-*
+	python ../../Code/test_response_functions_Q.py --inj-xml mdc.xml.gz   --cache-file iligo_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0 --fref 0  --show-psd  --show-likelihood-versus-time --Lmax 2 --amporder 0 --seglen 16 --padding 2 --psd-truncate-inverse --psd-truncate-inverse-time 2
+	open test-Q-response* FLT*

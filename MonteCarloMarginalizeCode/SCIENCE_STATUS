@@ -1,0 +1,60 @@
+
+URGENT PRIORITIES
+
+* Truncation and related: Make sure code in place on master                 [Evan]
+   - document time buffer duration clearly in comments/help
+   - adopt and automate data retrieval and handling (e.g., Tukey window or not)
+
+* Fixes and implementations
+   - time prior : -investigate whether best-fit time shifts much vs mass.  [Evan]
+                     -is our 2ms time window too tight?                           [Evan : template mismatch /Richard: sky]
+   - time marginalization: - integrate outward, narrow window              [Evan]
+
+* Zero noise simulations
+    - ILE + zero_noise_mdc :
+           Cost assessment + inputs to prototype others
+         - pinned sky location                                                           [Chris]
+         - large-neff run, fully unpinned : 2 mass points                        [Chris]
+
+* Convergence and data storage
+    - how many points should we keep? [Use zero-noise-mdc data]        [Richard]                   
+      scaling of Z, neff, error, PDFs  with neff, N
+
+PROTOTYPING 
+
+* Prototype-scale investigations
+    - Sampling priors to "limit the worst case" runtime
+         - uniform in iota                                                               [Chris]
+
+    - Adaptive sampling priors                                                      [Chris]         
+
+* Computational cost 
+    - Long waveforms not a limit : runtime trend vs flow, seglen        [Richard?]
+
+TABLED UNTIL AFTER CODE WORKING
+
+* Priors
+ - sky prior     : reimplement ability to run with a skymap 
+ - Distancce prior: Cutoff
+ - Time prior    : investigate safe inteval. Concrete examples with different injections (and gracedb)
+                     : template (model/model, mass/mass) mismatches and timeshifts, re prior
+
+ - Adaptive priors, fully implemented
+
+* Sampling in mass space
+
+* Understand 
+     -  inverse spec truncation: why we need an fmax
+
+RECORD
+
+* Priors 
+   - distance prior [2013-12-11]  : uniform distance. Cutoff uniform across masses. 10*BNS distance (300 Mpc)
+
+* Convergence
+   - neff [2013-12-11] implementation fixed, mcsampler cleaned
+
+
+* Data handling:
+    - Inverse spectrum truncation:
+        - Implemented in lalsimutils IP class [2013-12-13]

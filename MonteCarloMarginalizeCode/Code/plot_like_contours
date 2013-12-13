@@ -21,22 +21,39 @@ optp = OptionParser()
 optp.add_option("--dimension1", help="Plot this column along the x-axis")
 optp.add_option("--dimension2", help="Plot this column along the y-axis")
 optp.add_option("--full-likelihood", action="store_true", help="Take exponential of loglikelihood")
+optp.add_option("--partial-evidence", action="store_true", help="Plot the partial evidence (L*p)")
 optp.add_option("--show-points", action="store_true", help="Scatter plot the points used.")
 optp.add_option("--show-mdc", help="Mark MDC values from provided XML on the plots.")
 optp.add_option("--fig-extension",help="Type of figure (png,pdf,jpg)",default="png")
 opts, args = optp.parse_args()
 
-if opts.dimension1 in ["mass1", "mass2"] and opts.dimension2 in ["mass1", "mass2"]:
+def calculate_evidence(snr_ar):
+    return sum([numpy.exp(snr**2/2) for snr in snr_ar])
+
+def mchirp_eta(m1, m2):
+    eta = m1*m2/(m1 + m2)**2
+    return eta**(3.0/5)*(m1+m2), eta
+
+if opts.dimension1 in ["mass1", "mass2", "mchirp", "eta"] and opts.dimension2 in ["mass1", "mass2", "mchirp", "eta"]:
     points, like = [], []
     for arg in args:
         try:
             tbl = table.get_table(utils.load_filename(arg), lsctables.SnglInspiralTable.tableName)
         except:
             # FIXME: hardcoding
-            tbl = xmlutils.db_to_samples(arg, lsctables.SnglInspiralTable, [opts.dimension1, opts.dimension2, "snr"])
-        like.extend( [numpy.exp(row.snr**2/2) for row in tbl] )
-        # FIXME: order
-        points.extend( [(row.mass1, row.mass2) for row in tbl] )
+            tbl = xmlutils.db_to_samples(arg, lsctables.SnglInspiralTable, ["mass1", "mass2", "snr"])
+            # FIXME: This means no points had any significant support
+            if len(tbl) == 0:
+                continue
+            like.append( calculate_evidence([row.snr for row in tbl if row.snr is not None]) )
+            # FIXME: order
+            if opts.dimension1 in ["mchirp", "eta"] and opts.dimension2 in ["mchirp", "eta"]:
+                points.append( [mchirp_eta(row.mass1, row.mass2) for row in tbl][0] )
+                #points.append( (points[-1][0], 0.251) )
+                #like.append( 0 )
+            else:
+                points.append( [(row.mass1, row.mass2) for row in tbl][0] )
+    
     d1, d2 = numpy.array(points).T
 elif opts.dimension2 is None:
 
@@ -57,7 +74,7 @@ elif opts.dimension2 is None:
 
     except:
         # FIXME: hardcoding
-        points = xmlutils.db_to_samples(args[0], lsctables.SimInspiralTable, [opts.dimension1, "alpha1"])
+        points = xmlutils.db_to_samples(args[0], lsctables.SimInspiralTable, [opts.dimension1, "alpha1", "alpha2"])
 
     fig = pyplot.figure()
     bottom = pyplot.subplot2grid((3,1), (2,0))
@@ -68,10 +85,13 @@ elif opts.dimension2 is None:
         bottom.axvline(sim)
 
     # FIXME: Hardcoded bad column name
-    points = [(getattr(row, opts.dimension1), row.alpha1) for row in points]
+    points = [(getattr(row, opts.dimension1), row.alpha1, row.alpha2) for row in points]
     points = numpy.array(sorted(points)).T
 
-    top.plot(points[0], points[1], "k-")
+    if opts.partial_evidence:
+        top.plot(points[0], points[1]*numpy.log(points[2]), "k-")
+    else:
+        top.plot(points[0], points[1], "k-")
 
     # FIXME: For better plotting resolution, bin by dL/dx rather than linearly
     phist, bins = numpy.histogram(points[0], bins=100)
@@ -95,6 +115,9 @@ elif opts.dimension2 is None:
     #ax_inset = fig.add_axes([0.4, 0.2, 0.3, 0.3])
     #ax_inset.hist(points[0], bins=100)
     bottom.hist(points[0], bins=100)
+
+    # Plot prior
+    bottom.plot(points[2], 'k-')
 
     bottom.set_xlabel(opts.dimension1)
     top.grid()
@@ -122,10 +145,16 @@ else:
 
     except:
         # FIXME: hardcoding
-        points = xmlutils.db_to_samples(args[0], lsctables.SimInspiralTable, [opts.dimension1, opts.dimension2, "alpha1"])
+        points = xmlutils.db_to_samples(args[0], lsctables.SimInspiralTable, [opts.dimension1, opts.dimension2, "alpha1", "alpha2"])
 
     # FIXME: Hardcoded bad column name
     like = [row.alpha1 for row in points]
+    # FIXME: Hardcoded bad column name and not used in some cases
+    prior = [row.alpha2 for row in points]
+
+    if opts.partial_evidence:
+        like += numpy.log(prior)
+
     points = [(getattr(row, opts.dimension1), getattr(row, opts.dimension2)) for row in points]
     d1, d2 = numpy.array(points).T
 
@@ -146,6 +175,7 @@ d1d2 = numpy.array(zip(d1g.flatten(), d2g.flatten()))
 #from scipy.interpolate import griddata
 #int_like = griddata((d1,d2), like, d1d2)
 int_like = griddata(d1, d2, like, d1g, d2g)
+
 
 if opts.full_likelihood:
     pyplot.contourf(d1g, d2g, numpy.exp(int_like), 20)

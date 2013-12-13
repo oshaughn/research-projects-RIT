@@ -1,0 +1,53 @@
+#!/usr/bin/env python
+import sys
+from xml.sax import SAXException
+from optparse import OptionParser
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot
+import numpy
+
+from glue.ligolw import lsctables, utils, table
+import xmlutils
+
+import bayesutils
+
+optp = OptionParser()
+optp.add_option("-p", "--param", action="append", help="Plot this parameter. Give multiple times to append.")
+optp.add_option("-o", "--output", help="Save figure to this name.")
+optp.add_option("-i", "--injection", help="Use SimInspiral table from this to identify injection values.")
+opts, args = optp.parse_args()
+
+params = opts.param or ["inclination", "distance", "longitude", "latitude", "geocent_end_time", "coa_phase", "polarization"]
+nparm = len(params)
+tmp = list(set(params + ["alpha1", "alpha2", "alpha3"]))
+
+def sort(i):
+    try: return params.index(i) 
+    except ValueError: return len(params)
+params = sorted(tmp, key=sort)
+
+if opts.injection:
+    injection = table.get_table(utils.load_filename(opts.injection), lsctables.SimInspiralTable.tableName)
+    assert len(injection) == 1
+    injection = numpy.array( [getattr(s, p) for s in injection for p in params[:nparm]] )
+else:
+    injection = None
+
+try:
+    samples = table.get_table(utils.load_filename(args[0]), lsctables.SimInspiralTable.tableName)
+except SAXException:
+    samples = xmlutils.db_to_samples(args[0], lsctables.SimInspiralTable, params)
+
+# calculate weights for each sample
+weights = [numpy.exp(s.alpha1)*s.alpha2/s.alpha3 for s in samples]
+
+# unpack
+samples = numpy.array( [getattr(s, p) for s in samples for p in params[:nparm]] )
+samples.shape = (len(weights), nparm)
+
+p_syms = ["$\\iota$", "d", "$\\delta$", "$\\alpha$", "t", "$\\phi$", "$\\psi$"][:len(params)-3]
+# FIXME: labels, title and injection
+bayesutils.triplot(samples, weights=weights, labels=p_syms, title=None, inj=injection)
+pyplot.savefig(opts.output or "triplot.png")

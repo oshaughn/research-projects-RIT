@@ -25,7 +25,7 @@ test_ile_dag: zero_noise.cache
 	../../Code/compute_marginalized_likelihood --cache-file ${BASE_DIR}/zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --seglen 10 --padding 2.0 --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file zero_noise.xml.gz --n-copies 10
 
 test_ile: zero_noise.cache
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --seglen 10 --pin-to-sim mdc.xml.gz --reference-freq 0.0 --padding 2
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.5 --mass2 4.0 --seglen 20 --pin-to-sim mdc.xml.gz --reference-freq 0.0 --padding 20
 
 zero_noise.cache: H1_zero_noise.cache L1_zero_noise.cache V1_zero_noise.cache
 	cat {H,L,V}1_zero_noise.cache > zero_noise.cache
@@ -64,7 +64,7 @@ ros_test_ile:
 	touch L1_zero_noise.cache
 	touch V1_zero_noise.cache
 	find ${INJECTION_DEST}/ -name "*.gwf" | lalapps_path2cache > zero_noise.cache
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=HLV-ILIGO_PSD.xml.gz" --psd-file "L1=HLV-ILIGO_PSD.xml.gz" --psd-file "V1=HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --seglen 10  --reference-freq 0.0 --padding 2 --output-file ile-ros-output.xml.gz --save-samples
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=HLV-ILIGO_PSD.xml.gz" --psd-file "L1=HLV-ILIGO_PSD.xml.gz" --psd-file "V1=HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --data-start-time 1000000000  --data-end-time  1000000016   --reference-freq 0.0  --output-file ile-ros-output.xml.gz --save-samples # --seglen 10  --padding 2
 
 ros_test_ile_pinned:
 	touch H1_zero_noise.cache
@@ -98,10 +98,22 @@ ros_test_likelihood:
 #	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --force-read-full-frames --seglen 10  --mass1 4.0 --mass2 4.0
 # TEST VERSION 2: Read PSD from file
 	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0  --Lmax 2 --amporder -1 --show-likelihood-versus-time --show-sampler-inputs --show-psd   --seglen 16 # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
+	open FLT*
 
 
 ros_test_likelihood_pinned:
 # --psd-file "HLV-ILIGO_PSD.xml.gz"  # not working immediately
-	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --force-read-full-frames   --mass1 4.0 --mass2 4.0 --fref 0 --Niter 100000 --Neff 10000 --fix-rightascension --fix-declination --fix-polarization --fix-time --fix-phase  --fix-inclination --save-sampler-file output-only-distance --show-sampler-results --show-sampler-inputs --show-psd --Lmax 4 --amporder -1
-	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --force-read-full-frames   --mass1 4.0 --mass2 4.0 --fref 0 --Niter 100000 --Neff 10000 --fix-rightascension --fix-declination --fix-polarization --fix-time --fix-phase  --save-sampler-file output-only-DIota --show-sampler-results --show-sampler-inputs --show-psd --Lmax 4 --amporder -1
-	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --force-read-full-frames   --mass1 4.0 --mass2 4.0 --fref 0 --Niter 100000 --Neff 3000 --fix-rightascension --fix-declination --fix-polarization --fix-distance --fix-phase  --fix-inclination --save-sampler-file output-only-time --show-sampler-results --show-sampler-inputs --show-psd --Lmax 4 --amporder -1
+	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0 --fref 0 --Niter 100000 --Neff 10000 --fix-rightascension --fix-declination --fix-polarization --fix-time --fix-phase  --fix-inclination --save-sampler-file output-only-distance --show-sampler-results --show-sampler-inputs --show-psd --Lmax 4 --amporder -1 --seglen 16 
+	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --mass1 4.0 --mass2 4.0 --fref 0 --Niter 100000 --Neff 10000 --fix-rightascension --fix-declination --fix-polarization --fix-time --fix-phase  --save-sampler-file output-only-DIota --show-sampler-results --show-sampler-inputs --show-psd --Lmax 4 --amporder -1 --seglen 16
+	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --mass1 4.0 --mass2 4.0 --fref 0 --Niter 100000 --Neff 3000 --fix-rightascension --fix-declination --fix-polarization --fix-distance --fix-phase  --fix-inclination --save-sampler-file output-only-time --show-sampler-results --show-sampler-inputs --show-psd --Lmax 4 --amporder -1 --seglen 16
+
+
+# Warning re master: lalsimutils frutils needs tmpdir.  Fix needed to implement longer seglents robustly
+ros_test_response:
+	rm -f test-Q-response*  FLT-*	
+	python ../../Code/test_response_functions_Q.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0 --fref 0  --show-psd  --show-likelihood-versus-time --Lmax 2 --amporder 0 --seglen 16 --padding 2
+	open test-Q-response* FLT*
+
+#	python ../../Code/test_response_functions_Q.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0 --fref 0  --show-psd  --show-likelihood-versus-time --Lmax 2 --amporder 0 --seglen 16 --padding 2 --psd-truncate-inverse --psd-truncate-inverse-time 2
+	open test-Q-response* FLT*
+
