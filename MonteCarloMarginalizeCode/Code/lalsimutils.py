@@ -264,11 +264,13 @@ class InnerProduct(object):
     Base class for inner products
     """
     def __init__(self, fLow=10., fMax=None, fNyq=2048., deltaF=1./8.,
-            psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower, analyticPSD_Q=True):
+            psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower, analyticPSD_Q=True,
+            inv_spec_trunc_Q=False, T_spec=0.):
         self.fLow = fLow # min limit of integration
         self.fMax = fMax # max limit of integration
         self.fNyq = fNyq # max freq. in arrays whose IP will be computed
         self.deltaF = deltaF
+        self.deltaT = 1./2./self.fNyq
         self.len1side = int(fNyq/deltaF)+1 # length of Hermitian arrays
         self.len2side = 2*(self.len1side-1) # length of non-Hermitian arrays
         self.weights = np.zeros(self.len1side)
@@ -299,6 +301,31 @@ class InnerProduct(object):
                         self.weights[i] = 1./psd[i]
         else:
             raise ValueError("analyticPSD_Q must be either True or False")
+
+        # Do inverse spectrum truncation if requested
+        if inv_spec_trunc_Q is True and T_spec is not 0.:
+            N_spec = int(T_spec / self.deltaT ) # number of non-zero TD pts
+            # Ensure you will have some uncorrupted region in IP time series
+            assert N_spec < self.len2side / 2
+            # Create workspace arrays
+            WFD = lal.CreateCOMPLEX16FrequencySeries('FD root inv. spec.',
+                    lal.LIGOTimeGPS(0.), 0., self.deltaF,
+                    lal.lalDimensionlessUnit, self.len1side)
+            WTD = lal.CreateREAL8TimeSeries('TD root inv. spec.',
+                    lal.LIGOTimeGPS(0.), 0., self.deltaT,
+                    lal.lalDimensionlessUnit, self.len2side)
+            fwdplan = lal.CreateForwardREAL8FFTPlan(self.len2side, 0)
+            revplan = lal.CreateReverseREAL8FFTPlan(self.len2side, 0)
+            WFD.data.data[:] = np.sqrt(self.weights) # W_FD is 1/sqrt(S_n(f))
+            WFD.data.data[0] = WFD.data.data[-1] = 0. # zero 0, f_Nyq bins
+            lal.REAL8FreqTimeFFT(WTD, WFD, revplan) # IFFT to TD
+            for i in xrange(N_spec/2, self.len2side - N_spec/2):
+                WTD.data.data[i] = 0. # Zero all but T_spec/2 ends of W_TD
+            lal.REAL8TimeFreqFFT(WFD, WTD, fwdplan) # FFT back to FD
+            WFD.data.data[0] = WFD.data.data[-1] = 0. # zero 0, f_Nyq bins
+            # Square to get trunc. inv. PSD
+            self.weights = np.abs(WFD.data.data*WFD.data.data)
+
         # Create 2-sided (non-Herm.) weights from 1-sided (Herm.) weights
         # They should be packed monotonically, e.g.
         # W(-N/2 df), ..., W(-df) W(0), W(df), ..., W( (N/2-1) df)
@@ -448,9 +475,9 @@ class Overlap(InnerProduct):
     """
     def __init__(self, fLow=10., fMax=None, fNyq=2048., deltaF=1./8.,
             psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower, analyticPSD_Q=True,
-            full_output=False):
+            inv_spec_trunc_Q=False, T_spec=0., full_output=False):
         super(Overlap, self).__init__(fLow, fMax, fNyq, deltaF, psd,
-                analyticPSD_Q) # Call base constructor
+                analyticPSD_Q, inv_spec_trunc_Q, T_spec) # Call base constructor
         self.full_output = full_output
         self.deltaT = 1./self.deltaF/self.len2side
         self.revplan = lal.CreateReverseCOMPLEX16FFTPlan(self.len2side, 0)
@@ -547,9 +574,9 @@ class ComplexOverlap(InnerProduct):
     """
     def __init__(self, fLow=10., fMax=None, fNyq=2048., deltaF=1./8.,
             psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower, analyticPSD_Q=True,
-            full_output=False):
+            inv_spec_trunc_Q=False, T_spec=0., full_output=False):
         super(ComplexOverlap, self).__init__(fLow, fMax, fNyq, deltaF, psd,
-                analyticPSD_Q) # Call base constructor
+                analyticPSD_Q, inv_spec_trunc_Q, T_spec) # Call base constructor
         self.full_output=full_output
         self.deltaT = 1./self.deltaF/self.len2side
         # Create FFT plan and workspace vectors
