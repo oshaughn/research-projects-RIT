@@ -98,6 +98,7 @@ ros_test_likelihood:
 #	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --force-read-full-frames --seglen 10  --mass1 4.0 --mass2 4.0
 # TEST VERSION 2: Read PSD from file
 	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0  --Lmax 2 --amporder -1 --show-likelihood-versus-time --show-sampler-inputs --show-psd   --seglen 16 # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
+	open FLT*
 
 
 ros_test_likelihood_pinned:
@@ -107,5 +108,9 @@ ros_test_likelihood_pinned:
 	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --mass1 4.0 --mass2 4.0 --fref 0 --Niter 100000 --Neff 3000 --fix-rightascension --fix-declination --fix-polarization --fix-distance --fix-phase  --fix-inclination --save-sampler-file output-only-time --show-sampler-results --show-sampler-inputs --show-psd --Lmax 4 --amporder -1 --seglen 16
 
 
+# Warning re master: lalsimutils frutils needs tmpdir.  Fix needed to implement longer seglents robustly
 ros_test_response:
-	python ../../Code/test_response_Q.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0 --fref 0 --Niter 100000 --Neff 10000 --fix-rightascension --fix-declination --fix-polarization --fix-time --fix-phase  --fix-inclination --save-sampler-file output-only-distance --show-sampler-results --show-sampler-inputs --show-psd --Lmax 4 --amporder -1 --seglen 16 
+	rm -f test-Q-response*  FLT-*	
+	python ../../Code/test_response_functions_Q.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0 --fref 0  --show-psd  --show-likelihood-versus-time --Lmax 2 --amporder 0 --seglen 16 --padding 2
+	open test-Q-response* FLT*
+

@@ -15,19 +15,24 @@
 #         test_response_functions_Q.py --psd-file mypsd.xml.gz   --seglen 64  # repeat with more data
 #
 #  - Repeat with an aLIGO-scale noisy (numerical) PSD
-#         test_response_functions_Q.py --psd-file mypsd-noisy.xml.gz  --fmin-template 30 --signal-fmin 22 --show-psd --signal-dist 500     # use a noisy, numerical PSD
+#         test_response_functions_Q.py --psd-file mypsd-noisy.xml.gz  --fmin-template 40 --signal-fmin 22 --show-psd --signal-dist 500     # use a noisy, numerical PSD
 
-#  - Repeat for truncated inverse psd
-# python test_response_functions_Q.py  --psd-file mypsd-noisy.xml.gz  --seglen 64 --fmin-template 30 --signal-fmin 22 --show-psd --psd-truncate-inverse --psd-truncate-inverse-time 8 --signal-dist 500
+#  - Repeat for truncated inverse psd (e.g., noisy V1)
+#    python test_response_functions_Q.py  --psd-file mypsd-noisy.xml.gz  --seglen 64 --fmin-template 30 --signal-fmin 22 --show-psd --psd-truncate-inverse --psd-truncate-inverse-time 8 --signal-dist 500
+#    python test_response_functions_Q.py  --psd-file mypsd-noisy.xml.gz  --seglen 64  --show-psd --signal-fmin 22 --psd-truncate-inverse --psd-truncate-inverse-time 16 --signal-dist 500
+
 #
 #
-#  - Reading in real data. [Typically, inj xml or coinc needed. Make sure seglen chosen]
+#  - Reading in real data. [Typically, inj xml or coinc needed. Make sure seglen chosen *and* default instrument channel provided!]
 #    Doing so, make *absolutely certain* the correct fref, Lmax, amporder are used!
 #          python ../../Code/test_response_functions_Q.py --cache zero_noise.cache   --psd-file HLV-ILIGO_PSD.xml.gz --inj mdc.xml.gz  --fref 0 --Lmax 3 --amporder -1
 #          python ../../Code/test_response_functions_Q.py --cache zero_noise.cache  --psd-file HLV-ILIGO_PSD.xml.gz --psd-truncate-inverse --psd-truncate-inverse-time 8 --inj mdc.xml.gz --fref 0 --Lmax 3 --amporder -1
 #          python ../../Code/test_response_functions_Q.py --cache iligo_noise.cache  --psd-file HLV-ILIGO_PSD.xml.gz --psd-truncate-inverse --psd-truncate-inverse-time 8 --inj mdc.xml.gz --fref 0 --Lmax 3 --amporder -1
 #          python ../../Code/test_response_functions_Q.py --cache iligo_noise.cache  --psd-file HLV-ILIGO_PSD.xml.gz --psd-truncate-inverse --psd-truncate-inverse-time 8 --inj mdc.xml.gz  --seglen 31 --padding 2  --fref 0 --Lmax 3 --amporder -1  #  basically HUGELY zero-pad data, to push ringing/response off. Not perfect
-# python ../../Code/test_response_functions_Q.py --cache iligo_noise.cache  --psd-file HLV-ILIGO_PSD.xml.gz --psd-file HLV-ILIGO_PSD.xml.gz  --channel H1=FAKE-STRAIN --inj mdc.xml.gz  --seglen 31 --fref 0 --Lmax 3 --amporder -1; open test-Q-*.jpg
+#         python ../../Code/test_response_functions_Q.py --cache iligo_noise.cache  --psd-file HLV-ILIGO_PSD.xml.gz  --channel V1=FAKE-STRAIN  --inj mdc.xml.gz  --seglen 31 --fref 0 --Lmax 3 --amporder -1 --show-likelihood-versus-time; open test-Q-* FLT-*
+#        python ../../Code/test_response_functions_Q.py --cache iligo_noise.cache  --psd-file HLV-ILIGO_PSD.xml.gz   --channel V1=FAKE-STRAIN --channel H1=FAKE-STRAIN --channel L1=FAKE-STRAIN  --inj mdc.xml.gz  --seglen 31 --fref 0 --Lmax 3 --amporder -1 --psd-truncate-inverse --show-likelihood-versus-time --show-psd; open test-Q-* FLT-*
+
+#        python ../../Code/test_response_functions_Q.py --cache s5_noise.cache  --psd-file HLV-ILIGO_PSD.xml.gz   --channel V1=FAKE-STRAIN --channel H1=FAKE-STRAIN --channel L1=FAKE-STRAIN  --inj mdc.xml.gz  --seglen 31 --fref 0 --Lmax 3 --amporder -1 --psd-truncate-inverse --show-likelihood-versus-time --show-psd; open test-Q-* FLT-*
 
 try:
     import matplotlib
@@ -75,8 +80,9 @@ print rosDebugMessagesDictionary
 print " ======= TESTING RESPONSE FUNCTION AND DISCONTINITY ===="
 print "   Edit code variables 'bUseWindow' and 'bAddDiscontinity' to insert a plausible discontinuity "
 bUseWindow = True
-bAddDiscontinuity = True
+bAddDiscontinuity = False
 window_beta = 0.01
+detDefault=  'V1'
 
 def fakeGaussianDataTime(amp,sigma,deltaT, npts, window='Tukey', window_beta=0.01):
     # Create h(t)
@@ -106,6 +112,16 @@ def DataFourier(ht):   # Complex fft wrapper (COMPLEX16Time ->COMPLEX16Freq. No 
     lal.COMPLEX16TimeFreqFFT(hf, ht, fwdplan)
     # assume memory freed by swig python
     return hf
+def DataInverseFourier(hf):   # Complex fft wrapper (COMPLEX16Freq ->COMPLEX16Time. No error checking or padding!
+    FDlen = hf.data.length
+    dt = 1./hf.deltaF/FDlen
+    revplan=lal.CreateReverseCOMPLEX16FFTPlan(FDlen,0)
+    ht = lal.CreateCOMPLEX16TimeSeries("Template h(t)", 
+            hf.epoch, hf.f0, dt, lal.lalDimensionlessUnit, 
+            FDlen)
+    lal.COMPLEX16FreqTimeFFT( ht, hf, revplan)  
+    # assume memory freed by swig python
+    return ht
 
 def fakeGaussianDataFrequency(amp, sigma,deltaT,npts,window='Tukey', window_beta=0.01):
     return DataFourier(fakeGaussianDataTime(amp,sigma,deltaT,npts,window=window,window_beta=window_beta))
@@ -298,7 +314,7 @@ if  not Psig and opts.channel_name:  # If data loaded but no signal generated
 
 # TEST THE SEGMENT LENGTH TARGET
 if Psig:
-    timeSegmentLength  = lalsimutils.estimateWaveformDuration(Psig)
+    timeSegmentLength  = float(-lalsimutils.hoft(Psig).epoch)
     if rosDebugMessagesDictionary["DebugMessages"]:
         print " Template duration : ", timeSegmentLength
     if timeSegmentLength > opts.seglen:
@@ -319,6 +335,7 @@ if opts.channel_name and    (opts.opt_ReadWholeFrameFilesInCache):
             Psig.deltaF = df
         print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF, len(data_dict[inst].data.data))
         print "Sampling rate ", fSample
+    detDefault = (data_dict.keys())[0]
 if opts.channel_name and not (opts.opt_ReadWholeFrameFilesInCache):
     if Psig:
         event_time = Psig.tref
@@ -337,6 +354,7 @@ if opts.channel_name and not (opts.opt_ReadWholeFrameFilesInCache):
         print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF, len(data_dict[inst].data.data))
         print "Sampling rate ", fSample
 
+    detDefault = (data_dict.keys())[0]
 #        print " Sampling rate of data ", fSample
 
 # CREATE A DEFAULT "signal", if none made to this point.  
@@ -394,24 +412,20 @@ if len(data_dict) is 0:
     if not bAddDiscontinuity:
         amp *=0
     if bUseWindow:
-        data_dict['H1'] = fakeGaussianDataFrequency(amp,2, 1/(2*fNyqTarget),npts,window='Tukey',window_beta=window_beta)
-        sig = factored_likelihood.non_herm_hoff(Psig)
+        # create signal first, to set epoch
+        data_dict[detDefault] = factored_likelihood.non_herm_hoff(Psig)
+        sig = fakeGaussianDataFrequency(amp,2, 1/(2*fNyqTarget),npts,window='Tukey',window_beta=window_beta)
     else:
-        data_dict['H1'] = fakeGaussianDataFrequency(amp,2, 1/(2*fNyqTarget),npts,window=None)
-        sig = factored_likelihood.non_herm_hoff(Psig)
+        data_dict[detDefault] = factored_likelihood.non_herm_hoff(Psig)
+        sig = fakeGaussianDataFrequency(amp,2, 1/(2*fNyqTarget),npts)
 
-    data_dict['H1'].data.data += sig.data.data
-
-    # Create the remaining signals for completeness
-    Psig.detector = 'L1'
-    data_dict['L1'] = factored_likelihood.non_herm_hoff(Psig)
-    Psig.detector = 'V1'
-    data_dict['V1'] = factored_likelihood.non_herm_hoff(Psig)
+    data_dict[detDefault].data.data += sig.data.data
 
 
     # Report on fake data
     print " ============"
-    print " Fake data report : (n,df,fNyq) ", data_dict['H1'].data.length, data_dict['H1'].deltaF, data_dict['H1'].deltaF*data_dict['H1'].data.length/2
+    print " Fake data report : (n,df,fNyq) ", data_dict[detDefault].data.length, data_dict[detDefault].deltaF, data_dict[detDefault].deltaF*data_dict[detDefault].data.length/2
+
 
 
 # PSD reading
@@ -583,6 +597,10 @@ if opts.template_mass1:
 if opts.template_mass2:
     P.m2 = lal.LAL_MSUN_SI*opts.template_mass2
 
+timeWaveformTemplate = float(-lalsimutils.hoft(P).epoch)
+timeWaveform             = float(-lalsimutils.hoft(Psig).epoch)
+print " Reminder: signal duration, template duration, PSD truncQ, psdTruncT ", timeWaveform, timeWaveformTemplate #, opts.psd_TruncateInverse, opts.psd_TruncateInverseTime
+
 
 #
 # Perform the Precompute stage
@@ -590,19 +608,17 @@ if opts.template_mass2:
 rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q)
 print "Done with precompute"
 print detectors, rholms.keys()
-rho22 =rholms[detectors[0]][( 2, 2)]
-epoch_post = rho22.epoch # Suggested change
 
 # Plot h(t)
 plt.figure(0)
 for det in detectors:
-    ht = lalsimutils.DataInverseFourier(data_dict[det])  # this had better be windowed, if the input is!
+    ht = DataInverseFourier(data_dict[det])  # this had better be windowed, if the input is!
     tvals = np.arange(ht.data.length)*ht.deltaT + float(ht.epoch - theEpochFiducial)
     plt.plot(tvals,np.real(ht.data.data),label='h(t):'+det)
 plt.xlabel('t(s)')
-plt.ylabel('h')
+plt.ylabel('h (data)')
 plt.legend()
-plt.savefig("test-Q-response-ht.jpg")
+plt.savefig("test-Q-response-ht.jpeg")
 
 #
 # Plot rho22(t)
@@ -616,18 +632,18 @@ for det in detectors:
 plt.xlabel('t(s) [relative]')
 plt.ylabel('Q22')
 plt.legend()
-plt.savefig("test-Q-response-rho22.jpg")
+plt.savefig("test-Q-response-rho22.jpeg")
 
 
 plt.clf()
 plt.figure(2)
-rho22 =rholms['H1'][(2,2)]
+rho22 =rholms[detDefault][(2,2)]
 tvals = np.arange(rho22.data.length)*rho22.deltaT + float(rho22.epoch -theEpochFiducial) # use time alignment
 plt.plot(tvals,np.log10(np.abs(rho22.data.data)),label='logrho22')
 plt.xlabel('t(s)')
 plt.ylabel('log Q22')
 plt.legend()
-plt.savefig("test-Q-response-log-rho22.jpg")
+plt.savefig("test-Q-response-log-rho22.jpeg")
 
 #
 # Plot lnLData(t). BE CAREFUL: it is rolled, make sure time identifications correct
@@ -640,14 +656,16 @@ for det in detectors:
     plt.plot(tvals[:len(lnLDataDiscrete)],lnLDataDiscrete,label='lnLData:'+det)
 plt.xlabel('t [fixme]')
 plt.ylabel('lnLData')
-plt.savefig("test-Q-response-lnLData.jpg")
+plt.savefig("test-Q-response-lnLData.jpeg")
+plt.xlim(-0.1, 0.1)
+plt.savefig("test-Q-response-lnLData-Zoom.jpeg")
 
 #
 # Plot lnL(t) around the event (interpolated, remember)
 #
 nptsMore = int(fSample*(tWindowExplore[1]-tWindowExplore[0]))
 print nptsMore
-tvals = np.linspace(tWindowReference[0],tWindowReference[1], nptsMore)
+tvals = np.linspace(tWindowExplore[0],tWindowExplore[1], nptsMore)
 lnL = np.zeros(len(tvals))
 for indx in np.arange(len(tvals)):
     P.tref =  theEpochFiducial+tvals[indx]
@@ -688,13 +706,13 @@ if opts.plot_ShowPSD:
     plt.legend()
     plt.ylim(-50,-30)
     plt.xlim(0,3.5)
-    plt.savefig("test-Q-response-psd.jpg")
+    plt.savefig("test-Q-response-psd.pdf")
 
 
 TestDictionary = factored_likelihood_test.TestDictionaryDefault
 TestDictionary["UVReport"]              =  analytic_signal  # this report is very confusing for real data
 TestDictionary["QSquaredTimeseries"] = False # opts.plot_ShowLikelihoodVersusTime    # should be command-line option to control this plot specifically
-TestDictionary["Rho22Timeseries"]      = False
+TestDictionary["Rho22Timeseries"]      = True
 TestDictionary["lnLModelAtKnown"]  =  analytic_signal  # this report is very confusing for real data
 TestDictionary["lnLDataAtKnownPlusOptimalTimePhase"] = False
 TestDictionary["lnLAtKnown"]           = True
@@ -704,4 +722,5 @@ TestDictionary["lnLDataPlot"]            = opts.plot_ShowLikelihoodVersusTime   
 TestDictionary["lnLDataPlotVersusPsi"] = opts.plot_ShowLikelihoodVersusTime
 TestDictionary["lnLDataPlotVersusPhi"] = opts.plot_ShowLikelihoodVersusTime
 TestDictionary["lnLDataPlotVersusPhiPsi"] = opts.plot_ShowLikelihoodVersusTime
-factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, epoch_post, data_dict, psd_dict, analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, detectors,Lmax,opts)
+print " Detectors ", detectors
+factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,  data_dict, psd_dict,fmaxSNR, analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, detectors,Lmax)

@@ -56,11 +56,12 @@ TestDictionaryDefault["lnLDataPlotVersusPhi"]            = True
 TestDictionaryDefault["lnLDataPlotVersusPhiPsi"]            = True
 
 
-def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, data_dict, psd_dict, fmaxSNR, analyticPSD_Q,Psig,rholms,rholms_intp, crossTerms, detectors, Lmax):
+def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, psd_dict, fmaxSNR, analyticPSD_Q,Psig,rholms,rholms_intp, crossTerms, detectors, Lmax):
     global tWindowReference
 
     fmin_SNR=30
 #    keysPairs = lalsimutils.constructLMIterator(Lmax)
+    print detectors
     keysPairs = rholms_intp[detectors[0]].keys()
 
     df = data_dict[detectors[0]].deltaF
@@ -163,7 +164,8 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
         # Plot
         for det in detectors:
             q = rholms[det][(2,2)] # factored_likelihood.QSumOfSquaresDiscrete(rholms[det],crossTerms[det])
-            tvals = float(q.epoch-theEpochFiducial) + np.arange(len(q.data.data))*q.deltaT
+            print  " rho22 plot ", det, lalsimutils.stringGPSNice(q.epoch), lalsimutils.stringGPSNice(theEpochFiducial)
+            tvals = float(q.epoch-theEpochFiducial) + np.arange(len(q.data.data))*q.deltaT  # rho timeseries are truncated, so short
             plt.plot(tvals,np.abs(q.data.data),label='rho22(t):'+det)
             plt.xlabel('t(s) [not geocentered]')
             plt.ylabel('rho22')
@@ -206,7 +208,6 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
 
         # Plot the interpolated lnLData versus *time*
         print " ======= lnLdata timeseries at the injection parameters =========="
-        tmin = np.max(float(epoch_post - theEpochFiducial),tWindowReference[0]+0.03)   # the minimum time used is set by the rolling condition
         tvals = np.linspace(tWindowExplore[0]+tEventFiducial,tWindowExplore[1]+tEventFiducial,fSample*(tWindowExplore[1]-tWindowExplore[0]))
         for det in detectors:
             lnLData = map( lambda x: factored_likelihood.SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, det), tvals)
@@ -215,7 +216,11 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
             plt.xlabel('t(s) [geocentered]')
             plt.ylabel('lnLdata')
             plt.title("lnLdata (interpolated) vs narrow time interval")
-            plt.ylim(-800,800)   # sometimes we get yanked off the edges.  Larger than this isn't likely
+            indx = [k for  k,value in enumerate((tvals>tWindowExplore[0])  * (tvals<tWindowExplore[1])) if value] # gets results if true
+            lnLfac = 4*np.max([np.abs(lnLData[k]) for k in indx])  # Max in window
+            if lnLfac < 100:
+                lnLfac = 100
+            plt.ylim(-lnLfac,lnLfac)   # sometimes we get yanked off the edges.  Larger than this isn't likely
             tvalsPlot = tvals 
             plt.plot(tvalsPlot, lnLData,label='Ldata(t)+'+det)
             plt.plot(tvalsPlot, lnLDataEstimate,label="$rho^2("+det+")$")
@@ -242,7 +247,6 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
             plt.savefig("FLT-lnLData.pdf")
 
         print " ======= rholm test: Plot the lnL timeseries at the injection parameters =========="
-        tmin = np.max(float(epoch_post - theEpochFiducial),tWindowExplore[0])   # the minimum time used is set by the rolling condition
         tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],fSample*(tWindowExplore[1]-tWindowExplore[0]))
         print "  ... plotting over range ", [min(tvals), max(tvals)], " with npts = ", len(tvals)
         P = Psig.copy()
@@ -255,7 +259,12 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,epoch_post, 
         tvalsPlot = tvals 
         plt.plot(tvalsPlot, lnL,label='lnL(t)')
         plt.plot(tvalsPlot, lnLEstimate,label="$rho^2/2(net)$")
-        plt.ylim(-2*rho2Net,2*rho2Net)   # ends of the sequence can be crap. This just sets the plot range for user convenience, so it's ok to hack it.
+
+        indx = [k for  k,value in enumerate((tvals>tWindowExplore[0])  * (tvals<tWindowExplore[1])) if value] # gets results if true
+        lnLfac = 4*np.max([np.abs(lnL[k]) for k in indx])  # Max in window
+        if lnLfac < 100:
+            lnLfac = 100
+        plt.ylim(-lnLfac,lnLfac)   # sometimes we get yanked off the edges.  Larger than this isn't likely
         tEventRelative =float( Psig.tref - theEpochFiducial)
         print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
         plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')

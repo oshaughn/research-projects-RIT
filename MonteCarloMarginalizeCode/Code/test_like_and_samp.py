@@ -496,8 +496,7 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
 # Perform the Precompute stage
 #
 rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q)
-rho22 =rholms[detectors[0]][( 2, 2)]
-epoch_post = rho22.epoch # Suggested change
+epoch_post = theEpochFiducial # Suggested change.  BE CAREFUL: Now that we trim the series, this is NOT what I used to be
 print "Finished Precomputation..."
 print "====Generating metadata from precomputed results ====="
 distBoundGuess = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, crossTerms)
@@ -538,7 +537,7 @@ TestDictionary["lnLDataPlotVersusPhiPsi"]            = False # opts.plot_ShowLik
 
 #opts.fmin_SNR=40
 
-factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, epoch_post, data_dict, psd_dict, fmaxSNR,analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, detectors,Lmax)
+factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,  data_dict, psd_dict, fmaxSNR,analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, detectors,Lmax)
 
 
 
