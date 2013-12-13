@@ -740,14 +740,15 @@ plt.savefig("test-Q-response-log-rho22.jpeg")
 #
 plt.clf()
 tStartOffsetDiscrete = tvals[0]
+print " Plotting lnLData from ", float(theEpochFiducial+tStartOffsetDiscrete), " onward "
 for det in detectors:
     nBinsDiscrete = len(data_dict[det].data.data)
     lnLDataDiscrete = factored_likelihood.DiscreteSingleDetectorLogLikelihoodData(theEpochFiducial,rholms, theEpochFiducial+tStartOffsetDiscrete, nBinsDiscrete, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, det)
     plt.plot(tvals[:len(lnLDataDiscrete)],lnLDataDiscrete,label='lnLData:'+det)
-plt.xlabel('t [fixme]')
+plt.xlabel('t [fixme]  0 at ' +  lalsimutils.stringGPSNice(theEpochFiducial))
 plt.ylabel('lnLData')
 plt.savefig("test-Q-response-lnLData.jpeg")
-plt.xlim(-0.1, 0.1)
+plt.xlim(-0.5, 0.5)
 plt.savefig("test-Q-response-lnLData-Zoom.jpeg")
 
 #
@@ -758,6 +759,13 @@ print nptsMore
 tvals = np.linspace(tWindowExplore[0],tWindowExplore[1], nptsMore)
 lnL = np.zeros(len(tvals))
 for indx in np.arange(len(tvals)):
+    # Make sure to populate the 'passed' parameters consistent with the injected value (sky location, etc)
+    P.theta = Psig.theta
+    P.phi   = Psig.phi
+    P.dist   = Psig.dist
+    P.incl   = Psig.incl
+    P.psi    = Psig.psi  
+    P.phiref = Psig.phiref
     P.tref =  theEpochFiducial+tvals[indx]
     lnL[indx] =  factored_likelihood.FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, Lmax)
 plt.clf()

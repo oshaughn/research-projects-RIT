@@ -159,6 +159,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
 
     if TestDictionary["Rho22Timeseries"]:
         print " ======= rho22: Plot versus time  =========="
+        print "    Note in Evan's implementation, they are functions of t in GPS units (i.e., 10^9) "
         plt.clf()
         plt.figure(2)   # plot not geocentered
         # Plot
@@ -169,7 +170,18 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             plt.plot(tvals,np.abs(q.data.data),label='rho22(t):'+det)
             plt.xlabel('t(s) [not geocentered] : relative to '+lalsimutils.stringGPSNice(theEpochFiducial))
             plt.ylabel('rho22')
-            plt.title('q:'+lalsimutils.stringGPSNice(q.epoch))
+            plt.title('q:'+lalsimutils.stringGPSNice(theEpochFiducial))
+
+            qf = rholms_intp[det][(2,2)] # factored_likelihood.QSumOfSquaresDiscrete(rholms[det],crossTerms[det]
+            tvals = np.linspace(tWindowExplore[0],tWindowExplore[1], fSample*(tWindowExplore[1]-tWindowExplore[0]))  # rho timeseries are truncated, so short
+            # Evan's implementation: large time scale for rholms(t)
+            tvals = map(lambda x: float(theEpochFiducial+x), tvals)
+            qvals = map(qf, tvals)
+            plt.plot(tvals,np.abs(qvals),label='rho22intp(t):'+det)
+            plt.xlabel('t(s) [not geocentered] : relative to '+lalsimutils.stringGPSNice(theEpochFiducial))
+            plt.ylabel('rho22')
+            plt.title('q:'+lalsimutils.stringGPSNice(theEpochFiducial))
+
         plt.legend()
         plt.savefig("FLT-rho22.jpeg")
 
