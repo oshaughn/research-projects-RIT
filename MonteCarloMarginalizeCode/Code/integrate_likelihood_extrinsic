@@ -54,6 +54,7 @@ optp.add_option("-s", "--data-start-time", type=float, default=None, help="GPS s
 optp.add_option("-e", "--data-end-time", type=float, default=None, help="GPS end time of data segment. If given, must also give --data-start-time. If not given, sane start and end time will automatically be chosen.")
 optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
 optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
+optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Timescale of inverse spectrum truncation in seconds (Default is 8 - give 0 for no truncation)")
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
@@ -102,7 +103,18 @@ template_min_freq = 40 # minimum frequency of template
 ampO = 0 # sets which modes to include in the physical signal
 Lmax = 2 # sets which modes to include
 t_ref_wind = 2e-3 # Interpolate in a window +/- this width about event time
-T_spec = 8. # Safety buffer in sec for corruption from inverse spectrum
+T_safety = 2. # Safety buffer (in sec) for wraparound corruption
+
+
+#
+# Inverse spectrum truncation control
+#
+T_spec = opts.inv_spec_trunc_time
+if T_spec == 0.: # Do not do inverse spectrum truncation
+    inv_spec_trunc_Q = False
+    T_safety += 8. # Add a bit more safety buffer in this case
+else:
+    inv_spec_trunc_Q = True
 
 #
 # Integrator options
@@ -198,7 +210,7 @@ if opts.data_start_time is not None and opts.data_end_time is not None:
 else:
     htmplt = lalsimutils.hoft(P)
     T_tmplt = - float(htmplt.epoch)
-    T_seg = T_tmplt + T_spec # A safe time before and after event time
+    T_seg = T_tmplt + T_spec + T_safety # Amount before and after event time
     start_time = float(event_time) - T_seg
     end_time = float(event_time) + T_seg
     print "Fetching data segment with start=", start_time
@@ -269,7 +281,7 @@ P.deltaF = deltaF
 t_window = 0.15
 rholms_intp, cross_terms, rholms=factored_likelihood.PrecomputeLikelihoodTerms(
         fiducial_epoch, t_window, P, data_dict, psd_dict, Lmax, fmax,
-        analyticPSD_Q=False)
+        False, inv_spec_trunc_Q, T_spec)
 
 if opts.pin_to_sim:
     P.copy_lsctables_sim_inspiral(sim_row)
