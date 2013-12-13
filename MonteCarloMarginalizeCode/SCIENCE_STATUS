@@ -5,6 +5,7 @@ URGENT PRIORITIES
    - increase time buffer  duration [>8s]
    - Tukey window 'temporary' solution
    - Implement PSD truncation, revisit next meeting
+     *  Status: Evan has code, validate and push
 
 * Fixes and implementations
    - time prior : investigate whether best-fit time shifts much vs mass. 
@@ -13,7 +14,8 @@ URGENT PRIORITIES
 * Zero noise simulations
     - ILE + zero_noise_mdc 
          - scaling of Z, neff,  with number of trials
-         - possibly use increasing number of parameters
+         - pinning:  use increasing number of parameters (e.g., sky loc pinned). 
+           How many iteration are needed for the 'easy' answer?
          - make sure redoble : add to zero_noise_mdc/Makefile
 
 * Convergence and data storage
