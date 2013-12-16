@@ -215,7 +215,7 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, cross
 
         lnL += SingleDetectorLogLikelihood(det_rholms, CT, Ylms, F, dist)
 
-    return np.log(np.sum(np.exp(lnL))*(tvals[1]-tvals[0])/(tvals[-1]-tvals[0]))  # the sum over tvals
+    return np.log(integrate.simps(np.exp(lnL), dx=tvals[1]-tvals[0]))
 
 
 #
