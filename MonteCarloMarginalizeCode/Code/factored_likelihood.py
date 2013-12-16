@@ -168,6 +168,55 @@ def FactoredLogLikelihood(epoch, extr_params, rholms_intp, crossTerms, Lmax):
 
     return lnL
 
+def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, crossTerms, Lmax):
+    """
+    Compute the log-likelihood = -1/2 < d - h | d - h > from:
+        - extr_params is an object containing values of all extrinsic parameters
+        - rholms_intp is a dictionary of interpolating functions < h_lm(t) | d >
+        - crossTerms is a dictionary of < h_lm | h_l'm' >
+        - Lmax is the largest l-index of any h_lm mode considered
+
+    tvals is an array of timeshifts relative to the detector, used to compute the marginalized integral.
+    It provides both the time prior and the sample points used for the integral.
+
+    N.B. rholms_intp and crossTerms are the first two outputs of the function
+    'PrecomputeLikelihoodTerms'
+    """
+    # Sanity checks
+    assert rholms_intp.keys() == crossTerms.keys()
+    detectors = rholms_intp.keys()
+
+    RA = extr_params.phi
+    DEC =  extr_params.theta
+    tref = extr_params.tref # geocenter time
+    phiref = extr_params.phiref
+    incl = extr_params.incl
+    psi = extr_params.psi
+    dist = extr_params.dist
+
+    # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
+    # the source frame, rather than actively rotating the binary.
+    # Said another way, the m^th harmonic of the waveform should transform as
+    # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
+    # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
+    Ylms = ComputeYlms(Lmax, incl, -phiref)
+
+    lnL = 0.
+    for det in detectors:
+        CT = crossTerms[det]
+        F = ComplexAntennaFactor(det, RA, DEC, psi, tref)
+
+        # This is the GPS time at the detector
+        t_det = ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
+        det_rholms = {}  # rholms evaluated at time at detector
+        for key in rholms_intp[det]:
+            func = rholms_intp[det][key]
+            det_rholms[key] = func(float(t_det)+tvals)
+
+        lnL += SingleDetectorLogLikelihood(det_rholms, CT, Ylms, F, dist)
+
+    return np.log(np.sum(np.exp(lnL))*(tvals[1]-tvals[0])/(tvals[-1]-tvals[0]))  # the sum over tvals
+
 
 #
 # Internal functions
