@@ -38,6 +38,7 @@ def ParseStandardArguments():
     parser.add_argument("--LikelihoodType_MargPhi",default=False,action='store_true')
     parser.add_argument("--LikelihoodType_MargT",default=False,action='store_true')
     parser.add_argument("--LikelihoodType_MargTdisc",default=False,action='store_true')
+    parser.add_argument("--LikelihoodType_MargTdisc_array",default=False,action='store_true')
     # Infrastructure choices:
     parser.add_argument("--skip-interpolation",dest="opt_SkipInterpolation",default=False,action='store_true')  # skip interpolation : saves time, but some things will crash later
 

@@ -20,9 +20,6 @@ Examples:
         python test_like_and_samp.py --show-psd
         python test_like_and_samp.py --psd-file psd.xml.gz --show-psd
   # Run using several likelihood approximations
-        python test_like_and_samp.py  --show-sampler-inputs --show-sampler-results --LikelihoodType_MargPhi
-        python test_like_and_samp.py  --show-sampler-inputs --show-sampler-results --LikelihoodType_MargT  \
-                 --Niter 10 --Nskip 1       # VERY SLOW
         python test_like_and_samp.py  --show-sampler-inputs --show-sampler-results --LikelihoodType_MargTdisc   # NOT DEBUGGED
   
   # Run with a fixed sky location (at injection values)
@@ -529,7 +526,7 @@ TestDictionary["Rho22Timeseries"]      = True
 TestDictionary["lnLModelAtKnown"]  =  analytic_signal  # this report is very confusing for real data
 TestDictionary["lnLDataAtKnownPlusOptimalTimePhase"] = False
 TestDictionary["lnLAtKnown"]           = True
-TestDictionary["lnLAtKnownMarginalizeTime"]  = False
+TestDictionary["lnLAtKnownMarginalizeTime"]  = True
 TestDictionary["lnLDataPlot"]            = opts.plot_ShowLikelihoodVersusTime
 TestDictionary["lnLDataPlotVersusPsi"]            = False # opts.plot_ShowLikelihoodVersusTime
 TestDictionary["lnLDataPlotVersusPhi"]            = False # opts.plot_ShowLikelihoodVersusTime
@@ -546,26 +543,50 @@ factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpoch
 # Uses the (already-allocated) template structure "P" structure *only* to pass parameters.  All parameters used should be specified.
 #
 nEvals = 0
-def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance): # right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
-    global nEvals
-    global pdfFullPrior
+if not opts.LikelihoodType_MargTdisc_array:
+    def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance): # right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
+        global nEvals
+        global pdfFullPrior
 
-    lnL = np.zeros(right_ascension.shape)
-    i = 0
-    for ph, th, tr, phr, ic, ps, di in zip(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
-        P.phi = ph # right ascension
-        P.theta = th # declination
-        P.tref = theEpochFiducial + tr # ref. time (rel to epoch for data taking)
-        P.phiref = phr # ref. orbital phase
-        P.incl = ic # inclination
-        P.psi = ps # polarization angle
-        P.dist = di*1e6*lal.LAL_PC_SI # luminosity distance.  The sampler assumes Mpc; P requires SI
-        lnL[i] = factored_likelihood.FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
-        i+=1
+        lnL = np.zeros(right_ascension.shape)
+        i = 0
+        for ph, th, tr, phr, ic, ps, di in zip(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
+            P.phi = ph # right ascension
+            P.theta = th # declination
+            P.tref = theEpochFiducial + tr # ref. time (rel to epoch for data taking)
+            P.phiref = phr # ref. orbital phase
+            P.incl = ic # inclination
+            P.psi = ps # polarization angle
+            P.dist = di*1e6*lal.LAL_PC_SI # luminosity distance.  The sampler assumes Mpc; P requires SI
+            lnL[i] = factored_likelihood.FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+            i+=1
 
 
-    nEvals+=i 
-    return np.exp(lnL)
+        nEvals+=i 
+        return np.exp(lnL)
+else: # Sum over time for every point in other extrinsic params
+    def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
+            psi, distance):
+        # use EXTREMELY many bits
+        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
+        i = 0
+        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+        for ph, th, phr, ic, ps, di in zip(right_ascension, declination,
+                phi_orb, inclination, psi, distance):
+            P.phi = ph # right ascension
+            P.theta = th # declination
+            P.tref = theEpochFiducial  # see 'tvals', above
+            P.phiref = phr # ref. orbital phase
+            P.incl = ic # inclination
+            P.psi = ps # polarization angle
+            P.dist = di* 1.e6 * lal.LAL_PC_SI # luminosity distance
+
+            lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
+                    P, rholms_intp, crossTerms,                   
+                    Lmax)
+            i+=1
+    
+        return np.exp(lnL)
 
 import mcsampler
 sampler = mcsampler.MCSampler()
