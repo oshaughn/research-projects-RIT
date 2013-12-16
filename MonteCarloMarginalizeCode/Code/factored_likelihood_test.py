@@ -213,7 +213,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
                 P2.tref = theEpochFiducial+x  
                 return np.exp(np.max([factored_likelihood.FactoredLogLikelihood(theEpochFiducial, P2, rholms_intp, crossTerms,Lmax),-15]))   # control for roundoff
             lnLmargT3 = np.log(integrate.quad(fn,  tWindowExplore[0], tWindowExplore[1],points=[0],limit=500)[0])
-            print "Validating ln \int L dt/T over a window (manual,interp,discrete)= ", lnLmargT3,  lnLmargT2, " note time window has length ", tWindowExplore[1]-tWindowExplore[0]
+            print "Validating ln \int L dt/T over a window (manual,interp,discrete)= ", lnLmargT3, lnLmargT1,   " note time window has length ", tWindowExplore[1]-tWindowExplore[0]
 
 
 
