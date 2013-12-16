@@ -432,12 +432,14 @@ sampler.add_parameter("declination",
 #
 tref_sampler = functools.partial(mcsampler.uniform_samp_vector,
     param_limits["t_ref"][0], param_limits["t_ref"][1])
-sampler.add_parameter("t_ref", 
-    pdf = tref_sampler, 
-    cdf_inv = None, 
-    left_limit = param_limits["t_ref"][0], 
-    right_limit = param_limits["t_ref"][1],
-    prior_pdf = functools.partial(mcsampler.uniform_samp_vector, factored_likelihood.tWindowExplore[0],factored_likelihood.tWindowExplore[1]))
+if not opts.time_marginalization:
+    # This parameter cannot be present, if likelihood_function does not include it as a parameter
+    sampler.add_parameter("t_ref", 
+                          pdf = tref_sampler, 
+                          cdf_inv = None, 
+                          left_limit = param_limits["t_ref"][0], 
+                          right_limit = param_limits["t_ref"][1],
+                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, factored_likelihood.tWindowExplore[0],factored_likelihood.tWindowExplore[1]))
 
 #
 # Determine pinned and non-pinned parameters
@@ -503,18 +505,25 @@ if not opts.time_marginalization:
     res, var, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else: # Sum over time for every point in other extrinsic params
-
     def likelihood_function(right_ascension, declination, phi_orb, inclination,
             psi, distance):
         # use EXTREMELY many bits
         lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
         i = 0
+        tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
         for ph, th, phr, ic, ps, di in zip(right_ascension, declination,
                 phi_orb, inclination, psi, distance):
-            lnL[i] = factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete(fiducial_epoch,
-                    rholms, cross_terms, fiducial_epoch,
-                    (-t_ref_wind, t_ref_wind), ph, th, ic, phr, ps, di,
-                    Lmax, rholms.keys())
+            P.phi = ph # right ascension
+            P.theta = th # declination
+            P.tref = fiducial_epoch  # see 'tvals', above
+            P.phiref = phr # ref. orbital phase
+            P.incl = ic # inclination
+            P.psi = ps # polarization angle
+            P.dist = di* 1.e6 * lal.LAL_PC_SI # luminosity distance
+
+            lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
+                    P, rholms_intp, cross_terms,                   
+                    Lmax)
             i+=1
     
         return numpy.exp(lnL)
@@ -532,7 +541,10 @@ if opts.output_file:
         samples = sampler._rvs
         # FIXME: Does sim insp do kpc or mpc
         samples["distance"] = samples["distance"]
-        samples["t_ref"] += float(fiducial_epoch)
+        if not opts.time_marginalization:
+            samples["t_ref"] += float(fiducial_epoch)
+        else:
+            samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(samples))
         samples["polarization"] = samples["psi"]
         samples["coa_phase"] = samples["phi_orb"]
         samples["latitude"] = samples["declination"]
