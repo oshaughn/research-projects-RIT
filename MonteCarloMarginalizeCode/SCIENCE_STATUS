@@ -1,35 +1,32 @@
 
 URGENT PRIORITIES
 
-* Truncation and related: Make sure code in place on master                 [Evan]
-   - document time buffer duration clearly in comments/help
-   - adopt and automate data retrieval and handling (e.g., Tukey window or not)
-
 * Fixes and implementations
-   - time prior : -investigate whether best-fit time shifts much vs mass.  [Evan]
-                     -is our 2ms time window too tight?                           [Evan : template mismatch /Richard: sky]
-   - time marginalization: - integrate outward, narrow window              [Evan]
+   - time prior : -implement 100ms time window for now
+                     - investigate time biases in real searches     
 
 * Zero noise simulations
     - ILE + zero_noise_mdc :
            Cost assessment + inputs to prototype others
          - pinned sky location                                                           [Chris]
          - large-neff run, fully unpinned : 2 mass points                        [Chris]
+    - ILE + Chris' MDCs [all]
 
 * Convergence and data storage
+   - output compression: 
+               - temporary hack to throw away .sqlite database for now
     - how many points should we keep? [Use zero-noise-mdc data]        [Richard]                   
       scaling of Z, neff, error, PDFs  with neff, N
 
 PROTOTYPING 
 
 * Prototype-scale investigations
-    - Sampling priors to "limit the worst case" runtime
-         - uniform in iota                                                               [Chris]
-
     - Adaptive sampling priors                                                      [Chris]         
+    - Array-based time marginalization                                            [Richard]
 
 * Computational cost 
     - Long waveforms not a limit : runtime trend vs flow, seglen        [Richard?]
+
 
 TABLED UNTIL AFTER CODE WORKING
 
@@ -38,6 +35,7 @@ TABLED UNTIL AFTER CODE WORKING
  - Distancce prior: Cutoff
  - Time prior    : investigate safe inteval. Concrete examples with different injections (and gracedb)
                      : template (model/model, mass/mass) mismatches and timeshifts, re prior
+                     : targeting smaller interval for time
 
  - Adaptive priors, fully implemented
 
@@ -50,6 +48,8 @@ RECORD
 
 * Priors 
    - distance prior [2013-12-11]  : uniform distance. Cutoff uniform across masses. 10*BNS distance (300 Mpc)
+    - Sampling priors to "limit the worst case" runtime
+         - uniform in iota [2013-12-17]
 
 * Convergence
    - neff [2013-12-11] implementation fixed, mcsampler cleaned
@@ -58,3 +58,7 @@ RECORD
 * Data handling:
     - Inverse spectrum truncation:
         - Implemented in lalsimutils IP class [2013-12-13]
+
+* Likelihood
+      - time marginalization v0:  [2013-12-16]
+
