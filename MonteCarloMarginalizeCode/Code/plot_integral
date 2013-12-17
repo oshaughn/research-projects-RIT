@@ -18,9 +18,9 @@ def plot_integral(samp, fname=None):
     """
     Effectively regenerates the process which happens in MCSampler.integrate, but keeps track of the values for plotting.
     """
-    fval, joint_prior, joint_p_s = numpy.array([ (s.alpha1, s.alpha2, s.alpha3) for s in samp]).T
-    n = len(fval)
-    int_val = numpy.exp(fval/joint_p_s*joint_prior)
+    logfval, joint_prior, joint_p_s = numpy.array([ (s.alpha1, s.alpha2, s.alpha3) for s in samp]).T
+    n = len(logfval)
+    int_val = numpy.exp(logfval)/joint_p_s*joint_prior
     maxval = [int_val[0] or -float("Inf")]
     for v in int_val[1:]:
         maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
