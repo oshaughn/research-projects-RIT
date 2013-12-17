@@ -544,7 +544,7 @@ if opts.output_file:
         if not opts.time_marginalization:
             samples["t_ref"] += float(fiducial_epoch)
         else:
-            samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(samples))
+            samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(sampler._rvs["psi"]))
         samples["polarization"] = samples["psi"]
         samples["coa_phase"] = samples["phi_orb"]
         samples["latitude"] = samples["declination"]
