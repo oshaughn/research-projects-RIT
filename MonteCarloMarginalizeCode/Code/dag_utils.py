@@ -158,6 +158,12 @@ def write_result_coalescence_sub(tag='coalesce', exe=None, log_dir=None, output_
     sql_job.add_opt("input-cache", "ILE_$(macromassid).cache")
     #sql_job.add_arg("*$(macromassid)*.xml.gz")
     sql_job.add_opt("database", "ILE_$(macromassid).sqlite")
+    if os.environ.has_key("TMPDIR"):
+        tmpdir = os.environ["TMPDIR"]
+    else:
+        print >>sys.stderr, "WARNING, TMPDIR environment variable not set. Will default to /tmp/, but this could be dangerous."
+        tmpdir = "/tmp/"
+    sql_job.add_opt("tmp-space", tmpdir)
     sql_job.add_opt("verbose", None)
 
     sql_job.add_condor_cmd('getenv', 'True')
@@ -187,6 +193,33 @@ def write_posterior_plot_sub(tag='plot_post', exe=None, log_dir=None, output_dir
     plot_job.add_opt("dimension1", "mchirp")
     plot_job.add_opt("dimension2", "eta")
     plot_job.add_opt("input-cache", "ILE_all.cache")
+
+    plot_job.add_condor_cmd('getenv', 'True')
+    plot_job.add_condor_cmd('request_memory', '2048')
+    
+    return plot_job, plot_sub_name
+
+def write_tri_plot_sub(tag='plot_tri', exe=None, log_dir=None, output_dir="./"):
+    """
+    Write a submit file for launching jobs to coalesce ILE output
+    """
+
+    exe = exe or which("make_triplot")
+    plot_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    plot_sub_name = tag + '.sub'
+    plot_job.set_sub_file(plot_sub_name)
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(cluster)-$(process)"
+    plot_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    plot_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    plot_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    plot_job.add_opt("output", "ILE_$(macromassid).png")
+    plot_job.add_arg("ILE_$(macromassid).sqlite")
 
     plot_job.add_condor_cmd('getenv', 'True')
     plot_job.add_condor_cmd('request_memory', '2048')
