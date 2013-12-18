@@ -135,7 +135,7 @@ NEtas = 11
 wide_match = 0.90
 match_cntr = 0.97 # Fill an ellipsoid of this match
 fit_cntr = match_cntr # Do the effective Fisher fit with pts above this match
-Nrandpts = 200 # Requested number of pts to put inside the ellipsoid
+Nrandpts = 5 # Requested number of pts to put inside the ellipsoid
 
 #
 # Setup signal and IP class
@@ -316,7 +316,14 @@ for i, (m1, m2) in enumerate(m1m2_grid):
     sql_node.set_category("SQL")
     dag.add_node(sql_node)
 
-    pos_plot_node.add_parent(sql_node)
+    tri_plot_job_type, tri_plot_job_name = dag_utils.write_tri_plot_sub(tag="tri_plot", log_dir=log_dir)
+    tri_plot_job_type.write_sub_file()
+    tri_plot_node = pipeline.CondorDAGNode(tri_plot_job_type)
+    tri_plot_node.add_macro("macromassid", mass_grouping)
+    tri_plot_node.set_category("PLOT")
+    dag.add_node(tri_plot_node)
+
+    pos_plot_node.add_parent(tri_plot_node)
 
 dag_name="marginalize_extrinsic_parameters"
 dag.set_dag_file(dag_name)
