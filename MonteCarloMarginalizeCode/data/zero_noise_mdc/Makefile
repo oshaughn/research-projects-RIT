@@ -27,6 +27,13 @@ test_ile_dag: zero_noise.cache
 test_ile: zero_noise.cache
 	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.5 --mass2 4.0 --pin-to-sim mdc.xml.gz --reference-freq 0.0
 
+test_ile_postprocessing: zero_noise.cache
+	rm -f zero_noise.pdf
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 1000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001 
+	echo " Number of samples stored in this test (<number of samples performed): " `ligolw_print -t sim_inspiral -c alpha1 zero_noise.xml.gz | wc -l `
+	../../Code/plot_integral zero_noise.xml.gz -o integral.pdf
+
+
 zero_noise.cache: H1_zero_noise.cache L1_zero_noise.cache V1_zero_noise.cache
 	cat {H,L,V}1_zero_noise.cache > zero_noise.cache
 
