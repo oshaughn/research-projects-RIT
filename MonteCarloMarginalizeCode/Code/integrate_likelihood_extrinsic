@@ -59,6 +59,8 @@ optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tu
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
+optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
+optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
 
 #
 # Add the integration options
@@ -465,7 +467,9 @@ if pinned_params.has_key("t_ref"):
 #
 # Merge options into one big ol' kwargs dict
 #
-pinned_params.update({"n": min(100, n_max), "nmax": n_max, "neff": n_eff, "verbose": True, "extremely_verbose": False, "save_intg": True})
+pinned_params.update({"n": min(100, n_max), "nmax": n_max, "neff": n_eff, "verbose": True, "extremely_verbose": False, "save_intg": True,
+    "igrand_threshold_deltalnL":opts.save_deltalnL   , "igrand_threshold_p": opts.save_P
+   })
 
 #
 # Call the likelihood function for various extrinsic parameter values

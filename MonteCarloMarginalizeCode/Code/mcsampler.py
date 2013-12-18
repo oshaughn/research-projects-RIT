@@ -238,6 +238,8 @@ class MCSampler(object):
         neff = kwargs["neff"] if kwargs.has_key("neff") else numpy.float128("inf")
         n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
         save_intg = kwargs["save_intg"] if kwargs.has_key("save_intg") else False
+        deltalnL = kwargs['igrand_threshold_deltalnL'] if kwargs.has_key('igrand_threshold_deltalnL') else float("Inf") # default is to return all
+        deltaP    = kwargs["igrand_threshold_p"] if kwargs.has_key('igrand_threshold_p') else 0 # default is to omit 1e-7 of probability
 
         bUseMultiprocessing = kwargs['use_multiprocessing'] if kwargs.has_key('use_multiprocessing') else False
         nProcesses = kwargs['nprocesses'] if kwargs.has_key('nprocesses') else 2
@@ -338,6 +340,25 @@ class MCSampler(object):
         self.pdf.update(temppdfdict)
         self._pdf_norm.update(temppdfnormdict)
         self.prior_pdf.update(temppriordict)
+
+        # Clean out the _rvs arrays for 'irrelevant' points
+        #   - find and remove samples with  lnL less than maxlnL - deltalnL (latter user-specified)
+        #   - create the cumulative weights
+        #   - find and remove samples which contribute too little to the cumulative weights
+        self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
+        # Step 1: Cut out any sample with lnL belw threshold
+        indxList = [ k for k, value in enumerate( (self._rvs["integrand"] >  maxlnL - deltalnL)) if value] # threshold number 1
+        for key in self._rvs.keys():
+            self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indxList] )
+        # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
+        wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
+        idxSortedIndex = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
+        indxList = numpy.array( [[k, wt[k]] for k in idxSortedIndex])     # pair up with the weights again
+        cumsum = numpy.cumsum(indxList[:,1])  # find the cumulative sum
+        cumsum = cumsum/cumsum[-1]              # normalize the cumulative sum
+        indxList = [indxList[k,0] for k,value in enumerate(cumsum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability
+        for key in self._rvs.keys():
+            self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indxList] )
 
         return int_val1/ntotal, var/ntotal, eff_samp
                 
