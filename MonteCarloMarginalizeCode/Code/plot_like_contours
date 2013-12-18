@@ -17,6 +17,13 @@ from glue.ligolw import utils, table, lsctables
 
 import xmlutils
 
+def calculate_evidence(snr_ar):
+    return sum([numpy.exp(snr**2/2) for snr in snr_ar])
+
+def mchirp_eta(m1, m2):
+    eta = m1*m2/(m1 + m2)**2
+    return eta**(3.0/5)*(m1+m2), eta
+
 optp = OptionParser()
 optp.add_option("--dimension1", help="Plot this column along the x-axis")
 optp.add_option("--dimension2", help="Plot this column along the y-axis")
@@ -25,14 +32,13 @@ optp.add_option("--partial-evidence", action="store_true", help="Plot the partia
 optp.add_option("--show-points", action="store_true", help="Scatter plot the points used.")
 optp.add_option("--show-mdc", help="Mark MDC values from provided XML on the plots.")
 optp.add_option("--fig-extension",help="Type of figure (png,pdf,jpg)",default="png")
+optp.add_option("--input-cache",help="Read files in from this cache")
 opts, args = optp.parse_args()
 
-def calculate_evidence(snr_ar):
-    return sum([numpy.exp(snr**2/2) for snr in snr_ar])
-
-def mchirp_eta(m1, m2):
-    eta = m1*m2/(m1 + m2)**2
-    return eta**(3.0/5)*(m1+m2), eta
+from glue.lal import Cache
+if opts.input_cache:
+    with open(opts.input_cache) as cfile:
+        args.extend( Cache.fromfile(cfile).pfnlist() )
 
 if opts.dimension1 in ["mass1", "mass2", "mchirp", "eta"] and opts.dimension2 in ["mass1", "mass2", "mchirp", "eta"]:
     points, like = [], []
@@ -114,10 +120,10 @@ elif opts.dimension2 is None:
     # NOTE: Reenable for inset histogram
     #ax_inset = fig.add_axes([0.4, 0.2, 0.3, 0.3])
     #ax_inset.hist(points[0], bins=100)
-    bottom.hist(points[0], bins=100)
+    bottom.hist(points[0], bins=100, normed=True)
 
     # Plot prior
-    bottom.plot(points[2], 'k-')
+    bottom.plot(points[0], points[2], 'k-')
 
     bottom.set_xlabel(opts.dimension1)
     top.grid()
