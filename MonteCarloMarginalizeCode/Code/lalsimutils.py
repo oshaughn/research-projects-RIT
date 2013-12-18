@@ -462,8 +462,11 @@ class Overlap(InnerProduct):
     Inner product maximized over time and phase. self.ip(h1,h2) computes:
 
                   fNyq
-    max 4 Abs \int      h1(f) h2*(f,tc) / Sn(f) df
+    max 4 Abs \int      h1*(f,tc) h2(f) / Sn(f) df
      tc           fLow
+
+    h1, h2 must be COMPLEX16FrequencySeries defined in [0, fNyq]
+    (with the negative frequencies implicitly given by Hermitianity)
 
     If self.full_output==False: returns
         The maximized (real-valued, > 0) overlap
@@ -558,9 +561,12 @@ class ComplexOverlap(InnerProduct):
     self.IP(h1,h2) computes:
 
                   fNyq
-    max 2 Abs \int      h1(f) h2*(f,tc) / Sn(f) df
+    max 2 Abs \int      h1*(f,tc) h2(f) / Sn(f) df
      tc          -fNyq
 
+    h1, h2 must be COMPLEX16FrequencySeries defined in [-fNyq, fNyq-deltaF]
+    At least one of which should be non-Hermitian for the maximization
+    over phase to work properly.
 
     If self.full_output==False: returns
         The maximized overlap
