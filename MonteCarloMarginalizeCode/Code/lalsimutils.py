@@ -462,8 +462,11 @@ class Overlap(InnerProduct):
     Inner product maximized over time and phase. self.ip(h1,h2) computes:
 
                   fNyq
-    max 4 Abs \int      h1(f) h2*(f,tc) / Sn(f) df
+    max 4 Abs \int      h1*(f,tc) h2(f) / Sn(f) df
      tc           fLow
+
+    h1, h2 must be COMPLEX16FrequencySeries defined in [0, fNyq]
+    (with the negative frequencies implicitly given by Hermitianity)
 
     If self.full_output==False: returns
         The maximized (real-valued, > 0) overlap
@@ -490,19 +493,17 @@ class Overlap(InnerProduct):
 
     def ip(self, h1, h2):
         """
-        Compute inner product between two COMPLEX16Frequency Series
+        Compute inner product between two Hermitian COMPLEX16Frequency Series
         """
-        assert h1.data.length <= self.len1side
-        assert h2.data.length <= self.len1side
+        assert h1.data.length==h2.data.length==self.len1side
         assert abs(h1.deltaF-h2.deltaF) <= TOL_DF\
                 and abs(h1.deltaF-self.deltaF) <= TOL_DF
         # Tabulate the SNR integrand
-        maxIdx = min(h1.data.length,h2.data.length)
-        for i in range(self.len1side):
-            self.intgd.data.data[i] = 0.
-        for i in range(self.minIdx,maxIdx):
-            self.intgd.data.data[i] = 4.*np.conj(h1.data.data[i])\
-                    *h2.data.data[i]*self.weights[i]
+        # Set negative freqs. of integrand to zero
+        self.intgd.data.data[:self.len1side] = np.zeros(self.len1side)
+        # Fill positive freqs with inner product integrand
+        temp = 4.*np.conj(h1.data.data) * h2.data.data * self.weights
+        self.intgd.data.data[self.len1side-1:] = temp[:-1]
         # Reverse FFT to get overlap for all possible reference times
         lal.COMPLEX16FreqTimeFFT(self.ovlp, self.intgd, self.revplan)
         rhoSeries = np.abs(self.ovlp.data.data)
@@ -527,7 +528,7 @@ class Overlap(InnerProduct):
         """
         Compute norm of a COMPLEX16Frequency Series
         """
-        assert h.data.length <= self.len1side
+        assert h.data.length == self.len1side
         assert abs(h.deltaF-self.deltaF) <= TOL_DF
         val = 0.
         val = np.sum( np.conj(h.data.data)*h.data.data *self.weights)
@@ -560,9 +561,12 @@ class ComplexOverlap(InnerProduct):
     self.IP(h1,h2) computes:
 
                   fNyq
-    max 2 Abs \int      h1(f) h2*(f,tc) / Sn(f) df
+    max 2 Abs \int      h1*(f,tc) h2(f) / Sn(f) df
      tc          -fNyq
 
+    h1, h2 must be COMPLEX16FrequencySeries defined in [-fNyq, fNyq-deltaF]
+    At least one of which should be non-Hermitian for the maximization
+    over phase to work properly.
 
     If self.full_output==False: returns
         The maximized overlap
