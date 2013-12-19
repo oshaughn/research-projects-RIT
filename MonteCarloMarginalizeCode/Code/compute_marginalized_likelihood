@@ -51,6 +51,8 @@ optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-n", "--n-copies", type=int, default=1, help="Number of copies to do of a given run. Default is 1.")
 optp.add_option("--n-max", type=int, default=1000000, help="Maximum number of throws to use in integrator.")
 optp.add_option("--n-eff", type=int, default=1000, help="Maximum number of effective samples to reach before terminating.")
+optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
+optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
 
 #
 # Add the intrinsic parameters
@@ -271,8 +273,9 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         output_file=opts.output_file,
         n_eff=opts.n_eff,
         n_max=opts.n_max,
-        ncopies=opts.n_copies
-        )
+        ncopies=opts.n_copies,
+        save_deltalnL=opts.save_deltalnL,
+        save_P=opts.save_P)
 ile_job_type.write_sub_file()
 
 #
