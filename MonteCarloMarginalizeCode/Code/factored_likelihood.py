@@ -34,7 +34,7 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
 distMpcRef = 100 # a fiducial distance for the template source.
-tWindowExplore = [-0.05, 0.05] # smaller window.  Avoid interpolation errors on the edge.
+tWindowExplore = [-0.05, 0.05] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
 rosDebugMessages = True
 
 #
