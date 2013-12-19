@@ -51,6 +51,7 @@ optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-n", "--n-copies", type=int, default=1, help="Number of copies to do of a given run. Default is 1.")
 optp.add_option("--n-max", type=int, default=1000000, help="Maximum number of throws to use in integrator.")
 optp.add_option("--n-eff", type=int, default=1000, help="Maximum number of effective samples to reach before terminating.")
+optp.add_option("-N", "--N-mass-pts", type=int, default=200, help="Number of intrinsic parameter (mass) values at which to compute marginalized likelihood. Default is 200.")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
 
@@ -137,7 +138,7 @@ NEtas = 11
 wide_match = 0.90
 match_cntr = 0.97 # Fill an ellipsoid of this match
 fit_cntr = match_cntr # Do the effective Fisher fit with pts above this match
-Nrandpts = 5 # Requested number of pts to put inside the ellipsoid
+Nrandpts = opts.N_mass_pts # Requested number of pts to put inside the ellipsoid
 
 #
 # Setup signal and IP class
