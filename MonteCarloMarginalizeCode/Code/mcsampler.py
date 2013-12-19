@@ -261,7 +261,7 @@ class MCSampler(object):
         mean, std = None, None 
 
         if bShowEvaluationLog:
-            print "iteration Neff  rhoMax sqrt(2*Lmarg)  Lmarg"
+            print "iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg)  Lmarg ln(Z/Lmax)"
 
         while eff_samp < neff and ntotal < nmax:
             # Draw our sample points
@@ -330,7 +330,7 @@ class MCSampler(object):
             eff_samp = int_val1/maxval
 
             if bShowEvaluationLog:
-                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/ntotal)), int_val1/ntotal
+                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/ntotal)), int_val1/ntotal, numpy.log(int_val1/ntotal)-maxlnL
 
             if ntotal >= nmax and neff != float("inf"):
                 print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
