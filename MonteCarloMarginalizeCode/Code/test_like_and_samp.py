@@ -558,7 +558,7 @@ if not opts.LikelihoodType_MargTdisc_array:
             P.incl = ic # inclination
             P.psi = ps # polarization angle
             P.dist = di*1e6*lal.LAL_PC_SI # luminosity distance.  The sampler assumes Mpc; P requires SI
-            lnL[i] = factored_likelihood.FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+            lnL[i] = factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
             i+=1
 
 
@@ -717,7 +717,7 @@ if neff > 5 or opts.force_store_metadata:  # A low threshold but not completely 
 
 if opts.inj:
     print "==== PP data: <base>-pp-instance.dat ====="
-    lnLAt = factored_likelihood.FactoredLogLikelihood(theEpochFiducial, Psig, rholms_intp, crossTerms, Lmax)
+    lnLAt = factored_likelihood.FactoredLogLikelihood(Psig, rholms_intp, crossTerms, Lmax)
     # Evaluate best data point
     ppdata = {}
     weights = np.exp(ret[:,-1])*ret[:,-3]/ret[:,-2]

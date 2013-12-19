@@ -134,7 +134,7 @@ rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpoch
 print rho2Net
 if checkResults == True:
     print " ======= End to end test : lnL at the injection parameters  =========="
-    lnL = FactoredLogLikelihood(theEpochFiducial, Psig, rholms_intp, crossTerms, 2)
+    lnL = FactoredLogLikelihood(Psig, rholms_intp, crossTerms, 2)
     print " Result ", lnL, " compared to (expected network) ", rho2Net/2 , " and ", rho2NetManual/2
 
     print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (* STILL TIME OFFSET *)  =========="
@@ -165,7 +165,7 @@ if checkResults == True:
     lnL = np.zeros(len(tvals))
     for indx in np.arange(len(tvals)):
             P.tref =  theEpochFiducial+tvals[indx]
-            lnL[indx] =  FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, 2)
+            lnL[indx] =  FactoredLogLikelihood(P, rholms_intp, crossTerms, 2)
     print " log L scale ",np.max(lnL)
     plt.figure(1)
     tvalsPlot = tvals 

@@ -296,14 +296,14 @@ if opts.pin_to_sim:
     print "\tpsi", P.psi, sim_row.polarization # polarization angle
     print "\tdistance", P.dist/(1e6 * lal.LAL_PC_SI), sim_row.distance  # luminosity distance
 
-    logL = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax)
+    logL = factored_likelihood.FactoredLogLikelihood(P, rholms_intp, cross_terms, Lmax)
     print "Pinned log likelihood: %g, (%g in \"SNR\")" % (logL, numpy.sqrt(2*logL))
     tref = float(P.tref)
     tvals = numpy.arange(tref-0.01, tref+0.01, 0.00001)
     logLs = []
     for t in tvals:
         P.tref = lal.LIGOTimeGPS(t)
-        logLs.append(factored_likelihood.FactoredLogLikelihood(fiducial_epoch,P, rholms_intp, cross_terms, Lmax))
+        logLs.append(factored_likelihood.FactoredLogLikelihood(P, rholms_intp, cross_terms, Lmax))
     import matplotlib
     matplotlib.use("Agg")
     from matplotlib import pyplot
@@ -500,7 +500,7 @@ if not opts.time_marginalization:
             P.psi = ps # polarization angle
             P.dist = di* 1.e6 * lal.LAL_PC_SI # luminosity distance
     
-            lnL[i] = factored_likelihood.FactoredLogLikelihood(fiducial_epoch,
+            lnL[i] = factored_likelihood.FactoredLogLikelihood(
                     P, rholms_intp, cross_terms, Lmax)
             i+=1
     
