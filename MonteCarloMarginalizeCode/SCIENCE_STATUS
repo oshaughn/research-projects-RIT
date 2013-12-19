@@ -11,17 +11,15 @@ URGENT PRIORITIES
          - pinned sky location                                                           [Chris]
          - large-neff run, fully unpinned : 2 mass points                        [Chris]
     - ILE + Chris' MDCs [all]
+    - Larger-scale MDCs
 
-* Convergence and data storage
-   - output compression: 
-               - temporary hack to throw away .sqlite database for now
-    - how many points should we keep? [Use zero-noise-mdc data]        [Richard]                   
-      scaling of Z, neff, error, PDFs  with neff, N
+* Convergence and adaptation
+    - implement adaptive priors on master
+    - convergence theory with adaptation
 
 PROTOTYPING 
 
 * Prototype-scale investigations
-    - Adaptive sampling priors                                                      [Chris]         
     - Array-based time marginalization                                            [Richard]
 
 * Computational cost 
@@ -50,6 +48,7 @@ RECORD
    - distance prior [2013-12-11]  : uniform distance. Cutoff uniform across masses. 10*BNS distance (300 Mpc)
     - Sampling priors to "limit the worst case" runtime
          - uniform in iota [2013-12-17]
+   - time prior changed to +/-50ms [2013-12-19]
 
 * Convergence
    - neff [2013-12-11] implementation fixed, mcsampler cleaned
@@ -62,3 +61,7 @@ RECORD
 * Likelihood
       - time marginalization v0:  [2013-12-16]
 
+
+* Miscellaneous
+   - data output truncation via --save-P, etc [2013-12-18]
+   -  confirmed 2ifo works [2013-12-19]
