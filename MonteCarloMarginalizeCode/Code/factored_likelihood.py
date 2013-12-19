@@ -122,7 +122,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
 
     return rholms_intp, crossTerms, rholms
 
-def FactoredLogLikelihood(epoch, extr_params, rholms_intp, crossTerms, Lmax):
+def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
     """
     Compute the log-likelihood = -1/2 < d - h | d - h > from:
         - extr_params is an object containing values of all extrinsic parameters

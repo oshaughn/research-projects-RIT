@@ -173,7 +173,7 @@ def likelihood_function( x):
     P.psi = psi # polarization angle
     P.dist = dist*(1e6*lal.LAL_PC_SI) # luminosity distance
 
-    lnL = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)
+    lnL = FactoredLogLikelihood(P, rholms_intp, crossTerms, Lmax)
     if rosDebugMessages:
         if (numpy.mod(nEvals,400)==10 and nEvals>100):
             print "\t Params ", nEvals, " (RA, DEC, tref, phiref, incl, psi, dist) ="

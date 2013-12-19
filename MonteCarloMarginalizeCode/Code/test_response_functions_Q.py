@@ -767,7 +767,7 @@ for indx in np.arange(len(tvals)):
     P.psi    = Psig.psi  
     P.phiref = Psig.phiref
     P.tref =  theEpochFiducial+tvals[indx]
-    lnL[indx] =  factored_likelihood.FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, Lmax)
+    lnL[indx] =  factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms, Lmax)
 plt.clf()
 plt.plot(tvals,lnL,label='lnL')
 plt.xlabel('t - tEvent (s): relative to '+lalsimutils.stringGPSNice(theEpochFiducial))

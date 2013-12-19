@@ -93,7 +93,7 @@ nEvals = 7000
 for i in np.arange(nEvals):
 #    P = Psig.copy()
 #    P.tref +=0.001*np.random.random_sample()  # mimic setting parameters in the structure
-    lnL = FactoredLogLikelihood(theEpochFiducial, Psig, rholms_intp, crossTerms, 2)
+    lnL = FactoredLogLikelihood(Psig, rholms_intp, crossTerms, 2)
 tE = lal.GPSTimeNow()
 cost_dict['lnL'] = float(tE-tS)/nEvals
 

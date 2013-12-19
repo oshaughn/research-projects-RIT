@@ -187,7 +187,7 @@ if checkInputs == True:
         lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
         print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det], "      [last two equal?]"
     print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters  =========="
-    lnL = FactoredLogLikelihood(theEpochFiducial,Psig, rholms_intp, crossTerms, Lmax)
+    lnL = FactoredLogLikelihood(Psig, rholms_intp, crossTerms, Lmax)
     print "  : Evan's code : ", lnL, " versus rho^2/2 ", rho2Net/2
     print "  : Timing issues (checkme!) : fiducial = ", stringGPSNice(theEpochFiducial)
 
@@ -216,7 +216,7 @@ if checkInputs == True:
     lnL = np.zeros(len(tvals))
     for indx in np.arange(len(tvals)):
             P.tref =  theEpochFiducial+tvals[indx]
-            lnL[indx] =  FactoredLogLikelihood(theEpochFiducial, P, rholms_intp, crossTerms, 2)
+            lnL[indx] =  FactoredLogLikelihood(P, rholms_intp, crossTerms, 2)
     lnLEstimate = np.ones(len(tvals))*rho2Net/2
     plt.figure(1)
     tvalsPlot = tvals 
@@ -252,7 +252,7 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
         P.psi = ps # polarization angle
         P.dist = di # luminosity distance
 
-        lnL[i] = FactoredLogLikelihood(theEpochFiducial,P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+        lnL[i] = FactoredLogLikelihood(P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
 #        if i<len(phi)-10:
 #            LSum[i+1] = LSum[i]+np.exp(lnL[i])
 #        if (numpy.mod(i,1000)==10 and i>100):
