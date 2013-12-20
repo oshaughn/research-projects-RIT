@@ -118,7 +118,7 @@ def likelihood_to_snglinsp_row(table, loglikelihood, **cols):
     row.event_id = table.get_next_id()
     for col in cols:
             setattr(row, col, cols[col])
-    row.snr = numpy.sqrt(2*loglikelihood)
+    row.snr = loglikelihood
 
     return row
 
