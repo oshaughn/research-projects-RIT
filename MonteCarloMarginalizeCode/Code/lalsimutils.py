@@ -743,6 +743,17 @@ def findDeltaF(P):
     h = hoft(P)
     return 1./(nextPow2(h.data.length) * P.deltaT)
 
+def estimateWaveformDuration(P):
+    """
+    Input:  P
+    Output:estimated duration (in s) based on Newtonian inspiral from P.fmin to infinite frequency
+    """
+    fM  = P.fmin*(P.m1+P.m2)*lal.LAL_G_SI / lal.LAL_C_SI**3
+    eta = symRatio(P.m1,P.m2)
+    Msec = (P.m1+P.m2)*lal.LAL_G_SI / lal.LAL_C_SI**3
+    return Msec*5./256. / eta* np.power((lal.LAL_PI*fM),-8./3.)
+    
+
 def sanitize_eta(eta, tol=1.e-10, exception='error'):
     """
     If 'eta' is slightly outside the physically allowed range for
