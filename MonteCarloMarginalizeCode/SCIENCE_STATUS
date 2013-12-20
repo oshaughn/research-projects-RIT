@@ -3,7 +3,12 @@ URGENT PRIORITIES
 
 * Holiday break prep 
    - Implement adaptation on master [ra, dec, d]
-   - Choose distance cutoff so we don't burn ourselves with MDC testing
+   - Urgent choices
+             - distance cutoff
+             - error estimate report in xmlutils.py
+             - integrator unbuffered 
+             - installation requirements doc: statsmodels.
+             - fmax limit (for GraceDB events) : fix fmax 2000
    - Implement match cutoff: e.g, 0.95 or 1-0.1(8/rho)^2.  Use 500 mass points. [Documentation: run dag!]
    - Run dag + infrastructure, demonstrate fully-automated operation working (e.g., data selection, ...)
 
@@ -43,6 +48,9 @@ TABLED UNTIL AFTER CODE WORKING
 
 * Sampling in mass space
 
+* Data handling
+    - Automate dag to select correct # of IFOs (e.g., from coinc) and PSDs
+
 * Understand 
      -  inverse spec truncation: why we need an fmax
 
@@ -54,6 +62,9 @@ RECORD
          - uniform in iota [2013-12-17]
    - time prior changed to +/-50ms [2013-12-19]
 
+* Sampler
+      - adaptive sampler on master [2013-12-20]
+  
 * Convergence
    - neff [2013-12-11] implementation fixed, mcsampler cleaned
 
@@ -62,10 +73,12 @@ RECORD
     - Inverse spectrum truncation:
         - Implemented in lalsimutils IP class [2013-12-13]
 
+
 * Likelihood
       - time marginalization v0:  [2013-12-16]
-
 
 * Miscellaneous
    - data output truncation via --save-P, etc [2013-12-18]
    -  confirmed 2ifo works [2013-12-19]
+   - default adaptation: 1Gpc distance ok; reproducible answers (no overconvergence) [2013-12-20]
+   - GraceDB pipeline demo [2013-12-20]
