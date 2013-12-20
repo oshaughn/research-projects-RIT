@@ -9,7 +9,10 @@ ourparams.py
 
 import argparse
 import lalsimulation as lalsim
+import lalsimutils
 import lal
+
+from glue.ligolw import utils, lsctables, table, ligolw
 
 rosDebugMessagesDictionary = {}   # Mutable after import (passed by reference). Not clear if it can be used by caling routines
                                                   # BUT if every module has a `PopulateMessagesDictionary' module, I can set their internal copies
@@ -24,8 +27,8 @@ def ParseStandardArguments():
     
 
     parser = argparse.ArgumentParser()
-    print " === Loading options === "
-    print "  ++ NOTE OPTIONS MUST BE IMPLEMENTED BY EACH ROUTINE INDIVIDUALLY - NOT YET STANDARDIZED  ++ "
+#    print " === Loading options === "
+#    print "  ++ NOTE OPTIONS MUST BE IMPLEMENTED BY EACH ROUTINE INDIVIDUALLY - NOT YET STANDARDIZED  ++ "
     # Options.  Try to be consistent with lalinference
 
     # General parameters
@@ -138,6 +141,104 @@ def ParseStandardArguments():
 
     return args, rosDebugMessagesDictionary
 
+###
+### Populate detector network and single-detector SNRs
+###
+def PopulateTriggerSNRs(opts):
+    rhoExpected ={}
+    # Read in *coincidence* XML (overridden by injection, if present)
+    if opts.coinc:
+        xmldoc = utils.load_filename(opts.coinc)
+        coinc_table = table.get_table(xmldoc, lsctables.CoincInspiralTable.tableName)
+        assert len(coinc_table) == 1
+        coinc_row = coinc_table[0]
+       # Populate the SNR sequence and mass sequence
+        sngl_inspiral_table = table.get_table(xmldoc, lsctables.SnglInspiralTable.tableName)
+        m1, m2 = None, None
+        for sngl_row in sngl_inspiral_table:
+            # NOTE: gstlal is exact match, but other pipelines may not be
+            assert m1 is None or (sngl_row.mass1 == m1 and sngl_row.mass2 == m2)
+            m1, m2 = sngl_row.mass1, sngl_row.mass2
+            rhoExpected[str(sngl_row.ifo)] = sngl_row.snr  # record for comparisons later
+
+    return rhoExpected
+
+###
+### Populate Psig from either inj xml, coinc, command-line options, or default choice:
+###
+def PopulatePrototypeSignal(opts):
+    approxSignal = lalsim.GetApproximantFromString(opts.approx)
+    approxTemplate = approxSignal
+    ampO =opts.amporder # sets which modes to include in the physical signal
+    Lmax = opts.Lmax # sets which modes to include
+    fref = opts.fref
+    fminWavesSignal = opts.fmin_Template  # too long can be a memory and time hog, particularly at 16 kHz
+    fminSNR =opts.fmin_SNR
+    fSample = opts.srate
+
+    Psig = None
+
+    # Read in *coincidence* XML (overridden by injection, if present)
+    if opts.coinc:
+        xmldoc = utils.load_filename(opts.coinc)
+        coinc_table = table.get_table(xmldoc, lsctables.CoincInspiralTable.tableName)
+        assert len(coinc_table) == 1
+        coinc_row = coinc_table[0]
+       # Populate the SNR sequence and mass sequence
+        sngl_inspiral_table = table.get_table(xmldoc, lsctables.SnglInspiralTable.tableName)
+        m1, m2 = None, None
+        for sngl_row in sngl_inspiral_table:
+            # NOTE: gstlal is exact match, but other pipelines may not be
+            assert m1 is None or (sngl_row.mass1 == m1 and sngl_row.mass2 == m2)
+            m1, m2 = sngl_row.mass1, sngl_row.mass2
+        m1 = m1*lal.LAL_MSUN_SI
+        m2 = m2*lal.LAL_MSUN_SI
+       # Create a 'best recovered signal'
+        Psig = lalsimutils.ChooseWaveformParams(
+            m1=m1,m2=m2,approx=approxSignal,
+            fmin = fminWavesSignal, 
+            dist=factored_likelihood.distMpcRef*1e6*lal.LAL_PC_SI,    # default distance
+            fref=fref, 
+            ampO=ampO)  # FIXME: Parameter mapping from trigger space to search space
+
+    # Read in *injection* XML
+    if opts.inj:
+        Psig = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))[opts.event_id]  # Load in the physical parameters of the injection.  
+        Psig.deltaT = 1./fSample   # needed if we will generate fake data from the injection xml *by this program, internally* 
+        timeWaveform = lalsimutils.estimateWaveformDuration(Psig)
+        Psig.deltaF = 1./lalsimutils.nextPow2(opts.seglen)       # Frequency binning needs to account for target segment length
+
+
+    if  not Psig and opts.channel_name:  # If data loaded but no signal generated
+            if (not opts.template_mass1) or (not opts.template_mass2) or (not opts.force_gps_time):
+                print " CANCEL: Specifying parameters via m1, m2, and time on the command line "
+            Psig = lalsimutils.ChooseWaveformParams(approx=approxSignal,
+                                                    fmin = fminWavesSignal, 
+                                                    dist=factored_likelihood.distMpcRef*1e6*lal.LAL_PC_SI,    # default distance
+                                                    fref=fref)
+            Psig.m1 = lal.LAL_MSUN_SI*opts.template_mass1
+            Psig.m2 = lal.LAL_MSUN_SI*opts.template_mass2
+            Psig.tref = lal.LIGOTimeGPS(0.000000000)  # Initialize as GPSTime object
+            Psig.tref += opts.force_gps_time # Pass value of float into it
+
+            
+    if not(Psig):
+            m1 = 4*lal.LAL_MSUN_SI
+            m2 = 3*lal.LAL_MSUN_SI
+            Psig = lalsimutils.ChooseWaveformParams(
+                m1 = m1,m2 =m2,
+                fmin = fminWavesSignal, 
+                fref=fref, 
+                approx=approxSignal,
+                ampO=ampO
+                )
+    # Use forced parameters, if provided
+    if opts.template_mass1:
+        Psig.m1 = opts.template_mass1*lal.LAL_MSUN_SI
+    if opts.template_mass2:
+        Psig.m2 = opts.template_mass2*lal.LAL_MSUN_SI
+
+    return Psig
 
 ###
 ### Populate standard sampler arguments
