@@ -10,7 +10,7 @@ import scipy.ndimage.filters as filter
 import healpy as hp
 from lalinference.bayestar import plot as bplot
 import matplotlib.mlab as ml
-import statsmodels.api as sm
+#import statsmodels.api as sm
 from matplotlib.ticker import FormatStrFormatter, LinearLocator, NullFormatter, NullLocator
 import matplotlib.ticker
 import matplotlib.colors
@@ -62,53 +62,53 @@ def getsigmalevels(hist2d):
 
   return level1, level2, level3
 
-def confinterval(samples, sigma=0.68, onesided=False):
-    """
+# def confinterval(samples, sigma=0.68, onesided=False):
+#     """
 
-    Given a list of samples, return the desired cofidence intervals.
-    Returns the minimum and maximum confidence levels
+#     Given a list of samples, return the desired cofidence intervals.
+#     Returns the minimum and maximum confidence levels
 
-    @param samples: Samples that we wish to get confidence intervals
+#     @param samples: Samples that we wish to get confidence intervals
 
-    @param sigmalevel: Sigma level 1, 2, or 3 sigma, will return 
-                       corresponding confidence limits
+#     @param sigmalevel: Sigma level 1, 2, or 3 sigma, will return 
+#                        corresponding confidence limits
 
-    @param onesided: Boolean to use onesided or twosided confidence
-                     limits.
+#     @param onesided: Boolean to use onesided or twosided confidence
+#                      limits.
 
-    """
+#     """
 
-    # Create the ecdf function
-    ecdf = sm.distributions.ECDF(samples)
+#     # Create the ecdf function
+#     ecdf = sm.distributions.ECDF(samples)
 
-    # Create the binning
-    x = np.linspace(min(samples), max(samples), 1000)
-    y = ecdf(x)
+#     # Create the binning
+#     x = np.linspace(min(samples), max(samples), 1000)
+#     y = ecdf(x)
 
-    # Find the intervals
-    x2min = y[0]
-    if onesided:
-        bound = 1 - sigma
-    else:
-        bound = 0.5*(1-sigma)
+#     # Find the intervals
+#     x2min = y[0]
+#     if onesided:
+#         bound = 1 - sigma
+#     else:
+#         bound = 0.5*(1-sigma)
 
-    for i in range(len(y)):
-        if y[i] >= bound:
-            x2min = x[i]
-            break
+#     for i in range(len(y)):
+#         if y[i] >= bound:
+#             x2min = x[i]
+#             break
 
-    x2max = y[-1]
-    if onesided:
-        bound = sigma
-    else:
-        bound = 1 - 0.5 * (1 - sigma)
+#     x2max = y[-1]
+#     if onesided:
+#         bound = sigma
+#     else:
+#         bound = 1 - 0.5 * (1 - sigma)
 
-    for i in reversed(range(len(y))):
-        if y[i] <= bound:
-            x2max = x[i]
-            break
+#     for i in reversed(range(len(y))):
+#         if y[i] <= bound:
+#             x2max = x[i]
+#             break
 
-    return x2min, x2max
+#     return x2min, x2max
 
 
 
@@ -450,72 +450,72 @@ def plotSkyMap(raSample, decSample, nside=64, contours=None, colorbar=True, \
 
 
 
-def upperlimitplot2d(x, y, sigma=0.95, ymin=None, ymax=None, bins=40, log=False, \
-                     savename=None, labels=None, hold=False, **kwargs):
+# def upperlimitplot2d(x, y, sigma=0.95, ymin=None, ymax=None, bins=40, log=False, \
+#                      savename=None, labels=None, hold=False, **kwargs):
 
-    """
+#     """
 
-    Make upper limits of a parameter as a function of another.
+#     Make upper limits of a parameter as a function of another.
 
-    @param x: Parameter we are making upper limits for
-    @param y: Parameter which we will bin
-    @param sigma: Sigma level of upper limit
-    @param ymin: Minimum value of binning parameter [default=None]
-    @param ymax: Maximum value of binning parameter [default=None]
-    @param bins: Number of bins
-    @param log: If True, plot on log-log scale
-    @param savename: Output filename for saved figure
-    @param labels: List of labels for axes [xlabel, ylabel]
-    @param hold: Hold current figure?
+#     @param x: Parameter we are making upper limits for
+#     @param y: Parameter which we will bin
+#     @param sigma: Sigma level of upper limit
+#     @param ymin: Minimum value of binning parameter [default=None]
+#     @param ymax: Maximum value of binning parameter [default=None]
+#     @param bins: Number of bins
+#     @param log: If True, plot on log-log scale
+#     @param savename: Output filename for saved figure
+#     @param labels: List of labels for axes [xlabel, ylabel]
+#     @param hold: Hold current figure?
 
-    """
+#     """
 
-    # clear current figure
-    if hold == False:
-        plt.clf()
+#     # clear current figure
+#     if hold == False:
+#         plt.clf()
 
-    if ymin is None:
-        ymin = y.min()
-    if ymax is None:
-        ymax = y.max()
+#     if ymin is None:
+#         ymin = y.min()
+#     if ymax is None:
+#         ymax = y.max()
 
-    yedges = np.linspace(ymin, ymax, bins+1)
-    deltay = yedges[1] - yedges[0]
-    yvals = np.linspace(ymin+0.5*deltay, ymax-0.5*deltay, bins)
-    bin_index = []
-    upper = []
+#     yedges = np.linspace(ymin, ymax, bins+1)
+#     deltay = yedges[1] - yedges[0]
+#     yvals = np.linspace(ymin+0.5*deltay, ymax-0.5*deltay, bins)
+#     bin_index = []
+#     upper = []
 
-    for i in range(bins):
-        # Obtain the indices in the range of the bin
-        indices = np.flatnonzero(np.logical_and(y>yedges[i], y<yedges[i+1]))
+#     for i in range(bins):
+#         # Obtain the indices in the range of the bin
+#         indices = np.flatnonzero(np.logical_and(y>yedges[i], y<yedges[i+1]))
 
-        # Obtain the 1-sided x-sigma upper limit
-        if len(indices) > 0:
-            bin_index.append(i)
-            a, sigma1 = confinterval(x[indices], sigma=sigma, onesided=True)
-            upper.append(sigma1)
+#         # Obtain the 1-sided x-sigma upper limit
+#         if len(indices) > 0:
+#             bin_index.append(i)
+#             a, sigma1 = confinterval(x[indices], sigma=sigma, onesided=True)
+#             upper.append(sigma1)
 
-    # make bin_indes and upper into arrays
-    bin_index = np.array(bin_index)
-    upper = np.array(upper)
+#     # make bin_indes and upper into arrays
+#     bin_index = np.array(bin_index)
+#     upper = np.array(upper)
 
-    # make plot
-    if log:
-        plt.loglog(10**yvals[bin_index], 10**upper, **kwargs)
-        plt.grid(which='major')
-        plt.grid(which='minor')
-    else:
-        plt.plot(yvals[bin_index], upper, **kwargs)
-        plt.grid()
+#     # make plot
+#     if log:
+#         plt.loglog(10**yvals[bin_index], 10**upper, **kwargs)
+#         plt.grid(which='major')
+#         plt.grid(which='minor')
+#     else:
+#         plt.plot(yvals[bin_index], upper, **kwargs)
+#         plt.grid()
 
-    # labels
-    if labels:
-        plt.xlabel(labels[0])
-        plt.ylabel(labels[1])
+#     # labels
+#     if labels:
+#         plt.xlabel(labels[0])
+#         plt.ylabel(labels[1])
 
-    if savename:
-        plt.savefig(savename, bbox_inches='tight')
-    else:
-        plt.savefig('2dUpperLimit.pdf', bbox_inches='tight')
+#     if savename:
+#         plt.savefig(savename, bbox_inches='tight')
+#     else:
+#         plt.savefig('2dUpperLimit.pdf', bbox_inches='tight')
 
     
