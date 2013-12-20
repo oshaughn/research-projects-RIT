@@ -38,6 +38,11 @@ class MCSampler(object):
         self.cdf_inv = {}
         # params for left and right limits
         self.llim, self.rlim = {}, {}
+        # Keep track of the adaptive parameters
+        self.adaptive = []
+
+        # Keep track of the adaptive parameter 1-D marginalizations
+        self._hist = {}
 
         # MEASURES (=priors): ROS needs these at the sampler level, to clearly separate their effects
         # ASSUMES the user insures they are normalized
@@ -52,10 +57,12 @@ class MCSampler(object):
         self._pdf_norm = defaultdict(lambda: 1.0)
         self._rvs = {}
         self._cache = []
+        self._hist = {}
         self.cdf = {}
         self.cdf_inv = {}
         self.llim = {}
         self.rlim = {}
+        self.adaptive = []
 
     def add_parameter(self, params, pdf,  cdf_inv=None, left_limit=None, right_limit=None, prior_pdf=None):
         """
@@ -204,6 +211,9 @@ class MCSampler(object):
         neff -- Effective samples to collect before terminating. If not given, assume infinity
         n -- Number of samples to integrate in a 'chunk' -- default is 1000
         save_integrand -- Save the evaluated value of the integrand at the sample points with the sample point
+        history_mult -- Number of chunks (of size n) to use in the adaptive histogramming: only useful if there are parameters with adaptation enabled
+        tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
+        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
 
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """
@@ -241,7 +251,20 @@ class MCSampler(object):
         nmax = kwargs["nmax"] if kwargs.has_key("nmax") else float("inf")
         neff = kwargs["neff"] if kwargs.has_key("neff") else numpy.float128("inf")
         n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
+
+        #
+        # Adaptive sampling parameters
+        #
+        n_history = int(kwargs["history_mult"]*n) if kwargs.has_key("history_mult") else None
+        tempering_exp = kwargs["tempering_exp"] if kwargs.has_key("tempering_exp") else 0.0
+        n_adapt = int(kwargs["n_adapt"]*n) if kwargs.has_key("n_adapt") else 0
+
         save_intg = kwargs["save_intg"] if kwargs.has_key("save_intg") else False
+        # FIXME: The adaptive step relies on the _rvs cache, so this has to be
+        # on in order to work
+        if n_adapt > 0 and tempering_exp > 0.0:
+            save_intg = True
+
         deltalnL = kwargs['igrand_threshold_deltalnL'] if kwargs.has_key('igrand_threshold_deltalnL') else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if kwargs.has_key('igrand_threshold_p') else 0 # default is to omit 1e-7 of probability
 
@@ -275,14 +298,19 @@ class MCSampler(object):
             joint_p_s = numpy.prod(p_s, axis=0)
             joint_p_prior = numpy.prod(p_prior, axis=0)
 
-            # ROS fix: Underflow issue: prevent probability from being zero!  This only weakly distorts our result in implausible regions
-            # Be very careful: distance prior is in SI units,so the natural scale is 1/(10)^6 * 1/(10^24)
-            # FIXME: Non-portable change, breaks universality of the integration.
-            joint_p_s  = numpy.maximum(numpy.ones(len(joint_p_s))*1e-50,joint_p_s)
+            #
+            # Prevent zeroes in the sampling prior
+            #
+            # FIXME: If we get too many of these, we should bail
+            if any(joint_p_s <= 0):
+                for p in self.params:
+                    self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
+                print >>sys.stderr, "Zero prior value detected, skipping."
+                continue
 
-            numpy.testing.assert_array_less(0,joint_p_s)        # >0!  (CANNOT be zero or negative for any sample point, else disaster. Human errors happen.)
-            numpy.testing.assert_array_less(0,joint_p_prior)   # >0!  (could be zero if needed.)
-
+            #
+            # Unpack rvs and evaluate integrand
+            #
             if len(rv[0].shape) != 1:
                 rv = rv[0]
             if bUseMultiprocessing:
@@ -290,7 +318,23 @@ class MCSampler(object):
             else:
                 fval = func(*rv)
 
+            #
+            # Check if there is any practical contribution to the integral
+            #
+            # FIXME: While not technically a fatal error, this will kill the 
+            # adaptive sampling
+            if fval.sum() == 0:
+                for p in self.params:
+                    self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
+                print >>sys.stderr, "No contribution to integral, skipping."
+                continue
+
             if save_intg:
+                # FIXME: The joint_prior, if not specified is set to one and
+                # will come out as a scalar here, hence the hack
+                if not isinstance(joint_p_prior, numpy.ndarray):
+                    joint_p_prior = numpy.ones(fval.shape)*joint_p_prior
+
                 # FIXME: See warning at beginning of function. The prior values
                 # need to be moved out of this, as they are not part of MC
                 # integration
@@ -338,6 +382,49 @@ class MCSampler(object):
 
             if ntotal >= nmax and neff != float("inf"):
                 print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
+
+            #
+            # The total number of adaptive steps is reached
+            #
+            # FIXME: We need a better stopping condition here
+            if ntotal > n_adapt:
+                continue
+
+            # FIXME: Hardcoding
+            #mixing_floor = 10**(-numpy.sqrt(ntotal))
+            mixing_floor = 10**-50
+
+            #
+            # Iterate through each of the parameters, updating the sampling
+            # prior PDF according to the 1-D marginalization
+            #
+            for itr, p in enumerate(self.params):
+                if p not in self.adaptive:
+                    continue
+                points = self._rvs[p][-n_history:]
+                weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp + mixing_floor
+
+                self._hist[p], edges = numpy.histogram( points,
+                    bins = 100,
+                    range = (self.llim[p], self.rlim[p]),
+                    weights = weights,
+                    normed = True
+                )
+                # FIXME: numpy.hist can't normalize worth a damn
+                self._hist[p] /= self._hist[p].sum()
+
+                edges = [ (e0+e1)/2.0 for e0, e1 in zip(edges[:-1], edges[1:]) ]
+                edges.append( edges[-1] + (edges[-1] - edges[-2]) )
+                edges.insert( 0, edges[0] - (edges[-1] - edges[-2]) )
+
+                # FIXME: KS test probably has a place here. Not sure yet where.
+                #from scipy.stats import kstest
+                #d, pval = kstest(self._rvs[p][-n_history:], self.cdf[p])
+                #print p, d, pval
+
+                self.pdf[p] = interpolate.interp1d(edges, [0] + list(self._hist[p]) + [0])
+                self.cdf[p] = self.cdf_function(p)
+                self.cdf_inv[p] = self.cdf_inverse(p)
 
         # If we were pinning any values, undo the changes we did before
         self.cdf_inv.update(tempcdfdict)
