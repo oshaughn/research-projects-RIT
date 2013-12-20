@@ -101,6 +101,8 @@ class MCSampler(object):
         """
         # Solve P'(x) == p(x), with P[lower_boun] == 0
         def dP_cdf(p, x):
+            if x > self.rlim[param] or x < self.llim[param]:
+                return 0
             return self.pdf[param](x)
         x_i = numpy.linspace(self.llim[param], self.rlim[param], 1000)
         # Integrator needs to have a step size which doesn't step over the
@@ -119,6 +121,8 @@ class MCSampler(object):
         """
         # Solve P'(x) == p(x), with P[lower_boun] == 0
         def dP_cdf(p, x):
+            if x > self.rlim[param] or x < self.llim[param]:
+                return 0
             return self.pdf[param](x)
         x_i = numpy.linspace(self.llim[param], self.rlim[param], 1000)
         # Integrator needs to have a step size which doesn't step over the
