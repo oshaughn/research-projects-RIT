@@ -64,7 +64,7 @@ class MCSampler(object):
         self.rlim = {}
         self.adaptive = []
 
-    def add_parameter(self, params, pdf,  cdf_inv=None, left_limit=None, right_limit=None, prior_pdf=None):
+    def add_parameter(self, params, pdf,  cdf_inv=None, left_limit=None, right_limit=None, prior_pdf=None, adaptive_sampling=False):
         """
         Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.
         """
@@ -100,6 +100,9 @@ class MCSampler(object):
                 self.prior_pdf[params] = lambda x:1
             else:
                 self.prior_pdf[params] = prior_pdf
+
+        if adaptive_sampling:
+            self.adaptive.append(params)
 
 
     def cdf_function(self, param):
