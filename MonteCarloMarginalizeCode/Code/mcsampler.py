@@ -293,7 +293,7 @@ class MCSampler(object):
                 if self._rvs.has_key("integrand"):
                     self._rvs["integrand"] = numpy.hstack( (self._rvs["integrand"], fval) )
                     self._rvs["joint_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
-                    self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_s) )
+                    self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_s_prior"], joint_p_s) )
                 else:
                     self._rvs["integrand"] = fval
                     self._rvs["joint_prior"] = joint_p_prior
@@ -367,7 +367,7 @@ class MCSampler(object):
 #  Be careful: vectorization is not always implemented consistently in new versions of numpy
 def uniform_samp(a, b, x):   # I prefer to vectorize with the same call for all functions, rather than hardcode vectorization
         if  x>a and x<b:
-                return 1/(b-a)
+                return 1.0/(b-a)
         else:
                 return 0
 #uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
