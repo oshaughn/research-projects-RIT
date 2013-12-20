@@ -432,21 +432,6 @@ sampler.add_parameter("declination",
     adaptive_sampling = True)
 
 #
-# tref - GPS time of geocentric end time
-# sampler: uniform in +/-2 ms window around estimated end time 
-#
-tref_sampler = functools.partial(mcsampler.uniform_samp_vector,
-    param_limits["t_ref"][0], param_limits["t_ref"][1])
-if not opts.time_marginalization:
-    # This parameter cannot be present, if likelihood_function does not include it as a parameter
-    sampler.add_parameter("t_ref", 
-                          pdf = tref_sampler, 
-                          cdf_inv = None, 
-                          left_limit = param_limits["t_ref"][0], 
-                          right_limit = param_limits["t_ref"][1],
-                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, param_limits["t_ref"][0],param_limits["t_ref"][1]))
-
-#
 # Determine pinned and non-pinned parameters
 #
 
@@ -495,6 +480,20 @@ pinned_params.update({
 # Call the likelihood function for various extrinsic parameter values
 #
 if not opts.time_marginalization:
+
+    #
+    # tref - GPS time of geocentric end time
+    # sampler: uniform in +/-2 ms window around estimated end time 
+    #
+    tref_sampler = functools.partial(mcsampler.uniform_samp_vector,
+        param_limits["t_ref"][0], param_limits["t_ref"][1])
+
+    sampler.add_parameter("t_ref", 
+                          pdf = tref_sampler, 
+                          cdf_inv = None, 
+                          left_limit = param_limits["t_ref"][0], 
+                          right_limit = param_limits["t_ref"][1],
+                          prior_pdf = functools.partial(mcsampler.uniform_samp_vector, param_limits["t_ref"][0], param_limits["t_ref"][1]))
 
     #
     # A note of caution:
