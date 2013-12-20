@@ -251,8 +251,9 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
         fmax = psd_dict[inst].f0 + deltaF * (psd_dict[inst].data.length - 1)
 
     # Assert upper limit of IP integral does not go past where PSD defined
-    assert opts.fmax is None or opts.fmax >= fmax
-    if opts.fmax > fmax:
+    assert opts.fmax is None or opts.fmax<= fmax
+    # Allow us to target a smaller upper limit than provided by the PSD. Important for numerical PSDs that turn over at high frequency
+    if opts.fmax and opts.fmax < fmax:
         fmax = opts.fmax # fmax is now the upper freq. of IP integral
 
 # Ensure data and PSDs keyed to same detectors
