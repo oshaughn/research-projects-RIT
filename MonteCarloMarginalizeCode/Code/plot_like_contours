@@ -18,7 +18,7 @@ from glue.ligolw import utils, table, lsctables
 import xmlutils
 
 def calculate_evidence(snr_ar):
-    return sum([numpy.exp(snr**2/2) for snr in snr_ar])
+    return sum([numpy.exp(snr) for snr in snr_ar])
 
 def mchirp_eta(m1, m2):
     eta = m1*m2/(m1 + m2)**2
