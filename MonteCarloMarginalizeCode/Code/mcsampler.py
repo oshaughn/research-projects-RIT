@@ -31,8 +31,6 @@ class MCSampler(object):
         self._pdf_norm = defaultdict(lambda: 1)
         # Cache for the sampling points
         self._rvs = {}
-        # Sample point cache
-        self._cache = []
         # parameter -> cdf^{-1} function object
         self.cdf = {}
         self.cdf_inv = {}
@@ -56,7 +54,6 @@ class MCSampler(object):
         self.pdf = {}
         self._pdf_norm = defaultdict(lambda: 1.0)
         self._rvs = {}
-        self._cache = []
         self._hist = {}
         self.cdf = {}
         self.cdf_inv = {}
@@ -192,10 +189,6 @@ class MCSampler(object):
         if kwargs.has_key("rdict"):
             return dict(zip(args, res))
         return zip(*res)
-
-    def save_points(self, intg, prior):
-        # NOTE: Will save points from other integrations before this if used more than once.
-        self._cache.extend( [ rvs for rvs, ratio, rnd in zip(numpy.array(self._rvs).T, intg/prior, numpy.random.uniform(0, 1, len(prior))) if ratio < 1 or 1.0/ratio < rnd ] )
 
     #
     # FIXME: The priors are not strictly part of the MC integral, and so any
@@ -441,18 +434,18 @@ class MCSampler(object):
         #   - find and remove samples which contribute too little to the cumulative weights
         self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
         # Step 1: Cut out any sample with lnL belw threshold
-        indxList = [ k for k, value in enumerate( (self._rvs["integrand"] >  maxlnL - deltalnL)) if value] # threshold number 1
+        indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
         for key in self._rvs.keys():
-            self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indxList] )
+            self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indx_list] )
         # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
         wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
-        idxSortedIndex = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
-        indxList = numpy.array( [[k, wt[k]] for k in idxSortedIndex])     # pair up with the weights again
-        cumsum = numpy.cumsum(indxList[:,1])  # find the cumulative sum
-        cumsum = cumsum/cumsum[-1]              # normalize the cumulative sum
-        indxList = [indxList[k,0] for k,value in enumerate(cumsum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability
+        idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
+        indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again
+        cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
+        cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
+        indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability
         for key in self._rvs.keys():
-            self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indxList] )
+            self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indx_list] )
 
         return int_val1/ntotal, var/ntotal, eff_samp
                 
