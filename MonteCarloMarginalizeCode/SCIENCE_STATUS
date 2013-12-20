@@ -1,26 +1,27 @@
 
 URGENT PRIORITIES
 
-* Fixes and implementations
-   - time prior : -implement 100ms time window for now
-                     - investigate time biases in real searches     
-
-* Zero noise simulations
-    - ILE + zero_noise_mdc :
-           Cost assessment + inputs to prototype others
-         - pinned sky location                                                           [Chris]
-         - large-neff run, fully unpinned : 2 mass points                        [Chris]
-    - ILE + Chris' MDCs [all]
-    - Larger-scale MDCs
+* Holiday break prep 
+   - Implement adaptation on master [ra, dec, d]
+   - Choose distance cutoff so we don't burn ourselves with MDC testing
+   - Implement match cutoff: e.g, 0.95 or 1-0.1(8/rho)^2.  Use 500 mass points. [Documentation: run dag!]
+   - Run dag + infrastructure, demonstrate fully-automated operation working (e.g., data selection, ...)
 
 * Convergence and adaptation
-    - implement adaptive priors on master
+    - implement adaptive samplers on master
+    - implement adaptive sampler test suite on master
+          - 6d gaussian
+          - 2ifo  (e.g., with and without adaptation) - say, in zero-noise-mdc
     - convergence theory with adaptation
+        - must have robust theory (and demonstrations) showing when overconvergence 
+          occurs and how to control it
+
 
 PROTOTYPING 
 
 * Prototype-scale investigations
     - Array-based time marginalization                                            [Richard]
+    - Vectorized parameter passing (phi,pis,d... as arrays)                   [Richard?] 
 
 * Computational cost 
     - Long waveforms not a limit : runtime trend vs flow, seglen        [Richard?]
@@ -30,12 +31,15 @@ TABLED UNTIL AFTER CODE WORKING
 
 * Priors
  - sky prior     : reimplement ability to run with a skymap 
- - Distancce prior: Cutoff
+ - Distancce prior: Cutoff?  can we use *only* distance adaptation?
  - Time prior    : investigate safe inteval. Concrete examples with different injections (and gracedb)
                      : template (model/model, mass/mass) mismatches and timeshifts, re prior
                      : targeting smaller interval for time
 
- - Adaptive priors, fully implemented
+ - Adaptive priors testing
+       - Explore othe coordinates: phi+/- psi, inclination
+       - Adaptation catastrophes ("overconvergence")
+       - Adaptation in 2d? (distance-inclination; *skymap*)
 
 * Sampling in mass space
 
