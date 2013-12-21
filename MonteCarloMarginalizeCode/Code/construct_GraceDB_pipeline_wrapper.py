@@ -141,7 +141,7 @@ GDB_V_INJ_CHANNEL_NAME=FAKE_h_16384Hz_4R
 
 # Write a command that has the same options but just evaluates the likliehood (marginalized) at the trigger masses.  Helpful for debugging setup
 #    - Comments left to indicate kind of arguments ROS wants on master
-echo  ${ILE}  --cache-file local.cache  --coinc coinc.xml   --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${GDB_V_INJ_CHANNEL_NAME} --psd-file "H1=psd.xml.gz" --psd-file "L1=psd.xml.gz" --psd-file "V1=psd.xml.gz"   --mass1 ${MASS1} --mass2 ${MASS2} --reference-freq 0 --save-samples    --time-marginalization --n-max 200000 --n-eff 1000 --output-file ile-gracedb-${gid}.xml.gz   --save-P 0.0001 --fmax 2000   > testme-command.sh  #  --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance  --adapt-beta ${BETA} --adapt-mix 0.2 --n-chunk 4000     --approximant $approximant
+echo  ${ILE}  --cache-file local.cache  --coinc coinc.xml   --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${GDB_V_INJ_CHANNEL_NAME} --psd-file "H1=psd.xml.gz" --psd-file "L1=psd.xml.gz" --psd-file "V1=psd.xml.gz"   --mass1 ${MASS1} --mass2 ${MASS2} --reference-freq 0 --save-samples    --time-marginalization --n-max 200000 --n-eff 1000 --output-file ile-gracedb-${gid}.xml.gz   --save-P 0.0001 --fmax 2000 --adapt-beta ${BETA} --adapt-mix 0.2 --n-chunk 4000   > testme-command.sh  #  --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance       --approximant $approximant
 # add postprocessing
 echo make_triplot ile-gracedb-${gid}.xml.gz -o ${gid}-triplot.pdf >> testme-command.sh
 echo plot_integral ile-gracedb-${gid}.xml.gz --output integral.pdf >> testme-command.sh
@@ -151,7 +151,7 @@ chmod a+x testme-command.sh
 
 # Write the actual DAG
 #   - large n-max chosen for prototyping purposes.  Hopefully we will hit the n-eff limit before reaching it.
-${CME} --cache-file local.cache  --coinc coinc.xml  --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${GDB_V_INJ_CHANNEL_NAME} --psd-file "H1=psd.xml.gz" --psd-file "L1=psd.xml.gz" --psd-file "V1=psd.xml.gz"   --mass1 ${MASS1} --mass2 ${MASS2}  --save-samples  --time-marginalization --n-max 1000000 --n-eff 1000 --output-file CME-${gid}.xml.gz   --save-P 0.0001  --n-copies 2 --fmax 2000 # --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance --adapt-beta ${BETA} --adapt-mix 0.2 --n-chunk 4000  --fmax 2000
+${CME} --cache-file local.cache  --coinc coinc.xml  --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${GDB_V_INJ_CHANNEL_NAME} --psd-file "H1=psd.xml.gz" --psd-file "L1=psd.xml.gz" --psd-file "V1=psd.xml.gz"   --mass1 ${MASS1} --mass2 ${MASS2}  --save-samples  --time-marginalization --n-max 1000000 --n-eff 1000 --output-file CME-${gid}.xml.gz   --save-P 0.0001  --n-copies 2 --fmax 2000 --adapt-beta ${BETA} --adapt-mix 0.2 --n-chunk 4000  # --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance   --fmax 2000
 
 echo "===== TO SUBMIT THE DAG ====== "
 echo condor_submit_dag `pwd`/dagtest-gracedb-${gid}-marginalize.dag
