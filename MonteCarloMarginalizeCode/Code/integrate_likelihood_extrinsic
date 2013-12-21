@@ -61,6 +61,8 @@ optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
+optp.add_option("-b", "--adapt-beta", type=float,default=1)
+optp.add_option("-M", "--adapt-mix", type=float,default=0)
 
 #
 # Add the integration options
@@ -69,6 +71,7 @@ integration_params = OptionGroup(optp, "Integration Parameters", "Control the in
 # Default is actually None, but that tells the integrator to go forever or until n_eff is hit.
 integration_params.add_option("--n-max", type=int, help="Total number of samples points to draw. If this number is hit before n_eff, then the integration will terminate. Default is 'infinite'.",default=1e7)
 integration_params.add_option("--n-eff", type=int, default=100, help="Total number of effective samples points to calculate before the integration will terminate. Default is 100")
+integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=100)
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
 optp.add_option_group(integration_params)
 
@@ -458,12 +461,12 @@ if pinned_params.has_key("t_ref"):
 
 pinned_params.update({ 
     # Iteration settings and termination conditions
-    "n": min(100, n_max), # Number of samples in a chunk
+    "n": min(opts.n_chunk, n_max), # Number of samples in a chunk
     "nmax": n_max, # Total number of samples to draw before termination
     "neff": n_eff, # Total number of effective samples to collect before termination
 
     # Adaptive sampling settings
-    "tempering_exp": 0.8, # Weights will be raised to this power to prevent overconvergence
+    "tempering_exp": opts.adapt_beta, # Weights will be raised to this power to prevent overconvergence
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1-D histograms
     "n_adapt": 100, # Number of chunks to allow adaption over
 
