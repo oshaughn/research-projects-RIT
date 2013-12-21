@@ -61,8 +61,6 @@ optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
-optp.add_option("-b", "--adapt-beta", type=float,default=1)
-optp.add_option("-M", "--adapt-mix", type=float,default=0)
 
 #
 # Add the integration options
@@ -73,6 +71,9 @@ integration_params.add_option("--n-max", type=int, help="Total number of samples
 integration_params.add_option("--n-eff", type=int, default=100, help="Total number of effective samples points to calculate before the integration will terminate. Default is 100")
 integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=100)
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
+integration_params.add_option("--no-adapt", action="store_false", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
+integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
+integration_params.add_option("--adapt-floor-level", type=float, default=0.0, help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.0 (no floor)")
 optp.add_option_group(integration_params)
 
 #
@@ -405,7 +406,7 @@ sampler.add_parameter("distance",
     prior_pdf = numpy.vectorize(
             lambda x: x**2/(param_limits["distance"][1]**3/3.
                     - param_limits["distance"][0]**3/3.) ),
-    adaptive_sampling = True)
+    adaptive_sampling = True or not opts.no_adapt)
 
 #
 # Right ascension - angle in radians from prime meridian plus hour angle
@@ -419,7 +420,7 @@ sampler.add_parameter("right_ascension",
     left_limit = param_limits["right_ascension"][0],
     right_limit =  param_limits["right_ascension"][1],
     prior_pdf = mcsampler.uniform_samp_phase,
-    adaptive_sampling = True)
+    adaptive_sampling = True or not opts.no_adapt)
 
 #
 # declination - angle in radians from the north pole piercing the celestial sky
@@ -432,7 +433,7 @@ sampler.add_parameter("declination",
     left_limit = param_limits["declination"][0], 
     right_limit = param_limits["declination"][1],
     prior_pdf = mcsampler.uniform_samp_dec,
-    adaptive_sampling = True)
+    adaptive_sampling = True or not opts.no_adapt)
 
 #
 # Determine pinned and non-pinned parameters
@@ -466,9 +467,9 @@ pinned_params.update({
     "neff": n_eff, # Total number of effective samples to collect before termination
 
     # Adaptive sampling settings
-    "tempering_exp": opts.adapt_beta, # Weights will be raised to this power to prevent overconvergence
+    "tempering_exp": opts.adapt_weight_exponent if not opts.no_adapt else 0.0, # Weights will be raised to this power to prevent overconvergence
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1-D histograms
-    "n_adapt": 100, # Number of chunks to allow adaption over
+    "n_adapt": 100 if not opts.no_adapt else 0, # Number of chunks to allow adaption over
 
     # Verbosity settings
     "verbose": True, 
