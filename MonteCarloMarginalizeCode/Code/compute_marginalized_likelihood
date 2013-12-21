@@ -328,6 +328,7 @@ for i, (m1, m2) in enumerate(m1m2_grid):
     tri_plot_node.add_macro("macromassid", mass_grouping)
     tri_plot_node.set_category("PLOT")
     dag.add_node(tri_plot_node)
+    tri_plot_node.add_parent(sql_node)
 
     pos_plot_node.add_parent(tri_plot_node)
 
