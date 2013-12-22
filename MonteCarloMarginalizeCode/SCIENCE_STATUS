@@ -2,25 +2,26 @@
 URGENT PRIORITIES
 
 * Holiday break prep 
-   - Implement adaptation on master [ra, dec, d]
    - Urgent choices
              - distance cutoff
-             - error estimate report in xmlutils.py
              - integrator unbuffered 
              - installation requirements doc: statsmodels.
-             - fmax limit (for GraceDB events) : fix fmax 2000
    - Implement match cutoff: e.g, 0.95 or 1-0.1(8/rho)^2.  Use 500 mass points. [Documentation: run dag!]
-   - Run dag + infrastructure, demonstrate fully-automated operation working (e.g., data selection, ...)
+   - Validate code
+              - against no signal (ideally real noise)
+              - reproducible results (=error estimate in integral)
 
 * Convergence and adaptation
-    - implement adaptive samplers on master
-    - implement adaptive sampler test suite on master
+    - document adaptive samplers on master [makefile targets]
+    - implement, document adaptive sampler test suite on master
           - 6d gaussian
-          - 2ifo  (e.g., with and without adaptation) - say, in zero-noise-mdc
     - convergence theory with adaptation
         - must have robust theory (and demonstrations) showing when overconvergence 
           occurs and how to control it
 
+
+* Bugfixing
+   - failure for high-snr MDC. Precision loss?
 
 PROTOTYPING 
 
@@ -32,7 +33,14 @@ PROTOTYPING
     - Long waveforms not a limit : runtime trend vs flow, seglen        [Richard?]
 
 
-TABLED UNTIL AFTER CODE WORKING
+FEATURE REQUETS
+  - Report on P(<x_inj) for each parameter
+  - Effective Fisher code reports area (in mc, eta) populated, and fraction lost to cutoffs
+    Allows us to use m1,m2 samples to get total evidence via monte carlo integral
+    (with m1,m2 prior)
+
+
+TABLED UNTIL AFTER LARGE-SCAL RUNS
 
 * Priors
  - sky prior     : reimplement ability to run with a skymap 
@@ -46,13 +54,17 @@ TABLED UNTIL AFTER CODE WORKING
        - Adaptation catastrophes ("overconvergence")
        - Adaptation in 2d? (distance-inclination; *skymap*)
 
-* Sampling in mass space
+* Sampling in mass, spin space
+    - quasi-hierarchical: use autocorrelation scale (Fisher matrix) to reduce sampling density when we have very poor constraints.
+      Go to denser sampling  when evidence high.
 
 * Data handling
     - Automate dag to select correct # of IFOs (e.g., from coinc) and PSDs
 
 * Understand 
      -  inverse spec truncation: why we need an fmax
+
+
 
 RECORD
 
@@ -64,9 +76,14 @@ RECORD
 
 * Sampler
       - adaptive sampler on master [2013-12-20]
+      - Implement adaptation on master [ra, dec, d]
+        Reproducible results for 2-ifo case, with and without adaptation. [2013-12-20]
+        Available in zero_noise_mdc makefile targets
+
   
 * Convergence
    - neff [2013-12-11] implementation fixed, mcsampler cleaned
+   - Run dag + infrastructure, demonstrate fully-automated operation working (e.g., data selection, ...).
 
 
 * Data handling:
@@ -82,3 +99,5 @@ RECORD
    -  confirmed 2ifo works [2013-12-19]
    - default adaptation: 1Gpc distance ok; reproducible answers (no overconvergence) [2013-12-20]
    - GraceDB pipeline demo [2013-12-20]
+   - error estimate report in xmlutils.py [2013-12-20]
+   - fmax limit propagated, for now fmax 2000 [2013-12-20]
