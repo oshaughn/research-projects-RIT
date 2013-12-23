@@ -21,10 +21,20 @@ BASE_DIR=$(shell pwd)/
 PSD_FILE=${BASE_DIR}/../HLV-ILIGO_PSD.xml.gz   # FIXME: should this be S5 PSD, not analytic?
 
 test_ile_dag: s5_mdc.cache
-	../../Code/compute_marginalized_likelihood --cache-file ${BASE_DIR}/s5_mdc.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file s5_noise.xml.gz --n-copies 10
+	../../Code/compute_marginalized_likelihood --cache-file ${BASE_DIR}/s5_mdc.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file s5_noise.xml.gz --n-copies 10 --fmax 2000
 
 test_ile_sim_only_noise: s5_noise.cache
-	../../Code/integrate_likelihood_extrinsic --cache-file s5_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 1.4 --mass2 1.4 --pin-to-sim mdc.xml.gz --reference-freq 0.0
+	../../Code/integrate_likelihood_extrinsic --cache-file s5_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=H1_PSD_measured.xml.gz" --psd-file "L1=L1_PSD_measured.xml.gz" --psd-file "V1=V1_PSD_measured.xml.gz"  --event-time ${EVENT_TIME} --mass1 1.4 --mass2 1.4 --pin-to-sim mdc.xml.gz --reference-freq 0.0 --fmax 2000
+
+test_ile_adaptation_offsource: 
+	../../Code/integrate_likelihood_extrinsic --cache-file s5_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=H1_PSD_measured.xml.gz" --psd-file "L1=L1_PSD_measured.xml.gz" --psd-file "V1=V1_PSD_measured.xml.gz" --event-time ${EVENT_TIME} --mass1 1.5 --mass2 1.4  --reference-freq 0.0 --fmax 2000 --n-max 50000 --n-chunk 2000 --time-marginalization --save-samples --output-file s5_noise_offsource.xml.gz --save-P 0.0001 --n-eff 5000 --adapt-beta 0.8
+	echo " Number of samples stored in this test (<number of samples performed): " `ligolw_print -t sim_inspiral -c alpha1 zero_noise.xml.gz | wc -l `
+	../../Code/plot_integral s5_noise.xml.gz -o integral.pdf
+	../../Code/plot_like_contours s5_noise.xml.gz --dimension1 longitude --dimension2 latitude --fig-extension pdf --show-mdc mdc.xml.gz
+	../../Code/plot_like_contours s5_noise.xml.gz  --dimension1 distance --dimension2 inclination --fig-extension pdf --show-mdc mdc.xml.gz
+	../../Code/make_triplot s5_noise.xml.gz --output triplot.pdf
+
+
 
 psds: H1_PSD_measured.xml.gz L1_PSD_measured.xml.gz V1_PSD_measured.xml.gz
 
@@ -93,5 +103,5 @@ ros_test_ile:
 	../../Code/integrate_likelihood_extrinsic --cache-file s5_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=HLV-ILIGO_PSD.xml.gz" --psd-file "L1=HLV-ILIGO_PSD.xml.gz" --psd-file "V1=HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --output-file ile-ros-output.xml.gz --save-samples
 
 ros_test_likelihood:
-	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz --force-gps-time ${EVENT_TIME}   --cache-file s5_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4.0 --mass2 4.0  --Lmax 2 --amporder -1 --show-likelihood-versus-time --show-sampler-inputs --show-psd   --seglen 16 # --sampling-prior-use-skymap skymap.fits.gz  --force-read-full-frames
+	python ../../Code/test_like_and_samp.py --inj-xml mdc.xml.gz --force-gps-time ${EVENT_TIME}   --cache-file s5_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 1.4 --mass2 1.4  --Lmax 2 --amporder -1 --show-likelihood-versus-time --show-sampler-inputs --show-psd   --seglen 16 # --sampling-prior-use-skymap skymap.fits.gz  --force-read-full-frames
 
