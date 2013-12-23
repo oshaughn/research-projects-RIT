@@ -42,6 +42,8 @@ def ParseStandardArguments():
     parser.add_argument("--LikelihoodType_MargT",default=False,action='store_true')
     parser.add_argument("--LikelihoodType_MargTdisc",default=False,action='store_true')
     parser.add_argument("--LikelihoodType_MargTdisc_array",default=False,action='store_true')
+    parser.add_argument( "--adapt-beta", type=float,default=1)
+    parser.add_argument("--adapt-mix", type=float,default=0)
     # Infrastructure choices:
     parser.add_argument("--skip-interpolation",dest="opt_SkipInterpolation",default=False,action='store_true')  # skip interpolation : saves time, but some things will crash later
 
@@ -118,6 +120,9 @@ def ParseStandardArguments():
     # File output and conditions controlling output
     parser.add_argument("--save-sampler-file", dest="points_file_base",default="sampler-output-file")
     parser.add_argument("--save-threshold-fraction", dest="points_threshold_match",type=float,default=0.0,help="Roughly speaking, target match for points to be returned.  In practice, all points with L> \sqrt{P}L_{max} are returned")
+    parser.add_argument("--save-P",default=0.001,type=float)
+    parser.add_argument("--save-deltalnL",type=float, default=float("Inf"), 
+                        help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
     parser.add_argument("--save-metadata", dest="force_store_metadata",action="store_true")
 #    parser.add_argument("--save-metadata-file", dest="fname_metadata",default=None)
     parser.add_argument("--use-metadata", dest="force_use_metadata",action="store_true")
