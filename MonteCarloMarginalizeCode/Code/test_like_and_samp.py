@@ -656,7 +656,14 @@ if  (rosShowSamplerInputDistributions or opts.plot_ShowPSD) and not bNoInteracti
 tGPSStart = lal.GPSTimeNow()
 print " Unpinned : ", unpinned_params
 print " Pinned : ",  pinned_params
-pinned_params.update({"n": opts.nskip, "nmax": opts.nmax, "neff": opts.neff, "full_output": True, "verbose":True, "extremely_verbose": opts.super_verbose,"igrand_threshold_fraction": fracThreshold, "igrandmax":rho2Net/2, "save_intg":True})
+pinned_params.update({"n": opts.nskip, "nmax": opts.nmax, "neff": opts.neff, "full_output": True, "verbose":True, "extremely_verbose": opts.super_verbose,"igrand_threshold_fraction": fracThreshold, "igrandmax":rho2Net/2, "save_intg":True,
+    "tempering_exp":opts.adapt_beta,
+        "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1-D histograms
+    "n_adapt": 100, # Number of chunks to allow adaption over
+    "igrand_threshold_deltalnL": opts.save_deltalnL, # Threshold on distance from max L to save sample
+    "igrand_threshold_p": opts.save_P # Threshold on cumulative probability contribution to cache sample
+
+})
 print " Params ", pinned_params
 res, var,  neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
