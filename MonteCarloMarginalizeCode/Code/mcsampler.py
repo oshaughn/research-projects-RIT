@@ -1,4 +1,5 @@
 import sys
+import math
 import bisect
 from collections import defaultdict
 
@@ -16,6 +17,12 @@ from multiprocessing import Pool
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
 rosDebugMessages = True
+
+class NanOrInf(Exception):
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return repr(self.value)
 
 class MCSampler(object):
     """
@@ -372,6 +379,12 @@ class MCSampler(object):
             maxval = maxval[-1]
 
             eff_samp = int_val1/maxval
+
+            # Throw exception if we get infinity or nan
+            if math.isnan(eff_samp):
+                raise NanOrInf("Effective samples = nan")
+            if maxlnL is float("Inf"):
+                raise NanOrInf("maxlnL = inf")
 
             if bShowEvaluationLog:
                 print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/ntotal)), int_val1/ntotal, numpy.log(int_val1/ntotal)-maxlnL
