@@ -216,6 +216,7 @@ class MCSampler(object):
         save_integrand -- Save the evaluated value of the integrand at the sample points with the sample point
         history_mult -- Number of chunks (of size n) to use in the adaptive histogramming: only useful if there are parameters with adaptation enabled
         tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
+        floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
         n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
 
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
@@ -261,6 +262,7 @@ class MCSampler(object):
         n_history = int(kwargs["history_mult"]*n) if kwargs.has_key("history_mult") else None
         tempering_exp = kwargs["tempering_exp"] if kwargs.has_key("tempering_exp") else 0.0
         n_adapt = int(kwargs["n_adapt"]*n) if kwargs.has_key("n_adapt") else 0
+        floor_integrated_probability = kwargs["floor_level"] if kwargs.has_key("floor_level") else 0
 
         save_intg = kwargs["save_intg"] if kwargs.has_key("save_intg") else False
         # FIXME: The adaptive step relies on the _rvs cache, so this has to be
@@ -401,7 +403,7 @@ class MCSampler(object):
 
             # FIXME: Hardcoding
             #mixing_floor = 10**(-numpy.sqrt(ntotal))
-            mixing_floor = 10**-50
+            #mixing_floor = 10**-50
 
             #
             # Iterate through each of the parameters, updating the sampling
@@ -411,7 +413,7 @@ class MCSampler(object):
                 if p not in self.adaptive:
                     continue
                 points = self._rvs[p][-n_history:]
-                weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp + mixing_floor
+                weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp
 
                 self._hist[p], edges = numpy.histogram( points,
                     bins = 100,
@@ -421,6 +423,9 @@ class MCSampler(object):
                 )
                 # FIXME: numpy.hist can't normalize worth a damn
                 self._hist[p] /= self._hist[p].sum()
+
+                # Mix with uniform distribution
+                self._hist[p] = (1-floor_integrated_probability)*self._hist[p] + numpy.ones(len(self._hist[p]))*floor_integrated_probability/len(self._hist[p])
 
                 edges = [ (e0+e1)/2.0 for e0, e1 in zip(edges[:-1], edges[1:]) ]
                 edges.append( edges[-1] + (edges[-1] - edges[-2]) )
