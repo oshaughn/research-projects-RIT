@@ -25,13 +25,16 @@ optp = OptionParser()
 opts, args = optp.parse_args()
 
 
-points = table.get_table(utils.load_filename(args[0]), lsctables.SimInspiralTable.tableName)
-like = [row.alpha1 for row in points]  # hardcoded name
+print "m1 m2 mc eta  tref phiorb incl psi ra dec dist lnL p ps"
+for fname in args:
+    points = table.get_table(utils.load_filename(fname), lsctables.SimInspiralTable.tableName)
+    like = [row.alpha1 for row in points]  # hardcoded name
+    p = [row.alpha2 for row in points]
+    ps = [row.alpha3 for row in points]
 
 
 
-print "m1 m2 mc eta  tref phiorb incl psi ra dec dist lnL"
-for indx in np.arange(len(points)):
-    pt = points[indx]
-    print pt.mass1, pt.mass2, mc(pt.mass1,pt.mass2), eta(pt.mass1,pt.mass2),pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns,pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, like[indx]
+    for indx in np.arange(len(points)):
+        pt = points[indx]
+        print pt.mass1, pt.mass2, mc(pt.mass1,pt.mass2), eta(pt.mass1,pt.mass2),pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns,pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, like[indx], p[indx],ps[indx]
 #    print pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, ind like[indx]
