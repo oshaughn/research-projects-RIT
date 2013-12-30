@@ -153,9 +153,16 @@ chmod a+x testme-command.sh
 #   - large n-max chosen for prototyping purposes.  Hopefully we will hit the n-eff limit before reaching it.
 ${CME} --cache-file local.cache  --coinc coinc.xml  --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${GDB_V_INJ_CHANNEL_NAME} --psd-file "H1=psd.xml.gz" --psd-file "L1=psd.xml.gz" --psd-file "V1=psd.xml.gz"   --mass1 ${MASS1} --mass2 ${MASS2}  --save-samples  --time-marginalization --n-max 1000000 --n-eff 1000 --output-file CME-${gid}.xml.gz   --save-P 0.0001  --n-copies 2 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.2 --n-chunk 4000  # --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance   --fmax 2000
 
-# Write a command to convert the result to a flat ascii grid in m1,m2, lnL.  Ideally part of postprocessing DAG
+# Write commands to do some useful postprocessing.  Ideally part of the dag.
+#   -  convert the result to a flat ascii grid in m1,m2, lnL
+#   -  make some detailed 2d plots.  These *should* be done by the DAG.  (We need to add a variable number of bins)
 echo > postprocess-massgrid.sh <<EOF
-for i in CME-*; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr  -d ' ' $i; done > massgrid.txt &
+for i in CME-*; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr  -d ' ' $i; done > massgrid.txt 
+cat ILE_MASS*.cache > net-ile.cache 
+plot_like_contours --dimension1 longitude --dimension2 latitude --full-likelihood --input-cache=net-ile.cache
+plot_like_contours --dimension1 distance --dimension2 inclination --full-likelihood --input-cache=net-ile.cache
+plot_like_contours --dimension1 mchirp --dimension2 eta --full-likelihood --input-cache=net-ile.cache
+plot_like_contours --dimension1 coa_phase --dimension2 polarization --full-likelihood --input-cache=net-ile.cache
 EOF
 chmod a+x postprocess-massgrid.sh
 
