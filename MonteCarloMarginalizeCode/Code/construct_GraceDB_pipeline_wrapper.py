@@ -153,6 +153,12 @@ chmod a+x testme-command.sh
 #   - large n-max chosen for prototyping purposes.  Hopefully we will hit the n-eff limit before reaching it.
 ${CME} --cache-file local.cache  --coinc coinc.xml  --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${GDB_V_INJ_CHANNEL_NAME} --psd-file "H1=psd.xml.gz" --psd-file "L1=psd.xml.gz" --psd-file "V1=psd.xml.gz"   --mass1 ${MASS1} --mass2 ${MASS2}  --save-samples  --time-marginalization --n-max 1000000 --n-eff 1000 --output-file CME-${gid}.xml.gz   --save-P 0.0001  --n-copies 2 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.2 --n-chunk 4000  # --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance   --fmax 2000
 
+# Write a command to convert the result to a flat ascii grid in m1,m2, lnL.  Ideally part of postprocessing DAG
+echo > postprocess-massgrid.sh <<EOF
+for i in CME-*; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr  -d ' ' $i; done > massgrid.txt &
+EOF
+chmod a+x postprocess-massgrid.sh
+
 echo "===== TO SUBMIT THE DAG ====== "
 echo condor_submit_dag `pwd`/dagtest-gracedb-${gid}-marginalize.dag
 
