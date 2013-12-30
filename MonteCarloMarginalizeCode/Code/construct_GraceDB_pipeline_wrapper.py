@@ -155,10 +155,13 @@ ${CME} --cache-file local.cache  --coinc coinc.xml  --channel-name H1=${INJ_CHAN
 
 # Write commands to do some useful postprocessing.  Ideally part of the dag.
 #   -  convert the result to a flat ascii grid in m1,m2, lnL
+#   -  convert the individual XML outputs to a single compressed tabular ascii file
 #   -  make some detailed 2d plots.  These *should* be done by the DAG.  (We need to add a variable number of bins)
 echo > postprocess-massgrid.sh <<EOF
-for i in CME-*; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr  -d ' ' $i; done > massgrid.txt 
+for i in CME-*.xml.gz; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr  -d ' ' $i; done > massgrid.
+convert_output_format_ile2inference  CME-*.xml.gz > flatfile-points.txt; gzip flatfile-points.txt
 cat ILE_MASS*.cache > net-ile.cache 
+ligolw_sqlite CME-*.xml.gz -d net-ile.sqlite
 plot_like_contours --dimension1 longitude --dimension2 latitude --full-likelihood --input-cache=net-ile.cache
 plot_like_contours --dimension1 distance --dimension2 inclination --full-likelihood --input-cache=net-ile.cache
 plot_like_contours --dimension1 mchirp --dimension2 eta --full-likelihood --input-cache=net-ile.cache
