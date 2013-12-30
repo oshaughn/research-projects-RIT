@@ -9,3 +9,16 @@ prepare_dags:
 
 launch_dags:
 	for i in `cat target_list`; cd $$i; condor_submit_dag -config ~/condor_config.local marginalize_extrinsic_parameters.dag; done
+
+# Summarize results
+#  - done manually, generate 'massgrid.txt' file
+
+# Bundle results
+bundle:
+	tar cvzf test-events.tgz G*/massgrid.txt G*/coinc.xml
+
+# Report on results
+#   - remind me what the search found
+#   - 
+report:
+	for i in G*; do echo $$i; ligolw_print -t sngl_inspiral -c ifo -c mass1 -c mass2 -c snr $$i/coinc.xml; done
