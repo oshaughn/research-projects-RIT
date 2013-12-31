@@ -9,10 +9,10 @@ opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 
 Psig = ourparams.PopulatePrototypeSignal(opts)
 
-if (opts.template_mass1):
+if (opts.indicate_mass1):
    print Psig.m1/lal.LAL_MSUN_SI
    sys.exit(0)
-if (opts.template_mass2):
+if (opts.indicate_mass2):
    print Psig.m2/lal.LAL_MSUN_SI
    sys.exit(0)
 if (opts.signal_tref):

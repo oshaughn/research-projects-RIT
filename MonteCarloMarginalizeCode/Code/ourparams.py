@@ -103,6 +103,8 @@ def ParseStandardArguments():
     # Test options
     parser.add_argument("--mass1", dest="template_mass1", default=False, type=float)
     parser.add_argument("--mass2", dest="template_mass2", default=False, type=float)
+    parser.add_argument("--indicate-mass1", dest="indicate_mass1", default=False, type=float)
+    parser.add_argument("--indicate-mass2", dest="indicate_mass2", default=False, type=float)
     parser.add_argument("--signal-fmin",dest="signal_fmin",default=30,type=float)
     parser.add_argument("--signal-distance",dest="signal_distMpc",default=25,type=float)
     parser.add_argument("--signal-inclination", dest="signal_incl",default=False,type=float)
