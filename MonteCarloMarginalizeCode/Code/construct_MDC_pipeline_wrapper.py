@@ -7,6 +7,7 @@
 #     - cache file 'local.cache' exists in current working directory, holding needed locations of files
 #     - 1_injections.xml file exists in current working directory, holding all injections
 #     - H1_psd.xml.gz and L1_psd.xml.gz exist in the current working directory
+#     - channel-name file
 
 export ILE=`which integrate_likelihood_extrinsic`
 export CME=`which compute_marginalized_likelihood`
@@ -29,6 +30,7 @@ cp ../1_injections.xml inj.xml
 cp ../local.cache local.cache
 cp ../H1_psd.xml.gz .
 cp ../L1_psd.xml.gz .
+cp ../channel-name .
 
 export MASS1=`util_PrintInjectionParameters --inj inj.xml --event $1 --indicate-mass1 1 | tail -1`
 export MASS2=`util_PrintInjectionParameters --inj inj.xml --event $1 --indicate-mass2 1 | tail -1`
@@ -39,7 +41,7 @@ export BETA=`util_AdaptiveExponent.py --Niter 4000 --inj inj.xml --event $1 | ta
 
 # CHANNEL NAMES
 #    - by default, use the ER channel names -- that is what I will use for now
-INJ_CHANNEL_NAME=FAKE-STRAIN
+INJ_CHANNEL_NAME=`cat channel-name`
 GDB_V_INJ_CHANNEL_NAME=FAKE_h_16384Hz_4R
 
 
