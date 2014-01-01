@@ -36,7 +36,7 @@ cp ../channel-name .
 export MASS1=`util_PrintInjectionParameters --inj inj.xml --event $1 --indicate-mass1 1 | tail -1`
 export MASS2=`util_PrintInjectionParameters --inj inj.xml --event $1 --indicate-mass2 1 | tail -1`
 export EVENT_TIME=`util_PrintInjectionParameters --inj inj.xml --event $1 --signal-time 0.0001  | tail -1`
-export BETA=`util_AdaptiveExponent.py --Niter 4000 --inj inj.xml --event $1 --channel-name H1= --psd-file "H1=H1_psd.xml.gz" --channel-name L1= --psd-file "L1=L1_psd.xml.gz" | tail -1`
+export BETA=`util_AdaptiveExponent.py --Niter 4000 --inj inj.xml --event $1 --channel-name H1= --psd-file-singleifo "H1=H1_psd.xml.gz" --channel-name L1= --psd-file-singleifo "L1=L1_psd.xml.gz" | tail -1`
 
 
 
