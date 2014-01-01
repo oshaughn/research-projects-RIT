@@ -31,6 +31,10 @@ if opts.inj and opts.channel_name:
     fSample = opts.srate
     fNyq = fSample/2.
     rho2Net =0
+    # Insure signal duration and hence frequency spacing specified
+    Psig.deltaF=None
+    df = lalsimutils.findDeltaF(Psig)
+    Psig.deltaF = df
     
     for det, chan in map(lambda c: c.split("="), opts.channel_name):
         Psig.detector = det
