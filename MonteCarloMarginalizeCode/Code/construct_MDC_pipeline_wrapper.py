@@ -4,6 +4,7 @@
 #     Generates a dag (and a 'test command') for processing that event
 #
 # ASSUMES (for now)
+#     - Just H1, L1 (!).  Needs to implement variable IFO list!
 #     - cache file 'local.cache' exists in current working directory, holding needed locations of files
 #     - 1_injections.xml file exists in current working directory, holding all injections
 #     - H1_psd.xml.gz and L1_psd.xml.gz exist in the current working directory
@@ -35,7 +36,7 @@ cp ../channel-name .
 export MASS1=`util_PrintInjectionParameters --inj inj.xml --event $1 --indicate-mass1 1 | tail -1`
 export MASS2=`util_PrintInjectionParameters --inj inj.xml --event $1 --indicate-mass2 1 | tail -1`
 export EVENT_TIME=`util_PrintInjectionParameters --inj inj.xml --event $1 --signal-time 0.0001  | tail -1`
-export BETA=`util_AdaptiveExponent.py --Niter 4000 --inj inj.xml --event $1 | tail -1`
+export BETA=`util_AdaptiveExponent.py --Niter 4000 --inj inj.xml --event $1 --channel-name H1= --psd-file "H1=H1_psd.xml.gz" --channel-name L1= --psd-file "L1=L1_psd.xml.gz" | tail -1`
 
 
 
