@@ -47,22 +47,19 @@ if opts.inj and opts.channel_name:
             analyticPSD_Q = True # For simplicity, using an analytic PSD
             psd_dict[det] = lalsim.SimNoisePSDiLIGOSRD   
         else:
+            analyticPSD_Q=False
+            # Code path #1 : Single PSD file for all instruments
             if not (opts.psd_file_singleifo):
-                analyticPSD_Q = False # For simplicity, using an analytic PSD
-                # "Standard" PSD parsing code used on master.
                 psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(opts.psd_file, det)  # pylal type!
-                fmin = psd_dict[det].f0
-                fmax = fmin + psd_dict[det].deltaF*len(psd_dict[det].data)-deltaF
-                psd_dict[det] = lalsimutils.resample_psd_series(psd_dict[det], deltaF)
-            else: # use list-based procedure to load in individual PSDs for individual instruments
+            # Code-path #2: List-based procedure to load in individual PSDs for individual instruments
+            else: 
                 for inst, psdf in map(lambda c: c.split("="), opts.psd_file_singleifo):
-                    if inst is det:
+                    if inst == det:
                         psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(psdf, det)  # pylal type!
-                        fmin = psd_dict[det].f0
-                        fmax = fmin + psd_dict[det].deltaF*len(psd_dict[det].data)-deltaF
-                        psd_dict[det] = lalsimutils.resample_psd_series(psd_dict[det], deltaF)
-                        
-
+            fmin = psd_dict[det].f0
+            fmax = fmin + psd_dict[det].deltaF*len(psd_dict[det].data)-deltaF
+            psd_dict[det] = lalsimutils.resample_psd_series(psd_dict[det], deltaF)
+           
             
 
     for det in data_fake_dict.keys():
