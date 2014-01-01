@@ -1,0 +1,111 @@
+#! /usr/bin/env python
+#
+#  - construct 1d cumulative (from flatfile), given argument type specification.
+#     - can also construct 2d skymap
+#  - evaluate the p value of the injection's location (or constant L contour)
+#  - plot the cumulative
+
+# Setup. 
+import numpy as np
+# Plot always, for now
+import matplotlib
+print " matplotlib backend ", matplotlib.get_backend()
+if matplotlib.get_backend() is "MacOSX":
+    bSavePlots  = False
+else:
+    bSavePlots = True
+from matplotlib import pylab as plt
+from mpl_toolkits.mplot3d import Axes3D
+
+
+def mean_and_dev(arr, wt):
+    av = np.average(arr, weights=wt)
+    var = np.average(arr*arr, weights=wt)
+    return [av, var - av*av]
+
+def pcum_at(val,arr, wt):
+    nm = np.sum(wt)
+    return np.sum(wt[np.where(val < arr)]/nm)
+
+
+# Parse standard arguments
+import ourparams
+import ourio
+opts, rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
+
+# Import flatfile (default).  Modify in future to take xml
+# Should use first line to establish associations!
+# For now, assume output in format provided by 'convert_output_format_ile2inference':
+# Columns assumed sorted as <stuff>, tref, phi, incl, psi, ra, dec, dist, lnL,p, ps
+#  * assume* we have already sorted these by importance?
+ret = np.loadtxt(opts.points_file_base+"-points.dat")
+lnLmax = np.max(ret[:,-3])  # only relative weights are needed, so avoid loss of precision and infinty
+weights = np.exp(ret[:,-3] - lnLmax)*ret[:,-2]/ret[:,-1]
+
+# Metadata and pp data
+values = {}
+metadata = {}
+ppdata = {}
+values["phi"] = ret[:,-3-6]
+values["incl"] = ret[:,-3-5]
+values["psi"] = ret[:,-3-4]
+values["ra"] = ret[:,-3-3]
+values["dec"] = ret[:,-3-2]
+values["dist"] = ret[:,-3-1]
+
+for key in ["phi","incl", "psi", "dist", "ra", "dec"]:
+    metadata[key] =  mean_and_dev(values[key], weights)
+
+if opts.inj:
+    Psig = ourparams.PopulatePrototypeSignal(opts)
+    ppdata['ra'] = [Psig.phi,pcum_at(Psig.phi,values["phi"],weights)]
+    ppdata['dec'] = [Psig.theta,pcum_at(Psig.theta,values["dec"], weights)]
+    ppdata['phi'] = [Psig.phiref,pcum_at(Psig.phiref,values["phi"], weights)]
+    ppdata['incl'] = [Psig.incl,pcum_at(Psig.incl, values["incl"], weights)]
+    ppdata['psi'] = [Psig.psi,pcum_at(Psig.psi,values["psi"], weights)]
+    ppdata['dist'] = [Psig.dist/(1e6*lal.LAL_PC_SI),pcum_at(Psig.dist/(1e6*lal.LAL_PC_SI),values["dist"], weights)]
+
+    with open(fopts.points_file_base+"-postprocess-pp.dat",'w') as f:
+        for key in ['ra','dec', 'phi', 'incl', 'psi', 'dist']: 
+            f.write(key + " " + str(ppdata[key][0]) + ' '+ str(ppdata[key][1]) + '\n')
+
+
+
+# Construct 1d plots.  See 'ourio.py'.  Prior code not used since sampler unavailable here to set range limits
+nFig = 0
+keynames =["phi","incl", "psi", "dist", "ra", "dec"]
+vals = np.zeros(len(values["phi"]))
+wts = np.zeros(len(values["phi"]))
+for nFig in range(len(keynames)-1):
+    param = keynames[nFig]
+    plt.figure(nFig)
+    plt.clf()
+    # Sample distributions.  Copy needed becuase of sorting and sum
+    vals = values[param]
+    wts = weights
+
+    # Stage 1: PDF
+    hist, bins = np.histogram(vals, bins=100, density=True, weights=weights)
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="posterior:"+param+":sampled")
+    hist, bins  = np.histogram(vals,bins=50,density=True)
+    center = (bins[:-1]+bins[1:])/2
+    plt.plot(center,hist,label="sampling prior:"+param+":sampled",linestyle='--')
+    plt.xlabel(param)
+    plt.title("1d density for "+param)
+    plt.legend()
+    plt.savefig("posterior-density-"+param+"-1d.pdf")
+    plt.clf()
+
+    # Stage 2: Cumulative.  *High detail* Note this can be done with 'cumulative=True' in np
+    idx_sorted_util  = np.lexsort((np.arange(len(vals)), vals))
+    vals  = np.array([vals[k] for k in idx_sorted_util])
+    wts  = np.array([wts[k] for k in idx_sorted_util])
+    cum_wts = np.cumsum(wts)
+    cum_wts = cum_wts/cum_wts[-1]
+    plt.plot(vals,cum_wts,label="posterior:"+param+":sampled")
+   # hist, bins = plt.hist(vals, bins=100, normed=1, weights=weights,cumulative=True)
+    plt.xlabel(param)
+    plt.title("1d cumulative for "+param)
+    plt.legend()
+    plt.savefig("posterior-cumulative-"+param+"-1d.jpeg")
