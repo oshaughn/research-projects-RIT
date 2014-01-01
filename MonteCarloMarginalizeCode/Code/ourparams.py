@@ -49,6 +49,7 @@ def ParseStandardArguments():
 
     # Noise model
     parser.add_argument("--psd-file",dest='psd_file',default=None, help="psd-file for all instruments. Assumes PSD for all instruments is provided in the file.  If None, uses an analytic PSD")
+    parser.add_argument("--psd-file-singleifo",dest="psd_file_singleifo",action="append", help="psd file for one instrument. Not available for all cases")
     parser.add_argument("--psd-truncate-inverse",dest="psd_TruncateInverse",default=False,action='store_true')
     parser.add_argument("--psd-truncate-inverse-time",dest="psd_TruncateInverseTime",default=32,type=float)
 
