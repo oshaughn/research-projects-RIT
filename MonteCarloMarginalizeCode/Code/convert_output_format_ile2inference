@@ -36,5 +36,13 @@ for fname in args:
 
     for indx in np.arange(len(points)):
         pt = points[indx]
-        print pt.mass1, pt.mass2, mc(pt.mass1,pt.mass2), eta(pt.mass1,pt.mass2),pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns,pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, like[indx], p[indx],ps[indx]
+        print pt.mass1, pt.mass2, mc(pt.mass1,pt.mass2), eta(pt.mass1,pt.mass2), \
+            pt.longitude, \
+            pt.latitude, \
+            pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, \
+            pt.coa_phase,  \
+            pt.inclination, \
+            pt.polarization, \
+            pt.distance, \
+            like[indx], p[indx],ps[indx]
 #    print pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, ind like[indx]
