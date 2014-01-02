@@ -90,8 +90,8 @@ if opts.inj:
     m2Sun = Psig.m2/lal.LAL_MSUN_SI
     mc = lalsimutils.mchirp(m1Sun,m2Sun)
     eta = lalsimutils.symRatio(m1Sun,m2Sun)
-    ppdata['mc'] = [mc, pcumAt(mc, values["mc"], weights)]
-    ppdata['eta'] = [eta, pcumAt(mc, values["eta"], weights)]
+    ppdata['mc'] = [mc, pcum_at(mc, values["mc"], weights)]
+    ppdata['eta'] = [eta, pcum_at(mc, values["eta"], weights)]
 
     with open(opts.points_file_base+"-postprocess-pp.dat",'w') as f:
         for key in ['ra','dec', 'phi', 'incl', 'psi', 'dist']: 
