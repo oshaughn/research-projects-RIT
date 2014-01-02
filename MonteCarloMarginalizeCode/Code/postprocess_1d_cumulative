@@ -101,7 +101,6 @@ for nFig in range(len(keynames)-1):
     cum_wts = cum_wts/cum_wts[-1]
     xlow = vals[bisect.bisect(cum_wts, 0.001)]
     xhigh = vals[bisect.bisect(cum_wts, 0.999)]
-    print param, [xlow, xhigh], ppdata[param]
     plt.plot(vals,cum_wts,label="posterior:"+param)
     plt.xlim(xlow,xhigh)
     if opts.inj:
