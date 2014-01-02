@@ -63,8 +63,13 @@ chmod a+x testme-command.sh
 ${CME} --cache-file local.cache   --event-time ${EVENT_TIME} --mass1 ${MASS1} --mass2 ${MASS2} --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --psd-file "H1=H1_psd.xml.gz" --psd-file "L1=L1_psd.xml.gz"    --save-samples  --time-marginalization --n-max 1000000 --n-eff 1000 --output-file CME-${event}.xml.gz   --save-P 0.0001  --n-copies 2 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.1 --n-chunk 4000  # --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance   --fmax 2000
 
 # Write a command to convert the result to a flat ascii grid in m1,m2, lnL.  Ideally part of postprocessing DAG
-echo > postprocess-massgrid.sh <<EOF
+cat > postprocess-massgrid.sh <<EOF
 for i in CME-*; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr  -d ' ' $i; done > massgrid.txt &
+convert_output_format_ile2inference  CME-*.xml.gz > flatfile-points.dat
+postprocess_1d_cumulative --save-sampler-file flatfile --inj inj.xml --event $event
+gzip flatfile-points.dat
+cat ILE_MASS*.cache > net-ile.cache 
+ligolw_sqlite CME-*.xml.gz -d net-ile.sqlite
 EOF
 chmod a+x postprocess-massgrid.sh
 
