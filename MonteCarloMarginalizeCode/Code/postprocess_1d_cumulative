@@ -120,7 +120,10 @@ for nFig in range(len(keynames)-1):
     hist = hist/(np.sum(hist)*dx)
     center = (bins[:-1]+bins[1:])/2
     plt.plot(center,hist,label="posterior:"+param+":sampled")
-    hist, bins  = np.histogram(vals,bins=50,density=True)
+#    hist, bins  = np.histogram(vals,bins=50,density=True)
+    hist, bins  = np.histogram(vals,bins=50)
+    dx = bins[1]-bins[0]
+    hist = hist/(np.sum(hist)*dx)
     center = (bins[:-1]+bins[1:])/2
     plt.plot(center,hist,label="saved samples:"+param+"",linestyle='--')
     if opts.inj:
