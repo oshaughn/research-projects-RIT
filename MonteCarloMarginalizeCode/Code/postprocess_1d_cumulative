@@ -5,12 +5,20 @@
 #  - evaluate the p value of the injection's location (or constant L contour)
 #  - plot the cumulative
 #
+# PHYSICS NOTES
+#   - *Requires a mass prior implicitly! *
+#        : this script joins results from different simulations, hence different masses.
+#          Right now, this prior is *not* properly implemented when creating relative weights at different mass points:
+#          In practice, we are using a uniform prior in mchirp, eta.  That's not the physical prior. 
+#      ===> This needs to be corrected. <===
+#
 # PORTABILITY NOTES
 #    np.histogram :  density argument not supported on LIGO clusters' version
 
 # Setup. 
 import numpy as np
 import lal
+import lalsimutils
 import bisect
 # Plot always, for now
 import matplotlib
@@ -50,6 +58,7 @@ lnLmax = np.max(ret[:,-1])  # only relative weights are needed, so avoid loss of
 weights = np.exp(ret[:,-1] - lnLmax)*ret[:,-3]/ret[:,-2]
 
 # Metadata and pp data
+# Note mc, eta not always supported, but m1, m2 *are very likely* always be the first two
 values = {}
 metadata = {}
 ppdata = {}
@@ -60,8 +69,10 @@ values["phi"] = ret[:,-3-4]
 values["incl"] = ret[:,-3-3]
 values["psi"] = ret[:,-3-2]
 values["dist"] = ret[:,-3-1]
+values["mc"] = lalsimutils.mchirp(ret[:,0],ret[:,1])
+values["eta"] = lalsimutils.symRatio(ret[:,0],ret[:,1])
 
-for key in ["phi","incl", "psi", "dist", "ra", "dec", "tref"]:
+for key in values.keys():
     metadata[key] =  mean_and_dev(values[key], weights)
 
 if opts.inj:
@@ -74,6 +85,14 @@ if opts.inj:
     ppdata['psi'] = [Psig.psi,pcum_at(Psig.psi,values["psi"], weights)]
     ppdata['dist'] = [Psig.dist/(1e6*lal.LAL_PC_SI),pcum_at(Psig.dist/(1e6*lal.LAL_PC_SI),values["dist"], weights)]
 
+    # See comment about mass prior, above! 
+    m1Sun = Psig.m1/lal.LAL_MSUN_SI
+    m2Sun = Psig.m2/lal.LAL_MSUN_SI
+    mc = lalsimutils.mchirp(m1Sun,m2Sun)
+    eta = lalsimutils.symRatio(m1Sun,m2Sun)
+    ppdata['mc'] = [mc, pcumAt(mc, values["mc"], weights)]
+    ppdata['eta'] = [eta, pcumAt(mc, values["eta"], weights)]
+
     with open(opts.points_file_base+"-postprocess-pp.dat",'w') as f:
         for key in ['ra','dec', 'phi', 'incl', 'psi', 'dist']: 
             f.write(key + " " + str(ppdata[key][0]) + ' '+ str(ppdata[key][1]) + '\n')
@@ -85,7 +104,7 @@ nFig = 0
 keynames = values.keys() # ["ra", "dec", "tref", "phi","incl", "psi", "dist" ]   # Need  
 vals = np.zeros(len(values["phi"]))
 wts = np.zeros(len(values["phi"]))
-for nFig in range(len(keynames)-1):
+for nFig in np.arange(len(keynames)):
     param = keynames[nFig]
     plt.figure(nFig)
     # Sample distributions.  Copy needed becuase of sorting and sum
@@ -94,7 +113,7 @@ for nFig in range(len(keynames)-1):
 
     plt.clf()
     # Stage 2: Cumulative.  *High detail* Note this can be done with 'cumulative=True' in np
-    # This also is used to set the plot range, at the 99.9% and 0.1% confidence intervals
+    # This also is used to set the plot range, at the 99.9% and 0.1% confidence intervals -- very important for parameters like mc, eta
     idx_sorted_util  = np.lexsort((np.arange(len(vals)), vals))
     vals  = np.array([vals[k] for k in idx_sorted_util])
     wts  = np.array([wts[k] for k in idx_sorted_util])
