@@ -44,5 +44,5 @@ for fname in args:
             pt.inclination, \
             pt.polarization, \
             pt.distance, \
-            like[indx], p[indx],ps[indx]
+            p[indx],ps[indx],like[indx]
 #    print pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, ind like[indx]
