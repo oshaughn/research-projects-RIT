@@ -156,3 +156,40 @@ for nFig in np.arange(len(keynames)):
     plt.savefig("posterior-density-"+param+"-1d."+fExtension)
     plt.clf()
 
+
+
+# Add posterior skymap: use a *fixed* resolution.  (Better adaptive solutions in routines by Leo Singer)
+import healpy
+nside = 32   # must be a power of 2.  This is 12,300 sky points, good enough for moderate-SNR work
+npix = healpy.nside2npix(nside)
+smap = np.zeros(npix)
+print " Sky resolution note: ", len(smap), len(weights)
+
+# Convert to theta, phi from ra, dec
+values["theta"] = 0.5*np.pi  - values["dec"]
+values["phi"] = values["ra"]
+
+# Convert sky locations to discrete pixels
+values["index"] = healpy.ang2pix(nside, values["theta"], values["phi"],nest=False)
+
+# Loop over all pixel values.  Add more to the skymap.  [*slow* loop. Probably better python-y solution]
+for i in np.arange(len(weights)):
+    smap[values["index"][i]]+= weights[i]
+smap = smap/np.sum(smap)
+
+# Write skymap fits file
+import lalinference.bayestar.fits
+lalinference.bayestar.fits.write_sky_map(opts.points_file_base+"-skymap.fits.gz", smap,
+    creator="postprocess_1d_cumulative")
+
+# Create plot
+from lalinference.bayestar import fits as bfits
+from lalinference.bayestar import plot as bplot
+plt.clf()
+plt.subplot(111, projection='astro mollweide')
+bplot.healpix_heatmap(smap)
+plt.savefig("posterior-skymap."+fExtension)
+
+
+
+
