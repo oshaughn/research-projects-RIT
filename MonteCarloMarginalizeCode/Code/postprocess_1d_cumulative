@@ -61,7 +61,7 @@ values["incl"] = ret[:,-3-3]
 values["psi"] = ret[:,-3-2]
 values["dist"] = ret[:,-3-1]
 
-for key in ["phi","incl", "psi", "dist", "ra", "dec"]:
+for key in ["phi","incl", "psi", "dist", "ra", "dec", "tref"]:
     metadata[key] =  mean_and_dev(values[key], weights)
 
 if opts.inj:
@@ -69,6 +69,7 @@ if opts.inj:
     ppdata['ra'] = [Psig.phi,pcum_at(Psig.phi,values["phi"],weights)]
     ppdata['dec'] = [Psig.theta,pcum_at(Psig.theta,values["dec"], weights)]
     ppdata['phi'] = [Psig.phiref,pcum_at(Psig.phiref,values["phi"], weights)]
+    ppdata['tref'] = [Psig.tref, 0]  # to make sure this exists for all keys
     ppdata['incl'] = [Psig.incl,pcum_at(Psig.incl, values["incl"], weights)]
     ppdata['psi'] = [Psig.psi,pcum_at(Psig.psi,values["psi"], weights)]
     ppdata['dist'] = [Psig.dist/(1e6*lal.LAL_PC_SI),pcum_at(Psig.dist/(1e6*lal.LAL_PC_SI),values["dist"], weights)]
@@ -81,17 +82,17 @@ if opts.inj:
 
 # Construct 1d plots.  See 'ourio.py'.  Prior code not used since sampler unavailable here to set range limits
 nFig = 0
-keynames =["phi","incl", "psi", "dist", "ra", "dec"]
+keynames = values.keys() # ["ra", "dec", "tref", "phi","incl", "psi", "dist" ]   # Need  
 vals = np.zeros(len(values["phi"]))
 wts = np.zeros(len(values["phi"]))
 for nFig in range(len(keynames)-1):
     param = keynames[nFig]
     plt.figure(nFig)
-    plt.clf()
     # Sample distributions.  Copy needed becuase of sorting and sum
     vals = values[param]
     wts = weights
 
+    plt.clf()
     # Stage 2: Cumulative.  *High detail* Note this can be done with 'cumulative=True' in np
     # This also is used to set the plot range, at the 99.9% and 0.1% confidence intervals
     idx_sorted_util  = np.lexsort((np.arange(len(vals)), vals))
@@ -102,7 +103,8 @@ for nFig in range(len(keynames)-1):
     xlow = vals[bisect.bisect(cum_wts, 0.001)]
     xhigh = vals[bisect.bisect(cum_wts, 0.999)]
     plt.plot(vals,cum_wts,label="posterior:"+param)
-    plt.xlim(xlow,xhigh)
+    if xlow < xhigh:  # can be a problem with t
+        plt.xlim(xlow,xhigh)
     if opts.inj:
         plt.plot([ppdata[param][0],ppdata[param][0]], [1,1], color='k',linestyle='--')
    # hist, bins = plt.hist(vals, bins=100, normed=1, weights=weights,cumulative=True)
