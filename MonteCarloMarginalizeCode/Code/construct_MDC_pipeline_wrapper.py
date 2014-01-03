@@ -70,6 +70,8 @@ postprocess_1d_cumulative --save-sampler-file flatfile --inj inj.xml --event $ev
 gzip flatfile-points.dat
 cat ILE_MASS*.cache > net-ile.cache 
 ligolw_sqlite CME-*.xml.gz -d net-ile.sqlite
+extract_one_injection inj.xml $event
+make_triplot net-ile.sqlite --injection  selected_event.xml.gz
 EOF
 chmod a+x postprocess-massgrid.sh
 

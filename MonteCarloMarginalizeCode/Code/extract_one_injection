@@ -1,0 +1,35 @@
+#!/usr/bin/env python
+import sys
+import os
+import shutil
+import random
+
+random.seed(0)
+
+from glue.ligolw import utils, table, ligolw, lsctables
+
+def ready_template(fname, event):
+    with open(fname) as fin:
+        lines = fin.readlines()
+
+    for i, line in enumerate(lines):
+        if line[:5] == "MASS1":
+            lines[i] = line.strip() + str(event.mass1) + "\n"
+        elif line[:5] == "MASS2":
+            lines[i] = line.strip() + str(event.mass2) + "\n"
+        elif line[:10] == "EVENT_TIME":
+            lines[i] = line.strip() + "%10.9f" % float(event.get_end()) + "\n"
+
+    return "".join(lines)
+
+si_table = table.get_table(utils.load_filename(sys.argv[1]), lsctables.SimInspiralTable.tableName)
+
+new_table = lsctables.New(lsctables.SimInspiralTable, si_table.validcolumns.keys())
+new_table.extend(filter(lambda si: int(si.simulation_id) == int(sys.argv[2]), si_table))
+
+xmldoc = ligolw.Document()
+xmldoc.appendChild(ligolw.LIGO_LW())
+xmldoc.childNodes[0].appendChild(new_table)
+
+utils.write_filename(xmldoc, "selected_event.xml.gz", gz=True)
+
