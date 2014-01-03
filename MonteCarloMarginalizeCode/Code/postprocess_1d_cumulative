@@ -5,6 +5,19 @@
 #  - evaluate the p value of the injection's location (or constant L contour)
 #  - plot the cumulative
 #
+# USAGE
+#    postprocess_1d_cumulative --save-sampler-file flatfile  --inj inj.xml --event 0
+#          # input from flatfile-points.xml.gz
+#          # output to flatfile-posterior-*
+#                 - skymap
+#                 - 1d cumulatives in each parameter
+#                 - cumulative data at injection prameters
+#    postprocess_1d_cumulative --save-sampler-file flatfile  --adapt-beta 0
+#          # weight as L^\beta p/ps
+#          # using 0 treats all mass points the same.
+#          # Note that if only a fraction of the extrinsic points are saved, using \beta=0 produces
+#             a conservative skymap
+#
 # PHYSICS NOTES
 #   - *Requires a mass prior implicitly! *
 #        : this script joins results from different simulations, hence different masses.
@@ -55,7 +68,9 @@ opts, rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 #  * assume* we have already sorted these by importance?
 ret = np.loadtxt(opts.points_file_base+"-points.dat")
 lnLmax = np.max(ret[:,-1])  # only relative weights are needed, so avoid loss of precision and infinty
-weights = np.exp(ret[:,-1] - lnLmax)*ret[:,-3]/ret[:,-2]
+weights = np.exp(opts.adapt_beta*(ret[:,-1] - lnLmax))*ret[:,-3]/ret[:,-2]
+# if opts.adapt_beta == 0:
+#     weights = np.ones(len(weights))
 
 # Metadata and pp data
 # Note mc, eta not always supported, but m1, m2 *are very likely* always be the first two
@@ -130,7 +145,7 @@ for nFig in np.arange(len(keynames)):
     plt.xlabel(param)
     plt.title("1d cumulative for "+param)
     plt.legend()
-    plt.savefig("posterior-cumulative-"+param+"-1d."+fExtension)
+    plt.savefig(opts.points_file_base+"-posterior-cumulative-"+param+"-1d."+fExtension)
 
 
     # Stage 1: PDF
@@ -153,7 +168,7 @@ for nFig in np.arange(len(keynames)):
     plt.xlabel(param)
     plt.title("1d density for "+param)
     plt.legend()
-    plt.savefig("posterior-density-"+param+"-1d."+fExtension)
+    plt.savefig(opts.points_file_base+"-posterior-density-"+param+"-1d."+fExtension)
     plt.clf()
 
 
@@ -188,7 +203,7 @@ from lalinference.bayestar import plot as bplot
 plt.clf()
 plt.subplot(111, projection='astro mollweide')
 bplot.healpix_heatmap(smap)
-plt.savefig("posterior-skymap."+fExtension)
+plt.savefig(opts.points_file_base+"-posterior-skymap."+fExtension)
 
 
 
