@@ -243,6 +243,9 @@ rand_grid = np.array([ np.real( np.dot(rot, rand_grid[i]))
 rand_dMcs_MSUN, rand_detas = tuple(np.transpose(rand_grid)) # dMc, deta
 rand_Mcs = rand_dMcs_MSUN * lal.LAL_MSUN_SI + McSIG # Mc (kg)
 rand_etas = rand_detas + etaSIG # eta
+# Append mass values of signal to the list
+rand_Mcs = np.append( rand_Mcs, McSIG )
+rand_etas = np.append( rand_etas, etaSIG )
 
 # Prune points with unphysical values of eta from rand_grid
 rand_etas = np.array(map(partial(lsu.sanitize_eta, exception=np.NAN), rand_etas))
