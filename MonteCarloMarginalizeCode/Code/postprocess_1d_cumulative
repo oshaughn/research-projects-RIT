@@ -222,7 +222,7 @@ p_syms = ["$\\iota$", "d", "$\\delta$", "$\\alpha$", "t", "$\\phi$", "$\\psi$"]
 samples = (np.array([values["incl"],values["dist"], values["dec"], values["ra"], values["tref"], values["phi"], values["psi"]])).T
 print len(samples), samples.shape
 if opts.inj:
-    injection = np.array([ppdata['incl'][0], ppdata['dist'][0], ppdata['dec'][0], ppdec["ra"][0], ppdec["tref"][0], ppdata["phi"][0], ppdata["psi"][0]])
+    injection = np.array([ppdata['incl'][0], ppdata['dist'][0], ppdata['dec'][0], ppdata["ra"][0], ppdata["tref"][0], ppdata["phi"][0], ppdata["psi"][0]])
 else:
     injection=None
 bayesutils.triplot(samples, weights=weights, labels=p_syms, title=None, inj=injection)
