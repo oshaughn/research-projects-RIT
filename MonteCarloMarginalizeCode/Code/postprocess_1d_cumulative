@@ -113,6 +113,10 @@ if opts.inj:
             f.write(key + " " + str(ppdata[key][0]) + ' '+ str(ppdata[key][1]) + '\n')
 
 
+###
+### 1d cumulative plots
+###
+
 
 # Construct 1d plots.  See 'ourio.py'.  Prior code not used since sampler unavailable here to set range limits
 nFig = 0
@@ -172,7 +176,9 @@ for nFig in np.arange(len(keynames)):
     plt.clf()
 
 
-
+###
+### Sky plots
+###
 # Add posterior skymap: use a *fixed* resolution.  (Better adaptive solutions in routines by Leo Singer)
 import healpy
 nside = 32   # must be a power of 2.  This is 12,300 sky points, good enough for moderate-SNR work
@@ -206,5 +212,21 @@ bplot.healpix_heatmap(smap)
 plt.savefig(opts.points_file_base+"-posterior-skymap."+fExtension)
 
 
+###
+### Triplots : because sql locks are ubiquitous
+###
 
-
+import bayesutils
+p_syms = ["$\\iota$", "d", "$\\delta$", "$\\alpha$", "t", "$\\phi$", "$\\psi$"]
+# This causes a lot of memory duplication.  Would be better to use 'ret', above,
+samples = (np.array([values["incl"],values["dist"], values["dec"], values["ra"], values["tref"], values["phi"], values["psi"]])).T
+print len(samples), samples.shape
+if opts.inj:
+    injection = np.array([ppdata['incl'][0], ppdata['dist'][0], ppdata['dec'][0], ppdec["ra"][0], ppdec["tref"][0], ppdata["phi"][0], ppdata["psi"][0]])
+else:
+    injection=None
+bayesutils.triplot(samples, weights=weights, labels=p_syms, title=None, inj=injection)
+if matplotlib.get_backend() == "MacOSX":
+    plt.savefig(opts.points_file_base+ "-triplot.pdf")   # Workaround for Richard's laptop
+else:
+    plt.savefig(opts.points_file_base+ "-triplot."+fExtension)
