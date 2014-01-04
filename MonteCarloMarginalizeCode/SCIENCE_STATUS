@@ -1,27 +1,25 @@
 
 URGENT PRIORITIES
 
-* Holiday break prep 
-   - Urgent choices
-             - distance cutoff
-             - integrator unbuffered 
-             - installation requirements doc: statsmodels.
-   - Implement match cutoff: e.g, 0.95 or 1-0.1(8/rho)^2.  Use 500 mass points. [Documentation: run dag!]
-   - Validate code
-              - against no signal (ideally real noise)
-              - reproducible results (=error estimate in integral)
+* Gain confidence in results
 
 * Convergence and adaptation
-    - document adaptive samplers on master [makefile targets]
-    - implement, document adaptive sampler test suite on master
-          - 6d gaussian
+    - convergence criteria
+        - condition 1: Converged integral.  
+                           Proposals exist (neff; normally-distributed sub-integrals) but need theory and code
+        - condition 2: Converged extrinsic distributions (1d; 2d; ...).  Needs discussion
+
     - convergence theory with adaptation
         - must have robust theory (and demonstrations) showing when overconvergence 
           occurs and how to control it
 
+* Combining extrinsic distributions from different masses
+      - Option 1: Monte carlo approach : If *random* intrinsic, then join
+      - What if masses are not random?
 
 * Bugfixing
    - failure for high-snr MDC. Precision loss?
+   - convergence problems at high SNR.  Use running adaptive exponent, set by instantaneous max L?
 
 PROTOTYPING 
 
@@ -34,17 +32,18 @@ PROTOTYPING
 
 
 FEATURE REQUETS
-  - Report on P(<x_inj) for each parameter
   - Effective Fisher code reports area (in mc, eta) populated, and fraction lost to cutoffs
     Allows us to use m1,m2 samples to get total evidence via monte carlo integral
     (with m1,m2 prior)
 
 
-TABLED UNTIL AFTER LARGE-SCAL RUNS
+TABLED UNTIL AFTER LARGE-SCALE RUNS
 
 * Priors
  - sky prior     : reimplement ability to run with a skymap 
  - Distancce prior: Cutoff?  can we use *only* distance adaptation?
+        - larger maximum distance
+
  - Time prior    : investigate safe inteval. Concrete examples with different injections (and gracedb)
                      : template (model/model, mass/mass) mismatches and timeshifts, re prior
                      : targeting smaller interval for time
@@ -58,13 +57,21 @@ TABLED UNTIL AFTER LARGE-SCAL RUNS
     - quasi-hierarchical: use autocorrelation scale (Fisher matrix) to reduce sampling density when we have very poor constraints.
       Go to denser sampling  when evidence high.
 
+   - Implement match cutoff: e.g, 0.95 or 1-0.1(8/rho)^2.  Use 500 mass points. [Documentation: run dag!]
+
+   - Implement aligned spin
+
 * Data handling
     - Automate dag to select correct # of IFOs (e.g., from coinc) and PSDs
 
 * Understand 
      -  inverse spec truncation: why we need an fmax
 
-
+* Documentation
+    - installation requirements 
+    - document adaptive samplers on master [makefile targets]
+    - implement, document adaptive sampler test suite on master
+          - 6d gaussian
 
 RECORD
 
@@ -84,7 +91,7 @@ RECORD
 * Convergence
    - neff [2013-12-11] implementation fixed, mcsampler cleaned
    - Run dag + infrastructure, demonstrate fully-automated operation working (e.g., data selection, ...).
-
+   - MDC and GraceDB runs: consistent integral values for wide range of m1,m2, IFOs, BNS masses [2013-12-31]
 
 * Data handling:
     - Inverse spectrum truncation:
@@ -101,3 +108,6 @@ RECORD
    - GraceDB pipeline demo [2013-12-20]
    - error estimate report in xmlutils.py [2013-12-20]
    - fmax limit propagated, for now fmax 2000 [2013-12-20]
+   - Report on P(<x_inj) for each parameter [2014-01-01]
+
+
