@@ -87,6 +87,27 @@ values["dist"] = ret[:,-3-1]
 values["mc"] = lalsimutils.mchirp(ret[:,0],ret[:,1])
 values["eta"] = lalsimutils.symRatio(ret[:,0],ret[:,1])
 
+
+# Truncate the sample set using save-P.  No science loss; massive sample reduction; speeds up the very slow triplot stage
+# Note we will sort *again* later for the cumulative  Going forward, reduce redundant worting
+if opts.save_P:
+    print " Reducing sample size using cumulative cutoff ", opts.save_P
+    print " Original sample size : ", len(values["phi"])
+    idx_sorted_index = np.lexsort((np.arange(len(weights)), weights))  # Sort the array of weights, recovering index values
+    indx_list = np.array( [[k, weights[k]] for k in idx_sorted_index])   # pair up with the weights again
+    cum_sum = np.cumsum(indx_list[:,1])                                     # find the cumulative sum
+    cum_sum = cum_sum/cum_sum[-1]                                         # normalize the cumulative sum
+    indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > opts.save_P) if value]  # find the indices that preserve > sampP  of total probability
+    valuesNew = {}
+    for key in values.keys():
+         valuesNew[key] = np.array([values[key][int(indx)] for indx in indx_list] )
+    weightsNew = np.array([weights[int(indx)] for indx in indx_list] )
+    values = {}
+    values = valuesNew
+    weights = weightsNew
+    print " Reduced sample size  : ",  len(values["phi"])
+
+
 for key in values.keys():
     metadata[key] =  mean_and_dev(values[key], weights)
 

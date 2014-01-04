@@ -123,7 +123,7 @@ def ParseStandardArguments():
     # File output and conditions controlling output
     parser.add_argument("--save-sampler-file", dest="points_file_base",default="sampler-output-file")
     parser.add_argument("--save-threshold-fraction", dest="points_threshold_match",type=float,default=0.0,help="Roughly speaking, target match for points to be returned.  In practice, all points with L> \sqrt{P}L_{max} are returned")
-    parser.add_argument("--save-P",default=0.001,type=float)
+    parser.add_argument("--save-P",default=0.,type=float)
     parser.add_argument("--save-deltalnL",type=float, default=float("Inf"), 
                         help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
     parser.add_argument("--save-metadata", dest="force_store_metadata",action="store_true")
