@@ -224,6 +224,7 @@ import lalinference.bayestar.fits
 lalinference.bayestar.fits.write_sky_map(opts.points_file_base+"-skymap.fits.gz", smap,
     creator="postprocess_1d_cumulative")
 
+
 # Create plot
 from lalinference.bayestar import fits as bfits
 from lalinference.bayestar import plot as bplot
@@ -231,6 +232,33 @@ plt.clf()
 plt.subplot(111, projection='astro mollweide')
 bplot.healpix_heatmap(smap)
 plt.savefig(opts.points_file_base+"-posterior-skymap."+fExtension)
+
+###
+### Bayestar sky localization data (using skymap)
+###
+#   - helpful for sky localization data
+#   - note coinc not available -- I am using the injection itself.
+
+# Report on found injection data
+#   - Write single line in format Leo Singer's "aggregate_found_injections" expects
+#   - Warning: Leo maps to the *coinc* ID, rather than the injection ID
+if opts.inj:
+    contours = [0.68, 0.99, 0.999]
+    true_ra = ppdata['ra'][0]
+    true_dec = ppdata['dec'][0]
+    from lalinference.bayestar import postprocess
+    ret =postprocess.find_injection(smap, true_ra, true_dec,contours=contours)
+    searched_area = ret.searched_area
+    searched_prob = ret.searched_prob
+    offset = ret.offset
+    contour_areas = ret.contour_areas
+    colnames = ['coinc_event_id', 'simulation_id', 'far', 'searched_area', \
+        'searched_prob', 'offset', 'runtime'] + ["area({0:g})".format(p) \
+        for p in contours]
+#    searched_area, searched_prob, offset, contour_areas = 
+    with open(opts.points_file_base+"-skyloc.dat", 'w') as f:
+        f.write( "\t".join(colnames+["\n"]))
+        f.write( "\t".join(map(str,[ 0, opts.event_id, 0,  searched_area, searched_prob, offset, 0]+ contour_areas+['\n'])))
 
 
 ###
@@ -251,3 +279,4 @@ if matplotlib.get_backend() == "MacOSX":
     plt.savefig(opts.points_file_base+ "-triplot.pdf")   # Workaround for Richard's laptop
 else:
     plt.savefig(opts.points_file_base+ "-triplot."+fExtension)
+
