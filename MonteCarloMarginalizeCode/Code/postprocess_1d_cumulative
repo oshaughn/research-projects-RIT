@@ -86,6 +86,7 @@ values["psi"] = ret[:,-3-2]
 values["dist"] = ret[:,-3-1]
 values["mc"] = lalsimutils.mchirp(ret[:,0],ret[:,1])
 values["eta"] = lalsimutils.symRatio(ret[:,0],ret[:,1])
+values["lnL"] = ret[:,-1]
 
 
 # Truncate the sample set using save-P.  No science loss; massive sample reduction; speeds up the very slow triplot stage
@@ -164,7 +165,7 @@ for nFig in np.arange(len(keynames)):
     plt.plot(vals,cum_wts,label="posterior:"+param)
     if xlow < xhigh:  # can be a problem with t
         plt.xlim(xlow,xhigh)
-    if opts.inj:
+    if opts.inj and not (param == "lnL"):
         plt.plot([ppdata[param][0],ppdata[param][0]], [1,1], color='k',linestyle='--')
    # hist, bins = plt.hist(vals, bins=100, normed=1, weights=weights,cumulative=True)
     plt.xlabel(param)
@@ -187,7 +188,7 @@ for nFig in np.arange(len(keynames)):
     hist = hist/(np.sum(hist)*dx)
     center = (bins[:-1]+bins[1:])/2
     plt.plot(center,hist,label="saved samples:"+param+"",linestyle='--')
-    if opts.inj:
+    if opts.inj and not (param == "lnL"):
         plt.plot([ppdata[param][0],ppdata[param][0]], [np.max(hist),np.max(hist)], color='k',linestyle='--')
 #    plt.xlim(xlow,xhigh)
     plt.xlabel(param)
@@ -247,18 +248,19 @@ if opts.inj:
     true_ra = ppdata['ra'][0]
     true_dec = ppdata['dec'][0]
     from lalinference.bayestar import postprocess
-    ret =postprocess.find_injection(smap, true_ra, true_dec,contours=contours)
-    searched_area = ret.searched_area
-    searched_prob = ret.searched_prob
-    offset = ret.offset
-    contour_areas = ret.contour_areas
-    colnames = ['coinc_event_id', 'simulation_id', 'far', 'searched_area', \
+    injFound =postprocess.find_injection(smap, true_ra, true_dec,contours=contours)
+    searched_area = injFound.searched_area
+    searched_prob = injFound.searched_prob
+    offset = injFound.offset
+    contour_areas = injFound.contour_areas
+    snrGuess =  np.sqrt(np.max(2*ret[:,-1]))   # Hack. Based on maximum value of lnL ever found.  Would be better to use coinc
+    colnames = ['coinc_event_id', 'simulation_id', 'snr', 'far', 'searched_area', \
         'searched_prob', 'offset', 'runtime'] + ["area({0:g})".format(p) \
         for p in contours]
 #    searched_area, searched_prob, offset, contour_areas = 
     with open(opts.points_file_base+"-skyloc.dat", 'w') as f:
         f.write( "\t".join(colnames+["\n"]))
-        f.write( "\t".join(map(str,[ 0, opts.event_id, 0,  searched_area, searched_prob, offset, 0]+ contour_areas+['\n'])))
+        f.write( "\t".join(map(str,[ 0, opts.event_id, snrGuess, 1,  searched_area, searched_prob, offset, 0]+ contour_areas+['\n'])))
 
 
 ###
