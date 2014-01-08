@@ -10,7 +10,9 @@ massset=$1
 
 if [[ -z "${massset}" ]]; then
     echo "No mass ID found for this job ID."
-    cat *.cache > ILE_all.cache
+    #cat *.cache > ILE_all.cache
+    find . -name "*.sqlite" | lalapps_path2cache -a > ILE_all.cache
+    exit
 fi
 
 ocache=ILE_${massset}.cache
