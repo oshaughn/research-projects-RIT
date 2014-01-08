@@ -39,6 +39,11 @@ LIKELIHOOD_PINNABLE_PARAMS = ["right ascension", "declination"]
 #
 
 optp = OptionParser()
+# Options needed by this program only.
+optp.add_option("-X", "--mass-points-xml", action="store_true", help="Output mass points as a sim_inspiral table.")
+optp.add_option("-N", "--N-mass-pts", type=int, default=200, help="Number of intrinsic parameter (mass) values at which to compute marginalized likelihood. Default is 200.")
+
+# Options transferred to ILE
 optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
 optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
 optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
@@ -52,7 +57,6 @@ optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-n", "--n-copies", type=int, default=1, help="Number of copies to do of a given run. Default is 1.")
 optp.add_option("--n-max", type=int, default=1000000, help="Maximum number of throws to use in integrator.")
 optp.add_option("--n-eff", type=int, default=1000, help="Maximum number of effective samples to reach before terminating.")
-optp.add_option("-N", "--N-mass-pts", type=int, default=200, help="Number of intrinsic parameter (mass) values at which to compute marginalized likelihood. Default is 200.")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("--n-chunk", type=int, help="Chunk'.",default=100)
@@ -116,6 +120,7 @@ elif opts.coinc_xml is not None:
         # NOTE: gstlal is exact match, but other pipelines may not be
         assert m1 is None or (sngl_row.mass1 == m1 and sngl_row.mass2 == m2)
         m1, m2 = sngl_row.mass1, sngl_row.mass2
+    event_time = glue.lal.LIGOTimeGPS(opts.event_time)
 else:
     raise ValueError("Need either --mass1 --mass2 or --coinc-xml to retrieve masses.")
 m1_SI = m1 * lal.LAL_MSUN_SI
@@ -260,6 +265,29 @@ print "Kept", len(rand_grid), "points with physically allowed parameters."
 m1m2_grid = np.array([lsu.m1m2(rand_grid[i][0], rand_grid[i][1])
         for i in xrange(len(rand_grid))])
 m1m2_grid /= lal.LAL_MSUN_SI
+
+from glue.ligolw import utils, ligolw, lsctables, ilwd
+from glue.ligolw.utils import process
+
+if opts.mass_points_xml:
+    xmldoc = ligolw.Document()
+    xmldoc.appendChild(ligolw.LIGO_LW())
+    procrow = process.append_process(xmldoc, program=sys.argv[0])
+    procid = procrow.process_id
+    process.append_process_params(xmldoc, procrow, process.process_params_from_dict(opts.__dict__))
+    
+    sim_insp_tbl = lsctables.New(lsctables.SimInspiralTable, ["simulation_id", "process_id", "mass1", "mass2"])
+    for itr, (m1, m2) in enumerate(m1m2_grid):
+        sim_insp = sim_insp_tbl.RowType()
+        sim_insp.simulation_id = ilwd.ilwdchar("sim_inspiral:sim_inspiral_id:%d" % itr)
+        sim_insp.process_id = procid
+        sim_insp.mass1, sim_insp.mass2 = m1, m2
+        sim_insp_tbl.append(sim_insp)
+    xmldoc.childNodes[0].appendChild(sim_insp_tbl)
+    ifos = "".join([o.split("=")[0][0] for o in opts.channel_name])
+    start = int(event_time)
+    fname = "%s-MASS_POINTS-%d-1.xml.gz" % (ifos, start)
+    utils.write_filename(xmldoc, fname, gz=True)
 
 # Write the sub file and DAG
 from glue import pipeline
