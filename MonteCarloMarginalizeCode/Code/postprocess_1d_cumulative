@@ -68,7 +68,7 @@ opts, rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 #  * assume* we have already sorted these by importance?
 ret = np.loadtxt(opts.points_file_base+"-points.dat")
 lnLmax = np.max(ret[:,-1])  # only relative weights are needed, so avoid loss of precision and infinty
-weights = np.exp(opts.adapt_beta*(ret[:,-1] - lnLmax))*ret[:,-3]/ret[:,-2]
+weights = (np.exp(opts.adapt_beta*(ret[:,-1] - lnLmax))*ret[:,-3]/ret[:,-2])*ret[:,-3-8]   # add number of points to weights: NZ is additive; the overall # normalization is created elsewhere.  Note we can't compute the evidence in this strategy
 # if opts.adapt_beta == 0:
 #     weights = np.ones(len(weights))
 
@@ -177,17 +177,17 @@ for nFig in np.arange(len(keynames)):
     # Stage 1: PDF
     plt.clf()
 #    hist, bins = np.histogram(vals, bins=100, density=True, weights=weights)  # density=True is not portable enough
-    hist, bins = np.histogram(vals, bins=100,  weights=weights)
+    hist, bins = np.histogram(vals, bins=100,  weights=wts)  # Be careful: vals have been sorted
     dx = bins[1]-bins[0]
     hist = hist/(np.sum(hist)*dx)
     center = (bins[:-1]+bins[1:])/2
-    plt.plot(center,hist,label="posterior:"+param+":sampled")
+    plt.plot(center,hist,label="weighted samples:"+param)
 #    hist, bins  = np.histogram(vals,bins=50,density=True)
-    hist, bins  = np.histogram(vals,bins=50)
+    hist, bins  = np.histogram(vals,bins=100)
     dx = bins[1]-bins[0]
     hist = hist/(np.sum(hist)*dx)
     center = (bins[:-1]+bins[1:])/2
-    plt.plot(center,hist,label="saved samples:"+param+"",linestyle='--')
+    plt.plot(center,hist,label="unweighted samples:"+param+"",linestyle='--')
     if opts.inj and not (param == "lnL"):
         plt.plot([ppdata[param][0],ppdata[param][0]], [np.max(hist),np.max(hist)], color='k',linestyle='--')
 #    plt.xlim(xlow,xhigh)
