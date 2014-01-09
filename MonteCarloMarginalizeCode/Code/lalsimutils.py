@@ -1578,13 +1578,6 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
 def stringGPSNice(tgps):
     return str(tgps.gpsSeconds)+'.'+str(tgps.gpsNanoSeconds)
 
-def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all modes, as a list.  Useful for building iterators without nested lists
-    mylist = []
-    for L in np.arange(2, Lmax+1):
-        for m in np.arange(-L, L+1):
-            mylist.append((L,m))
-    return mylist
-
 def pylal_psd_to_swig_psd(raw_pylal_psd):
     """
     pylal_psd_to_swig_psd
@@ -1690,11 +1683,3 @@ def resample_psd_series(psd, df=None, fmin=None, fmax=None):
             length=len(psd_intp))
     new_psd.data.data = psd_intp
     return new_psd
-
-
-def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all modes, as a list.  Useful for building iterators without nested lists
-    mylist = []
-    for L in np.arange(2, Lmax+1):
-        for m in np.arange(-L, L+1):
-            mylist.append((L,m))
-    return mylist

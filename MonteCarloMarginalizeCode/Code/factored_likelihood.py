@@ -636,7 +636,7 @@ def NetworkLogLikelihoodTimeMarginalizedDiscrete(epoch,rholmsDictionary,crossTer
 
     term2 = 0.
 
-    keys = lsu.constructLMIterator(Lmax)
+    keys = constructLMIterator(Lmax)
     for det in detList:
         for pair1 in keys:
             for pair2 in keys:
@@ -709,3 +709,10 @@ def DiscreteSingleDetectorLogLikelihoodData(epoch,rholmsDictionary, tStart,nBins
     else:
         tmp = np.roll(term1,nBinLow) # Good enough
         return tmp[0:nBins] # Good enough
+
+def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all modes, as a list.  Useful for building iterators without nested lists
+    mylist = []
+    for L in np.arange(2, Lmax+1):
+        for m in np.arange(-L, L+1):
+            mylist.append((L,m))
+    return mylist
