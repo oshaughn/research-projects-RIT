@@ -235,9 +235,9 @@ print rot
 #
 # Distribute points inside predicted ellipsoid of certain level of overlap
 #
-r1 = np.sqrt(2.*(1.-match_cntr)/evals[0]) # ellipse radii along eigendirections
-r2 = np.sqrt(2.*(1.-match_cntr)/evals[1])
-# Get pts. inside an ellipsoid oriented along eigenvectors...
+r1 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[0])) # ellipse radii ...
+r2 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[1])) # ... along eigendirections
+# Get pts. inside an ellipsoid oriented along eigenvectors
 rand_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
 # Rotate to get coordinates in parameter basis
 rand_grid = np.array([ np.real( np.dot(rot, rand_grid[i]))
@@ -257,6 +257,14 @@ rand_grid = rand_grid[phys_cut]
 print "Requested", Nrandpts, "points inside the ellipsoid of",\
         match_cntr, "match."
 print "Kept", len(rand_grid), "points with physically allowed parameters."
+
+area = np.pi * r1 * r2
+frac_area = area * len(rand_grid) / Nrandpts
+gam = np.real(gam)
+test = np.concatenate((gam,np.array([[r1,r2]]),np.array([[area, frac_area]])))
+# If clusters get upgraded, add this header to output:
+# header='2x2 effective Fisher matrix, 3rd row: ellipsoid axes, 4th row: total ellipse area, estimated physical area'
+np.savetxt('ellipsoid.dat', test)
 
 # Convert to m1, m2
 m1m2_grid = np.array([lsu.m1m2(rand_grid[i][0], rand_grid[i][1])
