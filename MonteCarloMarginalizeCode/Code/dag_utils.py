@@ -97,7 +97,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
-    if kwargs.has_key("output_file"):
+    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #

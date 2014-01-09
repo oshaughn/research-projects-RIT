@@ -507,6 +507,73 @@ def array_to_symmetric_matrix(gamma):
         return np.array([[g11,g12,g13,g14,g15],[g12,g22,g23,g24,g25],
             [g13,g23,g33,g34,g35],[g14,g24,g34,g44,g45],[g15,g25,g5,g45,g55]])
 
+
+
+#
+# Fill an ellipsoid uniformly in volume by points along radial spokes
+#
+def uniform_spoked_ellipsoid(Nrad, Nspokes, start_angles, *radii):
+    """
+    Return an array of pts distributed uniformly inside a
+    D-dimensional ellipsoid. D is determined by the number of radii args given.
+    """
+    D = len(radii)
+    assert len(start_angles)==D-1
+    if D==2:
+        return uniform_spoked_ellipsoid2d(Nrad, Nspokes, start_angles[0], *radii)
+    else:
+        raise ValueError('Not implemented for that many dimensions')
+
+def uniform_spoked_ellipsoid2d(Nrad, Nspokes, th0, r1, r2):
+    """
+    DOCUMENT ME!!!
+    """
+    dr = 1./Nrad
+    rs = np.arange(dr, 1.+dr, dr)
+    dth = 2.*np.pi/Nspokes
+    ths = np.arange(th0, 2.*np.pi + th0, dth)
+    rrt = np.sqrt(rs)
+    pts = [[0.,0.]] # Put 1 pt. at origin - e.g. true parameters
+    for r in rrt:
+        for th in ths:
+            x1 = r1 * r * np.cos(th)
+            x2 = r2 * r * np.sin(th)
+            pts.append([x1, x2])
+    return pts
+
+#
+# Fill an ellipsoid uniformly in volume by points along radial spokes
+#
+def linear_spoked_ellipsoid(Nrad, Nspokes, start_angles, *radii):
+    """
+    Return an array of pts distributed uniformly inside a
+    D-dimensional ellipsoid. D is determined by the number of radii args given.
+    """
+    D = len(radii)
+    assert len(start_angles)==D-1
+    if D==2:
+        return linear_spoked_ellipsoid2d(Nrad, Nspokes, start_angles[0], *radii)
+    else:
+        raise ValueError('Not implemented for that many dimensions')
+
+def linear_spoked_ellipsoid2d(Nrad, Nspokes, th0, r1, r2):
+    """
+    DOCUMENT ME!!!
+    """
+    dr = 1./Nrad
+    rs = np.arange(dr, 1.+dr, dr)
+    dth = 2.*np.pi/Nspokes
+    ths = np.arange(th0, 2.*np.pi + th0, dth)
+    pts = [[0.,0.]] # Put 1 pt. at origin - e.g. true parameters
+    for r in rs:
+        for th in ths:
+            x1 = r1 * r * np.cos(th)
+            x2 = r2 * r * np.sin(th)
+            pts.append([x1, x2])
+    return pts
+
+
+
 #
 # Functions to return points distributed randomly, uniformly inside
 # an ellipsoid of arbitrary dimension
@@ -543,7 +610,9 @@ def uniform_random_ellipsoid2d(Npts, r1, r2):
     rrt = np.sqrt(r)
     x1 = r1 * rrt * np.cos(th)
     x2 = r2 * rrt * np.sin(th)
-    return np.transpose((x1,x2))
+    randpts = np.transpose((x1,x2))
+    origin =  np.array([[0.,0.]]) # Always put a pt at ellipse center
+    return np.append(origin, randpts, axis=0 )
 
 def uniform_random_ellipsoid3d(Npts, r1, r2, r3):
     """
@@ -557,7 +626,9 @@ def uniform_random_ellipsoid3d(Npts, r1, r2, r3):
     x1 = r1 * rrt * sinth * np.cos(ph)
     x2 = r2 * rrt * sinth * np.sin(ph)
     x3 = r3 * rrt * costh
-    return np.transpose((x1,x2,x3))
+    randpts = np.transpose((x1,x2,x3))
+    origin =  np.array([[0.,0.,0.]]) # Always put a pt at ellipse center
+    return np.append(origin, randpts, axis=0 )
 
 def uniform_random_ellipsoid4d(Npts, r1, r2, r3, r4):
     """
@@ -574,7 +645,9 @@ def uniform_random_ellipsoid4d(Npts, r1, r2, r3, r4):
     x2 = r2 * rrt * sinth1 * sinth2 * np.sin(ph)
     x3 = r3 * rrt * sinth1 * costh2
     x4 = r4 * rrt * costh1
-    return np.transpose((x1,x2,x3,x4))
+    randpts = np.transpose((x1,x2,x3,x4))
+    origin =  np.array([[0.,0.,0.,0.]]) # Always put a pt at ellipse center
+    return np.append(origin, randpts, axis=0 )
 
 def uniform_random_ellipsoid5d(Npts, r1, r2, r3, r4, r5):
     """
@@ -594,4 +667,6 @@ def uniform_random_ellipsoid5d(Npts, r1, r2, r3, r4, r5):
     x3 = r3 * rrt * sinth1 * sinth2 * costh3
     x4 = r4 * rrt * sinth1 * costh2
     x5 = r5 * rrt * costh1
-    return np.transpose((x1,x2,x3,x4,x5))
+    randpts = np.transpose((x1,x2,x3,x4,x5))
+    origin =  np.array([[0.,0.,0.,0.,0.]]) # Always put a pt at ellipse center
+    return np.append(origin, randpts, axis=0 )

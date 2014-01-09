@@ -32,8 +32,8 @@ def write_sngl_params(grid, proc_id):
     return sngl_insp_table
 
 # Setup signal and IP class
-m1=10.*lal.LAL_MSUN_SI
-m2=10.*lal.LAL_MSUN_SI
+m1=4.1*lal.LAL_MSUN_SI
+m2=4.*lal.LAL_MSUN_SI
 PSIG = lsu.ChooseWaveformParams(m1=m1, m2=m2, approx=lalsim.TaylorT1)
 PTEST = PSIG.copy() # find deltaF for lower end of range we're looking in
 PTEST.m1 *= 0.9
@@ -117,7 +117,15 @@ Nrandpts=200
 r1 = np.sqrt(2.*(1.-match_cntr)/evals[0]) # ellipse radii along eigendirections
 r2 = np.sqrt(2.*(1.-match_cntr)/evals[1])
 # Get pts. inside an ellipsoid oriented along eigenvectors...
-rand_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
+#rand_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
+Nrad = 10
+Nspokes = 40
+ph0 = np.arctan(np.abs(r2) * (-rot[0,1])/(np.abs(r1) * rot[0,0]) ) - np.pi/4.
+#ph0 = - np.arctan(np.abs(evals[1])/np.abs(evals[0]) * np.tan(np.arccos(rot[0,0])) )
+#ph0 = 0.
+print "angle is:", ph0, r1, r2
+#rand_grid = eff.uniform_spoked_ellipsoid(Nrad, Nspokes, [ph0], r1, r2)
+rand_grid = eff.linear_spoked_ellipsoid(Nrad, Nspokes, [ph0], r1, r2)
 # Rotate to get coordinates in parameter basis
 rand_grid = np.array([ np.real( np.dot(rot, rand_grid[i]))
     for i in xrange(len(rand_grid)) ])
@@ -152,8 +160,8 @@ for i in xrange(Njobs):
 elapsed = elapsed_time() - elapsed
 print "Time to distribute points, split and write to file:", elapsed
 
-dag_utils.write_integrate_likelihood_extrinsic_sub('test')
-dag_utils.write_extrinsic_marginalization_dag(rand_grid2, 'test.sub')
+#dag_utils.write_integrate_likelihood_extrinsic_sub('test')
+#dag_utils.write_extrinsic_marginalization_dag(rand_grid2, 'test.sub')
 
 xmldoc = ligolw.Document()
 xmldoc.childNodes.append(ligolw.LIGO_LW())
