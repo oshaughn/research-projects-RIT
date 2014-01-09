@@ -232,6 +232,8 @@ from lalinference.bayestar import plot as bplot
 plt.clf()
 plt.subplot(111, projection='astro mollweide')
 bplot.healpix_heatmap(smap)
+bplot.colorbar(np.max(smap))  # Match Leo
+bplot.outline_text(plt.gca())    # Match Leo
 plt.savefig(opts.points_file_base+"-posterior-skymap."+fExtension)
 
 ###
