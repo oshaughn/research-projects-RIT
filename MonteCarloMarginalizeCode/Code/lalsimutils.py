@@ -1150,8 +1150,7 @@ def complex_hoft(P, sgn=-1):
     ht = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
             hp.deltaT, lal.lalDimensionlessUnit, hp.data.length)
     ht.epoch = ht.epoch + P.tref
-    for i in range(ht.data.length):
-        ht.data.data[i] = hp.data.data[i] + 1j * sgn * hc.data.data[i]
+    ht.data.data = hp.data.data + 1j * sgn * hc.data.data
     return ht
 
 def complex_hoff(P, sgn=-1, fwdplan=None):
