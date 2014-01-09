@@ -1576,7 +1576,10 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
 
 
 def stringGPSNice(tgps):
-    return str(tgps.gpsSeconds)+'.'+str(tgps.gpsNanoSeconds)
+    """
+    Return a string with nice formatting displaying the value of a LIGOTimeGPS
+    """
+    return "%d.%d" % (tgps.gpsSeconds, tgps.gpsNanoSeconds)
 
 def pylal_psd_to_swig_psd(raw_pylal_psd):
     """
