@@ -176,7 +176,8 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, cross
         - crossTerms is a dictionary of < h_lm | h_l'm' >
         - Lmax is the largest l-index of any h_lm mode considered
 
-    tvals is an array of timeshifts relative to the detector, used to compute the marginalized integral.
+    tvals is an array of timeshifts relative to the detector,
+    used to compute the marginalized integral.
     It provides both the time prior and the sample points used for the integral.
 
     N.B. rholms_intp and crossTerms are the first two outputs of the function
@@ -374,7 +375,21 @@ def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTer
 
 def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist):
     """
-    DOCUMENT ME!!!
+    Compute the value of the log-likelihood at a single detector from
+    several intermediate pieces of data.
+
+    Inputs:
+      - rholm_vals: A dictionary of values of inner product between data
+            and h_lm modes, < h_lm(t*) | d >, at a single time of interest t*
+      - crossTerms: A dictionary of inner products between h_lm modes:
+            < h_lm | h_l'm' >
+      - Ylms: Dictionary of values of -2-spin-weighted spherical harmonic modes
+            for a certain inclination and ref. phase, Y_lm(incl, - phiref)
+      - F: Complex-valued antenna pattern depending on sky location and
+            polarization angle, F = F_+ + i F_x
+      - dist: The distance from the source to detector in meters
+
+    Outputs: The value of ln L for a single detector given the inputs.
     """
     global distMpcRef
     distMpc = dist/(lal.LAL_PC_SI*1e6)
