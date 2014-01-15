@@ -3,7 +3,7 @@
 import os
 import glob
 
-subdags = glob.glob("sim_id_*_common/*.dag")
+subdags = glob.glob("%s/*.dag" % sys.argv[1])
 
 strs = [ "SUBDAG EXTERNAL %s %s" % (dag.replace("/", "_"), dag) for dag in subdags ]
 
