@@ -3,7 +3,7 @@
 LIGO_CHANNEL_NAME=GAUSSIAN
 #VIRGO_CHANNEL_NAME=h_16384Hz
 INJ_CHANNEL_NAME=FAKE-STRAIN
-INJ_XML=mdc.xml.gz
+INJ_XML=$(shell if [ -f mdc.xml.gz ]; then echo "mdc.xml.gz" ; else echo "coinc.xml.gz"; fi)
 INJECTION_FRAME_TYPE=2015_bns_noise_mdc
 
 INJECTION_DEST=2015_bns_noise_mdc/
@@ -12,7 +12,8 @@ MASS1=`ligolw_print -c mass1 ${INJ_XML}`
 #MASS2=
 MASS2=`ligolw_print -c mass2 ${INJ_XML}`
 #EVENT_TIME=
-EVENT_TIME=`ligolw_print -c geocent_end_time -c geocent_end_time_ns -d "." ${INJ_XML}`
+#EVENT_TIME=`ligolw_print -c geocent_end_time -c geocent_end_time_ns -d "." ${INJ_XML}`
+EVENT_TIME=$(shell if [ ${INJ_XML} == "mdc.xml.gz" ]; then ligolw_print -c geocent_end_time -c geocent_end_time_ns -d "." ${INJ_XML}; else ligolw_print -c end_time -c end_time_ns -d "." ${INJ_XML}; fi )
 
 START=$(shell python -c "print int(${EVENT_TIME})-200")
 STOP=$(shell python -c "print int(${EVENT_TIME})+200")
