@@ -3,10 +3,13 @@ import sys
 import os
 import shutil
 import random
+import sqlite3
 
 random.seed(0)
 
 from glue.ligolw import utils, table, ligolw, lsctables
+
+import get_coinc
 
 def ready_template(fname, event):
     with open(fname) as fin:
@@ -22,14 +25,70 @@ def ready_template(fname, event):
 
     return "".join(lines)
 
-si_table = table.get_table(utils.load_filename(sys.argv[1]), lsctables.SimInspiralTable.tableName)
+dirs = []
+if sys.argv[1].endswith("xml") or sys.argv[1].endswith("xml.gz"):
+    print "Assuming sim_inspiral"
+    si_table = table.get_table(utils.load_filename(sys.argv[1]), lsctables.SimInspiralTable.tableName)
+    new_table = lsctables.New(lsctables.SimInspiralTable, si_table.validcolumns.keys())
 
-new_table = lsctables.New(lsctables.SimInspiralTable, si_table.validcolumns.keys())
-if len(sys.argv[2:]) == 0:
-    new_table.extend(filter(lambda si: si.distance > 10 and si.distance < 50 and random.random() < 0.1, si_table))
-else:
+    if len(sys.argv[2:]) == 0:
+        new_table.extend(filter(lambda si: si.distance > 10 and si.distance < 50 and random.random() < 0.1, si_table))
+    else:
+        ids = map(int, sys.argv[2:])
+        new_table.extend(filter(lambda si: int(si.simulation_id) in ids, si_table))
+
+    for si in new_table:
+        sid = int(si.simulation_id)
+        bdir = "sim_id_%d" % sid
+        dirs.append(bdir)
+        if not os.path.isdir(bdir):
+            os.mkdir(bdir)
+        indv_table = lsctables.New(lsctables.SimInspiralTable, si_table.validcolumns.keys())
+        indv_table.append(si)
+ 
+        xmldoc = ligolw.Document()
+        xmldoc.appendChild(ligolw.LIGO_LW())
+        xmldoc.childNodes[0].appendChild(indv_table)
+        utils.write_filename(xmldoc, bdir + "/mdc.xml.gz", gz=True)
+
+elif sys.argv[1].endswith("sqlite"):
+    print "Assuming coinc_inspiral"
+    cols = ("coinc_event_id", "end_time", "end_time_ns", "snr")
+    new_table = lsctables.New(lsctables.CoincInspiralTable, cols)
+
     ids = map(int, sys.argv[2:])
-    new_table.extend(filter(lambda si: int(si.simulation_id) in ids, si_table))
+
+    connection = sqlite3.connect(sys.argv[1])
+    get_coinc.add_tmp_table(connection)
+    coinc_from_sim = [get_coinc.get_coinc(connection, id) for id in ids]
+    connection.close()
+
+    for ceid, m1, m2, s, et, etn in coinc_from_sim:
+        ci = new_table.RowType()
+        ci.coinc_event_id = ceid
+        ci.end_time = et
+        ci.end_time_ns = etn
+        ci.snr = s
+        new_table.append(ci)
+
+        cid = int(ceid.split(":")[-1])
+        bdir = "coinc_id_%d" % cid
+        dirs.append(bdir)
+        if not os.path.isdir(bdir):
+            os.mkdir(bdir)
+
+        indv_table = lsctables.New(lsctables.CoincInspiralTable, cols)
+        indv_table.append(ci)
+        sngl_table = lsctables.New(lsctables.SnglInspiralTable, ["mass1", "mass2"])
+        sngl = sngl_table.RowType()
+        sngl.mass1, sngl.mass2 = m1, m2
+        sngl_table.append(sngl)
+ 
+        xmldoc = ligolw.Document()
+        xmldoc.appendChild(ligolw.LIGO_LW())
+        xmldoc.childNodes[0].appendChild(indv_table)
+        xmldoc.childNodes[0].appendChild(sngl_table)
+        utils.write_filename(xmldoc, bdir + "/coinc.xml.gz", gz=True)
 
 xmldoc = ligolw.Document()
 xmldoc.appendChild(ligolw.LIGO_LW())
@@ -37,14 +96,8 @@ xmldoc.childNodes[0].appendChild(new_table)
 
 utils.write_filename(xmldoc, "selected_events.xml.gz", gz=True)
 
-for si in new_table:
-    sid = int(si.simulation_id)
-    bdir = "sim_id_%d_common" % sid
-    if not os.path.isdir(bdir):
-        os.mkdir(bdir)
-    #with open(bdir + "/Makefile", "w") as fout:
-        #print >>fout, ready_template("Makefile.template", si)
-
+# Common operations
+for bdir in dirs:
     os.chdir(bdir)
     if not os.path.exists("H1_PSD_measured.xml.gz"):
         os.symlink("../H1_PSD_measured.xml.gz", "H1_PSD_measured.xml.gz")
@@ -53,10 +106,3 @@ for si in new_table:
     os.chdir("../")
 
     shutil.copy("Makefile.template", bdir + "/Makefile")
-    new_table = lsctables.New(lsctables.SimInspiralTable, si_table.validcolumns.keys())
-    new_table.append(si)
-    
-    xmldoc = ligolw.Document()
-    xmldoc.appendChild(ligolw.LIGO_LW())
-    xmldoc.childNodes[0].appendChild(new_table)
-    utils.write_filename(xmldoc, bdir + "/mdc.xml.gz", gz=True)
