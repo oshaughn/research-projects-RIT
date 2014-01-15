@@ -63,7 +63,8 @@ elif sys.argv[1].endswith("sqlite"):
     coinc_from_sim = [get_coinc.get_coinc(connection, id) for id in ids]
     connection.close()
 
-    for ceid, m1, m2, s, et, etn in coinc_from_sim:
+    for simid, (ceid, m1, m2, et, etn, s) in zip(ids, coinc_from_sim):
+        print "sim to coinc mapping: %d -> %s" % (simid, ceid)
         ci = new_table.RowType()
         ci.coinc_event_id = ceid
         ci.end_time = et
