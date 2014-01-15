@@ -1,0 +1,32 @@
+Files/Scripts that you will need to do *all* of the targets (those not included in our standard suite)
+
+1. ligolw_inj_snr (part of excesspower-utils): Used to calculate the network SNR of a simulation entry.
+    - Should really use lalsimutils based library code
+    - In the meantime, can clone: https://github.com/cpankow/excesspower-utils.git
+        - check bin/ligolw_inj_snr
+2. H1L1-ALL_LLOID_1_injections-966384015-5184000.sqlite
+    - To get coinc information (masses, snr)
+    - At CIT: /home/alexander.urban/Raven/2015/bayestar_injection_run/H1L1-ALL_LLOID_1_injections-966384015-5184000.sqlite
+
+Instructions:
+
+1. Go into stage_injections. One can give an individual sim_id to stage from the injections XML (2015_BNS_injections.xml) or if no additional arguments are given, it will check the condition (currently all injections between 10 < d < 50 Mpc) and do each.
+2. This will create a sim_id_X directory with a Makefile and a mdc.xml.gz. Going into this directory and running:
+
+    make marginalize_extrinsic_parameters.dag
+
+will create all requisite data and DAG products.
+
+    - If one wishes to stage *all* the directories, the top level Makefile has the all_dirs target. Use this.
+
+3. Running an individual DAG is no different than normal. To make a composite DAG from all staged events with the ``build_dag'' script, as so:
+
+    ./build_dag "sim_id_*_common/"
+
+Where the quotes are necessary to pass the glob directly to the script.
+
+3. After the DAG is completed, in the subdirectory, one can clean up and get some postrun statistics with:
+
+    make postprocess
+
+    - This currently requires ligolw_inj_snr (explained above)
