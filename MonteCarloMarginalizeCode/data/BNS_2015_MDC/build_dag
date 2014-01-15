@@ -1,0 +1,11 @@
+#!/usr/bin/env python
+
+import os
+import glob
+
+subdags = glob.glob("%s/*.dag" % sys.argv[1])
+
+strs = [ "SUBDAG EXTERNAL %s %s" % (dag.replace("/", "_"), dag) for dag in subdags ]
+
+with open("2015_BNS_MDC_common.dag", "w") as fopen:
+    print >>fopen, "\n".join(strs)
