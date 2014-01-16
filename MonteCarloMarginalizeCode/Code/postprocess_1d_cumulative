@@ -5,7 +5,11 @@
 #  - evaluate the p value of the injection's location (or constant L contour)
 #  - plot the cumulative
 #
-# USAGE
+# USAGE: sqlite input
+#    ./postprocess_1d_cumulative --save-sampler-file test.sqlite
+#         # input from 'test.sqlite'
+#         # output to
+# USAGE: ASCII INPUT
 #    postprocess_1d_cumulative --save-sampler-file flatfile  --inj inj.xml --event 0
 #          # input from flatfile-points.xml.gz
 #          # output to flatfile-posterior-*
@@ -61,33 +65,74 @@ import ourparams
 import ourio
 opts, rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 
-# Import flatfile (default).  Modify in future to take xml
-# Should use first line to establish associations!
-# For now, assume output in format provided by 'convert_output_format_ile2inference':
-# Columns assumed sorted as <stuff>, tref, phi, incl, psi, ra, dec, dist, lnL,p, ps
-#  * assume* we have already sorted these by importance?
-ret = np.loadtxt(opts.points_file_base+"-points.dat")
-lnLmax = np.max(ret[:,-1])  # only relative weights are needed, so avoid loss of precision and infinty
-weights = (np.exp(opts.adapt_beta*(ret[:,-1] - lnLmax))*ret[:,-3]/ret[:,-2])*ret[:,-3-8]   # add number of points to weights: NZ is additive; the overall # normalization is created elsewhere.  Note we can't compute the evidence in this strategy
+values ={}
+metadata = {}
+ppdata = {}
+
+# TEST IF SQLITE FILE SPECIFIED
+fExtensionInputFile = opts.points_file_base.split(".")[-1]
+if not fExtensionInputFile == "sqlite":
+
+    # NORMAL ASCII INPUT
+    # Import flatfile (default).  Modify in future to take xml
+    # Should use first line to establish associations!
+    # For now, assume output in format provided by 'convert_output_format_ile2inference':
+    # Columns assumed sorted as <stuff>, tref, phi, incl, psi, ra, dec, dist, lnL,p, ps
+    #  * assume* we have already sorted these by importance?
+    ret = np.loadtxt(opts.points_file_base+"-points.dat")
+    lnLmax = np.max(ret[:,-1])  # only relative weights are needed, so avoid loss of precision and infinty
+    weights = (np.exp(opts.adapt_beta*(ret[:,-1] - lnLmax))*ret[:,-3]/ret[:,-2])*ret[:,-3-8]   # add number of points to weights: NZ is additive; the overall # normalization is created elsewhere.  Note we can't compute the evidence in this strategy
 # if opts.adapt_beta == 0:
 #     weights = np.ones(len(weights))
 
-# Metadata and pp data
-# Note mc, eta not always supported, but m1, m2 *are very likely* always be the first two
-values = {}
-metadata = {}
-ppdata = {}
-values["ra"] = ret[:,-3-7]
-values["dec"] = ret[:,-3-6]
-values["tref"] = ret[:,-3-5]
-values["phi"] = ret[:,-3-4]
-values["incl"] = ret[:,-3-3]
-values["psi"] = ret[:,-3-2]
-values["dist"] = ret[:,-3-1]
-values["mc"] = lalsimutils.mchirp(ret[:,0],ret[:,1])
-values["eta"] = lalsimutils.symRatio(ret[:,0],ret[:,1])
-values["lnL"] = ret[:,-1]
+    # Metadata and pp data
+    # Note mc, eta not always supported, but m1, m2 *are very likely* always be the first two
+    values["ra"] = ret[:,-3-7]
+    values["dec"] = ret[:,-3-6]
+    values["tref"] = ret[:,-3-5]
+    values["phi"] = ret[:,-3-4]
+    values["incl"] = ret[:,-3-3]
+    values["psi"] = ret[:,-3-2]
+    values["dist"] = ret[:,-3-1]
+    values["mc"] = lalsimutils.mchirp(ret[:,0],ret[:,1])
+    values["eta"] = lalsimutils.symRatio(ret[:,0],ret[:,1])
+    values["lnL"] = ret[:,-1]
+    values["m1"] = ret[:0]
+    values["m2"] = ret[:1]
+else:
+    import xmlutils 
+    from glue.ligolw import lsctables, utils, table
 
+    # SQLITE INPUT
+    fnameIn =opts.points_file_base
+    opts.points_file_base = ".".join(opts.points_file_base.split(".")[:-1])   # strip the .sqlite extension
+    print "Writing to ", opts.points_file_base
+
+    # Get sample array
+    samples = xmlutils.db_to_samples(fnameIn, lsctables.SimInspiralTable,["mass1", "mass2", "simulation_id", "inclination", "distance", "longitude", "latitude", "geocent_end_time", "coa_phase", "polarization","alpha1", "alpha2","alpha3"])
+
+    # Extract the number of samples used. *Not* available -- must count sim_id.  
+    # For now, ignore it: assume all points come from the same # of trials
+
+    # Populate data structures described above
+    values["lnL"] = np.array([s.alpha1 for s in samples])
+    p = np.array([s.alpha2 for s in samples])
+    ps = np.array([s.alpha3 for s in samples])
+    lnLmax = np.max(values["lnL"])
+    weights = np.exp(values["lnL"]-lnLmax)*p/ps
+
+    # For compatibility with ascii input, use the same labels as above.  Obviously a cleaner python-y implementation would loop over parameters, using 'getattr'
+    values["ra"]   = np.array([s.longitude for s in samples])
+    values["dec"]  = np.array([s.latitude for s in samples])
+    values["tref"]  = np.array([s.geocent_end_time for s in samples])
+    values["phi"]  = np.array([s.coa_phase for s in samples])
+    values["incl"] = np.array([s.inclination for s in samples])
+    values["dist"] = np.array([s.distance for s in samples])
+    values["psi"]  = np.array([s.polarization for s in samples])
+    values["m1"] = np.array([s.mass1 for s in samples])
+    values["m2"] = np.array([s.mass2 for s in samples])
+    values["mc"]  = lalsimutils.mchirp(values["m1"],values["m2"])
+    values["eta"]  = lalsimutils.symRatio(values["m1"],values["m2"])
 
 # Truncate the sample set using save-P.  No science loss; massive sample reduction; speeds up the very slow triplot stage
 # Note we will sort *again* later for the cumulative  Going forward, reduce redundant worting
@@ -255,7 +300,7 @@ if opts.inj:
     searched_prob = injFound.searched_prob
     offset = injFound.offset
     contour_areas = injFound.contour_areas
-    snrGuess =  np.sqrt(np.max(2*ret[:,-1]))   # Hack. Based on maximum value of lnL ever found.  Would be better to use coinc
+    snrGuess =  np.sqrt(np.max(2*lnLmax))   # Hack. Based on maximum value of lnL ever found.  Would be better to use coinc
     colnames = ['coinc_event_id', 'simulation_id', 'snr', 'far', 'searched_area', \
         'searched_prob', 'offset', 'runtime'] + ["area({0:g})".format(p) \
         for p in contours]
