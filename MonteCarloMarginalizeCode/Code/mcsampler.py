@@ -355,10 +355,12 @@ class MCSampler(object):
                     self._rvs["integrand"] = numpy.hstack( (self._rvs["integrand"], fval) )
                     self._rvs["joint_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
                     self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_s_prior"], joint_p_s) )
+                    self._rvs["weights"] = numpy.hstack( (self._rvs["joint_s_prior"], fval*joint_p_prior/joint_p_s) )
                 else:
                     self._rvs["integrand"] = fval
                     self._rvs["joint_prior"] = joint_p_prior
                     self._rvs["joint_s_prior"] = joint_p_s
+                    self._rvs["weights"] = fval*joint_p_prior/joint_p_s
 
             # Calculate the integral over this chunk
             int_val = fval * joint_p_prior / joint_p_s
@@ -597,7 +599,7 @@ def sanityCheckSamplerIntegrateUnity(sampler,*args,**kwargs):
 #    - this test is *equivalent* to neff > 1/p
 #    - provided to illustrate the interface
 def convergence_test_MostSignificantPoint(pcut, rvs, params):
-    weights = rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]
+    weights = rvs["weights"] #rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]
     indxmax = numpy.argmax(weights)
     wtSum = numpy.sum(weights)
     return  weights[indxmax]/wtSum < pcut
@@ -620,16 +622,16 @@ def convergence_test_MostSignificantPoint(pcut, rvs, params):
 #    - this test assumes *unsorted* past history: the 'ncopies' segments are assumed independent.
 import scipy.stats as stats
 def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativeErrorThreshold, rvs, params):
-    weights = rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]
+    weights = rvs["weights"] #rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]
     weights = weights/numpy.sum(weights)
     igrandValues = numpy.zeros(ncopies)
     len_part = numpy.floor(len(weights)/ncopies)
     for indx in numpy.arange(ncopies):
         igrandValues[indx] = numpy.log(numpy.sum(weights[indx*len_part:(indx+1)*len_part]))
-    igrandValues= numpy.sort(igrandValues)[2:]                            # Drop 3 smallest. Reduces computation time, but hacky
+    igrandValues= numpy.sort(igrandValues)#[2:]                            # Sort.  Useful in reports 
     valTest = stats.normaltest(igrandValues)[1]                              # small value is implausible
     igrandSigma = (numpy.std(igrandValues))/numpy.sqrt(ncopies)   # variance in *overall* integral, estimated from variance of sub-integrals
-    print " Test values ", valTest, igrandSigma
-    print " Sub-integral values : ", igrandValues
+    print " Test values on distribution of log evidence:  (gaussianity p-value; standard deviation of ln evidence) ", valTest, igrandSigma
+    print " Ln(evidence) sub-integral values, as used in tests  : ", igrandValues
     return valTest> pcutNormalTest and igrandSigma < sigmaCutRelativeErrorThreshold   # Test on left returns a small value if implausible. Hence pcut ->0 becomes increasingly difficult (and requires statistical accidents). Test on right requires relative error in integral also to be small when pcut is small.   FIXME: Give these variables two different names
     
