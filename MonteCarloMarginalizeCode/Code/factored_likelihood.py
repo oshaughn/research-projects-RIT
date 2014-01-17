@@ -549,48 +549,6 @@ def ComputeArrivalTimeAtDetector(det, RA, DEC, tref):
     # it shoud be automagically converted in the appropriate way
     return tref + lal.TimeDelayFromEarthCenter(detector.location, RA, DEC, tref)
 
-# Create complex FD data that does not assume Hermitianity - i.e.
-# contains positive and negative freq. content
-# TIMING INFO: 
-#    - epoch set so the merger event occurs at total time P.tref
-def non_herm_hoff(P):
-    hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
-            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
-            P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
-            P.ampO, P.phaseO, P.approx)
-    hp.epoch = hp.epoch + P.tref
-    hc.epoch = hc.epoch + P.tref
-    hoft = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc,
-             P.phi,  P.theta, P.psi,
-            lalsim.InstrumentNameToLALDetector(P.detector))  # Propagates signal to the detector, including beampattern and time delay
-    if rosDebugMessages:
-        print " +++ Injection creation for detector ", P.detector, " ++ "
-        print  "   : Creating signal for injection with epoch ", float(hp.epoch), " and event time centered at ", lsu.stringGPSNice(P.tref)
-        Fp, Fc = lal.ComputeDetAMResponse(lalsim.InstrumentNameToLALDetector(P.detector).response, P.phi, P.theta, P.psi, lal.GreenwichMeanSiderealTime(hp.epoch))
-        print "  : creating signal for injection with (det, t,RA, DEC,psi,Fp,Fx)= ", P.detector, float(P.tref), P.phi, P.theta, P.psi, Fp, Fc
-    if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
-        lalsim.SimInspiralREAL8WaveTaper(hoft.data, P.taper)
-    if P.deltaF == None:
-        TDlen = nextPow2(hoft.data.length)
-    else:
-        TDlen = int(1./P.deltaF * 1./P.deltaT)
-        assert TDlen >= hoft.data.length
-
-    fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
-    hoft = lal.ResizeREAL8TimeSeries(hoft, 0, TDlen)
-    hoftC = lal.CreateCOMPLEX16TimeSeries("hoft", hoft.epoch, hoft.f0,
-            hoft.deltaT, hoft.sampleUnits, TDlen)
-    # copy h(t) into a COMPLEX16 array which happens to be purely real
-    for i in range(TDlen):
-        hoftC.data.data[i] = hoft.data.data[i]
-    FDlen = TDlen
-    hoff = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
-            hoft.epoch, hoft.f0, 1./hoft.deltaT/TDlen, lal.lalHertzUnit, 
-            FDlen)
-    lal.COMPLEX16TimeFreqFFT(hoff, hoftC, fwdplan)
-    return hoff
-
-
 def rollTimeSeries(series_dict, nRollRight):
     # Use the fact that we pass by value and that we swig bind numpy arrays
     for det in series_dict:
