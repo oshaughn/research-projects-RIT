@@ -70,6 +70,7 @@ integration_params = OptionGroup(optp, "Integration Parameters", "Control the in
 integration_params.add_option("--n-max", type=int, help="Total number of samples points to draw. If this number is hit before n_eff, then the integration will terminate. Default is 'infinite'.",default=1e7)
 integration_params.add_option("--n-eff", type=int, default=100, help="Total number of effective samples points to calculate before the integration will terminate. Default is 100")
 integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=100)
+integration_params.add_option("--convergence-tests-on",default=False,action='store_true')
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
 integration_params.add_option("--no-adapt", action="store_false", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
 integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
@@ -457,6 +458,15 @@ if pinned_params.has_key("t_ref"):
     pinned_params["t_ref"] -= float(fiducial_epoch)
 
 #
+# Provide convergence tests
+# FIXME: Currently using hardcoded thresholds, poorly hand-tuned
+#
+test_converged = {}
+if opts.convergence_tests_on:
+    test_converged['neff'] = functools.partial(mcsampler.convergence_test_MostSignificantPoint,1./opts.n_eff)  # most significant point less than 1/neff of probability.  Exactly equivalent to usual neff threshold.
+    test_converged["normal_integral"] = functools.partial(mcsampler.convergence_test_NormalSubIntegrals, 25, 0.01, 0.1)   # 20 sub-integrals are gaussian distributed [weakly; mainly to rule out outliers] *and* relative error < 10%, based on sub-integrals . Should use # of intervals << neff target from above.  Note this sets our target error tolerance on  lnLmarg.  Note the specific test requires >= 20 sub-intervals, which demands *very many* samples (each subintegral needs to be converged).
+
+#
 # Merge options into one big ol' kwargs dict
 #
 
@@ -465,6 +475,8 @@ pinned_params.update({
     "n": min(opts.n_chunk, n_max), # Number of samples in a chunk
     "nmax": n_max, # Total number of samples to draw before termination
     "neff": n_eff, # Total number of effective samples to collect before termination
+
+    "convergence_tests" : test_converged,    # Dictionary of convergence tests
 
     # Adaptive sampling settings
     "tempering_exp": opts.adapt_weight_exponent if not opts.no_adapt else 0.0, # Weights will be raised to this power to prevent overconvergence
@@ -479,8 +491,8 @@ pinned_params.update({
     # Sample caching
     "save_intg": opts.save_samples, # Cache the samples (and integrand values)?
     "igrand_threshold_deltalnL": opts.save_deltalnL, # Threshold on distance from max L to save sample
-    "igrand_threshold_p": opts.save_P}) # Threshold on cumulative probability contribution to cache sample
-
+    "igrand_threshold_p": opts.save_P # Threshold on cumulative probability contribution to cache sample
+})
 #
 # Call the likelihood function for various extrinsic parameter values
 #
