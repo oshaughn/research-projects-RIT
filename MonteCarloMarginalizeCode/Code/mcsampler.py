@@ -218,6 +218,7 @@ class MCSampler(object):
         tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
         floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
         n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
+        convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
 
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """
@@ -255,6 +256,8 @@ class MCSampler(object):
         nmax = kwargs["nmax"] if kwargs.has_key("nmax") else float("inf")
         neff = kwargs["neff"] if kwargs.has_key("neff") else numpy.float128("inf")
         n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
+        convergence_tests = kwargs["convergence_tests"] if kwargs.has_key("convergence_tests") else None
+
 
         #
         # Adaptive sampling parameters
@@ -295,7 +298,12 @@ class MCSampler(object):
         if bShowEvaluationLog:
             print "iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg)  Lmarg ln(Z/Lmax)"
 
-        while eff_samp < neff and ntotal < nmax:
+        if convergence_tests:
+            bConvergenceTests = False   # start out not converged, if tests are on
+            last_convergence_test = {}   # initialize record of tests
+        else:
+            bConvergenceTests = False    # if tests are not available, assume not converged. The other criteria will stop it
+        while (eff_samp < neff and ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
             p_s, p_prior, rv = self.draw(n, *args)
                         
@@ -391,8 +399,20 @@ class MCSampler(object):
             if bShowEvaluationLog:
                 print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/ntotal)), int_val1/ntotal, numpy.log(int_val1/ntotal)-maxlnL
 
-            if ntotal >= nmax and neff != float("inf"):
+            if (not convergence_tests) and ntotal >= nmax and neff != float("inf"):
                 print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
+
+            # Convergence tests:
+            if convergence_tests:
+                bConvergedThisIteration = True  # start out optimistic
+                for key in convergence_tests.keys():
+                    last_convergence_test[key] =  convergence_tests[key](self._rvs, self.params)
+                    bConvergedThisIteration = bConvergedThisIteration  and                      last_convergence_test[key]
+                bConvergenceTests = bConvergedThisIteration
+
+            if convergence_tests  and bShowEvaluationLog:  # Print status of each test
+                for key in convergence_tests:
+                    print "   -- Convergence test status : ", key, last_convergence_test[key]
 
             #
             # The total number of adaptive steps is reached
@@ -565,3 +585,51 @@ pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float])
 
 def sanityCheckSamplerIntegrateUnity(sampler,*args,**kwargs):
         return sampler.integrate(lambda *args: 1,*args,**kwargs)
+
+###
+### CONVERGENCE TESTS
+###
+
+
+# neff by another name:
+#    - value: tests for 'smooth' 1-d cumulative distributions
+#    - require  require the most significant-weighted point be less than p of all cumulative probability
+#    - this test is *equivalent* to neff > 1/p
+#    - provided to illustrate the interface
+def convergence_test_MostSignificantPoint(pcut, rvs, params):
+    weights = rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]
+    indxmax = numpy.argmax(weights)
+    wtSum = numpy.sum(weights)
+    return  weights[indxmax]/wtSum < pcut
+
+
+# normality test: is the MC integral normally distributed, with a small standard deviation?
+#    - value: tests for converged integral
+#    - arguments: 
+#         - ncopies:               # of sub-integrals
+#         - pcutNormalTest     Threshold p-value for normality test
+#         - sigmaCutErrorThreshold   Threshold relative error in the integral
+#    - implement normality test on **log(integral)** since the log should also be normally distributed if well converged
+#           - this helps us handle large orders-of-magnitude differences
+#           - compatible with a *relative* error threshold on integral
+#           - only works for *positive-definite* integrands
+#    - other python normality tests:  
+#          scipy.stats.shapiro
+#          scipy.stats.anderson
+#  WARNING:
+#    - this test assumes *unsorted* past history: the 'ncopies' segments are assumed independent.
+import scipy.stats as stats
+def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativeErrorThreshold, rvs, params):
+    weights = rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]
+    weights = weights/numpy.sum(weights)
+    igrandValues = numpy.zeros(ncopies)
+    len_part = numpy.floor(len(weights)/ncopies)
+    for indx in numpy.arange(ncopies):
+        igrandValues[indx] = numpy.log(numpy.sum(weights[indx*len_part:(indx+1)*len_part]))
+    igrandValues= numpy.sort(igrandValues)[2:]                            # Drop 3 smallest. Reduces computation time, but hacky
+    valTest = stats.normaltest(igrandValues)[1]                              # small value is implausible
+    igrandSigma = (numpy.std(igrandValues))/numpy.sqrt(ncopies)   # variance in *overall* integral, estimated from variance of sub-integrals
+    print " Test values ", valTest, igrandSigma
+    print " Sub-integral values : ", igrandValues
+    return valTest> pcutNormalTest and igrandSigma < sigmaCutRelativeErrorThreshold   # Test on left returns a small value if implausible. Hence pcut ->0 becomes increasingly difficult (and requires statistical accidents). Test on right requires relative error in integral also to be small when pcut is small.   FIXME: Give these variables two different names
+    
