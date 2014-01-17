@@ -1,87 +1,111 @@
 #! /usr/bin/env python
 
-import ourparams
-import numpy as np
-import lal
 import sys
+import types
+
+import numpy as np
+
+from glue.ligolw import utils, lsctables, table
+from pylal.series import read_psd_xmldoc
+
+import lal
+
+import factored_likelihood
+import lalsimutils
+import ourparams
 opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 
-import lalsimulation as lalsim
-import lalsimutils
+import common_cl
 
+def singleIFOSNR(data, psd, fNyq, fmin=None, fmax=None):
+    """
+    Calculate single IFO SNR using inner product class.
+    """
+    assert data.deltaF == psd.deltaF
+    IP = lalsimutils.ComplexIP(fLow=fmin, fNyq=fNyq, deltaF=psd.deltaF, psd=psd, fMax=fmax, analyticPSD_Q=isinstance(psd, types.FunctionType))
+    return IP.norm(data)
 
-if opts.coinc:
-    # Extract trigger SNRs
-    rhoExpected  = ourparams.PopulateTriggerSNRs(opts)
+def estimate_adaptive_exponent(rho2Net, nskip):
+    """
+     Estimate the 'beta' parameter needed to regularize the likelihood, so even the max-likelihood event doesn't overwhelm the histogram Add an ad-hoc x2 to be in better agreement with manual calibration for zero-noise MDC event
+
+    exp(rho^2/2)^beta ~ nchunk*10
+    """
+    return min(0.8, 2*np.log(nskip*10)*2./rho2Net)
+
+if __file__ == sys.argv[0]:
+
     rho2Net = 0
-    for det in rhoExpected:
-        rho2Net += rhoExpected[det]*rhoExpected[det]
 
+    if opts.coinc:
+        # Extract trigger SNRs
+        rhoExpected  = ourparams.PopulateTriggerSNRs(opts)
+        for det in rhoExpected:
+            rho2Net += rhoExpected[det]*rhoExpected[det]
 
-if opts.inj and opts.channel_name:
-    # Read injection parameters
-    Psig = ourparams.PopulatePrototypeSignal(opts)
-    # Make fake signal.  Use one instrument.
-
-    data_fake_dict ={}
-    psd_dict = {}
-    rhoFake = {}
-    fminSNR =opts.fmin_SNR
-    fmaxSNR =opts.fmax_SNR
-    fSample = opts.srate
-    fNyq = fSample/2.
-    rho2Net =0
-    # Insure signal duration and hence frequency spacing specified
-    Psig.deltaF=None
-    df = lalsimutils.findDeltaF(Psig)
-    Psig.deltaF = df
+    if opts.inj and opts.channel_name:
+        # Make fake signal.  Use one instrument.
     
-    for det, chan in map(lambda c: c.split("="), opts.channel_name):
-        Psig.detector = det
-        data_fake_dict[det] = lalsim.non_herm_hoff(Psig)
+        # Read injection parameters
+        sim_inspiral_table = table.get_table(utils.load_filename(opts.inj), lsctables.SimInspiralTable.tableName)
+        assert len(sim_inspiral_table) == 1
+        Psig = lalsimutils.ChooseWaveformParams()
+        Psig.copy_lsctables_sim_inspiral(sim_inspiral_table[0])
+    
+        data_fake_dict ={}
+        psd_dict = {}
+        rhoFake = {}
+        fminSNR =opts.fmin_SNR
+        fmaxSNR =opts.fmax_SNR
+        fSample = opts.srate
+        fNyq = fSample/2.
+        rho2Net =0
+        # Insure signal duration and hence frequency spacing specified
+        Psig.deltaF = lalsimutils.findDeltaF(Psig)
+    
+        if opts.psd_file is not None:
+            xmldoc = utils.load_filename(opts.psd_file)
+            psd_dict = read_psd_xmldoc(xmldoc)
 
-        deltaF = data_fake_dict[det].deltaF
+            # Remove unwanted PSDs
+            if opts.channel_name is not None:
+                dets = common_cl.parse_cl_key_value(opts.channel_name).keys()
+                for det in psd_dict.keys():
+                    if det not in dets:
+                        del psd_dict[det]
+                    
+        else:
+            psd_dict = common_cl.parse_cl_key_value(opts.psd_file_singleifo)
+            for det, psdf in psd_dict.iteritems():
+                psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(psdf, det)
 
-        # Read in psd to compute range.  
+        """
+        # FIXME: Reenable with ability to parse out individual PSD functions from
+        # lalsim --- steal from ligolw_inj_snr
         if not(opts.psd_file) and not(opts.psd_file_singleifo):
             analyticPSD_Q = True # For simplicity, using an analytic PSD
             psd_dict[det] = lalsim.SimNoisePSDiLIGOSRD   
-        else:
-            analyticPSD_Q=False
-            # Code path #1 : Single PSD file for all instruments
-            if not (opts.psd_file_singleifo):
-                psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(opts.psd_file, det)  # pylal type!
-            # Code-path #2: List-based procedure to load in individual PSDs for individual instruments
-            else: 
-                for inst, psdf in map(lambda c: c.split("="), opts.psd_file_singleifo):
-                    if inst == det:
-                        psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(psdf, det)  # pylal type!
+        """
+
+        for det in psd_dict:
+            Psig.detector = det
+            data_fake_dict[det] = factored_likelihood.non_herm_hoff(Psig)
+
+            deltaF = data_fake_dict[det].deltaF
             fmin = psd_dict[det].f0
             fmax = fmin + psd_dict[det].deltaF*len(psd_dict[det].data)-deltaF
             psd_dict[det] = lalsimutils.resample_psd_series(psd_dict[det], deltaF)
-           
-            
+        
+            rhoFake[det] = singleIFOSNR(data_fake_dict[det], psd_dict[det], fSample/2, fminSNR, fmaxSNR)
 
-    for det in data_fake_dict.keys():
-        # Create inner product for the detector. Good enough to compute SNR.
-        if analyticPSD_Q:
-            IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=deltaF,psd=psd_dict[det],fMax=fmaxSNR, analyticPSD_Q=analyticPSD_Q)
-        else:
-            IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=deltaF,psd=psd_dict[det].data.data,fMax=fmaxSNR, analyticPSD_Q=analyticPSD_Q)
-        rhoFake[det] = IP.norm(data_fake_dict[det])   # Reset
+            # FIXME: Reenable with options parsing
+            #if opts.verbose:
+                #print det, rhoFake[det]
 
-        print rhoFake[det]
-        # Construct rho^2
-        rho2Net += rhoFake[det]*rhoFake[det]
+            # Construct rho^2
+            rho2Net += rhoFake[det]*rhoFake[det]
 
-
-    # Calculate the SNRs, using the PSDs provided? Not now...
-    # ...or estimate it, from the masses provided.  Assume an aLIGO-scale range.  Ad-hoc angle-average and factors!
-    #    rho = 8.* ((Psig.m1 + Psig.m2)/lal.LAL_MSUN_SI/2.4) * Psig.dist/(200*1e6*lal.LAL_PC_SI)
-    #    rho2Net = rho*rho
-
-# Estimate the 'beta' parameter needed to regularize the likelihood, so even the max-likelihood event doesn't overwhelm the histogram
-#    exp(rho^2/2)^beta ~ nchunk*10
-# Add an ad-hoc x2 to be in better agreement with manual calibration for zero-noise MDC event
-print np.min([0.8,2* np.log(opts.nskip*10)*2./rho2Net])
-sys.exit(0)
+     # FIXME: Reenable with options parsing
+    #if opts.verbose:
+        #print "network, squared: %f" % rho2Net
+    print estimate_adaptive_exponent(opts.nskip, rho2Net)
