@@ -19,6 +19,7 @@ A collection of useful data analysis routines
 built from the SWIG wrappings of LAL and LALSimulation.
 """
 import copy
+import types
 
 import numpy as np
 from numpy import sin, cos
@@ -781,6 +782,17 @@ def sanitize_eta(eta, tol=1.e-10, exception='error'):
         return MAX
     else:
         return eta
+
+#
+# Utilities using Overlap based classes to calculate physical quantities
+#
+def singleIFOSNR(data, psd, fNyq, fmin=None, fmax=None):
+    """
+    Calculate single IFO SNR using inner product class.
+    """
+    assert data.deltaF == psd.deltaF
+    IP = ComplexIP(fLow=fmin, fNyq=fNyq, deltaF=psd.deltaF, psd=psd, fMax=fmax, analyticPSD_Q=isinstance(psd, types.FunctionType))
+    return IP.norm(data)
 
 #
 # Functions to generate waveforms

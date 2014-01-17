@@ -1,7 +1,6 @@
 #! /usr/bin/env python
 
 import sys
-import types
 
 import numpy as np
 
@@ -16,14 +15,6 @@ import ourparams
 opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 
 import common_cl
-
-def singleIFOSNR(data, psd, fNyq, fmin=None, fmax=None):
-    """
-    Calculate single IFO SNR using inner product class.
-    """
-    assert data.deltaF == psd.deltaF
-    IP = lalsimutils.ComplexIP(fLow=fmin, fNyq=fNyq, deltaF=psd.deltaF, psd=psd, fMax=fmax, analyticPSD_Q=isinstance(psd, types.FunctionType))
-    return IP.norm(data)
 
 def estimate_adaptive_exponent(rho2Net, nskip):
     """
@@ -96,7 +87,7 @@ if __file__ == sys.argv[0]:
             fmax = fmin + psd_dict[det].deltaF*len(psd_dict[det].data)-deltaF
             psd_dict[det] = lalsimutils.resample_psd_series(psd_dict[det], deltaF)
         
-            rhoFake[det] = singleIFOSNR(data_fake_dict[det], psd_dict[det], fSample/2, fminSNR, fmaxSNR)
+            rhoFake[det] = lalsimutils.singleIFOSNR(data_fake_dict[det], psd_dict[det], fSample/2, fminSNR, fmaxSNR)
 
             # FIXME: Reenable with options parsing
             #if opts.verbose:
