@@ -39,7 +39,7 @@ import lalsimutils
 import bisect
 # Plot always, for now
 import matplotlib
-# matplotlib.use("Agg")  # Uncomment this line on clusters.  Need a better solution...
+matplotlib.use("Agg")  # Uncomment this line on clusters.  Need a better solution...
 fExtension = "jpeg"
 if matplotlib.get_backend() == "MacOSX":
     fExtension = "jpeg"
