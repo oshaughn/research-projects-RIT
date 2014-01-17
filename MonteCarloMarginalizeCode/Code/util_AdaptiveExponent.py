@@ -99,4 +99,4 @@ if __file__ == sys.argv[0]:
      # FIXME: Reenable with options parsing
     #if opts.verbose:
         #print "network, squared: %f" % rho2Net
-    print estimate_adaptive_exponent(opts.nskip, rho2Net)
+    print estimate_adaptive_exponent(rho2Net, opts.nskip)
