@@ -36,7 +36,7 @@ Examples:
   # Run with a synthetic injected signal with a nontrivial polarization, inclination (edge on), time, and phase
         python test_like_and_samp.py --signal-inclination 1.5708 --signal-time 0.02 --signal-polarization 0.3 --signal-phase -0.7  # test inclination, polarization propagated consistently
 
-
+  # Run with convergence tests and adaptation
 """
 try:
     import matplotlib
@@ -652,13 +652,26 @@ if  (rosShowSamplerInputDistributions or opts.plot_ShowPSD) and not bNoInteracti
     plt.show()
 
 
+#
+# Provide convergence tests
+# FIXME: Currently using hardcoded thresholds, poorly hand-tuned
+#
+import functools
+test_converged = {}
+if opts.convergence_tests_on:
+    test_converged['neff'] = functools.partial(mcsampler.convergence_test_MostSignificantPoint,0.01)  # most significant point less than 1% of probability
+    test_converged["normal_integral"] = functools.partial(mcsampler.convergence_test_NormalSubIntegrals, 25, 0.01, 0.1)   # 20 sub-integrals are gaussian distributed *and* relative error < 10%, based on sub-integrals . Should use # of intervals << neff target from above.  Note this sets our target error tolerance on  lnLmarg
+
 
 tGPSStart = lal.GPSTimeNow()
 print " Unpinned : ", unpinned_params
 print " Pinned : ",  pinned_params
 pinned_params.update({"n": opts.nskip, "nmax": opts.nmax, "neff": opts.neff, "full_output": True, "verbose":True, "extremely_verbose": opts.super_verbose,"igrand_threshold_fraction": fracThreshold, "igrandmax":rho2Net/2, "save_intg":True,
+    "convergence_tests" : test_converged,    # Dictionary of convergence tests
+
     "tempering_exp":opts.adapt_beta,
-        "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1-D histograms
+    "floor_level": opts.adapt_mix, # The new sampling distribution at the end of each chunk will be floor_level-weighted average of a uniform distribution and the (L^tempering_exp p/p_s)-weighted histogram of sampled points.
+    "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1-D histograms
     "n_adapt": 100, # Number of chunks to allow adaption over
     "igrand_threshold_deltalnL": opts.save_deltalnL, # Threshold on distance from max L to save sample
     "igrand_threshold_p": opts.save_P # Threshold on cumulative probability contribution to cache sample

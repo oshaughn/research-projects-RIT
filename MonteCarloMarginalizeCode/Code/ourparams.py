@@ -35,6 +35,7 @@ def ParseStandardArguments():
     parser.add_argument("--Niter", dest='nmax',default=10000,type=int,help="Number of iterations")
     parser.add_argument("--Neff", dest='neff', default=100,type=int,help="Target number of effective samples")
     parser.add_argument("--Nskip", dest='nskip', default=200,type=int,help="How often MC progress is reported (in verbose mode)")
+    parser.add_argument("--convergence-tests-on", default=False,action='store_true')
 
     # Likelihood functions
     parser.add_argument("--LikelihoodType_raw",default=True,action='store_true')
