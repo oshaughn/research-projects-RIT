@@ -1003,6 +1003,12 @@ def non_herm_hoff(P):
     the Hermitian symmetry applies
     """
     htR = hoft(P) # Generate real-valued TD waveform
+    if P.deltaF == None: # h(t) was not zero-padded, so do it now
+        TDlen = nextPow2(htR.data.length)
+        htR = lal.ResizeREAL8TimeSeries(htR, 0, TDlen)
+    else: # Check zero-padding was done to expected length
+        TDlen = int(1./P.deltaF * 1./P.deltaT)
+        assert TDlen == htR.data.length
     fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(htR.data.length,0)
     htC = lal.CreateCOMPLEX16TimeSeries("hoft", htR.epoch, htR.f0,
             htR.deltaT, htR.sampleUnits, htR.data.length)
