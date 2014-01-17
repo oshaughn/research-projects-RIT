@@ -39,7 +39,7 @@ import lalsimutils
 import bisect
 # Plot always, for now
 import matplotlib
-matplotlib.use("Agg")  # Uncomment this line on clusters.  Need a better solution...
+#matplotlib.use("Agg")  # Uncomment this line on clusters.  Need a better solution...
 fExtension = "jpeg"
 if matplotlib.get_backend() == "MacOSX":
     fExtension = "jpeg"
@@ -97,8 +97,8 @@ if not fExtensionInputFile == "sqlite":
     values["mc"] = lalsimutils.mchirp(ret[:,0],ret[:,1])
     values["eta"] = lalsimutils.symRatio(ret[:,0],ret[:,1])
     values["lnL"] = ret[:,-1]
-    values["m1"] = ret[:0]
-    values["m2"] = ret[:1]
+    values["m1"] = ret[:,0]
+    values["m2"] = ret[:,1]
 else:
     import xmlutils 
     from glue.ligolw import lsctables, utils, table
@@ -170,6 +170,8 @@ if opts.inj:
     # See comment about mass prior, above! 
     m1Sun = Psig.m1/lal.LAL_MSUN_SI
     m2Sun = Psig.m2/lal.LAL_MSUN_SI
+    ppdata["m1"] = [m1Sun, pcum_at(m1Sun, values["m1"], weights)]
+    ppdata["m2"] = [m2Sun, pcum_at(m2Sun, values["m2"], weights)]
     mc = lalsimutils.mchirp(m1Sun,m2Sun)
     eta = lalsimutils.symRatio(m1Sun,m2Sun)
     ppdata['mc'] = [mc, pcum_at(mc, values["mc"], weights)]
