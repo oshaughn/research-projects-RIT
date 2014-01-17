@@ -93,7 +93,7 @@ tEventFiducialGPS = Psig.tref             # the 'trigger time' we will localize 
 df = findDeltaF(Psig)
 Psig.deltaF = df
 Psig.print_params()
-data_dict[ifoName] = non_herm_hoff(Psig)
+data_dict[ifoName] = lalsimutils.non_herm_hoff(Psig)
 print "Timing spacing in data vs expected : ", df, data_dict[ifoName].deltaF
 
 print " == Data report == "

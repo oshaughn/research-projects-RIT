@@ -115,11 +115,11 @@ Psig = lalsimutils.ChooseWaveformParams(
     deltaF = df
     )
 data_dict={}
-data_dict['H1'] = factored_likelihood.non_herm_hoff(Psig)
+data_dict['H1'] = lalsimutils.non_herm_hoff(Psig)
 Psig.detector = 'L1'
-data_dict['L1'] = factored_likelihood.non_herm_hoff(Psig)
+data_dict['L1'] = lalsimutils.non_herm_hoff(Psig)
 Psig.detector = 'V1'
-data_dict['V1'] = factored_likelihood.non_herm_hoff(Psig)
+data_dict['V1'] = lalsimutils.non_herm_hoff(Psig)
 psd_analytic_dict = {}
 psd_analytic_dict['H1'] = lalsim.SimNoisePSDaLIGOZeroDetHighPower# lal.LIGOIPsd
 psd_analytic_dict['L1'] = lalsim.SimNoisePSDaLIGOZeroDetHighPower #lal.LIGOIPsd

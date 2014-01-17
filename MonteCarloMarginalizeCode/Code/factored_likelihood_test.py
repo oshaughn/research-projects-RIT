@@ -106,7 +106,9 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         rho2Net = 0
         for det in detectors:
             Psig.detector= det
-            data_fake_dict[det] = lal.ResizeCOMPLEX16FrequencySeries(factored_likelihood.non_herm_hoff(Psig), 0, len(data_dict[det].data.data))  # Pad if needed!
+            data_fake_dict[det] = lal.ResizeCOMPLEX16FrequencySeries(
+                    lalsimutils.non_herm_hoff(Psig), 0,
+                    len(data_dict[det].data.data))  # Pad if needed!
             if analyticPSD_Q:
                 IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det],fMax=fmaxSNR, analyticPSD_Q=analyticPSD_Q)
             else:

@@ -27,11 +27,11 @@ Psig = ChooseWaveformParams(fmin = 10., radec=True, theta=1.2, phi=2.4,
         detector='H1', dist=100.*1.e6*lal.LAL_PC_SI)
 df = findDeltaF(Psig)
 Psig.deltaF = df
-data_dict['H1'] = non_herm_hoff(Psig)
+data_dict['H1'] = lsu.non_herm_hoff(Psig)
 Psig.detector = 'L1'
-data_dict['L1'] = non_herm_hoff(Psig)
+data_dict['L1'] = lsu.non_herm_hoff(Psig)
 Psig.detector = 'V1'
-data_dict['V1'] = non_herm_hoff(Psig)
+data_dict['V1'] = lsu.non_herm_hoff(Psig)
 
 # Struct to hold template parameters
 P = ChooseWaveformParams(fmin = 40., dist=100.*1.e6*lal.LAL_PC_SI, deltaF=df)

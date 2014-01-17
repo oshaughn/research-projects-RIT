@@ -361,11 +361,11 @@ if len(data_dict) is 0:
         df = 1./lalsimutils.nextPow2(opts.seglen)
     Psig.print_params()
     Psig.deltaF = df
-    data_dict['H1'] = factored_likelihood.non_herm_hoff(Psig)
+    data_dict['H1'] = lalsimutils.non_herm_hoff(Psig)
     Psig.detector = 'L1'
-    data_dict['L1'] = factored_likelihood.non_herm_hoff(Psig)
+    data_dict['L1'] = lalsimutils.non_herm_hoff(Psig)
     Psig.detector = 'V1'
-    data_dict['V1'] = factored_likelihood.non_herm_hoff(Psig)
+    data_dict['V1'] = lalsimutils.non_herm_hoff(Psig)
 
 # Reset origin of time, if required
 if opts.force_gps_time:

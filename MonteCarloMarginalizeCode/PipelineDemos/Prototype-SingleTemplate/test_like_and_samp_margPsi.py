@@ -93,11 +93,11 @@ else:
     df = findDeltaF(Psig)
     Psig.print_params()
     Psig.deltaF = df
-    data_dict['H1'] = non_herm_hoff(Psig)
+    data_dict['H1'] = lalsimutils.non_herm_hoff(Psig)
     Psig.detector = 'L1'
-    data_dict['L1'] = non_herm_hoff(Psig)
+    data_dict['L1'] = lalsimutils.non_herm_hoff(Psig)
     Psig.detector = 'V1'
-    data_dict['V1'] = non_herm_hoff(Psig)
+    data_dict['V1'] = lalsimutils.non_herm_hoff(Psig)
 
 # TODO: Read PSD from XML
 psd_dict = {}

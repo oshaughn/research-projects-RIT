@@ -73,7 +73,7 @@ Psig.print_params()
 rho2Net = 0
 for det in detectors:
     Psig.detector = det
-    hT = non_herm_hoff(Psig)
+    hT = lsu.non_herm_hoff(Psig)
     fSampleSig = len(hT.data.data)*hT.deltaF
     IP = ComplexIP(fLow=fminSNR, fNyq=fSampleSig/2,deltaF=dfSig,psd=psd_dict[det])
     rhoExpected[det] = rhoDet = IP.norm(hT)

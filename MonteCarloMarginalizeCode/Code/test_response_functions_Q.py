@@ -495,10 +495,10 @@ if len(data_dict) is 0:
         amp *=0
     if bUseWindow:
         # create signal first, to set epoch
-        data_dict[detDefault] = factored_likelihood.non_herm_hoff(Psig)
+        data_dict[detDefault] = lalsimutils.non_herm_hoff(Psig)
         sig = fakeGaussianDataFrequency(amp,2, 1/(2*fNyqTarget),npts,window='Tukey',window_beta=window_beta)
     else:
-        data_dict[detDefault] = factored_likelihood.non_herm_hoff(Psig)
+        data_dict[detDefault] = lalsimutils.non_herm_hoff(Psig)
         sig = fakeGaussianDataFrequency(amp,2, 1/(2*fNyqTarget),npts)
 
     data_dict[detDefault].data.data += sig.data.data

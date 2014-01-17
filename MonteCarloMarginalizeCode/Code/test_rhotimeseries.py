@@ -16,7 +16,7 @@ Psig = ChooseWaveformParams(fmin = 30., radec=False, incl=0.0, theta=0, phi=0,
 df = findDeltaF(Psig)
 Psig.deltaF = df
 Psig.print_params()
-data = non_herm_hoff(Psig)
+data = lsu.non_herm_hoff(Psig)
 psd = lal.LIGOIPsd
 IP = ComplexOverlap(30, 2048, data.deltaF, psd, True, True)
 

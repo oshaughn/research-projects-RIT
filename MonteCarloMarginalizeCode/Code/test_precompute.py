@@ -102,11 +102,11 @@ Psig.print_params()
 print " ======= Generating synthetic data in each interferometer (manual timeshifts) =========="
 t0 = Psig.tref
 Psig.detector = 'H1'
-data_dict['H1'] = factored_likelihood.non_herm_hoff(Psig)  # already takes care of propagating to a detector, using the 'detector' field
+data_dict['H1'] = lalsimutils.non_herm_hoff(Psig)  # already takes care of propagating to a detector, using the 'detector' field
 Psig.detector = 'L1'
-data_dict['L1'] = factored_likelihood.non_herm_hoff(Psig)
+data_dict['L1'] = lalsimutils.non_herm_hoff(Psig)
 Psig.detector = 'V1'
-data_dict['V1'] = factored_likelihood.non_herm_hoff(Psig)
+data_dict['V1'] = lalsimutils.non_herm_hoff(Psig)
 
 
 print " == Data report == "
