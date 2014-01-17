@@ -35,7 +35,7 @@ CMAP = { "right_ascension": "longitude",
 # FIXME: Find way to intersect given cols with valid cols when making table.
 # Otherwise, we'll have to add them manually and ensure they all exist
 sim_valid_cols = ["process_id", "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha1", "alpha2", "alpha3"]
-sngl_valid_cols = ["process_id", "event_id", "snr"]
+sngl_valid_cols = ["process_id", "event_id", "snr", "tau0"]
 multi_valid_cols = ["process_id", "event_id", "snr"]
 
 def append_samples_to_xmldoc(xmldoc, sampdict):
@@ -74,7 +74,7 @@ def append_samples_to_xmldoc(xmldoc, sampdict):
         xmldoc.childNodes[0].appendChild(si_table)
     return xmldoc
 
-def append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, **cols):
+def append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, neff=0, **cols):
     try: 
         si_table = table.get_table(xmldoc, lsctables.SnglInspiralTable.tableName)
         new_table = False
@@ -92,7 +92,7 @@ def append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, **cols):
     procid = table.get_table(xmldoc, lsctables.ProcessTable.tableName)[-1].process_id
     
     # map the samples to sim inspiral rows
-    si_table.append(likelihood_to_snglinsp_row(si_table, loglikelihood, **cols))
+    si_table.append(likelihood_to_snglinsp_row(si_table, loglikelihood, neff, **cols))
     si_table[-1].process_id = procid
 
     if new_table:
@@ -113,12 +113,13 @@ def samples_to_siminsp_row(table, colmap={}, **sampdict):
 
     return row
 
-def likelihood_to_snglinsp_row(table, loglikelihood, **cols):
+def likelihood_to_snglinsp_row(table, loglikelihood, neff=0, **cols):
     row = table.RowType()
     row.event_id = table.get_next_id()
     for col in cols:
             setattr(row, col, cols[col])
     row.snr = loglikelihood
+    row.tau0 = neff
 
     return row
 
