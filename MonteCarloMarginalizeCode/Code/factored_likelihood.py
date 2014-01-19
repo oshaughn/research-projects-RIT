@@ -271,7 +271,7 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
     else:
         F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
         detector = lalsim.DetectorPrefixToLALDetector(det)
-        tshift = ComputeArrivalTimeAtDetector(det, RA,DEC, tref)  -  epoch   # detector time minus reference time (so far)
+        tshift = ComputeArrivalTimeAtDetector(det, RA,DEC, tref)
     rholms_intp = rholmsDictionary[det]
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
@@ -303,7 +303,7 @@ def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms, tref
     for det in detList:
         F[det] = ComplexAntennaFactor(det, RA,DEC,psi,tref)
         detector = lalsim.DetectorPrefixToLALDetector(det)
-        tshift[det] = float(ComputeArrivalTimeAtDetector(det, RA,DEC, tref)  -  epoch)   # detector time minus reference time (so far)
+        tshift[det] = float(ComputeArrivalTimeAtDetector(det, RA,DEC, tref))   # detector time minus reference time (so far)
 
     term2 = 0.
     for det in detList:
@@ -345,7 +345,7 @@ def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTer
     for det in detList:
         F[det] = ComplexAntennaFactor(det, RA,DEC,psi,tref)
         detector = lalsim.DetectorPrefixToLALDetector(det)
-        tshift[det] = float(ComputeArrivalTimeAtDetector(det, RA,DEC, tref)  -  epoch)   # detector time minus reference time (so far)
+        tshift[det] = float(ComputeArrivalTimeAtDetector(det, RA,DEC, tref))   # detector time minus reference time (so far)
 
     term2a = 0.
     term2b = 0.
