@@ -18,6 +18,7 @@
 A collection of useful data analysis routines
 built from the SWIG wrappings of LAL and LALSimulation.
 """
+import sys
 import copy
 import types
 
@@ -44,7 +45,7 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 rosDebugMessagesContainer = [False]
 rosDebugMessagesLongContainer = [False]
-print "[Loading lalsimutils.py : MonteCarloMarginalization version]"
+print >>sys.stderr, "[Loading lalsimutils.py : MonteCarloMarginalization version]"
 
 TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 
