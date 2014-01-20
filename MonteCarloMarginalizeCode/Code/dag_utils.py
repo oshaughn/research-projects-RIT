@@ -158,11 +158,12 @@ def write_result_coalescence_sub(tag='coalesce', exe=None, log_dir=None, output_
     sql_job.add_opt("input-cache", "ILE_$(macromassid).cache")
     #sql_job.add_arg("*$(macromassid)*.xml.gz")
     sql_job.add_opt("database", "ILE_$(macromassid).sqlite")
-    if os.environ.has_key("TMPDIR"):
-        tmpdir = os.environ["TMPDIR"]
-    else:
-        print >>sys.stderr, "WARNING, TMPDIR environment variable not set. Will default to /tmp/, but this could be dangerous."
-        tmpdir = "/tmp/"
+    #if os.environ.has_key("TMPDIR"):
+        #tmpdir = os.environ["TMPDIR"]
+    #else:
+        #print >>sys.stderr, "WARNING, TMPDIR environment variable not set. Will default to /tmp/, but this could be dangerous."
+        #tmpdir = "/tmp/"
+    tmpdir = "/dev/shm/"
     sql_job.add_opt("tmp-space", tmpdir)
     sql_job.add_opt("verbose", None)
 
@@ -222,6 +223,6 @@ def write_tri_plot_sub(tag='plot_tri', exe=None, log_dir=None, output_dir="./"):
     plot_job.add_arg("ILE_$(macromassid).sqlite")
 
     plot_job.add_condor_cmd('getenv', 'True')
-    plot_job.add_condor_cmd('request_memory', '2048')
+    #plot_job.add_condor_cmd('request_memory', '2048')
     
     return plot_job, plot_sub_name
