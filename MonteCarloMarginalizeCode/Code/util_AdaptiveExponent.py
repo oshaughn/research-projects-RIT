@@ -6,6 +6,9 @@ import lal
 import sys
 opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 
+import lalsimulation as lalsim
+import lalsimutils
+
 
 if opts.coinc:
     # Extract trigger SNRs
@@ -19,9 +22,6 @@ if opts.inj and opts.channel_name:
     # Read injection parameters
     Psig = ourparams.PopulatePrototypeSignal(opts)
     # Make fake signal.  Use one instrument.
-    import factored_likelihood
-    import lalsimulation as lalsim
-    import lalsimutils
 
     data_fake_dict ={}
     psd_dict = {}
@@ -38,7 +38,7 @@ if opts.inj and opts.channel_name:
     
     for det, chan in map(lambda c: c.split("="), opts.channel_name):
         Psig.detector = det
-        data_fake_dict[det] = factored_likelihood.non_herm_hoff(Psig)
+        data_fake_dict[det] = lalsim.non_herm_hoff(Psig)
 
         deltaF = data_fake_dict[det].deltaF
 
