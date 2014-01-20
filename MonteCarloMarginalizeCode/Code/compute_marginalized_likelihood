@@ -60,7 +60,7 @@ optp.add_option("--n-eff", type=int, default=1000, help="Maximum number of effec
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("--n-chunk", type=int, help="Chunk'.",default=100)
-optp.add_option("--adapt-floor-level", type=float,default=0.0,help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.0 (no floor)")
+optp.add_option("--adapt-floor-level", type=float,default=0.1,help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.0 (no floor)")
 optp.add_option("--adapt-weight-exponent", type=float,default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
 
 #
