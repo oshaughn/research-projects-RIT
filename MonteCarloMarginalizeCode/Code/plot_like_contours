@@ -18,7 +18,8 @@ from glue.ligolw import utils, table, lsctables
 import xmlutils
 
 def calculate_evidence(snr_ar):
-    return sum([numpy.exp(snr) for snr in snr_ar])
+    # FIXME: Doesn't understand runs of varying length yet
+    return sum([numpy.exp(snr) for snr in snr_ar])/len(snr_ar)
 
 def mchirp_eta(m1, m2):
     eta = m1*m2/(m1 + m2)**2
@@ -27,7 +28,7 @@ def mchirp_eta(m1, m2):
 optp = OptionParser()
 optp.add_option("--dimension1", help="Plot this column along the x-axis")
 optp.add_option("--dimension2", help="Plot this column along the y-axis")
-optp.add_option("--full-likelihood", action="store_true", help="Take exponential of loglikelihood")
+optp.add_option("--log-evidence", action="store_true", help="Plot log evidence")
 optp.add_option("--partial-evidence", action="store_true", help="Plot the partial evidence (L*p)")
 optp.add_option("--show-points", action="store_true", help="Scatter plot the points used.")
 optp.add_option("--show-mdc", help="Mark MDC values from provided XML on the plots.")
@@ -80,7 +81,7 @@ elif opts.dimension2 is None:
 
     except:
         # FIXME: hardcoding
-        points = xmlutils.db_to_samples(args[0], lsctables.SimInspiralTable, [opts.dimension1, "alpha1", "alpha2"])
+        points = xmlutils.db_to_samples(args[0], lsctables.SimInspiralTable, [opts.dimension1, "alpha1", "alpha2", "alpha3"])
 
     fig = pyplot.figure()
     bottom = pyplot.subplot2grid((3,1), (2,0))
@@ -157,6 +158,8 @@ else:
     like = [row.alpha1 for row in points]
     # FIXME: Hardcoded bad column name and not used in some cases
     prior = [row.alpha2 for row in points]
+    # FIXME: Hardcoded bad column name and not used in some cases
+    sprior = [row.alpha2 for row in points]
 
     if opts.partial_evidence:
         like += numpy.log(prior)
@@ -183,8 +186,8 @@ d1d2 = numpy.array(zip(d1g.flatten(), d2g.flatten()))
 int_like = griddata(d1, d2, like, d1g, d2g)
 
 
-if opts.full_likelihood:
-    pyplot.contourf(d1g, d2g, numpy.exp(int_like), 20)
+if opts.log_evidence:
+    pyplot.contourf(d1g, d2g, numpy.log(int_like), 20)
 else:
     pyplot.contourf(d1g, d2g, int_like, 20)
 
