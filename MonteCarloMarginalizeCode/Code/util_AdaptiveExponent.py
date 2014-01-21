@@ -30,9 +30,8 @@ if __file__ == sys.argv[0]:
 
     if opts.coinc:
         # Extract trigger SNRs
-        rhoExpected  = ourparams.PopulateTriggerSNRs(opts)
-        for det in rhoExpected:
-            rho2Net += rhoExpected[det]*rhoExpected[det]
+        ci_table = table.get_table(utils.load_filename(opts.coinc), lsctables.CoincInspiralTable.tableName)
+        rho2Net = ci_table[0].snr**2
 
     if opts.inj and opts.channel_name:
         # Make fake signal.  Use one instrument.
