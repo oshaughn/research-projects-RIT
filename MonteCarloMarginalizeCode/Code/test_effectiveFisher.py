@@ -32,7 +32,7 @@ def write_sngl_params(grid, proc_id):
     return sngl_insp_table
 
 # Setup signal and IP class
-m1=4.1*lal.LAL_MSUN_SI
+m1=4*lal.LAL_MSUN_SI
 m2=4.*lal.LAL_MSUN_SI
 PSIG = lsu.ChooseWaveformParams(m1=m1, m2=m2, approx=lalsim.TaylorT1)
 PTEST = PSIG.copy() # find deltaF for lower end of range we're looking in
@@ -114,21 +114,26 @@ print rot
 #
 match_cntr = 0.97
 Nrandpts=200
-r1 = np.sqrt(2.*(1.-match_cntr)/evals[0]) # ellipse radii along eigendirections
-r2 = np.sqrt(2.*(1.-match_cntr)/evals[1])
+r1 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[0])) # ellipse radii along eigendirections
+r2 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[1]))
 # Get pts. inside an ellipsoid oriented along eigenvectors...
 #rand_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
 Nrad = 10
 Nspokes = 40
-ph0 = np.arctan(np.abs(r2) * (-rot[0,1])/(np.abs(r1) * rot[0,0]) ) - np.pi/4.
-#ph0 = - np.arctan(np.abs(evals[1])/np.abs(evals[0]) * np.tan(np.arccos(rot[0,0])) )
+ph0 = np.arctan(np.abs(r1) * (rot[0,1])/(np.abs(r2) * rot[0,0]) )
 #ph0 = 0.
 print "angle is:", ph0, r1, r2
 #rand_grid = eff.uniform_spoked_ellipsoid(Nrad, Nspokes, [ph0], r1, r2)
 rand_grid = eff.linear_spoked_ellipsoid(Nrad, Nspokes, [ph0], r1, r2)
+gridT = np.transpose(rand_grid)
+xs = gridT[0]
+ys = gridT[1]
 # Rotate to get coordinates in parameter basis
 rand_grid = np.array([ np.real( np.dot(rot, rand_grid[i]))
     for i in xrange(len(rand_grid)) ])
+gridT = np.transpose(rand_grid)
+Xs = gridT[0]
+Ys = gridT[1]
 # Put in convenient units,
 # change from parameter differential (i.e. dtheta)
 # to absolute parameter value (i.e. theta = theta_true + dtheta)
@@ -210,4 +215,15 @@ plt.scatter(rand_dMcs_MSUN[phys_cut], rand_detas[phys_cut], c=rhos2, cmap=plt.cm
 plt.colorbar()
 plt.xlabel("$\Delta M_c$")
 plt.ylabel("$\Delta \eta$")
+
+plt.figure(4)
+plt.title('Unrotated ellipse')
+plt.scatter(xs, ys)
+plt.xlabel("$e_1$")
+plt.ylabel("$e_2$")
+plt.figure(5)
+plt.title('Rotated ellipse')
+plt.scatter(Xs, Ys)
+plt.xlabel("$e_1$")
+plt.ylabel("$e_2$")
 plt.show()
