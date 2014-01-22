@@ -542,7 +542,7 @@ if not opts.time_marginalization:
     
         return numpy.exp(lnL)
 
-    res, var, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+    res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else: # Sum over time for every point in other extrinsic params
     def likelihood_function(right_ascension, declination, phi_orb, inclination,
@@ -568,7 +568,7 @@ else: # Sum over time for every point in other extrinsic params
     
         return numpy.exp(lnL)
 
-    res, var, neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+    res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
@@ -595,5 +595,5 @@ if opts.output_file:
         xmlutils.append_samples_to_xmldoc(xmldoc, samples)
     # FIXME: likelihood or loglikehood
     # FIXME: How to encode variance?
-    xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res), neff=neff, **{"mass1": opts.mass1, "mass2": opts.mass2, "event_duration": numpy.sqrt(var)/res})
+    xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res), neff=neff, converged=dict_return["convergence_test_results"]["normal_integral"], **{"mass1": opts.mass1, "mass2": opts.mass2, "event_duration": numpy.sqrt(var)/res})
     utils.write_filename(xmldoc, opts.output_file, gz=opts.output_file.endswith(".gz"))

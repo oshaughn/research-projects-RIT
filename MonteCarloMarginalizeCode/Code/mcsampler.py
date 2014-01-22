@@ -303,6 +303,7 @@ class MCSampler(object):
             last_convergence_test = {}   # initialize record of tests
         else:
             bConvergenceTests = False    # if tests are not available, assume not converged. The other criteria will stop it
+            last_convergence_test = {}   # need record of tests to be returned always
         while (eff_samp < neff and ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
             p_s, p_prior, rv = self.draw(n, *args)
@@ -487,7 +488,11 @@ class MCSampler(object):
         for key in self._rvs.keys():
             self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indx_list] )
 
-        return int_val1/ntotal, var/ntotal, eff_samp
+        # Create extra dictionary to return things
+        dict_return ={}
+        dict_return["convergence_test_results"] = last_convergence_test
+
+        return int_val1/ntotal, var/ntotal, eff_samp, dict_return
                 
 
 ### UTILITIES: Predefined distributions
@@ -623,11 +628,11 @@ def convergence_test_MostSignificantPoint(pcut, rvs, params):
 import scipy.stats as stats
 def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativeErrorThreshold, rvs, params):
     weights = rvs["weights"] #rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]
-    weights = weights/numpy.sum(weights)
+#    weights = weights /numpy.sum(weights)    # Keep original normalization, so the integral values printed to stdout have meaning relative to the overall integral value.  No change in code logic : this factor scales out (from the log, below)
     igrandValues = numpy.zeros(ncopies)
     len_part = numpy.floor(len(weights)/ncopies)
     for indx in numpy.arange(ncopies):
-        igrandValues[indx] = numpy.log(numpy.sum(weights[indx*len_part:(indx+1)*len_part]))
+        igrandValues[indx] = numpy.log(numpy.mean(weights[indx*len_part:(indx+1)*len_part]))  # change to mean rather than sum, so sub-integrals have meaning
     igrandValues= numpy.sort(igrandValues)#[2:]                            # Sort.  Useful in reports 
     valTest = stats.normaltest(igrandValues)[1]                              # small value is implausible
     igrandSigma = (numpy.std(igrandValues))/numpy.sqrt(ncopies)   # variance in *overall* integral, estimated from variance of sub-integrals
