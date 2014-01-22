@@ -1704,3 +1704,74 @@ def resample_psd_series(psd, df=None, fmin=None, fmax=None):
             length=len(psd_intp))
     new_psd.data.data = psd_intp
     return new_psd
+
+
+def vecCross(v1,v2):
+    return [v1[1]*v2[2] - v1[2]*v2[1], v1[2]*v2[0] - v1[0]*v2[2], v1[0]*v2[1] - v1[1]*v2[0]]
+
+def vecDot(v1,v2):
+    return v1[0]*v2[0] + v1[1]*v2[1] + v1[2]*v2[2]
+
+def VectorToFrame(vecRef):
+    """
+    Convert vector to a frame, by picking relatively arbitrary vectors perp to it.
+    Used to convert J to a frame.  Uses the radiation frame conventions to do so.
+    """
+    vec1 = np.array(vecCross([0,0,1],vecRef))
+    vec1 = vec1/np.sqrt(vecDot(vec1,vec1))
+    vec2 = np.array(vecCross(vecRef,vec1))
+    vec2 = vec2/np.sqrt(vecDot(vec2,vec2)) 
+    frame = np.array([-vec2,vec1,vecRef])  # oops,backwards order
+    return frame
+
+
+def nhat(th,ph):
+    return np.array([np.cos(ph)*np.sin(th),np.sin(ph)*np.sin(th), np.cos(th)])
+
+def polar_angles_in_frame(frm,vec):
+    """
+    Take a vector in the default frame.
+    Evaluate the polar angles of that unit vector in a new (orthonormal) frame 'frm'.
+    Not the fastest solution.  Not naturally vectorizable.
+    """
+    xhat = frm[0]
+    yhat = frm[1]
+    zhat = frm[2]
+    print xhat, yhat, zhat
+    th = np.arccos( np.dot(zhat,vec))/np.sqrt(np.dot(vec,vec)*np.dot(zhat,zhat))
+    vPerp = vec - zhat *np.dot(zhat,vec)/np.sqrt(np.dot(zhat,zhat))
+    ph = np.angle( np.dot(vPerp,xhat+ 1j*yhat))
+    return th,ph
+
+
+def polar_angles_in_frame_alt(frmInverse, theta,phi): 
+    """
+    Take polar angles in the default frame.
+    Evaluate the polar angles of that unit vector in a new (orthonormal) frame 'frmInverse'.
+    Probably easier to vectorize
+    """
+    vec = np.cos(phi)*np.sin(theta)*frmInverse[0] \
+        + np.sin(phi)*np.sin(theta)*frmInverse[1] \
+        + np.cos(theta)*frmInverse[2] 
+    return np.arccos(vec[2]), np.angle(vec[0]+1j*vec[1])
+
+# Borrowed: http://stackoverflow.com/questions/6802577/python-rotation-of-3d-vector
+import math
+def rotation_matrix(axis,theta):
+    axis = axis/math.sqrt(np.dot(axis,axis))
+    a = math.cos(theta/2)
+    b,c,d = -axis*math.sin(theta/2)
+    return np.array([[a*a+b*b-c*c-d*d, 2*(b*c-a*d), 2*(b*d+a*c)],
+                     [2*(b*c+a*d), a*a+c*c-b*b-d*d, 2*(c*d-a*b)],
+                     [2*(b*d-a*c), 2*(c*d+a*b), a*a+d*d-b*b-c*c]])
+
+
+# TEST CODE
+# import lalsimutils
+# import numpy as np
+# lalsimutils.polar_angles_in_frame_alt(np.array([[1,0,0], [0,1,0], [0,0,1]]), 0.1, 0.2)
+# lalsimutils.polar_angles_in_frame(np.array([[1,0,0], [0,1,0], [0,0,1]]), lalsimutils.nhat(0.1, 0.2))
+# lalsimutils.polar_angles_in_frame(lalsimutils.rotation_matrix(np.array([0,0,1]), 0.1), lalsimutils.nhat(0.1, 0.2))
+# lalsimutils.polar_angles_in_frame(lalsimutils.rotation_matrix(np.array([0,1,0]), 0.01), lalsimutils.nhat(0.1, 0.0))
+# lalsimutils.polar_angles_in_frame_alt(lalsimutils.rotation_matrix(np.array([0,0,1]), 0.1), lalsimutils.nhat(0.1, 0.2))
+# lalsimutils.polar_angles_in_frame_alt(lalsimutils.rotation_matrix(np.array([0,1,0]), 0.01), lalsimutils.nhat(0.1, 0.0))
