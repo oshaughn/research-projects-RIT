@@ -141,7 +141,7 @@ GDB_V_INJ_CHANNEL_NAME=FAKE_h_16384Hz_4R
 
 # Write a command that has the same options but just evaluates the likliehood (marginalized) at the trigger masses.  Helpful for debugging setup
 #    - Comments left to indicate kind of arguments ROS wants on master
-echo  ${ILE}  --cache-file local.cache  --coinc coinc.xml   --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${GDB_V_INJ_CHANNEL_NAME} --psd-file "H1=psd.xml.gz" --psd-file "L1=psd.xml.gz" --psd-file "V1=psd.xml.gz"   --mass1 ${MASS1} --mass2 ${MASS2} --reference-freq 0 --save-samples    --time-marginalization --n-max 200000 --n-eff 1000 --output-file ile-gracedb-${gid}.xml.gz   --save-P 0.0001 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.1 --n-chunk 4000   > testme-command.sh  #  --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance       --approximant $approximant
+echo  ${ILE}  --cache-file local.cache  --coinc coinc.xml   --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${GDB_V_INJ_CHANNEL_NAME} --psd-file "H1=psd.xml.gz" --psd-file "L1=psd.xml.gz" --psd-file "V1=psd.xml.gz"   --mass1 ${MASS1} --mass2 ${MASS2} --reference-freq 0 --save-samples    --time-marginalization --n-max 200000 --n-eff 1000 --output-file ile-gracedb-${gid}.xml.gz   --save-P 0.0001 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.1 --n-chunk 4000 --approximant $approximant --convergence-tests-on  > testme-command.sh  #  --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance       --approximant $approximant
 # add postprocessing
 echo make_triplot ile-gracedb-${gid}.xml.gz -o ${gid}-triplot.pdf >> testme-command.sh
 echo plot_integral ile-gracedb-${gid}.xml.gz --output integral.pdf >> testme-command.sh
@@ -151,23 +151,19 @@ chmod a+x testme-command.sh
 
 # Write the actual DAG
 #   - large n-max chosen for prototyping purposes.  Hopefully we will hit the n-eff limit before reaching it.
-${CME} --cache-file local.cache  --coinc coinc.xml  --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${GDB_V_INJ_CHANNEL_NAME} --psd-file "H1=psd.xml.gz" --psd-file "L1=psd.xml.gz" --psd-file "V1=psd.xml.gz"   --mass1 ${MASS1} --mass2 ${MASS2}  --save-samples  --time-marginalization --n-max 1000000 --n-eff 1000 --output-file CME-${gid}.xml.gz   --save-P 0.0001  --n-copies 2 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.1 --n-chunk 4000  # --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance   --fmax 2000
+${CME} --cache-file local.cache  --coinc coinc.xml  --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${GDB_V_INJ_CHANNEL_NAME} --psd-file "H1=psd.xml.gz" --psd-file "L1=psd.xml.gz" --psd-file "V1=psd.xml.gz"   --mass1 ${MASS1} --mass2 ${MASS2}  --save-samples  --time-marginalization --n-max 1000000 --n-eff 1000 --output-file CME-${gid}.xml.gz   --save-P 0.0001  --n-copies 2 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.1 --n-chunk 4000 --approximant $approximant --convergence-tests-on # --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance   --fmax 2000
 
 # Write commands to do some useful postprocessing.  Ideally part of the dag.
 #   -  convert the result to a flat ascii grid in m1,m2, lnL
 #   -  convert the individual XML outputs to a single compressed tabular ascii file
 #   -  make some detailed 2d plots.  These *should* be done by the DAG.  (We need to add a variable number of bins)
-cat > postprocess-massgrid.sh <<EOF
-for i in CME-*.xml.gz; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr  -d ' ' $i; done > massgrid.
+echo 'for i in CME-*.xml.gz; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr  -d ' ' $i; done > massgrid.txt &' > postprocess-massgrid.sh
+cat >> postprocess-massgrid.sh <<EOF
 convert_output_format_ile2inference  CME-*.xml.gz > flatfile-points.dat
 postprocess_1d_cumulative --save-sampler-file flatfile
 gzip flatfile-points.dat
 cat ILE_MASS*.cache > net-ile.cache 
 ligolw_sqlite CME-*.xml.gz -d net-ile.sqlite
-plot_like_contours --dimension1 longitude --dimension2 latitude --full-likelihood --input-cache=net-ile.cache
-plot_like_contours --dimension1 distance --dimension2 inclination --full-likelihood --input-cache=net-ile.cache
-plot_like_contours --dimension1 mchirp --dimension2 eta --full-likelihood --input-cache=net-ile.cache
-plot_like_contours --dimension1 coa_phase --dimension2 polarization --full-likelihood --input-cache=net-ile.cache
 EOF
 chmod a+x postprocess-massgrid.sh
 

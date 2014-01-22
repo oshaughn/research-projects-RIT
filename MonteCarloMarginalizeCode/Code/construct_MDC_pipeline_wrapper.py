@@ -50,7 +50,7 @@ GDB_V_INJ_CHANNEL_NAME=FAKE_h_16384Hz_4R
 
 # Write a command that has the same options but just evaluates the likliehood (marginalized) at the trigger masses.  Helpful for debugging setup
 #    - Comments left to indicate kind of arguments ROS wants on master
-echo  ${ILE}  --cache-file local.cache   --event-time ${EVENT_TIME} --mass1 ${MASS1} --mass2 ${MASS2} --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME}  --psd-file "H1=H1_psd.xml.gz" --psd-file "L1=L1_psd.xml.gz"  --reference-freq 0 --save-samples    --time-marginalization --n-max 200000 --n-eff 1000 --output-file ile-mdc-${event}.xml.gz   --save-P 0.0001 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.1 --n-chunk 4000   > testme-command.sh  #  --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance       --approximant $approximant
+echo  ${ILE}  --cache-file local.cache   --event-time ${EVENT_TIME} --mass1 ${MASS1} --mass2 ${MASS2} --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME}  --psd-file "H1=H1_psd.xml.gz" --psd-file "L1=L1_psd.xml.gz"  --reference-freq 0 --save-samples    --time-marginalization --n-max 200000 --n-eff 1000 --output-file ile-mdc-${event}.xml.gz   --save-P 0.0001 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.1 --n-chunk 4000 --approximant $approximant --convergence-tests-on   > testme-command.sh  #  --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance       
 # add postprocessing
 echo make_triplot ile-mdc-${event}.xml.gz -o ${event}-triplot.pdf >> testme-command.sh
 echo plot_integral ile-mdc-${event}.xml.gz --output integral.pdf >> testme-command.sh
@@ -60,18 +60,18 @@ chmod a+x testme-command.sh
 
 # Write the actual DAG
 #   - large n-max chosen for prototyping purposes.  Hopefully we will hit the n-eff limit before reaching it.
-${CME} --cache-file local.cache   --event-time ${EVENT_TIME} --mass1 ${MASS1} --mass2 ${MASS2} --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --psd-file "H1=H1_psd.xml.gz" --psd-file "L1=L1_psd.xml.gz"    --save-samples  --time-marginalization --n-max 1000000 --n-eff 1000 --output-file CME-${event}.xml.gz   --save-P 0.0001  --n-copies 2 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.1 --n-chunk 4000  # --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance   --fmax 2000
+${CME} --cache-file local.cache   --event-time ${EVENT_TIME} --mass1 ${MASS1} --mass2 ${MASS2} --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --psd-file "H1=H1_psd.xml.gz" --psd-file "L1=L1_psd.xml.gz"    --save-samples  --time-marginalization --n-max 1000000 --n-eff 1000 --output-file CME-${event}.xml.gz   --save-P 0.0001  --n-copies 2 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.1 --n-chunk 4000  --approximant $approximant --convergence-tests-on  # --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance  
 
 # Write a command to convert the result to a flat ascii grid in m1,m2, lnL.  Ideally part of postprocessing DAG
-cat > postprocess-massgrid.sh <<EOF
-for i in CME-*; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr  -d ' ' $i; done > massgrid.txt &
+echo 'for i in CME-*.xml.gz; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr  -d ' ' $i; done > massgrid.txt &' > postprocess-massgrid.sh
+cat >> postprocess-massgrid.sh <<EOF
 convert_output_format_ile2inference  CME-*.xml.gz > flatfile-points.dat
 postprocess_1d_cumulative --save-sampler-file flatfile --inj inj.xml --event $event
 gzip flatfile-points.dat
 cat ILE_MASS*.cache > net-ile.cache 
 ligolw_sqlite CME-*.xml.gz -d net-ile.sqlite
 extract_one_injection inj.xml $event
-make_triplot net-ile.sqlite --injection  selected_event.xml.gz
+#make_triplot net-ile.sqlite --injection  selected_event.xml.gz
 EOF
 chmod a+x postprocess-massgrid.sh
 
