@@ -1737,19 +1737,19 @@ def polar_angles_in_frame(frm,vec):
     xhat = frm[0]
     yhat = frm[1]
     zhat = frm[2]
-    print xhat, yhat, zhat
     th = np.arccos( np.dot(zhat,vec))/np.sqrt(np.dot(vec,vec)*np.dot(zhat,zhat))
     vPerp = vec - zhat *np.dot(zhat,vec)/np.sqrt(np.dot(zhat,zhat))
     ph = np.angle( np.dot(vPerp,xhat+ 1j*yhat))
     return th,ph
 
 
-def polar_angles_in_frame_alt(frmInverse, theta,phi): 
+def polar_angles_in_frame_alt(frm, theta,phi): 
     """
     Take polar angles in the default frame.
     Evaluate the polar angles of that unit vector in a new (orthonormal) frame 'frmInverse'.
     Probably easier to vectorize
     """
+    frmInverse = frm.T
     vec = np.cos(phi)*np.sin(theta)*frmInverse[0] \
         + np.sin(phi)*np.sin(theta)*frmInverse[1] \
         + np.cos(theta)*frmInverse[2] 
@@ -1773,5 +1773,5 @@ def rotation_matrix(axis,theta):
 # lalsimutils.polar_angles_in_frame(np.array([[1,0,0], [0,1,0], [0,0,1]]), lalsimutils.nhat(0.1, 0.2))
 # lalsimutils.polar_angles_in_frame(lalsimutils.rotation_matrix(np.array([0,0,1]), 0.1), lalsimutils.nhat(0.1, 0.2))
 # lalsimutils.polar_angles_in_frame(lalsimutils.rotation_matrix(np.array([0,1,0]), 0.01), lalsimutils.nhat(0.1, 0.0))
-# lalsimutils.polar_angles_in_frame_alt(lalsimutils.rotation_matrix(np.array([0,0,1]), 0.1), lalsimutils.nhat(0.1, 0.2))
-# lalsimutils.polar_angles_in_frame_alt(lalsimutils.rotation_matrix(np.array([0,1,0]), 0.01), lalsimutils.nhat(0.1, 0.0))
+# lalsimutils.polar_angles_in_frame_alt(lalsimutils.rotation_matrix(np.array([0,0,1]), 0.1), 0.1, 0.2)
+# lalsimutils.polar_angles_in_frame_alt(lalsimutils.rotation_matrix(np.array([0,1,0]), 0.01), 0.1, 0.0)
