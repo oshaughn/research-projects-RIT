@@ -249,12 +249,16 @@ r2 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[1])) # ... along eigendirections
 # Get pts. inside an ellipsoid oriented along eigenvectors
 Nrad = 10 # N.B. hard-coded to assume 10 pts per radial spoke!
 Nspokes = int(Nrandpts/Nrad)
+# This angle ensures a spoke will be placed along the equal mass line.
+# N.B. Nspokes must be even to ensure spokes along the equal mass line
+# pointing both directions from the center!
+ph0 = np.arctan(np.abs(r1) * (rot[0,1])/(np.abs(r2) * rot[0,0]) )
 if opts.linear_spoked:
 	print "Doing linear spoked placement"
-	rand_grid = eff.linear_spoked_ellipsoid(Nrad, Nspokes, [0.], r1, r2)
+	rand_grid = eff.linear_spoked_ellipsoid(Nrad, Nspokes, [ph0], r1, r2)
 elif opts.uniform_spoked:
 	print "Doing uniform spoked placement"
-	rand_grid = eff.uniform_spoked_ellipsoid(Nrad, Nspokes, [0.], r1, r2)
+	rand_grid = eff.uniform_spoked_ellipsoid(Nrad, Nspokes, [ph0], r1, r2)
 else: # do random, uniform placement
 	print "Doing uniform random placement"
 	rand_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
