@@ -29,17 +29,17 @@ test_ile: zero_noise.cache
 
 test_ile_postprocessing: zero_noise.cache
 	rm -f zero_noise.pdf
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --convergence-tests-on --n-eff 30
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --convergence-tests-on --n-eff 100
 	echo " Number of samples stored in this test (<number of samples performed): " `ligolw_print -t sim_inspiral -c alpha1 zero_noise.xml.gz | wc -l `
-	../../Code/convert_output_format_ile2inference zero_noise.xml.gz > flatfile-point.dat
+	../../Code/convert_output_format_ile2inference zero_noise.xml.gz > flatfile-points.dat
 	../../Code/postprocess_1d_cumulative --save-sampler-file flatfile --inj mdc.xml.gz 
 	../../Code/make_triplot zero_noise.xml.gz --output triplot.pdf
 	../../Code/plot_integral zero_noise.xml.gz -o integral.pdf
 
 test_ile_higher: zero_noise.cache
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 60000 --output-file zero_noise_higher.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --convergence-tests-on --n-eff 30  --amp-order -1 --l-max 4
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 60000 --output-file zero_noise_higher.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --convergence-tests-on --n-eff 100  --amp-order -1 --l-max 4
 	echo " Number of samples stored in this test (<number of samples performed): " `ligolw_print -t sim_inspiral -c alpha1 zero_noise.xml.gz | wc -l `
-	../../Code/convert_output_format_ile2inference zero_noise_higher.xml.gz > flatfile_higher-point.dat
+	../../Code/convert_output_format_ile2inference zero_noise_higher.xml.gz > flatfile_higher-points.dat
 	../../Code/postprocess_1d_cumulative --save-sampler-file flatfile_higher --inj mdc.xml.gz 
 	../../Code/make_triplot zero_noise_higher.xml.gz --output triplot.pdf
 	../../Code/plot_integral zero_noise_higher.xml.gz -o integral.pdf
@@ -47,8 +47,10 @@ test_ile_higher: zero_noise.cache
 
 test_ile_postprocessing_2ifo: zero_noise.cache
 	rm -f zero_noise.pdf
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME}  --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz"  --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 10000 --output-file zero_noise_2ifo.xml.gz --save-deltalnL 15 --save-P 0.0001 
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME}  --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz"  --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 10000 --output-file zero_noise_2ifo.xml.gz --save-deltalnL 15 --save-P 0.0001 --convergence-tests-on --n-eff 100
 	echo " Number of samples stored in this test (<number of samples performed): " `ligolw_print -t sim_inspiral -c alpha1 zero_noise.xml.gz | wc -l `
+	../../Code/convert_output_format_ile2inference zero_noise.xml.gz > flatfile_2ifo-points.dat
+	../../Code/postprocess_1d_cumulative --save-sampler-file flatfile_2ifo --inj mdc.xml.gz 
 	../../Code/plot_integral zero_noise_2ifo.xml.gz -o integral.pdf
 	../../Code/make_triplot zero_noise_2ifo.xml.gz --output triplot.pdf
 
