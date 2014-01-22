@@ -166,7 +166,7 @@ for key in values.keys():
     metadata[key] =  mean_and_dev(values[key], weights)
 
 if opts.inj:
-    Psig = ourparams.PopulatePrototypeSignal(opts)
+    Psig = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))[opts.event_id]  # Load in the physical parameters of the injection.  
     ppdata['ra'] = [Psig.phi,pcum_at(Psig.phi,values["ra"],weights)]
     ppdata['dec'] = [Psig.theta,pcum_at(Psig.theta,values["dec"], weights)]
     ppdata['phi'] = [Psig.phiref,pcum_at(Psig.phiref,values["phi"], weights)]
