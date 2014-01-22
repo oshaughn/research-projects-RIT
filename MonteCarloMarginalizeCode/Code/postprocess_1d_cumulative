@@ -39,7 +39,7 @@ import lalsimutils
 import bisect
 # Plot always, for now
 import matplotlib
-#matplotlib.use("Agg")  # Uncomment this line on clusters.  Need a better solution...
+matplotlib.use("Agg")  # Uncomment this line on clusters.  Need a better solution...
 fExtension = "jpeg"
 if matplotlib.get_backend() == "MacOSX":
     fExtension = "jpeg"
@@ -61,9 +61,17 @@ def pcum_at(val,arr, wt):
 
 
 # Parse standard arguments
-import ourparams
-import ourio
-opts, rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("--save-sampler-file", dest="points_file_base",default="sampler-output-file")
+parser.add_argument("--inj-xml", dest='inj', default=None,help="inspiral XML file containing injection information.")
+parser.add_argument("--event",type=int, dest="event_id", default=0,help="event ID of injection XML to use.")
+parser.add_argument( "--adapt-beta", type=float,default=1)
+parser.add_argument("--save-P",default=0.,type=float)
+parser.add_argument("--disable-triplot", default=False,action="store_true")
+parser.add_argument("--disable-1d-density", default=False,action="store_true")
+parser.add_argument("--disable-skymap", default=False,action="store_true")
+opts = parser.parse_args()
 
 values ={}
 metadata = {}
@@ -221,67 +229,66 @@ for nFig in np.arange(len(keynames)):
     plt.savefig(opts.points_file_base+"-posterior-cumulative-"+param+"-1d."+fExtension)
 
 
+    plt.clf()
     # Stage 1: PDF
-    plt.clf()
-#    hist, bins = np.histogram(vals, bins=100, density=True, weights=weights)  # density=True is not portable enough
-    hist, bins = np.histogram(vals, bins=100,  weights=wts)  # Be careful: vals have been sorted
-    dx = bins[1]-bins[0]
-    hist = hist/(np.sum(hist)*dx)
-    center = (bins[:-1]+bins[1:])/2
-    plt.plot(center,hist,label="weighted samples:"+param)
-#    hist, bins  = np.histogram(vals,bins=50,density=True)
-    hist, bins  = np.histogram(vals,bins=100)
-    dx = bins[1]-bins[0]
-    hist = hist/(np.sum(hist)*dx)
-    center = (bins[:-1]+bins[1:])/2
-    plt.plot(center,hist,label="unweighted samples:"+param+"",linestyle='--')
-    if opts.inj and not (param == "lnL"):
-        plt.plot([ppdata[param][0],ppdata[param][0]], [np.max(hist),np.max(hist)], color='k',linestyle='--')
-#    plt.xlim(xlow,xhigh)
-    plt.xlabel(param)
-    plt.title("1d density for "+param)
-    plt.legend()
-    plt.savefig(opts.points_file_base+"-posterior-density-"+param+"-1d."+fExtension)
-    plt.clf()
+    if not opts.disable_1d_density:
+        hist, bins = np.histogram(vals, bins=100,  weights=wts)  # Be careful: vals have been sorted
+        dx = bins[1]-bins[0]
+        hist = hist/(np.sum(hist)*dx)
+        center = (bins[:-1]+bins[1:])/2
+        plt.plot(center,hist,label="weighted samples:"+param)
+        hist, bins  = np.histogram(vals,bins=100)
+        dx = bins[1]-bins[0]
+        hist = hist/(np.sum(hist)*dx)
+        center = (bins[:-1]+bins[1:])/2
+        plt.plot(center,hist,label="unweighted samples:"+param+"",linestyle='--')
+        if opts.inj and not (param == "lnL"):
+            plt.plot([ppdata[param][0],ppdata[param][0]], [np.max(hist),np.max(hist)], color='k',linestyle='--')
+        plt.xlabel(param)
+        plt.title("1d density for "+param)
+        plt.legend()
+        plt.savefig(opts.points_file_base+"-posterior-density-"+param+"-1d."+fExtension)
+        plt.clf()
 
 
 ###
 ### Sky plots
 ###
-# Add posterior skymap: use a *fixed* resolution.  (Better adaptive solutions in routines by Leo Singer)
-import healpy
-nside = 32   # must be a power of 2.  This is 12,300 sky points, good enough for moderate-SNR work
-npix = healpy.nside2npix(nside)
-smap = np.zeros(npix)
-print " Sky resolution note: ", len(smap), len(weights)
+if not opts.disable_skymap:
+    # Add posterior skymap: use a *fixed* resolution.  (Better adaptive solutions in routines by Leo Singer)
+    import healpy
+    nside = 32   # must be a power of 2.  This is 12,300 sky points, good enough for moderate-SNR work
+    npix = healpy.nside2npix(nside)
+    smap = np.zeros(npix)
+    print " Sky resolution note: ", len(smap), len(weights)
 
-# Convert to theta, phi from ra, dec.  Be careful -- don't clobber phi_orb
-values["thetaSkyplot"] = 0.5*np.pi  - values["dec"]
-values["phiSkyplot"] = values["ra"]
+    # Convert to theta, phi from ra, dec.  Be careful -- don't clobber phi_orb
+    values["thetaSkyplot"] = 0.5*np.pi  - values["dec"]
+    values["phiSkyplot"] = values["ra"]
 
-# Convert sky locations to discrete pixels
-values["index"] = healpy.ang2pix(nside, values["thetaSkyplot"], values["phiSkyplot"],nest=False)
+    # Convert sky locations to discrete pixels
+    values["index"] = healpy.ang2pix(nside, values["thetaSkyplot"], values["phiSkyplot"],nest=False)
 
-# Loop over all pixel values.  Add more to the skymap.  [*slow* loop. Probably better python-y solution]
-for i in np.arange(len(weights)):
-    smap[values["index"][i]]+= weights[i]
-smap = smap/np.sum(smap)
+    # Loop over all pixel values.  Add more to the skymap.  [*slow* loop. Probably better python-y solution]
+    for i in np.arange(len(weights)):
+        smap[values["index"][i]]+= weights[i]
+    smap = smap/np.sum(smap)
 
-# Write skymap fits file
-import lalinference.bayestar.fits
-lalinference.bayestar.fits.write_sky_map(opts.points_file_base+"-skymap.fits.gz", smap,
-    creator="postprocess_1d_cumulative")
+    # Write skymap fits file
+    import lalinference.bayestar.fits
+    lalinference.bayestar.fits.write_sky_map(opts.points_file_base+"-skymap.fits.gz", smap,
+                                             creator="postprocess_1d_cumulative")
 
 
-# Create plot
-from lalinference.bayestar import fits as bfits
-from lalinference.bayestar import plot as bplot
-plt.clf()
-plt.subplot(111, projection='astro mollweide')
-bplot.healpix_heatmap(smap)
-bplot.colorbar(np.max(smap))  # Match Leo
-bplot.outline_text(plt.gca())    # Match Leo
-plt.savefig(opts.points_file_base+"-posterior-skymap."+fExtension)
+    # Create plot
+    from lalinference.bayestar import fits as bfits
+    from lalinference.bayestar import plot as bplot
+    plt.clf()
+    plt.subplot(111, projection='astro mollweide')
+    bplot.healpix_heatmap(smap)
+    bplot.colorbar(np.max(smap))  # Match Leo
+    bplot.outline_text(plt.gca())    # Match Leo
+    plt.savefig(opts.points_file_base+"-posterior-skymap."+fExtension)
 
 ###
 ### Bayestar sky localization data (using skymap)
@@ -316,18 +323,19 @@ if opts.inj:
 ### Triplots : because sql locks are ubiquitous
 ###
 
-import bayesutils
-p_syms = ["$\\iota$", "d", "$\\delta$", "$\\alpha$", "t", "$\\phi$", "$\\psi$"]
+if not opts.disable_triplot:
+    import bayesutils
+    p_syms = ["$\\iota$", "d", "$\\delta$", "$\\alpha$", "t", "$\\phi$", "$\\psi$"]
 # This causes a lot of memory duplication.  Would be better to use 'ret', above,
-samples = (np.array([values["incl"],values["dist"], values["dec"], values["ra"], values["tref"], values["phi"], values["psi"]])).T
-print len(samples), samples.shape
-if opts.inj:
-    injection = np.array([ppdata['incl'][0], ppdata['dist'][0], ppdata['dec'][0], ppdata["ra"][0], ppdata["tref"][0], ppdata["phi"][0], ppdata["psi"][0]])
-else:
-    injection=None
-bayesutils.triplot(samples, weights=weights, labels=p_syms, title=None, inj=injection)
-if matplotlib.get_backend() == "MacOSX":
-    plt.savefig(opts.points_file_base+ "-triplot.pdf")   # Workaround for Richard's laptop
-else:
-    plt.savefig(opts.points_file_base+ "-triplot."+fExtension)
+    samples = (np.array([values["incl"],values["dist"], values["dec"], values["ra"], values["tref"], values["phi"], values["psi"]])).T
+    print len(samples), samples.shape
+    if opts.inj:
+        injection = np.array([ppdata['incl'][0], ppdata['dist'][0], ppdata['dec'][0], ppdata["ra"][0], ppdata["tref"][0], ppdata["phi"][0], ppdata["psi"][0]])
+    else:
+        injection=None
+    bayesutils.triplot(samples, weights=weights, labels=p_syms, title=None, inj=injection)
+    if matplotlib.get_backend() == "MacOSX":
+        plt.savefig(opts.points_file_base+ "-triplot.pdf")   # Workaround for Richard's laptop
+    else:
+        plt.savefig(opts.points_file_base+ "-triplot."+fExtension)
 
