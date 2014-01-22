@@ -47,6 +47,8 @@ optp = OptionParser()
 # Options needed by this program only.
 optp.add_option("-X", "--mass-points-xml", action="store_true", help="Output mass points as a sim_inspiral table.")
 optp.add_option("-N", "--N-mass-pts", type=int, default=200, help="Number of intrinsic parameter (mass) values at which to compute marginalized likelihood. Default is 200.")
+optp.add_option("--uniform-spoked", action="store_true", help="Place mass pts along spokes uniform in volume (if omitted placement will be random and uniform in volume")
+optp.add_option("--linear-spoked", action="store_true", help="Place mass pts along spokes linear in radial distance (if omitted placement will be random and uniform in volume")
 
 # Options transferred to ILE
 optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
@@ -245,7 +247,17 @@ print rot
 r1 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[0])) # ellipse radii ...
 r2 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[1])) # ... along eigendirections
 # Get pts. inside an ellipsoid oriented along eigenvectors
-rand_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
+Nrad = 10 # N.B. hard-coded to assume 10 pts per radial spoke!
+Nspokes = int(Nrandpts/Nrad)
+if opts.linear_spoked:
+	print "Doing linear spoked placement"
+	rand_grid = eff.linear_spoked_ellipsoid(Nrad, Nspokes, [0.], r1, r2)
+elif opts.uniform_spoked:
+	print "Doing uniform spoked placement"
+	rand_grid = eff.uniform_spoked_ellipsoid(Nrad, Nspokes, [0.], r1, r2)
+else: # do random, uniform placement
+	print "Doing uniform random placement"
+	rand_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
 # Rotate to get coordinates in parameter basis
 rand_grid = np.array([ np.real( np.dot(rot, rand_grid[i]))
     for i in xrange(len(rand_grid)) ])
