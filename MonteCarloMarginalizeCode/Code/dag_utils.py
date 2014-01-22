@@ -191,6 +191,7 @@ def write_posterior_plot_sub(tag='plot_post', exe=None, log_dir=None, output_dir
     plot_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     plot_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
+    plot_job.add_opt("show-points", None)
     plot_job.add_opt("dimension1", "mchirp")
     plot_job.add_opt("dimension2", "eta")
     plot_job.add_opt("input-cache", "ILE_all.cache")
@@ -224,5 +225,33 @@ def write_tri_plot_sub(tag='plot_tri', exe=None, log_dir=None, output_dir="./"):
 
     plot_job.add_condor_cmd('getenv', 'True')
     #plot_job.add_condor_cmd('request_memory', '2048')
+    
+    return plot_job, plot_sub_name
+
+def write_1dpos_plot_sub(tag='1d_post_plot', exe=None, log_dir=None, output_dir="./"):
+    """
+    Write a submit file for launching jobs to coalesce ILE output
+    """
+
+    exe = exe or which("postprocess_1d_cumulative")
+    plot_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    plot_sub_name = tag + '.sub'
+    plot_job.set_sub_file(plot_sub_name)
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(cluster)-$(process)"
+    plot_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    plot_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    plot_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    plot_job.add_opt("save-sampler-file", "ILE_$(macromassid).sqlite")
+    plot_job.add_opt("disable-triplot", None)
+    plot_job.add_opt("disable-1d-density", None)
+
+    plot_job.add_condor_cmd('getenv', 'True')
+    plot_job.add_condor_cmd('request_memory', '2048')
     
     return plot_job, plot_sub_name

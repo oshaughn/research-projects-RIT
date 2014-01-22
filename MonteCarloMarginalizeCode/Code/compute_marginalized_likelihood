@@ -9,17 +9,22 @@ to perform this calculation.
 import os
 import sys
 import stat
+from functools import partial
+from optparse import OptionParser, OptionGroup
+
+import numpy as np
+
+import lal
+import lalsimulation as lalsim
+
 import glue.lal
 from glue.ligolw import utils, ligolw, lsctables, table
 from glue.ligolw.utils import process
-import lal
-import lalsimulation as lalsim
+from glue import pipeline
+
 import lalsimutils as lsu
 import effectiveFisher as eff
 import dag_utils
-import numpy as np
-from functools import partial
-from optparse import OptionParser, OptionGroup
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -297,7 +302,6 @@ if opts.mass_points_xml:
     utils.write_filename(xmldoc, fname, gz=True)
 
 # Write the sub file and DAG
-from glue import pipeline
 dag = pipeline.CondorDAG(log=os.getcwd())
 
 mkdir(log_dir) # Make a directory to hold log files of jobs
@@ -378,6 +382,17 @@ for i, (m1, m2) in enumerate(m1m2_grid):
     dag.add_node(tri_plot_node)
     tri_plot_node.add_parent(sql_node)
 
+    pos_1d_plot_job_type, pos_1d_plot_job_name = dag_utils.write_1dpos_plot_sub(tag="1d_post_plot", log_dir=log_dir)
+    pos_1d_plot_job_type.write_sub_file()
+    pos_1d_plot_node = pipeline.CondorDAGNode(pos_1d_plot_job_type)
+    pos_1d_plot_node.add_macro("macromassid", mass_grouping)
+    pos_1d_plot_node.set_category("PLOT")
+    dag.add_node(pos_1d_plot_node)
+    pos_1d_plot_node.add_parent(sql_node)
+
+    # FIXME: The final mass posterior plot isn't really dependent on either of
+    # the inferior plotting jobs, it's just kind of the cap on the run
+    pos_plot_node.add_parent(pos_1d_plot_node)
     pos_plot_node.add_parent(tri_plot_node)
 
 dag_name="marginalize_extrinsic_parameters"
