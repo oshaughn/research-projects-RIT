@@ -41,7 +41,8 @@ except SAXException:
     samples = xmlutils.db_to_samples(args[0], lsctables.SimInspiralTable, params)
 
 # calculate weights for each sample
-weights = [numpy.exp(s.alpha1)*s.alpha2/s.alpha3 for s in samples]
+lnLmax = numpy.max([s.alpha1 for s in samples])
+weights = [numpy.exp(s.alpha1 - lnLmax)*s.alpha2/s.alpha3 for s in samples]   # avoid overflow and nans (white crap in plots) - underflow is better
 
 # unpack
 samples = numpy.array( [getattr(s, p) for s in samples for p in params[:nparm]] )
