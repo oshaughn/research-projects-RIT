@@ -157,7 +157,7 @@ ${CME} --cache-file local.cache  --coinc coinc.xml  --channel-name H1=${INJ_CHAN
 #   -  convert the result to a flat ascii grid in m1,m2, lnL
 #   -  convert the individual XML outputs to a single compressed tabular ascii file
 #   -  make some detailed 2d plots.  These *should* be done by the DAG.  (We need to add a variable number of bins)
-echo 'for i in CME-*.xml.gz; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr  -d ' ' $i; done > massgrid.txt &' > postprocess-massgrid.sh
+echo 'for i in CME-*.xml.gz; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr -c tau0  -d ' ' $i; done > massgrid.txt &' > postprocess-massgrid.sh
 cat >> postprocess-massgrid.sh <<EOF
 convert_output_format_ile2inference  CME-*.xml.gz > flatfile-points.dat
 postprocess_1d_cumulative --save-sampler-file flatfile
