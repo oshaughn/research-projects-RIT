@@ -39,7 +39,7 @@ if __file__ == sys.argv[0]:
         # Read injection parameters
         sim_inspiral_table = table.get_table(utils.load_filename(opts.inj), lsctables.SimInspiralTable.tableName)
         Psig = lalsimutils.ChooseWaveformParams()
-        Psig.copy_lsctables_sim_inspiral(sim_inspiral_table[opts.event])
+        Psig.copy_lsctables_sim_inspiral(sim_inspiral_table[opts.event_id])
     
         data_fake_dict ={}
         psd_dict = {}
