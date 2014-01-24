@@ -56,11 +56,19 @@ echo make_triplot ile-mdc-${event}.xml.gz -o ${event}-triplot.pdf >> testme-comm
 echo plot_integral ile-mdc-${event}.xml.gz --output integral.pdf >> testme-command.sh
 chmod a+x testme-command.sh
 
+# Make another command, to test operation at a known sky location.  Useful comparison against all-sky search
+echo  ${ILE}  --cache-file local.cache   --event-time ${EVENT_TIME} --mass1 ${MASS1} --mass2 ${MASS2} `xmlInspiralToILEPinned.py inj.xml ${event} right_ascension declination`  --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME}  --psd-file "H1=H1_psd.xml.gz" --psd-file "L1=L1_psd.xml.gz"  --reference-freq 0 --save-samples    --time-marginalization --n-max 200000 --n-eff 1000 --output-file ile-mdc-${event}.xml.gz   --save-P 0.0001 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.1 --n-chunk 4000 --approximant $approximant --convergence-tests-on   > testme-command-skypinned.sh  #  --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance       
+# add postprocessing
+echo make_triplot ile-mdc-${event}.xml.gz -o ${event}-triplot.pdf >> testme-command-skypinned.sh
+echo plot_integral ile-mdc-${event}.xml.gz --output integral.pdf >> testme-command-skypinned.sh
+chmod a+x testme-command-skypinned.sh
+
+
 
 
 # Write the actual DAG
 #   - large n-max chosen for prototyping purposes.  Hopefully we will hit the n-eff limit before reaching it.
-${CME} --cache-file local.cache   --event-time ${EVENT_TIME} --mass1 ${MASS1} --mass2 ${MASS2} --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --psd-file "H1=H1_psd.xml.gz" --psd-file "L1=L1_psd.xml.gz"    --save-samples  --time-marginalization --n-max 1000000 --n-eff 1000 --output-file CME-${event}.xml.gz   --save-P 0.0001  --n-copies 2 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.1 --n-chunk 4000  --approximant $approximant --convergence-tests-on  # --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance  
+${CME} --cache-file local.cache   --event-time ${EVENT_TIME} --mass1 ${MASS1} --mass2 ${MASS2} --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --psd-file "H1=H1_psd.xml.gz" --psd-file "L1=L1_psd.xml.gz"    --save-samples  --time-marginalization --n-max 1000000 --n-eff 1000 --output-file CME-${event}.xml.gz   --save-P 0.0001  --n-copies 10 --fmax 2000 --adapt-weight-exponent ${BETA} --adapt-floor-level 0.1 --n-chunk 4000  --approximant $approximant --convergence-tests-on  # --adapt-parameter right_ascension --adapt-parameter declination --adapt-parameter distance  
 
 # Write a command to convert the result to a flat ascii grid in m1,m2, lnL.  Ideally part of postprocessing DAG
 echo 'for i in CME-*.xml.gz; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 -c snr -c tau0  -d ' ' $i; done > massgrid.txt &' > postprocess-massgrid.sh
