@@ -55,6 +55,7 @@ optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file contai
 optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
 optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
+optp.add_option("-s", "--sim-xml", help="XML file containing injected event information.")
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
 optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
 optp.add_option("-a", "--approximant", default="TaylorT4", help="Waveform family to use for templates. Any approximant implemented in LALSimulation is valid.")
@@ -392,7 +393,7 @@ for i, (m1, m2) in enumerate(m1m2_grid):
     sql_node.set_category("SQL")
     dag.add_node(sql_node)
 
-    tri_plot_job_type, tri_plot_job_name = dag_utils.write_tri_plot_sub(tag="tri_plot", log_dir=log_dir)
+    tri_plot_job_type, tri_plot_job_name = dag_utils.write_tri_plot_sub(tag="tri_plot", injection_file=opts.sim_xml, log_dir=log_dir)
     tri_plot_job_type.write_sub_file()
     tri_plot_node = pipeline.CondorDAGNode(tri_plot_job_type)
     tri_plot_node.add_macro("macromassid", mass_grouping)
