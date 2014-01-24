@@ -201,7 +201,7 @@ def write_posterior_plot_sub(tag='plot_post', exe=None, log_dir=None, output_dir
     
     return plot_job, plot_sub_name
 
-def write_tri_plot_sub(tag='plot_tri', exe=None, log_dir=None, output_dir="./"):
+def write_tri_plot_sub(tag='plot_tri', injection_file=None, exe=None, log_dir=None, output_dir="./"):
     """
     Write a submit file for launching jobs to coalesce ILE output
     """
@@ -221,6 +221,8 @@ def write_tri_plot_sub(tag='plot_tri', exe=None, log_dir=None, output_dir="./"):
     plot_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
     plot_job.add_opt("output", "ILE_$(macromassid).png")
+    if injection_file is not None:
+        plot_job.add_opt("injection", injection_file)
     plot_job.add_arg("ILE_$(macromassid).sqlite")
 
     plot_job.add_condor_cmd('getenv', 'True')
