@@ -75,6 +75,8 @@ echo 'for i in CME-*.xml.gz; do ligolw_print -t sngl_inspiral -c mass1 -c mass2 
 cat >> postprocess-massgrid.sh <<EOF
 convert_output_format_ile2inference  CME-*.xml.gz > flatfile-points.dat
 postprocess_1d_cumulative --save-sampler-file flatfile --inj inj.xml --event $event
+ln -s flatfile-points.dat flatfile_noweight-points.dat
+postprocess_1d_cumulative --adapt-beta 0 --save-sampler-file flatfile_noweight --disable-1d-density   # to see where skymap samples go
 gzip flatfile-points.dat
 cat ILE_MASS*.cache > net-ile.cache 
 ligolw_sqlite CME-*.xml.gz -d net-ile.sqlite
