@@ -1,4 +1,4 @@
-
+SHELL=/bin/bash
 
 LIGO_CHANNEL_NAME=GAUSSIAN
 #VIRGO_CHANNEL_NAME=h_16384Hz
@@ -34,7 +34,7 @@ archive:
 	rm -rf logs/*
 
 adapt_beta.txt: ${INJ_XML}
-	if [ ${INJ_XML} == "mdc.xml.gz" ]; then util_AdaptiveExponent.py --inj ${INJ_XML} --channel-name "H1:FAKE-STRAIN" --channel-name "L1:FAKE-STRAIN" --psd-file-singleifo "H1=H1_PSD_measured.xml.gz" --psd-file-singleifo "L1=L1_PSD_measured.xml.gz" --Nskip 1000 1> adapt_beta.txt; else util_AdaptiveExponent.py --coinc ${INJ_XML} --Nskip 1000 1> adapt_beta.txt; fi
+	if [ ${INJ_XML} == "mdc.xml.gz" ]; then util_AdaptiveExponent.py --inj ${INJ_XML} --channel-name "H1:FAKE-STRAIN" --channel-name "L1:FAKE-STRAIN" --psd-file-singleifo "H1=H1_PSD_measured.xml.gz" --psd-file-singleifo "L1=L1_PSD_measured.xml.gz" --Nskip 1000 | tail -1 > adapt_beta.txt; else util_AdaptiveExponent.py --coinc ${INJ_XML} --Nskip 1000 | tail -1 > adapt_beta.txt; fi
 
 HL-FAKE_SEARCH.xml.gz: mdc.xml.gz H1_PSD_measured.xml.gz L1_PSD_measured.xml.gz
 	~/excesspower/excesspower-utils/bin/ligolw_inj_snr  \
@@ -53,11 +53,8 @@ logevidence_hist.png: ILE_all.cache HL-FAKE_SEARCH.xml.gz
 ILE_all.cache:
 	find sqlite -name "*.sqlite" | lalapps_path2cache -a > ILE_all.cache
 
-marginalize_extrinsic_parameters.dag: 2015_bns_mdc.cache H1_PSD_measured.xml.gz L1_PSD_measured.xml.gz condor_config.local adapt_beta.txt
+marginalize_extrinsic_parameters.dag: 2015_bns_mdc.cache H1_PSD_measured.xml.gz L1_PSD_measured.xml.gz adapt_beta.txt
 	compute_marginalized_likelihood --cache-file 2015_bns_mdc.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --psd-file "H1=H1_PSD_measured.xml.gz" --psd-file "L1=L1_PSD_measured.xml.gz" --event-time ${EVENT_TIME} --mass1 ${MASS1} --mass2 ${MASS2} --reference-freq 0.0 --save-samples --output-file 2015_bns_noise.xml.gz --n-copies 10 --save-P 1e-4 --fmax 2000 --n-chunk 1000 --time-marginalization --adapt-weight-exponent `cat adapt_beta.txt`
-
-condor_config.local:
-	ln -s ../condor_config.local
 
 test_ile_sim_only_noise: 2015_bns_noise.cache H1_PSD_measured.xml.gz L1_PSD_measured.xml.gz
 	integrate_likelihood_extrinsic --cache-file 2015_bns_noise.cache --channel-name H1=${LIGO_CHANNEL_NAME} --channel-name L1=${LIGO_CHANNEL_NAME} --psd-file "H1=H1_PSD_measured.xml.gz" --psd-file "L1=L1_PSD_measured.xml.gz" --event-time ${EVENT_TIME} --mass1 ${MASS1} --mass2 ${MASS2} --pin-to-sim ${INJ_XML} --reference-freq 0.0 --fmax 2000
