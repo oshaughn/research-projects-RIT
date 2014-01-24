@@ -7,10 +7,8 @@ INJ_XML=$(shell if [ -f mdc.xml.gz ]; then echo "mdc.xml.gz" ; else echo "coinc.
 INJECTION_FRAME_TYPE=2015_bns_noise_mdc
 
 INJECTION_DEST=2015_bns_noise_mdc/
-#MASS1=
-MASS1=`ligolw_print -c mass1 ${INJ_XML}`
-#MASS2=
-MASS2=`ligolw_print -c mass2 ${INJ_XML}`
+MASS1=$(shell if [ ${INJ_XML} == "mdc.xml.gz" ]; then ligolw_printi -t sim_inspiral -c mass1 ${INJ_XML}; else ligolw_print -t coinc_inspiral -c mass1 ${INJ_XML}; fi )
+MASS2=$(shell if [ ${INJ_XML} == "mdc.xml.gz" ]; then ligolw_printi -t sim_inspiral -c mass2 ${INJ_XML}; else ligolw_print -t coinc_inspiral -c mass2 ${INJ_XML}; fi )
 #EVENT_TIME=
 #EVENT_TIME=`ligolw_print -c geocent_end_time -c geocent_end_time_ns -d "." ${INJ_XML}`
 EVENT_TIME=$(shell if [ ${INJ_XML} == "mdc.xml.gz" ]; then ligolw_print -c geocent_end_time -c geocent_end_time_ns -d "." ${INJ_XML}; else ligolw_print -c end_time -c end_time_ns -d "." ${INJ_XML}; fi )
@@ -23,7 +21,8 @@ LIGO_FRAME_DURATION=64 # s
 LIGO_FRAME_DURATION_COMB=64 # s
 LIGO_N_FRAMES=1
 
-postprocess: marginalize_extrinsic_parameters.dag neff_evid.png logevidence_hist.png
+#postprocess: neff_evid.png logevidence_hist.png
+postprocess:
 	mkdir xml sqlite plots
 	mv 2015_bns_*.xml.gz xml/
 	mv ILE*.sqlite sqlite/
@@ -33,6 +32,9 @@ postprocess: marginalize_extrinsic_parameters.dag neff_evid.png logevidence_hist
 archive:
 	tar zcf run_logs.tgz logs/* 
 	rm -rf logs/*
+
+adapt_beta.txt: ${INJ_XML}
+	if [ ${INJ_XML} == "mdc.xml.gz" ]; then util_AdaptiveExponent.py --inj ${INJ_XML} --channel-name "H1:FAKE-STRAIN" --channel-name "L1:FAKE-STRAIN" --psd-file-singleifo "H1=H1_PSD_measured.xml.gz" --psd-file-singleifo "L1=L1_PSD_measured.xml.gz" --Nskip 1000 1> adapt_beta.txt; else util_AdaptiveExponent.py --coinc ${INJ_XML} --Nskip 1000 1> adapt_beta.txt; fi
 
 HL-FAKE_SEARCH.xml.gz: mdc.xml.gz H1_PSD_measured.xml.gz L1_PSD_measured.xml.gz
 	~/excesspower/excesspower-utils/bin/ligolw_inj_snr  \
@@ -51,8 +53,8 @@ logevidence_hist.png: ILE_all.cache HL-FAKE_SEARCH.xml.gz
 ILE_all.cache:
 	find sqlite -name "*.sqlite" | lalapps_path2cache -a > ILE_all.cache
 
-marginalize_extrinsic_parameters.dag: 2015_bns_mdc.cache H1_PSD_measured.xml.gz L1_PSD_measured.xml.gz condor_config.local
-	compute_marginalized_likelihood --cache-file 2015_bns_mdc.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --psd-file "H1=H1_PSD_measured.xml.gz" --psd-file "L1=L1_PSD_measured.xml.gz" --event-time ${EVENT_TIME} --mass1 ${MASS1} --mass2 ${MASS2} --reference-freq 0.0 --save-samples --output-file 2015_bns_noise.xml.gz --n-copies 10 --save-P 1e-4 --fmax 2000 --n-chunk 1000 --time-marginalization
+marginalize_extrinsic_parameters.dag: 2015_bns_mdc.cache H1_PSD_measured.xml.gz L1_PSD_measured.xml.gz condor_config.local adapt_beta.txt
+	compute_marginalized_likelihood --cache-file 2015_bns_mdc.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --psd-file "H1=H1_PSD_measured.xml.gz" --psd-file "L1=L1_PSD_measured.xml.gz" --event-time ${EVENT_TIME} --mass1 ${MASS1} --mass2 ${MASS2} --reference-freq 0.0 --save-samples --output-file 2015_bns_noise.xml.gz --n-copies 10 --save-P 1e-4 --fmax 2000 --n-chunk 1000 --time-marginalization --adapt-weight-exponent `cat adapt_beta.txt`
 
 condor_config.local:
 	ln -s ../condor_config.local
