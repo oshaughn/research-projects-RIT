@@ -212,4 +212,7 @@ if opts.show_points:
     pyplot.scatter(d1, d2, s=5.0, c=like)
 pyplot.xlabel(opts.dimension1)
 pyplot.ylabel(opts.dimension2)
-pyplot.savefig("%s_%s_likelihood.%s" % (opts.dimension1, opts.dimension2, opts.fig_extension))
+if opts.log_evidence:
+    pyplot.savefig("%s_%s_logevidence.%s" % (opts.dimension1, opts.dimension2, opts.fig_extension))
+else:
+    pyplot.savefig("%s_%s_evidence.%s" % (opts.dimension1, opts.dimension2, opts.fig_extension))
