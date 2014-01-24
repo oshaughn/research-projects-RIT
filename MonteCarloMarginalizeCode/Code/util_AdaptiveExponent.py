@@ -4,12 +4,12 @@ import sys
 
 import numpy as np
 
-from glue.ligolw import utils, lsctables, table
+from glue.ligolw import utils, lsctables, table, ligolw
+lsctables.use_in(ligolw.LIGOLWContentHandler)
 from pylal.series import read_psd_xmldoc
 
 import lal
 
-import factored_likelihood
 import lalsimutils
 import ourparams
 opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
@@ -78,7 +78,7 @@ if __file__ == sys.argv[0]:
 
         for det in psd_dict:
             Psig.detector = det
-            data_fake_dict[det] = factored_likelihood.non_herm_hoff(Psig)
+            data_fake_dict[det] = lalsimutils.non_herm_hoff(Psig)
 
             deltaF = data_fake_dict[det].deltaF
             fmin = psd_dict[det].f0
