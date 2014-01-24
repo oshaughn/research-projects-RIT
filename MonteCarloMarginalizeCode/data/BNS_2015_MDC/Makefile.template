@@ -7,8 +7,8 @@ INJ_XML=$(shell if [ -f mdc.xml.gz ]; then echo "mdc.xml.gz" ; else echo "coinc.
 INJECTION_FRAME_TYPE=2015_bns_noise_mdc
 
 INJECTION_DEST=2015_bns_noise_mdc/
-MASS1=$(shell if [ ${INJ_XML} == "mdc.xml.gz" ]; then ligolw_printi -t sim_inspiral -c mass1 ${INJ_XML}; else ligolw_print -t coinc_inspiral -c mass1 ${INJ_XML}; fi )
-MASS2=$(shell if [ ${INJ_XML} == "mdc.xml.gz" ]; then ligolw_printi -t sim_inspiral -c mass2 ${INJ_XML}; else ligolw_print -t coinc_inspiral -c mass2 ${INJ_XML}; fi )
+MASS1=$(shell if [ ${INJ_XML} == "mdc.xml.gz" ]; then ligolw_print -t sim_inspiral -c mass1 ${INJ_XML}; else ligolw_print -t coinc_inspiral -c mass1 ${INJ_XML}; fi )
+MASS2=$(shell if [ ${INJ_XML} == "mdc.xml.gz" ]; then ligolw_print -t sim_inspiral -c mass2 ${INJ_XML}; else ligolw_print -t coinc_inspiral -c mass2 ${INJ_XML}; fi )
 #EVENT_TIME=
 #EVENT_TIME=`ligolw_print -c geocent_end_time -c geocent_end_time_ns -d "." ${INJ_XML}`
 EVENT_TIME=$(shell if [ ${INJ_XML} == "mdc.xml.gz" ]; then ligolw_print -c geocent_end_time -c geocent_end_time_ns -d "." ${INJ_XML}; else ligolw_print -c end_time -c end_time_ns -d "." ${INJ_XML}; fi )
