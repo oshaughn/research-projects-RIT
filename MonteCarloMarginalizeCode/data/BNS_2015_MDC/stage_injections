@@ -25,6 +25,13 @@ def ready_template(fname, event):
 
     return "".join(lines)
 
+def get_sim_inspiral_by_id(filename, ids):
+    si_table = table.get_table(utils.load_filename(filename), lsctables.SimInspiralTable.tableName)
+    new_table = lsctables.New(lsctables.SimInspiralTable, si_table.validcolumns.keys())
+    new_table.extend(filter(lambda si: int(si.simulation_id) in ids, si_table))
+
+    return new_table
+
 dirs = []
 if sys.argv[1].endswith("xml") or sys.argv[1].endswith("xml.gz"):
     print "Assuming sim_inspiral"
@@ -56,7 +63,12 @@ elif sys.argv[1].endswith("sqlite"):
     cols = ("coinc_event_id", "end_time", "end_time_ns", "snr")
     new_table = lsctables.New(lsctables.CoincInspiralTable, cols)
 
-    ids = map(int, sys.argv[2:])
+    try:
+        sim_table = None
+        ids = map(int, sys.argv[2:])
+    except ValueError:
+        sim_table = sys.argv[2]
+        ids = map(int, sys.argv[3:])
 
     connection = sqlite3.connect(sys.argv[1])
     get_coinc.add_tmp_table(connection)
@@ -84,9 +96,13 @@ elif sys.argv[1].endswith("sqlite"):
         sngl = sngl_table.RowType()
         sngl.mass1, sngl.mass2 = m1, m2
         sngl_table.append(sngl)
- 
+
         xmldoc = ligolw.Document()
         xmldoc.appendChild(ligolw.LIGO_LW())
+
+        if sim_table is not None:
+            s_table = get_sim_inspiral_by_id(sim_table, (int(simid),))
+            xmldoc.childNodes[0].appendChild(s_table)
         xmldoc.childNodes[0].appendChild(indv_table)
         xmldoc.childNodes[0].appendChild(sngl_table)
         utils.write_filename(xmldoc, bdir + "/coinc.xml.gz", gz=True)
