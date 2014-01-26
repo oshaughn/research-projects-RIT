@@ -17,9 +17,12 @@ from glue.ligolw import utils, table, lsctables
 
 import xmlutils
 
-def calculate_evidence(snr_ar):
+def calculate_evidence(snr_ar, log=False):
     # FIXME: Doesn't understand runs of varying length yet
-    return sum([numpy.exp(snr) for snr in snr_ar])/len(snr_ar)
+    if log:
+        return reduce(numpy.logaddexp, snr_ar) - numpy.log(len(snr_ar))
+    else:
+        return sum(map(numpy.exp, snr_ar))/len(snr_ar)
 
 def mchirp_eta(m1, m2):
     eta = m1*m2/(m1 + m2)**2
@@ -49,18 +52,14 @@ if opts.dimension1 in ["mass1", "mass2", "mchirp", "eta"] and opts.dimension2 in
         except:
             # FIXME: hardcoding
             tbl = xmlutils.db_to_samples(arg, lsctables.SnglInspiralTable, ["mass1", "mass2", "snr"])
-            # FIXME: This means no points had any significant support
-            if len(tbl) == 0:
-                continue
-            like.append( calculate_evidence([row.snr for row in tbl if row.snr is not None]) )
+            like.append(calculate_evidence([row.snr for row in tbl if row.snr is not None], log=opts.log_evidence))
+
             # FIXME: order
             if opts.dimension1 in ["mchirp", "eta"] and opts.dimension2 in ["mchirp", "eta"]:
                 points.append( [mchirp_eta(row.mass1, row.mass2) for row in tbl][0] )
-                #points.append( (points[-1][0], 0.251) )
-                #like.append( 0 )
             else:
                 points.append( [(row.mass1, row.mass2) for row in tbl][0] )
-    
+
     d1, d2 = numpy.array(points).T
 elif opts.dimension2 is None:
 
@@ -186,10 +185,7 @@ d1d2 = numpy.array(zip(d1g.flatten(), d2g.flatten()))
 int_like = griddata(d1, d2, like, d1g, d2g)
 
 
-if opts.log_evidence:
-    pyplot.contourf(d1g, d2g, numpy.log(int_like), 20)
-else:
-    pyplot.contourf(d1g, d2g, int_like, 20)
+pyplot.contourf(d1g, d2g, int_like, 20)
 
 if opts.show_mdc:
 
