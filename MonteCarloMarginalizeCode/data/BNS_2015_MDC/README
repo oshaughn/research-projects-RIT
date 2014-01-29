@@ -1,32 +1,61 @@
 Files/Scripts that you will need to do *all* of the targets (those not included in our standard suite)
 
-1. ligolw_inj_snr (part of excesspower-utils): Used to calculate the network SNR of a simulation entry.
-    - Should really use lalsimutils based library code
-    - In the meantime, can clone: https://github.com/cpankow/excesspower-utils.git
-        - check bin/ligolw_inj_snr
-2. H1L1-ALL_LLOID_1_injections-966384015-5184000.sqlite
+1. H1L1-ALL_LLOID_1_injections-966384015-5184000.sqlite
     - To get coinc information (masses, snr)
     - At CIT: /home/alexander.urban/Raven/2015/bayestar_injection_run/H1L1-ALL_LLOID_1_injections-966384015-5184000.sqlite
+    - At UWM: /home/pankow/research-projects/MonteCarloMarginalizeCode/data/BNS_2015_MDC/H1L1-ALL_LLOID_1_injections-966384015-5184000.sqlite
 
-Instructions:
 
-1. Go into stage_injections. One can give an individual sim_id to stage from the injections XML (2015_BNS_injections.xml) or if no additional arguments are given, it will check the condition (currently all injections between 10 < d < 50 Mpc) and do each.
-2. This will create a sim_id_X directory with a Makefile and a mdc.xml.gz. Going into this directory and running:
+-- Stage analysis directory --
+There is a top level Makefile and a Makefile.template, the former is used to perform actions over all analysis directories and the latter is copied to individual analysis directories. Most of the work is done by the Makefile in the analysis directory.
 
-    make marginalize_extrinsic_parameters.dag
+-- To create an analysis directory from a sim_inspiral table --
+
+Use stage_injections: 
+
+python stage_injections 2015_BNS_injections.xml.gz [sim_id_1] [sim_id_2] ...
+
+One can give an individual sim ids to stage from the injections XML (2015_BNS_injections.xml) or if no additional arguments are given, it will check the condition (currently all injections between 10 < d < 50 Mpc) and do each.
+
+This will create a sim_id_X directory with a Makefile and a mdc.xml.gz. This file contains the sim inspiral row you selected.
+
+-- To create an analysis directory from a coinc_inspiral table --
+
+Use stage_injections: 
+
+python H1L1-ALL_LLOID_1_injections-966384015-5184000.sqlite stage_injections 2015_BNS_injections.xml.gz [sim_id_1] [sim_id_2] ...
+
+Note that the sim_id_X is not a typo. The script will look for the coinc associated with the given injection and use it to set up the rest of the run. It should inform you of the mapping it makes.
+
+This will create a coinc_id_X directory with a Makefile and a coinc.xml.gz. This file contains the sim_inspiral, the corresponding coinc_inspiral, and the sngl_inspirals that were coincided to obtain the coinc. This is necessary because the coinc_inspiral does not contain all the necessary information to run (namely mass1/2).
+
+-- To set up an individual analysis directory --
+
+Going into the specific directory and running:
+
+    make -j marginalize_extrinsic_parameters.dag
 
 will create all requisite data and DAG products.
 
-    - If one wishes to stage *all* the directories, the top level Makefile has the all_dirs target. Use this.
+-- To set up all analysis directories at once --
 
-3. Running an individual DAG is no different than normal. To make a composite DAG from all staged events with the ``build_dag'' script, as so:
+If one wishes to stage *all* the directories, the top level Makefile has the all_dirs (sim) and all_dirs_coinc (coinc) targets. Use these to do data and DAG generation in parallel.
 
-    ./build_dag "sim_id_*_common/"
+-- Running a DAG(s) --
 
-Where the quotes are necessary to pass the glob directly to the script.
+Running an individual DAG is no different than normal. To make a composite DAG from all staged events with the ``build_dag'' script, as so:
 
-3. After the DAG is completed, in the subdirectory, one can clean up and get some postrun statistics with:
+    ./build_dag "sim_id_*/"
+
+Where the quotes are necessary to pass the glob directly to the script. Note that this runs all the events as SUBDAGs and so the following submit is required:
+
+condor_submit_dag -UseDagDir /path/to/dag
+
+This will force the DAG to run its own directory. I will remove the need for this soon.
+
+-- Cleaning up --
+After the DAG is completed, in the subdirectory, one can clean up and get some postrun statistics with:
 
     make postprocess
 
-    - This currently requires ligolw_inj_snr (explained above)
+This will set up some directories and move plots and data products around. Only use this after the run has completed or you may disrupt the DAG workflow.
