@@ -210,8 +210,7 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, cross
         # This is the GPS time at the detector
         t_det = ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
         det_rholms = {}  # rholms evaluated at time at detector
-        for key in rholms_intp[det]:
-            func = rholms_intp[det][key]
+        for key, func in rholms_intp[det].iteritems():
             det_rholms[key] = func(float(t_det)+tvals)
 
         lnL += SingleDetectorLogLikelihood(det_rholms, CT, Ylms, F, dist)
@@ -472,6 +471,9 @@ def InterpolateRholms(rholms, t):
     rholm_intp = {}
     for mode in rholms.keys():
         rholm = rholms[mode]
+        # The mode is identically zero, don't bother with it
+        if sum(abs(rholm.data.data)) == 0.0:
+            continue
         rholm_intp[ mode ] = InterpolateRholm(rholm, t)
 
     return rholm_intp
