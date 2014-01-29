@@ -1,11 +1,13 @@
 
-SUBDIRS=$(wildcard sim_id_*)
+SUBDIRS_SIM=$(wildcard sim_id_*)
+SUBDIRS_COINC=$(wildcard coinc_id_*)
 
-.PHONY: all_dirs
+.PHONY: all_dirs all_dirs_coinc
 
-all_dirs: $(SUBDIRS:%=%/marginalize_extrinsic_parameters.dag)
+all_dirs: $(SUBDIRS_SIM:%=%/marginalize_extrinsic_parameters.dag)
+all_dirs_coinc: $(SUBDIRS_COINC:%=%/marginalize_extrinsic_parameters.dag)
 
-all_dirs_plots: $(SUBDIRS:%=%/logevidence_hist.png) $(SUBDIRS:%=%/neff_evid.png)
+all_dirs_plots: $(SUBDIRS_SIM:%=%/logevidence_hist.png) $(SUBDIRS_SIM:%=%/neff_evid.png)
 
 %/marginalize_extrinsic_parameters.dag:
 	$(MAKE) -C $* marginalize_extrinsic_parameters.dag
