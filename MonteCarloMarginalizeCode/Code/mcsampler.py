@@ -582,35 +582,94 @@ def delta_func_samp(x_0, x):
 
 delta_func_samp_vector = numpy.vectorize(delta_func_samp, otypes=[numpy.float])
 
-def sky_rejection(skymap, ra_in, dec_in, massp=1.0):
-    """
-    Do rejection sampling of the skymap PDF, restricted to the greatest XX % of the mass, ra_in and dec_in will be returned, replaced with the new sample points.
-    """
+class HealPixSampler(object):
+    def __init__(self, skymap, massp=1.0):
+        self.skymap = skymap
+        self._massp = massp
+        self.renormalize()
 
-    res = healpy.npix2nside(len(skymap))
-    pdf_sorted = sorted([(p, i) for i, p in enumerate(skymap)], reverse=True)
-    valid_points = []
-    cdf, np = 0, 0
-    for p, i in pdf_sorted:
-        valid_points.append( healpy.pix2ang(res, i) )
-        cdf += p
-        np += 1
-        if cdf > massp:
-            break
+    @property
+    def massp(self):
+        return self._massp
 
-    i = 0
-    while i < len(ra_in):
-        rnd_n = numpy.random.randint(0, np)
-        trial = numpy.random.uniform(0, pdf_sorted[0][0])
-        #print i, trial, pdf_sorted[rnd_n] 
-        # TODO: Ensure (ra, dec) within bounds
-        if trial < pdf_sorted[rnd_n][0]:
-            dec_in[i], ra_in[i] = valid_points[rnd_n]
-            i += 1
-    dec_in -= numpy.pi/2
-    # FIXME: How does this get reversed?
-    dec_in *= -1
-    return numpy.array([ra_in, dec_in])
+    @massp.setter
+    def massp(self, value):
+        self._massp = value
+        self.renormalize()
+
+    def renormalize(self):
+        """
+        Identify the points contributing to the overall cumulative probability distribution, and set the proper normalization.
+        """
+        res = healpy.npix2nside(len(self.skymap))
+        self.pdf_sorted = sorted([(p, i) for i, p in enumerate(self.skymap)], reverse=True)
+        self.valid_points = []
+        cdf, np = 0, 0
+        for p, i in self.pdf_sorted:
+            if p == 0:
+                continue # Can't have a zero prior
+            # NOTE: This comes out as (colat, long) in radians
+            self.valid_points.append(healpy.pix2ang(res, i))
+            cdf += p
+            if cdf > self._massp:
+                break
+        self._renorm = cdf
+        return self._renorm
+
+    def pseudo_pdf(self, dec_in, ra_in):
+        res = healpy.npix2nside(len(self.skymap))
+        return self.skymap[healpy.ang2pix(res, dec_in, ra_in)]*len(self.skymap)
+
+    def pseudo_idx_pdf(self, idx):
+        return self.skymap[idx]
+
+    def pseudo_cdf_inverse(self, dec_in=None, ra_in=None, ndraws=1):
+        i, np = 0, len(self.valid_points)
+        ceiling = max(self.skymap)
+        if ra_in is not None:
+            ndraws = len(ra_in)
+        if ra_in is None:
+            ra_in, dec_in = numpy.zeros((2, ndraws))
+        while i < len(ra_in):
+            rnd_n = numpy.random.randint(0, np)
+            trial = numpy.random.uniform(0, ceiling)
+            if trial < self.pseudo_pdf(*self.valid_points[rnd_n]):
+                dec_in[i], ra_in[i] = self.valid_points[rnd_n]
+                i += 1
+        #dec_in -= numpy.pi/2
+        # FIXME: How does this get reversed?
+        #dec_in *= -1
+        return numpy.array([dec_in, ra_in])
+
+    def sky_rejection(self, dec_in, ra_in, massp=1.0):
+        """
+        Do rejection sampling of the skymap PDF, restricted to the greatest XX % of the mass, ra_in and dec_in will be returned, replaced with the new sample points.
+        """
+
+        res = healpy.npix2nside(len(self.skymap))
+        valid_points = []
+        cdf, np = 0, 0
+        for p, i in self.pdf_sorted:
+            self.valid_points.append( healpy.pix2ang(res, i) )
+            cdf += p
+            np += 1
+            if cdf > massp:
+                break
+
+        i = 0
+        while i < len(ra_in):
+            rnd_n = numpy.random.randint(0, np)
+            trial = numpy.random.uniform(0, pdf_sorted[0][0])
+            #print i, trial, pdf_sorted[rnd_n] 
+            # TODO: Ensure (ra, dec) within bounds
+            if trial < self._pdf_sorted[rnd_n][0]:
+                dec_in[i], ra_in[i] = valid_points[rnd_n]
+                i += 1
+        dec_in -= numpy.pi/2
+        # FIXME: How does this get reversed?
+        dec_in *= -1
+        return numpy.array([dec_in, ra_in])
+
 #pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
 pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float])
 
