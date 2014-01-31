@@ -247,7 +247,30 @@ class MCSampler(object):
         # the arguments in the right order
         # FIXME: How dangerous is this?
         args = func.func_code.co_varnames[:func.func_code.co_argcount]
-        if set(args) & self.params != set(args):
+        params = []
+        for item in self.params:
+            if isinstance(item, tuple):
+                params.extend(item)
+            else:
+                params.append(item)
+
+        def match_params_from_args(args, params):
+            not_common = set(args) ^ set(params)
+            if all([not isinstance(i, tuple) for i in not_common]):
+                # The only way this is possible is if there are
+                # no extraneous params in args
+                return False
+
+            to_match, against = filter(lambda i: not isinstance(i, tuple), not_common), filter(lambda i: isinstance(i, tuple), not_common)
+
+            matched = []
+            import itertools
+            for i in range(2, max(map(len, against))+1):
+                matched.extend([t for t in itertools.permutations(to_match, i) if t in against])
+            return (set(matched) ^ set(against)) == set()
+
+        #if set(args) & set(params) != set(args):
+        if not match_params_from_args(args, self.params):
             raise ValueError("All integrand variables must be represented by integral parameters.")
         
         #
@@ -306,7 +329,7 @@ class MCSampler(object):
             last_convergence_test = {}   # need record of tests to be returned always
         while (eff_samp < neff and ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
-            p_s, p_prior, rv = self.draw(n, *args)
+            p_s, p_prior, rv = self.draw(n, *self.params)
                         
             # Calculate the overall p_s assuming each pdf is independent
             joint_p_s = numpy.prod(p_s, axis=0)
@@ -330,7 +353,8 @@ class MCSampler(object):
             if bUseMultiprocessing:
                 fval = p.map(lambda x : func(*x), numpy.transpose(rv))
             else:
-                fval = func(*rv)
+                unpacked = numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
+                fval = func(*unpacked)
 
             #
             # Check if there is any practical contribution to the integral
