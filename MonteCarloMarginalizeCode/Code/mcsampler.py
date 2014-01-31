@@ -76,7 +76,7 @@ class MCSampler(object):
         if rosDebugMessages: 
             print " Adding parameter ", params, " with limits ", [left_limit, right_limit]
         if isinstance(params, tuple):
-            assert all(lambda lim: lim[0] < rlim[0], zip(left_limit, right_limit))
+            assert all(map(lambda lim: lim[0] < lim[1], zip(left_limit, right_limit)))
             if left_limit is None:
                 self.llim[params] = list(float("-inf"))*len(params)
             else:
@@ -104,6 +104,7 @@ class MCSampler(object):
                 self.prior_pdf[params] = lambda x:1
             else:
                 self.prior_pdf[params] = prior_pdf
+        self.prior_pdf[params] = prior_pdf
 
         if adaptive_sampling:
             self.adaptive.append(params)
@@ -163,10 +164,9 @@ class MCSampler(object):
             # FIXME: UGH! Really? This was the most elegant thing you could come
             # up with?
             rvs_tmp = [numpy.random.uniform(0,1,(len(p), rvs)) for p in map(lambda i: (i,) if not isinstance(i, tuple) else i, args)]
-            rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)])
+            rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)], dtype=numpy.object)
         else:
             rvs_tmp = numpy.array(rvs)
-
 
         # FIXME: ELegance; get some of that...
         # This is mainly to ensure that the array can be "splatted", e.g.
@@ -473,27 +473,28 @@ class MCSampler(object):
         #   - find and remove samples with  lnL less than maxlnL - deltalnL (latter user-specified)
         #   - create the cumulative weights
         #   - find and remove samples which contribute too little to the cumulative weights
-        self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
-        # Step 1: Cut out any sample with lnL belw threshold
-        indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
-        for key in self._rvs.keys():
-            self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indx_list] )
-        # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
-        wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
-        idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
-        indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again
-        cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
-        cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
-        indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability
-        for key in self._rvs.keys():
-            self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indx_list] )
+        if "integrand" in self._rvs:
+            self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
+            # Step 1: Cut out any sample with lnL belw threshold
+            indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
+            for key in self._rvs.keys():
+                self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indx_list] )
+            # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
+            wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
+            idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
+            indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again
+            cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
+            cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
+            indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability
+            for key in self._rvs.keys():
+                self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indx_list] )
 
         # Create extra dictionary to return things
         dict_return ={}
-        dict_return["convergence_test_results"] = last_convergence_test
+        if convergence_tests is not None:
+            dict_return["convergence_test_results"] = last_convergence_test
 
         return int_val1/ntotal, var/ntotal, eff_samp, dict_return
-                
 
 ### UTILITIES: Predefined distributions
 #  Be careful: vectorization is not always implemented consistently in new versions of numpy
