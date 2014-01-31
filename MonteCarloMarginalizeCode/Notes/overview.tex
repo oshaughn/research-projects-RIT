@@ -40,6 +40,10 @@
 \newcommand\aapr{AAPR}
 \newcommand\nar{NAR}  % New astronomy reviews
 
+\newcommand\sigmahat{\hat{\sigma}}
+\DeclareMathOperator{\sgn}{sgn}
+\DeclareMathOperator{\erf}{erf}
+
 \newcommand\Y[1]{Y^{(#1)}{}}
 % GR tools
 \newcommand\prederiv[2]{{}^{(#1)}#2}
@@ -2303,6 +2307,122 @@ Additionally, in our approach, \textbf{the sine and cosine chirp are not exactly
 (in general).  This effect is noticable in iLIGO-scale (short) signals
 
  The F-statistic trick is a possible \emph{approximation} but not valid in general, particularly  not  for precessing binaries
+
+\clearpage
+\section{Marginalizing over Distance}
+Following the earlier notation, the total likelihood can be written as 
+\begin{eqnarray}
+\ln L &&\equiv \ln L_{\rm model} + \ln L_{\rm data} \\
+\ln L_{\rm model} &&\equiv -\frac{1}{2} \frac{1}{r^2} \sum_k \qmstateproduct{H_k}{H_k}_k = - \frac{1}{2} \frac{\sigma^2}{r^2} \\
+\ln L_{\rm data} &&\equiv  \frac{1}{r} \sum_k \qmstateproduct{H_k}{\hat{H}_k}_k = \frac{z}{r} \; .
+\end{eqnarray}
+Here, the factors of distance have been explicitly pulled out and the waveform
+$H_k$ is to be normalized to a canonical distance (e.g. 100Mpc as used
+earlier). 
+
+The traditional signal-to-noise ratio is defined as $\rho = z / \sigma$. In the
+presence of zero-mean noise, uncorrelated between detectors, and in the absence
+of a signal, this is a Gaussian random variable with zero mean and unit
+variance. If a signal $H_k/r$ is present in the data, the mean $\overline{\rho}
+= \sigma /r$ where the distance is in canonical distance units. This leads to
+an alternate interpretation of $\sigma$ as the distance to a binary that gives
+$\overline{\rho}=1$. 
+
+The distance prior is uniform in volume out to some distance $r_{\mathrm{max}}$
+which should be big enough not to artificially cut off the posterior, but small
+enough not to require a correct treatment of cosmology. With this notation, the
+marginalization reduces to computing the the integral
+\begin{equation}
+I = \int_0^{r_{\mathrm{max}}} r^2 \exp\left[ \frac{z}{r} - \frac{\sigma^2}{2 r^2} \right] dr \; .
+\end{equation}
+It is also worth noting that typically we obtain an array of values $z(t)$
+corresponding to different geocentric times for the signal. We already make use
+of this to speed up the marginalization over time. This will be important when
+it comes to implementation. On the other hand, the intrinsic parameters are fixed as are $\iota$, $\alpha$, $\delta$, $\Phi$, and $\psi$. Usually, we also fix the distance $r$, the point of this section is to use the simple scaling in distance to allow us to carry out the marginalization over distance and the marginalization over time without having to make more draws. 
+
+The deceptively simple looking integral over $r$ cannot be solved in terms of
+known (special) functions and so we are left with approximations or numerical
+integration schemes. To this end, it is convenient to use the following quantities
+\begin{eqnarray}
+y &=& \frac{r_{\mathrm{max}}}{r} \\
+\sigmahat &=& \frac{\sigma}{r_{\mathrm{max}}} \; .
+\end{eqnarray}
+Notice that $\sigmahat$ depends both on the sensitivity of the instrument and
+the upper bound on $r$ used in the integral. Moreover, if $r_{\mathrm{max}}$ is
+chosen to be at least 16 times the largest horizon distance for any binary under 
+consideration, then
+\begin{equation}
+0 \leq \sigmahat \leq 0.5 \; .
+\end{equation}
+This constraint on $\sigmahat$ simplifies the process of finding an
+approximation to the integral. In terms of these new variables, the integral is
+\begin{eqnarray}
+I &=& r_{\mathrm{max}}^3 \int_1^\infty y^{-4} \exp\left[ \rho \sigmahat y - \sigmahat^2 y^2 / 2 \right] dy \\
+  &=&r_{\mathrm{max}}^3 e^{\rho^2/2} \int_1^\infty y^{-4} e^{- (y - \rho / \sigmahat)^2 / 2} dy 
+    \label{eq:distmarg}
+\end{eqnarray}
+We note the integrand has extrema at
+\begin{equation}
+y_\pm = \frac{\rho}{2 \sigmahat} \left[ 1 \pm \sqrt{ 1 - 16 / \rho^2 } \right]
+\end{equation}
+and hence there are no extrema for $\rho < 4$. There are a number of useful
+approximations and limits which can help to understand the behavior of this
+integral.
+
+Consider first the limit $\rho \rightarrow \infty$ for fixed $\sigmahat$, one
+can approximate the integral as
+\begin{eqnarray}
+I &\approx& r_{\mathrm{max}}^3 e^{\rho^2/2} \int_1^\infty (\rho/\sigmahat)^{-4} e^{- (y - \rho / \sigmahat)^2 / 2} dy \\
+I^+ &=&\frac{ r_{\mathrm{max}}^3 \sigmahat^3 e^{\rho^2/2} }{ \rho^4 } \sqrt{\frac{\pi}{2}} \left[ 1 + \epsilon \erf ( \epsilon (\rho -a)/\sqrt{2} ) \right] \label{eq:largerho}
+\end{eqnarray}
+where $\epsilon = \sgn(rho-a)$. This gives the expected large signal to noise
+scaling with a predicted factor in front of the exponential. 
+
+The next interesting limit is $\sigmahat \rightarrow 0$ keeping everything else
+fixed. The result is easily confirmed to be 
+\begin{equation}
+\lim_{\sigmahat \rightarrow 0} I \rightarrow \frac{ r_{\mathrm{max}}^3 }{ 3 } \; . \label{eq:sigmazero}
+\end{equation}
+
+Finally, consider the regime where $\rho \ll \sigmahat$ in which the integral
+is dominated by contributions coming from near $y=1$. Expanding $\exp[(y - \rho
+/ \sigmahat)^2 / 2]$ about $y=1$ and subsituting it into the right hand side of
+(\ref{eq:distmarg}), we find 
+\begin{equation} 
+I^- = \frac{r_{\mathrm{max}}^3 }{ 3 } \exp[\rho \sigmahat - \sigmahat^2/2] \; . \label{eq:smallrho}
+\end{equation}
+Naturally, this reduces to (\ref{eq:sigmazero}) as $\sigmahat \rightarrow 0$. 
+
+It is now easy to write an approximation to $I$ that could be used in our code
+to approximate the integral over distance as
+\begin{equation} 
+I = I^- + \Theta(\rho - 2) I^+ \; .
+\end{equation}
+The step-function at $\rho=2$ is needed to avoid divergences in $I^+$ at $\rho=0$. 
+
+\begin{figure}
+\includegraphics[width=0.5\textwidth]{Figures/i-v-rho}
+\caption{\label{fig:distmarg}
+The marginalized integral $I$ as a function of the signal-to-noise ratio $\rho$
+for various $\sigmahat$. The solid lines are the numerical integration and the
+circles represent the approximation. There is excellent visual agreement.}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\textwidth]{Figures/i-error-v-i}
+\caption{\label{fig:distmarg}
+The ratio of the numerical value to the approximation of the marginalized
+integral $I$ as a function of the signal-to-noise ratio $\rho$ for various
+$\sigmahat$. Clearly the approximation breaks down for small $\rho$ as
+$\sigmahat$ increases. Nevertheless, the approximation is still reasonably good
+for a broad range of $\rho$ and $\sigmahat$ values. }
+\end{figure}
+
+
+
+
+
+
 
 
 
