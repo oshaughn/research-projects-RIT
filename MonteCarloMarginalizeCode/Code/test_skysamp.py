@@ -32,7 +32,7 @@ smap, smap_meta = bfits.read_sky_map(sys.argv[1])
 # Integrand: three dimensional cube
 #
 def integrand_2d(dec, ra, test):
-    return numpy.ones(ra.shape)/(2.0*numpy.pi**2)**2
+    return numpy.ones(ra.shape)/(2.0*numpy.pi**2)
 
 skysampler = mcsampler.HealPixSampler(smap)
 
