@@ -1728,6 +1728,9 @@ def VectorToFrame(vecRef):
 def nhat(th,ph):
     return np.array([np.cos(ph)*np.sin(th),np.sin(ph)*np.sin(th), np.cos(th)])
 
+def unit_frame():
+    return np.array([[1,0,0], [0,1,0], [0,0,1]])
+
 def polar_angles_in_frame(frm,vec):
     """
     Take a vector in the default frame.
