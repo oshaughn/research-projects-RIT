@@ -364,8 +364,8 @@ if len(data_dict) is 0:
     data_dict['H1'] = lalsimutils.non_herm_hoff(Psig)
     Psig.detector = 'L1'
     data_dict['L1'] = lalsimutils.non_herm_hoff(Psig)
-    Psig.detector = 'V1'
-    data_dict['V1'] = lalsimutils.non_herm_hoff(Psig)
+#    Psig.detector = 'V1'
+#    data_dict['V1'] = lalsimutils.non_herm_hoff(Psig)
 
 # Reset origin of time, if required
 if opts.force_gps_time:
@@ -536,6 +536,34 @@ TestDictionary["lnLDataPlotVersusPhiPsi"]            = False # opts.plot_ShowLik
 
 factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,  data_dict, psd_dict, fmaxSNR,analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, detectors,Lmax)
 
+if opts.rotate_sky_coordinates:  # FIXME: should also test that both theta, phi are coordinates *and* adaptation is on
+    det0 = data_dict.keys()[0]
+    det1 = data_dict.keys()[1]
+    print " ======= ROTATING COORDINATES ====== " 
+    print "Rotation based on current position of detectors detectors", det0, det1
+    import lalsimulation as lalsim
+    # Detector seperation relative to the earth, *not* sky fixed coordinates
+    theDetectorSeparation = lalsim.DetectorPrefixToLALDetector(det0).location - lalsim.DetectorPrefixToLALDetector(det1).location
+    vecZ = np.array(theDetectorSeparation/np.sqrt( np.dot(theDetectorSeparation,theDetectorSeparation)))
+    vecZth, vecZph = lalsimutils.polar_angles_in_frame(lalsimutils.unit_frame(), vecZ)
+    # Rotate to sky-fixed coordinates (azimuth)  [Could also do with polar angles, just adding gmst]
+    time_angle =  np.mod( lal.GreenwichMeanSiderealTime(theEpochFiducial), 2*np.pi)
+    vecZnew = np.dot(lalsimutils.rotation_matrix(np.array([0,0,1]), time_angle), vecZ)
+    print "Rotation 'z' vector in sidereal coordinates ", vecZnew
+#    print lalsimutils.polar_angles_in_frame(lalsimutils.unit_frame(), vecZ), lalsimutils.polar_angles_in_frame(lalsimutils.unit_frame(), vecZnew)
+
+    # Create a frame associated with the rotated angle
+    frm = lalsimutils.VectorToFrame(vecZnew)   # Create an orthonormal frame related to this particular choice of z axis. (Used as 'rotation' object)
+    frmInverse= np.asarray(np.matrix(frm).I)                                    # Create an orthonormal frame to undo the transform above
+    def rotate_sky_forwards(theta,phi):   # When theta=0 we are describing the coordinats of the zhat direction in the vecZ frame
+        global frm
+        return lalsimutils.polar_angles_in_frame_alt(frm, theta,phi)
+
+    def rotate_sky_backwards(theta,phi): # When theta=0, the vector should be along the vecZ direction and the polar angles returned its polar angles
+        global frmInverse
+        return lalsimutils.polar_angles_in_frame_alt(frmInverse, theta,phi)
+
+
 
 
 #
@@ -548,9 +576,17 @@ if not opts.LikelihoodType_MargTdisc_array:
         global nEvals
         global pdfFullPrior
 
+#        if opts.rotate_sky_coordinates:
+#            print "   -Sky ring width ", np.std(declination), " note contribution from floor is of order p_floor*(pi)/sqrt(12) ~ 0.9 pfloor"
+#            print "   -Distance width", np.std(distance)
+
         lnL = np.zeros(right_ascension.shape)
         i = 0
         for ph, th, tr, phr, ic, ps, di in zip(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
+            if opts.rotate_sky_coordinates: 
+                th,ph = rotate_sky_backwards(np.pi/2 - th,ph)
+                th = np.pi/2 - th
+                ph = np.mod(ph, 2*np.pi)
             P.phi = ph # right ascension
             P.theta = th # declination
             P.tref = theEpochFiducial + tr # ref. time (rel to epoch for data taking)
@@ -570,9 +606,19 @@ else: # Sum over time for every point in other extrinsic params
         # use EXTREMELY many bits
         lnL = np.zeros(right_ascension.shape,dtype=np.float128)
         i = 0
+#        if opts.rotate_sky_coordinates:
+#            print "   -Sky ring width ", np.std(declination), " note contribution from floor is of order p_floor*(pi)/sqrt(12) ~ 0.9 pfloor"
+#            print "   -RA width", np.std(right_ascension)
+#            print "   -Distance width", np.std(distance)
+
         tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
         for ph, th, phr, ic, ps, di in zip(right_ascension, declination,
                 phi_orb, inclination, psi, distance):
+            if opts.rotate_sky_coordinates: 
+                th,ph = rotate_sky_backwards(np.pi/2 - th,ph)
+                th = np.pi/2 - th
+                ph = np.mod(ph, 2*np.pi)
+
             P.phi = ph # right ascension
             P.theta = th # declination
             P.tref = theEpochFiducial  # see 'tvals', above
@@ -678,7 +724,20 @@ pinned_params.update({"n": opts.nskip, "nmax": opts.nmax, "neff": opts.neff, "fu
 
 })
 print " Params ", pinned_params
-res, var,  neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+res, var,  neff , dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+
+if opts.rotate_sky_coordinates:
+        tmpTheta = np.zeros(len(sampler._rvs["declination"]))
+        tmpPhi = np.zeros(len(sampler._rvs["declination"]))
+        tmpThetaOut = np.zeros(len(sampler._rvs["declination"]))
+        tmpPhiOut = np.zeros(len(sampler._rvs["declination"]))
+        tmpTheta = sampler._rvs["declination"]
+        tmpPhi = sampler._rvs["right_ascension"]
+        for indx in np.arange(len(tmpTheta)):
+            tmpThetaOut[indx],tmpPhiOut[indx] = rotate_sky_backwards(np.pi/2 - tmpTheta[indx],tmpPhi[indx])
+        sampler._rvs["declination"] = np.pi/2 - tmpThetaOut
+        sampler._rvs["right_ascension"] = np.mod(tmpPhiOut, 2*np.pi)
+
 
 print sampler._rvs.keys()
 retNew = [sampler._rvs["right_ascension"], sampler._rvs['declination'],sampler._rvs['t_ref'], sampler._rvs['phi_orb'],sampler._rvs['inclination'], sampler._rvs['psi'], sampler._rvs['psi'], sampler._rvs['distance'], sampler._rvs["joint_prior"], sampler._rvs["joint_s_prior"],np.log(sampler._rvs["integrand"])]
@@ -785,7 +844,7 @@ if  True: # opts.points_file_base:
     # samples["inclination"] = samples["incl"]
     # samples["polarization"] = samples["psi"]
     # samples["longitude"] = samples["ra"]
-    # samples["loglikelihood"] = numpy.log(samples["integrand"])
+    # samples["loglikelihood"] = np.log(samples["integrand"])
     m1 = P.m1/lal.LAL_MSUN_SI
     m2 = P.m2/lal.LAL_MSUN_SI
     samples["mass1"] = np.ones(samples["polarization"].shape)*m1
