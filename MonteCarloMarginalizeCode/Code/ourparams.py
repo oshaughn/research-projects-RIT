@@ -70,6 +70,7 @@ def ParseStandardArguments():
     # Sampling prior
     parser.add_argument("--sampling-prior-use-inj-sky-location",dest='opt_UseKnownSkyPosition',action='store_true')
     parser.add_argument("--sampling-prior-use-skymap",dest='opt_UseSkymap')
+    parser.add_argument("--rotate-sky-coordinates", action='store_true')
 
     # Lower frequencies 
     parser.add_argument("--fmin-snr", dest='fmin_SNR', type=float, default=30)
