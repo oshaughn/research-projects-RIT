@@ -678,7 +678,7 @@ pinned_params.update({"n": opts.nskip, "nmax": opts.nmax, "neff": opts.neff, "fu
 
 })
 print " Params ", pinned_params
-res, var,  neff = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+res, var,  neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 print sampler._rvs.keys()
 retNew = [sampler._rvs["right_ascension"], sampler._rvs['declination'],sampler._rvs['t_ref'], sampler._rvs['phi_orb'],sampler._rvs['inclination'], sampler._rvs['psi'], sampler._rvs['psi'], sampler._rvs['distance'], sampler._rvs["joint_prior"], sampler._rvs["joint_s_prior"],np.log(sampler._rvs["integrand"])]
@@ -692,6 +692,10 @@ print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
 print " lnLmarg is ", np.log(res), " with nominal relative sampling error ", np.sqrt(var)/res, " but a more reasonable estimate based on the lnL history is " #, np.std(lnLmarg - np.log(res))
 print " expected largest value is ", rho2Net/2, "and observed largest lnL is ", np.max(np.transpose(ret)[-1])
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
+
+print "==Returned dictionary==="
+print dict_return
+
 
 print "==Profiling info (assuming MAXIMUM evals hit)==="
 print "   - Time per L evaluation ", float(tGPSEnd-tGPSStart)/ntotal
