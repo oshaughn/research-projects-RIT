@@ -621,56 +621,26 @@ class HealPixSampler(object):
 
     def pseudo_pdf(self, dec_in, ra_in):
         res = healpy.npix2nside(len(self.skymap))
-        return self.skymap[healpy.ang2pix(res, dec_in, ra_in)]*len(self.skymap)
+        return self.skymap[healpy.ang2pix(res, dec_in, ra_in)]
 
     def pseudo_idx_pdf(self, idx):
         return self.skymap[idx]
 
     def pseudo_cdf_inverse(self, dec_in=None, ra_in=None, ndraws=1):
-        i, np = 0, len(self.valid_points)
-        ceiling = max(self.skymap)
         if ra_in is not None:
             ndraws = len(ra_in)
         if ra_in is None:
             ra_in, dec_in = numpy.zeros((2, ndraws))
+
+        # FIXME: This is only valid under descending ordered CDF summation
+        ceiling = max(self.skymap)
+        i, np = 0, len(self.valid_points)
         while i < len(ra_in):
             rnd_n = numpy.random.randint(0, np)
             trial = numpy.random.uniform(0, ceiling)
-            if trial < self.pseudo_pdf(*self.valid_points[rnd_n]):
+            if trial <= self.pseudo_pdf(*self.valid_points[rnd_n]):
                 dec_in[i], ra_in[i] = self.valid_points[rnd_n]
                 i += 1
-        #dec_in -= numpy.pi/2
-        # FIXME: How does this get reversed?
-        #dec_in *= -1
-        return numpy.array([dec_in, ra_in])
-
-    def sky_rejection(self, dec_in, ra_in, massp=1.0):
-        """
-        Do rejection sampling of the skymap PDF, restricted to the greatest XX % of the mass, ra_in and dec_in will be returned, replaced with the new sample points.
-        """
-
-        res = healpy.npix2nside(len(self.skymap))
-        valid_points = []
-        cdf, np = 0, 0
-        for p, i in self.pdf_sorted:
-            self.valid_points.append( healpy.pix2ang(res, i) )
-            cdf += p
-            np += 1
-            if cdf > massp:
-                break
-
-        i = 0
-        while i < len(ra_in):
-            rnd_n = numpy.random.randint(0, np)
-            trial = numpy.random.uniform(0, pdf_sorted[0][0])
-            #print i, trial, pdf_sorted[rnd_n] 
-            # TODO: Ensure (ra, dec) within bounds
-            if trial < self._pdf_sorted[rnd_n][0]:
-                dec_in[i], ra_in[i] = valid_points[rnd_n]
-                i += 1
-        dec_in -= numpy.pi/2
-        # FIXME: How does this get reversed?
-        dec_in *= -1
         return numpy.array([dec_in, ra_in])
 
 #pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
