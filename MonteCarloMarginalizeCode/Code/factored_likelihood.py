@@ -168,6 +168,7 @@ def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
 
     return lnL
 
+@profile
 def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, crossTerms, Lmax):
     """
     Compute the log-likelihood = -1/2 < d - h | d - h > from:
@@ -453,7 +454,30 @@ def InterpolateRholm(rholm, t):
     h_real = interpolate.InterpolatedUnivariateSpline(t, h_re, k=3)
     h_imag = interpolate.InterpolatedUnivariateSpline(t, h_im, k=3)
     return lambda ti: h_real(ti) + 1j*h_imag(ti)
-        
+
+    # Little faster
+    #def anon_intp(ti):
+        #idx = np.searchsorted(t, ti)
+        #return rholm.data.data[idx]
+    #return anon_intp
+
+    #from pygsl import spline
+    #spl_re = spline.cspline(len(t))
+    #spl_im = spline.cspline(len(t))
+    #spl_re.init(t, np.real(rholm.data.data))
+    #spl_im.init(t, np.imag(rholm.data.data))
+    #@profile
+    #def anon_intp(ti):
+        #re = spl_re.eval_e_vector(ti)
+        #return re + 1j*im
+    #return anon_intp
+
+    # Doesn't work, hits recursion depth
+    #from scipy.signal import cspline1d, cspline1d_eval
+    #re_coef = cspline1d(np.real(rholm.data.data))
+    #im_coef = cspline1d(np.imag(rholm.data.data))
+    #dx, x0 = rholm.deltaT, float(rholm.epoch)
+    #return lambda ti: cspline1d_eval(re_coef, ti) + 1j*cspline1d_eval(im_coef, ti)
 
 
 def InterpolateRholms(rholms, t):

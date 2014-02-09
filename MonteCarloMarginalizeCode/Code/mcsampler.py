@@ -177,7 +177,10 @@ class MCSampler(object):
             if len(cdf_rv.shape) == 1:
                 res.append((self.pdf[param](cdf_rv)/self._pdf_norm[param], self.prior_pdf[param](cdf_rv), cdf_rv))
             else:
-                res.append((self.pdf[param](*cdf_rv)/self._pdf_norm[param], self.prior_pdf[param](*cdf_rv), cdf_rv))
+                # NOTE: the "astype" is employed here because the arrays can be
+                # irregular and thus assigned the 'object' type. Since object
+                # arrays can't be splatted, we have to force the conversion
+                res.append((self.pdf[param](*cdf_rv.astype(numpy.float64))/self._pdf_norm[param], self.prior_pdf[param](*cdf_rv.astype(numpy.float64)), cdf_rv))
 
         #
         # Cache the samples we chose
