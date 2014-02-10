@@ -21,6 +21,9 @@ import factored_likelihood
 import mcsampler
 import xmlutils
 
+from lalinference.bayestar import fits as bfits
+from lalinference.bayestar import plot as bplot
+
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 #
@@ -48,6 +51,7 @@ optp = OptionParser()
 optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
 optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
 optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
+optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
 optp.add_option("-a", "--approximant", default="TaylorT4", help="Waveform family to use for templates. Any approximant implemented in LALSimulation is valid.")
@@ -411,32 +415,48 @@ sampler.add_parameter("distance",
                     - param_limits["distance"][0]**3/3.) ),
     adaptive_sampling = True or not opts.no_adapt)
 
-#
-# Right ascension - angle in radians from prime meridian plus hour angle
-# sampler: uniform in [0, 2pi), adaptive sampling
-#
-ra_sampler = functools.partial(mcsampler.uniform_samp_vector,
-    param_limits["right_ascension"][0], param_limits["right_ascension"][1])
-sampler.add_parameter("right_ascension", 
-    pdf = ra_sampler, 
-    cdf_inv = None, 
-    left_limit = param_limits["right_ascension"][0],
-    right_limit =  param_limits["right_ascension"][1],
-    prior_pdf = mcsampler.uniform_samp_phase,
-    adaptive_sampling = True or not opts.no_adapt)
+if opts.skymap_file is not None:
+    #
+    # Rright ascension and declination -- use a provided skymap
+    #
+    smap, _ = bfits.read_sky_map(sys.argv[1])
+    ss_sampler = mcsampler.HealPixSampler(smap)
 
-#
-# declination - angle in radians from the north pole piercing the celestial sky
-# sampler: cos(dec) uniform in [-1, 1), adaptive sampling
-#
-dec_sampler = mcsampler.dec_samp_vector
-sampler.add_parameter("declination", 
-    pdf = dec_sampler, 
-    cdf_inv = None, 
-    left_limit = param_limits["declination"][0], 
-    right_limit = param_limits["declination"][1],
-    prior_pdf = mcsampler.uniform_samp_dec,
-    adaptive_sampling = True or not opts.no_adapt)
+    # FIXME: Should the left and right limits be modified?
+    sampler.add_parameter(("right_ascension", "declination"), 
+        pdf = ss_sampler.pseudo_pdf, 
+        cdf_inv = ss_sampler.pseudo_cdf_inverse, 
+        left_limit = (param_limits["right_ascension"][0], param_limits["declination"][0]),
+        right_limit = (param_limits["right_ascension"][1], param_limits["declination"][1]),
+        prior_pdf = ss_sampler.pseudo_pdf)
+
+else:
+    #
+    # Right ascension - angle in radians from prime meridian plus hour angle
+    # sampler: uniform in [0, 2pi), adaptive sampling
+    #
+    ra_sampler = functools.partial(mcsampler.uniform_samp_vector,
+        param_limits["right_ascension"][0], param_limits["right_ascension"][1])
+    sampler.add_parameter("right_ascension", 
+        pdf = ra_sampler, 
+        cdf_inv = None, 
+        left_limit = param_limits["right_ascension"][0],
+        right_limit =  param_limits["right_ascension"][1],
+        prior_pdf = mcsampler.uniform_samp_phase,
+        adaptive_sampling = True or not opts.no_adapt)
+
+    #
+    # declination - angle in radians from the north pole piercing the celestial
+    # sky sampler: cos(dec) uniform in [-1, 1), adaptive sampling
+    #
+    dec_sampler = mcsampler.dec_samp_vector
+    sampler.add_parameter("declination", 
+        pdf = dec_sampler, 
+        cdf_inv = None, 
+        left_limit = param_limits["declination"][0], 
+        right_limit = param_limits["declination"][1],
+        prior_pdf = mcsampler.uniform_samp_dec,
+        adaptive_sampling = True or not opts.no_adapt)
 
 #
 # Determine pinned and non-pinned parameters
