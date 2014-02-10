@@ -94,6 +94,13 @@ FROM
     WHERE sngl_inspiral.snr > 4.0 and sim_inspiral.simulation_id == "sim_inspiral:simulation_id:%d"
 """ 
 
+count_coincs = """
+SELECT COUNT(*) FROM sim_coinc_map
+"""
+
+def count_sim_coinc(db):
+    return int(list(db.execute(count_coincs))[0][0])
+
 def get_coinc(db, sim_id):
     net_snr = 0
     result = list(db.execute(select_coincs % sim_id))
