@@ -72,7 +72,12 @@ elif sys.argv[1].endswith("sqlite"):
 
     connection = sqlite3.connect(sys.argv[1])
     get_coinc.add_tmp_table(connection)
-    coinc_from_sim = [get_coinc.get_coinc(connection, id) for id in ids]
+    if len(ids) == 0:
+        print get_coinc.count_sim_coinc(connection)
+        connection.close()
+        exit()
+    else:
+        coinc_from_sim = [get_coinc.get_coinc(connection, id) for id in ids]
     connection.close()
 
     for simid, (ceid, m1, m2, et, etn, s) in zip(ids, coinc_from_sim):
