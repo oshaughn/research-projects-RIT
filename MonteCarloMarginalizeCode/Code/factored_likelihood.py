@@ -168,7 +168,7 @@ def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
 
     return lnL
 
-def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, crossTerms, Lmax):
+def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholms, crossTerms, Lmax, interpolate=True):
     """
     Compute the log-likelihood = -1/2 < d - h | d - h > from:
         - extr_params is an object containing values of all extrinsic parameters
@@ -210,8 +210,17 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, cross
         # This is the GPS time at the detector
         t_det = ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
         det_rholms = {}  # rholms evaluated at time at detector
-        for key, func in rholms_intp[det].iteritems():
-            det_rholms[key] = func(float(t_det)+tvals)
+        if ( interpolate ):
+            # use the interpolating functions. 
+            for key, func in rholms_intp[det].iteritems():
+                det_rholms[key] = func(float(t_det)+tvals)
+        else:
+            # do not interpolate, just use nearest neighbors.
+            for key, rhoTS in rholms[det].iteritems():
+                tfirst = float(t_det)+tvals[0]
+                ifirst = int(np.round(( float(tfirst) - float(rhoTS.epoch)) / rhoTS.deltaT) + 0.5)
+                ilast = ifirst + len(tvals)
+                det_rholms[key] = rhoTS.data.data[ifirst:ilast]
 
         lnL += SingleDetectorLogLikelihood(det_rholms, CT, Ylms, F, dist)
 
