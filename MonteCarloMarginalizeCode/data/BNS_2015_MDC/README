@@ -13,7 +13,7 @@ There is a top level Makefile and a Makefile.template, the former is used to per
 
 Use stage_injections: 
 
-python stage_injections 2015_BNS_injections.xml.gz [sim_id_1] [sim_id_2] ...
+python stage_injections 2015_BNS_injections.xml [sim_id_1] [sim_id_2] ...
 
 One can give an individual sim ids to stage from the injections XML (2015_BNS_injections.xml) or if no additional arguments are given, it will check the condition (currently all injections between 10 < d < 50 Mpc) and do each.
 
