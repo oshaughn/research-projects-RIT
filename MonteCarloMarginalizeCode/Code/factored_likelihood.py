@@ -219,7 +219,7 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
             for key, rhoTS in rholms[det].iteritems():
                 tfirst = float(t_det)+tvals[0]
                 ifirst = int(np.round(( float(tfirst) - float(rhoTS.epoch)) / rhoTS.deltaT) + 0.5)
-                ilast = first + len(tvals)
+                ilast = ifirst + len(tvals)
                 det_rholms[key] = rhoTS.data.data[ifirst:ilast]
 
         lnL += SingleDetectorLogLikelihood(det_rholms, CT, Ylms, F, dist)
