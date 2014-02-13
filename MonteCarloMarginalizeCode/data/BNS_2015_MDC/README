@@ -13,7 +13,7 @@ There is a top level Makefile and a Makefile.template, the former is used to per
 
 Use stage_injections: 
 
-python stage_injections 2015_BNS_injections.xml [sim_id_1] [sim_id_2] ...
+python stage_injections -s 2015_BNS_injections.xml.gz -S [sim_id_1] -S [sim_id_2] ...
 
 One can give an individual sim ids to stage from the injections XML (2015_BNS_injections.xml) or if no additional arguments are given, it will check the condition (currently all injections between 10 < d < 50 Mpc) and do each.
 
@@ -23,11 +23,19 @@ This will create a sim_id_X directory with a Makefile and a mdc.xml.gz. This fil
 
 Use stage_injections: 
 
-python H1L1-ALL_LLOID_1_injections-966384015-5184000.sqlite stage_injections 2015_BNS_injections.xml.gz [sim_id_1] [sim_id_2] ...
+python stage_injections -c H1L1-ALL_LLOID_1_injections-966384015-5184000.sqlite -s 2015_BNS_injections.xml.gz -S [sim_id_1] -S [sim_id_2] ...
 
 Note that the sim_id_X is not a typo. The script will look for the coinc associated with the given injection and use it to set up the rest of the run. It should inform you of the mapping it makes.
 
 This will create a coinc_id_X directory with a Makefile and a coinc.xml.gz. This file contains the sim_inspiral, the corresponding coinc_inspiral, and the sngl_inspirals that were coincided to obtain the coinc. This is necessary because the coinc_inspiral does not contain all the necessary information to run (namely mass1/2).
+
+-- To create an analysis directory from a coinc_inspiral table --
+
+Use stage_injections: 
+
+python stage_injections -c H1L1-ALL_LLOID_1_injections-966384015-5184000.sqlite -s 2015_BNS_injections.xml -f skyloc_coincs_far.txt -b 0 -e 100
+
+This will use the coinc db and sim XML to stage events 0 through 100 from the skyloc_coincs_far.txt file. The remainder of the coinc based instructions above now apply.
 
 -- To set up an individual analysis directory --
 
