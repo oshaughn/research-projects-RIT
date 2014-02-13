@@ -78,6 +78,7 @@ integration_params.add_option("--seed", type=int, help="Random seed to use. Defa
 integration_params.add_option("--no-adapt", action="store_false", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
 integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
 integration_params.add_option("--adapt-floor-level", type=float, default=0.1, help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.1 (no floor)")
+integration_params.add_option("--interpolate-time", default=False,help="If using time marginalization, compute using a continuously-interpolated array. (Default=false)")
 optp.add_option_group(integration_params)
 
 #
@@ -570,7 +571,7 @@ else: # Sum over time for every point in other extrinsic params
 
             lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
                     P, rholms_intp, rholms, cross_terms,                   
-                    opts.l_max)
+                    opts.l_max,interpolate=opts.interpolate_time)
             i+=1
     
         return numpy.exp(lnL)
