@@ -628,7 +628,7 @@ else: # Sum over time for every point in other extrinsic params
             P.dist = di* 1.e6 * lal.LAL_PC_SI # luminosity distance
 
             lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
-                    P, rholms_intp, crossTerms,                   
+                    P, rholms_intp,rholms, crossTerms,                   
                     Lmax)
             i+=1
     

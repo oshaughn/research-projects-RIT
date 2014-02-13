@@ -207,7 +207,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
     if TestDictionary["lnLAtKnownMarginalizeTime"]:
             print " ======= \int L dt/T: Consistency across multiple methods  =========="
             tvals = np.linspace(tWindowExplore[0], tWindowExplore[1], int(fSample*(tWindowExplore[1]-tWindowExplore[0])))
-            lnLmargT1 = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,Psig, rholms_intp, crossTerms, Lmax)
+            lnLmargT1 = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,Psig, rholms_intp, rholms, crossTerms, Lmax)
 #            lnLmargT1 = factored_likelihood.NetworkLogLikelihoodTimeMarginalized(theEpochFiducial,rholms_intp, crossTerms, Psig.tref,  tWindowExplore, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, detectors)
             lnLmargT2 = factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete(theEpochFiducial,rholms, crossTerms, Psig.tref, tWindowExplore, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, detectors)
             def fn(x):
