@@ -53,6 +53,7 @@ def plot_integral(samp, fname=None):
     err_est = numpy.sqrt(cumvar(int_val)*numpy.arange(len(int_val))/(n_itr*n_itr))  # Error goes as 1/sqrt(n). Beware: cumvar *already has* an implicit divide-by-sample-size-to-this-point, which must be undone
     pyplot.fill_between(n_itr, numpy.maximum(int_est - err_est, numpy.ones(int_est.shape)*1e-100), int_est + err_est, alpha=0.5)
     pyplot.ylim(min(int_est)/1e3,2*max(int_est))
+    pyplot.xlim(1, None)
 
     pyplot.plot(n_itr, int_est, 'r-')
     pyplot.ylabel("integral val")
@@ -66,6 +67,7 @@ def plot_integral(samp, fname=None):
     #pyplot.loglog()
     pyplot.semilogx()
     pyplot.plot(n_itr, numpy.log(maxval), 'k-')
+    pyplot.xlim(1, None)
     #pyplot.plot(n_itr, numpy.log10(int_val), 'b-')
     pyplot.grid()
 
@@ -74,6 +76,7 @@ def plot_integral(samp, fname=None):
     pyplot.semilogx()
     pyplot.ylabel("N_eff")
     pyplot.plot(n_itr, eff_samp, 'k-')
+    pyplot.xlim(1, None)
     pyplot.twinx()
     pyplot.ylabel("ratio N_eff/N")
     pyplot.plot(n_itr, eff_samp/n_itr, 'b-')
