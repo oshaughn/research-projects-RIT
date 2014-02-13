@@ -43,9 +43,12 @@ This will use the coinc db and sim XML to stage events 0 through 100 from the sk
 
 Going into the specific directory and running:
 
-    make -j marginalize_extrinsic_parameters.dag
+    make -o L1_measured_PSD.xml.gz -o H1_measured_PSD.xml.gz -j marginalize_extrinsic_parameters.dag
 
 will create all requisite data and DAG products.
+
+The -o files are required since the symlinks don't appear to be respected inthe same way by make targets. Otherwise each job will try and remeasure (and thus overwrite) the PSD. It doesn't matter a lot for Gaussian noise, but will for when we actually need to do this in a time varying manner.
+
 
 -- To set up all analysis directories at once --
 
