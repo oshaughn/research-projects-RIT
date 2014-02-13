@@ -417,17 +417,17 @@ sampler.add_parameter("distance",
 
 if opts.skymap_file is not None:
     #
-    # Rright ascension and declination -- use a provided skymap
+    # Right ascension and declination -- use a provided skymap
     #
-    smap, _ = bfits.read_sky_map(sys.argv[1])
+    smap, _ = bfits.read_sky_map(opts.skymap_file)
     ss_sampler = mcsampler.HealPixSampler(smap)
 
     # FIXME: Should the left and right limits be modified?
-    sampler.add_parameter(("right_ascension", "declination"), 
+    sampler.add_parameter(("declination", "right_ascension"), 
         pdf = ss_sampler.pseudo_pdf, 
         cdf_inv = ss_sampler.pseudo_cdf_inverse, 
-        left_limit = (param_limits["right_ascension"][0], param_limits["declination"][0]),
-        right_limit = (param_limits["right_ascension"][1], param_limits["declination"][1]),
+        left_limit = (param_limits["declination"][0], param_limits["right_ascension"][0]),
+        right_limit = (param_limits["declination"][1], param_limits["right_ascension"][1]),
         prior_pdf = ss_sampler.pseudo_pdf)
 
 else:
@@ -609,8 +609,11 @@ if opts.output_file:
             samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(sampler._rvs["psi"]))
         samples["polarization"] = samples["psi"]
         samples["coa_phase"] = samples["phi_orb"]
-        samples["latitude"] = samples["declination"]
-        samples["longitude"] = samples["right_ascension"]
+        if ("declination", "right_ascension") in sampler.params:
+            samples["latitude"], samples["longitude"] = samples[("declination", "right_ascension")]
+        else:
+            samples["latitude"] = samples["declination"]
+            samples["longitude"] = samples["right_ascension"]
         samples["loglikelihood"] = numpy.log(samples["integrand"])
         samples["mass1"] = numpy.ones(samples["psi"].shape)*opts.mass1
         samples["mass2"] = numpy.ones(samples["psi"].shape)*opts.mass2
