@@ -4,6 +4,7 @@ import os
 import shutil
 import random
 import sqlite3
+import optparse
 
 random.seed(0)
 
@@ -32,16 +33,36 @@ def get_sim_inspiral_by_id(filename, ids):
 
     return new_table
 
+optp = optparse.OptionParser()
+optp.add_option("-c", "--coinc-db", help="Database of coinc events to remap.")
+optp.add_option("-s", "--sim-xml", help="XML document containing sim_inspiral information. Necessay without coinc, and useful with coinc to transfer an entire row at once.")
+optp.add_option("-S", "--sim-id", action="append", help="Process this sim ID. Can be provided multiple times")
+
+optp.add_option("-b", "--event-start", type=int, help="Start of event range to process. This is relative to the listing given by --skyloc-file")
+optp.add_option("-e", "--event-end", type=int, help="End of event range to process. This is relative to the listing given by --skyloc-file")
+optp.add_option("-f", "--skyloc-file", help="Use this file to identify event ranges.")
+opts, args = optp.parse_args()
+
+if opts.skyloc_file is not None:
+    s = opts.event_start or 0
+    e = opts.event_end or -1
+    with open(opts.skyloc_file) as skylocfile:
+        lines = skylocfile.readlines()[1:]
+    sim_ids = map(int, [line.split()[1].split(":")[-1] for line in lines[s:e]])
+else:
+    sim_ids = map(int, opts.sim_id)
+
+print "Will process %d sim ids" % len(sim_ids)
+
 dirs = []
-if sys.argv[1].endswith("xml") or sys.argv[1].endswith("xml.gz"):
+if opts.coinc_db is None:
     print "Assuming sim_inspiral"
-    si_table = table.get_table(utils.load_filename(sys.argv[1]), lsctables.SimInspiralTable.tableName)
+    si_table = table.get_table(utils.load_filename(opts.sim_xml), lsctables.SimInspiralTable.tableName)
     new_table = lsctables.New(lsctables.SimInspiralTable, si_table.validcolumns.keys())
 
-    if len(sys.argv[2:]) == 0:
+    if sim_ids is None or len(sim_ids) == 0:
         new_table.extend(filter(lambda si: si.distance > 10 and si.distance < 50 and random.random() < 0.1, si_table))
     else:
-        ids = map(int, sys.argv[2:])
         new_table.extend(filter(lambda si: int(si.simulation_id) in ids, si_table))
 
     for si in new_table:
@@ -58,29 +79,26 @@ if sys.argv[1].endswith("xml") or sys.argv[1].endswith("xml.gz"):
         xmldoc.childNodes[0].appendChild(indv_table)
         utils.write_filename(xmldoc, bdir + "/mdc.xml.gz", gz=True)
 
-elif sys.argv[1].endswith("sqlite"):
+elif opts.coinc_db is not None:
     print "Assuming coinc_inspiral"
     cols = ("coinc_event_id", "end_time", "end_time_ns", "snr")
     new_table = lsctables.New(lsctables.CoincInspiralTable, cols)
 
-    try:
-        sim_table = None
-        ids = map(int, sys.argv[2:])
-    except ValueError:
-        sim_table = sys.argv[2]
-        ids = map(int, sys.argv[3:])
+    sim_table = None
+    if opts.sim_xml:
+        sim_table = opts.sim_xml
 
-    connection = sqlite3.connect(sys.argv[1])
+    connection = sqlite3.connect(opts.coinc_db)
     get_coinc.add_tmp_table(connection)
-    if len(ids) == 0:
+    if len(sim_ids) == 0:
         print get_coinc.count_sim_coinc(connection)
         connection.close()
         exit()
     else:
-        coinc_from_sim = [get_coinc.get_coinc(connection, id) for id in ids]
+        coinc_from_sim = [get_coinc.get_coinc(connection, id) for id in sim_ids]
     connection.close()
 
-    for simid, (ceid, m1, m2, et, etn, s) in zip(ids, coinc_from_sim):
+    for simid, (ceid, m1, m2, et, etn, s) in zip(sim_ids, coinc_from_sim):
         print "sim to coinc mapping: %d -> %s" % (simid, ceid)
         ci = new_table.RowType()
         ci.coinc_event_id = ceid
