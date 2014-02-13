@@ -730,7 +730,7 @@ class HealPixSampler(object):
         elif stype == 'vecthist':
             if self.valid_points_hist is None:
                 self.__expand_valid()
-            np = len(self.valid_points_hist)
+            np = self.valid_points_hist.shape[1]
             rnd_n = numpy.random.randint(0, np-1, len(ra_in))
             dec_in, ra_in = self.valid_points_hist[:,rnd_n]
             return numpy.array([dec_in, ra_in])
