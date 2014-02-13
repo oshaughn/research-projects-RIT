@@ -208,6 +208,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             print " ======= \int L dt/T: Consistency across multiple methods  =========="
             tvals = np.linspace(tWindowExplore[0], tWindowExplore[1], int(fSample*(tWindowExplore[1]-tWindowExplore[0])))
             lnLmargT1 = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,Psig, rholms_intp, rholms, crossTerms, Lmax)
+            lnLmargT1b = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,Psig, rholms_intp, rholms, crossTerms, Lmax,interpolate=True)
 #            lnLmargT1 = factored_likelihood.NetworkLogLikelihoodTimeMarginalized(theEpochFiducial,rholms_intp, crossTerms, Psig.tref,  tWindowExplore, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, 2, detectors)
             lnLmargT2 = factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete(theEpochFiducial,rholms, crossTerms, Psig.tref, tWindowExplore, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, detectors)
             def fn(x):
@@ -215,7 +216,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
                 P2.tref = theEpochFiducial+x  
                 return np.exp(np.max([factored_likelihood.FactoredLogLikelihood(P2, rholms_intp, crossTerms,Lmax),-15]))   # control for roundoff
             lnLmargT3 = np.log(integrate.quad(fn,  tWindowExplore[0], tWindowExplore[1],points=[0],limit=500)[0])
-            print "Validating ln \int L dt/T over a window (manual,interp,discrete)= ", lnLmargT3, lnLmargT1,   " note time window has length ", tWindowExplore[1]-tWindowExplore[0]
+            print "Validating ln \int L dt/T over a window (manual,interp,discrete)= ", lnLmargT3, lnLmargT1, lnLmargT1b,   " note time window has length ", tWindowExplore[1]-tWindowExplore[0]
 
 
 
