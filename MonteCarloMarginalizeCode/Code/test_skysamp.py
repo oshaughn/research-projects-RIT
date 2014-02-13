@@ -64,6 +64,21 @@ ss_test = mcsampler.HealPixSampler(numpy.ones(np)/float(np))
 integrator = mcsampler.MCSampler()
 
 #
+# Processing time tests
+#
+import timeit
+setup = """
+from lalinference.bayestar import fits as bfits
+import mcsampler
+smap, smap_meta = bfits.read_sky_map(sys.argv[1])
+skysampler = mcsampler.HealPixSampler(smap)
+"""
+ncalls = 1000
+print "Checking time for %d cdf_inv calls for 1000 pts each" % ncalls
+res = timeit.Timer("skysampler.pseudo_cdf_inverse_exp(ndraws=1000)", setup=setup).repeat(1, number=ncalls)
+print "min val %f" % min(res)
+
+#
 # 2-D "sky sampler" uses a custom sampling class wrapped around a fits file
 # skymap
 #
