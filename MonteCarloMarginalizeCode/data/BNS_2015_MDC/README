@@ -4,6 +4,8 @@ Files/Scripts that you will need to do *all* of the targets (those not included 
     - To get coinc information (masses, snr)
     - At CIT: /home/alexander.urban/Raven/2015/bayestar_injection_run/H1L1-ALL_LLOID_1_injections-966384015-5184000.sqlite
     - At UWM: /home/pankow/research-projects/MonteCarloMarginalizeCode/data/BNS_2015_MDC/H1L1-ALL_LLOID_1_injections-966384015-5184000.sqlite
+2. skyloc_coincs_far.txt
+    - on the web: https://ldas-jobs.phys.uwm.edu/~lsinger/skyloc_coincs_far.txt
 
 
 -- Stage analysis directory --
