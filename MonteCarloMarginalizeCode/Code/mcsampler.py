@@ -28,6 +28,37 @@ class MCSampler(object):
     """
     Class to define a set of parameter names, limits, and probability densities.
     """
+
+    @staticmethod
+    def match_params_from_args(args, params):
+        """
+        Given two unordered sets of parameters, one a set of all "basic" elements (strings) possible, and one a set of elements both "basic" strings and "combined" (basic strings in tuples), determine whether the sets are equivalent if no basic element is repeated.
+
+        e.g. set A ?= set B
+
+        ("a", "b", "c") ?= ("a", "b", "c") ==> True
+        (("a", "b", "c")) ?= ("a", "b", "c") ==> True
+        (("a", "b"), "d")) ?= ("a", "b", "c") ==> False  # basic element 'd' not in set B
+        (("a", "b"), "d")) ?= ("a", "b", "d", "c") ==> False  # not all elements in set B represented in set A
+        """
+        not_common = set(args) ^ set(params)
+        if len(not_common) == 0:
+            # All params match
+            return True
+        if all([not isinstance(i, tuple) for i in not_common]):
+            # The only way this is possible is if there are
+            # no extraneous params in args
+            return False
+
+        to_match, against = filter(lambda i: not isinstance(i, tuple), not_common), filter(lambda i: isinstance(i, tuple), not_common)
+
+        matched = []
+        import itertools
+        for i in range(2, max(map(len, against))+1):
+            matched.extend([t for t in itertools.permutations(to_match, i) if t in against])
+        return (set(matched) ^ set(against)) == set()
+
+
     def __init__(self):
         # Parameter names
         self.params = set()
@@ -175,7 +206,7 @@ class MCSampler(object):
         res = []
         for (cdf_rv, param) in zip(rvs_tmp, args):
             if len(cdf_rv.shape) == 1:
-                res.append((self.pdf[param](cdf_rv)/self._pdf_norm[param], self.prior_pdf[param](cdf_rv), cdf_rv))
+                res.append((self.pdf[param](cdf_rv).astype(numpy.float64)/self._pdf_norm[param], self.prior_pdf[param](cdf_rv), cdf_rv))
             else:
                 # NOTE: the "astype" is employed here because the arrays can be
                 # irregular and thus assigned the 'object' type. Since object
@@ -250,30 +281,9 @@ class MCSampler(object):
         # the arguments in the right order
         # FIXME: How dangerous is this?
         args = func.func_code.co_varnames[:func.func_code.co_argcount]
-        params = []
-        for item in self.params:
-            if isinstance(item, tuple):
-                params.extend(item)
-            else:
-                params.append(item)
-
-        def match_params_from_args(args, params):
-            not_common = set(args) ^ set(params)
-            if all([not isinstance(i, tuple) for i in not_common]):
-                # The only way this is possible is if there are
-                # no extraneous params in args
-                return False
-
-            to_match, against = filter(lambda i: not isinstance(i, tuple), not_common), filter(lambda i: isinstance(i, tuple), not_common)
-
-            matched = []
-            import itertools
-            for i in range(2, max(map(len, against))+1):
-                matched.extend([t for t in itertools.permutations(to_match, i) if t in against])
-            return (set(matched) ^ set(against)) == set()
 
         #if set(args) & set(params) != set(args):
-        if not match_params_from_args(args, self.params):
+        if not MCSampler.match_params_from_args(args, self.params):
             raise ValueError("All integrand variables must be represented by integral parameters.")
         
         #
@@ -326,10 +336,10 @@ class MCSampler(object):
 
         if convergence_tests:
             bConvergenceTests = False   # start out not converged, if tests are on
-            last_convergence_test = {}   # initialize record of tests
+            last_convergence_test = defaultdict(lambda: False)   # initialize record of tests
         else:
             bConvergenceTests = False    # if tests are not available, assume not converged. The other criteria will stop it
-            last_convergence_test = {}   # need record of tests to be returned always
+            last_convergence_test = defaultdict(lambda: False)   # need record of tests to be returned always
         while (eff_samp < neff and ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
             p_s, p_prior, rv = self.draw(n, *self.params)
@@ -353,11 +363,16 @@ class MCSampler(object):
             #
             if len(rv[0].shape) != 1:
                 rv = rv[0]
-            if bUseMultiprocessing:
-                fval = p.map(lambda x : func(*x), numpy.transpose(rv))
-            else:
-                unpacked = numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
-                fval = func(*unpacked)
+
+            params = []
+            for item in self.params:
+                if isinstance(item, tuple):
+                    params.extend(item)
+                else:
+                    params.append(item)
+            unpacked = numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
+            unpacked = dict(zip(params, unpacked))
+            fval = func(**unpacked)
 
             #
             # Check if there is any practical contribution to the integral
@@ -504,8 +519,14 @@ class MCSampler(object):
             self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
             # Step 1: Cut out any sample with lnL belw threshold
             indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
+            # FIXME: This is an unncessary initial copy, the second step (cum i
+            # prob) can be accomplished with indexing first then only pare at
+            # the end
             for key in self._rvs.keys():
-                self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indx_list] )
+                if isinstance(key, tuple):
+                    self._rvs[key] = self._rvs[key][:,indx_list]
+                else:
+                    self._rvs[key] = self._rvs[key][indx_list]
             # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
             wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
             idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
@@ -513,8 +534,12 @@ class MCSampler(object):
             cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
             cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
             indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability
+            # FIXME: See previous FIXME
             for key in self._rvs.keys():
-                self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indx_list] )
+                if isinstance(key, tuple):
+                    self._rvs[key] = self._rvs[key][:,indx_list]
+                else:
+                    self._rvs[key] = self._rvs[key][indx_list]
 
         # Create extra dictionary to return things
         dict_return ={}
