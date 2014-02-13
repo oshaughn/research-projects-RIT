@@ -611,6 +611,38 @@ def delta_func_samp(x_0, x):
 delta_func_samp_vector = numpy.vectorize(delta_func_samp, otypes=[numpy.float])
 
 class HealPixSampler(object):
+    """
+    Class to sample the sky using a FITS healpix map. Equivalent to a joint 2-D pdf in RA and dec.
+    """
+
+    @staticmethod
+    def __thph2decra(th, ph):
+        """
+        theta/phi to RA/dec
+        theta (north to south) (0, pi)
+        phi (east to west) (0, 2*pi)
+        declination: north pole = pi/2, south pole = -pi/2
+        right ascension: (0, 2*pi)
+        
+        dec = pi/2 - theta
+        ra = phi
+        """
+        return numpy.pi/2-th, ph
+
+    @staticmethod
+    def __decra2thph(dec, ra):
+        """
+        theta/phi to RA/dec
+        theta (north to south) (0, pi)
+        phi (east to west) (0, 2*pi)
+        declination: north pole = pi/2, south pole = -pi/2
+        right ascension: (0, 2*pi)
+        
+        theta = pi/2 - dec
+        ra = phi
+        """
+        return numpy.pi/2-dec, ra
+
     def __init__(self, skymap, massp=1.0):
         self.skymap = skymap
         self._massp = massp
@@ -622,8 +654,9 @@ class HealPixSampler(object):
 
     @massp.setter
     def massp(self, value):
+        assert 0 <= value <= 1
         self._massp = value
-        self.renormalize()
+        norm = self.renormalize()
 
     def renormalize(self):
         """
@@ -631,42 +664,78 @@ class HealPixSampler(object):
         """
         res = healpy.npix2nside(len(self.skymap))
         self.pdf_sorted = sorted([(p, i) for i, p in enumerate(self.skymap)], reverse=True)
-        self.valid_points = []
+        self.valid_points_decra = []
         cdf, np = 0, 0
         for p, i in self.pdf_sorted:
             if p == 0:
                 continue # Can't have a zero prior
-            # NOTE: This comes out as (colat, long) in radians
-            self.valid_points.append(healpy.pix2ang(res, i))
+            self.valid_points_decra.append(HealPixSampler.__thph2decra(*healpy.pix2ang(res, i)))
             cdf += p
             if cdf > self._massp:
                 break
         self._renorm = cdf
+        # reset to indicate we'd need to recalculate this
+        self.valid_points_hist = None
         return self._renorm
 
+    def __expand_valid(self, min_p=1e-5):
+        #
+        # Determine what the 'quanta' of probabilty is
+        #
+        if self._massp == 1.0:
+            # This is to ensure we don't blow away everything because the map
+            # is very spread out
+            min_p = min(min_p, max(self.skymap))
+        else:
+            # NOTE: Only valid if CDF descending order is kept
+            min_p = self.pseudo_pdf(*self.valid_points_decra[-1])
+
+        self.valid_points_hist = []
+        for pt in self.valid_points_decra:
+            self.valid_points_hist.extend([pt]*int(self.pseudo_pdf(*pt)/min_p))
+        self.valid_points_hist = numpy.array(self.valid_points_hist).T
+
     def pseudo_pdf(self, dec_in, ra_in):
+        """
+        Return pixel probability for a given dec_in and ra_in. Note, uses healpy functions to identify correct pixel.
+        """
+        th, ph = HealPixSampler.__decra2thph(dec_in, ra_in)
         res = healpy.npix2nside(len(self.skymap))
-        return self.skymap[healpy.ang2pix(res, dec_in, ra_in)]
+        return self.skymap[healpy.ang2pix(res, th, ph)]/self._renorm
 
-    def pseudo_idx_pdf(self, idx):
-        return self.skymap[idx]
+    def pseudo_cdf_inverse(self, dec_in=None, ra_in=None, ndraws=1, stype='vecthist'):
+        """
+        Select points from the skymap with a distribution following its corresponding pixel probability. If dec_in, ra_in are suupplied, they are ignored except that their shape is reproduced. If ndraws is supplied, that will set the shape. Will return a 2xN numpy array of the (dec, ra) values.
+        stype controls the type of sampling done to retrieve points. Valid choices are
+        'rejsamp': Rejection sampling: accurate but slow
+        'vecthist': Expands a set of points into a larger vector with the multiplicity of the points in the vector corresponding roughly to the probability of drawing that point. Because this is not an exact representation of the proability, some points may not be represented at all (less than quantum of minimum probability) or inaccurately (a significant fraction of the fundamental quantum).
+        """
 
-    def pseudo_cdf_inverse(self, dec_in=None, ra_in=None, ndraws=1):
         if ra_in is not None:
             ndraws = len(ra_in)
         if ra_in is None:
             ra_in, dec_in = numpy.zeros((2, ndraws))
 
-        # FIXME: This is only valid under descending ordered CDF summation
-        ceiling = max(self.skymap)
-        i, np = 0, len(self.valid_points)
-        while i < len(ra_in):
-            rnd_n = numpy.random.randint(0, np)
-            trial = numpy.random.uniform(0, ceiling)
-            if trial <= self.pseudo_pdf(*self.valid_points[rnd_n]):
-                dec_in[i], ra_in[i] = self.valid_points[rnd_n]
-                i += 1
-        return numpy.array([dec_in, ra_in])
+        if stype == 'rejsamp':
+            # FIXME: This is only valid under descending ordered CDF summation
+            ceiling = max(self.skymap)
+            i, np = 0, len(self.valid_points_decra)
+            while i < len(ra_in):
+                rnd_n = numpy.random.randint(0, np)
+                trial = numpy.random.uniform(0, ceiling)
+                if trial <= self.pseudo_pdf(*self.valid_points_decra[rnd_n]):
+                    dec_in[i], ra_in[i] = self.valid_points_decra[rnd_n]
+                    i += 1
+            return numpy.array([dec_in, ra_in])
+        elif stype == 'vecthist':
+            if self.valid_points_hist is None:
+                self.__expand_valid()
+            np = len(self.valid_points_hist)
+            rnd_n = numpy.random.randint(0, np-1, len(ra_in))
+            dec_in, ra_in = self.valid_points_hist[:,rnd_n]
+            return numpy.array([dec_in, ra_in])
+        else:
+            raise ValueError("%s is not a recgonized sampling type" % stype)
 
 #pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
 pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float])
