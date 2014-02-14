@@ -113,7 +113,6 @@ elif opts.coinc_db is not None:
         dirs.append(bdir)
         if not os.path.isdir(bdir):
             os.makedirs(bdir)
-        else: continue
 
         indv_table = lsctables.New(lsctables.CoincInspiralTable, cols)
         indv_table.append(ci)
@@ -141,11 +140,9 @@ utils.write_filename(xmldoc, "selected_events.xml.gz", gz=True)
 # Common operations
 pwd = os.getcwd()
 for bdir in dirs:
-    os.chdir(bdir)
-    if not os.path.exists("%s/H1_PSD_measured.xml.gz" % opts.base_directory):
-        os.symlink("%s/H1_PSD_measured.xml.gz" % pwd, "%s/H1_PSD_measured.xml.gz" % opts.base_directory)
-    if not os.path.exists("%s/L1_PSD_measured.xml.gz" % opts.base_directory):
-        os.symlink("%s/L1_PSD_measured.xml.gz" % pwd, "%s/L1_PSD_measured.xml.gz" % opts.base_directory)
-    os.chdir("../")
+    #if not os.path.exists("%s/H1_PSD_measured.xml.gz" % bdir):
+        #os.symlink("%s/H1_PSD_measured.xml.gz" % pwd, "%s/H1_PSD_measured.xml.gz" % bdir)
+    #if not os.path.exists("%s/L1_PSD_measured.xml.gz" % bdir):
+        #os.symlink("%s/L1_PSD_measured.xml.gz" % pwd, "%s/L1_PSD_measured.xml.gz" % bdir)
 
     shutil.copy("%s/Makefile.template" % pwd, bdir + "/Makefile")
