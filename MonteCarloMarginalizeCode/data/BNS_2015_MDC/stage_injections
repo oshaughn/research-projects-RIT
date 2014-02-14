@@ -41,6 +41,7 @@ optp.add_option("-S", "--sim-id", action="append", help="Process this sim ID. Ca
 optp.add_option("-b", "--event-start", type=int, help="Start of event range to process. This is relative to the listing given by --skyloc-file")
 optp.add_option("-e", "--event-end", type=int, help="End of event range to process. This is relative to the listing given by --skyloc-file")
 optp.add_option("-f", "--skyloc-file", help="Use this file to identify event ranges.")
+optp.add_option("-d", "--base-directory", default="./", help="Use this directory as a base to stage from.")
 opts, args = optp.parse_args()
 
 if opts.skyloc_file is not None:
@@ -67,10 +68,10 @@ if opts.coinc_db is None:
 
     for si in new_table:
         sid = int(si.simulation_id)
-        bdir = "sim_id_%d" % sid
+        bdir = "%s/sim_id_%d" % (opts.base_directory, sid)
         dirs.append(bdir)
         if not os.path.isdir(bdir):
-            os.mkdir(bdir)
+            os.makedirs(bdir)
         indv_table = lsctables.New(lsctables.SimInspiralTable, si_table.validcolumns.keys())
         indv_table.append(si)
  
@@ -108,10 +109,11 @@ elif opts.coinc_db is not None:
         new_table.append(ci)
 
         cid = int(ceid.split(":")[-1])
-        bdir = "coinc_id_%d" % cid
+        bdir = "%s/coinc_id_%d" % (opts.base_directory, cid)
         dirs.append(bdir)
         if not os.path.isdir(bdir):
-            os.mkdir(bdir)
+            os.makedirs(bdir)
+        else: continue
 
         indv_table = lsctables.New(lsctables.CoincInspiralTable, cols)
         indv_table.append(ci)
@@ -137,12 +139,13 @@ xmldoc.childNodes[0].appendChild(new_table)
 utils.write_filename(xmldoc, "selected_events.xml.gz", gz=True)
 
 # Common operations
+pwd = os.getcwd()
 for bdir in dirs:
     os.chdir(bdir)
-    if not os.path.exists("H1_PSD_measured.xml.gz"):
-        os.symlink("../H1_PSD_measured.xml.gz", "H1_PSD_measured.xml.gz")
-    if not os.path.exists("L1_PSD_measured.xml.gz"):
-        os.symlink("../L1_PSD_measured.xml.gz", "L1_PSD_measured.xml.gz")
+    if not os.path.exists("%s/H1_PSD_measured.xml.gz" % opts.base_directory):
+        os.symlink("%s/H1_PSD_measured.xml.gz" % pwd, "%s/H1_PSD_measured.xml.gz" % opts.base_directory)
+    if not os.path.exists("%s/L1_PSD_measured.xml.gz" % opts.base_directory):
+        os.symlink("%s/L1_PSD_measured.xml.gz" % pwd, "%s/L1_PSD_measured.xml.gz" % opts.base_directory)
     os.chdir("../")
 
-    shutil.copy("Makefile.template", bdir + "/Makefile")
+    shutil.copy("%s/Makefile.template" % pwd, bdir + "/Makefile")
