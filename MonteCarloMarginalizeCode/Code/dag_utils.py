@@ -220,7 +220,7 @@ def write_tri_plot_sub(tag='plot_tri', injection_file=None, exe=None, log_dir=No
     plot_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     plot_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
-    plot_job.add_opt("output", "ILE_$(macromassid).png")
+    plot_job.add_opt("output", "ILE_triplot_$(macromassid).png")
     if injection_file is not None:
         plot_job.add_opt("injection", injection_file)
     plot_job.add_arg("ILE_$(macromassid).sqlite")
