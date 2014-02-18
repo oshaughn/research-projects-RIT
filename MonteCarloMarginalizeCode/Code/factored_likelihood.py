@@ -284,9 +284,10 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
     term1 = 0.
-    for l in range(2,Lmax+1):
-        for m in range(-l,l+1):
-            term1 += np.conj(F * Ylms[(l,m)]) * rholms_intp[(l,m)]( float(tshift))
+    for key in rholms_intp.keys():
+        l = key[0]
+        m = key[1]
+        term1 += np.conj(F * Ylms[(l,m)]) * rholms_intp[(l,m)]( float(tshift))
     term1 = np.real(term1) / (distMpc/distMpcRef)
 
     return term1
