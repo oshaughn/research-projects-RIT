@@ -81,6 +81,7 @@ import factored_likelihood
 import factored_likelihood_test
 
 import xmlutils
+import common_cl
 import ourparams
 import ourio
 opts, rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
@@ -380,7 +381,7 @@ if opts.force_gps_time:
 
 # PSD reading
 psd_dict = {}
-if not(opts.psd_file):
+if not(opts.psd_file) and not(opts.psd_file_singleifo):
     analyticPSD_Q = True # For simplicity, using an analytic PSD
     for det in data_dict.keys():
 #        psd_dict[det] = lalsim.SimNoisePSDaLIGOZeroDetHighPower   #lal.LIGOIPsd    # Preserves key equality in data_dict , psd_dict
@@ -390,14 +391,20 @@ if not(opts.psd_file):
 else:
     analyticPSD_Q = False # For simplicity, using an analytic PSD
     detectors = data_dict.keys()
+    detectors_singlefile_dict = common_cl.parse_cl_key_value(opts.psd_file_singleifo)
     df = data_dict[detectors[0]].deltaF
     fNyq = (len(data_dict[detectors[0]].data.data)/2)*df
-    print " == Loading numerical PSD =="
+    print " == Loading numerical PSDs =="
     for det in detectors:
-        print "Reading PSD for instrument %s from %s" % (det, opts.psd_file)
+        psd_fname = ""
+        if detectors_singlefile_dict.has_key(det):
+            psd_fname = detectors_singlefile_dict[det]
+        else:
+            psd_fname = opts.psd_fname
+        print "Reading PSD for instrument %s from %s" % (det, psd_fname)
 
         # "Standard" PSD parsing code used on master.
-        psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(opts.psd_file, det)  # pylal type!
+        psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(psd_fname, det)  # pylal type!
         tmp = psd_dict[det].data
         print "Sanity check reporting : pre-extension, min is ", np.min(tmp), " and maximum is ", np.max(tmp)
         deltaF = data_dict[det].deltaF
@@ -491,8 +498,10 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
 
 #
 # Perform the Precompute stage
+#   WARNING: Using default values for inverse spectrum truncation (True) and inverse spectrun truncation time (8s) from ourparams.py
+#                     ILE adopts a different convention.  ROS old development branch has yet another approach (=set during PSD reading).
 #
-rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q)
+rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime)
 epoch_post = theEpochFiducial # Suggested change.  BE CAREFUL: Now that we trim the series, this is NOT what I used to be
 print "Finished Precomputation..."
 print "====Generating metadata from precomputed results ====="
@@ -806,7 +815,7 @@ if opts.inj:
     weights = np.exp(ret[:,-1])*ret[:,-3]/ret[:,-2]
     ppdata['ra'] = [Psig.phi,pcum_at(Psig.phi,ret[:,0],weights)]
     ppdata['dec'] = [Psig.theta,pcum_at(Psig.theta,ret[:,1], weights)]
-    ppdata['tref'] = [lalsimutils.stringGPSNice(Psig.tref),pcum_at(Psig.tref-theEpochFiducial,ret[:,2], weights)]
+    ppdata['tref'] = [Psig.tref-theEpochFiducial,pcum_at(Psig.tref-theEpochFiducial,ret[:,2], weights)]
     ppdata['phi'] = [Psig.phiref,pcum_at(Psig.phiref,ret[:,3], weights)]
     ppdata['incl'] = [Psig.incl,pcum_at(Psig.incl,ret[:,4], weights)]
     ppdata['psi'] = [Psig.psi,pcum_at(Psig.psi,ret[:,5], weights)]
