@@ -64,7 +64,7 @@ if opts.coinc_db is None:
     if sim_ids is None or len(sim_ids) == 0:
         new_table.extend(filter(lambda si: si.distance > 10 and si.distance < 50 and random.random() < 0.1, si_table))
     else:
-        new_table.extend(filter(lambda si: int(si.simulation_id) in ids, si_table))
+        new_table.extend(filter(lambda si: int(si.simulation_id) in sim_ids, si_table))
 
     for si in new_table:
         sid = int(si.simulation_id)
