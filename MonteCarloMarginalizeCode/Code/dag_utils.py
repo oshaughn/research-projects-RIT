@@ -195,9 +195,10 @@ def write_posterior_plot_sub(tag='plot_post', exe=None, log_dir=None, output_dir
     plot_job.add_opt("dimension1", "mchirp")
     plot_job.add_opt("dimension2", "eta")
     plot_job.add_opt("input-cache", "ILE_all.cache")
+    plot_job.add_opt("log-evidence", None)
 
     plot_job.add_condor_cmd('getenv', 'True')
-    plot_job.add_condor_cmd('request_memory', '2048')
+    plot_job.add_condor_cmd('request_memory', '1024')
     
     return plot_job, plot_sub_name
 
