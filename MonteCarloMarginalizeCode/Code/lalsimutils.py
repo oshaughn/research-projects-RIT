@@ -828,7 +828,7 @@ def hoft(P, Fp=None, Fc=None):
         hc.epoch = hc.epoch + P.tref
         ht = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
                 P.phi, P.theta, P.psi, 
-                lalsim.InstrumentNameToLALDetector(str(P.detector)))
+                lalsim.DetectorPrefixToLALDetector(str(P.detector)))
     if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
         lalsim.SimInspiralREAL8WaveTaper(ht.data, P.taper)
     if P.deltaF is not None:
