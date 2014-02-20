@@ -433,7 +433,9 @@ class MCSampler(object):
             # prior PDF according to the 1-D marginalization
             #
             for itr, p in enumerate(self.params):
-                if p not in self.adaptive:
+                # FIXME: The second part of this condition should be made more
+                # specific to pinned parameters
+                if p not in self.adaptive or p in kwargs.keys():
                     continue
                 points = self._rvs[p][-n_history:]
                 weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp
