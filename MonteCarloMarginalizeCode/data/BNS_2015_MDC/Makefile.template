@@ -39,7 +39,7 @@ archive:
 	rm -rf logs/*
 
 adapt_beta.txt: ${INJ_XML}
-	if [ ${INJ_XML} == "mdc.xml.gz" ]; then util_AdaptiveExponent.py --inj ${INJ_XML} --channel-name "H1:FAKE-STRAIN" --channel-name "L1:FAKE-STRAIN" --psd-file-singleifo "H1=H1_PSD_measured.xml.gz" --psd-file-singleifo "L1=L1_PSD_measured.xml.gz" --Nskip 1000 | tail -1 > adapt_beta.txt; else util_AdaptiveExponent.py --coinc ${INJ_XML} --Nskip 1000 | tail -1 > adapt_beta.txt; fi
+	if [ ${INJ_XML} == "mdc.xml.gz" ]; then util_AdaptiveExponent.py --inj ${INJ_XML} --channel-name "H1:FAKE-STRAIN" --channel-name "L1:FAKE-STRAIN" --psd-file-singleifo "H1=H1_PSD_measured.xml.gz" --psd-file-singleifo "L1=L1_PSD_measured.xml.gz" --Nskip 1000 2> /dev/null | tail -1 > adapt_beta.txt; else util_AdaptiveExponent.py --coinc ${INJ_XML} --Nskip 1000 | tail -1 > adapt_beta.txt; fi
 
 HL-FAKE_SEARCH.xml.gz: mdc.xml.gz H1_PSD_measured.xml.gz L1_PSD_measured.xml.gz
 	~/excesspower/excesspower-utils/bin/ligolw_inj_snr  \
