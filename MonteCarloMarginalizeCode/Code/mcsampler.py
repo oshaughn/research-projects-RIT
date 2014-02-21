@@ -206,7 +206,7 @@ class MCSampler(object):
         res = []
         for (cdf_rv, param) in zip(rvs_tmp, args):
             if len(cdf_rv.shape) == 1:
-                res.append((self.pdf[param](cdf_rv).astype(numpy.float64)/self._pdf_norm[param], self.prior_pdf[param](cdf_rv), cdf_rv))
+                res.append((self.pdf[param](numpy.float64(cdf_rv)).astype(numpy.float64)/self._pdf_norm[param], self.prior_pdf[param](cdf_rv), cdf_rv))
             else:
                 # NOTE: the "astype" is employed here because the arrays can be
                 # irregular and thus assigned the 'object' type. Since object
