@@ -10,7 +10,7 @@ import functools
 
 import healpy
 
-from statutils import cumvar
+import statutils
 
 from multiprocessing import Pool
 
@@ -249,7 +249,6 @@ class MCSampler(object):
         n -- Number of samples to integrate in a 'chunk' -- default is 1000
         save_integrand -- Save the evaluated value of the integrand at the sample points with the sample point
         history_mult -- Number of chunks (of size n) to use in the adaptive histogramming: only useful if there are parameters with adaptation enabled
-        tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
         floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
         n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
         convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
@@ -299,14 +298,13 @@ class MCSampler(object):
         # Adaptive sampling parameters
         #
         n_history = int(kwargs["history_mult"]*n) if kwargs.has_key("history_mult") else None
-        tempering_exp = kwargs["tempering_exp"] if kwargs.has_key("tempering_exp") else 0.0
         n_adapt = int(kwargs["n_adapt"]*n) if kwargs.has_key("n_adapt") else 0
         floor_integrated_probability = kwargs["floor_level"] if kwargs.has_key("floor_level") else 0
 
         save_intg = kwargs["save_intg"] if kwargs.has_key("save_intg") else False
         # FIXME: The adaptive step relies on the _rvs cache, so this has to be
         # on in order to work
-        if n_adapt > 0 and tempering_exp > 0.0:
+        if n_adapt > 0:
             save_intg = True
 
         deltalnL = kwargs['igrand_threshold_deltalnL'] if kwargs.has_key('igrand_threshold_deltalnL') else float("Inf") # default is to return all
@@ -424,7 +422,7 @@ class MCSampler(object):
                 maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
             # running stddev
-            var = cumvar(int_val, mean, std, ntotal)[-1]
+            var = statutils.cumvar(int_val, mean, std, ntotal)[-1]
             # running integral
             int_val1 += int_val.sum()
             # running number of evaluations
@@ -480,7 +478,13 @@ class MCSampler(object):
                 if p not in self.adaptive or p in kwargs.keys():
                     continue
                 points = self._rvs[p][-n_history:]
-                weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp
+                # FIXME: Divide out the sampling prior corresponding to this
+                # parameter -- we want to evulate best the integrand
+                # marginalized over everything but this parameter:
+                # int dx p_s,x / p_x,s \int d\vec{y} L(x,y)p(x,y)
+                # NOTE: tempering_exp set to 1 due to averaging procedure later
+                #weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp
+                weights = self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:]
 
                 self._hist[p], edges = numpy.histogram( points,
                     bins = 100,
@@ -488,6 +492,11 @@ class MCSampler(object):
                     weights = weights,
                     normed = True
                 )
+
+                # Take an average over the bins so as to remove bins which have
+                # been depressed by fluctations across other parameters
+                self._hist[p] = statutils.sym_average(self._hist[p])
+
                 # FIXME: numpy.hist can't normalize worth a damn
                 self._hist[p] /= self._hist[p].sum()
 
@@ -500,6 +509,7 @@ class MCSampler(object):
 
                 # FIXME: KS test probably has a place here. Not sure yet where.
                 #from scipy.stats import kstest
+                # FIXME: this is just wrong
                 #d, pval = kstest(self._rvs[p][-n_history:], self.cdf[p])
                 #print p, d, pval
 
