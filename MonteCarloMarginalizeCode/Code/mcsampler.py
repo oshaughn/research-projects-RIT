@@ -28,6 +28,37 @@ class MCSampler(object):
     """
     Class to define a set of parameter names, limits, and probability densities.
     """
+
+    @staticmethod
+    def match_params_from_args(args, params):
+        """
+        Given two unordered sets of parameters, one a set of all "basic" elements (strings) possible, and one a set of elements both "basic" strings and "combined" (basic strings in tuples), determine whether the sets are equivalent if no basic element is repeated.
+
+        e.g. set A ?= set B
+
+        ("a", "b", "c") ?= ("a", "b", "c") ==> True
+        (("a", "b", "c")) ?= ("a", "b", "c") ==> True
+        (("a", "b"), "d")) ?= ("a", "b", "c") ==> False  # basic element 'd' not in set B
+        (("a", "b"), "d")) ?= ("a", "b", "d", "c") ==> False  # not all elements in set B represented in set A
+        """
+        not_common = set(args) ^ set(params)
+        if len(not_common) == 0:
+            # All params match
+            return True
+        if all([not isinstance(i, tuple) for i in not_common]):
+            # The only way this is possible is if there are
+            # no extraneous params in args
+            return False
+
+        to_match, against = filter(lambda i: not isinstance(i, tuple), not_common), filter(lambda i: isinstance(i, tuple), not_common)
+
+        matched = []
+        import itertools
+        for i in range(2, max(map(len, against))+1):
+            matched.extend([t for t in itertools.permutations(to_match, i) if t in against])
+        return (set(matched) ^ set(against)) == set()
+
+
     def __init__(self):
         # Parameter names
         self.params = set()
@@ -76,7 +107,7 @@ class MCSampler(object):
         if rosDebugMessages: 
             print " Adding parameter ", params, " with limits ", [left_limit, right_limit]
         if isinstance(params, tuple):
-            assert all(lambda lim: lim[0] < rlim[0], zip(left_limit, right_limit))
+            assert all(map(lambda lim: lim[0] < lim[1], zip(left_limit, right_limit)))
             if left_limit is None:
                 self.llim[params] = list(float("-inf"))*len(params)
             else:
@@ -104,6 +135,7 @@ class MCSampler(object):
                 self.prior_pdf[params] = lambda x:1
             else:
                 self.prior_pdf[params] = prior_pdf
+        self.prior_pdf[params] = prior_pdf
 
         if adaptive_sampling:
             self.adaptive.append(params)
@@ -163,10 +195,9 @@ class MCSampler(object):
             # FIXME: UGH! Really? This was the most elegant thing you could come
             # up with?
             rvs_tmp = [numpy.random.uniform(0,1,(len(p), rvs)) for p in map(lambda i: (i,) if not isinstance(i, tuple) else i, args)]
-            rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)])
+            rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)], dtype=numpy.object)
         else:
             rvs_tmp = numpy.array(rvs)
-
 
         # FIXME: ELegance; get some of that...
         # This is mainly to ensure that the array can be "splatted", e.g.
@@ -175,9 +206,12 @@ class MCSampler(object):
         res = []
         for (cdf_rv, param) in zip(rvs_tmp, args):
             if len(cdf_rv.shape) == 1:
-                res.append((self.pdf[param](cdf_rv)/self._pdf_norm[param], self.prior_pdf[param](cdf_rv), cdf_rv))
+                res.append((self.pdf[param](cdf_rv).astype(numpy.float64)/self._pdf_norm[param], self.prior_pdf[param](cdf_rv), cdf_rv))
             else:
-                res.append((self.pdf[param](*cdf_rv)/self._pdf_norm[param], self.prior_pdf[param](*cdf_rv), cdf_rv))
+                # NOTE: the "astype" is employed here because the arrays can be
+                # irregular and thus assigned the 'object' type. Since object
+                # arrays can't be splatted, we have to force the conversion
+                res.append((self.pdf[param](*cdf_rv.astype(numpy.float64))/self._pdf_norm[param], self.prior_pdf[param](*cdf_rv.astype(numpy.float64)), cdf_rv))
 
         #
         # Cache the samples we chose
@@ -247,7 +281,9 @@ class MCSampler(object):
         # the arguments in the right order
         # FIXME: How dangerous is this?
         args = func.func_code.co_varnames[:func.func_code.co_argcount]
-        if set(args) & self.params != set(args):
+
+        #if set(args) & set(params) != set(args):
+        if not MCSampler.match_params_from_args(args, self.params):
             raise ValueError("All integrand variables must be represented by integral parameters.")
         
         #
@@ -300,13 +336,13 @@ class MCSampler(object):
 
         if convergence_tests:
             bConvergenceTests = False   # start out not converged, if tests are on
-            last_convergence_test = {}   # initialize record of tests
+            last_convergence_test = defaultdict(lambda: False)   # initialize record of tests
         else:
             bConvergenceTests = False    # if tests are not available, assume not converged. The other criteria will stop it
-            last_convergence_test = {}   # need record of tests to be returned always
+            last_convergence_test = defaultdict(lambda: False)   # need record of tests to be returned always
         while (eff_samp < neff and ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
-            p_s, p_prior, rv = self.draw(n, *args)
+            p_s, p_prior, rv = self.draw(n, *self.params)
                         
             # Calculate the overall p_s assuming each pdf is independent
             joint_p_s = numpy.prod(p_s, axis=0)
@@ -327,10 +363,16 @@ class MCSampler(object):
             #
             if len(rv[0].shape) != 1:
                 rv = rv[0]
-            if bUseMultiprocessing:
-                fval = p.map(lambda x : func(*x), numpy.transpose(rv))
-            else:
-                fval = func(*rv)
+
+            params = []
+            for item in self.params:
+                if isinstance(item, tuple):
+                    params.extend(item)
+                else:
+                    params.append(item)
+            unpacked = numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
+            unpacked = dict(zip(params, unpacked))
+            fval = func(**unpacked)
 
             #
             # Check if there is any practical contribution to the integral
@@ -475,27 +517,38 @@ class MCSampler(object):
         #   - find and remove samples with  lnL less than maxlnL - deltalnL (latter user-specified)
         #   - create the cumulative weights
         #   - find and remove samples which contribute too little to the cumulative weights
-        self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
-        # Step 1: Cut out any sample with lnL belw threshold
-        indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
-        for key in self._rvs.keys():
-            self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indx_list] )
-        # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
-        wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
-        idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
-        indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again
-        cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
-        cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
-        indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability
-        for key in self._rvs.keys():
-            self._rvs[key] = numpy.array([self._rvs[key][indx] for indx in indx_list] )
+        if "integrand" in self._rvs:
+            self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
+            # Step 1: Cut out any sample with lnL belw threshold
+            indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
+            # FIXME: This is an unncessary initial copy, the second step (cum i
+            # prob) can be accomplished with indexing first then only pare at
+            # the end
+            for key in self._rvs.keys():
+                if isinstance(key, tuple):
+                    self._rvs[key] = self._rvs[key][:,indx_list]
+                else:
+                    self._rvs[key] = self._rvs[key][indx_list]
+            # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
+            wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
+            idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
+            indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again
+            cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
+            cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
+            indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability
+            # FIXME: See previous FIXME
+            for key in self._rvs.keys():
+                if isinstance(key, tuple):
+                    self._rvs[key] = self._rvs[key][:,indx_list]
+                else:
+                    self._rvs[key] = self._rvs[key][indx_list]
 
         # Create extra dictionary to return things
         dict_return ={}
-        dict_return["convergence_test_results"] = last_convergence_test
+        if convergence_tests is not None:
+            dict_return["convergence_test_results"] = last_convergence_test
 
         return int_val1/ntotal, var/ntotal, eff_samp, dict_return
-                
 
 ### UTILITIES: Predefined distributions
 #  Be careful: vectorization is not always implemented consistently in new versions of numpy
@@ -559,35 +612,133 @@ def delta_func_samp(x_0, x):
 
 delta_func_samp_vector = numpy.vectorize(delta_func_samp, otypes=[numpy.float])
 
-def sky_rejection(skymap, ra_in, dec_in, massp=1.0):
+class HealPixSampler(object):
     """
-    Do rejection sampling of the skymap PDF, restricted to the greatest XX % of the mass, ra_in and dec_in will be returned, replaced with the new sample points.
+    Class to sample the sky using a FITS healpix map. Equivalent to a joint 2-D pdf in RA and dec.
     """
 
-    res = healpy.npix2nside(len(skymap))
-    pdf_sorted = sorted([(p, i) for i, p in enumerate(skymap)], reverse=True)
-    valid_points = []
-    cdf, np = 0, 0
-    for p, i in pdf_sorted:
-        valid_points.append( healpy.pix2ang(res, i) )
-        cdf += p
-        np += 1
-        if cdf > massp:
-            break
+    @staticmethod
+    def __thph2decra(th, ph):
+        """
+        theta/phi to RA/dec
+        theta (north to south) (0, pi)
+        phi (east to west) (0, 2*pi)
+        declination: north pole = pi/2, south pole = -pi/2
+        right ascension: (0, 2*pi)
+        
+        dec = pi/2 - theta
+        ra = phi
+        """
+        return numpy.pi/2-th, ph
 
-    i = 0
-    while i < len(ra_in):
-        rnd_n = numpy.random.randint(0, np)
-        trial = numpy.random.uniform(0, pdf_sorted[0][0])
-        #print i, trial, pdf_sorted[rnd_n] 
-        # TODO: Ensure (ra, dec) within bounds
-        if trial < pdf_sorted[rnd_n][0]:
-            dec_in[i], ra_in[i] = valid_points[rnd_n]
-            i += 1
-    dec_in -= numpy.pi/2
-    # FIXME: How does this get reversed?
-    dec_in *= -1
-    return numpy.array([ra_in, dec_in])
+    @staticmethod
+    def __decra2thph(dec, ra):
+        """
+        theta/phi to RA/dec
+        theta (north to south) (0, pi)
+        phi (east to west) (0, 2*pi)
+        declination: north pole = pi/2, south pole = -pi/2
+        right ascension: (0, 2*pi)
+        
+        theta = pi/2 - dec
+        ra = phi
+        """
+        return numpy.pi/2-dec, ra
+
+    def __init__(self, skymap, massp=1.0):
+        self.skymap = skymap
+        self._massp = massp
+        self.renormalize()
+
+    @property
+    def massp(self):
+        return self._massp
+
+    @massp.setter
+    def massp(self, value):
+        assert 0 <= value <= 1
+        self._massp = value
+        norm = self.renormalize()
+
+    def renormalize(self):
+        """
+        Identify the points contributing to the overall cumulative probability distribution, and set the proper normalization.
+        """
+        res = healpy.npix2nside(len(self.skymap))
+        self.pdf_sorted = sorted([(p, i) for i, p in enumerate(self.skymap)], reverse=True)
+        self.valid_points_decra = []
+        cdf, np = 0, 0
+        for p, i in self.pdf_sorted:
+            if p == 0:
+                continue # Can't have a zero prior
+            self.valid_points_decra.append(HealPixSampler.__thph2decra(*healpy.pix2ang(res, i)))
+            cdf += p
+            if cdf > self._massp:
+                break
+        self._renorm = cdf
+        # reset to indicate we'd need to recalculate this
+        self.valid_points_hist = None
+        return self._renorm
+
+    def __expand_valid(self, min_p=1e-5):
+        #
+        # Determine what the 'quanta' of probabilty is
+        #
+        if self._massp == 1.0:
+            # This is to ensure we don't blow away everything because the map
+            # is very spread out
+            min_p = min(min_p, max(self.skymap))
+        else:
+            # NOTE: Only valid if CDF descending order is kept
+            min_p = self.pseudo_pdf(*self.valid_points_decra[-1])
+
+        self.valid_points_hist = []
+        for pt in self.valid_points_decra:
+            self.valid_points_hist.extend([pt]*int(self.pseudo_pdf(*pt)/min_p))
+        self.valid_points_hist = numpy.array(self.valid_points_hist).T
+
+    def pseudo_pdf(self, dec_in, ra_in):
+        """
+        Return pixel probability for a given dec_in and ra_in. Note, uses healpy functions to identify correct pixel.
+        """
+        th, ph = HealPixSampler.__decra2thph(dec_in, ra_in)
+        res = healpy.npix2nside(len(self.skymap))
+        return self.skymap[healpy.ang2pix(res, th, ph)]/self._renorm
+
+    def pseudo_cdf_inverse(self, dec_in=None, ra_in=None, ndraws=1, stype='vecthist'):
+        """
+        Select points from the skymap with a distribution following its corresponding pixel probability. If dec_in, ra_in are suupplied, they are ignored except that their shape is reproduced. If ndraws is supplied, that will set the shape. Will return a 2xN numpy array of the (dec, ra) values.
+        stype controls the type of sampling done to retrieve points. Valid choices are
+        'rejsamp': Rejection sampling: accurate but slow
+        'vecthist': Expands a set of points into a larger vector with the multiplicity of the points in the vector corresponding roughly to the probability of drawing that point. Because this is not an exact representation of the proability, some points may not be represented at all (less than quantum of minimum probability) or inaccurately (a significant fraction of the fundamental quantum).
+        """
+
+        if ra_in is not None:
+            ndraws = len(ra_in)
+        if ra_in is None:
+            ra_in, dec_in = numpy.zeros((2, ndraws))
+
+        if stype == 'rejsamp':
+            # FIXME: This is only valid under descending ordered CDF summation
+            ceiling = max(self.skymap)
+            i, np = 0, len(self.valid_points_decra)
+            while i < len(ra_in):
+                rnd_n = numpy.random.randint(0, np)
+                trial = numpy.random.uniform(0, ceiling)
+                if trial <= self.pseudo_pdf(*self.valid_points_decra[rnd_n]):
+                    dec_in[i], ra_in[i] = self.valid_points_decra[rnd_n]
+                    i += 1
+            return numpy.array([dec_in, ra_in])
+        elif stype == 'vecthist':
+            if self.valid_points_hist is None:
+                self.__expand_valid()
+            np = self.valid_points_hist.shape[1]
+            rnd_n = numpy.random.randint(0, np-1, len(ra_in))
+            dec_in, ra_in = self.valid_points_hist[:,rnd_n]
+            return numpy.array([dec_in, ra_in])
+        else:
+            raise ValueError("%s is not a recgonized sampling type" % stype)
+
 #pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
 pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float])
 
