@@ -318,9 +318,22 @@ if opts.inj:
         f.write( "\t".join(colnames+["\n"]))
         f.write( "\t".join(map(str,[ 0, opts.event_id, snrGuess, 1,  searched_area, searched_prob, offset, 0]+ contour_areas+['\n'])))
 
+###
+### Lp/ps vs L: a diagnostic for 'outliers' (e.g., poor convergence, spots where ps is anomalously low)
+###
+plt.clf()
+plt.figure(99)
+plt.scatter(values["lnL"], np.log(weights))
+plt.xlim(lnLmax-20,lnLmax+5)
+plt.ylim(lnLmax-40,lnLmax+10)
+plt.xlabel("ln L")
+plt.ylabel("ln w")
+plt.savefig(opts.points_file_base+ "-wL."+fExtension)
+
 
 ###
 ### Triplots : because sql locks are ubiquitous
+###   Note the triplot code does many things to the environment; it's easiest to do this last
 ###
 
 if not opts.disable_triplot:
@@ -338,4 +351,5 @@ if not opts.disable_triplot:
         plt.savefig(opts.points_file_base+ "-triplot.pdf")   # Workaround for Richard's laptop
     else:
         plt.savefig(opts.points_file_base+ "-triplot."+fExtension)
+
 
