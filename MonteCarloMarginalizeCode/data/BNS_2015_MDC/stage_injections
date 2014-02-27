@@ -41,6 +41,7 @@ optp.add_option("-S", "--sim-id", action="append", help="Process this sim ID. Ca
 optp.add_option("-b", "--event-start", type=int, help="Start of event range to process. This is relative to the listing given by --skyloc-file")
 optp.add_option("-e", "--event-end", type=int, help="End of event range to process. This is relative to the listing given by --skyloc-file")
 optp.add_option("-f", "--skyloc-file", help="Use this file to identify event ranges.")
+optp.add_option("-B", "--bayestar-skymap-dir", help="Use this directory to transfer over skymaps. If not specified, no attempt to do is made.")
 optp.add_option("-d", "--base-directory", default="./", help="Use this directory as a base to stage from.")
 opts, args = optp.parse_args()
 
@@ -131,6 +132,9 @@ elif opts.coinc_db is not None:
         xmldoc.childNodes[0].appendChild(sngl_table)
         utils.write_filename(xmldoc, bdir + "/coinc.xml.gz", gz=True)
 
+        if opts.bayestar_skymap_dir is not None:
+            shutil.copy(os.path.join(opts.bayestar_skymap_dir + "%s.toa_phoa_snr.fits.gz" % ceid.split(":")[2]), bdir)
+
 xmldoc = ligolw.Document()
 xmldoc.appendChild(ligolw.LIGO_LW())
 xmldoc.childNodes[0].appendChild(new_table)
@@ -145,4 +149,7 @@ for bdir in dirs:
     #if not os.path.exists("%s/L1_PSD_measured.xml.gz" % bdir):
         #os.symlink("%s/L1_PSD_measured.xml.gz" % pwd, "%s/L1_PSD_measured.xml.gz" % bdir)
 
-    shutil.copy("%s/Makefile.template" % pwd, bdir + "/Makefile")
+    if opts.bayestar_skymap_dir is not None:
+        shutil.copy("%s/Makefile_skymap.template" % pwd, bdir + "/Makefile")
+    else:
+        shutil.copy("%s/Makefile.template" % pwd, bdir + "/Makefile")
