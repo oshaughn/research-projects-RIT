@@ -95,6 +95,7 @@ optp.add_option("--n-chunk", type=int, help="Chunk'.",default=100)
 optp.add_option("--convergence-tests-on",default=False,action='store_true')
 optp.add_option("--adapt-floor-level", type=float,default=0.1,help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.0 (no floor)")
 optp.add_option("--adapt-weight-exponent", type=float,default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
+optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
 
 #
 # Add the intrinsic parameters
@@ -388,7 +389,8 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         n_chunk=opts.n_chunk,
         convergence_tests_on=opts.convergence_tests_on,
         adapt_floor_level=opts.adapt_floor_level,
-        adapt_weight_exponent=opts.adapt_weight_exponent
+        adapt_weight_exponent=opts.adapt_weight_exponent,
+        skymap_file=opts.skymap_file
         )
 ile_job_type.write_sub_file()
 
