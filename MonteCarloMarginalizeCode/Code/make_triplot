@@ -54,7 +54,11 @@ def make_plot(samples, title=None):
     samples = numpy.array( [getattr(s, p) for s in samples for p in params[:nparm]] )
     samples.shape = (len(weights), nparm)
 
-    p_syms = ["$\\iota$", "d", "$\\alpha$", "$\\delta$", "t", "$\\phi$", "$\\psi$"][:len(params)-3]
+    from collections import defaultdict
+    p_syms = defaultdict(lambda: "")
+    p_syms.update({"inclination": "$\\iota$", "distance": "d", "longitude": "$\\alpha$", "latitude": "$\\delta$", "geocent_end_time": "t", "coa_phase": "$\\phi$", "polarization": "$\\psi$"})
+    p_syms = [p_syms[p] for p in params]
+
     # FIXME: title
     bayesutils.triplot(samples, weights=weights, labels=p_syms, title=title, inj=injection)
 
