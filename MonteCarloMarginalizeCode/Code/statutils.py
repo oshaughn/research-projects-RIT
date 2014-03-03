@@ -29,14 +29,3 @@ def cumvar(arr, mean=None, var=None, n=0):
 		return s[1:]/numpy.arange(n, n + len(s)-1)
 	else:
 		return s/numpy.arange(n + 1, n + len(s)+1)
-
-def sym_average(x, npts=10):
-    """
-    Smooth the input array by replacing each point with the average of npts/2 on each side. Edge points will only use the data available, no wrapping is done.
-    """
-    y = numpy.empty(x.shape)
-    for i, xi in enumerate(x):
-        s1, s2 = max(0,i-npts/2), min(len(x),i+npts/2+1),
-        y[i] = x[s1:s2].sum()/(s2-s1)
-    return y
-        
