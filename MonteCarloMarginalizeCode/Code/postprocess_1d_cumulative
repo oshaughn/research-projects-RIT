@@ -323,9 +323,10 @@ if opts.inj:
 ###
 plt.clf()
 plt.figure(99)
-plt.scatter(values["lnL"], np.log(weights)+lnLmax)   # restore lnLmax, so scale is absolute, not relative
+lnw = np.log(weights)+lnLmax
+plt.scatter(values["lnL"], lnw)   # restore lnLmax, so scale is absolute, not relative
 plt.xlim(lnLmax-20,lnLmax+5)
-lnwmax = np.max(np.log(weights))
+lnwmax = np.max(lnw)
 plt.ylim(lnwmax-30,lnwmax+5)
 plt.xlabel("ln L")
 plt.ylabel("ln w")
