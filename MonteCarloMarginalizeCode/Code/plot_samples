@@ -68,7 +68,7 @@ if opts.plot_outliers:
     norm_per = numpy.exp(norm)*opts.plot_outliers
     outliers = numpy.argwhere(numpy.exp(pevid) > norm_per)
 if len(outliers) > 0:
-    pyplot.scatter(xaxis[outliers], like[outliers], s=20, marker="v", cmap=matplotlib.cm.spectral, c=pevid[outliers], vmin=pevid[0], vmax=pevid[-1], label="> 1% evidence")
+    pyplot.scatter(xaxis[outliers], like[outliers], s=20, marker="v", cmap=matplotlib.cm.spectral, c=pevid[outliers], vmin=pevid[0], vmax=pevid[-1], label="> %d%% evidence" % int(100*opts.plot_outliers))
 #print numpy.hstack((numpy.exp(pevid[outliers])/numpy.exp(norm), numpy.log10(prior[outliers]/ps[outliers]), ids[outliers]))
 
 #
