@@ -21,6 +21,7 @@ import matplotlib
 matplotlib.use("Agg")
 from matplotlib import pyplot
 import matplotlib.cm
+from matplotlib.collections import LineCollection
 
 import numpy
 
@@ -87,7 +88,7 @@ pyplot.ylim([0, 1])
 #
 # Plot high likelihoods last
 #
-samples = sorted(samples, key=lambda r: r.alpha1)
+samples = sorted(samples, key=lambda r: r.alpha1+numpy.log(r.alpha2/r.alpha3))
 
 #
 # Normalize the sample values between 0-1
@@ -109,28 +110,39 @@ for dim in dims:
 # Get a color scale for the integrand value
 #
 #loglike = [r.alpha1 for r in samples if r.alpha1 > 0]
-loglike = [r.alpha1 for r in samples][-opts.top_n:]
-lmin, lmax = min(loglike), max(loglike)
-sample_dict["loglikelihood"] = numpy.array(loglike)
+logevid = numpy.array([r.alpha1+numpy.log(r.alpha2/r.alpha3) for r in samples][-opts.top_n:])
+lmin, lmax = min(logevid), max(logevid)
+sample_dict["logevidence"] = logevid
 
-intg_norm = matplotlib.colors.Normalize(dmin, dmax)
+intg_norm = matplotlib.colors.Normalize(lmin, lmax)
 sm = matplotlib.cm.ScalarMappable(norm=intg_norm)
 
-axes_xloc = range(1,2*len(dims)+1, 2)
+axes_xloc = range(0,2*len(dims), 2)
 
-for j, logl in enumerate(loglike):
-    prev_val = None
-    cval = matplotlib.cm.hot_r(sm.norm(logl))
+#
+# Reorder the arrays to correspond to log evidence --- this is to ensure the
+# highest weighted samples are plotted on top
+#
+resort = logevid.argsort()
+for key in sample_dict:
+    sample_dict[key] = sample_dict[key][resort]
+logevid = sorted(logevid)
+
+line_segs, colors = [], []
+for j, loge in enumerate(logevid):
+    colors.append(matplotlib.cm.hot_r(sm.norm(loge)))
+    samp_x_vals = []
+    samp_y_vals = []
     for i, d in enumerate(dims):
-        # FIXME: look up slow?
         val = sample_dict[d][j]
-        if prev_val is None:
-            prev_val = val
-            continue
-        pyplot.plot([axes_xloc[i-1], axes_xloc[i]], [prev_val, val], color=cval, linewidth=0.5)
-        # like to opacity
-        #pyplot.plot([axes_xloc[i-1], axes_xloc[i]], [prev_val, val], color='k', alpha=sm.norm(logl))
+        #pyplot.plot([axes_xloc[i-1], axes_xloc[i]], [prev_val, val], color=cval, linewidth=0.5)
+        samp_x_vals.append(axes_xloc[i])
+        samp_y_vals.append(val)
         prev_val = val
+    line_segs.append(zip(samp_x_vals, samp_y_vals))
+
+lc = LineCollection(line_segs, linewidth=0.5, color=colors)
+pyplot.gca().add_collection(lc)
 
 #
 # Draw the pseudo axes for the sample dimenions
@@ -141,7 +153,7 @@ for xloc in axes_xloc:
 #
 # So we know what the colors actually mean
 #
-sm.set_array(sample_dict["loglikelihood"])
+sm.set_array(sample_dict["logevidence"])
 sm.cmap = matplotlib.cm.hot_r
 pyplot.colorbar(sm)
 
