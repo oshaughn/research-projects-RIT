@@ -68,6 +68,7 @@ parser.add_argument("--inj-xml", dest='inj', default=None,help="inspiral XML fil
 parser.add_argument("--event",type=int, dest="event_id", default=0,help="event ID of injection XML to use.")
 parser.add_argument( "--adapt-beta", type=float,default=1)
 parser.add_argument("--save-P",default=0.,type=float)
+parser.add_argument("--star-P",default=0.,type=float,help="For density plots, star the top fraction of the cumulative weights. Helpful for identifying 1d regions that are undersampled and overweighted.")
 parser.add_argument("--disable-triplot", default=False,action="store_true")
 parser.add_argument("--disable-1d-density", default=False,action="store_true")
 parser.add_argument("--disable-skymap", default=False,action="store_true")
@@ -141,6 +142,16 @@ else:
     values["m2"] = np.array([s.mass2 for s in samples])
     values["mc"]  = lalsimutils.mchirp(values["m1"],values["m2"])
     values["eta"]  = lalsimutils.symRatio(values["m1"],values["m2"])
+
+# For density plots, create index of points to highlight on the x axis.
+if opts.star_P:
+    idx_sorted_index = np.lexsort((np.arange(len(weights)), weights))  # Sort the array of weights, recovering index values
+    indx_list = np.array( [[k, weights[k]] for k in idx_sorted_index])   # pair up with the weights again
+    cum_sum = np.cumsum(indx_list[:,1])                                     # find the cumulative sum
+    cum_sum = cum_sum/cum_sum[-1]                                         # normalize the cumulative sum
+    indx_star_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > opts.star_P) if value]  # find the indices that preserve > 1-star_P  of total probability
+
+
 
 # Truncate the sample set using save-P.  No science loss; massive sample reduction; speeds up the very slow triplot stage
 # Note we will sort *again* later for the cumulative  Going forward, reduce redundant worting
@@ -242,6 +253,8 @@ for nFig in np.arange(len(keynames)):
         hist = hist/(np.sum(hist)*dx)
         center = (bins[:-1]+bins[1:])/2
         plt.plot(center,hist,label="unweighted samples:"+param+"",linestyle='--')
+        if opts.star_P:
+            plt.scatter(values[param][indx_star_list],np.zeros(len(indx_star_list)),label="significant weight" )
         if opts.inj and not (param == "lnL"):
             plt.plot([ppdata[param][0],ppdata[param][0]], [np.max(hist),np.max(hist)], color='k',linestyle='--')
         plt.xlabel(param)
