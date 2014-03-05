@@ -1,0 +1,127 @@
+\documentclass[%twocolumn,
+prd,nofootinbib]{revtex4}
+%\newcommand\ForRichardOnly[1]{#1}
+\newcommand\ForRichardOnly[1]{}
+\usepackage{verbatim}
+\usepackage{color}     % color text
+\usepackage{framed}
+\definecolor{shadecolor}{gray}{0.95}
+\usepackage{amsmath}
+\usepackage{graphicx}  % extend graphics
+\usepackage{tabularx}
+\usepackage{wrapfig}   % wrap text around figures, if desired
+\usepackage{hyperref}
+
+
+\begin{document}
+
+\title{Rapid, embarassingly parallel parameter estimation of gravitational waves from compact binary coalescences}
+\author{P. Brady}
+\email{patrick@gravity.phys.uwm.edu}
+\affiliation{Center for Gravitation and Cosmology, University of Wisconsin-Milwaukee, Milwaukee, WI 53201, USA }
+\author{E. Ochsner}
+\email{evano@gravity.phys.uwm.edu}
+\affiliation{Center for Gravitation and Cosmology, University of Wisconsin-Milwaukee, Milwaukee, WI 53201, USA }
+\author{R. O'Shaughnessy}
+\email{oshaughn@gravity.phys.uwm.edu}
+\affiliation{Center for Gravitation and Cosmology, University of Wisconsin-Milwaukee, Milwaukee, WI 53201, USA }
+\author{C. Pankow}
+\email{pankow@gravity.phys.uwm.edu}
+\affiliation{Center for Gravitation and Cosmology, University of Wisconsin-Milwaukee, Milwaukee, WI 53201, USA }
+
+\begin{abstract}
+We present a method for rapid, parallelizable parameter estimation 
+of GWs from CBCs.
+\end{abstract}
+\maketitle
+
+\section{Outline}
+
+The first level of bullets are proposed sections. 
+The second level of bullets (except in Executive Summary) are proposed subsections.
+The third level of bullets are points to make in each subsection.
+
+
+\begin{itemize}
+\item Executive Summary
+	\begin{itemize}
+	\item Goal: Rapid parameter estimation of CBC GW signals -- target is a few minutes!
+	\item Trick \# 1: use mode decomposition and compute $( h_{\ell m} | d )$ once for each mass pair.
+		Extremely fast likelihood evaluation as extrinsic parameters are varied.
+	\item Trick \# 2: Abandon Markov chain/ nested sampling. They have nice convergence in high dimensions,
+		but are serial. Instead, use brute force grid and Monte Carlo technique. Convergence worse in a sense,
+		but embarassingly parallel and very rapid evaluations thanks to trick \# 1.
+	\item Essentially same cost regardless of waveform evaluation speed. Therefore can use very long signals 
+		and/or expensive models like EOB. 
+	\end{itemize}
+
+\item Methods
+	\begin{itemize}
+	\item Likelihood evaluation
+		\begin{itemize}
+		\item Start with expression for ${\cal L}$. 
+		\item Show steps to get in terms of $( h_{\ell m} | d )$.
+		\item Note how all extrinsic parameters enter in $Y_{\ell m}$'s and $F_+$, $F_\times$, and thus we can
+			evaluate likelihood cheaply for any extrinsic parameters if we fix the intrinsic ones.
+		\end{itemize}
+		
+	\item Covering the intrinsic parameters
+		\begin{itemize}
+		\item Describe effective Fisher approach to laying out mass points.
+		\item Point out quite flexible: can do random or fixed grid, can change ellipse size, distribution inside ellipse,
+			could do several ellipses centered on different points. [?]
+		\item Point out difficult to go to many intrinsic dimensions. Right now we focus on 2D non-spinning, 
+			but 3D or 4D is possibly feasible.
+			Precession would be very tough. 
+			Maybe an approximate metric or help from ROM could save the day. [?]
+		\end{itemize}
+		
+	\item Time marginalization
+		\begin{itemize}
+		\item Inverse FFT trick gives $(h_{\ell m}(t_c) | d)$ for all values of $t_c$ at once.
+		\item We just sum over a reasonably sized window $\sim 10$ ms. 
+		\end{itemize}
+		
+	\item Integration over extrinsic parameters
+		\begin{itemize}
+		\item Do a basic Monte Carlo integral over remaining extrinsic parameter.
+		\item Describe any fancy pants adaption, use of skymaps, etc. 
+		\end{itemize}
+	\end{itemize}
+	
+	\item Postprocessing [?]
+		\begin{itemize}
+		\item Do we need to say anything about collating results, making triplots, P-P plots, etc.?
+		\end{itemize}
+
+\item Results
+	\begin{itemize}
+	\item Show posteriors, convince reader they're similar enough to usual Bayesian PE to be trusted.
+	\item P-P plots. Show our results are self-consistent.
+	\item Brief (not more than 1-2 paragraphs, 1 simple plot/table) results confirming 
+		that our method scales favorably with $f_{\rm min}$ and/or EOB. 
+	\end{itemize}
+
+\item Conclusions -- self-explanatory.
+
+\item Appendices -- Put detailed technical asides here.
+
+\end{itemize}
+
+\section{Executive Summary}
+
+Here's the executive summary.
+
+\section{Methods}
+
+Methods go here.
+
+\section{Results}
+
+Results go here.
+
+\section{Conclusions}
+
+Conclusions go here.
+
+\end{document}
