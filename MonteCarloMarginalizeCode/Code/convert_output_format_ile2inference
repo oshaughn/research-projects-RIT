@@ -25,18 +25,20 @@ optp = OptionParser()
 opts, args = optp.parse_args()
 
 
-print "# m1 m2 mc eta  Npts ra dec tref phiorb incl psi  dist p ps lnL "
+print "# m1 m2 mc eta indx  Npts ra dec tref phiorb incl psi  dist p ps lnL "
 for fname in args:
     points = table.get_table(utils.load_filename(fname), lsctables.SimInspiralTable.tableName)
     like = [row.alpha1 for row in points]  # hardcoded name
     p = [row.alpha2 for row in points]
     ps = [row.alpha3 for row in points]
     Nmax = np.max([int(row.simulation_id) for row in points])+1
+    sim_id = np.array([int(row.simulation_id) for row in points])+1
 
 
     for indx in np.arange(len(points)):
         pt = points[indx]
         print pt.mass1, pt.mass2, mc(pt.mass1,pt.mass2), eta(pt.mass1,pt.mass2), \
+            sim_id[indx], \
             Nmax, \
             pt.longitude, \
             pt.latitude, \
