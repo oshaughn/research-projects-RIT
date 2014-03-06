@@ -1,5 +1,4 @@
-\documentclass[%twocolumn,
-prd,nofootinbib]{revtex4}
+\documentclass[twocolumn,prd,nofootinbib]{revtex4}
 %\newcommand\ForRichardOnly[1]{#1}
 \newcommand\ForRichardOnly[1]{}
 \usepackage{verbatim}
@@ -11,6 +10,25 @@ prd,nofootinbib]{revtex4}
 \usepackage{tabularx}
 \usepackage{wrapfig}   % wrap text around figures, if desired
 \usepackage{hyperref}
+
+\newcommand\ForInternalReference[1]{#1}
+%\newcommand\ForInternalReference[1]{}
+
+\newcommand\Y[1]{Y^{(#1)}{}}
+% GR tools
+\newcommand\prederiv[2]{{}^{(#1)}#2}
+\newcommand\dualBack{*}
+\newcommand\dualForward{\star}
+\newcommand\avL{\left< {\cal L}_{(a} {\cal L}_{b)} \right>}
+\newcommand\WeylScalar{{\psi_4}}
+\newcommand\WeylScalarFourier{{\tilde{\psi}_4}}
+\newcommand\mc{{{\cal M}_c}}
+% QM TOOLS
+\newcommand\qmstate[1]{\left|#1\right \rangle}
+\newcommand\qmstateKet[1]{\left\langle#1\right|}
+\newcommand\qmstateproduct[2]{\left\langle#1|#2\right\rangle}
+\newcommand\qmoperatorelement[3]{\left\langle#1\left|#2\right|#3\right\rangle}
+\newcommand\qmoperator[1]{{\bf #1}}
 
 
 \begin{document}
@@ -34,13 +52,13 @@ We present a method for rapid, parallelizable parameter estimation  of GWs from 
 \end{abstract}
 \maketitle
 
-\section{Outline}
-
-
-
+\begin{widetext}
+\section*{Outline}
 The first level of bullets are proposed sections. 
 The second level of bullets (except in Executive Summary) are proposed subsections.
 The third level of bullets are points to make in each subsection.
+
+Section headings added, including reminders re dotting i's/crossing t's.
 
 \begin{itemize}
 \item Executive Summary
@@ -69,6 +87,7 @@ The third level of bullets are points to make in each subsection.
 	\item Integration over extrinsic parameters
 		\begin{itemize}
 		\item Do a basic Monte Carlo integral over  extrinsic parameters, at fixed intrinsic parameters
+                        Priors (e.g., time window)
 		\item Describe any fancy pants adaption, use of skymaps, etc. 
 		\end{itemize}
 	\item Time marginalization  \textbf{subsection of extrinsic} 
@@ -113,6 +132,11 @@ Citations: Bayesian methods and monte carlo integration \cite{2011RvMP...83..943
 to other PE methods for LIGO
 (MCMC,nested sampling) \cite{LIGO-CBC-S6-PE,2011PhRvD..83h2002D,2011PhRvD..84f2003C,gr-extensions-tests-Europeans2011,gwastro-mergers-PE-Aylott-LIGOATest,2011ApJ...739...99N,2012PhRvD..85j4045V,gw-astro-PE-Raymond,gw-astro-PE-lalinference-v1}
 
+\tableofcontents
+
+\end{widetext}
+
+\section{Introduction}
 
 \section{Executive Summary}
 
@@ -124,8 +148,9 @@ Methods go here.
 
 \subsection{Efficiently evaluating the likelihood}
 
-\subsection{Sampling the extrinsic parameters}
+* coordinates [limit to nonprecessing?]
 
+\subsection{Sampling the extrinsic parameters}
 
 \subsection{Scalable method to explore intrinsic parameters }
 
@@ -153,10 +178,152 @@ Conclusions go here.
 
 \appendix
 
-\section{Notation and definitions}
+
+\section{Notation, definitions, and equations}
+
+\subsection{Definitions}
+\begin{itemize}
+\item $\lambda$ : intrinsic coordinate, including masses and spins.
+
+\item $\theta$ : extrinsic coordinate, including $d,RA,DEC,\iota,\psi_L,t,\phi_{\rm orb}$
+
+\item $p_s(\theta)$: (joint) sampling prior in extrinsic dimensions
+
+\item $p(\theta)$ : prior on extrinsic parameters
+
+\item $L(\lambda,\theta)$ : likelihood.  In terms of individual detector strains $H_k$ and power spectra, provided by
+\begin{eqnarray}
+\ln L &\equiv \sum_k \ln L_k  = \ln L_{\rm model} + \ln L_{\rm data} \\
+\ln L_{\rm model} &\equiv -\frac{1}{2} \sum_k \qmstateproduct{H_k}{H_k}_k  \\
+\ln L_{\rm data} &\equiv  \sum_k \text{Re} \qmstateproduct{H_k}{\hat{H}_k}_k 
+\end{eqnarray}
+
+\item $Z(\lambda) \equiv L_{\rm red}(\lambda,\theta)$ : reduced or integrated likelihood, derived from $L$ via
+\begin{eqnarray}
+Z(\lambda) = L_{\rm red}(\lambda) = \int d\theta \; p(\theta) L(\lambda,\theta)
+\end{eqnarray}
+
+\item 
+$w=Lp/p_s$ : weight
+
+\item 
+$n_{\rm eff}$ : ``effective number of samples''
+\begin{eqnarray}
+n_{\rm eff} \equiv  \frac{\sum_k w_k}{\text{max}_k w_k}
+\end{eqnarray}
+
+\item 
+$h(t|\lambda,x)=h_+-i h_\times$ : complex gravitational wave strain
+
+\item 
+$h_{lm}(t)$: coefficients of a spin-weighted spherical harmonic decomposition
+\begin{eqnarray}
+\label{eq:def:hSpinWeightEmissionDirection}
+h(t|\lambda,\theta) = \sum_{lm} h_{lm}(t|\lambda) e^{-2i\psi_J}\Y{-2}_{lm}(\theta_{JN}\phi_{JN})
+\end{eqnarray}
+
+\item 
+$\tilde{h}(f)$ : two-sided Fourier transform of the complex function $h(t)$
+\begin{eqnarray}
+h(t) = \int_{-\infty}^{\infty} \frac{d \omega}{2\pi} \; e^{-i\omega t} \tilde{h}(\omega) 
+\end{eqnarray}
+
+%% \item
+%% ${\cal I}$ : complex conjugation in time.  Provided to avoid confusion with $\tilde{h}^*$.  \textbf{Hopefully we won't
+%%   need it.}
 
 
-\section{Planned or incomplete investigations}
+\item 
+$\vec{x}_k$ : Position of the $k$th detector
+
+\item 
+$F_{+}$, $F_{\times},F$ : detector response function  to the $+,\times$ polarizations for sources visible in the
+  $\hat{n}$ direction from the detector
+\begin{eqnarray}
+F(\hat{n}) = F_+(\hat{n}) +i F_\times(\hat{n})
+\end{eqnarray}
+
+\item 
+$H_k$ : strain response of the $k$th detector to an incident strain
+\begin{align}
+H_k(t) &=F_{+,k}(t) h_+(t-\vec{x}_k(t)\cdot \hat{k}) + F_\times(t) h_\times(t-\vec{x}_k(t)\cdot \hat{k}) \\
+ &=  \frac{F h(t-\vec{x}_k\cdot \hat{k}) }{2} + \frac{F^*h^*(t-\vec{x}_k\cdot \hat{k})}{2}
+\end{align}
+
+\item 
+$S_k$ : noise power spectrum for the $k$th detector
+
+\item 
+$\qmstateproduct{a}{b}_k$ : complex-valued inner product defined by the $k$th detector's noise power spectrum:
+\begin{eqnarray}
+\qmstateproduct{a}{b}_k \equiv 2 \int_{-\infty}^{\infty} df \frac{[\tilde{a}(f)]^*\tilde{b}(f)}{S_h(|f|) }
+\end{eqnarray}
+
+
+\item 
+$Q_{k,lm}(\tau)$ : complex-valued single-detector, single-harmonic ``SNR'' series
+\begin{eqnarray}
+Q_{k,lm}(\tau) \equiv \qmstateproduct{\exp(-i\omega \tau) h_{lm}}{\hat{H}_k}_k
+\end{eqnarray}
+
+\end{itemize}
+
+\subsection{Other assumptions}
+Assuming the earth does not rotate significantly during the signal, allowing us to approximate
+\begin{eqnarray}
+\qmstate{H_k} = \frac{e^{i\omega \hat{k}\cdot \vec{x}_k}}{2}\left[ 
+   F_k  \qmstate{h} + F_k^* \qmstate{h^*} 
+ \right]
+\end{eqnarray}
+
+
+\begin{widetext}
+\subsection{Core equations}
+
+\begin{align}
+\ln L_{\rm data}(\lambda|t,\hat{n},\hat{k},\psi_J,d) &=  \sum_k\qmstateproduct{H_k}{\hat{H}_k}_k \nonumber \\
+\label{eq:Implementation:lnLData}
+&= (d_{\rm ref}/d) \text{Re} \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi_J} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot x_k)
+\end{align}
+
+\begin{subequations}
+\label{eq:ComputeRhoViaInnerProductMatrix}
+\begin{align}
+{ U_{k,lm,l'm'}(\lambda)}& = \qmstateproduct{h_{lm}}{h_{l'm'}}_k \\
+V_{k,lm,l'm'}(\lambda)& = \qmstateproduct{h_{lm}^*}{h_{l'm'}}_k \\
+\ln L_{\rm model}(\lambda|\hat{n},\hat{k},\psi_J,d) &=
+   -\frac{(d_{\rm ref}/d)^2}{2}\sum_k
+\left[
+{
+ \frac{1}{2}|F_k(-\hat{k})|^2 U_{k,lm,lm'}(\lambda)[\Y{-2}_{lm}(\hat{n})]^*\Y{-2}_{l'm'}(\hat{n})
+}
+ \right. \nonumber \\ & \left.
+ {
++
+ \frac{1}{2} \text{Re} V_{k,lm,l'm'} e^{-4i\psi_J}F_k^2 \Y{-2}_{lm}(\hat{n})\Y{-2}_{l'm'}(\hat{n})
+}
+\right]
+\end{align}
+\end{subequations}
+
+
+One-dimensional marginalized posteriors, generally and sampled: 
+\begin{eqnarray}
+p_1(x_1|{\cal D}) dx_1 \equiv \int p(x|{\cal D} dx = \frac{dx_1}{Z} \int dx_{2}\ldots dx_n p(x_2)\ldots p(x_n)L(x_1\ldots x_n) 
+\end{eqnarray}
+\begin{eqnarray}
+\hat{p}_1(z) \equiv \frac{1}{N \hat{Z}}\sum_{k=1}^N K(x,x_k) \frac{L_k p_k}{p_{s,k}} 
+\; ; \qquad
+\hat{Z} \equiv \frac{1}{N} \sum_{k=1}^N \frac{L_k p_k}{p_{s,k}}
+\end{eqnarray}
+where $K(x,y)$ is some normalized ($\int K(x,y) dx = 1$) kernel  and where $\hat{Z}$ is our running
+estimate for the evidence ($Z = \int L p dx$).
+
+
+\end{widetext}
+
+\ForInternalReference{
+\section{[Internal use] Incomplete or not-yet-implemented investigations}
 
 \subsection{Measures of convergence}
 
@@ -170,7 +337,12 @@ Measures to assess whether we're done
 \end{itemize}
 
 
+\subsection{Semianalytic marginalization over distance}
 
 
+\section{[Internal use] Future directions}
+
+
+}
 \bibliography{overviewexport}
 \end{document}
