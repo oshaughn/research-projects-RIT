@@ -30,17 +30,17 @@ prd,nofootinbib]{revtex4}
 \affiliation{Center for Gravitation and Cosmology, University of Wisconsin-Milwaukee, Milwaukee, WI 53201, USA }
 
 \begin{abstract}
-We present a method for rapid, parallelizable parameter estimation 
-of GWs from CBCs.
+We present a method for rapid, parallelizable parameter estimation  of GWs from CBCs.
 \end{abstract}
 \maketitle
 
 \section{Outline}
 
+
+
 The first level of bullets are proposed sections. 
 The second level of bullets (except in Executive Summary) are proposed subsections.
 The third level of bullets are points to make in each subsection.
-
 
 \begin{itemize}
 \item Executive Summary
@@ -65,6 +65,18 @@ The third level of bullets are points to make in each subsection.
 			evaluate likelihood cheaply for any extrinsic parameters if we fix the intrinsic ones.
 		\end{itemize}
 		
+		
+	\item Integration over extrinsic parameters
+		\begin{itemize}
+		\item Do a basic Monte Carlo integral over  extrinsic parameters, at fixed intrinsic parameters
+		\item Describe any fancy pants adaption, use of skymaps, etc. 
+		\end{itemize}
+	\item Time marginalization  \textbf{subsection of extrinsic} 
+		\begin{itemize}
+		\item Inverse FFT trick gives $(h_{\ell m}(t_c) | d)$ for all values of $t_c$ at once.
+		\item We just sum over a reasonably sized window $\sim 10$ ms. 
+		\end{itemize}
+
 	\item Covering the intrinsic parameters
 		\begin{itemize}
 		\item Describe effective Fisher approach to laying out mass points.
@@ -76,17 +88,6 @@ The third level of bullets are points to make in each subsection.
 			Maybe an approximate metric or help from ROM could save the day. [?]
 		\end{itemize}
 		
-	\item Time marginalization
-		\begin{itemize}
-		\item Inverse FFT trick gives $(h_{\ell m}(t_c) | d)$ for all values of $t_c$ at once.
-		\item We just sum over a reasonably sized window $\sim 10$ ms. 
-		\end{itemize}
-		
-	\item Integration over extrinsic parameters
-		\begin{itemize}
-		\item Do a basic Monte Carlo integral over remaining extrinsic parameter.
-		\item Describe any fancy pants adaption, use of skymaps, etc. 
-		\end{itemize}
 	\end{itemize}
 	
 	\item Postprocessing [?]
@@ -108,7 +109,8 @@ The third level of bullets are points to make in each subsection.
 
 \end{itemize}
 
-Citations: Bayesian methods and monte carlo integration \cite{2011RvMP...83..943V}; comparison to other PE for LIGO
+Citations: Bayesian methods and monte carlo integration \cite{2011RvMP...83..943V}, including numerical recipes and Lepage; comparison
+to other PE methods for LIGO
 (MCMC,nested sampling) \cite{LIGO-CBC-S6-PE,2011PhRvD..83h2002D,2011PhRvD..84f2003C,gr-extensions-tests-Europeans2011,gwastro-mergers-PE-Aylott-LIGOATest,2011ApJ...739...99N,2012PhRvD..85j4045V,gw-astro-PE-Raymond,gw-astro-PE-lalinference-v1}
 
 
@@ -120,9 +122,30 @@ Here's the executive summary.
 
 Methods go here.
 
+\subsection{Efficiently evaluating the likelihood}
+
+\subsection{Sampling the extrinsic parameters}
+
+
+\subsection{Scalable method to explore intrinsic parameters }
+
+
 \section{Results}
 
 Results go here.
+
+\subsection{Scaling}
+
+\subsection{Detailed investigation of one event}
+
+Sample run results: $p(m_1,m_2)$
+
+Comparison with Fisher and MCMC
+
+\subsection{Ensemble of events}
+
+pp plots
+
 
 \section{Conclusions}
 
@@ -130,10 +153,24 @@ Conclusions go here.
 
 \appendix
 
+\section{Notation and definitions}
+
+
+\section{Planned or incomplete investigations}
+
+\subsection{Measures of convergence}
+
+Measures to assess whether we're done
+\begin{itemize}
+\item * Integral: Classic MC error estimate (central limit); reproducibility across runs and via subsamples (e.g., chisquared)
+
+\item * 1d posterior:  $n_{\rm eff}$; $L^2$ or KL divergence between subsamples or across runs
+
+\item * sampling distribution: similarly
+\end{itemize}
+
+
 
 
 \bibliography{overviewexport}
-
-
-
 \end{document}
