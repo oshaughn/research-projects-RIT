@@ -75,6 +75,8 @@ Section headings added, including reminders re dotting i's/crossing t's.
 
 \item Methods
 	\begin{itemize}
+        \item Background
+           
 	\item Likelihood evaluation
 		\begin{itemize}
 		\item Start with expression for ${\cal L}$. 
@@ -88,13 +90,17 @@ Section headings added, including reminders re dotting i's/crossing t's.
 		\begin{itemize}
 		\item Do a basic Monte Carlo integral over  extrinsic parameters, at fixed intrinsic parameters
                         Priors (e.g., time window)
-		\item Describe any fancy pants adaption, use of skymaps, etc. 
+%		\item Describe any fancy pants adaption, use of skymaps, etc. 
 		\end{itemize}
-	\item Time marginalization  \textbf{subsection of extrinsic} 
-		\begin{itemize}
-		\item Inverse FFT trick gives $(h_{\ell m}(t_c) | d)$ for all values of $t_c$ at once.
-		\item We just sum over a reasonably sized window $\sim 10$ ms. 
-		\end{itemize}
+                \begin{itemize}
+  	         \item Time marginalization  \textbf{subsection of extrinsic} 
+		  \begin{itemize}
+		  \item Inverse FFT trick gives $(h_{\ell m}(t_c) | d)$ for all values of $t_c$ at once.
+		  \item We just sum over a reasonably sized window $\sim 10$ ms. 
+		  \end{itemize}
+                 \item Adaptation (in distance)
+                 \item Targeted sampling : skymaps
+                \end{itemize}
 
 	\item Covering the intrinsic parameters
 		\begin{itemize}
@@ -163,13 +169,53 @@ Results go here.
 
 \subsection{Detailed investigation of one event}
 
-Sample run results: $p(m_1,m_2)$
+Sample run results: extrinsic parameters (for one and several noise realizations)
+
+Sample run results: $L_{\rm red}(\mc,eta)$ (for one and several noise realizations). Expected accuracy at each mass
+point.. Translating into  $p(m_1,m_2)$ using a uniform mass prior.
 
 Comparison with Fisher and MCMC
+
+
+
+%%
+%% WHAT FIGURES SHOULD BE : zero noise MDC, at injected values
+%%
+%% WHAT FIGURES CURRENTLY ARE : https://ldas-jobs.ligo-wa.caltech.edu/~oshaughn/BNS_2015_MDC/coinc_id_10202/ or 12635
+%%   (=a real result from our large-scale run MDC, adapting on the sky and distance)
+%%
+%% For comparison, off-master results with no adaptation in sky, diffusion, and tempering: https://ldas-jobs.ligo.caltech.edu/~oshaughn/BNS_2015_MDC/coinc_id_10202/
+\begin{figure*}
+\includegraphics[width=\textwidth]{../Figures/ILE_MASS_SET_0-triplot}
+\caption{\textbf{Posterior distribution in intrinsic parameters, assuming known masses}: For our fiducial event, our predicted
+  distribution of extrinsic parameters $d,RA=\alpha,DEC=\delta,\iota,t,\phi,\psi$, assuming the exact parameters are
+  known.    \textbf{PLACEHOLDER} \emph{Suggest: show d-cos iota, skymap, and phi-psi only, not full triplot}
+}
+\end{figure*}
+
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/coinc_id_12635_mchirp_eta_logevidence}
+\caption{\textbf{Marginalized likelihood and posterior distribution versus component masses}: \emph{Top panel}: For our fiducial event,
+  contours of the log of integrated likelihood $\ln L_{\rm red}$ versus component masses, represented in $\mc,\eta$
+  coordinates.  Points indicate the mass grid adopted; colors and the color bar indicate specific numerical values.   
+\emph{Bottom panel}: The 90\% confidence interval derived from $L_{\rm red}$, for several noise realizations.  For
+comparison, the prediction from a Fisher matrix is shown as a solid black curve.
+ \textbf{PLACEHOLDER/INTENT}
+}
+\end{figure}
+
 
 \subsection{Ensemble of events}
 
 pp plots
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/BNS_2015_MDC_test_pp_plot}
+\caption{\textbf{PP plot for ensemble of XXX NS-NS events}: For \textbf{X} randomly-selected NS-NS binaries, a plot of
+  the cumulative distribution of $P_\theta(\theta_k)$ for each extrinsic variable $\theta=d,RA,DEC,\iota,\psi,\phi_{\rm orb}$.
+}
+\end{figure}
 
 
 \section{Conclusions}
