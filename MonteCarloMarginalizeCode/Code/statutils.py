@@ -7,7 +7,7 @@ __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 #
 def cumvar(arr, mean=None, var=None, n=0):
 	"""
-	Numerically stable running variance measure. See http://www.johndcook.com/standard_deviation.html for algorithm details. If mean and std are supplied, they will be used as the history values.
+	Numerically stable running variance measure. See http://www.johndcook.com/standard_deviation.html for algorithm details. If mean and var are supplied, they will be used as the history values.
 	"""
 	if mean and var:
 		m, s = numpy.zeros(len(arr)+1), numpy.zeros(len(arr)+1)
@@ -20,7 +20,10 @@ def cumvar(arr, mean=None, var=None, n=0):
 		buf = numpy.array([])
 
 	for i, x in enumerate(numpy.concatenate((buf, arr))):
-		k = i+1+n
+		if mean is None:
+			k = i+1+n
+		else:
+			k = i+n
 		if i == 0: continue
 		m[i] = m[i-1] + (x-m[i-1])/k
 		s[i] = s[i-1] + (x-m[i-1])*(x-m[i])
@@ -28,4 +31,6 @@ def cumvar(arr, mean=None, var=None, n=0):
 	if mean and var:
 		return s[1:]/numpy.arange(n, n + len(s)-1)
 	else:
-		return s/numpy.arange(n + 1, n + len(s)+1)
+		norm = numpy.arange(n, n + len(s))
+		norm[0] = 1 # avoid a warning about zero division
+		return s/norm
