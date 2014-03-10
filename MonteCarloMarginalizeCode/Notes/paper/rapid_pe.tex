@@ -14,6 +14,7 @@
 \newcommand\ForInternalReference[1]{#1}
 %\newcommand\ForInternalReference[1]{}
 
+\newcommand\unit[1]{{\rm #1}}
 \newcommand\Y[1]{Y^{(#1)}{}}
 % GR tools
 \newcommand\prederiv[2]{{}^{(#1)}#2}
@@ -132,6 +133,11 @@ Section headings added, including reminders re dotting i's/crossing t's.
 
 \item Appendices -- Put detailed technical asides here.
 
+  \begin{itemize}
+    \item Notation
+    \item Data handling: data rate and data selection (time window), psd estimate, inverse spectrum truncation, windowing (or not)
+  \end{itemize}
+
 \end{itemize}
 
 Citations: Bayesian methods and monte carlo integration \cite{2011RvMP...83..943V}, including numerical recipes and Lepage; comparison
@@ -159,6 +165,20 @@ Methods go here.
 \subsection{Sampling the extrinsic parameters}
 
 \subsection{Scalable method to explore intrinsic parameters }
+
+\begin{table}
+\begin{tabular}{lll}
+$f_{\rm low}$ & $t_{\rm wave}$ & $T_{\rm wall}$ \\\hline
+10 & & \\
+25 & & \\
+30 & & \\
+\end{tabular}
+\caption{\textbf{Runtime versus starting frequency}: Waveform duration $t_{\rm wave}$ and wallclock time $T_{\rm wall}$  needed to evaluate $L_{\rm red}=\int L p d\theta$
+  for one set of intrinsic parameters $\lambda$ versus starting frequency $f_{|rm low}$, for a $m_1,m2=\textbf{XXX}$
+  nonspinning black hole binary.  Waveforms were generated using the standard \texttt{TaylorT4} time-domain code.  The
+  computational cost does not depend significantly on waveform duration for starting frequencies of interest. 
+}
+\end{table}
 
 
 \section{Results}
@@ -212,8 +232,10 @@ pp plots
 
 \begin{figure}
 \includegraphics[width=\columnwidth]{../Figures/BNS_2015_MDC_test_pp_plot}
-\caption{\textbf{PP plot for ensemble of XXX NS-NS events}: For \textbf{X} randomly-selected NS-NS binaries, a plot of
-  the cumulative distribution of $P_\theta(\theta_k)$ for each extrinsic variable $\theta=d,RA,DEC,\iota,\psi,\phi_{\rm orb}$.
+\caption{\textbf{PP plot for ensemble of XXX NS-NS events}: \emph{Top panel}: For \textbf{X} randomly-selected NS-NS binaries, a plot of
+  the cumulative distribution of $P_\theta(\theta_k)$ for each extrinsic variable $\theta=d,RA,DEC,\iota,\psi,\phi_{\rm
+    orb}$.
+\emph{Bottom panel}: The sky area associated with higher-probability pixels than the true sky position of the source.
 }
 \end{figure}
 
@@ -284,13 +306,16 @@ $\vec{x}_k$ : Position of the $k$th detector
 
 \item 
 $F_{+}$, $F_{\times},F$ : detector response function  to the $+,\times$ polarizations for sources visible in the
-  $\hat{n}$ direction from the detector
+  $\hat{n}$ direction relative to detector
 \begin{eqnarray}
 F(\hat{n}) = F_+(\hat{n}) +i F_\times(\hat{n})
 \end{eqnarray}
 
 \item 
-$H_k$ : strain response of the $k$th detector to an incident strain
+$\hat{H}_k$ : measured strain in  the $k$th detector
+
+\item 
+$H_k$ : strain response of the $k$th detector to an incident strain $h$
 \begin{align}
 H_k(t) &=F_{+,k}(t) h_+(t-\vec{x}_k(t)\cdot \hat{k}) + F_\times(t) h_\times(t-\vec{x}_k(t)\cdot \hat{k}) \\
  &=  \frac{F h(t-\vec{x}_k\cdot \hat{k}) }{2} + \frac{F^*h^*(t-\vec{x}_k\cdot \hat{k})}{2}
@@ -355,7 +380,7 @@ V_{k,lm,l'm'}(\lambda)& = \qmstateproduct{h_{lm}^*}{h_{l'm'}}_k \\
 
 One-dimensional marginalized posteriors, generally and sampled: 
 \begin{eqnarray}
-p_1(x_1|{\cal D}) dx_1 \equiv \int p(x|{\cal D} dx = \frac{dx_1}{Z} \int dx_{2}\ldots dx_n p(x_2)\ldots p(x_n)L(x_1\ldots x_n) 
+p_1(x_1|{\cal D}) dx_1 \equiv \int p(x|{\cal D}) dx = \frac{dx_1}{Z} \int dx_{2}\ldots dx_n p(x_2)\ldots p(x_n)L(x_1\ldots x_n) 
 \end{eqnarray}
 \begin{eqnarray}
 \hat{p}_1(z) \equiv \frac{1}{N \hat{Z}}\sum_{k=1}^N K(x,x_k) \frac{L_k p_k}{p_{s,k}} 
@@ -367,6 +392,110 @@ estimate for the evidence ($Z = \int L p dx$).
 
 
 \end{widetext}
+
+\section{Discrete data handling}
+% COMPARISON: Findchirp, http://arxiv.org/pdf/gr-qc/0509116v2.pdf
+
+In the text we describe the core algorithm using continuous time- and frequency notation, omitting most practical
+details involved in transforming discrete timeseries.  In this appendix, we describe in detail the operations we perform
+on discretely-sampled detector timeseries $\hat{H}_k$  and  waveform modes $h_{lm}(t)$ to calculate the likelihood
+provided in the text.
+
+\subsection{Discrete filtering}
+% REQUIRED
+%    - h: How we got it, and the fourier transform.
+%    - frequency limits
+%    - S_h and inverse spectrum truncation
+
+% POINT: Data selection and time windows
+Based on a proposed GPS geocenter event time $t_*$ and intrinsic parameters $\lambda$, we operate on all discretely-sampled detector
+data $\hat{H}_k(t)$  in each instrument $k$ for the following GPS time interval:
+\begin{align}
+t &\in [-T_{\rm seg},T_{\rm seg}]+t_{*} \\
+T_{\rm sec} &= T_h+T_{\rm spec} +T_{\rm safety} \\
+T_{\rm safety} &= 2\unit{s} \\
+ T_{trunc} &= 8 \unit{s} \\
+T_h &= \text{waveform duration at }\lambda
+\end{align}
+In this expression, we compute the waveform duration $T_h$ by evaluating the simulated waveform from a starting
+frequency $f_{\rm low}$ until merger. 
+
+% POINT:
+All waveform modes $h_{lm}$ are provided on a discretely-sampled time grid by \texttt{lalsimulation}.  
+%
+All waveform and detector-data ($\hat{H}$) timeseries are zero-padded to the next power of 2 before further operations are
+performed.  
+%
+No windowing is performed on either the data or input waveform, either to smooth unphysical startup and termination
+discontinuities in $h_{lm}(t)$ or to eliminate discontinuities between the starting and ending timesample in $\hat{H}(t)$
+%
+All detector and waveform data are sampled at 16384 Hz.  
+%
+
+
+% POINT: Two-sided fourier transform: hlmoff
+The discretized fourier-transform of a complex-valued timeseries $h(t)$ on $N$  values $t_j=j\Delta t+t_0$ is
+implemented as usual by the forward complex FFT:
+\begin{eqnarray}
+\tilde{h}(k) = \Delta t  \sum_k e^{2\pi i j k} e^{2\pi i \Delta f k t_o} h(t_j)
+\end{eqnarray}
+where $k=0\ldots N-1$.  Bins $k\le N/2$ correspond to positive frequencies and $k>N/2$ correspond to  negative
+frequencies.    As all data segments  have the same length and frequency spacing, we henceforth set $t_0=0$.  
+% 
+
+% POINT: PSD estimate, resampling, and inverse spectrumtruncation
+We rely on other codes to assess and report on detector noise near the event.   From the recorded discrete noise power
+spectrum $S_0(f)$, we construct a discrete Fourier-domain inverse spectrum filter $K(f)$ on a targeted frequency interval $|f|
+\in [f_{\rm min}, f_{\rm max}]$ with frequency spacing $\Delta f$ by 
+% lalsimutils.get_psd_series_from_xmldoc
+% lalsimutils.resample_psd_series
+(a) interpolating $1/S_0(f)$ onto a discrete frequency grid, as $K_0(f)$; 
+% ComplexIP : inv_spec_trunc_Q=True
+(b) coarse-graining the power spectrum by performing \emph{inverse spectrum truncation} \cite{2012PhRvD..85l2006A} to construct a filter with bounded duration $T$ from $K_0$:
+\begin{eqnarray}
+ K =  {\cal F}^{-1} [\Theta_{T_{\rm spec}} \times {\cal F}[ K_0 ]]
+\end{eqnarray}
+where ${\cal F}$ is the fourier transform; $\Theta_T(t)$ is a step function in time; and $T_{\rm spec}=8\unit{s}$ is a
+constant time interval. 
+%
+In the frequency interval $|f|\in[f_{\rm min},f_{\rm max}]$, the discrete inverse filter $K(f)$ nearly agrees with the
+input inverse spectrum $1/S_0(f)$.  
+%
+
+
+% POINT: Discrete filter output
+The $Q_{k,lm}(t)$ are the output of continuously filtering each detector's data against the $h_{lm}$ mode.  Using the
+discrete arrays representing the fourier-domain modes $\tilde{h}_{lm}(f_q)$, data $\tilde{\hat{H}}_k(f_q)$, and inverse-noise-spectrum  $K_k(f_q)$, we estimate the
+filter output via an inverse fourier transform \textbf{check signs}:
+\begin{eqnarray}
+Q_{k,lm}(\tau_q) = 2 \sum_s \Delta f e^{+2\pi i \tau_q f_s} K_k(f_s) \tilde{h}^*_{lm}(f_s) \tilde{\hat{H}}_k(f_q)
+\end{eqnarray}
+%
+As needed, we evaluate $Q_{lm,k}(\tau)$ for arbitrary $\tau$ by  cubic spline interpolation.  
+
+
+% POINT: Finite time window?  Provided in text
+
+
+\subsection{Discrete time marginalization with and without interpolation}
+
+% POINT: What time marginalization is
+The likelihood can be efficiently marginalized in time by introducing a discrete grid:
+\begin{eqnarray}
+\int_{t_*-T_{\rm window}/2 }^{t_*+T_{\rm window}/2}L(t) \frac{dt}{T_{\rm window}} \simeq \Delta t \sum_q e^{\ln L(t_q)}
+\end{eqnarray}
+where $L(t) $ is the likelihood versus time, all other parameters fixed.   
+%
+
+% POINT
+We have implemented time marginalization using two approximations for the likelihood $L(t)$ versus time.  In one,  the  functions
+$Q_{k,lm}(\tau)$ are evaluated using cubic spline interpolation; in the other, a method equivalent to nearest-neighbor interpolation.  For
+the 16kHz data rate and signal amplitudes used, the two methods agree.   Because nearest-neighbor interpolation
+corresponds to using a shifted version of the  discrete output $Q_{k,lm}(\tau_s)$ of the discrete filter, the latter
+implementation is slightly faster.   
+%
+Unless explicitly stated otherwise, we adopt the latter method to produce all results.  
+
 
 \ForInternalReference{
 \section{[Internal use] Incomplete or not-yet-implemented investigations}
