@@ -329,7 +329,7 @@ class MCSampler(object):
         maxval = -float("Inf")
         maxlnL = -float("Inf")
         eff_samp = 0
-        mean, std = None, None 
+        mean, var = None, None
 
         if bShowEvaluationLog:
             print "iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg)  Lmarg ln(Z/Lmax)"
@@ -423,14 +423,14 @@ class MCSampler(object):
             for v in int_val[1:]:
                 maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
-            # running stddev
-            var = cumvar(int_val, mean, std, ntotal)[-1]
+            # running variance
+            var = cumvar(int_val, mean, var, ntotal)[-1]
             # running integral
             int_val1 += int_val.sum()
             # running number of evaluations
             ntotal += n
             # FIXME: Likely redundant with int_val1
-            mean = int_val1
+            mean = int_val1/ntotal
             maxval = maxval[-1]
 
             eff_samp = int_val1/maxval
