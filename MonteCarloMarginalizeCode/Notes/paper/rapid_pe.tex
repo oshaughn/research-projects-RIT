@@ -13,6 +13,10 @@
 
 \newcommand\ForInternalReference[1]{#1}
 %\newcommand\ForInternalReference[1]{}
+\newcommand\editremark[1]{{\color{red} #1}}
+\usepackage{mathtools}
+\DeclarePairedDelimiter\ceil{\lceil}{\rceil}
+\DeclarePairedDelimiter\floor{\lfloor}{\rfloor}
 
 \newcommand\unit[1]{{\rm #1}}
 \newcommand\Y[1]{Y^{(#1)}{}}
@@ -31,6 +35,10 @@
 \newcommand\qmoperatorelement[3]{\left\langle#1\left|#2\right|#3\right\rangle}
 \newcommand\qmoperator[1]{{\bf #1}}
 
+
+% NUMBERS
+\newcommand\nEventsMDC{450}
+\newcommand\BS{{\sc Bayestar}}
 
 \begin{document}
 
@@ -124,7 +132,9 @@ Section headings added, including reminders re dotting i's/crossing t's.
 \item Results
 	\begin{itemize}
 	\item Show posteriors, convince reader they're similar enough to usual Bayesian PE to be trusted.
-	\item P-P plots. Show our results are self-consistent.
+	\item P-P plots for an ensemble of physical injections (including spin). Show our results are self-consistent.
+
+          Malmquist/selection bias.  
 	\item Brief (not more than 1-2 paragraphs, 1 simple plot/table) results confirming 
 		that our method scales favorably with $f_{\rm min}$ and/or EOB. 
 	\end{itemize}
@@ -228,11 +238,37 @@ comparison, the prediction from a Fisher matrix is shown as a solid black curve.
 
 \subsection{Ensemble of events}
 
-pp plots
+If our estimates for the one-dimensional cumulative distributions $P(<x)$ are unbiased and if $x_*$ is a random variable
+consistent with the prior, then $P(x_*)$ should be a uniformly-distributed random variable.   To test this hypothesis,
+we perform repeated simulations, where each injected event was drawn from our prior:
+\begin{itemize}
+\item 2015 BNS MDC:   We selected \nEventsMDC{} events from the 2015 BNS MDC, identified by the GSTlal pipeline.  While all events
+  have two-dimensional skymaps produced by \BS{}, the analysis presented below did \textbf{not} use two-dimensional skymaps.
+
+For reference, events in the 2015 MDC data were uniformly distributed on the sky, in orientation, and in volume out to
+\textbf{XXX} \unit{Mpc}.  The BNS injections had random masses in \textbf{XXX} and randomly oriented spins with
+\textbf{ZZZ}.   The GSTlal pipeline introduces a selection (Malmquist) bias, described in Figure \textbf{XXX},
+which slightly favors \textbf{YYY}.
+
+While the NS-NS binaries in the 2015 MDC had generic spins, our parameter estimation model assumed zero spin.
+
+\item Zero-spin 2015 MDC: [\textbf{Not started}]  For completeness, we propose to reproduce the 2015 MDC,  using
+  injections with exactly zero spin.
+
+\item 2016 BNS MDC: [\textbf{Not started}]
+
+\end{itemize}
+
+% POINT: pp plots for an ensemble of events
+For each parameter $x$, each colored curve in Figure  \ref{fig:pp:2015Ensemble} is  the fraction of events with
+estimated cumulative probability $P(<x_*)$ at the injected parameter value $x_*$.  
+Specifically, if $P(x_{*q})$ are the sorted cumulative probabilities for the $q=1\ldots n$ events with
+$P(x_{*1})<P(x_{*2})$, then the points on the plot are $\{P(x_{*,q}),q/n\}$.  
+%
 
 \begin{figure}
-\includegraphics[width=\columnwidth]{../Figures/BNS_2015_MDC_test_pp_plot}
-\caption{\textbf{PP plot for ensemble of XXX NS-NS events}: \emph{Top panel}: For \textbf{X} randomly-selected NS-NS binaries, a plot of
+\includegraphics[width=\columnwidth]{../Figures/2015_BNS_MDC_pat_and_chris_pp_plot}
+\caption{\label{fig:pp:2015Ensemble}\textbf{PP plot for ensemble of XXX NS-NS events}: \emph{Top panel}: For \textbf{X} randomly-selected NS-NS binaries, a plot of
   the cumulative distribution of $P_\theta(\theta_k)$ for each extrinsic variable $\theta=d,RA,DEC,\iota,\psi,\phi_{\rm
     orb}$.
 \emph{Bottom panel}: The sky area associated with higher-probability pixels than the true sky position of the source.
@@ -450,17 +486,38 @@ spectrum $S_0(f)$, we construct a discrete Fourier-domain inverse spectrum filte
 % lalsimutils.get_psd_series_from_xmldoc
 % lalsimutils.resample_psd_series
 (a) interpolating $1/S_0(f)$ onto a discrete frequency grid, as $K_0(f)$; 
-% ComplexIP : inv_spec_trunc_Q=True
+% lalsimutils.ComplexIP : inv_spec_trunc_Q=True
 (b) coarse-graining the power spectrum by performing \emph{inverse spectrum truncation} \cite{2012PhRvD..85l2006A} to construct a filter with bounded duration $T$ from $K_0$:
 \begin{eqnarray}
- K =  {\cal F}^{-1} [\Theta_{T_{\rm spec}} \times {\cal F}[ K_0 ]]
+ K =  |{\cal F} [\Theta_{T_{\rm spec}} \times {\cal F}^{-1}[ \sqrt{K_0} ]]|^2
 \end{eqnarray}
-where ${\cal F}$ is the fourier transform; $\Theta_T(t)$ is a step function in time; and $T_{\rm spec}=8\unit{s}$ is a
+where ${\cal F}$ is the fourier transform; $\Theta_T(t)$ is a step function in time which is nonzero only for $t\in[-T/2,T/2]$; and $T_{\rm spec}=8\unit{s}$ is a
 constant time interval. 
 %
 In the frequency interval $|f|\in[f_{\rm min},f_{\rm max}]$, the discrete inverse filter $K(f)$ nearly agrees with the
-input inverse spectrum $1/S_0(f)$.  
+input inverse spectrum $1/S_0(f)$.  Unlike the original filter, however, the inverse-spectrum-truncated filter has
+support for all frequencies $f\ne 0,f_{\rm Nyq}$.     
 %
+To be concrete, inverse spectrum truncation is implemented precisely as previously  \cite{2012PhRvD..85l2006A}, using
+real (one-sided) discrete fourier transforms: 
+%
+% lalsimutils.ComplexIP : inv_spec_trunc_Q=True
+we populate an array of length $1+f_{\rm Nyq}/\Delta F$ with values $K_{0,q} =1/S_o(q \Delta f)$ from $q\Delta f$ between $f_{\rm min}$ and $f_{\rm max}$; 
+we perform one-sided fourier transform of $\sqrt{K_{0}}$, populating a complex array of length $N=2 f_{\rm Nyq}/\Delta f$; 
+we set all bins with $q\in [N_{\rm spec}, N-N_{\rm spec}]$ to zero, where $N_{\rm spec} = \floor*{T_{\rm spec}/\Delta
+  T}$; 
+and  finally we inverse-fourier transform and square to construct a one-sided real-valued array $K(q\Delta f)$.  
+%
+The two-sided filter is constructed by mirroring the original one-sided array $K$.  
+%  - I don't want to discuss how lalsuite packs its FFT arrays
+
+% POINT: Discrete filter for inner products
+The inner product arrays $U_{k,lm,l'm'}$ and $V_{k,lm,l'm'}$ are constructed using this discrete filter by a discrete
+approximation to the integral.  For example, the first array is evaluated as
+\begin{eqnarray}
+U_{k,lm,l',m'}(\tau_q) = 2 \sum_s \Delta f  K_k(f_s) \tilde{h}_{lm}^*(f_s) \tilde{h}_{l'm'}(f_s)
+\end{eqnarray}
+The sum includes all frequency bins, corresponding to both positive and negative frequency.  % Specifically, we do not re-impose any constraint on $f$.
 
 
 % POINT: Discrete filter output
