@@ -172,7 +172,75 @@ Methods go here.
 
 * coordinates [limit to nonprecessing?]
 
-\subsection{Sampling the extrinsic parameters}
+\subsection{Integrating over extrinsic parameters}
+
+% POINT: General integral form
+Because precomputed quantities allow us to efficiently evaluate the likelihood $L(\lambda,\theta)$ as a function of
+$\theta$, we first integrate the likelihood $L(\lambda,\theta)$ over all extrinsic parameters $\theta$:
+\begin{eqnarray}
+L_{\rm red}(\lambda) = \int L(\lambda,\theta) p(\theta) d\theta
+\end{eqnarray}
+where $p(\theta)$ is our prior over the extrinsic  parameters.  We assume the sources analyzed are randomly-oriented and
+randomly distributed in the universe out to $D_{\rm max}=300 \unit{Mpc}$.  
+%% \begin{eqnarray}
+%% p(d)=  3 d^2/d_{\rm max}^3 \quad d_{\rm max} = 300\unit{Mpc} \\
+%% \end{eqnarray}
+
+% POINT: MC
+With the exception of time (described below), we evaluate these integrals and reconstruct the posterior distribution using Monte Carlo integration
+\textbf{citations}.   To establish notation used below, we briefly review the general principles  underlying Monte Carlo
+integration.  If $p_s$ is a distribution which is never zero when $p>0$, then 
+\begin{eqnarray}
+L_{\rm red}(\lambda) = \int \frac{L(\lambda,\theta) p(\theta)}{p_s(\theta)} [p_s(\theta) d\theta]
+\end{eqnarray}
+% POINT: Integral value and its error
+% 
+If we draw $N$ random samples $\theta_q$ from $p_s$, we can estimate the value of $L_{\rm red}$ and its error using the
+expectation value and central limit theorems for independent, identically-distributed random variables:
+\begin{eqnarray}
+w_q \equiv \frac{L(\lambda,\theta_q) p(\theta_q)}{p_s(\theta_q)} \\
+L_{\rm red}(\lambda) = \frac{1}{N} \sum_q w_q = \left<w\right> \\
+\sigma_{L_{\rm red}}^2 = \left<w^2\right> - \left<w\right>^2
+\end{eqnarray}
+% POINT: Recombinable
+Being a pure Monte Carlo integral, we can  combine the results of multiple independent draws of $N$ events, even if these
+evaluations adopted different sampling prior.  As a result, this approach is highly parallelizable.  
+% Combining results from multiple runs: because pure Monte Carlo, can combine results after multiple runs, using formula
+
+
+% POINT: PDF reconstruction
+The weighted samples also provide an estimate of the marginalized one-dimensional cumulative distributions $P(<x)$ at
+fixed $\lambda$, where $x$ is one of the extrinsic variables in $\theta$:
+\begin{eqnarray}
+\hat{P}(<x) \equiv \frac{1}{\sum_q w_q} \sum_q w_q \theta(x-x_q)
+\end{eqnarray}
+In the limit of many samples, this discontinuous estimate should converge to a smooth, marginalized posterior distribution.  
+% POINT: neff
+In the typical case that all samples $x_q$ are distinct, the unique sample with the largest weight corresponds to the
+largest discontinuity in $\hat{P}$.  The magnitude of this discontinuity, or equivalently its inverse $n_{\rm eff}$,
+provides a practical measure of how reliable we expect this one-dimensional posterior to be:
+\begin{eqnarray}
+n_{\rm eff} \equiv \frac{\sum_q w_q}{\text{max} w_{\rm q}}
+\end{eqnarray}
+Equivalently, the ``effective number of samples'' $n_{\rm eff}$ measures how many independent samples produce similar
+weights near the largest observed weight.  
+
+------ \editremark{Continue here}
+
+% POINT: Specific procedure
+* Specific procedure used for samples:
+
+** seperable sampling prior in each dimension; construct CDF (either analytically or
+numerically); draw random variables from CDF
+
+
+* Procedure used to control runtime:
+
+** currently, run to $10\times10^6$ evaluations, via 10 independent evaluations of $10^6$ evaluations, at each mass
+point.
+
+** use those 10 evaluations, plus the monte carlo error estimate, to assess whether we have converged.
+
 
 \subsubsection{Adaptive Monte Carlo integration}
 
@@ -181,6 +249,8 @@ Methods go here.
 * Specific dimensions adapted
 
 * tunings adopted: 100 bins, floor, tempering, history
+
+* discard values after burn-in
 
 \subsubsection{Using search results to target specific areas of the sky}
 
