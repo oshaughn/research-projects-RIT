@@ -174,6 +174,66 @@ Methods go here.
 
 \subsection{Sampling the extrinsic parameters}
 
+\subsubsection{Adaptive Monte Carlo integration}
+
+* General concept
+
+* Specific dimensions adapted
+
+* tunings adopted: 100 bins, floor, tempering, history
+
+\subsubsection{Using search results to target specific areas of the sky}
+
+The \BS{} pipeline \cite{gw-astro-Bayestar} rapidly processes the results of a search to identify candidate sky
+locations consistent with a gravitational wave event, assuming a nonprecessing source.   
+%
+This code produces a \emph{skymap}: a discrete [Healpix] grid of sky positions, with relative probabilities for each sky
+pixel.  
+%
+Our code can ingest and use these skymaps as a sampling prior.
+
+Specifically, the \BS{} pipeline provides a normalized array  $b_k$  for $n=1\ldots n_{\rm pix}$ with $\sum_k b_k=1$.    
+Each array index is associated with a unique sky location $(\theta,\phi)_k $, covering the sky in equal-area tiles.
+%
+Because the sky resolutions used are  significantly finer than the resolving power of gravitational wave detector networks
+(\textbf{quanitfy}), we adopt a purely discrete sky sampling strategy, generating random integers $k$ consistent with
+the skymap's probabilities and converting those random integers to sky positions $(\theta_k,\phi_k)$.  
+
+
+
+Specifically, each random integer is generated as follows. 
+%
+Without loss of generality, assume the $b_k$ are sorted in increasing order and calculate the cumulative distribution $B_k
+= \sum_{q\le k} b_k$.   Random integers $k$ are generated from random real numbers $x$ via finding
+% EQUATION
+%   - discrete array index q
+\begin{eqnarray}
+ B_k/B_{n_{\rm pix}} < x <  B_{k+1}/B_{n_{\rm pix}}
+\end{eqnarray}
+%* review healpy, bayestar 
+In practice, to reduce the need to search the $B_k$ array for each new random sample $x$, we quantize the possible probabilities
+using some small scale $\Delta p$ estimated from the skymap, then  precompute a lookup table between $\floor*{x/\Delta
+  p}$ and $k$.    \textbf{Chris, please verify the implementation}
+
+
+
+
+-------
+
+*  \editremark{Implementation}
+
+**floor or not? ROS would prefer $b_k \ne 0$ for any sky position (else complications arise re normalization).
+
+**Prior remains uniform?
+
+**  discrete grid, its resolution, and potential limitations?
+
+\subsubsection{Time marginalization}
+
+* Concept only; see Appendix \ref{ap:DiscreteData} for details
+
+
+
 \subsection{Scalable method to explore intrinsic parameters }
 
 \begin{table}
@@ -430,10 +490,11 @@ estimate for the evidence ($Z = \int L p dx$).
 \end{widetext}
 
 \section{Discrete data handling}
+\label{ap:DiscreteData}
 % COMPARISON: Findchirp, http://arxiv.org/pdf/gr-qc/0509116v2.pdf
 
 In the text we describe the core algorithm using continuous time- and frequency notation, omitting most practical
-details involved in transforming discrete timeseries.  In this appendix, we describe in detail the operations we perform
+details involved in operating on discrete timeseries.  In this appendix, we describe in detail the operations we perform
 on discretely-sampled detector timeseries $\hat{H}_k$  and  waveform modes $h_{lm}(t)$ to calculate the likelihood
 provided in the text.
 
@@ -476,7 +537,7 @@ implemented as usual by the forward complex FFT:
 \tilde{h}(k) = \Delta t  \sum_k e^{2\pi i j k} e^{2\pi i \Delta f k t_o} h(t_j)
 \end{eqnarray}
 where $k=0\ldots N-1$.  Bins $k\le N/2$ correspond to positive frequencies and $k>N/2$ correspond to  negative
-frequencies.    As all data segments  have the same length and frequency spacing, we henceforth set $t_0=0$.  
+frequencies.    As all data segments  have the same sampling rate and cover the same time interval, we henceforth set $t_0=0$.  
 % 
 
 % POINT: PSD estimate, resampling, and inverse spectrumtruncation
@@ -508,7 +569,8 @@ we set all bins with $q\in [N_{\rm spec}, N-N_{\rm spec}]$ to zero, where $N_{\r
   T}$; 
 and  finally we inverse-fourier transform and square to construct a one-sided real-valued array $K(q\Delta f)$.  
 %
-The two-sided filter is constructed by mirroring the original one-sided array $K$.  
+The two-sided filter is constructed by mirroring the original one-sided array $K$ about $f=0$, using the same packing
+scheme we adopted for two-sided fourier transforms.  
 %  - I don't want to discuss how lalsuite packs its FFT arrays
 
 % POINT: Discrete filter for inner products
@@ -523,7 +585,7 @@ The sum includes all frequency bins, corresponding to both positive and negative
 % POINT: Discrete filter output
 The $Q_{k,lm}(t)$ are the output of continuously filtering each detector's data against the $h_{lm}$ mode.  Using the
 discrete arrays representing the fourier-domain modes $\tilde{h}_{lm}(f_q)$, data $\tilde{\hat{H}}_k(f_q)$, and inverse-noise-spectrum  $K_k(f_q)$, we estimate the
-filter output via an inverse fourier transform \textbf{check signs}:
+filter output via an inverse fourier transform:
 \begin{eqnarray}
 Q_{k,lm}(\tau_q) = 2 \sum_s \Delta f e^{+2\pi i \tau_q f_s} K_k(f_s) \tilde{h}^*_{lm}(f_s) \tilde{\hat{H}}_k(f_q)
 \end{eqnarray}
