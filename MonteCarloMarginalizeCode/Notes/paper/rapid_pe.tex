@@ -342,8 +342,8 @@ To provide a stringent, production-environment test of our parameter estimation 
 events from the 2015 BNS mock data challenge, described below.  
 %
 % POINT: What code was used
-Unless otherwise stated, we adopted nonspinning TaylorT4 templates; 
-used roughly $200$ mass points for each event, distributed on spokes in $\mc,\eta$ radiating away from the reported
+Unless otherwise stated, we adopted nonspinning TaylorT4 templates at 3.5 PN order, including only the $(2,\pm 2)$ and
+$(2,0)$ modes;  used roughly $200$ mass points for each event, distributed on spokes in $\mc,\eta$ radiating away from the reported
 masses  provided by the searches, out to an estimated match of 0.9; 
  evaluated the Monte Carlo integral $10$ times for each mass point; and used a sampling prior equal to the prior for all
  parameters except distance and mass, which were set adaptively and \textbf{via a skymap}, as described above.  
@@ -364,30 +364,93 @@ which slightly favors \textbf{YYY}.
 
 \subsection{Scaling}
 
+* scaling versus $f_{\rm low}$
+
+* scaling versus number of harmonics used.  (Aside on truncating harmonics with trivial content...not used presently)
+
 \subsection{Detailed investigation of one event}
+%% WHAT FIGURES CURRENTLY ARE : 
+%     - https://ldas-jobs.phys.uwm.edu/~evano/skymap_reruns/coinc_id_833/ 
+%     : v2 = bayestar as prior and sampler, adapt in distance
+%    
+%% m1 = 1.21992194653 (Msun)
+%% m2 = 1.20069205761 (Msun)
+%% s1x = 0.00190996297169
+%% s1y = 0.00721042277291
+%% s1z = -0.00683548022062
+%% s2x = -0.00129437400028
+%% s2y = -7.87806784501e-05
+%% s2z = 0.00192063604482
+%% lambda1 = 0.0
+%% lambda2 = 0.0
+%% inclination = 2.62300610542
+%% distance = 112.5338974 (Mpc)
+%% reference orbital phase = 4.29952907562
+%% time of coalescence = 966822123.762
+%% detector is: H1
+%% Sky position relative to geocenter is:
+%% declination = 0.678935229778 (radians)
+%% right ascension = 4.10562181473 (radians)
+%% polarization angle = 6.19411420822
+
+Despite providing complete results in less than one hour, our strategy provides extremely well-sampled distributions and
+evidence, with small statistical error.   To illustrate its performance, we have selected a single event, whose
+parameters are provided in Table \ref{tab:FiducialEvent:Parameters}.   
+%
+
+
+
+% POINT: Consistency 
+The repeated independent evaluations naturally produced by our algorithm provide a simple self-consistency check,
+allowing us to quantify convergence empirically.  
+Specifically, at each of the 111 mass points automatically targeted for investigation by our algorithm for this event, we
+independently evaluated the integral $L_{\rm red}$ [Figure \ref{fig:FiducialEvent:LikelihoodVersusMchirpEta}] and construct one- and two-dimensional posterior distributions, from
+10 independent evaluations [e.g., Figure \ref{fig:FiducialEvent:Triplot:TriggerMasses}].    
+%
+As illustrated by example in Figure \ref{fig:FiducialEvent:Triplot:TriggerMasses}, these fixed-mass posterior
+distributions are smooth and overlap the true parameters \editremark{Need to add injection cross}.  
+%
+Moreover, as illustrated by Figure \ref{fig:FiducialEvent:Cumulatives:Comparison:TriggerMasses}, each of the 10
+independent evaluations make posterior predictions that are consistent with one another.   
+%
+Finally, as illustrated by Figure \ref{fig:FiducialEvent:Integral:ErrorEstimate}, for each mass point the 10 values of $L_{\rm red}$
+are consistent with one another to roughly $1\%$.  
+%
+Keeping in mind our final reported results combine both all mass points and all 10 evaluations at each mass point, we
+anticipate relatively little uncertainty due to sampling error in our current configuration.  
+
+
+\begin{table}
+\begin{tabular}{l|ll}
+Parameter & True & Search \\
+$m_1 (M_\odot)$ &  1.22 & 1.26 \\
+$m_2 (M_\odot)$ &  1.20 & 1.16 \\
+$|\chi_1| $ & 0.01  & 0 \\
+$|\chi_2| $ & 0.002 & 0 \\
+$d (\unit{Mpc}) $ & 112.5 & - \\
+$\iota $ & 2.62 & - \\
+($\alpha,\delta$) & (4.106,0.6789) &\\
+\end{tabular}
+\caption{\label{tab:FiducialEvent:Parameters}\textbf{Fiducial event: True and trigger parameters}: The physical parameters of our injected event, compared
+  with the parameters provided by the search and used to target our parameter estimation followup.
+}
+\end{table}
 
 
 
 
-%%
-%% WHAT FIGURES SHOULD BE : zero noise MDC, at injected values
-%%
-%% WHAT FIGURES CURRENTLY ARE : https://ldas-jobs.ligo-wa.caltech.edu/~oshaughn/BNS_2015_MDC/coinc_id_10202/ or 12635
-%%   (=a real result from our large-scale run MDC, adapting on the sky and distance)
-%%
-%% For comparison, off-master results with no adaptation in sky, diffusion, and tempering: https://ldas-jobs.ligo.caltech.edu/~oshaughn/BNS_2015_MDC/coinc_id_10202/
 \begin{figure*}
-\includegraphics[width=\textwidth]{../Figures/ILE_MASS_SET_0-triplot}
-\caption{\textbf{Posterior distribution in intrinsic parameters, assuming known masses}: For our fiducial event, our predicted
-  distribution of extrinsic parameters $d,RA=\alpha,DEC=\delta,\iota,t,\phi,\psi$, assuming the exact parameters are
-  known.    \textbf{PLACEHOLDER} \emph{Suggest: show d-cos iota, skymap, and phi-psi only, not full triplot}
+\includegraphics[width=\textwidth]{../Figures/v2runs_coinc_id_833_ILE_triplot_MASS_SET_0}
+\caption{\label{fig:FiducialEvent:Triplot:TriggerMasses}\textbf{Posterior distribution in intrinsic parameters, assuming known masses}: For our fiducial event, our predicted
+  distribution of extrinsic parameters $d,RA=\alpha,DEC=\delta,\iota,t,\phi,\psi$, for clarity evaluated assuming at the
+  mass parameters identified by the search.  Extremely similar distributions are recovered at each mass point.   \emph{Suggest: show d-cos iota, skymap, and phi-psi only, not full triplot}
 }
 \end{figure*}
 
 
 \begin{figure}
-\includegraphics[width=\columnwidth]{../Figures/coinc_id_12635_mchirp_eta_logevidence}
-\caption{\textbf{Marginalized likelihood and posterior distribution versus component masses}: \emph{Top panel}: For our fiducial event,
+\includegraphics[width=\columnwidth]{../Figures/v2runs_coinc_id_833_mchirp_eta_logevidence}
+\caption{\label{fig:FiducialEvent:LikelihoodVersusMchirpEta}\textbf{Marginalized likelihood and posterior distribution versus component masses}: \emph{Top panel}: For our fiducial event,
   contours of the log of integrated likelihood $\ln L_{\rm red}$ versus component masses, represented in $\mc,\eta$
   coordinates.  Points indicate the mass grid adopted; colors and the color bar indicate specific numerical values.   
 \emph{Bottom panel}: The 90\% confidence interval derived from $L_{\rm red}$, for several noise realizations.  For
@@ -396,6 +459,29 @@ comparison, the prediction from a Fisher matrix is shown as a solid black curve.
 }
 \end{figure}
 
+
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/v2runs_coinc_id_833_cumulative-multiplot-distance-MASS_SET_0}
+\caption{\label{fig:FiducialEvent:Cumulatives:Comparison:TriggerMasses}\textbf{Sampling error analysis I: One-dimensional cumulative distribution at fixed mass}:  For each of the 10 independent
+  instances used at  the mass  parameters   identified by the search, a plot of the one-dimensional cumulative
+  distribution in distance.  These distributions agree to within a few \textbf{(quantify)} percent, qualitatively
+  consistent with a naive estimate based on $1/\sqrt{n_{\rm eff}} \simeq 4\%$.   Combining all 10
+  independent runs, we expect the final distance posterior has even smaller statistical sampling error
+  (\textbf{quantify} $\simeq X/\sqrt{10}$).  Our final posterior
+  distributions, having support from several mass points, should have smaller statistical error still.
+}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-v2_coinc_833-IntegralVarianceVersusNeff}
+\caption{\label{fig:FiducialEvent:Integral:ErrorEstimate}\textbf{Sampling error analysis II: Integral error}: For each of the 111 mass points evaluated for the fiducial
+  event, a scatterplot of the mean number of effective samples $n_{\rm eff}$ versus the standard deviation in $\ln
+  L_{\rm red}$, where at each mass point the mean and standard deviation are calculated over the 10 independent
+  evaluations performed.  Considering our final prediction for $L_{\rm red}$ combines all 10 events, this figure
+  suggests $L_{\rm red}$ is known to better than $1\%$ for each mass point.
+}
+\end{figure}
 
 \subsection{Ensemble of events}
 
@@ -720,6 +806,8 @@ Unless explicitly stated otherwise, we adopt the latter method to produce all re
 \end{itemize}
 
 \subsection{Detailed investigation of one event}
+Sample run results: Single event, with full DAG, done multiple times (for complete consistency/reproducibility)
+
 Sample run results: extrinsic parameters (for one and several noise realizations)
 
 Sample run results: $L_{\rm red}(\mc,eta)$ (for one and several noise realizations). Expected accuracy at each mass
@@ -754,7 +842,31 @@ Measures to assess whether we're done
 
 \section{[Internal use] Future directions}
 
+\section{[Internal use] Patches pending or desired}
 
+Persons/proposing supporting  a change listed as [name].
+
+\noindent \textbf{Next push}
+
+* Bugfix on ILE MC variance
+
+* Uniform on sky prior with bayestar skymaps
+
+\noindent \textbf{Minor code tweaks}
+
+* [ROS] Larger nchunk
+
+* [ROS] Change tempering exponent definition from $(Lp/p_s)^\beta$ to $L^\beta p/p_s$, to facilitate analysis
+
+
+\noindent \textbf{Infrastructure}
+
+* [ROS] Change DAG (number of jobs, max iterations): current solution with skymap is overkill
+
+
+* [ROS] For automated end-to-end tests, add GSTlal coinc generation and \BS{} skymaps to \texttt{stage\_injections}
+
+* [ROS] Add posterior in mchirp, eta accounting for prior.
 }
 \bibliography{overviewexport}
 \end{document}
