@@ -61,6 +61,8 @@ We present a method for rapid, parallelizable parameter estimation  of GWs from 
 \end{abstract}
 \maketitle
 
+
+\ForInternalReference{
 \begin{widetext}
 \section*{Outline}
 The first level of bullets are proposed sections. 
@@ -168,7 +170,7 @@ to other PE methods for LIGO
 \tableofcontents
 
 \end{widetext}
-
+}
 \section{Introduction}
 
 \section{Executive Summary}
@@ -328,7 +330,7 @@ $f_{\rm low}$ & $t_{\rm wave}$ & $T_{\rm wall}$ \\\hline
 30 & & \\
 \end{tabular}
 \caption{\textbf{Runtime versus starting frequency}: Waveform duration $t_{\rm wave}$ and wallclock time $T_{\rm wall}$  needed to evaluate $L_{\rm red}=\int L p d\theta$
-  for one set of intrinsic parameters $\lambda$ versus starting frequency $f_{|rm low}$, for a $m_1,m2=\textbf{XXX}$
+  for one set of intrinsic parameters $\lambda$ versus starting frequency $f_{|rm low}$, for a $m_1,m_2=\textbf{XXX}$
   nonspinning black hole binary.  Waveforms were generated using the standard \texttt{TaylorT4} time-domain code.  The
   computational cost does not depend significantly on waveform duration for starting frequencies of interest. 
 }
@@ -357,9 +359,24 @@ and uses an inverse power spectrum filter targeting the frequency range $[f_{\rm
 
 
 For reference, events in the 2015 MDC data were uniformly distributed on the sky, in orientation, and in volume out to
-\textbf{XXX} \unit{Mpc}.  The BNS injections had random masses in \textbf{XXX} and randomly oriented spins with
-\textbf{ZZZ}.   The GSTlal pipeline was used to select events for further study.  This selection process introduces a selection (Malmquist) bias, described in Figure \textbf{XXX},
-which slightly favors \textbf{YYY}.
+\textbf{219} \unit{Mpc}.  The BNS injections had random masses in $1.2 M_\odot-1.6 M_\odot$ and randomly oriented spins with
+\textbf{ZZZ}.   The GSTlal pipeline was used to select events for further study.  This selection process introduces a
+small selection (Malmquist) bias, described in Figure \ref{fig:SearchSelection}, 
+which slightly disfavors edge-on binaries relative to our prior.    
+%
+
+Our parameter estimation strategy does not account for selection biases; for a sufficiently large ensemble of events,
+small deviations between the statistical properties of our posteriors and the ensemble are expected. 
+
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-2015MDC-SelectedEvents-DistanceCumulative}
+\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-2015MDC-SelectedEvents-CosIotaCumulative}
+\caption{\label{fig:SearchSelection}\textbf{Selection biases}: For the 450 (\textbf{currently 120}) events used in our followup study, the cumulative distribution of $d^3$
+  and $\cos \iota$.  In the absence of selection biases and in the limit of many samples, these two parameters should be
+  uniformly distributed; small deviations away from uniformity reflect selection biases and sampling error.
+}
+\end{figure}
 
 
 \subsection{Scaling}
@@ -443,19 +460,21 @@ $\iota $ & 2.62 & - \\
 \includegraphics[width=\textwidth]{../Figures/v2runs_coinc_id_833_ILE_triplot_MASS_SET_0}
 \caption{\label{fig:FiducialEvent:Triplot:TriggerMasses}\textbf{Posterior distribution in intrinsic parameters, assuming known masses}: For our fiducial event, our predicted
   distribution of extrinsic parameters $d,RA=\alpha,DEC=\delta,\iota,t,\phi,\psi$, for clarity evaluated assuming at the
-  mass parameters identified by the search.  Extremely similar distributions are recovered at each mass point.   \emph{Suggest: show d-cos iota, skymap, and phi-psi only, not full triplot}
+  mass parameters identified by the search.  Extremely similar distributions are recovered at each mass point. 
+\ForInternalReference{  \emph{Suggest: show d-cos iota, skymap, and phi-psi only, not full triplot}}
 }
 \end{figure*}
 
 
 \begin{figure}
 \includegraphics[width=\columnwidth]{../Figures/v2runs_coinc_id_833_mchirp_eta_logevidence}
-\caption{\label{fig:FiducialEvent:LikelihoodVersusMchirpEta}\textbf{Marginalized likelihood and posterior distribution versus component masses}: \emph{Top panel}: For our fiducial event,
+\caption{\label{fig:FiducialEvent:LikelihoodVersusMchirpEta}\textbf{Marginalized likelihood and posterior distribution
+    versus component masses}: \emph{Top panel}: 
+For our fiducial event,
   contours of the log of integrated likelihood $\ln L_{\rm red}$ versus component masses, represented in $\mc,\eta$
   coordinates.  Points indicate the mass grid adopted; colors and the color bar indicate specific numerical values.   
-\emph{Bottom panel}: The 90\% confidence interval derived from $L_{\rm red}$, for several noise realizations.  For
-comparison, the prediction from a Fisher matrix is shown as a solid black curve.
- \textbf{PLACEHOLDER/INTENT}
+\emph{Bottom panel}: The 90\% confidence interval derived from $L_{\rm red} p(\mc,\eta)$.  
+ \textbf{Once OK with Ben Farr, add curves from MCMC TaylorF2}
 }
 \end{figure}
 
@@ -513,9 +532,122 @@ $P(x_{*1})<P(x_{*2})$, then the points on the plot are $\{P(x_{*,q}),q/n\}$.
 \end{figure}
 
 
+\section{Comparison with related work}
+
+\subsection{Reduced-order quadrature}
+Reduced-order quadrature methods provide an efficient representation of a waveform family and any inner products against
+it.   Other authors have recently proposed prefiltering the data against the reduced-order basis
+\cite{gw-astro-ReducedOrderQuadraturePE-TiglioEtAl2014}, achieving significant speedup.  For example, using TaylorF2
+templates, \citet{gw-astro-ReducedOrderQuadraturePE-TiglioEtAl2014} claim runtimes of order 1 hour, comparable to our
+end-to-end time in the high-precision configuration described above.
+
+% POINT
+Our strategy and reduced-order modeling achive a similar speedup for qualitatively similar reasons: both strategies
+prefilter the data.   In our algorithm, at each mass point, the data is prefiltered  against a
+set of $h_{lm}$, then efficiently reconstruct the likelihood for generic source orientations and distances.  
+%
+By integrating the likelihood at each mass point over all extrinsic parameters,  we are dominated by extrinsic-parameter
+sampling and  hence not limited by waveform generation.
+
+% POINT: 
+In the short term, reduced-order methods require further tuning and development, to calibrate their interpolation in
+targeted mass regions and with specific PSDs.
+Moreover, as the starting frequency is reduced, reduced-order methods do require additional basis vectors, increasing
+their operation count and computational cost as $f_{\rm low}$ is reduced.
+%
+  By contrast,
+our algorithm can be immediately applied to any existing time-domain model that provides $h_{lm}$,  at any mass,
+including EOBNRv2HM \cite{gw-astro-EOBNR-Calibrated-2009} and SEOB \cite{gw-astro-EOBspin-Tarrachini2012}.  Minimal,
+highly-compartmentalized  modifications are  needed in \texttt{lalsimulation} to implement $h_{lm}$ for most
+other existing time- and frequency-domain waveform approximants.  
+%
+%
+Finally, by construction our dominant operation count cost is  independent of the waveform's length (or number of basis
+vectors).  Hence, unlike reduced order methods, our code will run in nearly same amount of time now and with full
+aLIGO-scale instruments with $f_{\rm low}\simeq 10\unit{Hz}$.  
+
+
+\subsection{Alternative parallelization schemes}
+% POINT:
+Any strategy that can compute evidence reliably over a sub-volume or hypersurface in parameter space
+can be efficiently parallelized.   In the strategy described here, we parallelized via accurate, independent extrinsic marginalization.  
+%
+Other strategies are \textbf{probably being developed; we should ask}.
+
+
+
+% POINT: Comparison
+Practically speaking, Reduced-order methods require precomputation Unlike reduced-order methods, : also 1h runtime; we
+require no additional code, allowing runs \emph{immediately}  with \emph{any}
+time-domain model, including SEOB and EOBNRv2HM; our runtime is duration independent and we see no evidence for needing more samples to account for
+long duration at fixed SNR.
+
 \section{Conclusions}
 
-Conclusions go here.
+%Conclusions go here.
+%% MAJOR POINT: Summarize paper
+% POINT: Rationale, again
+In the era of multimessenger astronomy, rapid and robust inference about candidate compact binary gravitational wave
+events will be a critical science product for LIGO, as  colleagues with other instruments  perform followup and
+coincident observations.  
+% POINT: Summary: code (see abstract)
+Motivated by the need for speed, we have introduced an alternative, highly-parallelizable architecture for compact
+binary parameter estimation.   
+%   
+First, by using a mode decomposition  ($h_{lm}$) to represent each physically distinct source and by
+prefiltering the data against those modes, we can efficiently evaluate the likelihood for generic source positions and
+orientations, independent of waveform length or generation time.   
+% 
+Second, by integrating over all observer-dependent (extrinsic) parameters and by using a purely Monte Carlo
+integration strategy, we can efficiently \emph{parallelize} our calculation over the intrinsic and extrinsic space.  
+%
+Third, to target specific intrinsic (and extrinsic) parameters for further investigation, we ingest information provided
+by the searches and \BS{}: the trigger masses and estimated sky position.  
+% POINT: Conclusion: Code is fast
+Using standard time-domain waveforms in a production environment, we can already fully process one event in less than 1 hour, using roughly $1000$ cores in parallel,
+producing posteriors and evidence with reproducibly small statistical errors (i.e., $\lesssim 1\%$ for both).  
+%
+As our code has bounded runtime, almost independent of the starting frequency for the signal, a nearly-unchanged strategy could
+ estimate NS-NS parameters in the aLIGO era.  
+
+
+%% MAJOR POINT: Why this is a big deal
+% POINT: Implications: Fast performance on BNS, with minimal additional cost at low frequency
+%       Identified in LIGO white paper/PE technical page as high-priority
+%For binary neutron star inspirals, the 
+
+
+
+%% MAJOR POINT: Explicit dimensionality as weakness. 
+%   - demonstrate being aware of other projects in PE
+%   - demonstrate team player : useful for targeted goals
+While the alternative architecture proposed here is efficient and highly parallelizable over extrinsic parameters,
+all \emph{other}  parameters are currently inefficiently explored.  
+For example, the concrete algorithm described and implemented here adopts a \emph{fixed, low-resolution} grid to sample
+ two mass dimensions.  
+%
+While the method described here should generalize to a few additional dimensions, additional architectural changes (and fast
+waveform generation) would be needed to apply a similar technique to many higher-dimensional problems being addressed with Markov
+Chain or nested sampling codes, including testing GR; self-consistent data, noise,  and glitch models;  and self-consistent
+electromagnetic and gravitational wave parameter estimation.   
+%% MAJOR POINT: Connect to other active projects  -- we are not an island
+% POINT: Big picture
+By contrast, by accelerating waveform generation, other strategies like reduced-order-quadrature may eventually accelerate
+conventional strategies by a comparable factor, allowing rapid analysis of these and other problems.  
+%
+In the long term,  even though different strategies increase performance a comparable amount in a qualitatively similar way,
+they do so with two different architectural paradigms: conventional serial MCMC with fast waveform evaluation versus
+highly-parallelized Monte Carlo with slow waveforms and prefiltering.  
+%
+We expect  our algorithm can be accelerated.  
+% POINT: Recognize
+%
+We hope  that by combining paradigms, future parameter estimation
+strategies can reach extremely low latencies, ideally of order a few minutes, even in the advanced LIGO era. 
+
+
+
+
 
 \appendix
 
@@ -814,6 +946,15 @@ Sample run results: $L_{\rm red}(\mc,eta)$ (for one and several noise realizatio
 point.. Translating into  $p(m_1,m_2)$ using a uniform mass prior.
 
 Comparison with Fisher and MCMC
+
+
+\begin{figure}
+\caption{\label{fig:TargetedEvent:LikelihoodVersusMchirpEta}\textbf{Targeted study: Posterior distribution
+    versus component masses, for several noise realizations}: : The 90\% confidence interval derived from $L_{\rm red}$.  For
+comparison, the prediction from a Fisher matrix is shown as a solid black curve.
+ \textbf{PLACEHOLDER/INTENT}
+}
+\end{figure}
 
 
 \section{[Internal use] Results: Additional production-environment investigations}
