@@ -1,0 +1,16 @@
+#! /usr/bin/env python
+
+import ourparams
+import lal
+import numpy as np
+import sys
+opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
+
+Psig = ourparams.PopulatePrototypeSignal(opts)
+
+Psig.print_params()  # Provide human-readable parameter report.  Can use either coinc or injection xml input
+
+chi1 = [Psig.s1x,Psig.s1y,Psig.s1z]
+chi2 = [Psig.s2x,Psig.s2y,Psig.s2z]
+print " Spin magnitude 1 ", np.sqrt( np.dot(chi1,chi1))
+print " Spin magnitude 2 ", np.sqrt( np.dot(chi2,chi2))
