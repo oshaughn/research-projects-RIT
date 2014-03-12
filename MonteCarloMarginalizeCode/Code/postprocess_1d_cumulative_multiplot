@@ -31,17 +31,17 @@
 # Setup. 
 import numpy as np
 import lal
-import lalsimutils
 import bisect
 # Plot always, for now
 import matplotlib
-# matplotlib.use("Agg")  # Uncomment this line on clusters.  Need a better solution...
+matplotlib.use("Agg")  # Uncomment this line on clusters.  Need a better solution...
 fExtension = "jpeg"
 if matplotlib.get_backend() == "MacOSX":
     fExtension = "jpeg"
 if matplotlib.get_backend() == "agg":
     fExtension  = "png"
 print " matplotlib backend ", matplotlib.get_backend(), " so using file type ", fExtension
+import lalsimutils
 from matplotlib import pylab as plt
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -55,6 +55,8 @@ import sys
 # Columns assumed sorted as <stuff>, tref, phi, incl, psi, ra, dec, dist, lnL,p, ps
 #  * assume* we have already sorted these by importance?
 
+error_report = {}
+
 import sys
 for fname in sys.argv[1:]:
     print fname
@@ -64,6 +66,15 @@ for fname in sys.argv[1:]:
     weights = (np.exp((ret[:,-1] - lnLmax))*ret[:,-3]/ret[:,-2])*ret[:,-3-8]   # add number of points to weights: NZ is additive; the overall # normalization is created elsewhere.  Note we can't compute the evidence in this strategy
 # if opts.adapt_beta == 0:
 #     weights = np.ones(len(weights))
+
+    # Provide integral value and error, to independently check what is reported at the end of the code
+    weights_raw = (np.exp((ret[:,-1] - lnLmax))*ret[:,-3]/ret[:,-2])
+    n_samples = np.max(ret[:,-3-8])
+    print " Number of trials, stored points, and neff ", n_samples, len(ret), np.sum(weights_raw)/np.max(weights_raw)
+    LmeanScaled = np.sum(weights_raw) /n_samples    # correct for fact that ony some points are stored -- do *not* use np.mean
+    LdevScaled = np.sqrt(np.sum(weights_raw*weights_raw)/n_samples - LmeanScaled*LmeanScaled)
+    error_report[fname] = [np.log(LmeanScaled)+lnLmax,np.log(LdevScaled/LmeanScaled),np.sum(weights_raw)/np.max(weights_raw)]
+    print " ln\int Lpdx estimate, and error estimate: ", error_report[fname]
 
     # Metadata and pp data
     # Note mc, eta not always supported, but m1, m2 *are very likely* always be the first two
@@ -110,6 +121,9 @@ for nFig in np.arange(len(keynames)):
     param = keynames[nFig]
 
     plt.savefig("posterior-cumulative-multiplot-"+param+"-1d."+fExtension)
+
+for key in error_report:
+    print key, error_report[key][0], error_report[key][1]
 
 sys.exit(0)
 
