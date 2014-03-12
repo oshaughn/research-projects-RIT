@@ -122,15 +122,19 @@ Section headings added, including reminders re dotting i's/crossing t's.
 			Maybe an approximate metric or help from ROM could save the day. [?]
 		\end{itemize}
 		
-	\end{itemize}
 	
 	\item Postprocessing [?]
 		\begin{itemize}
 		\item Do we need to say anything about collating results, making triplots, P-P plots, etc.?
+
+                  Yes, it's nontrivial for linear spoked.
 		\end{itemize}
 
-\item Results
+	\end{itemize}
+
+\item Results: Production environment
 	\begin{itemize}
+          \item Describe the BNS MDC, from which our examples are drawn
 	\item Show posteriors, convince reader they're similar enough to usual Bayesian PE to be trusted.
 	\item P-P plots for an ensemble of physical injections (including spin). Show our results are self-consistent.
 
@@ -145,7 +149,14 @@ Section headings added, including reminders re dotting i's/crossing t's.
 
   \begin{itemize}
     \item Notation
-    \item Data handling: data rate and data selection (time window), psd estimate, inverse spectrum truncation, windowing (or not)
+    \item Data handling: data rate and data selection (time window), psd estimate, inverse spectrum truncation,
+      windowing (or not)
+  \item Results: Targeted investigations
+
+  -    DAGs on a single event
+
+  - DAGs using the same physics (zero spin) as our model
+
   \end{itemize}
 
 \end{itemize}
@@ -250,7 +261,7 @@ point.
 
 * tunings adopted: 100 bins, floor, tempering, history
 
-* discard values after burn-in
+* discard values after burn-in? Not yet....
 
 \subsubsection{Using search results to target specific areas of the sky}
 
@@ -260,18 +271,21 @@ locations consistent with a gravitational wave event, assuming a nonprecessing s
 This code produces a \emph{skymap}: a discrete [Healpix] grid of sky positions, with relative probabilities for each sky
 pixel.  
 %
-Our code can ingest and use these skymaps as a sampling prior.
+Our code can ingest and use these skymaps,  both to construct sampling prior or physical prior \emph{functions}
+$p_s(\alpha,\delta)$ and to generate random samples. 
 
 Specifically, the \BS{} pipeline provides a normalized array  $b_k$  for $n=1\ldots n_{\rm pix}$ with $\sum_k b_k=1$.    
-Each array index is associated with a unique sky location $(\theta,\phi)_k $, covering the sky in equal-area tiles.
+Each array index is associated with a unique sky location $(\alpha,\delta)_k $, covering the sky in equal-area tiles.  
 %
 Because the sky resolutions used are  significantly finer than the resolving power of gravitational wave detector networks
-(\textbf{quanitfy}), we adopt a purely discrete sky sampling strategy, generating random integers $k$ consistent with
-the skymap's probabilities and converting those random integers to sky positions $(\theta_k,\phi_k)$.  
+(\textbf{quanitfy}), we adopt a purely discrete sky.  For example, to generate  random sky positions, we generating random integers $k$ consistent with
+the skymap's probabilities and converting those random integers to sky positions $(\alpha_k,\delta_k)$.  Conversely, to
+generate the two-dimensional PDF consistent with this distribution at a proposed $(\alpha,\delta)$, we look up the
+integer $k$ associated with the tile containing $(\alpha,\delta)$, then return $b_k$.  
 
 
 
-Specifically, each random integer is generated as follows. 
+To be more concrete regarding random sky position generation, each random integer is generated as follows. 
 %
 Without loss of generality, assume the $b_k$ are sorted in increasing order and calculate the cumulative distribution $B_k
 = \sum_{q\le k} b_k$.   Random integers $k$ are generated from random real numbers $x$ via finding
@@ -321,20 +335,37 @@ $f_{\rm low}$ & $t_{\rm wave}$ & $T_{\rm wall}$ \\\hline
 \end{table}
 
 
-\section{Results}
+\section{Results: Production environment}
 
-Results go here.
+% POINT: What events were used
+To provide a stringent, production-environment test of our parameter estimation code, we applied it to \nEventsMDC{}
+events from the 2015 BNS mock data challenge, described below.  
+%
+% POINT: What code was used
+Unless otherwise stated, we adopted nonspinning TaylorT4 templates; 
+used roughly $200$ mass points for each event, distributed on spokes in $\mc,\eta$ radiating away from the reported
+masses  provided by the searches, out to an estimated match of 0.9; 
+ evaluated the Monte Carlo integral $10$ times for each mass point; and used a sampling prior equal to the prior for all
+ parameters except distance and mass, which were set adaptively and \textbf{via a skymap}, as described above.  
+% POINT: Data handling choices
+For each event, the code uses the GSTlal input noise power spectrum in each instrument; starts the waveform at $f_{\rm
+  low}=40\unit{Hz}$\footnote{ \textbf{Why is this not a command-line option of ILE, tied to data selection in CME?}};
+and uses an inverse power spectrum filter targeting the frequency range $[f_{\rm min},f_{\rm max}]=[f_{\rm min},
+  2000\unit{Hz}]$, constructed from the measured power spectrum as described in Appendix \ref{ap:DiscreteData}.  
+
+\subsection{2015 BNS MDC}
+
+
+For reference, events in the 2015 MDC data were uniformly distributed on the sky, in orientation, and in volume out to
+\textbf{XXX} \unit{Mpc}.  The BNS injections had random masses in \textbf{XXX} and randomly oriented spins with
+\textbf{ZZZ}.   The GSTlal pipeline was used to select events for further study.  This selection process introduces a selection (Malmquist) bias, described in Figure \textbf{XXX},
+which slightly favors \textbf{YYY}.
+
 
 \subsection{Scaling}
 
 \subsection{Detailed investigation of one event}
 
-Sample run results: extrinsic parameters (for one and several noise realizations)
-
-Sample run results: $L_{\rm red}(\mc,eta)$ (for one and several noise realizations). Expected accuracy at each mass
-point.. Translating into  $p(m_1,m_2)$ using a uniform mass prior.
-
-Comparison with Fisher and MCMC
 
 
 
@@ -370,24 +401,14 @@ comparison, the prediction from a Fisher matrix is shown as a solid black curve.
 
 If our estimates for the one-dimensional cumulative distributions $P(<x)$ are unbiased and if $x_*$ is a random variable
 consistent with the prior, then $P(x_*)$ should be a uniformly-distributed random variable.   To test this hypothesis,
-we perform repeated simulations, where each injected event was drawn from our prior:
-\begin{itemize}
-\item 2015 BNS MDC:   We selected \nEventsMDC{} events from the 2015 BNS MDC, identified by the GSTlal pipeline.  While all events
-  have two-dimensional skymaps produced by \BS{}, the analysis presented below did \textbf{not} use two-dimensional skymaps.
+we use the one-dimensional posteriors provided by the MDC.
+%% we perform repeated simulations, where each injected event was drawn from our prior:
+%% \begin{itemize}
+%% \item 2015 BNS MDC:   We selected \nEventsMDC{} events from the 2015 BNS MDC, identified by the GSTlal pipeline.  While all events
+%%   have two-dimensional skymaps produced by \BS{}, the analysis presented below did \textbf{not} use two-dimensional skymaps.
 
-For reference, events in the 2015 MDC data were uniformly distributed on the sky, in orientation, and in volume out to
-\textbf{XXX} \unit{Mpc}.  The BNS injections had random masses in \textbf{XXX} and randomly oriented spins with
-\textbf{ZZZ}.   The GSTlal pipeline introduces a selection (Malmquist) bias, described in Figure \textbf{XXX},
-which slightly favors \textbf{YYY}.
-
-While the NS-NS binaries in the 2015 MDC had generic spins, our parameter estimation model assumed zero spin.
-
-\item Zero-spin 2015 MDC: [\textbf{Not started}]  For completeness, we propose to reproduce the 2015 MDC,  using
-  injections with exactly zero spin.
-
-\item 2016 BNS MDC: [\textbf{Not started}]
-
-\end{itemize}
+%% While the NS-NS binaries in the 2015 MDC had generic spins, our parameter estimation model assumed zero spin.
+%% \end{itemize}
 
 % POINT: pp plots for an ensemble of events
 For each parameter $x$, each colored curve in Figure  \ref{fig:pp:2015Ensemble} is  the fraction of events with
@@ -687,6 +708,33 @@ Unless explicitly stated otherwise, we adopt the latter method to produce all re
 
 
 \ForInternalReference{
+
+\section{[Internal use] Results: Targeted studies}
+
+\begin{itemize}
+\item Single event, 100 noise realizations, plus comparison with Fisher matrix
+
+\item Zero-spin 2015 MDC: [\textbf{Not started}]  For completeness, we propose to reproduce the 2015 MDC,  using
+  injections with exactly zero spin.
+
+\end{itemize}
+
+\subsection{Detailed investigation of one event}
+Sample run results: extrinsic parameters (for one and several noise realizations)
+
+Sample run results: $L_{\rm red}(\mc,eta)$ (for one and several noise realizations). Expected accuracy at each mass
+point.. Translating into  $p(m_1,m_2)$ using a uniform mass prior.
+
+Comparison with Fisher and MCMC
+
+
+\section{[Internal use] Results: Additional production-environment investigations}
+
+\begin{itemize}
+\item 2016 BNS MDC: [\textbf{Not started}]
+
+\end{itemize}
+
 \section{[Internal use] Incomplete or not-yet-implemented investigations}
 
 \subsection{Measures of convergence}
