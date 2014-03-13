@@ -39,6 +39,7 @@
 % NUMBERS
 \newcommand\nEventsMDC{450}
 \newcommand\BS{{\sc Bayestar}}
+\newcommand\gstlal{{\sc GSTlal}}
 
 \begin{document}
 
@@ -57,7 +58,28 @@
 \affiliation{Center for Gravitation and Cosmology, University of Wisconsin-Milwaukee, Milwaukee, WI 53201, USA }
 
 \begin{abstract}
-We present a method for rapid, parallelizable parameter estimation  of GWs from CBCs.
+We  introduce an alternative, highly-parallelizable architecture for compact binary parameter estimation.   
+%   
+First, by using a mode decomposition  ($h_{lm}$) to represent each physically distinct source and by
+prefiltering the data against those modes, we can efficiently evaluate the likelihood for generic source positions and
+orientations, independent of waveform length or generation time.   
+% 
+Second, by integrating over all observer-dependent (extrinsic) parameters and by using a purely Monte Carlo
+integration strategy, we can efficiently \emph{parallelize} our calculation over the intrinsic and extrinsic space.  
+%
+Third, we use existing gravitational-wave searches to identify specific intrinsic (and extrinsic) parameters for further
+investigation.  
+% POINT: Conclusion: Code is fast
+As  proof of concept, we have implemented this algorithm using standard time-domain waveforms in a
+production environment, processing  each event in less than 1 hour, using roughly $1000$ cores in parallel,
+producing posteriors and evidence with reproducibly small statistical errors (i.e., $\lesssim 1\%$ for both).   
+%
+%
+As our code has bounded runtime, almost independent of the starting frequency for the signal, a nearly-unchanged strategy could
+ estimate NS-NS parameters in the aLIGO era.  
+% POINT: Mention *operational* for EOBNRv2HM
+Our algorithm is both ready-to-use and efficient for any noise curve and existing time-domain model at any mass, including
+slow-to-evaluate waveforms like EOBNRv2HM.  
 \end{abstract}
 \maketitle
 
@@ -159,6 +181,11 @@ Section headings added, including reminders re dotting i's/crossing t's.
 
   - DAGs using the same physics (zero spin) as our model
 
+
+  \item General and adaptive monte carlo: For-future-reference stuff, including
+
+    - uniform and variance-minimizing weighting to combine integral results with different samplers
+
   \end{itemize}
 
 \end{itemize}
@@ -201,18 +228,18 @@ randomly distributed in the universe out to $D_{\rm max}=300 \unit{Mpc}$.
 
 % POINT: MC
 With the exception of time (described below), we evaluate these integrals and reconstruct the posterior distribution using Monte Carlo integration
-\textbf{citations}.   To establish notation used below, we briefly review the general principles  underlying Monte Carlo
+\cite{book-mm-NumericalRecipies,peter1978new}.   To establish notation used below, we briefly review the general principles  underlying Monte Carlo
 integration.  If $p_s$ is a distribution which is never zero when $p>0$, then 
 \begin{eqnarray}
 L_{\rm red}(\lambda) = \int \frac{L(\lambda,\theta) p(\theta)}{p_s(\theta)} [p_s(\theta) d\theta]
 \end{eqnarray}
 % POINT: Integral value and its error
 % 
-If we draw $N$ random samples $\theta_q$ from $p_s$, we can estimate the value of $L_{\rm red}$ and its error using the
+If we draw $N$ random samples $\theta_q$ from $p_s$, we can estimate the value $\hat{L}_{\rm red}$ of $L_{\rm red}$ and its error using the
 expectation value and central limit theorems for independent, identically-distributed random variables:
 \begin{eqnarray}
 w_q \equiv \frac{L(\lambda,\theta_q) p(\theta_q)}{p_s(\theta_q)} \\
-L_{\rm red}(\lambda) = \frac{1}{N} \sum_q w_q = \left<w\right> \\
+\hat{L}_{\rm red}(\lambda) \equiv \frac{1}{N} \sum_q w_q = \left<w\right> \\
 \sigma_{L_{\rm red}}^2 = \left<w^2\right> - \left<w\right>^2
 \end{eqnarray}
 % POINT: Recombinable
@@ -227,6 +254,8 @@ fixed $\lambda$, where $x$ is one of the extrinsic variables in $\theta$:
 \begin{eqnarray}
 \hat{P}(<x) \equiv \frac{1}{\sum_q w_q} \sum_q w_q \theta(x-x_q)
 \end{eqnarray}
+[This formula follows by performing Monte Carlo integration on the parameter volume $<x$, keeping track of overall
+  normalization.]  
 In the limit of many samples, this discontinuous estimate should converge to a smooth, marginalized posterior distribution.  
 % POINT: neff
 In the typical case that all samples $x_q$ are distinct, the unique sample with the largest weight corresponds to the
@@ -279,8 +308,12 @@ $p_s(\alpha,\delta)$ and to generate random samples.
 Specifically, the \BS{} pipeline provides a normalized array  $b_k$  for $n=1\ldots n_{\rm pix}$ with $\sum_k b_k=1$.    
 Each array index is associated with a unique sky location $(\alpha,\delta)_k $, covering the sky in equal-area tiles.  
 %
-Because the sky resolutions used are  significantly finer than the resolving power of gravitational wave detector networks
-(\textbf{quanitfy}), we adopt a purely discrete sky.  For example, to generate  random sky positions, we generating random integers $k$ consistent with
+% Healpy review: http://planck.oat.ts.astro.it/planck/software_and_manuals/Healpix_1.22/Healpix_intro.pdf
+%   npix = 12*nside^2 = 49152     %% 4 Pi/(49152)/(Degree)^2 // N
+%   nside = 64 (for us)
+Because the sky resolutions used are  significantly finer than the resolving power of gravitational wave detector
+networks -- and we are free to adopt a higher resolution, as needed, given the expected signal strength -- 
+ for simplicity we adopt a purely discrete sky.  For example, to generate  random sky positions, we generating random integers $k$ consistent with
 the skymap's probabilities and converting those random integers to sky positions $(\alpha_k,\delta_k)$.  Conversely, to
 generate the two-dimensional PDF consistent with this distribution at a proposed $(\alpha,\delta)$, we look up the
 integer $k$ associated with the tile containing $(\alpha,\delta)$, then return $b_k$.  
@@ -303,12 +336,11 @@ using some small scale $\Delta p$ estimated from the skymap, then  precompute a 
 
 
 
+%% POINT: Very high SNR: finer skymaps are available, and we can use
 
 -------
 
 *  \editremark{Implementation}
-
-**floor or not? ROS would prefer $b_k \ne 0$ for any sky position (else complications arise re normalization).
 
 **Prior remains uniform?
 
@@ -348,9 +380,11 @@ Unless otherwise stated, we adopted nonspinning TaylorT4 templates at 3.5 PN ord
 $(2,0)$ modes;  used roughly $200$ mass points for each event, distributed on spokes in $\mc,\eta$ radiating away from the reported
 masses  provided by the searches, out to an estimated match of 0.9; 
  evaluated the Monte Carlo integral $10$ times for each mass point; and used a sampling prior equal to the prior for all
- parameters except distance and mass, which were set adaptively and \textbf{via a skymap}, as described above.  
+ parameters except distance and mass, which were set adaptively and \textbf{via a skymap}.    As used here, the skymap had
+ \textbf{$12\times 64^2$ pixels, roughly one per square degree.}  Our distance prior was
+ uniform in volume out to $d=300\unit{Mpc}$.  
 % POINT: Data handling choices
-For each event, the code uses the GSTlal input noise power spectrum in each instrument; starts the waveform at $f_{\rm
+For each event, the code uses the \gstlal{} input noise power spectrum in each instrument; starts the waveform at $f_{\rm
   low}=40\unit{Hz}$\footnote{ \textbf{Why is this not a command-line option of ILE, tied to data selection in CME?}};
 and uses an inverse power spectrum filter targeting the frequency range $[f_{\rm min},f_{\rm max}]=[f_{\rm min},
   2000\unit{Hz}]$, constructed from the measured power spectrum as described in Appendix \ref{ap:DiscreteData}.  
@@ -360,7 +394,7 @@ and uses an inverse power spectrum filter targeting the frequency range $[f_{\rm
 
 For reference, events in the 2015 MDC data were uniformly distributed on the sky, in orientation, and in volume out to
 \textbf{219} \unit{Mpc}.  The BNS injections had random masses in $1.2 M_\odot-1.6 M_\odot$ and randomly oriented spins with
-\textbf{ZZZ}.   The GSTlal pipeline was used to select events for further study.  This selection process introduces a
+\textbf{ZZZ}.   The \gstlal{} pipeline was used to select events for further study.  This selection process introduces a
 small selection (Malmquist) bias, described in Figure \ref{fig:SearchSelection}, 
 which slightly disfavors edge-on binaries relative to our prior.    
 %
@@ -383,7 +417,18 @@ small deviations between the statistical properties of our posteriors and the en
 
 * scaling versus $f_{\rm low}$
 
+\ForInternalReference{
 * scaling versus number of harmonics used.  (Aside on truncating harmonics with trivial content...not used presently)
+}
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/fig-manual-RuntimeScalingVsFmin}
+\caption{\textbf{Scaling versus frequency}: Points show the runtime of our parameter estimation strategy as a function
+  of the minimum frequency $f_{\rm min}$.  For comparison, the solid curve shows the scaling $\propto f_{\rm
+    min}^{-8/3}$ expected if our runtime was proportional to the waveform duration (e.g., runtime proportional to the
+  number of time samples). 
+}
+\end{figure}
 
 \subsection{Detailed investigation of one event}
 %% WHAT FIGURES CURRENTLY ARE : 
@@ -474,7 +519,7 @@ For our fiducial event,
   contours of the log of integrated likelihood $\ln L_{\rm red}$ versus component masses, represented in $\mc,\eta$
   coordinates.  Points indicate the mass grid adopted; colors and the color bar indicate specific numerical values.   
 \emph{Bottom panel}: The 90\% confidence interval derived from $L_{\rm red} p(\mc,\eta)$.  
- \textbf{Once OK with Ben Farr, add curves from MCMC TaylorF2}
+ \editremark{Once OK with Ben Farr, add curves from MCMC TaylorF2}
 }
 \end{figure}
 
@@ -489,6 +534,7 @@ For our fiducial event,
   independent runs, we expect the final distance posterior has even smaller statistical sampling error
   (\textbf{quantify} $\simeq X/\sqrt{10}$).  Our final posterior
   distributions, having support from several mass points, should have smaller statistical error still.
+ \editremark{Once OK with Ben Farr, add curves from MCMC TaylorF2}
 }
 \end{figure}
 
@@ -498,7 +544,8 @@ For our fiducial event,
   event, a scatterplot of the mean number of effective samples $n_{\rm eff}$ versus the standard deviation in $\ln
   L_{\rm red}$, where at each mass point the mean and standard deviation are calculated over the 10 independent
   evaluations performed.  Considering our final prediction for $L_{\rm red}$ combines all 10 events, this figure
-  suggests $L_{\rm red}$ is known to better than $1\%$ for each mass point.
+  suggests $L_{\rm red}$ is known to better than $1\%$ for each mass point.  
+% Additionally, this figure illustrates just how many effective samples are available for *each* mass point: thousands.
 }
 \end{figure}
 
@@ -509,7 +556,7 @@ consistent with the prior, then $P(x_*)$ should be a uniformly-distributed rando
 we use the one-dimensional posteriors provided by the MDC.
 %% we perform repeated simulations, where each injected event was drawn from our prior:
 %% \begin{itemize}
-%% \item 2015 BNS MDC:   We selected \nEventsMDC{} events from the 2015 BNS MDC, identified by the GSTlal pipeline.  While all events
+%% \item 2015 BNS MDC:   We selected \nEventsMDC{} events from the 2015 BNS MDC, identified by the \gstlal{} pipeline.  While all events
 %%   have two-dimensional skymaps produced by \BS{}, the analysis presented below did \textbf{not} use two-dimensional skymaps.
 
 %% While the NS-NS binaries in the 2015 MDC had generic spins, our parameter estimation model assumed zero spin.
@@ -523,16 +570,40 @@ $P(x_{*1})<P(x_{*2})$, then the points on the plot are $\{P(x_{*,q}),q/n\}$.
 %
 
 \begin{figure}
-\includegraphics[width=\columnwidth]{../Figures/2015_BNS_MDC_pat_and_chris_pp_plot}
+%\includegraphics[width=\columnwidth]{../Figures/2015_BNS_MDC_pat_and_chris_pp_plot}   % Original runs
+\includegraphics[width=\columnwidth]{../Figures/v2_2015_BNS_MDC_skysampling_pp_plot}  % Bayestar as prior and sampling prior
 \caption{\label{fig:pp:2015Ensemble}\textbf{PP plot for ensemble of XXX NS-NS events}: \emph{Top panel}: For \textbf{X} randomly-selected NS-NS binaries, a plot of
   the cumulative distribution of $P_\theta(\theta_k)$ for each extrinsic variable $\theta=d,RA,DEC,\iota,\psi,\phi_{\rm
     orb}$.
-\emph{Bottom panel}: The sky area associated with higher-probability pixels than the true sky position of the source.
+\emph{Bottom panel}: The sky area associated with higher-probability pixels than the true sky position of the source. \textbf{CREATE}
 }
 \end{figure}
 
 
-\section{Comparison with related work}
+\section{Significance and Comparison with related work }
+
+% POINT: Low latency
+We have demonstrated a viable strategy for low-latency parameter estimation for long-duration binary neutron star signals, using
+a production environment and currently-available computing configuration.   
+%
+Like low-latency sky localization 
+\cite{gwastro-skyloc-Sidery2013,LIGO-2013-WhitePaper-CoordinatedEMObserving}, already provided with reasonable accuracy
+by approximate methods like \BS{}, low-latency parameter estimation will enable rapid electromagnetic followup and interpretation of
+candidate gravitational wave events. 
+
+
+% POINT: Fast, enables large-scale tests, to get background and to perform other tests
+%
+More broadly, by dramatically decreasing the turnaround time for each analysis and by scaling to harness all available
+resources efficiently, our strategy may significantly increase size and scope of parameter estimation investigations.
+%
+Indeed, because our code converges \emph{even more quickly} in the absence of a signal, our approach could be applied to
+systematically follow up timeslides, providing a systematic understanding of the additional detection confidence
+parameter estimation could provide. 
+%
+
+Finally, because our implementation has bounded runtime -- one hour is the \emph{worst} case -- we know what  resources needed to analyze a given NS-NS binary. 
+
 
 \subsection{Reduced-order quadrature}
 Reduced-order quadrature methods provide an efficient representation of a waveform family and any inner products against
@@ -556,9 +627,9 @@ Moreover, as the starting frequency is reduced, reduced-order methods do require
 their operation count and computational cost as $f_{\rm low}$ is reduced.
 %
   By contrast,
-our algorithm can be immediately applied to any existing time-domain model that provides $h_{lm}$,  at any mass,
-including EOBNRv2HM \cite{gw-astro-EOBNR-Calibrated-2009} and SEOB \cite{gw-astro-EOBspin-Tarrachini2012}.  Minimal,
-highly-compartmentalized  modifications are  needed in \texttt{lalsimulation} to implement $h_{lm}$ for most
+our algorithm can be immediately applied to any noise curve and existing time-domain model that provides $h_{lm}$,  at any mass,
+including EOBNRv2HM \cite{gw-astro-EOBNR-Calibrated-2009} and SEOB \cite{gw-astro-EOBspin-Tarrachini2012}.  Minimal
+updates are  needed in \texttt{lalsimulation} to provide $h_{lm}$ (e.g., $h_{22}$) for most
 other existing time- and frequency-domain waveform approximants.  
 %
 %
@@ -576,11 +647,6 @@ Other strategies are \textbf{probably being developed; we should ask}.
 
 
 
-% POINT: Comparison
-Practically speaking, Reduced-order methods require precomputation Unlike reduced-order methods, : also 1h runtime; we
-require no additional code, allowing runs \emph{immediately}  with \emph{any}
-time-domain model, including SEOB and EOBNRv2HM; our runtime is duration independent and we see no evidence for needing more samples to account for
-long duration at fixed SNR.
 
 \section{Conclusions}
 
@@ -589,7 +655,7 @@ long duration at fixed SNR.
 % POINT: Rationale, again
 In the era of multimessenger astronomy, rapid and robust inference about candidate compact binary gravitational wave
 events will be a critical science product for LIGO, as  colleagues with other instruments  perform followup and
-coincident observations.  
+coincident observations \cite{LIGO-2013-WhitePaper-CoordinatedEMObserving}.  
 % POINT: Summary: code (see abstract)
 Motivated by the need for speed, we have introduced an alternative, highly-parallelizable architecture for compact
 binary parameter estimation.   
@@ -610,19 +676,18 @@ producing posteriors and evidence with reproducibly small statistical errors (i.
 As our code has bounded runtime, almost independent of the starting frequency for the signal, a nearly-unchanged strategy could
  estimate NS-NS parameters in the aLIGO era.  
 
-
 %% MAJOR POINT: Why this is a big deal
 % POINT: Implications: Fast performance on BNS, with minimal additional cost at low frequency
 %       Identified in LIGO white paper/PE technical page as high-priority
-%For binary neutron star inspirals, the 
 
 
 
 %% MAJOR POINT: Explicit dimensionality as weakness. 
 %   - demonstrate being aware of other projects in PE
 %   - demonstrate team player : useful for targeted goals
+%   - but also demonstrate we have a plan -- this is *not* a dead end, and we *can* work with reduced-order modeling
 While the alternative architecture proposed here is efficient and highly parallelizable over extrinsic parameters,
-all \emph{other}  parameters are currently inefficiently explored.  
+all \emph{other}  parameters are (currently) suboptimally explored.  
 For example, the concrete algorithm described and implemented here adopts a \emph{fixed, low-resolution} grid to sample
  two mass dimensions.  
 %
@@ -632,18 +697,30 @@ Chain or nested sampling codes, including testing GR; self-consistent data, nois
 electromagnetic and gravitational wave parameter estimation.   
 %% MAJOR POINT: Connect to other active projects  -- we are not an island
 % POINT: Big picture
-By contrast, by accelerating waveform generation, other strategies like reduced-order-quadrature may eventually accelerate
-conventional strategies by a comparable factor, allowing rapid analysis of these and other problems.  
+That said,  several methods have been proposed for rapid waveform interpolation, including SVD and reduced-order
+methods.  In the long run, we  anticipate being able to perform Monte Carlo integration over intrinsic dimensions as
+well, without being forced  to adopt the relatively ad-hoc intrinsic/extrinsic split presented here.  
+%By contrast, by accelerating waveform generation, other strategies like reduced-order-quadrature may eventually accelerate
+%conventional strategies by a comparable factor, allowing rapid analysis of these and other problems.    
 %
-In the long term,  even though different strategies increase performance a comparable amount in a qualitatively similar way,
-they do so with two different architectural paradigms: conventional serial MCMC with fast waveform evaluation versus
-highly-parallelized Monte Carlo with slow waveforms and prefiltering.  
+
+% POINT: Playing well with others
+To provide a complete proof-of-principle illustration of our algorithm, we developed an independent production-ready
+code.  That said,  the standard \textsc{lalinference} parameter estimation library in general and existing parameter
+estimation codes (\textsc{lalinference\_mcmc} and \textsc{lalinference\_nest}) could  implement some or all of the
+low-level and algorithmic changes we describe.  For example, MCMC codes could implement our $h_{lm}$-based likelihood,
+then de-facto
+ marginalize over all extrinsic parameters by strongly favoring jumps at fixed intrinsic parameters ($\lambda$).
+Any  implementation which provides accurate marginalized probabilities (e.g., $L_{\rm red}$) can be parallelized across parameter
+space.  
 %
-We expect  our algorithm can be accelerated.  
 % POINT: Recognize
 %
-We hope  that by combining paradigms, future parameter estimation
-strategies can reach extremely low latencies, ideally of order a few minutes, even in the advanced LIGO era. 
+We hope  that by combining paradigms and consolidating code, future parameter estimation
+strategies can reach extremely low latencies, ideally of order a few minutes, when advanced detectors reach design sensitivity. 
+
+
+
 
 
 
@@ -927,6 +1004,27 @@ Unless explicitly stated otherwise, we adopt the latter method to produce all re
 
 \ForInternalReference{
 
+\section{[Internal use] Monte Carlo integration}
+
+\textbf{Non-uniform, variance-weighted weighting}: By default we combine results with different sampling priors treating
+them equally (e.g., as if they have converged to the same sampling prior) when evaluating the integral at each mass
+point.  
+
+That doesn't minimize variance and can be particularly
+ineffective when one ILE run has a problem.  Really, we should use variance-reducing weighting: if $x=ax_1 +b x_2$ with $a+b=1$ and
+$\left<x_1\right> =\left<x_2\right> =\left<x\right>$, we can minimize the variance of $x$ by choosing weight $a$ to
+minimize $a^2 \sigma_1^2 + (1-a)^2 \sigma_2^2$, so 
+\begin{eqnarray}
+x = \frac{\sigma_2^2}{\sigma_1^2+\sigma_2^2} x_1 +  \frac{\sigma_1^2}{\sigma_1^2+\sigma_2^2} x_2
+\end{eqnarray}
+A straightforward generalization exists with arbitrary numbers of weights:
+\[
+x = \frac{x_k/\sigma_k^2}{\sum_q 1/\sigma_q^2}
+\]
+We could and should implement this scheme when recombining results at each mass point. 
+%% a^2 s1^2 + b^2 s2^2 + (1 - a - b)^2 s3^3
+%% Solve[{D[%, a] == 0, D[% == 0, b]}, {a, b}]
+
 \section{[Internal use] Results: Targeted studies}
 
 \begin{itemize}
@@ -993,11 +1091,18 @@ Persons/proposing supporting  a change listed as [name].
 
 * Uniform on sky prior with bayestar skymaps
 
+\noindent \textbf{Other important updates}
+
+*  [ROS]  $b_k \ne 0$ for any sky position (else complications arise re normalization).
+
+
 \noindent \textbf{Minor code tweaks}
 
 * [ROS] Larger nchunk
 
 * [ROS] Change tempering exponent definition from $(Lp/p_s)^\beta$ to $L^\beta p/p_s$, to facilitate analysis
+
+* [ROS] Variance weighting when recombining samples from different runs at the same mass point
 
 
 \noindent \textbf{Infrastructure}
@@ -1005,7 +1110,7 @@ Persons/proposing supporting  a change listed as [name].
 * [ROS] Change DAG (number of jobs, max iterations): current solution with skymap is overkill
 
 
-* [ROS] For automated end-to-end tests, add GSTlal coinc generation and \BS{} skymaps to \texttt{stage\_injections}
+* [ROS] For automated end-to-end tests, add \gstlal{} coinc generation and \BS{} skymaps to \texttt{stage\_injections}
 
 * [ROS] Add posterior in mchirp, eta accounting for prior.
 }
