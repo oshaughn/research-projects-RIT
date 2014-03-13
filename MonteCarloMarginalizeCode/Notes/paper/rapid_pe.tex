@@ -11,8 +11,8 @@
 \usepackage{wrapfig}   % wrap text around figures, if desired
 \usepackage{hyperref}
 
-\newcommand\ForInternalReference[1]{#1}
-%\newcommand\ForInternalReference[1]{}
+%\newcommand\ForInternalReference[1]{#1}
+\newcommand\ForInternalReference[1]{}
 \newcommand\editremark[1]{{\color{red} #1}}
 \usepackage{mathtools}
 \DeclarePairedDelimiter\ceil{\lceil}{\rceil}
@@ -309,15 +309,119 @@ Here's the executive summary.
 
 Methods go here.
 
+* coordinates [limit to nonprecessing?]
+
+* time domain model
+
+
 \subsection{Background}
 
 * Top-level review: what are we doing (parameter estimation/posterior); establish notation ($\lambda,\theta,L,p,\ldots$)
 
 * Follow notation in \cite{gwastro-mergers-HeeSuk-FisherMatrixWithAmplitudeCorrections,gwastro-mergers-HeeSuk-CompareToPE-Aligned}
 
+
+\begin{widetext}
+\begin{align}
+\label{eq:def:LikelihoodRatio}
+\ln L &\equiv  \sum_k  -\frac{1}{2} \qmstateproduct{H_k}{H_k}_k +  \text{Re} \qmstateproduct{H_k}{\hat{H}_k}_k 
+\end{align}
+\end{widetext}
+
+
 \subsection{Efficiently evaluating the likelihood}
 
-* coordinates [limit to nonprecessing?]
+% POINT: Strain formula
+The complex gravitational wave strain $h=h_+-ih_\times $ at any sufficiently distant point from a nonprecessing
+inspiralling binary can be efficiently represented using spin-weighted spherical harmonics $h_{lm}$ as
+\begin{align}
+\label{eq:h:Expansion}
+h(t-\vec{x}\cdot \hat{k}) = \sum_{lm} e^{-2i\psi} h_{lm}(t-\vec{x}\cdot \hat{k})  \Y{-2}_{lm}(\iota,-\phi_c)  \frac{d_{\rm ref}}{d}
+\end{align}
+where $d_{\rm ref}$ is some reference distance at which the $h_{lm}$ are evaluated.  
+In this expression, the vector $\hat{k}$ is the propagation direction ($\hat{k}=-\hat{n}$); the angles $(\iota,\psi)$ are the polar angles of the (fixed) orbital angular momentum direction
+relative to the propagation direction $\hat{k}$; $d$ is the distance to the source; and $\phi_c$ is the coalescence
+(orbital) phase. 
+Expressions for $h_{lm}$ are available in the literature 
+\cite{gwastro-pn-MultipoleMomentsNonspinning, gw-astro-mergers-approximations-SpinningPNHigherHarmonics}.  While many
+phenomenological approximations do not explicitly provide higher harmonics, the leading order term ($h_{22}$) can be
+easily  identified by evaluating the above expression  for $\iota=\psi=\phi_c=0$.
+  
+%
+In terms of this complex strain, the response $H_k$ of the $k$th  nearly-stationary gravitational wave detector to low-frequency radiation can
+be described by a linear combination of $h(t)$ and $h^*(t)$, weighted by sky-location-dependent coefficients $F_{+,\times}(t,\hat{n})$:
+\begin{align}
+H_k(t) &=F_{+,k}(t,-\hat{k}) h_+(t-\vec{x}_k(t)\cdot \hat{k}) \nonumber \\
+ & + F_{\times,k}(t,-\hat{k}) h_\times(t-\vec{x}_k(t)\cdot \hat{k}) \nonumber \\
+ &=  \frac{F_k(-\hat{k}) h(t-\vec{x}_k\cdot \hat{k}) }{2} + \frac{F_k^*(-\hat{k})h^*(t-\vec{x}_k\cdot \hat{k})}{2}
+\label{eq:Hh}
+\end{align}
+where in the second expression we adopt a complex antenna pattern $F_k=F_{+,k}+i F_{\times,k}$.  
+
+
+
+Substituting this expansion for $h$ [Eq. (\ref{eq:h:Expansion})] and the individual-detector response
+[Eq. (\ref{eq:Hh})] into the
+likelihood [Eq. (\ref{eq:def:LikelihoodRatio})], we find the likelihood can be expressed as
+\begin{widetext}
+\begin{align}
+\ln L(\lambda; \theta) 
+&= (d_{\rm ref}/d) \text{Re} \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi_J} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot
+x_k)
+\nonumber \\
+&   -\frac{(d_{\rm ref}/d)^2}{2}\sum_k
+\left[
+{
+ \frac{1}{2}|F_k(-\hat{k})|^2 U_{k,lm,lm'}(\lambda)[\Y{-2}_{lm}(\hat{n})]^*\Y{-2}_{l'm'}(\hat{n})
+}
+ \right. \nonumber \\ & \left.
+ {
++
+ \frac{1}{2} \text{Re} V_{k,lm,l'm'} e^{-4i\psi_J}F_k^2 \Y{-2}_{lm}(\hat{n})\Y{-2}_{l'm'}(\hat{n})
+}
+\right]
+\label{eq:def:lnL:Decomposed}
+\end{align}
+\end{widetext}
+In this expression, we use $\hat{n}$ as shorthand for $(\iota,-\phi_c)$; define the constant, detector-dependent
+matrices $U,V$ by 
+\begin{subequations}
+\label{eq:ComputeRhoViaInnerProductMatrix}
+\begin{align}
+{ U_{k,lm,l'm'}(\lambda)}& = \qmstateproduct{h_{lm}}{h_{l'm'}}_k \\
+V_{k,lm,l'm'}(\lambda)& = \qmstateproduct{h_{lm}^*}{h_{l'm'}}_k  \;
+\end{align}
+\end{subequations}
+and define the \emph{filtered data series} $Q_{k,lm}(t)$ via 
+\begin{align}
+Q_{k,lm}(\tau) &\equiv \qmstateproduct{{\cal T}_{\tau} h_{lm}}{\hat{H}_k}_k \\
+& 2 \int_{-\infty}^{\infty} \frac{df}{S_k(|f|)} e^{+2\pi i f \tau} h_{lm}(f)^* \tilde{\hat{H}}_k \\
+\end{align}
+i.e., as the inner product of the timeshifted $h_{lm}$ harmonic [$h_{lm}(t+\tau)\equiv [{\cal T}_\tau h_{lm}](t)$ with the data in the $k$th instrument.
+
+
+% POINT: This is precomputable
+Critically, all intrinsic-parameter dependent terms in   Eq. (\ref{eq:def:lnL:Decomposed}) can be evaluated once for
+each $\lambda$.  Having calculated these constants ($U_{k,lm,l'm'},V_{k,lm,l'm'}$) and timeseries ($Q_{k,lm}(\tau)$),
+the likelihood can be efficiently evaluated for any choice of extrinsic parameters $\theta$.
+%
+
+% POINT: Computational requirements
+This procedure offers striking reductions in the total number of floating point operations needed to evaluate the
+likelihood.
+Given how precisely gravitational wave searches time-localize candidate events, only a \emph{short} stretch of data
+surrounding a candidate gravitational wave event will ever be examined in  detail.  Hence, rather than evaluate $L$ by operating on long-duration, densely sampled
+time- or frequency- series, our expression need only act on constants and a few short arrays.  After minimal preprocessing, the total number of
+floating point evaluations needed for any \emph{subsequent} likelihood evaluation at those same parameters $\lambda$ is
+dramatically reduced.  
+
+%
+Since our method employs no assumptions about the structure of $h_{lm}$, this technique for organizing the likelihood
+calculation can be applied to any existing waveform model, including the effective-one-body approximants
+\cite{gw-astro-EOBspin-Tarrachini2012,gw-astro-EOBNR-Calibrated-2009}.  
+%Unlike reduced-order or interpolation-based methods, no further coding, tuning, or calibration is required.  
+Our method requires no  additional model- or detector-dependent development  to achieve this performance improvement.  
+
 
 \subsection{Integrating over extrinsic parameters}
 
@@ -376,13 +480,12 @@ weights near the largest observed weight.
 
 
 % POINT: Specific separable prior, sampling priors approach
-To be concrete, we evaluate the reduced likelihood $L_{\rm red}$ by integrating over sky position $\Omega$ represented
+To be concrete, we evaluate the reduced likelihood $L_{\rm red}$ by integrating over sky position $\Omega_{\rm sky}$ represented
 as right ascension $\alpha$ and declination $\delta$; angular momentum orientation, measured by inclination $\iota$ and
 polarization angle $\psi$;  and coalescence phase $\phi_{\rm c}$, using the separable prior implicitly provided by the
 following integral:
 \begin{eqnarray}
-L_{\rm red} = \int \frac{dt}{T_{\rm window}} \frac{d^2 dd d\Omega_{sky} }{V_{\rm max}} \frac{d\Omega_{\rm
-    emit}}{4\pi} \frac{d\psi}{\pi} L
+L_{\rm red} = \int \frac{dt}{T_{\rm window}} \frac{d^2 dd d\Omega_{sky} }{V_{\rm max}} \frac{d \cos \iota d\phi_c}{4\pi} \frac{d\psi}{\pi} L
 \end{eqnarray}
 %
 In this expression and our calculations, we adopt a maximum distance $d_{\rm max}$ (here $300 \unit{Mpc}$) and a time window
@@ -413,11 +516,12 @@ the specific adaptive algorithm implemented used in this work.
 % POINT: Adaptive procedure
 Every $n_{\rm chunk}$ samples, we reconstruct the one-dimensional sampling priors in each adapting dimension, using
 the last $n_{\rm chunk}\times n_{\rm h}$ samples.    In each dimension ($x$), we subdivide the full range
-into $n_{\rm bins}$ bins $X_\alpha$, then evaluate a tempered, weighted histogram
+into $n_{\rm bins}$ equal-length bins $X_\alpha$, then evaluate a tempered, weighted histogram
 \begin{eqnarray}
 W_\alpha = \frac{\sum_{q} w_q^\beta \theta(x_q\in X_\alpha)}{\sum_q w_q^\beta}
 \end{eqnarray}
-where $\beta$ is a user-specified parameter to moderate the dynamic range of $w$.  
+where $\theta(x\in Y)=1$ if  $x$ is in Y and zero otherwise,  and where $\beta$ is a  parameter to moderate the dynamic
+range of $w$, described below.  
 %
 We then \emph{smooth} the array $W$, convolving it with a uniform distribution $n_{\rm smooth}$ bins across.
 %
@@ -512,19 +616,6 @@ using some small scale $\Delta p$ estimated from the skymap, then  precompute a 
 
 \subsection{Scalable method to explore intrinsic parameters }
 
-\begin{table}
-\begin{tabular}{lll}
-$f_{\rm low}$ & $t_{\rm wave}$ & $T_{\rm wall}$ \\\hline
-10 & & \\
-25 & & \\
-30 & & \\
-\end{tabular}
-\caption{\textbf{Runtime versus starting frequency}: Waveform duration $t_{\rm wave}$ and wallclock time $T_{\rm wall}$  needed to evaluate $L_{\rm red}=\int L p d\theta$
-  for one set of intrinsic parameters $\lambda$ versus starting frequency $f_{|rm low}$, for a $m_1,m_2=\textbf{XXX}$
-  nonspinning black hole binary.  Waveforms were generated using the standard \texttt{TaylorT4} time-domain code.  The
-  computational cost does not depend significantly on waveform duration for starting frequencies of interest. 
-}
-\end{table}
 
 
 \section{Results: Production environment}
@@ -576,8 +667,27 @@ small deviations between the statistical properties of our posteriors and the en
 
 * scaling versus $f_{\rm low}$
 
+
+
 \ForInternalReference{
 * scaling versus number of harmonics used.  (Aside on truncating harmonics with trivial content...not used presently)
+}
+
+
+\ForInternalReference{
+\begin{table}
+\begin{tabular}{lll}
+$f_{\rm low}$ & $t_{\rm wave}$ & $T_{\rm wall}$ \\\hline
+10 & & \\
+25 & & \\
+30 & & \\
+\end{tabular}
+\caption{\textbf{Runtime versus starting frequency}: Waveform duration $t_{\rm wave}$ and wallclock time $T_{\rm wall}$  needed to evaluate $L_{\rm red}=\int L p d\theta$
+  for one set of intrinsic parameters $\lambda$ versus starting frequency $f_{|rm low}$, for a $m_1,m_2=\textbf{XXX}$
+  nonspinning black hole binary.  Waveforms were generated using the standard \texttt{TaylorT4} time-domain code.  The
+  computational cost does not depend significantly on waveform duration for starting frequencies of interest. 
+}
+\end{table}
 }
 
 \begin{figure}
@@ -586,6 +696,8 @@ small deviations between the statistical properties of our posteriors and the en
   of the minimum frequency $f_{\rm min}$.  For comparison, the solid curve shows the scaling $\propto f_{\rm
     min}^{-8/3}$ expected if our runtime was proportional to the waveform duration (e.g., runtime proportional to the
   number of time samples). 
+% INTERNAL REF: coinc_id_17494 was used here.
+ Waveforms were generated using the standard \texttt{TaylorT4} time-domain code, with $m_1=1.55 M_\odot$ and $m_2=1.23 M_\odot$. 
 }
 \end{figure}
 
@@ -643,7 +755,7 @@ anticipate relatively little uncertainty due to sampling error in our current co
 
 \begin{table}
 \begin{tabular}{l|ll}
-Parameter & True & Search \\
+Parameter & True & Search \\ \hline
 $m_1 (M_\odot)$ &  1.22 & 1.26 \\
 $m_2 (M_\odot)$ &  1.20 & 1.16 \\
 $|\chi_1| $ & 0.01  & 0 \\
@@ -999,6 +1111,11 @@ Assuming the earth does not rotate significantly during the signal, allowing us 
 
 \begin{widetext}
 \subsection{Core equations}
+
+\begin{align}
+\label{eq:h:Expansion}
+h(t-\vec{x}\cdot \hat{k}) = \sum_{lm} e^{-2i\psi} h_{lm}(t-\vec{x}\cdot \hat{k})  \Y{-2}(\iota,-\phi_c)  \frac{d_{\rm ref}}{d}
+\end{align}
 
 \begin{align}
 \ln L_{\rm data}(\lambda|t,\hat{n},\hat{k},\psi_J,d) &=  \sum_k\qmstateproduct{H_k}{\hat{H}_k}_k \nonumber \\
