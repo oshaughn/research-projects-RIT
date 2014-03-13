@@ -291,7 +291,9 @@ described below.
 Currently, we perform $n_{\rm trials}$ ($=10$) evaluations at each mass point, terminating when either $N$ iterations
 crosses a threshold ($=10^6$) or to some fixed
 $n_{\rm eff}$ threshold ($=1000$), whichever comes first.  
-
+% POINT: Storage
+To mitigate storage requirements, we discard  low-weight samples before recording results.  Low-weight samples are identified by sorting  $w_1<w_2<\ldots$;
+constructing the cumulative $W_=\sum_{q\le k} w_q$; and discarding all samples with $W_k/W_N<10^{-4}$.  
 
 \subsubsection{Adaptive Monte Carlo integration}
 
