@@ -41,6 +41,18 @@
 \newcommand\BS{{\sc Bayestar}}
 \newcommand\gstlal{{\sc GSTlal}}
 
+% CITATIONS
+\newcommand\citeMCMC{\cite{LIGO-CBC-S6-PE,2011PhRvD..83h2002D,2011PhRvD..84f2003C,gr-extensions-tests-Europeans2011,gwastro-mergers-PE-Aylott-LIGOATest,2011ApJ...739...99N,2012PhRvD..85j4045V,gw-astro-PE-Raymond,gw-astro-PE-lalinference-v1}}
+\newcommand\citeFisher{\cite{1995PhRvD..52..848P,2008PhRvD..77d2001V,2008CQGra..25r4007C,2010PhRvD..82l4065V,gwastro-mergers-HeeSuk-FisherMatrixWithAmplitudeCorrections}}
+
+% JOURNALS
+\newcommand\pasp{PASP}
+\newcommand\araa{ARAA}
+\newcommand\mnras{MNRAS}
+\newcommand\physrep{Phys. Rep.}
+\newcommand\cqg{CQG}
+
+
 \begin{document}
 
 \title{Rapid, embarassingly parallel parameter estimation of gravitational waves from compact binary coalescences}
@@ -200,13 +212,108 @@ to other PE methods for LIGO
 }
 \section{Introduction}
 
+Ground based gravitational wave detector networks (notably LIGO \cite{gw-detectors-LIGO-original-preferred} and Virgo
+\cite{gw-detectors-VIRGO-original-preferred})  are sensitive to the gravitational wave signal from coalescing compact
+binaries, both the relatively well understood signal from  the lowest-mass compact binaries
+$M=m_1+m_2\le 16 M_\odot$
+\cite{2003PhRvD..67j4025B,2004PhRvD..70j4003B,2004PhRvD..70f4028D,BCV:PTF,2005PhRvD..71b4039K,2005PhRvD..72h4027B,2006PhRvD..73l4012K,2007MNRAS.374..721T,2008PhRvD..78j4007H,gr-astro-eccentric-NR-2008,gw-astro-mergers-approximations-SpinningPNHigherHarmonics,gw-astro-PN-Comparison-AlessandraSathya2009}
+and the less-well-understood strong-field epoch \editremark{citations}.    
+%
+% POINT: Inference via Bayesian methods
+Interpreting gravitational wave data requires systematically comparing all possible candidate signals to the data,
+constructing a Bayesian posterior probability distribution for candidate binary parameters \citeMCMC{}.   
+%
+Owing to the complexity and multimodality of the model space, historically successful strategies have adopted  generic, serial
+algorithms for parameter estimation, such as variants of Markov Chain Monte Carlo or nested sampling
+\cite{2011RvMP...83..943V,gw-astro-PE-lalinference-v1}.  
+% POINT: Why do something new?  
+%   -Because they are slow, being serial
+Though successful, these generic algorithms are functionally serial, requiring intensive communication to coordinate the
+current state, and are therefore well-known to scale poorly to large numbers of processors.  
+%
+These algorithms' convergence is also limited by \emph{ergodicity}.  No theorem guarantees these algorithm \emph{must}
+ explore the entire model space, let alone efficiently; no expression can robustly assess convergence, using available
+ sampled data.  
+%
+By contrast, well-understood, efficient, and highly-parallelizable Monte Carlo integration strategies are frequently applied to problems with dimensions comparable or
+higher than coalescing compact binaries \textbf{citations}.    In this work, we apply such methods to gravitational wave
+parameter estimation for the first time.  
+%
+
+
+% POINT :
+%  - because they are slow, not communicating 
+Gravitational wave parameter estimation has also been limited by the computational cost associated with comparing the
+data with a candidate waveform.  This cost has two factors: first, the cost of waveform generation, as discussed in
+\cite{gwastro-mergers-PE-ReducedOrder-2013,2013PhRvD..87l2002S,2013PhRvD..87d4008C,gwastro-mergers-IMRPhenomP,gwastro-SpinTaylorF2-2013} and references therein; and, second,
+the cost of repeatedly operating on the long time- or frequency-series itself, once per comparison (e.g., fourier
+transforms).   
+%
+Recently, several methods have been proposed to perform this comparison more efficiently
+\cite{gwastro-mergers-PE-ReducedOrder-2013,2013PhRvD..87l2002S,2013PhRvD..87d4008C,gw-astro-ReducedOrderQuadraturePE-TiglioEtAl2014}, by interpolating some combination
+of the the waveform or likelihood or by adopting a sparse representation to reduce the computational cost of data
+handling.  
+%
+In this work, we introduce a new, simple, and extremely robust scheme to reduce the cost per comparison.  
+%
+To our knowledge, this work is the first time any such method has been implemented at production scale, particularly for
+the most accurate and computationally-expensive waveform models like EOB
+\cite{gw-astro-EOBspin-Tarrachini2012,gw-astro-EOBNR-Calibrated-2009}.  
+
+
+% POINT: Blindly redo the anaysis, versus using information from search?
+Historically, parameter estimation strategies very practically make almost no use of the information reported by
+existing search codes.  This careful approach ensured, for example, that inferences from the data would never be used as priors on a
+reanalysis of the same data.  
+%
+That said, experience suggests the search codes provide a reasonable first approximation, 
+particularly for the most expensive parameters (i.e., event time; chirp time; sky location).  
+%
+Some parameter estimation codes have used this information to improve their performance, more efficiently searching the
+sky \editremark{check with Ben F}.  
+That said, historical experience with serial codes suggest \emph{sampling} the maximum (not finding it) is what limits
+performance; based on that experience, one might expect minimal additional asymptotic speed improvement when provided
+with a good initial guess.
+% ``burnin is short; finding the best fit is fast;
+%what's expensive is mapping out the likelihood near the maximum'' \editremark{fixme: can't use in publication}.
+%
+As our algorithm operates in a different regime,  we describe a procedure systematically and organically incorporates information provided
+by the search to accelerate our specific algorithm's performance.  
+
+
+% POINT: Outline
+This work is organized as follows.
+In Section \ref{sec:Executive} we provide an executive summary, providing the principles that enable our algorithm to
+provide rapid, accurate results for the test cases explored here:  time-domain models for nonprecessing binaries.  
+%
+Then, in Section \ref{sec:Methods}, we describe our algorithm in detail.  
+%
+To demonstrate  our algorithm provides high performance in a production environment,  Section \ref{sec:Results} we
+provide concrete results drawn from a large sample of events from the ``2015 double neutron star mock data challenge'',
+results from which will be described in \editremark{first2years, others}.  
+%
+In Section \ref{sec:Discussion} we reflect on the broader significance of our result, in the context of other parameter
+estimation work inside and outside the LSC.  
+%
+We conclude with Section \ref{sec:Conclude}
+
+ 
+
 \section{Executive Summary}
+\label{sec:Executive}
 
 Here's the executive summary.
 
 \section{Methods}
+\label{sec:Methods}
 
 Methods go here.
+
+\subsection{Background}
+
+* Top-level review: what are we doing (parameter estimation/posterior); establish notation ($\lambda,\theta,L,p,\ldots$)
+
+* Follow notation in \cite{gwastro-mergers-HeeSuk-FisherMatrixWithAmplitudeCorrections,gwastro-mergers-HeeSuk-CompareToPE-Aligned}
 
 \subsection{Efficiently evaluating the likelihood}
 
@@ -421,6 +528,7 @@ $f_{\rm low}$ & $t_{\rm wave}$ & $T_{\rm wall}$ \\\hline
 
 
 \section{Results: Production environment}
+\label{sec:Results}
 
 % POINT: What events were used
 To provide a stringent, production-environment test of our parameter estimation code, we applied it to \nEventsMDC{}
@@ -473,7 +581,7 @@ small deviations between the statistical properties of our posteriors and the en
 }
 
 \begin{figure}
-\includegraphics[width=\columnwidth]{../Figures/fig-manual-RuntimeScalingVsFmin}
+\includegraphics[width=\columnwidth]{../Figures/fig-manual-RuntimeScalingVsFmin.png}
 \caption{\textbf{Scaling versus frequency}: Points show the runtime of our parameter estimation strategy as a function
   of the minimum frequency $f_{\rm min}$.  For comparison, the solid curve shows the scaling $\propto f_{\rm
     min}^{-8/3}$ expected if our runtime was proportional to the waveform duration (e.g., runtime proportional to the
@@ -632,6 +740,7 @@ $P(x_{*1})<P(x_{*2})$, then the points on the plot are $\{P(x_{*,q}),q/n\}$.
 
 
 \section{Significance and Comparison with related work }
+\label{sec:Discussion}
 
 % POINT: Low latency
 We have demonstrated a viable strategy for low-latency parameter estimation for long-duration binary neutron star signals, using
@@ -706,6 +815,7 @@ Other strategies are \textbf{probably being developed; we should ask}.
 
 
 \section{Conclusions}
+\label{sec:Conclude}
 
 %Conclusions go here.
 %% MAJOR POINT: Summarize paper
@@ -1072,6 +1182,24 @@ Unless explicitly stated otherwise, we adopt the latter method to produce all re
 * Not discarding values after burnin
 
 * Adaptation algorithm: why parameters chosen?
+
+* Computational cost: is this really favorable in CPU-hours?  Are we wasting CPU hours to achieve low-latency that's not needed?
+
+** A: Not clear our overall cost is higher...we may be more accurate than 1000 samples, the usual metric for MCMC...we need a clear comparison
+
+
+
+\subsection{Runtime}
+
+* Might be ram-limited in python below 10-ish Hz (multiple harmonics and IFOs, sampled at 16kHz for 30 min)
+%	1byte/sample * 16384*30min *60s/min ~ 28 Mb 
+
+\subsection{Applications}
+
+* Einstein at home scaling?
+
+* GRB project with Alex (already on table)
+
 
 \section{[Internal use] Monte Carlo integration}
 
