@@ -267,32 +267,88 @@ n_{\rm eff} \equiv \frac{\sum_q w_q}{\text{max} w_{\rm q}}
 Equivalently, the ``effective number of samples'' $n_{\rm eff}$ measures how many independent samples produce similar
 weights near the largest observed weight.  
 
------- \editremark{Continue here}
 
-% POINT: Specific procedure
-* Specific procedure used for samples:
+% POINT: Specific separable prior, sampling priors approach
+To be concrete, we evaluate the reduced likelihood $L_{\rm red}$ by integrating over sky position $\Omega$ represented
+as right ascension $\alpha$ and declination $\delta$; angular momentum orientation, measured by inclination $\iota$ and
+polarization angle $\psi$;  and coalescence phase $\phi_{\rm c}$, using the separable prior implicitly provided by the
+following integral:
+\begin{eqnarray}
+L_{\rm red} = \int \frac{dt}{T_{\rm window}} \frac{d^2 dd d\Omega_{sky} }{V_{\rm max}} \frac{d\Omega_{\rm
+    emit}}{4\pi} \frac{d\psi}{\pi} L
+\end{eqnarray}
+%
+In this expression and our calculations, we adopt a maximum distance $d_{\rm max}$ (here $300 \unit{Mpc}$) and a time window
+$ T_{\rm window}$  (here, $300\unit{ms}$)  surrounding the event.  
+%
+Unless otherwise indicated, we draw samples using a separable sampling prior $p_s(\alpha) =
+\prod_{\alpha}p_{s,\alpha}(\theta_\alpha)$, with each factor $p_{s,\alpha}$ equal to the corresponding prior in that dimension.  Notable exceptions are
+distance (either uniformly or adaptively sampled) and sky position (either uniformly, adaptively, or via a skymap), as
+described below.
+%
 
-** seperable sampling prior in each dimension; construct CDF (either analytically or
-numerically); draw random variables from CDF
-
-
-* Procedure used to control runtime:
-
-** currently, run to $10\times10^6$ evaluations, via 10 independent evaluations of $10^6$ evaluations, at each mass
-point.
-
-** use those 10 evaluations, plus the monte carlo error estimate, to assess whether we have converged.
+% POINT: How many runs?
+Currently, we perform $n_{\rm trials}$ ($=10$) evaluations at each mass point, terminating when either $N$ iterations
+crosses a threshold ($=10^6$) or to some fixed
+$n_{\rm eff}$ threshold ($=1000$), whichever comes first.  
 
 
 \subsubsection{Adaptive Monte Carlo integration}
 
-* General concept
+To better concentrate our samples in regions of high significance, we implemented a simple adaptive Monte Carlo procedure, adjusting
+the sampling prior based on measured weights $w_k$.   In the long term, we expect to apply more sophisticated adaptive
+algorithms, as described in the literature \cite{book-mm-NumericalRecipies,peter1978new}.  For reference, we describe
+the specific adaptive algorithm implemented used in this work.
 
-* Specific dimensions adapted
 
-* tunings adopted: 100 bins, floor, tempering, history
+% POINT: Adaptive procedure
+Every $n_{\rm chunk}$ samples, we reconstruct the one-dimensional sampling priors in each adapting dimension, using
+the last $n_{\rm chunk}\times n_{\rm h}$ samples.    In each dimension ($x$), we subdivide the full range
+into $n_{\rm bins}$ bins $X_\alpha$, then evaluate a tempered, weighted histogram
+\begin{eqnarray}
+W_\alpha = \frac{\sum_{q} w_q^\beta \theta(x_q\in X_\alpha)}{\sum_q w_q^\beta}
+\end{eqnarray}
+where $\beta$ is a user-specified parameter to moderate the dynamic range of $w$.  
+%
+We then \emph{smooth} the array $W$, convolving it with a uniform distribution $n_{\rm smooth}$ bins across.
+%
+We generated an estimated discrete sampling prior by average the smoothed array $W$ with a uniform distribution with weight $s$:
+\begin{eqnarray}
+\hat{W}_\alpha = s W + (1-s)/n_{\rm bins}
+\end{eqnarray}
+% POINT: Discrete to continuous
+Finally, we transformed from this discrete, bin-by-bin representation to a continuous integral by (a) constructing
+a one-dimensional sampling prior $p_{s,x}(x)$  by interpolating $W^*/\Delta x$ between bin centers, then (b) constructing the
+one-dimensional inverse $P_{s,x}(<x)^{-1}$ by integrating $P_{s,x}'(x)=p_{s,x}(x)$.  
+%
+The latter process ensures that the samplining prior and inverse CDF used to generate random samples are
+self-consistent.   
+%
 
-* discard values after burn-in? Not yet....
+
+% POINT: Specific choices used here
+As configured for this paper, we used $n_{\rm bins}=100, n_{\rm hist}=50,n_{\rm smooth}=10,s=0.1$.  We chose the
+tempering exponent using the network SNR $\rho$ reported by the search:
+\begin{eqnarray}
+\beta = \text{min} \left[ 0.8, 4 \frac{\ln (10 n_{\rm chunk})}{\rho^2} \right]
+\end{eqnarray}
+This choice attempts to mitigate the large dynamic range of $L$ to a scale comparable to the number of samples used in
+each histogram.  
+\editremark{We should have changed 10 to nhist...}
+
+
+%% ---- \editremark{Continue here}
+
+%% * General concept
+
+%% * Specific dimensions adapted
+
+%% * tunings adopted: 100 bins, floor, tempering, history
+
+%% * discard values after burn-in? Not yet....
+
+
+
 
 \subsubsection{Using search results to target specific areas of the sky}
 
@@ -338,13 +394,6 @@ using some small scale $\Delta p$ estimated from the skymap, then  precompute a 
 
 %% POINT: Very high SNR: finer skymaps are available, and we can use
 
--------
-
-*  \editremark{Implementation}
-
-**Prior remains uniform?
-
-**  discrete grid, its resolution, and potential limitations?
 
 \subsubsection{Time marginalization}
 
@@ -602,14 +651,20 @@ systematically follow up timeslides, providing a systematic understanding of the
 parameter estimation could provide. 
 %
 
-Finally, because our implementation has bounded runtime -- one hour is the \emph{worst} case -- we know what  resources needed to analyze a given NS-NS binary. 
+
+% POINT: Technical reasons why our procedure will be useful for environments with limited computing, 
+%   like Virgo's clusters, etc
+Finally, because our implementation has bounded runtime -- one hour is the \emph{worst} case -- we know what  resources
+will be needed to analyze a given NS-NS binary. Moreover, the parallel algorithm can exploit all available computing
+resources, without need for communication or coordination between jobs, allowing it to operate in computing environments
+with tightly constrained wallclock time. 
 
 
 \subsection{Reduced-order quadrature}
 Reduced-order quadrature methods provide an efficient representation of a waveform family and any inner products against
 it.   Other authors have recently proposed prefiltering the data against the reduced-order basis
 \cite{gw-astro-ReducedOrderQuadraturePE-TiglioEtAl2014}, achieving significant speedup.  For example, using TaylorF2
-templates, \citet{gw-astro-ReducedOrderQuadraturePE-TiglioEtAl2014} claim runtimes of order 1 hour, comparable to our
+templates, \cite{gw-astro-ReducedOrderQuadraturePE-TiglioEtAl2014} claim runtimes of order 1 hour, comparable to our
 end-to-end time in the high-precision configuration described above.
 
 % POINT
@@ -1003,6 +1058,18 @@ Unless explicitly stated otherwise, we adopt the latter method to produce all re
 
 
 \ForInternalReference{
+
+\section{[Internal use] : Weaknesses people may ask about at LVC}
+
+* Prior on sky is skymap
+
+* Discrete sky grid: biases? What about high SNR? (A: just use adapted resolution; not ready yet)
+
+* Uniform weighting
+
+* Not discarding values after burnin
+
+* Adaptation algorithm: why parameters chosen?
 
 \section{[Internal use] Monte Carlo integration}
 
