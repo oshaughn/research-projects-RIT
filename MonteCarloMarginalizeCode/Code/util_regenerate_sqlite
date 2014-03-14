@@ -1,0 +1,57 @@
+#!/usr/bin/env python
+
+import sys
+import os
+import subprocess
+import shlex
+import re
+import glob
+from collections import defaultdict
+from optparse import OptionParser
+
+import dag_utils
+from glue import pipeline
+
+optp = OptionParser()
+optp.add_option("-d", "--make-dag", help="Output a DAG to this file instead of running directly.")
+optp.add_option("-v", "--verbose", action="store_true", help="Be verbose.")
+opts, args = optp.parse_args()
+
+cmd = "ligolw_sqlite -d ILE_%s.sqlite -t /dev/shm/ %s"
+reg = re.compile(r"MASS_SET_\d+")
+
+xmldict = defaultdict(list)
+for i in args:
+    massid = re.search(reg, i)
+    if massid is not None:
+        xmldict[massid.group(0)].append(i)
+    elif opts.verbose:
+        print >>sys.stderr, "Warning, ignoring %s since it doesn't match the naming scheme." % i
+
+dag = pipeline.CondorDAG(os.getcwd())
+sql_job_type, sql_job_name = dag_utils.write_result_coalescence_sub(tag="coalesce", log_dir=os.getcwd(), use_default_cache=False)
+sql_job_type.write_sub_file()
+if opts.make_dag is not None:
+    for key, files in xmldict.iteritems():
+        sql_node = pipeline.CondorDAGNode(sql_job_type)
+
+        sql_node.add_macro("macrofiles", " ".join(map(os.path.abspath, files)))
+        sql_node.set_category("SQL")
+        dag.add_node(sql_node)
+
+    if opts.verbose:
+        print "Writing %s..." % opts.make_dag
+    dag.set_dag_file(opts.make_dag.replace(".dag", "") if opts.make_dag.endswith(".dag") else opts.make_dag)
+    dag.write_concrete_dag()
+
+else:
+    if opts.verbose:
+        cmd += " --verbose"
+    for key, files in xmldict.iteritems():
+        if opts.verbose:
+            print cmd % (key, " ".join(files))
+        ret = subprocess.call(shlex.split(cmd % (key, " ".join(files))))
+        if ret != 0:
+            if opts.verbose:
+                print >>sys.stderr, "Command\n%s\nreturned status code %d, aborting..." % ((cmd % (key, " ".join(files))), ret)
+            sys.exit(ret)
