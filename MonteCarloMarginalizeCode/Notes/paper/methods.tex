@@ -188,6 +188,7 @@ Our method requires no  additional model- or detector-dependent development  to 
 
 
 \subsection{Integrating over extrinsic parameters}
+\label{subsec:extrinsic}
 
 % POINT: General integral form
 Because precomputed quantities allow us to efficiently evaluate the likelihood $L(\lambda,\theta)$ as a function of
@@ -381,6 +382,15 @@ using some small scale $\Delta p$ estimated from the skymap, then  precompute a 
 
 \subsection{Placement over intrinsic parameters}
 
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/linear_ellipse_placement.png}
+\caption{\label{fig:linear_ellipse} \textbf{Intrinsic parameter placement:} We use an effective Fisher matrix to compute
+an approximate ellipsoidal region of overlap $\geq 90\%$ with the masses reported by a detection pipeline.
+We then fill this ellipsoid with discrete points and cut any with unphysical values of symmetric mass ratio $\eta$.
+At each physical grid point, we marginalize the likelihood over all extrinsic parameters as described in
+Sec.~\ref{subsec:extrinsic}.}
+\end{figure}
+
 In the current work, we restrict ourselves to considering non-spinning binaries in which we also neglect tidal
 effects. Therefore, we need only two mass parameters to describe the intrinsic parameter space, for which we use
 the symmetric mass ratio $\eta = m_1 m_2 / M^2$ 
@@ -413,11 +423,19 @@ One subtlety is that the only physically-meaningful values of $\eta$ are in the 
 approach does not account for this physical cutoff. Therefore, for near equal mass binaries where $\eta^* \simeq 0.25$
 part of the $90\%$ overlap ellipsoid may have unphysical $\eta$ values. Once we have filled our ellipsoid, we remove
 any points that have unphysical $\eta$. To counteract this somewhat, 
-we ensure that we always place spokes in our ellipsoid along the direction of constant $\eta$.
-Fig.~\editremark{ADDME!} illustrates this placement of points inside the ellipsoid.
+we ensure that we always place spokes in our ellipsoid along the direction of constant $\eta$,
+so that we always have many points along this boundary of the parameter space.
+Fig.~\editremark{ADDME!} illustrates this placement of intrinsic parameter points.
 
-
-
+Note that this intrinsic placement routine could be modified in many different ways. For example, 
+we could place points uniformly in volume, rather than uniformly in radius. This would place more points
+towards the edge of the ellipsoid, while we chose uniform-in-radius to get more points near the center.
+We could also place points randomly inside the ellipse (using uniform-in-volume, uniform-in-radius, 
+or any other distribution). We chose the spoked placement so that we can always ensure near-equal mass binaries
+will have many points near the $\eta = 0.25$ boundary of the parameter space.
+One might also use larger or smaller ellipsoids, use multiple ellipsoids centered at different points if there are concerns
+about bias in the masses reported by the detection pipeline, choose points according to a metric, 
+or consider any number of other refinements. We plan to refine the intrinsic parameter placement in future work.
 
 \subsection{Postprocessing: intrinsic priors, interpolation, and the final results}
 
