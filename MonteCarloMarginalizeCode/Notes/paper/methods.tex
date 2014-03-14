@@ -174,7 +174,7 @@ the likelihood can be efficiently evaluated for any choice of extrinsic paramete
 This procedure offers striking reductions in the total number of floating point operations needed to evaluate the
 likelihood.
 Given how precisely gravitational wave searches time-localize candidate events, only a \emph{short} stretch of data
-surrounding a candidate gravitational wave event will ever be examined in  detail.  Hence, rather than evaluate $L$ by operating on long-duration, densely sampled
+surrounding a candidate gravitational wave event will ever be examined in  detail.  Hence, rather than evaluate $\Like$ by operating on long-duration, densely sampled
 time- or frequency- series, our expression need only act on constants and a few short arrays.  After minimal preprocessing, the total number of
 floating point evaluations needed for any \emph{subsequent} likelihood evaluation at those same parameters $\lambda$ is
 dramatically reduced.  
@@ -380,5 +380,45 @@ using some small scale $\Delta p$ estimated from the skymap, then  precompute a 
 
 
 \subsection{Scalable method to explore intrinsic parameters }
+
+
+\subsection{Postprocessing: intrinsic priors, interpolation, and the final results}
+
+% POINT: Interpolating in intrinsic parameters
+At this point, we have evaluated $\LikeRed(\lambda)$ over a structured grid of intrinsic parameters $\lambda_\mu$.  
+%
+By construction,  the values $\LikeRed(\lambda)$ have small statistical errors (e.g., less than $1\%$).   Using standard
+interpolation packages, we interpolate $\LikeRed(\lambda)$ throughout the sampled grid.\footnote{For example, for linear
+spoked interpolation in two dimensions, we adopt polar coordinates that are compatible with the 2d polar grid.}
+%
+Combined with the prior $p(\lambda)$ over intrinsic parameters, we evaluate the overall evidence $Z$ and posterior
+distribution $p_{\rm post}(\lambda)$ over intrinsic parameters via
+\begin{eqnarray}
+Z = \int d\lambda p(\lambda) \LikeRed(\lambda) \\
+p_{\rm post}(\lambda) = \frac{1}{Z} p(\lambda) \LikeRed(\lambda)
+\end{eqnarray}
+%
+
+% POINT: What about posteriors in 
+Similarly, we can construct a posterior distribution over some \emph{extrinsic} parameter $x$ by averaging the one-dimensional posterior estimates derived at
+each mass point, weighting each by the prior $p(\lambda)$:
+\begin{eqnarray}
+P_{\rm post}(<x) = \frac{\int d\lambda P_\lambda(<x) \LikeRed(\lambda) p(\lambda)}{\int d \lambda p(\lambda) \LikeRed(\lambda)}
+\end{eqnarray}
+This weighted average requires interpolating both $\LikeRed(\lambda)$ and $P_\lambda(<x)$ over all $\lambda$.  
+
+
+% POINT
+\editremark{Lazy, current approximation}
+To a good approximation, however, the intrinsic and extrinsic parameter distributions often separate after marginalizing
+in time.  In other words, after marginalizing in time, the extrinsic parameter distributions are nearly independent of $\lambda$.  
+In that case, the level of caution exercised above is unwarranted:  each individual
+extrinsic parameter distribution provides a reliable estimate of the posterior.  As a crude approximation to the posterior distribution $p_{\rm post}(\theta)$, we  simply \emph{combine} all
+weighted samples $(x_{\mu,q},w_{\mu,q})$ from all mass points $\mu$:
+\begin{eqnarray}
+\hat{P}(<x) = \frac{\sum_{q\mu} w_{q,\mu}\theta(x-x_{\mu,q})}{\sum_{q\mu} w_{q\mu}}
+\end{eqnarray}
+[This expression agrees with the general approach, for a specific prior.]
+{\color{blue} Feedback?}
 
 
