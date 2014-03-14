@@ -40,6 +40,8 @@
 \newcommand\nEventsMDC{450}
 \newcommand\BS{{\sc Bayestar}}
 \newcommand\gstlal{{\sc GSTlal}}
+\newcommand\Like{{\cal L}}
+\newcommand\LikeRed{{\cal L}_{\rm red}}
 
 % CITATIONS
 \newcommand\citeMCMC{\cite{LIGO-CBC-S6-PE,2011PhRvD..83h2002D,2011PhRvD..84f2003C,gr-extensions-tests-Europeans2011,gwastro-mergers-PE-Aylott-LIGOATest,2011ApJ...739...99N,2012PhRvD..85j4045V,gw-astro-PE-Raymond,gw-astro-PE-lalinference-v1}}
@@ -94,6 +96,13 @@ Our algorithm is both ready-to-use and efficient for any noise curve and existin
 slow-to-evaluate waveforms like EOBNRv2HM.  
 \end{abstract}
 \maketitle
+
+\begin{widetext}
+{\color{red}\textbf{Draft, not for distribution except by permission of the authors}}
+
+{\color{blue}\textbf{For other authors}: Enable internal-use info (development plans; future project ideas; feedback notes) via changing the
+  definition of \texttt{\\ForInternalReference}}
+\end{widetext}
 
 
 \ForInternalReference{
@@ -307,33 +316,95 @@ Here's the executive summary.
 \section{Methods}
 \label{sec:Methods}
 
+
 Methods go here.
 
 * coordinates [limit to nonprecessing?]
 
 * time domain model
 
+* Rather than dwell on relatively well-understood implementation details,  we refer the reader to  Appendix \ref{ap:DiscreteData} for
+details of our discrete data handling.
+
+% POINT: Break up the 
+As outlined above, we evaluate the posterior probability by reorganiing our
+
+
+As summarized in Section \ref{sec:Executive}, our algorithm 
+
 
 \subsection{Background}
+%% We reconstruct the parameter
 
-* Top-level review: what are we doing (parameter estimation/posterior); establish notation ($\lambda,\theta,L,p,\ldots$)
+%% \textbf{Concept}* Top-level review: what are we doing (parameter estimation/posterior); establish notation
+%% ($\lambda,\theta,L,p,\ldots$)
+%% -----
 
-* Follow notation in \cite{gwastro-mergers-HeeSuk-FisherMatrixWithAmplitudeCorrections,gwastro-mergers-HeeSuk-CompareToPE-Aligned}
 
 
-\begin{widetext}
+We use Bayes theorem to determine whether the data (denoted symbolically by $\{ d\}$) favors pure noise (hypothesis
+$H_0$) or the presence of a signal (hypothesis $H_1$), measured consistently in each of our instruments.  The
+gravitational wave signal $h(\lambda,\theta)$ is assumed to have two classes of parameters:
+\emph{intrinsic} parameters $\lambda$ (e.g., mass, spin), that fundamentally change the binary's dynamics and hence
+gravitational wave signal; and \emph{extrinsic} parameters (e.g., time, distance, sky position), that only change the relative
+geometry of the source and our instruments.  Specifically, we evaluate   the odds ratio (or evidence) $Z$:
 \begin{align}
-\label{eq:def:LikelihoodRatio}
-\ln L &\equiv  \sum_k  -\frac{1}{2} \qmstateproduct{H_k}{H_k}_k +  \text{Re} \qmstateproduct{H_k}{\hat{H}_k}_k 
+\label{eq:def:Z:Modified}
+Z(d|H_1) &\equiv \frac{p(\{d\}|H_1)}{p(\{d\}|H_0)} 
+%= \int d\lambdap(\vec{\lambda}|H_1)\frac{p(\{d\}|\vec{\lambda},H_1)}{p(\{d\}|H_0)} \nonumber\\
+  = \int d\lambda d\theta p(\lambda,\theta|H_1) \Like(\lambda,\theta|\{d\})\ .
 \end{align}
-\end{widetext}
+where  $p(\lambda,\theta|H_1)$ is our prior probability for the parameters $\lambda,\theta$ (henceforth abbreviated
+$p(\lambda,\theta)$ and where $\Like(\lambda,\theta|\{ d\})$ (henceforth for brevity abbreviated $\Like(\lambda,\theta)$) is the likelihood ratio for signal versus noise at the specific parameters
+$\lambda,\theta$.  
+Similarly, using $x$ to denote all intrinsic and extrinsic parameters except some parameter(s) $y$, we evaluate the marginalized posterior
+probability distributions to assess the relative probability density at different values of $y$ given $\{ d\}$:
+\begin{eqnarray}
+\label{eq:def:Posterior}
+p_{\rm post}(y) &\equiv& \frac{\int dx \;  p(y,x|H_1) \Like(y,x)}{ \int d\lambda d\theta p(\lambda,\theta|H_1) \Like(\lambda,\theta)}
+\end{eqnarray}
+%
+Evaluating the above completely generic expressions requires selecting an integration method, a prior,  a signal model, and a
+noise model.  
 
+
+% POINT: Specific details unique to gravitational wave detectors
+A standard and extremely effective noise model for gravitational wave parameter estimation is pure gaussian noise.    Following the notation provided in
+\cite{gwastro-mergers-HeeSuk-FisherMatrixWithAmplitudeCorrections,gwastro-mergers-HeeSuk-CompareToPE-Aligned}, we
+express the likelihood ratio $\Like$ that each interferometer $k$ observed the data $\hat{H}_k(t)$ using our knowledge
+of the noise statistics of each instrument.   
+%
+In this work, we assume each detector has gaussian stationary noise, characterized by a power spectrum $S_k(f)$:
+\begin{eqnarray}
+\left<\tilde{n}_k(f)^* \tilde{n}_k(f')\right> = \frac{1}{2} S_k(|f|) \delta(f-f')
+\end{eqnarray}
+where  $\tilde{X}$ denotes the (two-sided) fourier transform of the possibly complex-valued timeseries $X(t)$.  
+For each instrument, the power spectrum  defines an inner product between any two timeseries associated with that instrument
+\begin{eqnarray} \label{eq:InnerProduct}
+\qmstateproduct{a}{b}_k \equiv 2 \int_{-\infty}^{\infty} df \frac{\tilde{a}^*(f)\tilde{b}(f)}{S_k(|f|)}\ .
+\end{eqnarray}
+In terms of this complex-valued inner product, the likelihood ratio for the data $\hat{H}_k$ can be expressed as
+[Eqs. (13-14) of \cite{gwastro-mergers-HeeSuk-CompareToPE-Aligned}]
+\begin{align}
+\ln \Like(\lambda,\theta) &=
+\nonumber -\frac{1}{2} \sum_k \left[ \qmstateproduct{H_k(\lambda,\theta)-\hat{H}_k}{H_k(\lambda,\theta)-\hat{H}_k}_k \right.
+\nonumber \\ &  \left. - \qmstateproduct{\hat{H}_k}{\hat{H}_k}_k \right] \nonumber \\
+\label{eq:def:LikelihoodRatio}
+&=  \sum_k  -\frac{1}{2} \qmstateproduct{H_k(\lambda,\theta)}{H_k(\lambda,\theta)}_k +  \text{Re} \qmstateproduct{H_k(\lambda,\theta)}{\hat{H}_k}_k 
+\end{align}
+where $H_k(\lambda,\theta)$ is the predicted strain in the $k$th instrument due to a gravitational wave source with
+intrinsic parameters $\lambda$ and extrinsic parameters $\theta$.  
+
+
+% POINT:
+In subsequent sections, we will describe the integration method, priors, and  signal model adopted to evaluate
+Eqs. (\ref{eq:def:Z:Modified},\ref{eq:def:Posterior}).  
 
 \subsection{Efficiently evaluating the likelihood}
 
 % POINT: Strain formula
-The complex gravitational wave strain $h=h_+-ih_\times $ at any sufficiently distant point from a nonprecessing
-inspiralling binary can be efficiently represented using spin-weighted spherical harmonics $h_{lm}$ as
+The complex gravitational wave strain $h=h_+-ih_\times $ at any sufficiently distant point ($t,\vec{x}$) from a nonprecessing
+ binary can be efficiently represented using spin-weighted spherical harmonics $h_{lm}$ as
 \begin{align}
 \label{eq:h:Expansion}
 h(t-\vec{x}\cdot \hat{k}) = \sum_{lm} e^{-2i\psi} h_{lm}(t-\vec{x}\cdot \hat{k})  \Y{-2}_{lm}(\iota,-\phi_c)  \frac{d_{\rm ref}}{d}
@@ -344,20 +415,29 @@ relative to the propagation direction $\hat{k}$; $d$ is the distance to the sour
 (orbital) phase. 
 Expressions for $h_{lm}$ are available in the literature 
 \cite{gwastro-pn-MultipoleMomentsNonspinning, gw-astro-mergers-approximations-SpinningPNHigherHarmonics}.  While many
-phenomenological approximations do not explicitly provide higher harmonics, the leading order term ($h_{22}$) can be
-easily  identified by evaluating the above expression  for $\iota=\psi=\phi_c=0$.
+phenomenological approximations do not explicitly provide a harmonic representation, the leading order term ($h_{22}$) can be
+easily  identified from published literature by comparing those expressions to the above, evaluated at $\iota=\psi=\phi_c=0$.
   
 %
-In terms of this complex strain, the response $H_k$ of the $k$th  nearly-stationary gravitational wave detector to low-frequency radiation can
-be described by a linear combination of $h(t)$ and $h^*(t)$, weighted by sky-location-dependent coefficients $F_{+,\times}(t,\hat{n})$:
+In terms of this complex strain, the response $H_k$ of the $k$th   gravitational wave detector to low-frequency
+radiation \cite{gwastro-GroundBasedResponse-Whelan2008} can
+be described by a linear combination of $h(t)$ and $h^*(t)$, weighted by time-sky-location-dependent coefficients $F_{+,\times}(t,\hat{n})$:
 \begin{align}
 H_k(t) &=F_{+,k}(t,-\hat{k}) h_+(t-\vec{x}_k(t)\cdot \hat{k}) \nonumber \\
  & + F_{\times,k}(t,-\hat{k}) h_\times(t-\vec{x}_k(t)\cdot \hat{k}) \nonumber \\
- &=  \frac{F_k(-\hat{k}) h(t-\vec{x}_k\cdot \hat{k}) }{2} + \frac{F_k^*(-\hat{k})h^*(t-\vec{x}_k\cdot \hat{k})}{2}
+ &=  \frac{F_k(-\hat{k}) h(t-\vec{x}_k(t)\cdot \hat{k}) }{2} + \frac{F_k^*(-\hat{k})h^*(t-\vec{x}_k(t)\cdot \hat{k})}{2}
 \label{eq:Hh}
 \end{align}
 where in the second expression we adopt a complex antenna pattern $F_k=F_{+,k}+i F_{\times,k}$.  
-
+%
+For simplicity, in this work we will treat the position $\vec{x}_k$ and antenna pattern $F_k$ of each instrument as
+constants.\footnote{The quality of this approximation is in direct proportion to the ratio $|\Delta x|/\lambda$ where
+  $\Delta x$ is the change in detector position over the waveform's duration and $\lambda$ is the longest significant
+  wavelength.   As either this ratio is a small quantity or the detectors are nearly insensitive to $\lambda$,
+  rotation often need not be included.  Moreover, when radiation \emph{does} need to be included, we anticipate a straightforward perturbative and stationary phase
+  approximation can augment the simple procedure described above, allowing the likelihood to be well approximated with
+  a factor few additional filters and scalars.
+}
 
 
 Substituting this expansion for $h$ [Eq. (\ref{eq:h:Expansion})] and the individual-detector response
@@ -365,8 +445,8 @@ Substituting this expansion for $h$ [Eq. (\ref{eq:h:Expansion})] and the individ
 likelihood [Eq. (\ref{eq:def:LikelihoodRatio})], we find the likelihood can be expressed as
 \begin{widetext}
 \begin{align}
-\ln L(\lambda; \theta) 
-&= (d_{\rm ref}/d) \text{Re} \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi_J} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot
+\ln \Like(\lambda; \theta) 
+&= (d_{\rm ref}/d) \text{Re} \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot
 x_k)
 \nonumber \\
 &   -\frac{(d_{\rm ref}/d)^2}{2}\sum_k
@@ -374,10 +454,10 @@ x_k)
 {
  \frac{1}{2}|F_k(-\hat{k})|^2 U_{k,lm,lm'}(\lambda)[\Y{-2}_{lm}(\hat{n})]^*\Y{-2}_{l'm'}(\hat{n})
 }
- \right. \nonumber \\ & \left.
+% \right. \nonumber \\ & \left.
  {
 +
- \frac{1}{2} \text{Re} V_{k,lm,l'm'} e^{-4i\psi_J}F_k^2 \Y{-2}_{lm}(\hat{n})\Y{-2}_{l'm'}(\hat{n})
+ \frac{1}{2} \text{Re} V_{k,lm,l'm'} e^{-4i\psi}F_k^2 \Y{-2}_{lm}(\hat{n})\Y{-2}_{l'm'}(\hat{n})
 }
 \right]
 \label{eq:def:lnL:Decomposed}
@@ -395,9 +475,9 @@ V_{k,lm,l'm'}(\lambda)& = \qmstateproduct{h_{lm}^*}{h_{l'm'}}_k  \;
 and define the \emph{filtered data series} $Q_{k,lm}(t)$ via 
 \begin{align}
 Q_{k,lm}(\tau) &\equiv \qmstateproduct{{\cal T}_{\tau} h_{lm}}{\hat{H}_k}_k \\
-& 2 \int_{-\infty}^{\infty} \frac{df}{S_k(|f|)} e^{+2\pi i f \tau} h_{lm}(f)^* \tilde{\hat{H}}_k \\
+&= 2 \int_{-\infty}^{\infty} \frac{df}{S_k(|f|)} e^{+2\pi i f \tau} \tilde{h}_{lm}(f)^* \tilde{\hat{H}}_k(f) \\
 \end{align}
-i.e., as the inner product of the timeshifted $h_{lm}$ harmonic [$h_{lm}(t+\tau)\equiv [{\cal T}_\tau h_{lm}](t)$ with the data in the $k$th instrument.
+i.e., as the inner product of the timeshifted $h_{lm}$ harmonic [$h_{lm}(t+\tau)\equiv [{\cal T}_\tau h_{lm}](t)$] with the data in the $k$th instrument.
 
 
 % POINT: This is precomputable
@@ -429,29 +509,40 @@ Our method requires no  additional model- or detector-dependent development  to 
 Because precomputed quantities allow us to efficiently evaluate the likelihood $L(\lambda,\theta)$ as a function of
 $\theta$, we first integrate the likelihood $L(\lambda,\theta)$ over all extrinsic parameters $\theta$:
 \begin{eqnarray}
-L_{\rm red}(\lambda) = \int L(\lambda,\theta) p(\theta) d\theta
+\LikeRed(\lambda) = \int \Like(\lambda,\theta) p(\theta) d\theta
 \end{eqnarray}
 where $p(\theta)$ is our prior over the extrinsic  parameters.  We assume the sources analyzed are randomly-oriented and
 randomly distributed in the universe out to $D_{\rm max}=300 \unit{Mpc}$.  
 %% \begin{eqnarray}
 %% p(d)=  3 d^2/d_{\rm max}^3 \quad d_{\rm max} = 300\unit{Mpc} \\
 %% \end{eqnarray}
+% POINT: Specific separable prior, sampling priors approach
+To be concrete, we evaluate the reduced likelihood $\LikeRed$ by integrating over sky position $\Omega_{\rm sky}$ represented
+as right ascension $\alpha$ and declination $\delta$; angular momentum orientation, measured by inclination $\iota$ and
+polarization angle $\psi$;  and coalescence phase $\phi_{\rm c}$, using the separable prior implicitly provided by the
+following integral:
+\begin{eqnarray}
+\LikeRed(\lambda) = \int \frac{dt}{T_{\rm window}} \frac{d^2 dd d\Omega_{sky} }{V_{\rm max}} \frac{d \cos \iota d\phi_c}{4\pi} \frac{d\psi}{\pi} \Like(\lambda,\theta)
+\end{eqnarray}
+%
+In this expression and our calculations, we adopt a maximum distance $d_{\rm max}$ (here $300 \unit{Mpc}$) and a time window
+$ T_{\rm window}$  (here, $300\unit{ms}$)  surrounding the event.  
 
 % POINT: MC
 With the exception of time (described below), we evaluate these integrals and reconstruct the posterior distribution using Monte Carlo integration
 \cite{book-mm-NumericalRecipies,peter1978new}.   To establish notation used below, we briefly review the general principles  underlying Monte Carlo
 integration.  If $p_s$ is a distribution which is never zero when $p>0$, then 
 \begin{eqnarray}
-L_{\rm red}(\lambda) = \int \frac{L(\lambda,\theta) p(\theta)}{p_s(\theta)} [p_s(\theta) d\theta]
+\LikeRed(\lambda) = \int \frac{\Like(\lambda,\theta) p(\theta)}{p_s(\theta)} [p_s(\theta) d\theta]
 \end{eqnarray}
 % POINT: Integral value and its error
 % 
 If we draw $N$ random samples $\theta_q$ from $p_s$, we can estimate the value $\hat{L}_{\rm red}$ of $L_{\rm red}$ and its error using the
 expectation value and central limit theorems for independent, identically-distributed random variables:
 \begin{eqnarray}
-w_q \equiv \frac{L(\lambda,\theta_q) p(\theta_q)}{p_s(\theta_q)} \\
-\hat{L}_{\rm red}(\lambda) \equiv \frac{1}{N} \sum_q w_q = \left<w\right> \\
-\sigma_{L_{\rm red}}^2 = \left<w^2\right> - \left<w\right>^2
+w_q \equiv \frac{\Like(\lambda,\theta_q) p(\theta_q)}{p_s(\theta_q)} \\
+\hat{{\cal L}}_{\rm red}(\lambda) \equiv \frac{1}{N} \sum_q w_q = \left<w\right> \\
+\sigma_{\LikeRed}^2 = \left<w^2\right> - \left<w\right>^2
 \end{eqnarray}
 % POINT: Recombinable
 Being a pure Monte Carlo integral, we can  combine the results of multiple independent draws of $N$ events, even if these
@@ -479,17 +570,7 @@ Equivalently, the ``effective number of samples'' $n_{\rm eff}$ measures how man
 weights near the largest observed weight.  
 
 
-% POINT: Specific separable prior, sampling priors approach
-To be concrete, we evaluate the reduced likelihood $L_{\rm red}$ by integrating over sky position $\Omega_{\rm sky}$ represented
-as right ascension $\alpha$ and declination $\delta$; angular momentum orientation, measured by inclination $\iota$ and
-polarization angle $\psi$;  and coalescence phase $\phi_{\rm c}$, using the separable prior implicitly provided by the
-following integral:
-\begin{eqnarray}
-L_{\rm red} = \int \frac{dt}{T_{\rm window}} \frac{d^2 dd d\Omega_{sky} }{V_{\rm max}} \frac{d \cos \iota d\phi_c}{4\pi} \frac{d\psi}{\pi} L
-\end{eqnarray}
-%
-In this expression and our calculations, we adopt a maximum distance $d_{\rm max}$ (here $300 \unit{Mpc}$) and a time window
-$ T_{\rm window}$  (here, $300\unit{ms}$)  surrounding the event.  
+
 %
 Unless otherwise indicated, we draw samples using a separable sampling prior $p_s(\alpha) =
 \prod_{\alpha}p_{s,\alpha}(\theta_\alpha)$, with each factor $p_{s,\alpha}$ equal to the corresponding prior in that dimension.  Notable exceptions are
@@ -1020,7 +1101,7 @@ strategies can reach extremely low latencies, ideally of order a few minutes, wh
 
 \item $p(\theta)$ : prior on extrinsic parameters
 
-\item $L(\lambda,\theta)$ : likelihood.  In terms of individual detector strains $H_k$ and power spectra, provided by
+\item $\Like(\lambda,\theta)$ : likelihood.  In terms of individual detector strains $H_k$ and power spectra, provided by
 \begin{eqnarray}
 \ln L &\equiv \sum_k \ln L_k  = \ln L_{\rm model} + \ln L_{\rm data} \\
 \ln L_{\rm model} &\equiv -\frac{1}{2} \sum_k \qmstateproduct{H_k}{H_k}_k  \\
@@ -1048,7 +1129,7 @@ $h(t|\lambda,x)=h_+-i h_\times$ : complex gravitational wave strain
 $h_{lm}(t)$: coefficients of a spin-weighted spherical harmonic decomposition
 \begin{eqnarray}
 \label{eq:def:hSpinWeightEmissionDirection}
-h(t|\lambda,\theta) = \sum_{lm} h_{lm}(t|\lambda) e^{-2i\psi_J}\Y{-2}_{lm}(\theta_{JN}\phi_{JN})
+h(t|\lambda,\theta) = \sum_{lm} h_{lm}(t|\lambda) e^{-2i\psi}\Y{-2}_{lm}(\theta_{JN}\phi_{JN})
 \end{eqnarray}
 
 \item 
@@ -1100,64 +1181,64 @@ Q_{k,lm}(\tau) \equiv \qmstateproduct{\exp(-i\omega \tau) h_{lm}}{\hat{H}_k}_k
 
 \end{itemize}
 
-\subsection{Other assumptions}
-Assuming the earth does not rotate significantly during the signal, allowing us to approximate
-\begin{eqnarray}
-\qmstate{H_k} = \frac{e^{i\omega \hat{k}\cdot \vec{x}_k}}{2}\left[ 
-   F_k  \qmstate{h} + F_k^* \qmstate{h^*} 
- \right]
-\end{eqnarray}
+%% \subsection{Other assumptions}
+%% Assuming the earth does not rotate significantly during the signal, allowing us to approximate
+%% \begin{eqnarray}
+%% \qmstate{H_k} = \frac{e^{i\omega \hat{k}\cdot \vec{x}_k}}{2}\left[ 
+%%    F_k  \qmstate{h} + F_k^* \qmstate{h^*} 
+%%  \right]
+%% \end{eqnarray}
 
 
-\begin{widetext}
-\subsection{Core equations}
+%% \begin{widetext}
+%% \subsection{Core equations}
 
-\begin{align}
-\label{eq:h:Expansion}
-h(t-\vec{x}\cdot \hat{k}) = \sum_{lm} e^{-2i\psi} h_{lm}(t-\vec{x}\cdot \hat{k})  \Y{-2}(\iota,-\phi_c)  \frac{d_{\rm ref}}{d}
-\end{align}
+%% \begin{align}
+%% \label{eq:h:Expansion}
+%% h(t-\vec{x}\cdot \hat{k}) = \sum_{lm} e^{-2i\psi} h_{lm}(t-\vec{x}\cdot \hat{k})  \Y{-2}(\iota,-\phi_c)  \frac{d_{\rm ref}}{d}
+%% \end{align}
 
-\begin{align}
-\ln L_{\rm data}(\lambda|t,\hat{n},\hat{k},\psi_J,d) &=  \sum_k\qmstateproduct{H_k}{\hat{H}_k}_k \nonumber \\
-\label{eq:Implementation:lnLData}
-&= (d_{\rm ref}/d) \text{Re} \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi_J} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot x_k)
-\end{align}
+%% \begin{align}
+%% \ln L_{\rm data}(\lambda|t,\hat{n},\hat{k},\psi,d) &=  \sum_k\qmstateproduct{H_k}{\hat{H}_k}_k \nonumber \\
+%% \label{eq:Implementation:lnLData}
+%% &= (d_{\rm ref}/d) \text{Re} \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot x_k)
+%% \end{align}
 
-\begin{subequations}
-\label{eq:ComputeRhoViaInnerProductMatrix}
-\begin{align}
-{ U_{k,lm,l'm'}(\lambda)}& = \qmstateproduct{h_{lm}}{h_{l'm'}}_k \\
-V_{k,lm,l'm'}(\lambda)& = \qmstateproduct{h_{lm}^*}{h_{l'm'}}_k \\
-\ln L_{\rm model}(\lambda|\hat{n},\hat{k},\psi_J,d) &=
-   -\frac{(d_{\rm ref}/d)^2}{2}\sum_k
-\left[
-{
- \frac{1}{2}|F_k(-\hat{k})|^2 U_{k,lm,lm'}(\lambda)[\Y{-2}_{lm}(\hat{n})]^*\Y{-2}_{l'm'}(\hat{n})
-}
- \right. \nonumber \\ & \left.
- {
-+
- \frac{1}{2} \text{Re} V_{k,lm,l'm'} e^{-4i\psi_J}F_k^2 \Y{-2}_{lm}(\hat{n})\Y{-2}_{l'm'}(\hat{n})
-}
-\right]
-\end{align}
-\end{subequations}
-
-
-One-dimensional marginalized posteriors, generally and sampled: 
-\begin{eqnarray}
-p_1(x_1|{\cal D}) dx_1 \equiv \int p(x|{\cal D}) dx = \frac{dx_1}{Z} \int dx_{2}\ldots dx_n p(x_2)\ldots p(x_n)L(x_1\ldots x_n) 
-\end{eqnarray}
-\begin{eqnarray}
-\hat{p}_1(z) \equiv \frac{1}{N \hat{Z}}\sum_{k=1}^N K(x,x_k) \frac{L_k p_k}{p_{s,k}} 
-\; ; \qquad
-\hat{Z} \equiv \frac{1}{N} \sum_{k=1}^N \frac{L_k p_k}{p_{s,k}}
-\end{eqnarray}
-where $K(x,y)$ is some normalized ($\int K(x,y) dx = 1$) kernel  and where $\hat{Z}$ is our running
-estimate for the evidence ($Z = \int L p dx$).
+%% \begin{subequations}
+%% \label{eq:ComputeRhoViaInnerProductMatrix}
+%% \begin{align}
+%% { U_{k,lm,l'm'}(\lambda)}& = \qmstateproduct{h_{lm}}{h_{l'm'}}_k \\
+%% V_{k,lm,l'm'}(\lambda)& = \qmstateproduct{h_{lm}^*}{h_{l'm'}}_k \\
+%% \ln L_{\rm model}(\lambda|\hat{n},\hat{k},\psi,d) &=
+%%    -\frac{(d_{\rm ref}/d)^2}{2}\sum_k
+%% \left[
+%% {
+%%  \frac{1}{2}|F_k(-\hat{k})|^2 U_{k,lm,lm'}(\lambda)[\Y{-2}_{lm}(\hat{n})]^*\Y{-2}_{l'm'}(\hat{n})
+%% }
+%%  \right. \nonumber \\ & \left.
+%%  {
+%% +
+%%  \frac{1}{2} \text{Re} V_{k,lm,l'm'} e^{-4i\psi}F_k^2 \Y{-2}_{lm}(\hat{n})\Y{-2}_{l'm'}(\hat{n})
+%% }
+%% \right]
+%% \end{align}
+%% \end{subequations}
 
 
-\end{widetext}
+%% One-dimensional marginalized posteriors, generally and sampled: 
+%% \begin{eqnarray}
+%% p_1(x_1|{\cal D}) dx_1 \equiv \int p(x|{\cal D}) dx = \frac{dx_1}{Z} \int dx_{2}\ldots dx_n p(x_2)\ldots p(x_n)L(x_1\ldots x_n) 
+%% \end{eqnarray}
+%% \begin{eqnarray}
+%% \hat{p}_1(z) \equiv \frac{1}{N \hat{Z}}\sum_{k=1}^N K(x,x_k) \frac{L_k p_k}{p_{s,k}} 
+%% \; ; \qquad
+%% \hat{Z} \equiv \frac{1}{N} \sum_{k=1}^N \frac{L_k p_k}{p_{s,k}}
+%% \end{eqnarray}
+%% where $K(x,y)$ is some normalized ($\int K(x,y) dx = 1$) kernel  and where $\hat{Z}$ is our running
+%% estimate for the evidence ($Z = \int L p dx$).
+
+
+%% \end{widetext}
 
 \section{Discrete data handling}
 \label{ap:DiscreteData}
@@ -1304,7 +1385,7 @@ Unless explicitly stated otherwise, we adopt the latter method to produce all re
 
 ** A: Not clear our overall cost is higher...we may be more accurate than 1000 samples, the usual metric for MCMC...we need a clear comparison
 
-
+* Rotation of the earth
 
 \subsection{Runtime}
 
@@ -1394,6 +1475,36 @@ Measures to assess whether we're done
 
 
 \section{[Internal use] Future directions}
+
+Not for distribution!
+
+\subsection{Short GRBs}
+
+Alex
+
+\subsection{Adding dimensions}
+
+Tides [Les]
+
+Aligned spin
+
+\subsection{Even more speed}
+
+Because the precompute phase is \emph{much} faster than marginalizing over extrinsic parameters, we could accelerate
+code performance in a number of ways, potentially enabling us to tackle higher dimensions
+
+\noindent \textbf{Einstein at home}: Transmit the precomputed data (10ms of timeseries and a few scalars) to the
+Einstein at home grid, giving each distant host (say) 20 mass points to handle.  With $10^5$ cores, that means roughly
+$20\times10^5/10$ intrinsic points per day...enough to handle precessing spin faster than any other extant method.
+
+\noindent \textbf{Interpolate $Q,U$}: Perform the precompute step several times, building up a grid for $Q$ and $U,V$,
+which we interpolate over $\lambda$ over some fixed subregion.
+
+Then, we can evaluate $L(\lambda,\theta)$ for any $\lambda,\theta$ in that intrinsic $\times$ extrinsic hypercube. Do
+Monte Carlo integration over the hypercube; parallelize over hypercubes.
+
+This would let us cover much larger regions of paramter space, freeing us from the limitation of a few-mass-point grid,
+and probably let us handle (slightly) higher dimensions.
 
 \section{[Internal use] Patches pending or desired}
 
