@@ -128,6 +128,11 @@ $20\times10^5/10$ intrinsic points per day...enough to handle precessing spin fa
 
 \noindent \textbf{Interpolate $Q,U$}: Perform the precompute step several times, building up a grid for $Q$ and $U,V$,
 
+\subsection{Tigher search integration}
+
+The searches provide filter outputs.  We ought to be able to use those as inputs to construct $Q_{k,lm}$ for any
+$\lambda,l,m$, via a suitable lookup table.   This could completely eliminate the startup/precompute cost.
+
 \section{[Internal use] Monte Carlo integration}
 
 \textbf{Non-uniform, variance-weighted weighting}: By default we combine results with different sampling priors treating
