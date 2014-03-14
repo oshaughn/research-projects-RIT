@@ -150,6 +150,31 @@ $\rho_{\rm search}$ & 10.85 \\
 }
 \end{table}
 
+% POINT: Posterior in mc, eta
+To construct confidence intervals in $\mc,\eta$, we adopt a uniform prior in $m_1,m_2$ with $m_1,m_2\in[1,30]M_\odot$
+and $m_1+m_2\le 30$: inside the specified region, the prior density is $p(m_1,m_2)dm_1dm_2=2 dm_1 dm_2/(28 M_\odot)^2$.
+Changing coordinates using the Jacobian $d(m_1,m_2)/d(\mc,\eta)= \delta \mc/M^2 = \delta \eta^{6/5}\mc^{-1}$ where
+$\delta = (m_1-m_2)/M = \sqrt{1-4\eta}$, we find the prior density in $\mc,\eta$ coordinates is
+\begin{eqnarray}
+p(\mc,\eta) d\mc d\eta =  \frac{1}{392 M_\odot^2} \frac{\mc}{\eta^{6/5}\sqrt{1-4\eta}}
+\end{eqnarray}
+%
+In other words, due to a coordinate singularity, the prior in $\eta$ diverges near the equal-mass line.  
+%
+This coordinate singularity has a disproportionate impact on comparable-mass binary posteriors.
+
+
+% POINT
+The top panel of Figure \ref{fig:FiducialEvent:LikelihoodVersusMchirpEta} shows contours of the reduced likelihood $\LikeRed$ versus
+$\mc,\eta$, derived by interpolating between our discrete grid.   As expected, these contours largely agree with the
+Fisher matrix used to construct our grid. 
+%
+For comparison, the bottom panel of Figure \ref{fig:FiducialEvent:LikelihoodVersusMchirpEta} shows the contours of
+$p(\mc,\eta)\LikeRed(\mc,eta)$, including the strong coordinate singularity near the equal-mass line.  
+%
+Despite the large log-likelihood and the good agreement between the Fisher matrix and likelihood contours, this
+coordinate singularity leads to significant differences between a naive 
+Fisher-matrix estimate and the posterior distribution.
 
 
 
@@ -166,6 +191,7 @@ $\rho_{\rm search}$ & 10.85 \\
 \begin{figure}
 %\includegraphics[width=\columnwidth]{../Figures/v2runs_coinc_id_833_mchirp_eta_logevidence}
 \includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-coinc833-LReducedVersusMcEta}
+\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-coinc833-PosteriorMcEta}
 \caption{\label{fig:FiducialEvent:LikelihoodVersusMchirpEta}\textbf{Marginalized likelihood and posterior distribution
     versus component masses}: \emph{Top panel}: 
 For our fiducial event,
@@ -173,8 +199,9 @@ For our fiducial event,
   coordinates.  Points indicate the mass grid adopted; thin contours show isocontours of the (interpolated)
   $\ln \LikeRed=35,36,37,38,39$.   For comparison, the thick black curve corresponds to the 90\% confidence interval
   predicted by combining the network SNR reported by the search ($\rho_{\rm search}$ in Table \ref{tab:FiducialEvent:Parameters}) and the (effective)
-  Fisher matrix used when placing test points.  
-\emph{Bottom panel}: The 90\% confidence interval derived from $L_{\rm red} p(\mc,\eta)$.  
+  Fisher matrix used when placing test points, as in \cite{gwastro-mergers-HeeSuk-FisherMatrixWithAmplitudeCorrections,gwastro-mergers-HeeSuk-CompareToPE-Aligned,gwastro-mergers-HeeSuk-CompareToPE-Precessing}.  
+\emph{Bottom panel}: The 90\% (blue) and 68\% confidence interval (black) derived from the posterior $\LikeRed(\mc,\eta)
+p(\mc,\eta)/Z$.  For comparison, this figure also includes the same naive Fisher matrix estimate, shown as a thick black line.
  \editremark{Once OK with Ben Farr, add curves from MCMC TaylorF2}
 }
 \end{figure}
