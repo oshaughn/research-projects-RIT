@@ -32,8 +32,8 @@ def write_sngl_params(grid, proc_id):
     return sngl_insp_table
 
 # Setup signal and IP class
-m1=4*lal.LAL_MSUN_SI
-m2=4.*lal.LAL_MSUN_SI
+m1=1.5*lal.LAL_MSUN_SI
+m2=1.35*lal.LAL_MSUN_SI
 PSIG = lsu.ChooseWaveformParams(m1=m1, m2=m2, approx=lalsim.TaylorT1)
 PTEST = PSIG.copy() # find deltaF for lower end of range we're looking in
 PTEST.m1 *= 0.9
@@ -112,7 +112,7 @@ print rot
 #
 # Distribute points inside predicted ellipsoid of certain level of overlap
 #
-match_cntr = 0.97
+match_cntr = 0.90
 Nrandpts=200
 r1 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[0])) # ellipse radii along eigendirections
 r2 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[1]))
@@ -145,6 +145,7 @@ rand_etas = rand_detas + etaSIG # eta
 rand_etas = np.array(map(partial(lsu.sanitize_eta, exception=np.NAN), rand_etas))
 rand_grid = np.transpose((rand_Mcs,rand_etas))
 phys_cut = ~np.isnan(rand_grid).any(1) # cut to remove unphysical pts
+unphys_cut = np.isnan(rand_grid).any(1) # unphysical pts only
 rand_grid = rand_grid[phys_cut]
 print "Requested", Nrandpts, "points inside the ellipsoid of",\
         match_cntr, "match."
@@ -226,4 +227,13 @@ plt.title('Rotated ellipse')
 plt.scatter(Xs, Ys)
 plt.xlabel("$e_1$")
 plt.ylabel("$e_2$")
+
+plt.figure(6)
+plt.title('Intrinsic parameter placement for $(1.5+1.35) M_\odot$')
+plt.scatter(McSIG_MSUN + rand_dMcs_MSUN[unphys_cut], etaSIG + rand_detas[unphys_cut], c='b', marker='x', label="unphysical points")
+plt.scatter(McSIG_MSUN + rand_dMcs_MSUN[phys_cut], etaSIG + rand_detas[phys_cut], c='r', label="physical points")
+plt.axhline(0.25, c='k')
+plt.xlabel("$M_c (M_\odot)$")
+plt.ylabel("$\eta$")
+plt.legend(loc='upper left')
 plt.show()
