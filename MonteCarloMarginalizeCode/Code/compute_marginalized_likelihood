@@ -27,6 +27,11 @@ import lalsimutils as lsu
 import effectiveFisher as eff
 import dag_utils
 
+JOB_PRIORITIES = { "ILE": 10,
+    "SQL": 1,
+    "PLOT": 1
+}
+
 try:
     from ligo.lvalert.utils import get_LVAdata_from_stdin
     import ligo.gracedb.rest
@@ -403,6 +408,7 @@ pos_plot_job_type.write_sub_file()
 pos_plot_node = pipeline.CondorDAGNode(pos_plot_job_type)
 pos_plot_node.set_pre_script(dag_utils.which("coalesce.sh"))
 pos_plot_node.set_category("PLOT")
+pos_plot_node.set_priority(JOB_PRIORITIES["PLOT"])
 dag.add_node(pos_plot_node)
 
 sql_job_type, sql_job_name = dag_utils.write_result_coalescence_sub(tag="coalesce", log_dir=log_dir)
@@ -410,6 +416,7 @@ sql_job_type.write_sub_file()
 
 for i, (m1, m2) in enumerate(m1m2_grid):
     ile_node = pipeline.CondorDAGNode(ile_job_type)
+    ile_node.set_priority(JOB_PRIORITIES["ILE"])
     ile_node.add_macro("macromass1", m1)
     ile_node.add_macro("macromass2", m2)
 
@@ -423,6 +430,7 @@ for i, (m1, m2) in enumerate(m1m2_grid):
 
     sql_node = pipeline.CondorDAGNode(sql_job_type)
     sql_node.add_parent(ile_node)
+    sql_node.set_priority(JOB_PRIORITIES["SQL"])
 
     # The sql node needs to run a PRE script in order to coalesce the data into
     # a cache
@@ -440,6 +448,7 @@ for i, (m1, m2) in enumerate(m1m2_grid):
     tri_plot_node = pipeline.CondorDAGNode(tri_plot_job_type)
     tri_plot_node.add_macro("macromassid", mass_grouping)
     tri_plot_node.set_category("PLOT")
+    tri_plot_node.set_priority(JOB_PRIORITIES["PLOT"])
     dag.add_node(tri_plot_node)
     tri_plot_node.add_parent(sql_node)
 
@@ -448,6 +457,7 @@ for i, (m1, m2) in enumerate(m1m2_grid):
     pos_1d_plot_node = pipeline.CondorDAGNode(pos_1d_plot_job_type)
     pos_1d_plot_node.add_macro("macromassid", mass_grouping)
     pos_1d_plot_node.set_category("PLOT")
+    pos_1d_plot_node.set_priority(JOB_PRIORITIES["PLOT"])
     dag.add_node(pos_1d_plot_node)
     pos_1d_plot_node.add_parent(sql_node)
 
