@@ -379,7 +379,44 @@ using some small scale $\Delta p$ estimated from the skymap, then  precompute a 
 
 
 
-\subsection{Scalable method to explore intrinsic parameters }
+\subsection{Placement over intrinsic parameters}
+
+In the current work, we restrict ourselves to considering non-spinning binaries in which we also neglect tidal
+effects. Therefore, we need only two mass parameters to describe the intrinsic parameter space, for which we use
+the symmetric mass ratio $\eta = m_1 m_2 / M^2$ 
+and the chirp mass ${\cal M}_c = M \eta^{3/5}$ (where $M = m_1+m_2$ is the total mass).
+Since detection searches will report masses for the candidate event, we use these
+to guide which region of the intrinsic parameter space to explore.
+
+Let $\left( {\cal M}^*,\eta^* \right)$ be the masses reported by a detection pipeline. We then perform an effective 
+Fisher matrix calculation as described in~\cite{gwastro-mergers-HeeSuk-FisherMatrixWithAmplitudeCorrections,
+gwastro-mergers-HeeSuk-CompareToPE-Aligned}
+centered about this point.
+This involves evaluating the overlap between our waveform with masses $\left( {\cal M}^*,\eta^* \right)$
+and $\sim$ tens of nearby waveforms with different intrinsic parameters (while extrinsic parameters are held constant).
+The measured overlap values are then fit with a multi-dimensional quadratic. 
+The coefficients of this quadratic fit are called the effective Fisher matrix.
+Like the standard Fisher matrix, the effective Fisher matrix serves as a quick, crude estimate of expected parameter
+estimation performance and can be used to predict surfaces of constant overlap, which will in general be ellipsoids.
+In this work, we use the effective Fisher matrix to approximate the region of intrinsic parameter space
+which will have overlap $\geq 90\%$ with the masses $\left( {\cal M}^*,\eta^* \right)$.
+
+Once we have defined this $90\%$ overlap ellipsoid, we must fill it with a set of discrete points 
+at which we will compute the likelihood. First, we specify the total number of intrinsic parameter points we wish to place,
+in this work we used 200 points. Then, these points are arranged within a unit sphere. In this work, we placed
+points along 20 radial ``spokes'', with 10 points per spoke. Along each spoke, the points are placed 
+uniformly in radial distance. Now, the eigenvalues and eigenvectors of the effective Fisher matrix tell us the lengths
+and orientations of the axes of the $90\%$ overlap ellipsoid. We use these to deform and rotate our set
+of points in the sphere to a set of points in the $90\%$ overlap ellipsoid.
+
+One subtlety is that the only physically-meaningful values of $\eta$ are in the range $(0, 0.25]$, but the effective Fisher
+approach does not account for this physical cutoff. Therefore, for near equal mass binaries where $\eta^* \simeq 0.25$
+part of the $90\%$ overlap ellipsoid may have unphysical $\eta$ values. Once we have filled our ellipsoid, we remove
+any points that have unphysical $\eta$. To counteract this somewhat, 
+we ensure that we always place spokes in our ellipsoid along the direction of constant $\eta$.
+Fig.~\editremark{ADDME!} illustrates this placement of points inside the ellipsoid.
+
+
 
 
 \subsection{Postprocessing: intrinsic priors, interpolation, and the final results}
