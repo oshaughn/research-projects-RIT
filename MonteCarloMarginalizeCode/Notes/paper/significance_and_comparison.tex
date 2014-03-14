@@ -1,0 +1,71 @@
+\section{Significance and Comparison with related work }
+\label{sec:Discussion}
+
+% POINT: Low latency
+We have demonstrated a viable strategy for low-latency parameter estimation for long-duration binary neutron star signals, using
+a production environment and currently-available computing configuration.   
+%
+Like low-latency sky localization 
+\cite{gwastro-skyloc-Sidery2013,LIGO-2013-WhitePaper-CoordinatedEMObserving}, already provided with reasonable accuracy
+by approximate methods like \BS{}, low-latency parameter estimation will enable rapid electromagnetic followup and interpretation of
+candidate gravitational wave events. 
+
+
+% POINT: Fast, enables large-scale tests, to get background and to perform other tests
+%
+More broadly, by dramatically decreasing the turnaround time for each analysis and by scaling to harness all available
+resources efficiently, our strategy may significantly increase size and scope of parameter estimation investigations.
+%
+Indeed, because our code converges \emph{even more quickly} in the absence of a signal, our approach could be applied to
+systematically follow up timeslides, providing a systematic understanding of the additional detection confidence
+parameter estimation could provide. 
+%
+
+
+% POINT: Technical reasons why our procedure will be useful for environments with limited computing, 
+%   like Virgo's clusters, etc
+Finally, because our implementation has bounded runtime -- one hour is the \emph{worst} case -- we know what  resources
+will be needed to analyze a given NS-NS binary. Moreover, the parallel algorithm can exploit all available computing
+resources, without need for communication or coordination between jobs, allowing it to operate in computing environments
+with tightly constrained wallclock time. 
+
+
+\subsection{Reduced-order quadrature}
+Reduced-order quadrature methods provide an efficient representation of a waveform family and any inner products against
+it.   Other authors have recently proposed prefiltering the data against the reduced-order basis
+\cite{gw-astro-ReducedOrderQuadraturePE-TiglioEtAl2014}, achieving significant speedup.  For example, using TaylorF2
+templates, \cite{gw-astro-ReducedOrderQuadraturePE-TiglioEtAl2014} claim runtimes of order 1 hour, comparable to our
+end-to-end time in the high-precision configuration described above.
+
+% POINT
+Our strategy and reduced-order modeling achive a similar speedup for qualitatively similar reasons: both strategies
+prefilter the data.   In our algorithm, at each mass point, the data is prefiltered  against a
+set of $h_{lm}$, then efficiently reconstruct the likelihood for generic source orientations and distances.  
+%
+By integrating the likelihood at each mass point over all extrinsic parameters,  we are dominated by extrinsic-parameter
+sampling and  hence not limited by waveform generation.
+
+% POINT: 
+In the short term, reduced-order methods require further tuning and development, to calibrate their interpolation in
+targeted mass regions and with specific PSDs.
+Moreover, as the starting frequency is reduced, reduced-order methods do require additional basis vectors, increasing
+their operation count and computational cost as $f_{\rm low}$ is reduced.
+%
+  By contrast,
+our algorithm can be immediately applied to any noise curve and existing time-domain model that provides $h_{lm}$,  at any mass,
+including EOBNRv2HM \cite{gw-astro-EOBNR-Calibrated-2009} and SEOB \cite{gw-astro-EOBspin-Tarrachini2012}.  Minimal
+updates are  needed in \texttt{lalsimulation} to provide $h_{lm}$ (e.g., $h_{22}$) for most
+other existing time- and frequency-domain waveform approximants.  
+%
+%
+Finally, by construction our dominant operation count cost is  independent of the waveform's length (or number of basis
+vectors).  Hence, unlike reduced order methods, our code will run in nearly same amount of time now and with full
+aLIGO-scale instruments with $f_{\rm low}\simeq 10\unit{Hz}$.  
+
+
+\subsection{Alternative parallelization schemes}
+% POINT:
+Any strategy that can compute evidence reliably over a sub-volume or hypersurface in parameter space
+can be efficiently parallelized.   In the strategy described here, we parallelized via accurate, independent extrinsic marginalization.  
+%
+Other strategies are \textbf{probably being developed; we should ask}.

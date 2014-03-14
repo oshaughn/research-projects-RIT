@@ -1,0 +1,124 @@
+\label{ap:DiscreteData}
+% COMPARISON: Findchirp, http://arxiv.org/pdf/gr-qc/0509116v2.pdf
+
+In the text we describe the core algorithm using continuous time- and frequency notation, omitting most practical
+details involved in operating on discrete timeseries.  In this appendix, we describe in detail the operations we perform
+on discretely-sampled detector timeseries $\hat{H}_k$  and  waveform modes $h_{lm}(t)$ to calculate the likelihood
+provided in the text.
+
+\subsection{Discrete filtering}
+% REQUIRED
+%    - h: How we got it, and the fourier transform.
+%    - frequency limits
+%    - S_h and inverse spectrum truncation
+
+% POINT: Data selection and time windows
+Based on a proposed GPS geocenter event time $t_*$ and intrinsic parameters $\lambda$, we operate on all discretely-sampled detector
+data $\hat{H}_k(t)$  in each instrument $k$ for the following GPS time interval:
+\begin{align}
+t &\in [-T_{\rm seg},T_{\rm seg}]+t_{*} \\
+T_{\rm sec} &= T_h+T_{\rm spec} +T_{\rm safety} \\
+T_{\rm safety} &= 2\unit{s} \\
+ T_{trunc} &= 8 \unit{s} \\
+T_h &= \text{waveform duration at }\lambda
+\end{align}
+In this expression, we compute the waveform duration $T_h$ by evaluating the simulated waveform from a starting
+frequency $f_{\rm low}$ until merger. 
+
+% POINT:
+All waveform modes $h_{lm}$ are provided on a discretely-sampled time grid by \texttt{lalsimulation}.  
+%
+All waveform and detector-data ($\hat{H}$) timeseries are zero-padded to the next power of 2 before further operations are
+performed.  
+%
+No windowing is performed on either the data or input waveform, either to smooth unphysical startup and termination
+discontinuities in $h_{lm}(t)$ or to eliminate discontinuities between the starting and ending timesample in $\hat{H}(t)$
+%
+All detector and waveform data are sampled at 16384 Hz.  
+%
+
+
+% POINT: Two-sided fourier transform: hlmoff
+The discretized fourier-transform of a complex-valued timeseries $h(t)$ on $N$  values $t_j=j\Delta t+t_0$ is
+implemented as usual by the forward complex FFT:
+\begin{eqnarray}
+\tilde{h}(k) = \Delta t  \sum_k e^{2\pi i j k} e^{2\pi i \Delta f k t_o} h(t_j)
+\end{eqnarray}
+where $k=0\ldots N-1$.  Bins $k\le N/2$ correspond to positive frequencies and $k>N/2$ correspond to  negative
+frequencies.    As all data segments  have the same sampling rate and cover the same time interval, we henceforth set $t_0=0$.  
+% 
+
+% POINT: PSD estimate, resampling, and inverse spectrumtruncation
+We rely on other codes to assess and report on detector noise near the event.   From the recorded discrete noise power
+spectrum $S_0(f)$, we construct a discrete Fourier-domain inverse spectrum filter $K(f)$ on a targeted frequency interval $|f|
+\in [f_{\rm min}, f_{\rm max}]$ with frequency spacing $\Delta f$ by 
+% lalsimutils.get_psd_series_from_xmldoc
+% lalsimutils.resample_psd_series
+(a) interpolating $1/S_0(f)$ onto a discrete frequency grid, as $K_0(f)$; 
+% lalsimutils.ComplexIP : inv_spec_trunc_Q=True
+(b) coarse-graining the power spectrum by performing \emph{inverse spectrum truncation} \cite{2012PhRvD..85l2006A} to construct a filter with bounded duration $T$ from $K_0$:
+\begin{eqnarray}
+ K =  |{\cal F} [\Theta_{T_{\rm spec}} \times {\cal F}^{-1}[ \sqrt{K_0} ]]|^2
+\end{eqnarray}
+where ${\cal F}$ is the fourier transform; $\Theta_T(t)$ is a step function in time which is nonzero only for $t\in[-T/2,T/2]$; and $T_{\rm spec}=8\unit{s}$ is a
+constant time interval. 
+%
+In the frequency interval $|f|\in[f_{\rm min},f_{\rm max}]$, the discrete inverse filter $K(f)$ nearly agrees with the
+input inverse spectrum $1/S_0(f)$.  Unlike the original filter, however, the inverse-spectrum-truncated filter has
+support for all frequencies $f\ne 0,f_{\rm Nyq}$.     
+%
+To be concrete, inverse spectrum truncation is implemented precisely as previously  \cite{2012PhRvD..85l2006A}, using
+real (one-sided) discrete fourier transforms: 
+%
+% lalsimutils.ComplexIP : inv_spec_trunc_Q=True
+we populate an array of length $1+f_{\rm Nyq}/\Delta F$ with values $K_{0,q} =1/S_o(q \Delta f)$ from $q\Delta f$ between $f_{\rm min}$ and $f_{\rm max}$; 
+we perform one-sided fourier transform of $\sqrt{K_{0}}$, populating a complex array of length $N=2 f_{\rm Nyq}/\Delta f$; 
+we set all bins with $q\in [N_{\rm spec}, N-N_{\rm spec}]$ to zero, where $N_{\rm spec} = \floor*{T_{\rm spec}/\Delta
+  T}$; 
+and  finally we inverse-fourier transform and square to construct a one-sided real-valued array $K(q\Delta f)$.  
+%
+The two-sided filter is constructed by mirroring the original one-sided array $K$ about $f=0$, using the same packing
+scheme we adopted for two-sided fourier transforms.  
+%  - I don't want to discuss how lalsuite packs its FFT arrays
+
+% POINT: Discrete filter for inner products
+The inner product arrays $U_{k,lm,l'm'}$ and $V_{k,lm,l'm'}$ are constructed using this discrete filter by a discrete
+approximation to the integral.  For example, the first array is evaluated as
+\begin{eqnarray}
+U_{k,lm,l',m'}(\tau_q) = 2 \sum_s \Delta f  K_k(f_s) \tilde{h}_{lm}^*(f_s) \tilde{h}_{l'm'}(f_s)
+\end{eqnarray}
+The sum includes all frequency bins, corresponding to both positive and negative frequency.  % Specifically, we do not re-impose any constraint on $f$.
+
+
+% POINT: Discrete filter output
+The $Q_{k,lm}(t)$ are the output of continuously filtering each detector's data against the $h_{lm}$ mode.  Using the
+discrete arrays representing the fourier-domain modes $\tilde{h}_{lm}(f_q)$, data $\tilde{\hat{H}}_k(f_q)$, and inverse-noise-spectrum  $K_k(f_q)$, we estimate the
+filter output via an inverse fourier transform:
+\begin{eqnarray}
+Q_{k,lm}(\tau_q) = 2 \sum_s \Delta f e^{+2\pi i \tau_q f_s} K_k(f_s) \tilde{h}^*_{lm}(f_s) \tilde{\hat{H}}_k(f_q)
+\end{eqnarray}
+%
+As needed, we evaluate $Q_{lm,k}(\tau)$ for arbitrary $\tau$ by  cubic spline interpolation.  
+
+
+% POINT: Finite time window?  Provided in text
+
+
+\subsection{Discrete time marginalization with and without interpolation}
+
+% POINT: What time marginalization is
+The likelihood can be efficiently marginalized in time by introducing a discrete grid:
+\begin{eqnarray}
+\int_{t_*-T_{\rm window}/2 }^{t_*+T_{\rm window}/2}L(t) \frac{dt}{T_{\rm window}} \simeq \Delta t \sum_q e^{\ln L(t_q)}
+\end{eqnarray}
+where $L(t) $ is the likelihood versus time, all other parameters fixed.   
+%
+
+% POINT
+We have implemented time marginalization using two approximations for the likelihood $L(t)$ versus time.  In one,  the  functions
+$Q_{k,lm}(\tau)$ are evaluated using cubic spline interpolation; in the other, a method equivalent to nearest-neighbor interpolation.  For
+the 16kHz data rate and signal amplitudes used, the two methods agree.   Because nearest-neighbor interpolation
+corresponds to using a shifted version of the  discrete output $Q_{k,lm}(\tau_s)$ of the discrete filter, the latter
+implementation is slightly faster.   
+%
+Unless explicitly stated otherwise, we adopt the latter method to produce all results.  

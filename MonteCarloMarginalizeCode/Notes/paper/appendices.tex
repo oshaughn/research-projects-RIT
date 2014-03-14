@@ -1,0 +1,273 @@
+\section{[Internal use] : Weaknesses people may ask about at LVC}
+
+* Prior on sky is skymap
+
+* Discrete sky grid: biases? What about high SNR? (A: just use adapted resolution; not ready yet)
+
+* Uniform weighting
+
+* Not discarding values after burnin
+
+* Adaptation algorithm: why parameters chosen?
+
+* Computational cost: is this really favorable in CPU-hours?  Are we wasting CPU hours to achieve low-latency that's not needed?
+
+** A: Not clear our overall cost is higher...we may be more accurate than 1000 samples, the usual metric for MCMC...we need a clear comparison
+
+* Rotation of the earth
+
+\subsection{Runtime}
+
+* Might be ram-limited in python below 10-ish Hz (multiple harmonics and IFOs, sampled at 16kHz for 30 min)
+%	1byte/sample * 16384*30min *60s/min ~ 28 Mb 
+
+\subsection{Applications}
+
+* Einstein at home scaling?
+
+* GRB project with Alex (already on table)
+
+
+\section{[Internal use] Monte Carlo integration}
+
+\textbf{Non-uniform, variance-weighted weighting}: By default we combine results with different sampling priors treating
+them equally (e.g., as if they have converged to the same sampling prior) when evaluating the integral at each mass
+point.  
+
+That doesn't minimize variance and can be particularly
+ineffective when one ILE run has a problem.  Really, we should use variance-reducing weighting: if $x=ax_1 +b x_2$ with $a+b=1$ and
+$\left<x_1\right> =\left<x_2\right> =\left<x\right>$, we can minimize the variance of $x$ by choosing weight $a$ to
+minimize $a^2 \sigma_1^2 + (1-a)^2 \sigma_2^2$, so 
+\begin{eqnarray}
+x = \frac{\sigma_2^2}{\sigma_1^2+\sigma_2^2} x_1 +  \frac{\sigma_1^2}{\sigma_1^2+\sigma_2^2} x_2
+\end{eqnarray}
+A straightforward generalization exists with arbitrary numbers of weights:
+\[
+x = \frac{x_k/\sigma_k^2}{\sum_q 1/\sigma_q^2}
+\]
+We could and should implement this scheme when recombining results at each mass point. 
+%% a^2 s1^2 + b^2 s2^2 + (1 - a - b)^2 s3^3
+%% Solve[{D[%, a] == 0, D[% == 0, b]}, {a, b}]
+
+\section{[Internal use] Results: Targeted studies}
+
+\begin{itemize}
+\item Single event, 100 noise realizations, plus comparison with Fisher matrix
+
+\item Zero-spin 2015 MDC: [\textbf{Not started}]  For completeness, we propose to reproduce the 2015 MDC,  using
+  injections with exactly zero spin.
+
+\end{itemize}
+
+\subsection{Detailed investigation of one event}
+Sample run results: Single event, with full DAG, done multiple times (for complete consistency/reproducibility)
+
+Sample run results: extrinsic parameters (for one and several noise realizations)
+
+Sample run results: $L_{\rm red}(\mc,eta)$ (for one and several noise realizations). Expected accuracy at each mass
+point.. Translating into  $p(m_1,m_2)$ using a uniform mass prior.
+
+Comparison with Fisher and MCMC
+
+
+\begin{figure}
+\caption{\label{fig:TargetedEvent:LikelihoodVersusMchirpEta}\textbf{Targeted study: Posterior distribution
+    versus component masses, for several noise realizations}: : The 90\% confidence interval derived from $L_{\rm red}$.  For
+comparison, the prediction from a Fisher matrix is shown as a solid black curve.
+ \textbf{PLACEHOLDER/INTENT}
+}
+\end{figure}
+
+
+\section{[Internal use] Results: Additional production-environment investigations}
+
+\begin{itemize}
+\item 2016 BNS MDC: [\textbf{Not started}]
+
+\end{itemize}
+
+\section{[Internal use] Incomplete or not-yet-implemented investigations}
+
+\subsection{Measures of convergence}
+
+Measures to assess whether we're done
+\begin{itemize}
+\item * Integral: Classic MC error estimate (central limit); reproducibility across runs and via subsamples (e.g., chisquared)
+
+\item * 1d posterior:  $n_{\rm eff}$; $L^2$ or KL divergence between subsamples or across runs
+
+\item * sampling distribution: similarly
+\end{itemize}
+
+
+\subsection{Semianalytic marginalization over distance}
+
+
+\section{[Internal use] Future directions}
+
+Not for distribution!
+
+\subsection{Short GRBs}
+
+Alex
+
+\subsection{Adding dimensions}
+
+Tides [Les]
+
+Aligned spin
+
+\subsection{Even more speed}
+
+Because the precompute phase is \emph{much} faster than marginalizing over extrinsic parameters, we could accelerate
+code performance in a number of ways, potentially enabling us to tackle higher dimensions
+
+\noindent \textbf{Einstein at home}: Transmit the precomputed data (10ms of timeseries and a few scalars) to the
+Einstein at home grid, giving each distant host (say) 20 mass points to handle.  With $10^5$ cores, that means roughly
+$20\times10^5/10$ intrinsic points per day...enough to handle precessing spin faster than any other extant method.
+
+\noindent \textbf{Interpolate $Q,U$}: Perform the precompute step several times, building up a grid for $Q$ and $U,V$,
+
+\section{[Internal use] Monte Carlo integration}
+
+\textbf{Non-uniform, variance-weighted weighting}: By default we combine results with different sampling priors treating
+them equally (e.g., as if they have converged to the same sampling prior) when evaluating the integral at each mass
+point.  
+
+That doesn't minimize variance and can be particularly
+ineffective when one ILE run has a problem.  Really, we should use variance-reducing weighting: if $x=ax_1 +b x_2$ with $a+b=1$ and
+$\left<x_1\right> =\left<x_2\right> =\left<x\right>$, we can minimize the variance of $x$ by choosing weight $a$ to
+minimize $a^2 \sigma_1^2 + (1-a)^2 \sigma_2^2$, so 
+\begin{eqnarray}
+x = \frac{\sigma_2^2}{\sigma_1^2+\sigma_2^2} x_1 +  \frac{\sigma_1^2}{\sigma_1^2+\sigma_2^2} x_2
+\end{eqnarray}
+A straightforward generalization exists with arbitrary numbers of weights:
+\[
+x = \frac{x_k/\sigma_k^2}{\sum_q 1/\sigma_q^2}
+\]
+We could and should implement this scheme when recombining results at each mass point. 
+%% a^2 s1^2 + b^2 s2^2 + (1 - a - b)^2 s3^3
+%% Solve[{D[%, a] == 0, D[% == 0, b]}, {a, b}]
+
+\section{[Internal use] Results: Targeted studies}
+
+\begin{itemize}
+\item Single event, 100 noise realizations, plus comparison with Fisher matrix
+
+\item Zero-spin 2015 MDC: [\textbf{Not started}]  For completeness, we propose to reproduce the 2015 MDC,  using
+  injections with exactly zero spin.
+
+\end{itemize}
+
+\section{[Internal use] Results: Targeted studies}
+
+\begin{itemize}
+\item Single event, 100 noise realizations, plus comparison with Fisher matrix
+
+\item Zero-spin 2015 MDC: [\textbf{Not started}]  For completeness, we propose to reproduce the 2015 MDC,  using
+  injections with exactly zero spin.
+
+\end{itemize}
+
+\subsection{Detailed investigation of one event}
+Sample run results: Single event, with full DAG, done multiple times (for complete consistency/reproducibility)
+
+Sample run results: extrinsic parameters (for one and several noise realizations)
+
+Sample run results: $L_{\rm red}(\mc,eta)$ (for one and several noise realizations). Expected accuracy at each mass
+point.. Translating into  $p(m_1,m_2)$ using a uniform mass prior.
+
+Comparison with Fisher and MCMC
+
+
+
+\section{[Internal use] Results: Additional production-environment investigations}
+
+\begin{itemize}
+\item 2016 BNS MDC: [\textbf{Not started}]
+
+\end{itemize}
+
+\section{[Internal use] Incomplete or not-yet-implemented investigations}
+
+\subsection{Measures of convergence}
+
+Measures to assess whether we're done
+\begin{itemize}
+\item * Integral: Classic MC error estimate (central limit); reproducibility across runs and via subsamples (e.g., chisquared)
+
+\item * 1d posterior:  $n_{\rm eff}$; $L^2$ or KL divergence between subsamples or across runs
+
+\item * sampling distribution: similarly
+\end{itemize}
+
+
+\subsection{Semianalytic marginalization over distance}
+
+
+\section{[Internal use] Future directions}
+
+Not for distribution!
+
+\subsection{Short GRBs}
+
+
+\section{[Internal use] Incomplete or not-yet-implemented investigations}
+
+\subsection{Measures of convergence}
+
+Measures to assess whether we're done
+\begin{itemize}
+\item * Integral: Classic MC error estimate (central limit); reproducibility across runs and via subsamples (e.g., chisquared)
+\end{itemize}
+
+\section{[Internal use] Future directions}
+
+Not for distribution!
+
+\subsection{Short GRBs}
+
+Alex
+
+\subsection{Adding dimensions}
+
+Tides [Les]
+
+Aligned spin
+
+\subsection{Even more speed}
+
+Because the precompute phase is \emph{much} faster than marginalizing over extrinsic parameters, we could accelerate
+
+\section{[Internal use] Patches pending or desired}
+
+Persons/proposing supporting  a change listed as [name].
+
+\noindent \textbf{Next push}
+
+* Bugfix on ILE MC variance
+
+* Uniform on sky prior with bayestar skymaps
+
+\noindent \textbf{Other important updates}
+
+*  [ROS]  $b_k \ne 0$ for any sky position (else complications arise re normalization).
+
+
+\noindent \textbf{Minor code tweaks}
+
+* [ROS] Larger nchunk
+
+* [ROS] Change tempering exponent definition from $(Lp/p_s)^\beta$ to $L^\beta p/p_s$, to facilitate analysis
+
+* [ROS] Variance weighting when recombining samples from different runs at the same mass point
+
+
+\noindent \textbf{Infrastructure}
+
+* [ROS] Change DAG (number of jobs, max iterations): current solution with skymap is overkill
+
+
+* [ROS] For automated end-to-end tests, add \gstlal{} coinc generation and \BS{} skymaps to \texttt{stage\_injections}
+
+* [ROS] Add posterior in mchirp, eta accounting for prior.

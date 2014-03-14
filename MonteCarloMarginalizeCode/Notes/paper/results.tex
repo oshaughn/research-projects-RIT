@@ -1,0 +1,231 @@
+\label{sec:Results}
+
+% POINT: What events were used
+To provide a stringent, production-environment test of our parameter estimation code, we applied it to \nEventsMDC{}
+events from the 2015 BNS mock data challenge, described below.  
+%
+% POINT: What code was used
+Unless otherwise stated, we adopted nonspinning TaylorT4 templates at 3.5 PN order, including only the $(2,\pm 2)$ and
+$(2,0)$ modes;  used roughly $200$ mass points for each event, distributed on spokes in $\mc,\eta$ radiating away from the reported
+masses  provided by the searches, out to an estimated match of 0.9; 
+ evaluated the Monte Carlo integral $10$ times for each mass point; and used a sampling prior equal to the prior for all
+ parameters except distance and mass, which were set adaptively and \textbf{via a skymap}.    As used here, the skymap had
+ \textbf{$12\times 64^2$ pixels, roughly one per square degree.}  Our distance prior was
+ uniform in volume out to $d=300\unit{Mpc}$.  
+% POINT: Data handling choices
+For each event, the code uses the \gstlal{} input noise power spectrum in each instrument; starts the waveform at $f_{\rm
+  low}=40\unit{Hz}$\footnote{ \textbf{Why is this not a command-line option of ILE, tied to data selection in CME?}};
+and uses an inverse power spectrum filter targeting the frequency range $[f_{\rm min},f_{\rm max}]=[f_{\rm min},
+  2000\unit{Hz}]$, constructed from the measured power spectrum as described in Appendix \ref{ap:DiscreteData}.  
+
+\subsection{2015 BNS MDC}
+
+
+For reference, events in the 2015 MDC data were uniformly distributed on the sky, in orientation, and in volume out to
+\textbf{219} \unit{Mpc}.  The BNS injections had random masses in $1.2 M_\odot-1.6 M_\odot$ and randomly oriented spins with
+\textbf{ZZZ}.   The \gstlal{} pipeline was used to select events for further study.  This selection process introduces a
+small selection (Malmquist) bias, described in Figure \ref{fig:SearchSelection}, 
+which slightly disfavors edge-on binaries relative to our prior.    
+%
+
+Our parameter estimation strategy does not account for selection biases; for a sufficiently large ensemble of events,
+small deviations between the statistical properties of our posteriors and the ensemble are expected. 
+
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-2015MDC-SelectedEvents-DistanceCumulative}
+\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-2015MDC-SelectedEvents-CosIotaCumulative}
+\caption{\label{fig:SearchSelection}\textbf{Selection biases}: For the 450 (\textbf{currently 120}) events used in our followup study, the cumulative distribution of $d^3$
+  and $\cos \iota$.  In the absence of selection biases and in the limit of many samples, these two parameters should be
+  uniformly distributed; small deviations away from uniformity reflect selection biases and sampling error.
+}
+\end{figure}
+
+
+\subsection{Scaling}
+
+* scaling versus $f_{\rm low}$
+
+
+
+\ForInternalReference{
+* scaling versus number of harmonics used.  (Aside on truncating harmonics with trivial content...not used presently)
+}
+
+
+\ForInternalReference{
+\begin{table}
+\begin{tabular}{lll}
+$f_{\rm low}$ & $t_{\rm wave}$ & $T_{\rm wall}$ \\\hline
+10 & & \\
+25 & & \\
+30 & & \\
+\end{tabular}
+\caption{\textbf{Runtime versus starting frequency}: Waveform duration $t_{\rm wave}$ and wallclock time $T_{\rm wall}$  needed to evaluate $L_{\rm red}=\int L p d\theta$
+  for one set of intrinsic parameters $\lambda$ versus starting frequency $f_{|rm low}$, for a $m_1,m_2=\textbf{XXX}$
+  nonspinning black hole binary.  Waveforms were generated using the standard \texttt{TaylorT4} time-domain code.  The
+  computational cost does not depend significantly on waveform duration for starting frequencies of interest. 
+}
+\end{table}
+}
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/fig-manual-RuntimeScalingVsFmin.png}
+\caption{\textbf{Scaling versus frequency}: Points show the runtime of our parameter estimation strategy as a function
+  of the minimum frequency $f_{\rm min}$.  For comparison, the solid curve shows the scaling $\propto f_{\rm
+    min}^{-8/3}$ expected if our runtime was proportional to the waveform duration (e.g., runtime proportional to the
+  number of time samples). 
+% INTERNAL REF: coinc_id_17494 was used here.
+ Waveforms were generated using the standard \texttt{TaylorT4} time-domain code, with $m_1=1.55 M_\odot$ and $m_2=1.23 M_\odot$. 
+}
+\end{figure}
+
+\subsection{Detailed investigation of one event}
+%% WHAT FIGURES CURRENTLY ARE : 
+%     - https://ldas-jobs.phys.uwm.edu/~evano/skymap_reruns/coinc_id_833/ 
+%     : v2 = bayestar as prior and sampler, adapt in distance
+%    
+%% m1 = 1.21992194653 (Msun)
+%% m2 = 1.20069205761 (Msun)
+%% s1x = 0.00190996297169
+%% s1y = 0.00721042277291
+%% s1z = -0.00683548022062
+%% s2x = -0.00129437400028
+%% s2y = -7.87806784501e-05
+%% s2z = 0.00192063604482
+%% lambda1 = 0.0
+%% lambda2 = 0.0
+%% inclination = 2.62300610542
+%% distance = 112.5338974 (Mpc)
+%% reference orbital phase = 4.29952907562
+%% time of coalescence = 966822123.762
+%% detector is: H1
+%% Sky position relative to geocenter is:
+%% declination = 0.678935229778 (radians)
+%% right ascension = 4.10562181473 (radians)
+%% polarization angle = 6.19411420822
+
+Despite providing complete results in less than one hour, our strategy provides extremely well-sampled distributions and
+evidence, with small statistical error.   To illustrate its performance, we have selected a single event, whose
+parameters are provided in Table \ref{tab:FiducialEvent:Parameters}.   
+%
+
+
+
+% POINT: Consistency 
+The repeated independent evaluations naturally produced by our algorithm provide a simple self-consistency check,
+allowing us to quantify convergence empirically.  
+Specifically, at each of the 111 mass points automatically targeted for investigation by our algorithm for this event, we
+independently evaluated the integral $L_{\rm red}$ [Figure \ref{fig:FiducialEvent:LikelihoodVersusMchirpEta}] and construct one- and two-dimensional posterior distributions, from
+10 independent evaluations [e.g., Figure \ref{fig:FiducialEvent:Triplot:TriggerMasses}].    
+%
+As illustrated by example in Figure \ref{fig:FiducialEvent:Triplot:TriggerMasses}, these fixed-mass posterior
+distributions are smooth and overlap the true parameters \editremark{Need to add injection cross}.  
+%
+Moreover, as illustrated by Figure \ref{fig:FiducialEvent:Cumulatives:Comparison:TriggerMasses}, each of the 10
+independent evaluations make posterior predictions that are consistent with one another.   
+%
+Finally, as illustrated by Figure \ref{fig:FiducialEvent:Integral:ErrorEstimate}, for each mass point the 10 values of $L_{\rm red}$
+are consistent with one another to roughly $1\%$.  
+%
+Keeping in mind our final reported results combine both all mass points and all 10 evaluations at each mass point, we
+anticipate relatively little uncertainty due to sampling error in our current configuration.  
+
+
+\begin{table}
+\begin{tabular}{l|ll}
+Parameter & True & Search \\ \hline
+$m_1 (M_\odot)$ &  1.22 & 1.26 \\
+$m_2 (M_\odot)$ &  1.20 & 1.16 \\
+$|\chi_1| $ & 0.01  & 0 \\
+$|\chi_2| $ & 0.002 & 0 \\
+$d (\unit{Mpc}) $ & 112.5 & - \\
+$\iota $ & 2.62 & - \\
+($\alpha,\delta$) & (4.106,0.6789) &\\
+\end{tabular}
+\caption{\label{tab:FiducialEvent:Parameters}\textbf{Fiducial event: True and trigger parameters}: The physical parameters of our injected event, compared
+  with the parameters provided by the search and used to target our parameter estimation followup.
+}
+\end{table}
+
+
+
+
+\begin{figure*}
+\includegraphics[width=\textwidth]{../Figures/v2runs_coinc_id_833_ILE_triplot_MASS_SET_0}
+\caption{\label{fig:FiducialEvent:Triplot:TriggerMasses}\textbf{Posterior distribution in intrinsic parameters, assuming known masses}: For our fiducial event, our predicted
+  distribution of extrinsic parameters $d,RA=\alpha,DEC=\delta,\iota,t,\phi,\psi$, for clarity evaluated assuming at the
+  mass parameters identified by the search.  Extremely similar distributions are recovered at each mass point. 
+\ForInternalReference{  \emph{Suggest: show d-cos iota, skymap, and phi-psi only, not full triplot}}
+}
+\end{figure*}
+
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/v2runs_coinc_id_833_mchirp_eta_logevidence}
+\caption{\label{fig:FiducialEvent:LikelihoodVersusMchirpEta}\textbf{Marginalized likelihood and posterior distribution
+    versus component masses}: \emph{Top panel}: 
+For our fiducial event,
+  contours of the log of integrated likelihood $\ln L_{\rm red}$ versus component masses, represented in $\mc,\eta$
+  coordinates.  Points indicate the mass grid adopted; colors and the color bar indicate specific numerical values.   
+\emph{Bottom panel}: The 90\% confidence interval derived from $L_{\rm red} p(\mc,\eta)$.  
+ \editremark{Once OK with Ben Farr, add curves from MCMC TaylorF2}
+}
+\end{figure}
+
+
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/v2runs_coinc_id_833_cumulative-multiplot-distance-MASS_SET_0}
+\caption{\label{fig:FiducialEvent:Cumulatives:Comparison:TriggerMasses}\textbf{Sampling error analysis I: One-dimensional cumulative distribution at fixed mass}:  For each of the 10 independent
+  instances used at  the mass  parameters   identified by the search, a plot of the one-dimensional cumulative
+  distribution in distance.  These distributions agree to within a few \textbf{(quantify)} percent, qualitatively
+  consistent with a naive estimate based on $1/\sqrt{n_{\rm eff}} \simeq 4\%$.   Combining all 10
+  independent runs, we expect the final distance posterior has even smaller statistical sampling error
+  (\textbf{quantify} $\simeq X/\sqrt{10}$).  Our final posterior
+  distributions, having support from several mass points, should have smaller statistical error still.
+ \editremark{Once OK with Ben Farr, add curves from MCMC TaylorF2}
+}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-v2_coinc_833-IntegralVarianceVersusNeff}
+\caption{\label{fig:FiducialEvent:Integral:ErrorEstimate}\textbf{Sampling error analysis II: Integral error}: For each of the 111 mass points evaluated for the fiducial
+  event, a scatterplot of the mean number of effective samples $n_{\rm eff}$ versus the standard deviation in $\ln
+  L_{\rm red}$, where at each mass point the mean and standard deviation are calculated over the 10 independent
+  evaluations performed.  Considering our final prediction for $L_{\rm red}$ combines all 10 events, this figure
+  suggests $L_{\rm red}$ is known to better than $1\%$ for each mass point.  
+% Additionally, this figure illustrates just how many effective samples are available for *each* mass point: thousands.
+}
+\end{figure}
+
+\subsection{Ensemble of events}
+
+If our estimates for the one-dimensional cumulative distributions $P(<x)$ are unbiased and if $x_*$ is a random variable
+consistent with the prior, then $P(x_*)$ should be a uniformly-distributed random variable.   To test this hypothesis,
+we use the one-dimensional posteriors provided by the MDC.
+%% we perform repeated simulations, where each injected event was drawn from our prior:
+%% \begin{itemize}
+%% \item 2015 BNS MDC:   We selected \nEventsMDC{} events from the 2015 BNS MDC, identified by the \gstlal{} pipeline.  While all events
+%%   have two-dimensional skymaps produced by \BS{}, the analysis presented below did \textbf{not} use two-dimensional skymaps.
+
+%% While the NS-NS binaries in the 2015 MDC had generic spins, our parameter estimation model assumed zero spin.
+%% \end{itemize}
+
+% POINT: pp plots for an ensemble of events
+For each parameter $x$, each colored curve in Figure  \ref{fig:pp:2015Ensemble} is  the fraction of events with
+estimated cumulative probability $P(<x_*)$ at the injected parameter value $x_*$.  
+Specifically, if $P(x_{*q})$ are the sorted cumulative probabilities for the $q=1\ldots n$ events with
+$P(x_{*1})<P(x_{*2})$, then the points on the plot are $\{P(x_{*,q}),q/n\}$.  
+%
+
+\begin{figure}
+%\includegraphics[width=\columnwidth]{../Figures/2015_BNS_MDC_pat_and_chris_pp_plot}   % Original runs
+\includegraphics[width=\columnwidth]{../Figures/v2_2015_BNS_MDC_skysampling_pp_plot}  % Bayestar as prior and sampling prior
+\caption{\label{fig:pp:2015Ensemble}\textbf{PP plot for ensemble of XXX NS-NS events}: \emph{Top panel}: For \textbf{X} randomly-selected NS-NS binaries, a plot of
+  the cumulative distribution of $P_\theta(\theta_k)$ for each extrinsic variable $\theta=d,RA,DEC,\iota,\psi,\phi_{\rm
+    orb}$.
+\emph{Bottom panel}: The sky area associated with higher-probability pixels than the true sky position of the source. \textbf{CREATE}
+}
+\end{figure}
+

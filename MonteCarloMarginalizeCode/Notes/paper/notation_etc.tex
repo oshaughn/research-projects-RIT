@@ -1,0 +1,82 @@
+\subsection{Definitions}
+\begin{itemize}
+\item $\lambda$ : intrinsic coordinate, including masses and spins.
+
+\item $\theta$ : extrinsic coordinate, including $d,RA,DEC,\iota,\psi_L,t,\phi_{\rm orb}$
+
+\item $p_s(\theta)$: (joint) sampling prior in extrinsic dimensions
+
+\item $p(\theta)$ : prior on extrinsic parameters
+
+\item $\Like(\lambda,\theta)$ : likelihood.  In terms of individual detector strains $H_k$ and power spectra, provided by
+\begin{eqnarray}
+\ln L &\equiv \sum_k \ln L_k  = \ln L_{\rm model} + \ln L_{\rm data} \\
+\ln L_{\rm model} &\equiv -\frac{1}{2} \sum_k \qmstateproduct{H_k}{H_k}_k  \\
+\ln L_{\rm data} &\equiv  \sum_k \text{Re} \qmstateproduct{H_k}{\hat{H}_k}_k 
+\end{eqnarray}
+
+\item $Z(\lambda) \equiv L_{\rm red}(\lambda,\theta)$ : reduced or integrated likelihood, derived from $L$ via
+\begin{eqnarray}
+Z(\lambda) = L_{\rm red}(\lambda) = \int d\theta \; p(\theta) L(\lambda,\theta)
+\end{eqnarray}
+
+\item 
+$w=Lp/p_s$ : weight
+
+\item 
+$n_{\rm eff}$ : ``effective number of samples''
+\begin{eqnarray}
+n_{\rm eff} \equiv  \frac{\sum_k w_k}{\text{max}_k w_k}
+\end{eqnarray}
+
+\item 
+$h(t|\lambda,x)=h_+-i h_\times$ : complex gravitational wave strain
+
+\item 
+$h_{lm}(t)$: coefficients of a spin-weighted spherical harmonic decomposition
+\begin{eqnarray}
+\label{eq:def:hSpinWeightEmissionDirection}
+h(t|\lambda,\theta) = \sum_{lm} h_{lm}(t|\lambda) e^{-2i\psi}\Y{-2}_{lm}(\theta_{JN}\phi_{JN})
+\end{eqnarray}
+
+\item 
+$\tilde{h}(f)$ : two-sided Fourier transform of the complex function $h(t)$
+\begin{eqnarray}
+h(t) = \int_{-\infty}^{\infty} \frac{d \omega}{2\pi} \; e^{-i\omega t} \tilde{h}(\omega) 
+\end{eqnarray}
+
+%% \item
+%% ${\cal I}$ : complex conjugation in time.  Provided to avoid confusion with $\tilde{h}^*$.  \textbf{Hopefully we won't
+%%   need it.}
+
+
+\item 
+$\vec{x}_k$ : Position of the $k$th detector
+
+\item 
+$F_{+}$, $F_{\times},F$ : detector response function  to the $+,\times$ polarizations for sources visible in the
+  $\hat{n}$ direction relative to detector
+\begin{eqnarray}
+F(\hat{n}) = F_+(\hat{n}) +i F_\times(\hat{n})
+\end{eqnarray}
+
+\item 
+$\hat{H}_k$ : measured strain in  the $k$th detector
+
+\item 
+$H_k$ : strain response of the $k$th detector to an incident strain $h$
+\begin{align}
+H_k(t) &=F_{+,k}(t) h_+(t-\vec{x}_k(t)\cdot \hat{k}) + F_\times(t) h_\times(t-\vec{x}_k(t)\cdot \hat{k}) \\
+ &=  \frac{F h(t-\vec{x}_k\cdot \hat{k}) }{2} + \frac{F^*h^*(t-\vec{x}_k\cdot \hat{k})}{2}
+\end{align}
+
+\item 
+$S_k$ : noise power spectrum for the $k$th detector
+
+\item 
+$\qmstateproduct{a}{b}_k$ : complex-valued inner product defined by the $k$th detector's noise power spectrum:
+\begin{eqnarray}
+\qmstateproduct{a}{b}_k \equiv 2 \int_{-\infty}^{\infty} df \frac{[\tilde{a}(f)]^*\tilde{b}(f)}{S_h(|f|) }
+\end{eqnarray}
+
+\end{itemize}
