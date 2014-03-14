@@ -63,7 +63,8 @@ $f_{\rm low}$ & $t_{\rm wave}$ & $T_{\rm wall}$ \\\hline
 \end{tabular}
 \caption{\textbf{Runtime versus starting frequency}: Waveform duration $t_{\rm wave}$ and wallclock time $T_{\rm wall}$  needed to evaluate $L_{\rm red}=\int L p d\theta$
   for one set of intrinsic parameters $\lambda$ versus starting frequency $f_{|rm low}$, for a $m_1,m_2=\textbf{XXX}$
-  nonspinning black hole binary.  Waveforms were generated using the standard \texttt{TaylorT4} time-domain code.  The
+  nonspinning black hole binary.  Waveforms were generated using the  \texttt{TaylorT1} and \texttt{EOBNRv2} time-domain
+  codes, respectively.  The
   computational cost does not depend significantly on waveform duration for starting frequencies of interest. 
 }
 \end{table}
@@ -141,7 +142,8 @@ $|\chi_1| $ & 0.01  & 0 \\
 $|\chi_2| $ & 0.002 & 0 \\
 $d (\unit{Mpc}) $ & 112.5 & - \\
 $\iota $ & 2.62 & - \\
-($\alpha,\delta$) & (4.106,0.6789) &\\
+($\alpha,\delta$) & (4.106,0.6789) &\\ 
+$\rho_{\rm search}$ & 10.85 \\
 \end{tabular}
 \caption{\label{tab:FiducialEvent:Parameters}\textbf{Fiducial event: True and trigger parameters}: The physical parameters of our injected event, compared
   with the parameters provided by the search and used to target our parameter estimation followup.
@@ -162,12 +164,16 @@ $\iota $ & 2.62 & - \\
 
 
 \begin{figure}
-\includegraphics[width=\columnwidth]{../Figures/v2runs_coinc_id_833_mchirp_eta_logevidence}
+%\includegraphics[width=\columnwidth]{../Figures/v2runs_coinc_id_833_mchirp_eta_logevidence}
+\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-coinc833-LReducedVersusMcEta}
 \caption{\label{fig:FiducialEvent:LikelihoodVersusMchirpEta}\textbf{Marginalized likelihood and posterior distribution
     versus component masses}: \emph{Top panel}: 
 For our fiducial event,
-  contours of the log of integrated likelihood $\ln L_{\rm red}$ versus component masses, represented in $\mc,\eta$
-  coordinates.  Points indicate the mass grid adopted; colors and the color bar indicate specific numerical values.   
+  contours of the log of integrated likelihood $\ln \LikeRed$ versus component masses, represented in $\mc,\eta$
+  coordinates.  Points indicate the mass grid adopted; thin contours show isocontours of the (interpolated)
+  $\ln \LikeRed=35,36,37,38,39$.   For comparison, the thick black curve corresponds to the 90\% confidence interval
+  predicted by combining the network SNR reported by the search ($\rho_{\rm search}$ in Table \ref{tab:FiducialEvent:Parameters}) and the (effective)
+  Fisher matrix used when placing test points.  
 \emph{Bottom panel}: The 90\% confidence interval derived from $L_{\rm red} p(\mc,\eta)$.  
  \editremark{Once OK with Ben Farr, add curves from MCMC TaylorF2}
 }
