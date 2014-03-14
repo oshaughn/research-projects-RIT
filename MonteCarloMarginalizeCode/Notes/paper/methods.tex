@@ -1,15 +1,5 @@
 \label{sec:Methods}
 
-\newcommand\itrprm{\vec{\lambda}}
-\newcommand\etrprm{\vec{\theta}}
-
-\subsection{Preliminaries}
-We begin with the division of the parameter space of compact binary coalescence waveforms. We first define the difference between ``intrinsic'' and ``extrinsic'' parameters. We define $\itrprm$ as the set of intrinsic parameter as those corresponding to the physical configuration of a binary with component masses $m_1$ and $m_2$: $\itrprm=\{\mc,\eta,\Lambda_1,\Lambda_2,\vec{S}_1,\vec{S}_2,\vec{L}\}$, where $\mc$ and $\eta$ are the chirp mass ($(m_1m_2)^{3/5}/(m_1+m_2)^{1/5}$) and symmetric mass ratio ($m_1m_2/(m_1+m_2)^2$), $\Lambda_1$ and $\Lambda_2$ are the tidal numbers of each component mass\footnote{Black holes have no tidal number and thus $\Lambda=0$}, and finally $\vec{S}_1$ and $\vec{S}_2$ correspond to the spin vectors of the component compact objects\footnote{$\vec{L}$, the overall angular momentum of the system is important in the case where the spins are not aligned with the orbital angular momentum, thus causing precession of the orbital plane}. We emphasize in this work rapid determination of source masses --- and possibly compact object type --- thus focusing attention exclusively on $\itrprm=\{\mc,\eta\}$. While the impact of spin and tidal parameters on the waveform are important, they are also potentially complicate the computation of the likelihood in the scheme described later. We thus leave the remaining intrinsic parameters to be built upon in future work.
-
-The extrinsic parameters can be interpreted as the effect of the waveform's arrival and response on a given gravitational-wave detector. For a set of gravitational-wave interferometers, a seven-dimensional space of extrinsic parameters is defined as $\etrprm=\{t_c,\alpha,\delta,\iota,D,\psi,\phi\}$, where $t_c$ is a reference time (usually relative to the geocentric time of coalescence), $\alpha$ and $\delta$ are the right ascension and declination, $\iota$ is the inclination angle of the binary's angular momentum vector and the line of sight to Earth, $D$ is the luminosity distance to the binary\footnote{For the sources considered in this paper, the redshift correction is assumed to be negligible}, $\psi$ is the azimuthal angle of the wave's plane of disturbance to the plane of the arms of the detector, and $\phi$ is the orbital phase of the binary at coalescence. Several subsets of these parameters have well-known (particularly in the non-spinning case) correlations.
-
-Methods go here.
-
 * coordinates [limit to nonprecessing?]
 
 * time domain model
@@ -22,6 +12,15 @@ As outlined above, we evaluate the posterior probability by reorganiing our
 
 
 As summarized in Section \ref{sec:Executive}, our algorithm 
+
+
+\newcommand\itrprm{\vec{\lambda}}
+\newcommand\etrprm{\vec{\theta}}
+
+\subsection{Preliminaries}
+We begin with the division of the parameter space of compact binary coalescence waveforms. We first define the difference between ``intrinsic'' and ``extrinsic'' parameters. We define $\itrprm$ as the set of intrinsic parameter as those corresponding to the physical configuration of a binary with component masses $m_1$ and $m_2$: $\itrprm=\{\mc,\eta,\Lambda_1,\Lambda_2,\vec{S}_1,\vec{S}_2,\vec{L}\}$, where $\mc$ and $\eta$ are the chirp mass ($(m_1m_2)^{3/5}/(m_1+m_2)^{1/5}$) and symmetric mass ratio ($m_1m_2/(m_1+m_2)^2$), $\Lambda_1$ and $\Lambda_2$ are the tidal numbers of each component mass\footnote{Black holes have no tidal number and thus $\Lambda=0$}, and finally $\vec{S}_1$ and $\vec{S}_2$ correspond to the spin vectors of the component compact objects\footnote{$\vec{L}$, the overall angular momentum of the system is important in the case where the spins are not aligned with the orbital angular momentum, thus causing precession of the orbital plane}. We emphasize in this work rapid determination of source masses --- and possibly compact object type --- thus focusing attention exclusively on $\itrprm=\{\mc,\eta\}$. While the impact of spin and tidal parameters on the waveform are important, they are also potentially complicate the computation of the likelihood in the scheme described later. We thus leave the remaining intrinsic parameters to be built upon in future work.
+
+The extrinsic parameters can be interpreted as the effect of the waveform's arrival and response on a given gravitational-wave detector. For a set of gravitational-wave interferometers, a seven-dimensional space of extrinsic parameters is defined as $\etrprm=\{t_c,\alpha,\delta,\iota,D,\psi,\phi\}$, where $t_c$ is a reference time (usually relative to the geocentric time of coalescence), $\alpha$ and $\delta$ are the right ascension and declination, $\iota$ is the inclination angle of the binary's angular momentum vector and the line of sight to Earth, $D$ is the luminosity distance to the binary\footnote{For the sources considered in this paper, the redshift correction is assumed to be negligible}, $\psi$ is the azimuthal angle of the wave's plane of disturbance to the plane of the arms of the detector, and $\phi$ is the orbital phase of the binary at coalescence. Several subsets of these parameters have well-known (particularly in the non-spinning case) correlations.
 
 
 \subsection{Background}
