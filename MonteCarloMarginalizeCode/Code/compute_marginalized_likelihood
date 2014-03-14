@@ -352,9 +352,10 @@ if opts.mass_points_xml:
     procid = procrow.process_id
     process.append_process_params(xmldoc, procrow, process.process_params_from_dict(opts.__dict__))
     
-    sim_insp_tbl = lsctables.New(lsctables.SimInspiralTable, ["simulation_id", "process_id", "mass1", "mass2"])
+    sim_insp_tbl = lsctables.New(lsctables.SimInspiralTable, ["simulation_id", "process_id", "numrel_data", "mass1", "mass2"])
     for itr, (m1, m2) in enumerate(m1m2_grid):
         sim_insp = sim_insp_tbl.RowType()
+        sim_insp.numrel_data = "MASS_SET_%d" % itr
         sim_insp.simulation_id = ilwd.ilwdchar("sim_inspiral:sim_inspiral_id:%d" % itr)
         sim_insp.process_id = procid
         sim_insp.mass1, sim_insp.mass2 = m1, m2
