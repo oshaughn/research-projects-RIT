@@ -136,7 +136,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
     
     return ile_job, ile_sub_name
 
-def write_result_coalescence_sub(tag='coalesce', exe=None, log_dir=None, output_dir="./"):
+def write_result_coalescence_sub(tag='coalesce', exe=None, log_dir=None, output_dir="./", use_default_cache=True):
     """
     Write a submit file for launching jobs to coalesce ILE output
     """
@@ -155,7 +155,10 @@ def write_result_coalescence_sub(tag='coalesce', exe=None, log_dir=None, output_
     sql_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     sql_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
-    sql_job.add_opt("input-cache", "ILE_$(macromassid).cache")
+    if use_default_cache:
+        sql_job.add_opt("input-cache", "ILE_$(macromassid).cache")
+    else:
+        sql_job.add_arg("$(macrofiles)")
     #sql_job.add_arg("*$(macromassid)*.xml.gz")
     sql_job.add_opt("database", "ILE_$(macromassid).sqlite")
     #if os.environ.has_key("TMPDIR"):
