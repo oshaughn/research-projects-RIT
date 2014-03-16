@@ -55,18 +55,39 @@ existing search codes.  This careful approach ensured, for example, that inferen
 reanalysis of the same data.  
 %
 That said, experience suggests the search codes provide a reasonable first approximation, 
-particularly for the most expensive parameters (i.e., event time; chirp time; sky location).  
+particularly for the most tightly constrained parameters, relative to their priors (i.e., event time; chirp time; sky location).  
 %
 Some parameter estimation codes have used this information to improve their performance, more efficiently searching the
 sky \editremark{check with Ben F}.  
 That said, historical experience with serial codes suggest \emph{sampling} the maximum (not finding it) is what limits
 performance; based on that experience, one might expect minimal additional asymptotic speed improvement when provided
 with a good initial guess.
+%
+By contrast, Monte Carlo integration trivially provides robust sampling of any weakly-constrained parameters (e.g.,
+distance, inclination, polarization).    By using search results to sample near expected results, Monte Carlo methods
+can be both generic and extremely efficient.   We therefore describe a procedure systematically and organically incorporates information provided
+by the search to accelerate our specific algorithm's performance.  
+%
+Combining these three factors (parallelizable monte carlo integration; efficient likelihoods; and search information),
+we can provide reliable parameter estimates for merging double neutron star binaries within one hour on existing
+hardware for instruments available in the next two years.
+
+
+% POINT: Low latency as ratioale
+In the era of multimessenger astronomy, rapid and robust inference about candidate compact binary gravitational wave
+events will be a critical science product for LIGO, as  colleagues with other instruments  perform followup and
+coincident observations \cite{LIGO-2013-WhitePaper-CoordinatedEMObserving}.  
+%
+The most tantalizing proposed electromagnetic counterparts are expected to be brief, potentially disappearing within
+days if not much
+sooner \cite{2012ApJ...746...48M,2014MNRAS.439..757G,2014MNRAS.437L...6K,2014MNRAS.437.1821M,2014ApJ...780...31T,2013ApJ...775...18B}.  
+%
+Given limited resources, reliable low-latency parameter estimation of gravitational wave signals will significantly enhance the science output of
+multimessener, time-domain astronomy.  
+
 % ``burnin is short; finding the best fit is fast;
 %what's expensive is mapping out the likelihood near the maximum'' \editremark{fixme: can't use in publication}.
-%
-As our algorithm operates in a different regime,  we describe a procedure systematically and organically incorporates information provided
-by the search to accelerate our specific algorithm's performance.  
+% 
 
 
 % POINT: Outline
