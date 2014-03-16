@@ -381,7 +381,40 @@ using some small scale $\Delta p$ estimated from the skymap, then  precompute a 
 
 \subsubsection{Time marginalization}
 
-* Concept only; see Appendix \ref{ap:DiscreteData} for details
+While we have to perform a Monte Carlo integration over the other extrinsic parameters, we are able to
+integrate over the geocenter time of coalescence quite simply and efficiently.
+From Eq.~(\ref{eq:def:lnL:Decomposed}), we see that time only enters the log-likelihood through the terms
+$Q_{k,lm}(t - \hat{k} \cdot x_k)$, where $t$ denotes the time of coalescence at the geocenter, $t - \hat{k} \cdot x_k$ is
+the corresponding time of arrival at the $k^{\rm th}$ detector (which depends on the sky position being considered),
+and $Q_{k,lm}$ is the inner product between the data and the $h_{lm}$ mode for that time of arrival.
+Now, from detection template searches there is a well-known method of efficiently maximizing the overlap 
+between a template and data over time of coalescence using an inverse Fourier transform. This is due to the fact that,
+if we have a Fourier-domain representation of a waveform with a certain time of coalescence $\tilde{h}(f,t_c)$,
+then we can shift it to any other coalescence time with
+\begin{equation}
+\tilde{h}(f,t_c') = \tilde{h}(f,t_c) \, e^{-2\pi i f (t_c'-t_c)}\ .
+\end{equation}
+Using Eq.~\ref{eq:InnerProduct}, the overlap between data and this template at an arbitrary time shift is
+\begin{equation}
+\langle h(t_c) | d \rangle = \int_{-\infty}^{\infty} \frac{\tilde{d}(f) \tilde{h}^*(f)}{S_n(f)} e^{2\pi i f t_c} df \ .
+\end{equation}
+It is clear that the overlap for all possible time shifts can be computed with a single inverse Fourier transform
+of the overlap integrand.
+Moreover, if the data is similar to the template, the overlap is very sharply peaked as a function of time shift, 
+and will typically become negligible for time shifts greater than $\gtrsim 10$ms. 
+Therefore, we precompute and store the $Q_{k,lm}(t - \hat{k} \cdot x_k)$ for a rather narrow range of times.
+To allow for different detector arrival times for different sky positions, we must actually store values of
+$Q_{k,lm}$ on the scale of the light travel time across the Earth. In this work we store values of the 
+$Q_{k,lm}$ for $300$ ms, which is quite safe.
+ 
+Now, given a sky position chosen by the Monte Carlo routine, we compute the shifts in time of arrival for each
+detector relative to the geocenter. Then, to evaluate the value of $\ln {\cal L}$ for some geocenter time $t$,
+we simply look up the correct value of the $Q_{k,lm}$ from our precomputed values and plug them
+into Eq.~(\ref{eq:def:lnL:Decomposed}).
+We can trivially integrate over $t$ by performing a finite sum in this way 
+for each $t$ in our precomputed $300$ ms range.
+
+
 
 
 
