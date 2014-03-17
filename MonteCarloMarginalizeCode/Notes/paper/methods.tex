@@ -248,7 +248,11 @@ fixed $\lambda$, where $x$ is one of the extrinsic variables in $\theta$:
 \end{eqnarray}
 [This formula follows by performing Monte Carlo integration on the parameter volume $<x$, keeping track of overall
   normalization.]  
-In the limit of many samples, this discontinuous estimate should converge to a smooth, marginalized posterior distribution.  
+In the limit of many samples, this discontinuous estimate should converge to a smooth, marginalized posterior
+  distribution.  
+%
+For any set of samples and any $x$, the error in $\hat{P}$ follows from the (correlated) statistics of the Monte Carlo
+integrals in its numerator and denominator; see the Appendix for a rigorous discussion. 
 % POINT: neff
 In the typical case that all samples $x_q$ are distinct, the unique sample with the largest weight corresponds to the
 largest discontinuity in $\hat{P}$.  The magnitude of this discontinuity, or equivalently its inverse $n_{\rm eff}$,
@@ -258,7 +262,14 @@ n_{\rm eff} \equiv \frac{\sum_q w_q}{\text{max} w_{\rm q}}
 \end{eqnarray}
 Equivalently, the ``effective number of samples'' $n_{\rm eff}$ measures how many independent samples produce similar
 weights near the largest observed weight.  
-
+%
+Motivated by the effective number of samples and by analogy to the error in a one-dimensional unweighted cumulative
+distribution, we expect the standard deviation in our estimate $\hat{P}$ for $P$ to be comparable to or less than the
+standard deviation of an \emph{equally-weighted} set of $n_{\rm eff}$ samples,  derived from the binomial distribution:
+\begin{eqnarray}
+\left<\hat{P}^2\right > - \left<\hat{P} \right>^2 \lesssim \frac{P(1-P)}{n_{\rm eff}}
+\end{eqnarray}
+We \editremark{will} validate this simple estimate.  
 
 
 %
@@ -289,9 +300,9 @@ Every $n_{\rm chunk}$ samples, we reconstruct the one-dimensional sampling prior
 the last $n_{\rm chunk}\times n_{\rm h}$ samples.    In each dimension ($x$), we subdivide the full range
 into $n_{\rm bins}$ equal-length bins $X_\alpha$, then evaluate a tempered, weighted histogram
 \begin{eqnarray}
-W_\alpha = \frac{\sum_{q} w_q^\beta \theta(x_q\in X_\alpha)}{\sum_q w_q^\beta}
+W_\alpha = \frac{\sum_{q} w_q^\beta \Theta_{X_\alpha}(x_q)}{\sum_q w_q^\beta}
 \end{eqnarray}
-where $\theta(x\in Y)=1$ if  $x$ is in Y and zero otherwise,  and where $\beta$ is a  parameter to moderate the dynamic
+where $\Theta_Y(x)=1$ if  $x$ is in Y and zero otherwise,  and where $\beta$ is a  parameter to moderate the dynamic
 range of $w$, described below.  
 %
 We then \emph{smooth} the array $W$, convolving it with a uniform distribution $n_{\rm smooth}$ bins across.
