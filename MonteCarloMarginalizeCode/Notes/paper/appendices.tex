@@ -53,6 +53,92 @@ where $\{\gamma_k,v_k\}$ is the eigensystem of $\Gamma$.
 
 \section{[Internal use] Monte Carlo integration}
 
+\noindent \textbf{[Skymaps]  Discretizing a volume} We integrate over the sky by translating a continuous distribution into
+discrete, equal-area pixels.  Specifically, we start with the abstract process of breaking an integral over a volume
+$\Omega$ in the sky coordinates ($\gamma$)  up into nonoveralapping
+volumes $A_n$ with $\cup A_n = \Omega$  , where the extrinsic volumes are small enough that we can treat any expected
+function (e.g., $L,p$) can be approximated as nearly independent of $\gamma$ in $A_n$:
+\begin{widetext}
+\begin{align}
+\LikeRed(\lambda)
+& = \int_{V\times\Omega}\Like(\lambda,\theta,\gamma)p(\theta)p(\gamma) d \theta d\gamma 
+%\\& 
+=  \sum_{n=1}^N \int_{A_n} [\int_V  L(\gamma,\theta,\gamma) p(\theta) ] p(\gamma)d\gamma 
+%\\ & 
+ \simeq  \sum_{n=1}^N  \left [\int_V  L(\gamma,\theta,\gamma_n) p(\theta) \right] P_n 
+\end{align}\end{widetext}
+where $P_n \equiv \int_{A_n} d\gamma p(\gamma)$ is the prior probability for the volume $A_n$, and $\gamma_n$ is a
+representative point in $A_n$.   Note
+\begin{eqnarray}
+\sum_n P_n =1
+\end{eqnarray}
+We are \emph{particularlly} interested in uniform distributions (equal-area tilings of the sky), so 
+\[
+P_n = \frac{1}{N} \qquad   \text{Area}(A_n) = \frac{4\pi}{N}
+\]
+
+\noindent \emph{Monte Carlo integration with discrete volumes}: As above, but apply to Monte Carlo integration, with a
+prior $p_s(\theta)p_s(\gamma)$ in each variable:
+\begin{align}
+\LikeRed(\lambda)
+& \simeq  \sum_{n=1}^N \int_{A_n} \left [\int_V  L(\gamma,\theta,\gamma_n) p(\theta)p(\gamma) \right]
+\end{align}
+Proceed as above, but approximate $p(\gamma_n)/p_s(\gamma_n) \simeq P_n/P_{s,n}$, to find
+\begin{align}
+\LikeRed(\lambda)
+& =\sum_n \left[\int_{V}\Like(\lambda,\theta,\gamma_n)\frac{p(\theta)}{p_s(\theta)}p_s(\theta)d\theta \right] \frac{ P_n }{P_{s,n}} P_{s,n}
+\end{align}
+Now imagine performing a Monte Carlo integral in this form.   Monte Carlo integration corresponds to selecting a random
+integer $n$ and a random sample $\theta$ drawn from $p_s(\theta)$.  Indexing the $N$ choices as $n_{\alpha}$ and
+$\theta_\alpha$, we find
+\begin{align}
+\LikeRed(\lambda)
+& = \sum_{\alpha}\frac{1}{N}
+\Like(\lambda,\theta_{\alpha},\gamma_{n,\alpha})\frac{p(\theta_\alpha)}{p_s(\theta_\alpha)} \frac{ P_{n_\alpha}
+}{P_{s,n}} 
+\end{align}
+In other words, when performing a Monte Carlo integral over a discrete subset (e.g., skymap), we use the
+\emph{integrated} probabilities $P_n$ as our ``PDF''.
+
+\emph{Concrete discrete random sampling}: For a discrete uniform equal-area tiling, we will use a
+\textbf{discrete} probability distribution, not a continuous one.   Specifically, our code 
+\begin{itemize}
+\item \emph{Prior PDF}: Since we always assume uniform on the sky,  provide $P_n=1/N$ at the $n$th
+point (i.e., given the sky position of the $n$th tile), \emph{not} $p(\gamma_n)$.
+
+\item \emph{Skymap sampling PDF}: Bayestar provides normalized weighted $s_{s,n}$ already.  After fixing a
+  \textbf{normalization issue} (below), we use
+\[
+P_{s,n} = s_n \frac{N'}{N}
+\]
+where $N,N'$ are defined below.
+
+\item \emph{Skymap random samples via CDF inverse}: We generate random integers $n$ using random numbers on $[0,1]$, finding the
+  closest integer $n$ to the  cumulative of $P_n$; see the text.
+\end{itemize}
+
+
+
+
+\noindent \textbf{[Skymaps] Normalization correction}: As described in the notes, if $p_s=0$  in a volume where $p\ne 0$, we must address two
+complications.\footnote{Of course, we are free to add a floor to the skymap ($s'=a s + (1-s)/N$ for $a\in[0,1]$) as a simple but crude solution.}  First, we can't integrate generic functions $L$ with $L>0$ with $p_s=0$ -- we don't sample them fully.  
+Second, we must careful about \emph{normalization}, rescaling the total number of samples $N_s$ drawn from $p_s$ by the ratio of volumes
+\begin{eqnarray}
+N_{\rm corr} = N / \int p_s d\theta d\gamma
+\end{eqnarray}
+We will apply this correction to the returned values of $p_s$, returning ``rescaled'' probabilities 
+% mcsampler.py  : self._renorm  in pseudo_pdf  and self._expand_valid_points.
+\begin{eqnarray}
+p_s \rightarrow \frac{p_s}{\int_U p  d\theta d\gamma}
+\end{eqnarray}
+Specifically,  if $s_n$ are the  skymap weights reported by \BS, normalized so $\sum_n s_n=1$, we use an ``effective''
+sampling ``probability'' $P_{s,n}$ of
+\begin{eqnarray}
+P_{s,n} = s_n \frac{N'}{N}
+\end{eqnarray}
+where $N'$ is the number of nonzero samples in $s$ and $N$ is the number of pixels in $s$.
+
+
 \textbf{Non-uniform, variance-weighted weighting}: By default we combine results with different sampling priors treating
 them equally (e.g., as if they have converged to the same sampling prior) when evaluating the integral at each mass
 point.  
@@ -310,8 +396,14 @@ Persons/proposing supporting  a change listed as [name].
 
 * [ROS] For automated end-to-end tests, add \gstlal{} coinc generation and \BS{} skymaps to \texttt{stage\_injections}
 
+** Approximate solution: use bayestar tool to generate ``fake'' coincs and skymaps from sims:
+\href{https://www.lsc-group.phys.uwm.edu/ligovirgo/cbcnote/ParameterEstimationModelSelection/BAYESTARHowTo}{Bayestar docs}
+
 * [ROS] Add posterior in mchirp, eta accounting for prior.
 
 * [Patrick] Logging
 
 * [Richard/Chris] Report hashtag in log and process\_params
+
+* [ROS] Warnings about implicit cutoffs re skymaps (\texttt{min\_p} plus the \texttt{cdf} target, both of which define
+regions to be ignored).
