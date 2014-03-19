@@ -680,7 +680,7 @@ class HealPixSampler(object):
         self.valid_points_hist = None
         return self._renorm
 
-    def __expand_valid(self, min_p=1e-5):
+    def __expand_valid(self, min_p=1e-7):
         #
         # Determine what the 'quanta' of probabilty is
         #
@@ -696,6 +696,12 @@ class HealPixSampler(object):
         for pt in self.valid_points_decra:
             self.valid_points_hist.extend([pt]*int(self.pseudo_pdf(*pt)/min_p))
         self.valid_points_hist = numpy.array(self.valid_points_hist).T
+
+        # Account for probability lost due to cut off
+        self._renorm = sum([self.skymap[i] if v else 0 for i, v in enumerate(self.skymap >= min_p)])
+        # Account for all pixels which are not included
+        valid_pixels = sum([1.0 if i else 0.0 for i in self.skymap >= min_p])
+        self._renorm /= valid_pixels/len(self.skymap)
 
     def pseudo_pdf(self, dec_in, ra_in):
         """
