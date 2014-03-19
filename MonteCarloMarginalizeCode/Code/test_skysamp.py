@@ -20,26 +20,71 @@ import mcsampler
 
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
-
+#
+# 2-D "sky sampler" uses a custom sampling class wrapped around a fits file
+# skymap
+#
 
 #
 # Read FITS data
 #
 smap, smap_meta = bfits.read_sky_map(sys.argv[1])
 
-skysampler = mcsampler.HealPixSampler(smap)
-
-#def integrand(dec, ra, test):
+#
+# Integrating a constant (1)
+#
 def integrand(dec, ra):
-    #return numpy.ones(ra.shape)/(2.0*numpy.pi**2)
-    #return numpy.sin(dec.astype(numpy.float64))/(4*numpy.pi)
-    # Function... integrate thyself...
-    return skysampler.pseudo_pdf(dec.astype(numpy.float64), ra.astype(numpy.float64))
+    return numpy.ones(ra.shape)
 
+print "Test 1, prior is isotropic (unnormalized). Should get the normalization factor for the prior (1/len(skymap)) from this test."
+smap_isotropic = numpy.ones(len(smap))/len(smap)
+skysampler = mcsampler.HealPixSampler(smap_isotropic)
+
+integrator = mcsampler.MCSampler()
+integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=lambda d, r: 1, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
+
+v = integrator.integrate(integrand, (("ra", "dec"),), verbose=True, nmax=100000)
+print v[0], len(smap)
+
+print "Test 2, prior is isotropic (normalized). Should get 1.0 for this test"
+iso_bstar_prior = numpy.vectorize(lambda d, r: 1.0/len(skysampler.skymap))
+integrator = mcsampler.MCSampler()
+integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=iso_bstar_prior, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
+
+v = integrator.integrate(integrand, (("ra", "dec"),), verbose=True, nmax=100000)
+print v[0]
+
+print "Test 3, prior is isotropic (normalized). BAYESTAR map is not isotropic, but has support everywhere. Should still get 1.0 for this test. The integral will accuracy increase as the mixing factor becomes larger (and thus more effective in coverage)."
+for mixing_factor in [1e-3, 5e-3, 1e-2, 1e-1]:
+    print "Mixing factor %g" % mixing_factor
+    smap_full_support = (1-mixing_factor)*smap + (mixing_factor)*numpy.ones(len(smap))/len(smap)
+    skysampler = mcsampler.HealPixSampler(smap_full_support)
+    integrator = mcsampler.MCSampler()
+    integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=iso_bstar_prior, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
+
+    v = integrator.integrate(integrand, (("ra", "dec"),), verbose=True, nmax=100000)
+    print v[0]
+
+print "Test 4, prior is isotropic (normalized). BAYESTAR map does not have full support over the entire sky, so the skymap values are (internally) renormalized to account for the missing area (in the ratio of used pixels to total pixels). Answer should still be 1.0"
+skysampler = mcsampler.HealPixSampler(smap)
+iso_bstar_prior = numpy.vectorize(lambda d, r: 1.0/len(skysampler.skymap))
+integrator = mcsampler.MCSampler()
+integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=iso_bstar_prior, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
+
+v = integrator.integrate(integrand, (("ra", "dec"),), verbose=True, nmax=1000000)
+print v[0]
+
+print "Test 5, prior is BAYESTAR map, which does not have full support over the sky, but does over itself, thus the integral over itself should still be 1.0. Note that we change the prior, and not the integrand because the assumptions about the discretization of p and p_s appear in a ratio, and this preserves that ratio."
+
+integrator = mcsampler.MCSampler()
+integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=skysampler.pseudo_pdf, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
+v = integrator.integrate(integrand, (("ra", "dec"),), verbose=True, nmax=100000)
+print v[0]
 
 #
 # Check sample distribution plots
 #
+skysampler = mcsampler.HealPixSampler(smap)
 dec, ra = skysampler.pseudo_cdf_inverse(ndraws=10000)
 bins, x, y = numpy.histogram2d(dec, ra, bins=32)
 pyplot.figure()
@@ -61,8 +106,6 @@ pyplot.savefig("1d_ss_hists.png")
 np = healpy.nside2npix(32)
 ss_test = mcsampler.HealPixSampler(numpy.ones(np)/float(np))
 
-integrator = mcsampler.MCSampler()
-
 #
 # Processing time tests
 #
@@ -74,23 +117,8 @@ smap, smap_meta = bfits.read_sky_map(sys.argv[1])
 skysampler = mcsampler.HealPixSampler(smap)
 """
 ncalls = 1000
-print "Checking time for %d cdf_inv calls for 1000 pts each" % ncalls
-res = timeit.Timer("skysampler.pseudo_cdf_inverse_exp(ndraws=1000)", setup=setup).repeat(1, number=ncalls)
-print "min val %f" % min(res)
+# FIXME: Disabled for now
+#print "Checking time for %d cdf_inv calls for 1000 pts each" % ncalls
+#res = timeit.Timer("skysampler.pseudo_cdf_inverse(ndraws=1000)", setup=setup).repeat(1, number=ncalls)
+#print "min val %f" % min(res)
 
-#
-# 2-D "sky sampler" uses a custom sampling class wrapped around a fits file
-# skymap
-#
-#integrator.add_parameter(params=("dec", "ra"), pdf=ss_test.pseudo_pdf, cdf_inv=ss_test.pseudo_cdf_inverse, prior_pdf=lambda a,b: numpy.ones(a.shape), left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
-integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=lambda a,b: numpy.ones(a.shape), left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
-
-#
-# "test" dimension is just here to ensure we don't break the mixed 1-D and N-D 
-# pdf cases
-#
-#test_samp = functools.partial(mcsampler.uniform_samp_vector, 0, 1)
-#integrator.add_parameter(params="test", pdf=test_samp, cdf_inv=None, prior_pdf=lambda t: numpy.ones(t.shape), left_limit=0, right_limit=1)
-
-#print integrator.integrate(integrand, (("ra", "dec"), "test"), verbose=True, nmax=10000)
-print integrator.integrate(integrand, (("ra", "dec"),), verbose=True, nmax=30000)
