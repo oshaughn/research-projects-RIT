@@ -420,15 +420,19 @@ if opts.skymap_file is not None:
     # Right ascension and declination -- use a provided skymap
     #
     smap, _ = bfits.read_sky_map(opts.skymap_file)
+    # FIXME: Uncomment for 'mixed' map
+    #smap = 0.9*smap + 0.1*numpy.ones(len(smap))/len(smap)
     ss_sampler = mcsampler.HealPixSampler(smap)
+    #isotropic_2d_sampler = numpy.vectorize(lambda dec, ra: mcsampler.dec_samp_vector(dec)/2/numpy.pi)
+    isotropic_bstar_sampler = numpy.vectorize(lambda dec, ra: 1.0/len(smap))
 
     # FIXME: Should the left and right limits be modified?
     sampler.add_parameter(("declination", "right_ascension"), 
-        pdf = ss_sampler.pseudo_pdf, 
+        pdf = ss_sampler.pseudo_pdf,
         cdf_inv = ss_sampler.pseudo_cdf_inverse, 
         left_limit = (param_limits["declination"][0], param_limits["right_ascension"][0]),
         right_limit = (param_limits["declination"][1], param_limits["right_ascension"][1]),
-        prior_pdf = ss_sampler.pseudo_pdf)
+        prior_pdf = isotropic_bstar_sampler)
 
 else:
     #
