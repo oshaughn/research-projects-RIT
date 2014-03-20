@@ -3,14 +3,14 @@
 %* coordinates [limit to nonprecessing?]
 
 
-As summarized in Section \ref{sec:Executive}, our algorithm provides a parallel scheme to compare generic binary
-wavefors against data, using a low-cost likelihood function and information from the search to reduce computational cost and
-improve performance.  
+%As summarized in Section \ref{sec:Executive}, our algorithm provides a parallel scheme to compare generic binary
+%waveforms against data, using a low-cost likelihood function and information from the search to reduce computational cost and
+%improve performance.  
 %
-In this section, we provide the details needed to implement it.  
+%In this section, we provide the details needed to implement it.  
 %
-Rather than dwell on relatively well-understood data handling issues,  we refer the reader to
-Appendix \ref{ap:DiscreteData} for further discussion of operations on discrete time- and frequency- series.
+%Rather than dwell on relatively well-understood data handling issues,  we refer the reader to
+%Appendix \ref{ap:DiscreteData} for further discussion of operations on discrete time- and frequency- series.
 
 % POINT: Break up the 
 
@@ -20,176 +20,398 @@ Appendix \ref{ap:DiscreteData} for further discussion of operations on discrete 
 \newcommand\itrprm{\vec{\lambda}}
 \newcommand\etrprm{\vec{\theta}}
 
-\subsection{Preliminaries}
-We begin with the division of the parameter space of compact binary coalescence waveforms. We first define the difference between ``intrinsic'' and ``extrinsic'' parameters. We define $\itrprm$ as the set of intrinsic parameter as those corresponding to the physical configuration of a binary with component masses $m_1$ and $m_2$: $\itrprm=\{\mc,\eta,\Lambda_1,\Lambda_2,\vec{S}_1,\vec{S}_2\}$, where $\mc$ and $\eta$ are the chirp mass ($(m_1m_2)^{3/5}/(m_1+m_2)^{1/5}$) and symmetric mass ratio ($m_1m_2/(m_1+m_2)^2$), $\Lambda_1$ and $\Lambda_2$ are the tidal numbers of each component mass\footnote{Black holes have no tidal number and thus $\Lambda=0$}, and finally $\vec{S}_1$ and $\vec{S}_2$ correspond to the spin vectors of the component compact objects\footnote{$\vec{L}$, the overall angular momentum of the system is important in the case where the spins are not aligned with the orbital angular momentum, thus causing precession of the orbital plane}. We emphasize in this work rapid determination of source masses --- and possibly compact object type --- thus focusing attention exclusively on $\itrprm=\{\mc,\eta\}$. While the impact of spin and tidal parameters on the waveform are important, they are also potentially complicate the computation of the likelihood in the scheme described later. We thus leave the remaining intrinsic parameters to be built upon in future work.
+%\subsection{Preliminaries}
+%We begin with the division of the parameter space of compact binary coalescence waveforms. We first define the difference between ``intrinsic'' and ``extrinsic'' parameters. We define $\itrprm$ as the set of intrinsic parameter as those corresponding to the physical configuration of a binary with component masses $m_1$ and $m_2$: $\itrprm=\{\mc,\eta,\Lambda_1,\Lambda_2,\vec{S}_1,\vec{S}_2\}$, where $\mc$ and $\eta$ are the chirp mass ($(m_1m_2)^{3/5}/(m_1+m_2)^{1/5}$) and symmetric mass ratio ($m_1m_2/(m_1+m_2)^2$), $\Lambda_1$ and $\Lambda_2$ are the tidal numbers of each component mass\footnote{Black holes have no tidal number and thus $\Lambda=0$}, and finally $\vec{S}_1$ and $\vec{S}_2$ correspond to the spin vectors of the component compact objects\footnote{$\vec{L}$, the overall angular momentum of the system is important in the case where the spins are not aligned with the orbital angular momentum, thus causing precession of the orbital plane}. We emphasize in this work rapid determination of source masses --- and possibly compact object type --- thus focusing attention exclusively on $\itrprm=\{\mc,\eta\}$. While the impact of spin and tidal parameters on the waveform are important, they are also potentially complicate the computation of the likelihood in the scheme described later. We thus leave the remaining intrinsic parameters to be built upon in future work.
+%
+%The extrinsic parameters can be interpreted as the effect of the waveform's arrival and response on a given gravitational-wave detector. For a set of gravitational-wave interferometers, a seven-dimensional space of extrinsic parameters is defined as $\etrprm=\{t_r,\alpha,\delta,\iota,D,\psi,\phi\}$, where $t_r$ is a reference time (in this work, the geocentric time of coalescence), $\alpha$ and $\delta$ are the right ascension and declination, $\iota$ is the inclination angle of the binary's angular momentum vector and the line of sight to Earth, $D$ is the luminosity distance to the binary\footnote{For the sources considered in this paper, the redshift correction is assumed to be negligible}, $\psi$ is the azimuthal angle of the wave's plane of disturbance to the plane of the arms of the detector, and $\phi$ is the orbital phase of the binary at coalescence. Several subsets of these parameters have well-known (particularly in the non-spinning case) correlations.
 
-The extrinsic parameters can be interpreted as the effect of the waveform's arrival and response on a given gravitational-wave detector. For a set of gravitational-wave interferometers, a seven-dimensional space of extrinsic parameters is defined as $\etrprm=\{t_r,\alpha,\delta,\iota,D,\psi,\phi\}$, where $t_r$ is a reference time (in this work, the geocentric time of coalescence), $\alpha$ and $\delta$ are the right ascension and declination, $\iota$ is the inclination angle of the binary's angular momentum vector and the line of sight to Earth, $D$ is the luminosity distance to the binary\footnote{For the sources considered in this paper, the redshift correction is assumed to be negligible}, $\psi$ is the azimuthal angle of the wave's plane of disturbance to the plane of the arms of the detector, and $\phi$ is the orbital phase of the binary at coalescence. Several subsets of these parameters have well-known (particularly in the non-spinning case) correlations.
-
-\subsection{Background}
+\subsection{Bayesian evidence and posteriors}
 %% We reconstruct the parameter
 
 %% \textbf{Concept}* Top-level review: what are we doing (parameter estimation/posterior); establish notation
 %% ($\lambda,\theta,L,p,\ldots$)
 %% -----
 
+Here we briefly summarize how Bayes' theorem can be used to quantify how likely it is the data 
+(denoted by $\{d\}$) contains only Gaussian noise (hypothesis ${\cal H}_0$) 
+or whether it consists of Gaussian noise plus a coherent GW signal in each of our instruments
+(hypothesis ${\cal H}_1$). Additionally, it can be used to determine the likely parameters of a signal,
+if present.
 
-
-We use Bayes theorem to determine whether the data (denoted by $\{d\}$) favors Gaussian noise (hypothesis
-$H_0$) or the presence of a signal (hypothesis $H_1$), measured coherently in each of our instruments.  The
-gravitational wave signal is represented as $h(\itrprm,\etrprm)$  Specifically, we evaluate   the odds ratio (or evidence) $Z$:
-\begin{align}
-\label{eq:def:Z:Modified}
-Z(d|H_1) &\equiv \frac{p(\{d\}|H_1)}{p(\{d\}|H_0)} 
-%= \int d\lambdap(\vec{\lambda}|H_1)\frac{p(\{d\}|\vec{\lambda},H_1)}{p(\{d\}|H_0)} \nonumber\\
-  = \int d\lambda d\theta p(\lambda,\theta|H_1) \Like(\lambda,\theta|\{d\})\ .
-\end{align}
-where  $p(\lambda,\theta|H_1)$ is our prior probability for the parameters $\lambda,\theta$ (henceforth abbreviated
-$p(\lambda,\theta)$ and where $\Like(\lambda,\theta|\{ d\})$ (henceforth for brevity abbreviated $\Like(\lambda,\theta)$) is the likelihood ratio for signal versus noise at the specific parameters
-$\lambda,\theta$.  
-Similarly, using $x$ to denote all intrinsic and extrinsic parameters except some parameter(s) $y$, we evaluate the marginalized posterior
-probability distributions to assess the relative probability density at different values of $y$ given $\{ d\}$:
-\begin{eqnarray}
-\label{eq:def:Posterior}
-p_{\rm post}(y) &\equiv& \frac{\int dx \;  p(y,x|H_1) \Like(y,x)}{ \int d\lambda d\theta p(\lambda,\theta|H_1) \Like(\lambda,\theta)}
-\end{eqnarray}
-%
-Evaluating the above completely generic expressions requires selecting an integration method, a prior,  a signal model, and a
-noise model.  
-
-
-% POINT: Specific details unique to gravitational wave detectors
-A standard and extremely effective noise model for gravitational wave parameter estimation is pure gaussian noise.    Following the notation provided in
-\cite{gwastro-mergers-HeeSuk-FisherMatrixWithAmplitudeCorrections,gwastro-mergers-HeeSuk-CompareToPE-Aligned}, we
-express the likelihood ratio $\Like$ that each interferometer $k$ observed the data $\hat{H}_k(t)$ using our knowledge
-of the noise statistics of each instrument.   
-%
-In this work, we assume each detector has gaussian stationary noise, characterized by a power spectrum $S_k(f)$:
+First off, we assume that we have a network of detectors and in the absence of a signal 
+each detector will produce stationary Gaussian noise.
+The noise in the $k^{\rm th}$ detector is characterized by its power spectrum $S_k(f)$:
 \begin{eqnarray}
 \left<\tilde{n}_k(f)^* \tilde{n}_k(f')\right> = \frac{1}{2} S_k(|f|) \delta(f-f')
 \end{eqnarray}
-where  $\tilde{X}$ denotes the (two-sided) fourier transform of the possibly complex-valued timeseries $X(t)$.  
-For each instrument, the power spectrum  defines an inner product between any two timeseries associated with that instrument
+where  $\tilde{X}$ denotes the (two-sided) fourier transform of the possibly complex-valued time series $X(t)$.  
+For each instrument, the power spectrum defines an inner product between any two time series 
+$a(t)$ and $b(t)$ associated with that instrument
 \begin{eqnarray} \label{eq:InnerProduct}
 \qmstateproduct{a}{b}_k \equiv 2 \int_{-\infty}^{\infty} df \frac{\tilde{a}^*(f)\tilde{b}(f)}{S_k(|f|)}\ .
 \end{eqnarray}
-In terms of this complex-valued inner product, the likelihood ratio for the data $\hat{H}_k$ can be expressed as
-[Eqs. (13-14) of \cite{gwastro-mergers-HeeSuk-CompareToPE-Aligned}]
-\begin{align}
-\ln \Like(\lambda,\theta) &=
-\nonumber -\frac{1}{2} \sum_k \left[ \qmstateproduct{H_k(\lambda,\theta)-\hat{H}_k}{H_k(\lambda,\theta)-\hat{H}_k}_k \right.
-\nonumber \\ &  \left. - \qmstateproduct{\hat{H}_k}{\hat{H}_k}_k \right] \nonumber \\
-\label{eq:def:LikelihoodRatio}
-&=  \sum_k  -\frac{1}{2} \qmstateproduct{H_k(\lambda,\theta)}{H_k(\lambda,\theta)}_k +  \text{Re} \qmstateproduct{H_k(\lambda,\theta)}{\hat{H}_k}_k 
-\end{align}
-where $H_k(\lambda,\theta)$ is the predicted strain in the $k$th instrument due to a gravitational wave source with
-intrinsic parameters $\lambda$ and extrinsic parameters $\theta$.  
+By our assumption that the noise is Gaussian, it follows that the probability of some set of noise
+realizations in each of our detectors is given by
+\begin{equation}
+p(\{d\}|{\cal H}_0) \propto \prod_k \exp - \frac{ \langle d | d \rangle_k}{2}\ .
+\end{equation}
+Similarly, if we assume that $d = H(\vec{\mu}_0) + n$, so the data in each detector is noise plus a GW signal 
+with true parameters $\vec{\mu}_0$, then the likelihood of some parameters values $\vec{\mu}$ is given by
+\begin{equation}
+p(\{d\}|\vec{\mu},{\cal H}_1) \propto \prod_k \exp - \frac{ \langle d - h(\vec{\mu}) | d - h(\vec{\mu}) \rangle_k }{2}\ .
+\end{equation}
+In essence, we subtract a waveform with parameters $\vec{\mu}$ from the data 
+and compute how consistent the residual is with Gaussian noise.
 
+We compute an evidence (or odds) ratio $Z$ to quantify the likelihood of a signal relative to the null hypothesis:
+\begin{equation} \label{eq:def:Z:Modified}
+Z(\{d\}|{\cal H}_1) \equiv \frac{p(\{d\}|{\cal H}_1)}{p(\{d\}|{\cal H}_0)} 
+  = \int d\vec{\mu}\ p(\vec{\mu}|{\cal H}_1) \Like(\vec{\mu}|\{d\})\ .
+\end{equation}
+Here $p(\vec{\mu}|{\cal H}_1)$ is the prior probability for the parameters $\vec{\mu}$ and $\Like(\vec{\mu}|\{d\})$
+is the \emph{likelihood ratio}:
+\begin{equation} \label{eq:likelihood}
+\Like(\vec{\mu}|\{d\}) = \prod_k \frac{\exp - \langle d - H(\vec{\mu}) | d - H(\vec{\mu}) \rangle_k / 2}
+{\exp - \langle d | d \rangle_k / 2}\ .
+\end{equation}
 
-% POINT:
-In subsequent sections, we will describe the integration method, priors, and  signal model adopted to evaluate
-Eqs. (\ref{eq:def:Z:Modified},\ref{eq:def:Posterior}).  
+In addition to the evidence ratio, we can also compute the posterior probability density 
+(which we will abbreviate as simply the posterior)
+for one or multiple parameters (marginalized over all other parameters). Let $x$ be one or more parameters in
+$\vec{\mu}$ and $y$ be all other parameters, such that $\vec{\mu} = x \cup y$. Then, the posterior for $x$ is
+\begin{equation} \label{eq:def:Posterior}
+p_{\rm post}(x) \equiv \frac{p(x|H_1)}{Z(\{d\}|{\cal H}_1)} \ \int dy \;  p(y|H_1) \Like(x,y)\ .
+\end{equation}
+\editremark{[Do we like the $p_{\rm post}$ notation for posterior?]}
+
+\subsection{Intrinsic and extrinsic parameters}
+
+In the next subsection we present a method for decomposing a waveform into intrinsic and extrinsic pieces.
+The intrinsic parameters are fundamental to the description of the binary, and in particular if we change any intrinsic
+parameters we must recompute the orbital dynamics of the binary (typically through the relatively expensive process
+of numerically integrating ordinary differential equations). Extrinsic parameters simply describe how the
+binary is oriented in space and time relative to the detector, and changing extrinsic parameters involves a 
+relatively inexpensive rotation, translation or rescaling transformation. As we will show in the next subsection, 
+for the non-spinning case considered here the intrinsic parameters are
+\begin{equation} \label{eq:intrinsic}
+\itrprm=\{\mc,\eta\}\ ,
+\end{equation}
+where $\mc = (m_1m_2)^{3/5}/(m_1+m_2)^{1/5}$) is the chirp mass and 
+$\eta = m_1m_2/(m_1+m_2)^2$ is the symmetric mass ratio.
+The extrinsic parameters are
+\begin{equation} \label{eq:extrinsic}
+\etrprm=\{t_{\rm geo},\alpha,\delta,\iota,D,\psi,\phi_c\}\ ,
+\end{equation}
+where $t_{\rm geo}$ is the time at which the waveform coalescence arrives at the Earth geocenter,
+$\alpha$ and $\delta$ are the right ascension and declination, 
+$\iota$ is the inclination angle of the binary's angular momentum vector and the line of sight to Earth, 
+$D$ is the luminosity distance to the binary\footnote{For the sources considered in this paper, 
+	the redshift correction is assumed to be negligible}, 
+$\psi$ is the polarization angle, and $\phi$ is the orbital phase of the binary at coalescence.
+
+Note that throughout the rest of the paper we will denote intrinsic parameters with $\itrprm$ 
+and extrinsic parameters with $\etrprm$.
+
+\subsection{Waveform decomposition}
+
+The gravitational wave strain measured by the $k^{\rm th}$ detector is given by
+\begin{equation} \label{eq:measured_strain}
+H_k(t) = F_{+,k}(\delta, \alpha, \psi) h_{+,k}(t) 
++ F_{\times,k}(\delta, \alpha, \psi) h_{\times,k}(t)\ ,
+\end{equation}
+where $F_{+,k}$, $F_{\times,k}$ are the antenna patterns of the detector and $h_{+,k}$, $h_{\times,k}$
+are the waveform polarizations. The antenna patterns depend only on the extrinsic sky location and polarization
+angle, while the polarizations depend on both intrinsic and extrinsic parameters. Explicitly,
+\begin{widetext}
+\begin{eqnarray} \label{eq:polarizations}
+h_{+,k}(t) &=& - \frac{2 M \eta}{D}\,v^2(\mc,\eta,t_k;t)\,\left[ \left( 1 + \cos^2 \iota \right)\,
+	\cos 2 \left( \Phi(\mc,\eta,t_k;t) - \phi_c \right) + {\cal O}(v^3)\right]\ ,\\
+h_{\times,k}(t) &=& - \frac{2 M \eta}{D}\,v^2(\mc,\eta,t_k;t)\,\left[ \left( 2 \cos \iota\right)\,
+	\sin 2 \left( \Phi(\mc,\eta,t_k;t) - \phi_c \right) + {\cal O}(v^3)\right]\ .
+\end{eqnarray}
+\end{widetext}
+$\Phi(t)$ and $v(t)$ are the key orbital dynamical quantities, typically obtained via the energy balance equation,
+which are expensive to compute. We use $t_k$ to denote the time of arrival of the coalescence at the $k^{th}$ detector.
+For a network of detectors across the Earth, this will vary for each detector with the offset relative to the geocenter
+time depending on sky location. If $\vec{x}_k$ is a vector pointing from the geocenter to the $k^{th}$ detector
+and $\hat{N}(\alpha,\delta)$ is the direction of GW propagation, then
+\begin{equation} \label{eq:t_k}
+t_k = t_{\rm geo} - \frac{\vec{x}_k \cdot \hat{N}(\alpha,\delta)}{c}\ .
+\end{equation}
+
+We can use a $-2$ spin-weighted spherical harmonic mode decomposition to further separate intrinsic and extrinsic
+parameters appearing in the polarizations. In particular, we relate the polarizations to a set of $-2$ spin-weighted 
+spherical harmonics modes with the equation
+\begin{equation} \label{eq:h:Expansion}
+h_{+,k}(t) - i\,h_{\times,k}(t) = \frac{D_{\rm ref}}{D} \sum_{lm} \hat{h}_{lm}(\mc,\eta,t_k;t)  \Y{-2}_{lm}(\iota,-\phi_c) \ ,
+\end{equation}
+where the the $\hat{h}_{lm}$ are the -2 spin-weighted spherical harmonics modes (see Ref. \editremark{ADDME})
+evaluated at some fixed distance $D_{\rm ref}$ (in this work we choose $D_{\rm ref} = 100$ Mpc).
+
+If we define a complex-valued antenna pattern for each detector as
+\begin{equation} \label{eq:complexF}
+F_k = F_{+,k} + i \, F_{\times,k} \ ,
+\end{equation}
+then we can re-express the measured strain in the $k^{th}$ detector as
+\begin{widetext}
+\begin{equation} \label{eq:decomposed_strain}
+H_k(\itrprm,\etrprm;t) = {\rm Re}\ \frac{D_{\rm ref}}{D}\, F_k(\alpha,\delta,\psi) \, \sum_{lm} 
+\hat{h}_{lm}(\mc,\eta,t_k;t)  \Y{-2}_{lm}(\iota,-\phi_c)\ .
+\end{equation}
+\end{widetext}
+Aside from $t_k$, we have now completely separated the intrinsic parameters (which enter only the $\hat{h}_{lm}$)
+from the extrinsic parameters (which enter only the $F_k$ and $\Y{-2}_{lm}$). 
+
+Fortunately, the only effect of $t_k$ is to shift the $\hat{h}_{lm}$ in time. 
+If $\tilde{h}_{lm}(t_k;f)$ is the Fourier-domain representation of a mode for some arrival time $t_k$, then
+the the same mode for some other arrival time $t_k'$ can be simply related by
+\begin{equation} \label{eq:time_shift}
+\tilde{h}_{lm}(t_k';f) = \tilde{h}_{lm}(t_k;f) \, e^{- 2 \pi i f (t_k' - t_k)}\ .
+\end{equation}
+There is a well-known method of efficiently maximizing the overlap between a template and data 
+over time of coalescence using an inverse Fourier transform from detection template searches.
+Plugging Eq.~(\ref{eq:time_shift}) into Eq.~(\ref{eq:InnerProduct}), the overlap between data $d$ and
+some template $h(t_k)$ with time of arrival $t_k$ is
+\begin{equation} \label{eq:IFFT}
+\langle h(t_k) | d \rangle = \int_{-\infty}^{\infty} \frac{\tilde{d}(f) \tilde{h}^*(f)}{S_n(f)} e^{2\pi i f t_k} df \ .
+\end{equation}
+It is clear that the overlap for all possible time shifts can be computed with a single inverse Fourier transform
+of the overlap integrand.
 
 \subsection{Efficiently evaluating the likelihood}
 
-% POINT: Strain formula
-The complex gravitational wave strain $h=h_+-ih_\times $ at any sufficiently distant point ($t,\vec{x}$) from a nonprecessing
- binary can be efficiently represented using spin-weighted spherical harmonics $h_{lm}$ as
+We now show how the waveform decomposition derived above can be exploited
+to speed up evaluations of the likelihood ratio.
+In Eq.~(\ref{eq:decomposed_strain}) note that we have taken the observed strain in a detector $H_k(t)$
+and rewritten it as a linear combination of harmonic mode time series $\hat{h}_{lm}(t)$.
+The harmonic mode time series depend on the intrinsic parameters, but
+the extrinsic parameters (apart from $t_k$) are entirely encoded in the coefficients of the linear combination.
+Because computing the likelihood is just an inner product, which is a linear operator, 
+we can pull these coefficients outside the inner product integral.
+Thus, we need only compute inner products involving the $\hat{h}_{lm}$ and data $\{d\}$. 
+If we store these, we can compute the likelihood for any extrinsic parameters by simply
+recomputing the coefficients and reconstructing the linear combination.
+
+To that end, we define the following quantities:
+\begin{subequations}
+%\label{eq:ComputeRhoViaInnerProductMatrix}
+\label{eq:QUV}
 \begin{align}
-\label{eq:h:Expansion}
-h(t-\vec{x}\cdot \hat{k}) = \sum_{lm} e^{-2i\psi} h_{lm}(t-\vec{x}\cdot \hat{k})  \Y{-2}_{lm}(\iota,-\phi_c)  \frac{d_{\rm ref}}{d}
+Q_{k,lm}(\itrprm,t_k) &\equiv \qmstateproduct{h_{lm}(\itrprm,t_k)}{d}_k \nonumber\\
+&= 2 \int_{-\infty}^{\infty} \frac{df}{S_k(|f|)} e^{2\pi i f t_k} \tilde{h}_{lm}^*(\itrprm;f) \tilde{d}(f)\ , \\
+{ U_{k,lm,l'm'}(\lambda)}& = \qmstateproduct{h_{lm}}{h_{l'm'}}_k\ , \\
+V_{k,lm,l'm'}(\lambda)& = \qmstateproduct{h_{lm}^*}{h_{l'm'}}_k  \ .
 \end{align}
-where $d_{\rm ref}$ is some reference distance at which the $h_{lm}$ are evaluated.  
-In this expression, the vector $\hat{k}$ is the propagation direction ($\hat{k}=-\hat{n}$); the angles $(\iota,\psi)$ are the polar angles of the (fixed) orbital angular momentum direction
-relative to the propagation direction $\hat{k}$; $d$ is the distance to the source; and $\phi_c$ is the coalescence
-(orbital) phase. 
-Expressions for $h_{lm}$ are available in the literature 
-\cite{gwastro-pn-MultipoleMomentsNonspinning, gw-astro-mergers-approximations-SpinningPNHigherHarmonics}.  While many
-phenomenological approximations do not explicitly provide a harmonic representation, the leading order term ($h_{22}$) can be
-easily  identified from published literature by comparing those expressions to the above, evaluated at $\iota=\psi=\phi_c=0$.
-  
-%
-In terms of this complex strain, the response $H_k$ of the $k$th   gravitational wave detector to low-frequency
-radiation \cite{gwastro-GroundBasedResponse-Whelan2008} can
-be described by a linear combination of $h(t)$ and $h^*(t)$, weighted by time-sky-location-dependent coefficients $F_{+,\times}(t,\hat{n})$:
-\begin{align}
-H_k(t) &=F_{+,k}(t,-\hat{k}) h_+(t-\vec{x}_k(t)\cdot \hat{k}) \nonumber \\
- & + F_{\times,k}(t,-\hat{k}) h_\times(t-\vec{x}_k(t)\cdot \hat{k}) \nonumber \\
- &=  \frac{F_k(-\hat{k}) h(t-\vec{x}_k(t)\cdot \hat{k}) }{2} + \frac{F_k^*(-\hat{k})h^*(t-\vec{x}_k(t)\cdot \hat{k})}{2}
-\label{eq:Hh}
-\end{align}
-where in the second expression we adopt a complex antenna pattern $F_k=F_{+,k}+i F_{\times,k}$.  
-%
-For simplicity, in this work we will treat the position $\vec{x}_k$ and antenna pattern $F_k$ of each instrument as
-constants.\footnote{The quality of this approximation is in direct proportion to the ratio $|\Delta x|/\lambda$ where
-  $\Delta x$ is the change in detector position over the waveform's duration and $\lambda$ is the longest significant
-  wavelength.   As either this ratio is a small quantity or the detectors are nearly insensitive to $\lambda$,
-  rotation often need not be included.  Moreover, when radiation \emph{does} need to be included, we anticipate a straightforward perturbative and stationary phase
-  approximation can augment the simple procedure described above, allowing the likelihood to be well approximated with
-  a factor few additional filters and scalars.
-}
+\end{subequations}
+Note that each $Q_{k,lm}(\itrprm,t_k)$ is computed for all $t_k$ with a single inverse Fourier transform, 
+as in Eq.~(\ref{eq:IFFT}). Because GW detectors can localize a signal to a short time window 
+on the order of milliseconds, The $Q_{k,lm}(\itrprm,t_k)$ will be sharply peaked as functions of $t_k$ 
+and we need only retain the values for a narrow range of $t_k$. To allow for detector arrival times that differ
+from the geocenter time, the range of $t_k$ for which we must store the $Q_{k,lm}$ is set by the light travel
+time across Earth. In this work we store the $Q_{k,lm}$ for a $300$ ms range of $t_k$, which is quite safe.
+Because time-shifting translates all $h_{lm}$ modes together, 
+the $U_{k,lm,l'm'}(\lambda)$ and $V_{k,lm,l'm'}(\lambda)$ are independent of $t_k$
+and are computed once by a straightforward use of Eq.~(\ref{eq:InnerProduct}).
 
 
-Substituting this expansion for $h$ [Eq. (\ref{eq:h:Expansion})] and the individual-detector response
-[Eq. (\ref{eq:Hh})] into the
-likelihood [Eq. (\ref{eq:def:LikelihoodRatio})], we find the likelihood can be expressed as
+By plugging Eq.~(\ref{eq:decomposed_strain}) into Eq.~(\ref{eq:likelihood}), taking a log and collecting terms, we obtain
 \begin{widetext}
 \begin{align}
-\ln \Like(\lambda; \theta) 
-&= (d_{\rm ref}/d) \text{Re} \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot
-x_k)
-\nonumber \\
-&   -\frac{(d_{\rm ref}/d)^2}{2}\sum_k
+\ln \Like(\itrprm; \etrprm) 
+&= (D_{\rm ref}/D) \text{Re} \sum_k \sum_{lm}(F_k \Y{-2}_{lm})^* Q_{k,lm}(\itrprm,t_k)\nonumber \\
+&   -\frac{(D_{\rm ref}/D)^2}{4}\sum_k
 \left[
 {
- \frac{1}{2}|F_k(-\hat{k})|^2 U_{k,lm,lm'}(\lambda)[\Y{-2}_{lm}(\hat{n})]^*\Y{-2}_{l'm'}(\hat{n})
+|F_k|^2 [\Y{-2}_{lm}]^*\Y{-2}_{l'm'} U_{k,lm,lm'}(\itrprm)
 }
 % \right. \nonumber \\ & \left.
  {
-+
- \frac{1}{2} \text{Re} V_{k,lm,l'm'} e^{-4i\psi}F_k^2 \Y{-2}_{lm}(\hat{n})\Y{-2}_{l'm'}(\hat{n})
++  \text{Re} \left( F_k^2 \Y{-2}_{lm} \Y{-2}_{l'm'} V_{k,lm,l'm'} \right)
 }
 \right]
 \label{eq:def:lnL:Decomposed}
 \end{align}
 \end{widetext}
-In this expression, we use $\hat{n}$ as shorthand for $(\iota,-\phi_c)$; define the constant, detector-dependent
-matrices $U,V$ by 
-\begin{subequations}
-\label{eq:ComputeRhoViaInnerProductMatrix}
-\begin{align}
-{ U_{k,lm,l'm'}(\lambda)}& = \qmstateproduct{h_{lm}}{h_{l'm'}}_k \\
-V_{k,lm,l'm'}(\lambda)& = \qmstateproduct{h_{lm}^*}{h_{l'm'}}_k  \;
-\end{align}
-\end{subequations}
-and define the \emph{filtered data series} $Q_{k,lm}(t)$ via 
-\begin{align}
-Q_{k,lm}(\tau) &\equiv \qmstateproduct{{\cal T}_{\tau} h_{lm}}{\hat{H}_k}_k \\
-&= 2 \int_{-\infty}^{\infty} \frac{df}{S_k(|f|)} e^{+2\pi i f \tau} \tilde{h}_{lm}(f)^* \tilde{\hat{H}}_k(f) \\
-\end{align}
-i.e., as the inner product of the timeshifted $h_{lm}$ harmonic [$h_{lm}(t+\tau)\equiv [{\cal T}_\tau h_{lm}](t)$] with the data in the $k$th instrument.
+Importantly, the intrinsic parameters $\itrprm$ enter only through the $Q_{k,lm}$, $U_{k,lm,l'm'}$ and $V_{k,lm,l'm'}$.
+These are the dominant cost, as the require computing the orbital dynamics, the $h_{lm}$, inner product integrals
+and inverse Fourier transforms. By contrast, the extrinsic parameters enter the $F_k$ and $\Y{-2}_{lm}$,
+which are much simpler closed expressions.
+
+Therefore, if we fix a point in the intrinsic parameter space we can compute the
+$Q_{k,lm}(\itrprm,t_k)$, $U_{k,lm,l'm'}(\itrprm)$ and $V_{k,lm,l'm'}(\itrprm)$ only once,
+vary the extrinsic parameters and compute the likelihood for only the cost of the $F_k$ and $\Y{-2}_{lm}$.
+This allows us to efficiently integrate over the extrinsic parameters and obtain a marginalized posterior 
+for the intrinsic parameters $p_{\rm post}(\itrprm)$ as in Eq.~(\ref{eq:def:Posterior}).
+If we do this for a collection of points in the intrinsic parameter space, we can integrate over $\itrprm$ as
+well and obtain the evidence ratio $Z$ as in Eq.~(\ref{eq:def:Z:Modified}).
+Note that the computation for each point in the intrinsic space is completely independent of the others.
+This makes the algorithm embarassingly parallel and given enough CPU cores the entire analysis can be
+run in the time it takes to integrate over the extrinsic parameters (modulo some brief startup and post-processing steps).
+
+The remainder of this section provides more details on the various steps of our algorithm.
+
+%\subsection{Efficiently evaluating the likelihood}
+
+% POINT: Strain formula
+%The complex gravitational wave strain $h=h_+-ih_\times $ at any sufficiently distant point ($t,\vec{x}$) from a nonprecessing
+ %binary can be efficiently represented using spin-weighted spherical harmonics $h_{lm}$ as
+%\begin{align}
+%\label{eq:h:Expansion}
+%h(t-\vec{x}\cdot \hat{k}) = \sum_{lm} e^{-2i\psi} h_{lm}(t-\vec{x}\cdot \hat{k})  \Y{-2}_{lm}(\iota,-\phi_c)  \frac{d_{\rm ref}}{d}
+%\end{align}
+%where $d_{\rm ref}$ is some reference distance at which the $h_{lm}$ are evaluated.  
+%In this expression, the vector $\hat{k}$ is the propagation direction ($\hat{k}=-\hat{n}$); the angles $(\iota,\psi)$ are the polar angles of the (fixed) orbital angular momentum direction
+%relative to the propagation direction $\hat{k}$; $d$ is the distance to the source; and $\phi_c$ is the coalescence
+%(orbital) phase. 
+%Expressions for $h_{lm}$ are available in the literature 
+%\cite{gwastro-pn-MultipoleMomentsNonspinning, gw-astro-mergers-approximations-SpinningPNHigherHarmonics}.  While many
+%phenomenological approximations do not explicitly provide a harmonic representation, the leading order term ($h_{22}$) can be
+%easily  identified from published literature by comparing those expressions to the above, evaluated at $\iota=\psi=\phi_c=0$.
+  
+%
+%In terms of this complex strain, the response $H_k$ of the $k$th   gravitational wave detector to low-frequency
+%radiation \cite{gwastro-GroundBasedResponse-Whelan2008} can
+%be described by a linear combination of $h(t)$ and $h^*(t)$, weighted by time-sky-location-dependent coefficients $F_{+,\times}(t,\hat{n})$:
+%\begin{align}
+%H_k(t) &=F_{+,k}(t,-\hat{k}) h_+(t-\vec{x}_k(t)\cdot \hat{k}) \nonumber \\
+% & + F_{\times,k}(t,-\hat{k}) h_\times(t-\vec{x}_k(t)\cdot \hat{k}) \nonumber \\
+% &=  \frac{F_k(-\hat{k}) h(t-\vec{x}_k(t)\cdot \hat{k}) }{2} + \frac{F_k^*(-\hat{k})h^*(t-\vec{x}_k(t)\cdot \hat{k})}{2}
+%\label{eq:Hh}
+%\end{align}
+%where in the second expression we adopt a complex antenna pattern $F_k=F_{+,k}+i F_{\times,k}$.  
+%
+%For simplicity, in this work we will treat the position $\vec{x}_k$ and antenna pattern $F_k$ of each instrument as
+%constants.\footnote{The quality of this approximation is in direct proportion to the ratio $|\Delta x|/\lambda$ where
+ % $\Delta x$ is the change in detector position over the waveform's duration and $\lambda$ is the longest significant
+ % wavelength.   As either this ratio is a small quantity or the detectors are nearly insensitive to $\lambda$,
+  %rotation often need not be included.  Moreover, when radiation \emph{does} need to be included, we anticipate a straightforward perturbative and stationary phase
+  %approximation can augment the simple procedure described above, allowing the likelihood to be well approximated with
+  %a factor few additional filters and scalars.
+%}
+
+
+%Substituting this expansion for $h$ [Eq. (\ref{eq:h:Expansion})] and the individual-detector response
+%[Eq. (\ref{eq:Hh})] into the
+%likelihood [Eq. (\ref{eq:def:LikelihoodRatio})], we find the likelihood can be expressed as
+%\begin{widetext}
+%\begin{align}
+%\ln \Like(\lambda; \theta) 
+%&= (d_{\rm ref}/d) \text{Re} \sum_k \sum_{lm}(F_k(-\hat{k}) e^{-2\psi} \Y{-2}_{lm}(\hat{n}))^* Q_{k,lm}(t-\hat{k}\cdot
+%x_k)
+%\nonumber \\
+%&   -\frac{(d_{\rm ref}/d)^2}{2}\sum_k
+%\left[
+%{
+ %\frac{1}{2}|F_k(-\hat{k})|^2 U_{k,lm,lm'}(\lambda)[\Y{-2}_{lm}(\hat{n})]^*\Y{-2}_{l'm'}(\hat{n})
+%}
+% \right. \nonumber \\ & \left.
+ %{
+%+
+ %\frac{1}{2} \text{Re} V_{k,lm,l'm'} e^{-4i\psi}F_k^2 \Y{-2}_{lm}(\hat{n})\Y{-2}_{l'm'}(\hat{n})
+%}
+%\right]
+%\label{eq:def:lnL:Decomposed}
+%\end{align}
+%\end{widetext}
+%In this expression, we use $\hat{n}$ as shorthand for $(\iota,-\phi_c)$; define the constant, detector-dependent
+%matrices $U,V$ by 
+%\begin{subequations}
+%\label{eq:ComputeRhoViaInnerProductMatrix}
+%\begin{align}
+%{ U_{k,lm,l'm'}(\lambda)}& = \qmstateproduct{h_{lm}}{h_{l'm'}}_k \\
+%V_{k,lm,l'm'}(\lambda)& = \qmstateproduct{h_{lm}^*}{h_{l'm'}}_k  \;
+%\end{align}
+%\end{subequations}
+%and define the \emph{filtered data series} $Q_{k,lm}(t)$ via 
+%\begin{align}
+%Q_{k,lm}(\tau) &\equiv \qmstateproduct{{\cal T}_{\tau} h_{lm}}{\hat{H}_k}_k \\
+%&= 2 \int_{-\infty}^{\infty} \frac{df}{S_k(|f|)} e^{+2\pi i f \tau} \tilde{h}_{lm}(f)^* \tilde{\hat{H}}_k(f) \\
+%\end{align}
+%i.e., as the inner product of the timeshifted $h_{lm}$ harmonic [$h_{lm}(t+\tau)\equiv [{\cal T}_\tau h_{lm}](t)$] with the data in the $k$th instrument.
 
 
 % POINT: This is precomputable
-Critically, all intrinsic-parameter dependent terms in   Eq. (\ref{eq:def:lnL:Decomposed}) can be evaluated once for
-each $\lambda$.  Having calculated these constants ($U_{k,lm,l'm'},V_{k,lm,l'm'}$) and timeseries ($Q_{k,lm}(\tau)$),
-the likelihood can be efficiently evaluated for any choice of extrinsic parameters $\theta$.
+%Critically, all intrinsic-parameter dependent terms in   Eq. (\ref{eq:def:lnL:Decomposed}) can be evaluated once for
+%each $\lambda$.  Having calculated these constants ($U_{k,lm,l'm'},V_{k,lm,l'm'}$) and timeseries ($Q_{k,lm}(\tau)$),
+%the likelihood can be efficiently evaluated for any choice of extrinsic parameters $\theta$.
 %
 
 % POINT: Computational requirements
-This procedure offers striking reductions in the total number of floating point operations needed to evaluate the
-likelihood.
-Given how precisely gravitational wave searches time-localize candidate events, only a \emph{short} stretch of data
-surrounding a candidate gravitational wave event will ever be examined in  detail.  Hence, rather than evaluate $\Like$ by operating on long-duration, densely sampled
-time- or frequency- series, our expression need only act on constants and a few short arrays.  After minimal preprocessing, the total number of
-floating point evaluations needed for any \emph{subsequent} likelihood evaluation at those same parameters $\lambda$ is
-dramatically reduced.  
+%This procedure offers striking reductions in the total number of floating point operations needed to evaluate the
+%likelihood.
+%Given how precisely gravitational wave searches time-localize candidate events, only a \emph{short} stretch of data
+%surrounding a candidate gravitational wave event will ever be examined in  detail.  Hence, rather than evaluate $\Like$ by operating on long-duration, densely sampled
+%time- or frequency- series, our expression need only act on constants and a few short arrays.  After minimal preprocessing, the total number of
+%floating point evaluations needed for any \emph{subsequent} likelihood evaluation at those same parameters $\lambda$ is
+%dramatically reduced.  
 
 %
-Since our method employs no assumptions about the structure of $h_{lm}$, this technique for organizing the likelihood
-calculation can be applied to any existing waveform model, including the effective-one-body approximants
-\cite{gw-astro-EOBspin-Tarrachini2012,gw-astro-EOBNR-Calibrated-2009}.  
+%Since our method employs no assumptions about the structure of $h_{lm}$, this technique for organizing the likelihood
+%calculation can be applied to any existing waveform model, including the effective-one-body approximants
+%\cite{gw-astro-EOBspin-Tarrachini2012,gw-astro-EOBNR-Calibrated-2009}.  
 %Unlike reduced-order or interpolation-based methods, no further coding, tuning, or calibration is required.  
-Our method requires no  additional model- or detector-dependent development  to achieve this performance improvement.  
+%Our method requires no  additional model- or detector-dependent development  to achieve this performance improvement.  
+
+
+\subsection{Placement over intrinsic parameters}
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/linear_ellipse_placement.png}
+\caption{\label{fig:linear_ellipse} \textbf{Intrinsic parameter placement:} We use an effective Fisher matrix to compute
+an approximate ellipsoidal region of overlap $\geq 90\%$ with the masses reported by a detection pipeline.
+We then fill this ellipsoid with discrete points and cut any with unphysical values of symmetric mass ratio $\eta$.
+At each physical grid point, we marginalize the likelihood over all extrinsic parameters as described in
+Sec.~\ref{subsec:extrinsic}.}
+\end{figure}
+
+In the current work, we restrict ourselves to considering non-spinning binaries in which we also neglect tidal
+effects. Therefore, we need only two mass parameters to describe the intrinsic parameter space, for which we use
+the symmetric mass ratio $\eta = m_1 m_2 / M^2$ 
+and the chirp mass ${\cal M}_c = M \eta^{3/5}$ (where $M = m_1+m_2$ is the total mass).
+Since detection searches will report masses for the candidate event, we use these
+to guide which region of the intrinsic parameter space to explore.
+
+Let $\left( {\cal M}^*,\eta^* \right)$ be the masses reported by a detection pipeline. We then perform an effective 
+Fisher matrix calculation as described in~\cite{gwastro-mergers-HeeSuk-FisherMatrixWithAmplitudeCorrections,
+gwastro-mergers-HeeSuk-CompareToPE-Aligned}
+centered about this point.
+This involves evaluating the overlap between our waveform with masses $\left( {\cal M}^*,\eta^* \right)$
+and $\sim$ tens of nearby waveforms with different intrinsic parameters (while extrinsic parameters are held constant).
+The measured overlap values are then fit with a multi-dimensional quadratic. 
+The coefficients of this quadratic fit are called the effective Fisher matrix.
+Like the standard Fisher matrix, the effective Fisher matrix serves as a quick, crude estimate of expected parameter
+estimation performance and can be used to predict surfaces of constant overlap, which will in general be ellipsoids.
+In this work, we use the effective Fisher matrix to approximate the region of intrinsic parameter space
+which will have overlap $\geq 90\%$ with the masses $\left( {\cal M}^*,\eta^* \right)$.
+
+Once we have defined this $90\%$ overlap ellipsoid, we must fill it with a set of discrete points 
+at which we will compute the likelihood. First, we specify the total number of intrinsic parameter points we wish to place,
+in this work we used 200 points. Then, these points are arranged within a unit sphere. In this work, we placed
+points along 20 radial ``spokes'', with 10 points per spoke. Along each spoke, the points are placed 
+uniformly in radial distance. Now, the eigenvalues and eigenvectors of the effective Fisher matrix tell us the lengths
+and orientations of the axes of the $90\%$ overlap ellipsoid. We use these to deform and rotate our set
+of points in the sphere to a set of points in the $90\%$ overlap ellipsoid.
+
+One subtlety is that the only physically-meaningful values of $\eta$ are in the range $(0, 0.25]$, but the effective Fisher
+approach does not account for this physical cutoff. Therefore, for near equal mass binaries where $\eta^* \simeq 0.25$
+part of the $90\%$ overlap ellipsoid may have unphysical $\eta$ values. Once we have filled our ellipsoid, we remove
+any points that have unphysical $\eta$. To counteract this somewhat, 
+we ensure that we always place spokes in our ellipsoid along the direction of constant $\eta$,
+so that we always have many points along this boundary of the parameter space.
+Fig.~\ref{fig:linear_ellipse} illustrates this placement of intrinsic parameter points.
+
+Note that this intrinsic placement routine could be modified in many different ways. For example, 
+we could place points uniformly in volume, rather than uniformly in radius. This would place more points
+towards the edge of the ellipsoid, while we chose uniform-in-radius to get more points near the center.
+We could also place points randomly inside the ellipse (using uniform-in-volume, uniform-in-radius, 
+or any other distribution). We chose the spoked placement so that we can always ensure near-equal mass binaries
+will have many points near the $\eta = 0.25$ boundary of the parameter space.
+One might also use larger or smaller ellipsoids, use multiple ellipsoids centered at different points if there are concerns
+about bias in the masses reported by the detection pipeline, choose points according to a metric, 
+or consider any number of other refinements. We plan to refine the intrinsic parameter placement in future work.
+
+
+
 
 
 \subsection{Integrating over extrinsic parameters}
@@ -394,97 +616,17 @@ using some small scale $\Delta p$ estimated from the skymap, then  precompute a 
 
 While we have to perform a Monte Carlo integration over the other extrinsic parameters, we are able to
 integrate over the geocenter time of coalescence quite simply and efficiently.
-From Eq.~(\ref{eq:def:lnL:Decomposed}), we see that time only enters the log-likelihood through the terms
-$Q_{k,lm}(t - \hat{k} \cdot x_k)$, where $t$ denotes the time of coalescence at the geocenter, $t - \hat{k} \cdot x_k$ is
-the corresponding time of arrival at the $k^{\rm th}$ detector (which depends on the sky position being considered),
-and $Q_{k,lm}$ is the inner product between the data and the $h_{lm}$ mode for that time of arrival.
-Now, from detection template searches there is a well-known method of efficiently maximizing the overlap 
-between a template and data over time of coalescence using an inverse Fourier transform. This is due to the fact that,
-if we have a Fourier-domain representation of a waveform with a certain time of coalescence $\tilde{h}(f,t_c)$,
-then we can shift it to any other coalescence time with
-\begin{equation}
-\tilde{h}(f,t_c') = \tilde{h}(f,t_c) \, e^{-2\pi i f (t_c'-t_c)}\ .
-\end{equation}
-Using Eq.~\ref{eq:InnerProduct}, the overlap between data and this template at an arbitrary time shift is
-\begin{equation}
-\langle h(t_c) | d \rangle = \int_{-\infty}^{\infty} \frac{\tilde{d}(f) \tilde{h}^*(f)}{S_n(f)} e^{2\pi i f t_c} df \ .
-\end{equation}
-It is clear that the overlap for all possible time shifts can be computed with a single inverse Fourier transform
-of the overlap integrand.
-Moreover, if the data is similar to the template, the overlap is very sharply peaked as a function of time shift, 
-and will typically become negligible for time shifts greater than $\gtrsim 10$ms. 
-Therefore, we precompute and store the $Q_{k,lm}(t - \hat{k} \cdot x_k)$ for a rather narrow range of times.
-To allow for different detector arrival times for different sky positions, we must actually store values of
-$Q_{k,lm}$ on the scale of the light travel time across the Earth. In this work we store values of the 
-$Q_{k,lm}$ for $300$ ms, which is quite safe.
- 
-Now, given a sky position chosen by the Monte Carlo routine, we compute the shifts in time of arrival for each
-detector relative to the geocenter. Then, to evaluate the value of $\ln {\cal L}$ for some geocenter time $t$,
-we simply look up the correct value of the $Q_{k,lm}$ from our precomputed values and plug them
+For every sky location drawn by the adaptive Monte Carlo routine, we compute the
+corresponding time shift between geocenter and each detector with Eq.~(\ref{eq:t_k}).
+Then, to evaluate the value of $\ln {\cal L}$ for some geocenter time $t_{\rm geo}$,
+we simply look up the corresponding value of the $Q_{k,lm}(\itrprm,t_k)$ from our precomputed values and plug them
 into Eq.~(\ref{eq:def:lnL:Decomposed}).
-We can trivially integrate over $t$ by performing a finite sum in this way 
-for each $t$ in our precomputed $300$ ms range.
+We can trivially integrate over $t_{\rm geo}$ by performing a finite sum in this way 
+for each $t_{\rm geo}$ in our precomputed $300$ ms range.
 
 
 
 
-
-\subsection{Placement over intrinsic parameters}
-
-\begin{figure}
-\includegraphics[width=\columnwidth]{../Figures/linear_ellipse_placement.png}
-\caption{\label{fig:linear_ellipse} \textbf{Intrinsic parameter placement:} We use an effective Fisher matrix to compute
-an approximate ellipsoidal region of overlap $\geq 90\%$ with the masses reported by a detection pipeline.
-We then fill this ellipsoid with discrete points and cut any with unphysical values of symmetric mass ratio $\eta$.
-At each physical grid point, we marginalize the likelihood over all extrinsic parameters as described in
-Sec.~\ref{subsec:extrinsic}.}
-\end{figure}
-
-In the current work, we restrict ourselves to considering non-spinning binaries in which we also neglect tidal
-effects. Therefore, we need only two mass parameters to describe the intrinsic parameter space, for which we use
-the symmetric mass ratio $\eta = m_1 m_2 / M^2$ 
-and the chirp mass ${\cal M}_c = M \eta^{3/5}$ (where $M = m_1+m_2$ is the total mass).
-Since detection searches will report masses for the candidate event, we use these
-to guide which region of the intrinsic parameter space to explore.
-
-Let $\left( {\cal M}^*,\eta^* \right)$ be the masses reported by a detection pipeline. We then perform an effective 
-Fisher matrix calculation as described in~\cite{gwastro-mergers-HeeSuk-FisherMatrixWithAmplitudeCorrections,
-gwastro-mergers-HeeSuk-CompareToPE-Aligned}
-centered about this point.
-This involves evaluating the overlap between our waveform with masses $\left( {\cal M}^*,\eta^* \right)$
-and $\sim$ tens of nearby waveforms with different intrinsic parameters (while extrinsic parameters are held constant).
-The measured overlap values are then fit with a multi-dimensional quadratic. 
-The coefficients of this quadratic fit are called the effective Fisher matrix.
-Like the standard Fisher matrix, the effective Fisher matrix serves as a quick, crude estimate of expected parameter
-estimation performance and can be used to predict surfaces of constant overlap, which will in general be ellipsoids.
-In this work, we use the effective Fisher matrix to approximate the region of intrinsic parameter space
-which will have overlap $\geq 90\%$ with the masses $\left( {\cal M}^*,\eta^* \right)$.
-
-Once we have defined this $90\%$ overlap ellipsoid, we must fill it with a set of discrete points 
-at which we will compute the likelihood. First, we specify the total number of intrinsic parameter points we wish to place,
-in this work we used 200 points. Then, these points are arranged within a unit sphere. In this work, we placed
-points along 20 radial ``spokes'', with 10 points per spoke. Along each spoke, the points are placed 
-uniformly in radial distance. Now, the eigenvalues and eigenvectors of the effective Fisher matrix tell us the lengths
-and orientations of the axes of the $90\%$ overlap ellipsoid. We use these to deform and rotate our set
-of points in the sphere to a set of points in the $90\%$ overlap ellipsoid.
-
-One subtlety is that the only physically-meaningful values of $\eta$ are in the range $(0, 0.25]$, but the effective Fisher
-approach does not account for this physical cutoff. Therefore, for near equal mass binaries where $\eta^* \simeq 0.25$
-part of the $90\%$ overlap ellipsoid may have unphysical $\eta$ values. Once we have filled our ellipsoid, we remove
-any points that have unphysical $\eta$. To counteract this somewhat, 
-we ensure that we always place spokes in our ellipsoid along the direction of constant $\eta$,
-so that we always have many points along this boundary of the parameter space.
-Fig.~\ref{fig:linear_ellipse} illustrates this placement of intrinsic parameter points.
-
-Note that this intrinsic placement routine could be modified in many different ways. For example, 
-we could place points uniformly in volume, rather than uniformly in radius. This would place more points
-towards the edge of the ellipsoid, while we chose uniform-in-radius to get more points near the center.
-We could also place points randomly inside the ellipse (using uniform-in-volume, uniform-in-radius, 
-or any other distribution). We chose the spoked placement so that we can always ensure near-equal mass binaries
-will have many points near the $\eta = 0.25$ boundary of the parameter space.
-One might also use larger or smaller ellipsoids, use multiple ellipsoids centered at different points if there are concerns
-about bias in the masses reported by the detection pipeline, choose points according to a metric, 
-or consider any number of other refinements. We plan to refine the intrinsic parameter placement in future work.
 
 \subsection{Postprocessing: intrinsic priors, interpolation, and the final results}
 
