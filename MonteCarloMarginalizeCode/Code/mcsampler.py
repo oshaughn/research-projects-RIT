@@ -699,9 +699,6 @@ class HealPixSampler(object):
 
         # Account for probability lost due to cut off
         self._renorm = sum([self.skymap[i] if v else 0 for i, v in enumerate(self.skymap >= min_p)])
-        # Account for all pixels which are not included
-        valid_pixels = sum([1.0 if i else 0.0 for i in self.skymap >= min_p])
-        self._renorm /= valid_pixels/len(self.skymap)
 
     def pseudo_pdf(self, dec_in, ra_in):
         """
