@@ -106,12 +106,13 @@ In other words, when performing a Monte Carlo integral over a discrete subset (e
 \item \emph{Prior PDF}: Since we always assume uniform on the sky,  provide $P_n=1/N$ at the $n$th
 point (i.e., given the sky position of the $n$th tile), \emph{not} $p(\gamma_n)$.
 
-\item \emph{Skymap sampling PDF}: Bayestar provides normalized weighted $s_{s,n}$ already.  After fixing a
-  \textbf{normalization issue} (below), we use
-\[
-P_{s,n} = s_n \frac{N'}{N}
-\]
-where $N,N'$ are defined below.
+\item \emph{Skymap sampling PDF}: Bayestar provides normalized weighted $s_{s,n}$ already.  
+%% After fixing a
+%%   \textbf{normalization issue} (below), we use
+%% \[
+%% P_{s,n} = s_n \frac{N'}{N}
+%% \]
+%% where $N,N'$ are defined below.
 
 \item \emph{Skymap random samples via CDF inverse}: We generate random integers $n$ using random numbers on $[0,1]$, finding the
   closest integer $n$ to the  cumulative of $P_n$; see the text.
@@ -120,29 +121,49 @@ where $N,N'$ are defined below.
 
 
 
-\noindent \textbf{[Skymaps] Normalization correction}: As described in the notes, if $p_s(\gamma)=0$  in a volume $U$ where $p(\gamma)\ne 0$, we must address two
-complications.\footnote{Of course, we are free to add a floor to the skymap ($s'=a s + (1-s)/N$ for $a\in[0,1]$) as a simple but crude solution.}  First, we can't integrate generic functions $L$ with $L>0$ with $p_s=0$ -- we don't sample them fully.  
-Second, we must careful about \emph{normalization}, rescaling the total number of samples $N_s$ drawn from $p_s$ by the
-ratio of volumes of the prior and of $p_s$ over that region $U$
-\begin{eqnarray}
-N_{\rm corr} = N / \int_U p_s(\gamma) d\gamma
-\end{eqnarray}
-We will apply this correction to the returned values of $p_s$, returning ``rescaled'' probabilities 
-% mcsampler.py  : self._renorm  in pseudo_pdf  and self._expand_valid_points.
-\begin{eqnarray}
-p_s \rightarrow \frac{p_s}{\int_U p(\gamma)  d\gamma}
-\end{eqnarray}
-Specifically,  if $s_n$ are the  skymap weights reported by \BS, normalized so $\sum_n s_n=1$, we use an ``effective''
-sampling ``probability'' $P_{s,n}$ of
-\begin{eqnarray}
-P_{s,n} = s_n \frac{N'}{N}
-\end{eqnarray}
-where $N'$ is the number of nonzero samples in $s$ and $N$ is the number of pixels in $s$.
+\noindent \textbf{[Skymaps] Finite-area skymaps and truncation}: We will use skymaps with
+$p_s(\gamma)=0$  in a volume $U$ where $p(\gamma)\ne 0$.  With restricted support, we can't integrate
+integrate generic functions $L$ with $L>0$ with $p_s=0$.  To be concrete, if we split up the integral over the sky ($\Omega$) into $U$ and
+$\Omega-U$, we are ignoring the contribution from $\Omega-U$:
+\begin{align}
+\LikeRed(\lambda) &= \int_U d\gamma p_s(\gamma) 
+ [\int d\theta p_s(\theta)
+  \frac{p(\theta)p(\gamma)}{p_s(\theta)p_s(\gamma)}\Like] 
+  \nonumber \\ &
+ + \int_{\Omega-U}d\gamma p(\gamma) p(\theta)\Like 
+\nonumber \\ &
+\simeq \int_U d\gamma p_s(\gamma) [\int d\theta p_s(\theta)
+  \frac{p(\theta)p(\gamma)}{p_s(\theta)p_s(\gamma)}\Like] 
+\end{align}
+The second step introduces systematic error, assumed small.
+
+The second integral is a conventional Monte Carlo integral over a region $U$ using normalized sampling distributions $p_s$ and
+can be approximated in the usual way.
+
+Note the ratio of $p/p_s$ \emph{automatically} includes any ``normalization factor'' associated with only drawing
+samples from $U$ rather than from the whole volume $V$
+
+%% , rescaling the total number of samples $N_s$ drawn from $p_s$ by the
+%% ratio of volumes of the prior and of $p_s$ over that region $U$
+%% \begin{eqnarray}
+%% N_{\rm corr} = N / \int_U p_s(\gamma) d\gamma
+%% \end{eqnarray}
+%% We will apply this correction to the returned values of $p_s$, returning ``rescaled'' probabilities 
+%% % mcsampler.py  : self._renorm  in pseudo_pdf  and self._expand_valid_points.
+%% \begin{eqnarray}
+%% p_s \rightarrow \frac{p_s}{\int_U p(\gamma)  d\gamma}
+%% \end{eqnarray}
+%% Specifically,  if $s_n$ are the  skymap weights reported by \BS, normalized so $\sum_n s_n=1$, we use an ``effective''
+%% sampling ``probability'' $P_{s,n}$ of
+%% \begin{eqnarray}
+%% P_{s,n} = s_n \frac{N'}{N}
+%% \end{eqnarray}
+%% where $N'$ is the number of nonzero samples in $s$ and $N$ is the number of pixels in $s$.
 
 \noindent \textbf{[Skymaps] Subtle implementation issues: cutoffs and lookup tables}: As described in the text, we use a
 discretized lookup table.  As not described in the text, this table de facto \emph{discards} points with weights the
 quantized probability.   For real skymaps, the choice of probability quantum $P_{\rm min}$ can be what determines
-precisely what points are sampled and hence the normalization correction needed [below].
+precisely what points are sampled and hence what part of $\int L p d\theta d\gamma$ are are not sampling \emph{at all}.
 
 As a concrete example, with $n=12*64^2$ sky points, a uniform weighting gives each pixel $P_{n}
 =1/n \simeq 2\times 10^{-5}$.  A qunatum of probability $P_{\rm min} $ should \emph{definitely} be smaller than this, to
