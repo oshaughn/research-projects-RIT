@@ -1,0 +1,168 @@
+#!/usr/bin/env python
+import sys
+import os
+import shutil
+import random
+import sqlite3
+import optparse
+
+random.seed(0)
+
+from glue.ligolw import utils, table, ligolw, lsctables
+
+import get_coinc
+
+def ready_template(fname, event):
+    with open(fname) as fin:
+        lines = fin.readlines()
+
+    for i, line in enumerate(lines):
+        if line[:5] == "MASS1":
+            lines[i] = line.strip() + str(event.mass1) + "\n"
+        elif line[:5] == "MASS2":
+            lines[i] = line.strip() + str(event.mass2) + "\n"
+        elif line[:10] == "EVENT_TIME":
+            lines[i] = line.strip() + "%10.9f" % float(event.get_end()) + "\n"
+
+    return "".join(lines)
+
+def get_sim_inspiral_by_id(filename, ids):
+    si_table = table.get_table(utils.load_filename(filename), lsctables.SimInspiralTable.tableName)
+    new_table = lsctables.New(lsctables.SimInspiralTable, si_table.validcolumns.keys())
+    new_table.extend(filter(lambda si: int(si.simulation_id) in ids, si_table))
+
+    return new_table
+
+optp = optparse.OptionParser()
+optp.add_option("-c", "--coinc-db", help="Database of coinc events to remap.")
+optp.add_option("-s", "--sim-xml", help="XML document containing sim_inspiral information. Necessay without coinc, and useful with coinc to transfer an entire row at once.")
+optp.add_option("-S", "--sim-id", action="append", help="Process this sim ID. Can be provided multiple times")
+
+optp.add_option("-b", "--event-start", type=int, help="Start of event range to process. This is relative to the listing given by --skyloc-file")
+optp.add_option("-e", "--event-end", type=int, help="End of event range to process. This is relative to the listing given by --skyloc-file")
+optp.add_option("-f", "--skyloc-file", help="Use this file to identify event ranges.")
+optp.add_option("-B", "--bayestar-skymap-dir", help="Use this directory to transfer over skymaps. If not specified, no attempt to do is made.")
+optp.add_option("-d", "--base-directory", default="./", help="Use this directory as a base to stage from.")
+opts, args = optp.parse_args()
+
+if opts.skyloc_file is not None:
+    s = opts.event_start or 0
+    e = opts.event_end or -1
+    with open(opts.skyloc_file) as skylocfile:
+        lines = skylocfile.readlines()[1:]
+    sim_ids = map(int, [line.split()[1].split(":")[-1] for line in lines[s:e]])
+else:
+    sim_ids = map(int, opts.sim_id)
+
+print "Will process %d sim ids" % len(sim_ids)
+
+dirs = []
+if opts.coinc_db is None:
+    print "Assuming sim_inspiral"
+    si_table = table.get_table(utils.load_filename(opts.sim_xml), lsctables.SimInspiralTable.tableName)
+    new_table = lsctables.New(lsctables.SimInspiralTable, si_table.validcolumns.keys())
+
+    if sim_ids is None or len(sim_ids) == 0:
+        new_table.extend(filter(lambda si: si.distance > 10 and si.distance < 50 and random.random() < 0.1, si_table))
+    else:
+        new_table.extend(filter(lambda si: int(si.simulation_id) in sim_ids, si_table))
+
+    for si in new_table:
+        sid = int(si.simulation_id)
+        bdir = "%s/sim_id_%d" % (opts.base_directory, sid)
+        dirs.append(bdir)
+        si.spin1x = 0.
+        si.spin1y = 0.
+        si.spin1z = 0.
+        si.spin2x = 0.
+        si.spin2y = 0.
+        si.spin2z = 0.
+        if not os.path.isdir(bdir):
+            os.makedirs(bdir)
+        indv_table = lsctables.New(lsctables.SimInspiralTable, si_table.validcolumns.keys())
+        indv_table.append(si)
+ 
+        xmldoc = ligolw.Document()
+        xmldoc.appendChild(ligolw.LIGO_LW())
+        xmldoc.childNodes[0].appendChild(indv_table)
+        utils.write_filename(xmldoc, bdir + "/mdc.xml.gz", gz=True)
+
+elif opts.coinc_db is not None:
+    print "Assuming coinc_inspiral"
+    cols = ("coinc_event_id", "end_time", "end_time_ns", "snr")
+    new_table = lsctables.New(lsctables.CoincInspiralTable, cols)
+
+    sim_table = None
+    if opts.sim_xml:
+        sim_table = opts.sim_xml
+
+    connection = sqlite3.connect(opts.coinc_db)
+    get_coinc.add_tmp_table(connection)
+    if len(sim_ids) == 0:
+        print get_coinc.count_sim_coinc(connection)
+        connection.close()
+        exit()
+    else:
+        coinc_from_sim = [get_coinc.get_coinc(connection, id) for id in sim_ids]
+    connection.close()
+
+    for simid, (ceid, m1, m2, et, etn, s) in zip(sim_ids, coinc_from_sim):
+        print "sim to coinc mapping: %d -> %s" % (simid, ceid)
+        ci = new_table.RowType()
+        ci.coinc_event_id = ceid
+        ci.end_time = et
+        ci.end_time_ns = etn
+        ci.snr = s
+        new_table.append(ci)
+
+        cid = int(ceid.split(":")[-1])
+        bdir = "%s/coinc_id_%d" % (opts.base_directory, cid)
+        dirs.append(bdir)
+        if not os.path.isdir(bdir):
+            os.makedirs(bdir)
+
+        indv_table = lsctables.New(lsctables.CoincInspiralTable, cols)
+        indv_table.append(ci)
+        sngl_table = lsctables.New(lsctables.SnglInspiralTable, ["mass1", "mass2"])
+        sngl = sngl_table.RowType()
+        sngl.mass1, sngl.mass2 = m1, m2
+        sngl_table.append(sngl)
+
+        xmldoc = ligolw.Document()
+        xmldoc.appendChild(ligolw.LIGO_LW())
+
+        if sim_table is not None:
+            s_table = get_sim_inspiral_by_id(sim_table, (int(simid),))
+            for sim_row in s_table:
+                sim_row.spin1x = 0.
+                sim_row.spin1y = 0.
+                sim_row.spin1z = 0.
+                sim_row.spin2x = 0.
+                sim_row.spin2y = 0.
+                sim_row.spin2z = 0.
+            xmldoc.childNodes[0].appendChild(s_table)
+        xmldoc.childNodes[0].appendChild(indv_table)
+        xmldoc.childNodes[0].appendChild(sngl_table)
+        utils.write_filename(xmldoc, bdir + "/coinc.xml.gz", gz=True)
+
+        if opts.bayestar_skymap_dir is not None:
+            shutil.copy(os.path.join(opts.bayestar_skymap_dir + "%s.toa_phoa_snr.fits.gz" % ceid.split(":")[2]), bdir)
+
+xmldoc = ligolw.Document()
+xmldoc.appendChild(ligolw.LIGO_LW())
+xmldoc.childNodes[0].appendChild(new_table)
+
+utils.write_filename(xmldoc, "selected_events.xml.gz", gz=True)
+
+# Common operations
+pwd = os.getcwd()
+for bdir in dirs:
+    #if not os.path.exists("%s/H1_PSD_measured.xml.gz" % bdir):
+        #os.symlink("%s/H1_PSD_measured.xml.gz" % pwd, "%s/H1_PSD_measured.xml.gz" % bdir)
+    #if not os.path.exists("%s/L1_PSD_measured.xml.gz" % bdir):
+        #os.symlink("%s/L1_PSD_measured.xml.gz" % pwd, "%s/L1_PSD_measured.xml.gz" % bdir)
+
+    if opts.bayestar_skymap_dir is not None:
+        shutil.copy("%s/Makefile_skymap.template" % pwd, bdir + "/Makefile")
+    else:
+        shutil.copy("%s/Makefile.template" % pwd, bdir + "/Makefile")
