@@ -618,7 +618,7 @@ class HealPixSampler(object):
     """
 
     @staticmethod
-    def __thph2decra(th, ph):
+    def thph2decra(th, ph):
         """
         theta/phi to RA/dec
         theta (north to south) (0, pi)
@@ -632,7 +632,7 @@ class HealPixSampler(object):
         return numpy.pi/2-th, ph
 
     @staticmethod
-    def __decra2thph(dec, ra):
+    def decra2thph(dec, ra):
         """
         theta/phi to RA/dec
         theta (north to south) (0, pi)
@@ -671,7 +671,7 @@ class HealPixSampler(object):
         for p, i in self.pdf_sorted:
             if p == 0:
                 continue # Can't have a zero prior
-            self.valid_points_decra.append(HealPixSampler.__thph2decra(*healpy.pix2ang(res, i)))
+            self.valid_points_decra.append(HealPixSampler.thph2decra(*healpy.pix2ang(res, i)))
             cdf += p
             if cdf > self._massp:
                 break
@@ -693,18 +693,27 @@ class HealPixSampler(object):
             min_p = self.pseudo_pdf(*self.valid_points_decra[-1])
 
         self.valid_points_hist = []
-        for pt in self.valid_points_decra:
-            self.valid_points_hist.extend([pt]*int(self.pseudo_pdf(*pt)/min_p))
-        self.valid_points_hist = numpy.array(self.valid_points_hist).T
+        ns = healpy.npix2nside(len(self.skymap))
 
+        # Renormalize first so that the vector histogram is properly normalized
+        self._renorm = 0
         # Account for probability lost due to cut off
-        self._renorm = sum([self.skymap[i] if v else 0 for i, v in enumerate(self.skymap >= min_p)])
+        for i, v in enumerate(self.skymap >= min_p):
+            self._renorm += self.skymap[i] if v else 0
+
+        for pt in self.valid_points_decra:
+            th, ph = HealPixSampler.decra2thph(pt[0], pt[1])
+            pix = healpy.ang2pix(ns, th, ph)
+            if self.skymap[pix] < min_p:
+                continue
+            self.valid_points_hist.extend([pt]*int(round(self.pseudo_pdf(*pt)/min_p)))
+        self.valid_points_hist = numpy.array(self.valid_points_hist).T
 
     def pseudo_pdf(self, dec_in, ra_in):
         """
         Return pixel probability for a given dec_in and ra_in. Note, uses healpy functions to identify correct pixel.
         """
-        th, ph = HealPixSampler.__decra2thph(dec_in, ra_in)
+        th, ph = HealPixSampler.decra2thph(dec_in, ra_in)
         res = healpy.npix2nside(len(self.skymap))
         return self.skymap[healpy.ang2pix(res, th, ph)]/self._renorm
 
@@ -736,7 +745,7 @@ class HealPixSampler(object):
             if self.valid_points_hist is None:
                 self.__expand_valid()
             np = self.valid_points_hist.shape[1]
-            rnd_n = numpy.random.randint(0, np-1, len(ra_in))
+            rnd_n = numpy.random.randint(0, np, len(ra_in))
             dec_in, ra_in = self.valid_points_hist[:,rnd_n]
             return numpy.array([dec_in, ra_in])
         else:
