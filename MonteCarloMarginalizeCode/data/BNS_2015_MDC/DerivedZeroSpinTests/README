@@ -1,13 +1,22 @@
 
 Rationale:
         To test our code using templates identical to the injected waveform,
-        but *also* in a way comparable to the 'full physics' tests provided by the MDC
+        but *also* in a way comparable to the 'full physics' tests provided by the MDC.
+
+        To perform zero-noise (and other noise-realization) tests for the same event.
 
 Method:
         Rerun ILE with the injected spins =0 *manually* in the injection XML.
+        Use the *saved* coinc and skymap, as needed
 
-        Coincs are generated via the injection XML, via bayestar_littlehope
-               https://www.lsc-group.phys.uwm.edu/ligovirgo/cbcnote/ParameterEstimationModelSelection/BAYESTARHowTo
 
+
+=Advanced options=
+
+* Use a real or pseudo search
+        Coincs are generated via the injection XML. 
         Skymaps are generated via the coinc, via Bayestar
 
+
+   bayestar_littlehope is a toy-model search code.  It needs a template XML
+               https://www.lsc-group.phys.uwm.edu/ligovirgo/cbcnote/ParameterEstimationModelSelection/BAYESTARHowTo
