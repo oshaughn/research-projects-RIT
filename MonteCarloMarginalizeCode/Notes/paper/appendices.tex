@@ -78,7 +78,7 @@ P_n = \frac{1}{N} \qquad   \text{Area}(A_n) = \frac{4\pi}{N}
 \]
 
 \noindent \emph{Monte Carlo integration with discrete volumes}: As above, but apply to Monte Carlo integration, with a
-prior $p_s(\theta)p_s(\gamma)$ in each variable:
+sampling prior $p_s(\theta)p_s(\gamma)$ in the sky $\gamma$ and all other extrinsic variables $\theta$:
 \begin{align}
 \LikeRed(\lambda)
 & \simeq  \sum_{n=1}^N \int_{A_n} \left [\int_V  L(\gamma,\theta,\gamma_n) p(\theta)p(\gamma) \right]
@@ -120,16 +120,17 @@ where $N,N'$ are defined below.
 
 
 
-\noindent \textbf{[Skymaps] Normalization correction}: As described in the notes, if $p_s=0$  in a volume where $p\ne 0$, we must address two
+\noindent \textbf{[Skymaps] Normalization correction}: As described in the notes, if $p_s(\gamma)=0$  in a volume $U$ where $p(\gamma)\ne 0$, we must address two
 complications.\footnote{Of course, we are free to add a floor to the skymap ($s'=a s + (1-s)/N$ for $a\in[0,1]$) as a simple but crude solution.}  First, we can't integrate generic functions $L$ with $L>0$ with $p_s=0$ -- we don't sample them fully.  
-Second, we must careful about \emph{normalization}, rescaling the total number of samples $N_s$ drawn from $p_s$ by the ratio of volumes
+Second, we must careful about \emph{normalization}, rescaling the total number of samples $N_s$ drawn from $p_s$ by the
+ratio of volumes of the prior and of $p_s$ over that region $U$
 \begin{eqnarray}
-N_{\rm corr} = N / \int p_s d\theta d\gamma
+N_{\rm corr} = N / \int_U p_s(\gamma) d\gamma
 \end{eqnarray}
 We will apply this correction to the returned values of $p_s$, returning ``rescaled'' probabilities 
 % mcsampler.py  : self._renorm  in pseudo_pdf  and self._expand_valid_points.
 \begin{eqnarray}
-p_s \rightarrow \frac{p_s}{\int_U p  d\theta d\gamma}
+p_s \rightarrow \frac{p_s}{\int_U p(\gamma)  d\gamma}
 \end{eqnarray}
 Specifically,  if $s_n$ are the  skymap weights reported by \BS, normalized so $\sum_n s_n=1$, we use an ``effective''
 sampling ``probability'' $P_{s,n}$ of
@@ -137,6 +138,33 @@ sampling ``probability'' $P_{s,n}$ of
 P_{s,n} = s_n \frac{N'}{N}
 \end{eqnarray}
 where $N'$ is the number of nonzero samples in $s$ and $N$ is the number of pixels in $s$.
+
+\noindent \textbf{[Skymaps] Subtle implementation issues: cutoffs and lookup tables}: As described in the text, we use a
+discretized lookup table.  As not described in the text, this table de facto \emph{discards} points with weights the
+quantized probability.   For real skymaps, the choice of probability quantum $P_{\rm min}$ can be what determines
+precisely what points are sampled and hence the normalization correction needed [below].
+
+As a concrete example, with $n=12*64^2$ sky points, a uniform weighting gives each pixel $P_{n}
+=1/n \simeq 2\times 10^{-5}$.  A qunatum of probability $P_{\rm min} $ should \emph{definitely} be smaller than this, to
+allow the option of recovering a uniform skymap.
+%
+More broadly, a skymap with a peak and a wide tail can have that tail truncated if $P_{\rm min}$ is too small.  For
+example, if $5\%$ of the skymap probability is distributed across a wide area $\Omega$ of the skymap, we need $P_{\rm
+  min} < 0.05 (4\pi/\Omega)/n$, to be sure that area is sampled.  
+%
+For safety, ROS recommends adopting a small probability quantum $\frac{10}{N}<P_{\rm min} < 0.01/n$, where $n$ is the
+number of sky pixels and $N$ is the number of iterations in ILE.\footnote{This choice ensures that when ILE is run, at
+  least a few draws occur even from the lowest probability pixels.  Does this matter?  Principally for tests, or if
+we expect the \BS{} skymap might be wrong.}  \textbf{This choice requires self-consistent use of
+  multiple code parameters, some currently hardcoded. }
+
+Once chosen, the quantum of probability defines what pixes de facto have zero probability and are never sampled. 
+%% \noindent \emph{Convergence issues and sampling bounds on  small probability quanta}: Small probability quanta introduce their own
+%% potential problems.  The smaller the probability quantum, the more likely you are to have a pixel with $P_{s,n} \simeq
+%% P_{\rm min}$.  On average, that pixel will be sampled every  $1/P_{\rm min}$ sky iterations -- a number that might be in
+%% excess of all samples drawn in one ILE run!
+Ideally, the likelihood will be zero in  low-probability pixels, no matter what $\lambda,\theta$ are, circumventing
+any issues with undersampling and convergence rate.
 
 
 \textbf{Non-uniform, variance-weighted weighting}: By default we combine results with different sampling priors treating
