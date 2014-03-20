@@ -3,6 +3,7 @@ import sys
 import os
 import functools
 import itertools
+from collections import defaultdict
 
 import healpy
 
@@ -51,34 +52,76 @@ iso_bstar_prior = numpy.vectorize(lambda d, r: 1.0/len(skysampler.skymap))
 integrator = mcsampler.MCSampler()
 integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=iso_bstar_prior, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
 
-v = integrator.integrate(integrand, (("ra", "dec"),), verbose=True, nmax=100000)
+v = integrator.integrate(integrand, (("dec", "ra"),), verbose=True, nmax=100000)
 print v[0]
 
-print "Test 3, prior is isotropic (normalized). BAYESTAR map is not isotropic, but has support everywhere. Should still get 1.0 for this test. The integral will accuracy increase as the mixing factor becomes larger (and thus more effective in coverage)."
-for mixing_factor in [1e-3, 5e-3, 1e-2, 1e-1]:
+print "Test 3, prior is isotropic (normalized). BAYESTAR map is not isotropic, but gains support everywhere (gradually) from mixing. Should start off near area searched (fraction of pixels used) up to 1.0 for this test."
+# FIXME: Hardcoded from default in mcsampler
+min_p = 1e-7
+pix_frac = len(smap[smap > min_p])/float(len(smap))
+print "Fraction of pixels used: %g" % pix_frac
+for mixing_factor in [0, 1e-3, 5e-3, 1e-2, 1e-1]:
     print "Mixing factor %g" % mixing_factor
     smap_full_support = (1-mixing_factor)*smap + (mixing_factor)*numpy.ones(len(smap))/len(smap)
     skysampler = mcsampler.HealPixSampler(smap_full_support)
     integrator = mcsampler.MCSampler()
     integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=iso_bstar_prior, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
 
-    v = integrator.integrate(integrand, (("ra", "dec"),), verbose=True, nmax=100000)
-    print v[0]
+    v = integrator.integrate(integrand, (("dec", "ra"),), verbose=True, nmax=500000)
+    print "Integral value: %f, pixel fraction %f" % (v[0], pix_frac)
 
-print "Test 4, prior is isotropic (normalized). BAYESTAR map does not have full support over the entire sky, so the skymap values are (internally) renormalized to account for the missing area (in the ratio of used pixels to total pixels). Answer should still be 1.0"
-skysampler = mcsampler.HealPixSampler(smap)
-iso_bstar_prior = numpy.vectorize(lambda d, r: 1.0/len(skysampler.skymap))
-integrator = mcsampler.MCSampler()
-integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=iso_bstar_prior, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
+    res = healpy.npix2nside(len(skysampler.skymap))
+    valid = skysampler.valid_points_decra
+    rvs = integrator._rvs[("dec", "ra")]
+    cnt = 0
+    vp_prob = {}
+    for vp in valid:
+        th, ph = mcsampler.HealPixSampler.decra2thph(*vp)
+        vp_pix_idx = healpy.ang2pix(res, th, ph)
+        if skysampler.skymap[vp_pix_idx] > min_p:
+            cnt += 1
+        vp_prob[vp_pix_idx] = skysampler.pseudo_pdf(*vp)
 
-v = integrator.integrate(integrand, (("ra", "dec"),), verbose=True, nmax=1000000)
-print v[0]
+    hist = defaultdict(lambda: 0)
+    for rv in rvs.T:
+        th, ph = mcsampler.HealPixSampler.decra2thph(*rv)
+        rv_pix_idx = healpy.ang2pix(res, th, ph)
+        hist[rv_pix_idx] += 1
+
+    norm = float(sum(hist.values()))
+    idx, prob_true, prob_real = [], [], []
+    for i, vp in enumerate(valid):
+        th, ph = mcsampler.HealPixSampler.decra2thph(*vp)
+        vp_pix_idx = healpy.ang2pix(res, th, ph)
+        if skysampler.skymap[vp_pix_idx] < min_p: break
+        #print str(vp) + " %g %g %f" % (vp_prob[vp_pix_idx], hist[vp_pix_idx]/norm, vp_prob[vp_pix_idx]/(hist[vp_pix_idx]/norm))
+        idx.append(i)
+        prob_true.append(vp_prob[vp_pix_idx])
+        prob_real.append(hist[vp_pix_idx]/norm)
+    print "Number of pixels sampled %d, count of valid pixels %d" % (len(hist.values()), cnt)
+    pyplot.plot(idx, prob_real, 'r-', label="realized")
+    pyplot.plot(idx, prob_true, 'k-', label="true")
+    pyplot.legend()
+    pyplot.xlabel("index (arb.)")
+    pyplot.ylabel("prob")
+    pyplot.grid()
+    pyplot.savefig("ps.png")
+
+# NOTE: Commented out as it is identical to mix_fraction = 0
+#print "Test 4, prior is isotropic (normalized). BAYESTAR map does not have full support over the entire sky, so the skymap values are (internally) renormalized to account for the missing area (in the ratio of used pixels to total pixels). Answer should still be 1.0"
+#skysampler = mcsampler.HealPixSampler(smap)
+#iso_bstar_prior = numpy.vectorize(lambda d, r: 1.0/len(skysampler.skymap))
+#integrator = mcsampler.MCSampler()
+#integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=iso_bstar_prior, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
+
+#v = integrator.integrate(integrand, (("dec", "ra"),), verbose=True, nmax=1000000)
+#print v[0]
 
 print "Test 5, prior is BAYESTAR map, which does not have full support over the sky, but does over itself, thus the integral over itself should still be 1.0. Note that we change the prior, and not the integrand because the assumptions about the discretization of p and p_s appear in a ratio, and this preserves that ratio."
 
 integrator = mcsampler.MCSampler()
 integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=skysampler.pseudo_pdf, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
-v = integrator.integrate(integrand, (("ra", "dec"),), verbose=True, nmax=100000)
+v = integrator.integrate(integrand, (("dec", "ra"),), verbose=True, nmax=100000)
 print v[0]
 
 #
