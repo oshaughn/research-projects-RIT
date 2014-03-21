@@ -1,13 +1,13 @@
 \label{sec:Results}
 
-% POINT: What events were used
-To provide a stringent, production-environment test of our parameter estimation code, we applied it to \nEventsMDC{}
-events from the 2015 BNS mock data challenge, described below.  
+We present a proof-of-principle study of our parameter estimation pipeline, employed in a environment which should resemble the steps taken after the identification of search triggers. To this purpose, a mock data challenge was constructed to exercise both the low latency gravitational wave searches as well as the parameter estimation follow-up processes expected to be applied to GW candidates identified by the search. This challenge proceeded in several stages, each desgined to emulate the anticipated workflow in a low latency BNS detection environment. First, the \gstlal{} BNS search was performed over the MDC set, identifying events for further follow up. From the search pipeline, we use the $\mc$ and $\eta$ coordinates from which the intrinsic search space is extrapolated, a the window for time marginalization (see Section \ref{sec:time_marg}) is formed around the reported coalescence time $t_r$. In addition, the search pipeline also provides reference power spectral densities $S_n(f)$ utilized in evaluating the likelihood.
+
+In addition to the information provided by the search pipeline, we also make use of the posterior probability of $\alpha$ and $\delta$, provided by \BS. It is expected that such information will be available within a few minutes of trigger identification. The gains in time to convergence in the MC integral are expected to outweigh the loss of time waiting for \BS to finish processing if the \BS posterior is used as a sampling function for the sky location.
+
 %
 % POINT: What code was used
-Unless otherwise stated, we adopted nonspinning TaylorT4 templates at 3.5 PN order, including only the $(2,\pm 2)$ and
-$(2,0)$ modes;  used roughly $200$ mass points for each event, distributed on spokes in $\mc,\eta$ radiating away from the reported
-masses  provided by the searches, out to an estimated match of 0.9; 
+Unless otherwise stated, the likelihoods were evaluated using nonspinning TaylorT4 templates at 3.5 post-Newtonian order, including only the $(2,\pm 2)$ and $(2,0)$ modes. 
+For each event identified by the GW search pipeline, we distributed the intrinsic points according to the procedure described in Section \ref{sec:itr_placement}.
  evaluated the Monte Carlo integral $10$ times for each mass point; and used a sampling prior equal to the prior for all
  parameters except distance and mass, which were set adaptively and \textbf{via a skymap}.    As used here, the skymap had
  \textbf{$12\times 64^2$ pixels, roughly one per square degree.}  Our distance prior was
