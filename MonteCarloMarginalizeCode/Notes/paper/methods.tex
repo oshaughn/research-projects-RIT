@@ -122,11 +122,12 @@ H_k(t) = F_{+,k}(\delta, \alpha, \psi) h_{+,k}(t)
 where $F_{+,k}$, $F_{\times,k}$ are the antenna patterns of the detector and $h_{+,k}$, $h_{\times,k}$
 are the waveform polarizations. The antenna patterns depend only on the extrinsic sky location and polarization
 angle, while the polarizations depend on both intrinsic and extrinsic parameters. Explicitly,
+at leading order for inspiral-only waveforms the polarizations are
 \begin{widetext}
 \begin{eqnarray} \label{eq:polarizations}
-h_{+,k}(t) &=& - \frac{2 M \eta}{D}\,v^2(\mc,\eta,t_k;t)\,\left[ \left( 1 + \cos^2 \iota \right)\,
+h_{+,k}(t) &=& - \frac{2 M \eta}{D}\,v^2(\mc,\eta,t_k;t)\,\left[ \left( 1 + \cos^2 \iota \right)\, \label{eq:h+}
 	\cos 2 \left( \Phi(\mc,\eta,t_k;t) - \phi_c \right) + {\cal O}(v^3)\right]\ ,\\
-h_{\times,k}(t) &=& - \frac{2 M \eta}{D}\,v^2(\mc,\eta,t_k;t)\,\left[ \left( 2 \cos \iota\right)\,
+h_{\times,k}(t) &=& - \frac{2 M \eta}{D}\,v^2(\mc,\eta,t_k;t)\,\left[ \left( 2 \cos \iota\right)\, \label{eq:hx}
 	\sin 2 \left( \Phi(\mc,\eta,t_k;t) - \phi_c \right) + {\cal O}(v^3)\right]\ .
 \end{eqnarray}
 \end{widetext}
@@ -140,7 +141,10 @@ t_k = t_{\rm geo} - \frac{\vec{x}_k \cdot \hat{N}(\alpha,\delta)}{c}\ .
 \end{equation}
 
 We can use a $-2$ spin-weighted spherical harmonic mode decomposition to further separate intrinsic and extrinsic
-parameters appearing in the polarizations. In particular, we relate the polarizations to a set of $-2$ spin-weighted 
+parameters appearing in the polarizations. 
+This is true not only for the leading order inspiral-only polarizations in Eqs.~(\ref{eq:h+})-(\ref{eq:hx}),
+but also for inspiral-merger-ringdown waveforms, amplitude-corrected waveforms and in general.
+In particular, we relate the polarizations to a set of $-2$ spin-weighted 
 spherical harmonics modes with the equation
 \begin{equation} \label{eq:h:Expansion}
 h_{+,k}(t) - i\,h_{\times,k}(t) = \frac{D_{\rm ref}}{D} \sum_{lm} \hat{h}_{lm}(\mc,\eta,t_k;t)  \Y{-2}_{lm}(\iota,-\phi_c) \ ,
