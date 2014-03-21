@@ -6,17 +6,28 @@ In addition to the information provided by the search pipeline, we also make use
 
 %
 % POINT: What code was used
-Unless otherwise stated, the likelihoods were evaluated using nonspinning TaylorT4 templates at 3.5 post-Newtonian order, including only the $(2,\pm 2)$ and $(2,0)$ modes. 
-For each event identified by the GW search pipeline, we distributed the intrinsic points according to the procedure described in Section \ref{sec:itr_placement}.
- evaluated the Monte Carlo integral $10$ times for each mass point; and used a sampling prior equal to the prior for all
- parameters except distance and mass, which were set adaptively and \textbf{via a skymap}.    As used here, the skymap had
- \textbf{$12\times 64^2$ pixels, roughly one per square degree.}  Our distance prior was
- uniform in volume out to $d=300\unit{Mpc}$.  
-% POINT: Data handling choices
-For each event, the code uses the \gstlal{} input noise power spectrum in each instrument; starts the waveform at $f_{\rm
-  low}=40\unit{Hz}$\footnote{ \textbf{Why is this not a command-line option of ILE, tied to data selection in CME?}};
-and uses an inverse power spectrum filter targeting the frequency range $[f_{\rm min},f_{\rm max}]=[f_{\rm min},
-  2000\unit{Hz}]$, constructed from the measured power spectrum as described in Appendix \ref{ap:DiscreteData}.  
+Unless otherwise stated, the likelihoods were evaluated using nonspinning TaylorT4 templates at 3.5 post-Newtonian order, including only the $(2,\pm 2)$ and $(2,0)$ modes. For each event identified by the GW search pipeline, we distributed the intrinsic points according to the procedure described in Section \ref{sec:itr_placement} and evaluated the Monte Carlo integral $10$ times for each mass point. We outline the form of the priors and sampling functions for each parameter in Table \ref{tbl:priors}.
+
+\begin{table}
+\begin{tabular}{r|c}
+\hline \\
+parameter & physical prior \\
+\hline \\
+distance ($D$) & uniform in volume \\
+inclination ($\iota$) & uniform in $cos\iota$, $\iota$ between $(-1, 1)$ \\
+polarization ($\psi$) & uniform in $(0, 2\pi)$ \\
+orbital phase ($\phi$) & uniform in $(0, 2\pi)$ \\
+declination ($\delta$) & uniform in $\cos\delta$, $\delta$ between $(-\pi, \pi)$ \\
+right ascension ($\phi$) & uniform in $(0, 2\pi)$ \\
+\hline
+\end{tabular}
+\caption{Prior distributions used for the extrinsic parameters in the 2015 MDC study.}
+\end{table}
+
+Only distance used an adaptive sampling function, starting initially with a constant function. Our distance prior was uniform in volume out to $d=300\unit{Mpc}$. The declination and right ascension were sampled from the posterior provided by \BS. As used here, the skymap had \textbf{$12\times 64^2$ pixels, roughly one per square degree.}
+
+{\color{blue} This needs more work. Tie it closer to the inner product definition.}
+The inner product (equation \ref{eqn:InnerProduct}) integration starts the waveform at $f_{\rm low}=40\unit{Hz}$\footnote{ \textbf{Why is this not a command-line option of ILE, tied to data selection in CME?}}, and uses an inverse power spectrum filter targeting the frequency range $[f_{\rm min},f_{\rm max}]=[f_{\rm min}, 2000\unit{Hz}]$, constructed from the measured power spectrum as described in Appendix \ref{ap:DiscreteData}.  
 
 \subsection{Advanced Detector Mock Data Challenge}
 \label{sec:BNS_2015_MDC}
