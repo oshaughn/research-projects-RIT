@@ -26,6 +26,14 @@ producing posteriors and evidence with reproducibly small statistical errors (i.
 As our code has bounded runtime, almost independent of the starting frequency for the signal, a nearly-unchanged strategy could
  estimate NS-NS parameters in the aLIGO era.  
 
+As an additional advantage,  our approach  produces both a posterior distribution and  a very accurate likelihood versus extrinsic parameters.  Unlike MCMC and nested-sampling codes, we can trivially \emph{reweight} our results, allowing the user to
+reprocess the posterior using any user-specified intrinsic-parameter prior.  
+%
+As a result, our approach \emph{also} trivially enables several other calculations of great practical interest:
+reanalysis given alternative astrophysical priors;  simutaneous analysis of multiple events, adapting the ``prior''
+intrinsic (mass, tide) distribution to reproduce multiple observations; and simultaneous independent constraints from
+multimessenger observations. 
+
 %% MAJOR POINT: Why this is a big deal
 % POINT: Implications: Fast performance on BNS, with minimal additional cost at low frequency
 %       Identified in LIGO white paper/PE technical page as high-priority
