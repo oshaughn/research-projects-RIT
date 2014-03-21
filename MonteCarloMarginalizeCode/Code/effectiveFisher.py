@@ -516,6 +516,11 @@ def uniform_spoked_ellipsoid(Nrad, Nspokes, start_angles, *radii):
     """
     Return an array of pts distributed uniformly inside a
     D-dimensional ellipsoid. D is determined by the number of radii args given.
+
+    Output:
+        - cart_pts: array of pts in Cartesian coordinates
+        - sph_pts: array of points in spherical coordinates
+                   (r, zenith_1, .., zenith_N-2, azimuth)
     """
     D = len(radii)
     assert len(start_angles)==D-1
@@ -526,20 +531,22 @@ def uniform_spoked_ellipsoid(Nrad, Nspokes, start_angles, *radii):
 
 def uniform_spoked_ellipsoid2d(Nrad, Nspokes, th0, r1, r2):
     """
-    DOCUMENT ME!!!
+    2D case of function uniform_spoked_ellipsoid
     """
     dr = 1./Nrad
     rs = np.arange(dr, 1.+dr, dr)
     dth = 2.*np.pi/Nspokes
     ths = np.arange(th0, 2.*np.pi + th0, dth)
     rrt = np.sqrt(rs)
-    pts = [[0.,0.]] # Put 1 pt. at origin - e.g. true parameters
+    cart_pts = [[0.,0.]] # Put 1 pt. at origin - e.g. true parameters
+    sph_pts = [[0.,0.]] # Put 1 pt. at origin - e.g. true parameters
     for r in rrt:
         for th in ths:
             x1 = r1 * r * np.cos(th)
             x2 = r2 * r * np.sin(th)
-            pts.append([x1, x2])
-    return pts
+            cart_pts.append([x1, x2])
+            sph_pts.append([r, th])
+    return np.array(cart_pts), np.array(sph_pts)
 
 #
 # Fill an ellipsoid uniformly in volume by points along radial spokes
@@ -548,6 +555,11 @@ def linear_spoked_ellipsoid(Nrad, Nspokes, start_angles, *radii):
     """
     Return an array of pts distributed uniformly inside a
     D-dimensional ellipsoid. D is determined by the number of radii args given.
+
+    Output:
+        - cart_pts: array of pts in Cartesian coordinates
+        - sph_pts: array of points in spherical coordinates
+                   (r, zenith_1, .., zenith_N-2, azimuth)
     """
     D = len(radii)
     assert len(start_angles)==D-1
@@ -558,19 +570,21 @@ def linear_spoked_ellipsoid(Nrad, Nspokes, start_angles, *radii):
 
 def linear_spoked_ellipsoid2d(Nrad, Nspokes, th0, r1, r2):
     """
-    DOCUMENT ME!!!
+    2D case of function linear_spoked_ellipsoid
     """
     dr = 1./Nrad
     rs = np.arange(dr, 1.+dr, dr)
     dth = 2.*np.pi/Nspokes
     ths = np.arange(th0, 2.*np.pi + th0, dth)
-    pts = [[0.,0.]] # Put 1 pt. at origin - e.g. true parameters
+    cart_pts = [[0.,0.]] # Put 1 pt. at origin - e.g. true parameters
+    sph_pts = [[0.,0.]] # Put 1 pt. at origin - e.g. true parameters
     for r in rs:
         for th in ths:
             x1 = r1 * r * np.cos(th)
             x2 = r2 * r * np.sin(th)
-            pts.append([x1, x2])
-    return pts
+            cart_pts.append([x1, x2])
+            sph_pts.append([r, th])
+    return np.array(cart_pts), np.array(sph_pts)
 
 
 
@@ -583,11 +597,10 @@ def uniform_random_ellipsoid(Npts, *radii):
     Return an array of pts distributed randomly and uniformly inside an
     D-dimensional ellipsoid. D is determined by the number of radii args given.
 
-    Returned array has shape like:
-    [[x1_1,x2_1, ..., xD_1],
-     [x1_2,x2_2, ..., xD_2],
-      ...,
-    [x1_Npts,x2_Npts, ..., xD_Npts]]
+    Output:
+        - cart_pts: array of pts in Cartesian coordinates
+        - sph_pts: array of points in spherical coordinates
+                   (r, zenith_1, .., zenith_N-2, azimuth)
     """
     D = len(radii)
     if D==2:
@@ -610,9 +623,12 @@ def uniform_random_ellipsoid2d(Npts, r1, r2):
     rrt = np.sqrt(r)
     x1 = r1 * rrt * np.cos(th)
     x2 = r2 * rrt * np.sin(th)
-    randpts = np.transpose((x1,x2))
-    origin =  np.array([[0.,0.]]) # Always put a pt at ellipse center
-    return np.append(origin, randpts, axis=0 )
+    cart_pts = np.transpose((x1,x2))
+    sph_pts = np.transpose((rrt,th))
+    origin = np.array([[0.,0.]]) # Always put a pt at ellipse center
+    cart_pts = np.append(origin, cart_pts, axis=0)
+    sph_pts = np.append(origin, sph_pts, axis=0)
+    return cart_pts, sph_pts
 
 def uniform_random_ellipsoid3d(Npts, r1, r2, r3):
     """
@@ -622,13 +638,17 @@ def uniform_random_ellipsoid3d(Npts, r1, r2, r3):
     ph = np.random.rand(Npts) * 2.*np.pi
     costh = np.random.rand(Npts)*2.-1.
     sinth = np.sqrt(1.-costh*costh)
+    th = np.arccos(costh)
     rrt = r**(1./3.)
     x1 = r1 * rrt * sinth * np.cos(ph)
     x2 = r2 * rrt * sinth * np.sin(ph)
     x3 = r3 * rrt * costh
-    randpts = np.transpose((x1,x2,x3))
-    origin =  np.array([[0.,0.,0.]]) # Always put a pt at ellipse center
-    return np.append(origin, randpts, axis=0 )
+    cart_pts = np.transpose((x1,x2,x3))
+    cart_pts = np.transpose((rrt,th,ph))
+    origin = np.array([[0.,0.,0.]]) # Always put a pt at ellipse center
+    cart_pts = np.append(origin, cart_pts, axis=0)
+    sph_pts = np.append(origin, sph_pts, axis=0)
+    return cart_pts, sph_pts
 
 def uniform_random_ellipsoid4d(Npts, r1, r2, r3, r4):
     """
@@ -640,18 +660,23 @@ def uniform_random_ellipsoid4d(Npts, r1, r2, r3, r4):
     costh2 = np.random.rand(Npts)*2.-1.
     sinth1 = np.sqrt(1.-costh1*costh1)
     sinth2 = np.sqrt(1.-costh2*costh2)
+    th1 = np.arccos(costh1)
+    th2 = np.arccos(costh2)
     rrt = r**(1./4.)
     x1 = r1 * rrt * sinth1 * sinth2 * np.cos(ph)
     x2 = r2 * rrt * sinth1 * sinth2 * np.sin(ph)
     x3 = r3 * rrt * sinth1 * costh2
     x4 = r4 * rrt * costh1
-    randpts = np.transpose((x1,x2,x3,x4))
-    origin =  np.array([[0.,0.,0.,0.]]) # Always put a pt at ellipse center
-    return np.append(origin, randpts, axis=0 )
+    cart_pts = np.transpose((x1,x2,x3,x4))
+    sph_pts = np.transpose((rrt,th1,th2,ph))
+    origin = np.array([[0.,0.,0.,0.]]) # Always put a pt at ellipse center
+    cart_pts = np.append(origin, cart_pts, axis=0)
+    sph_pts = np.append(origin, sph_pts, axis=0)
+    return cart_pts, sph_pts
 
 def uniform_random_ellipsoid5d(Npts, r1, r2, r3, r4, r5):
     """
-    4D case of uniform_random_ellipsoid
+    5D case of uniform_random_ellipsoid
     """
     r = np.random.rand(Npts)
     ph = np.random.rand(Npts) * 2.*np.pi
@@ -661,12 +686,19 @@ def uniform_random_ellipsoid5d(Npts, r1, r2, r3, r4, r5):
     sinth1 = np.sqrt(1.-costh1*costh1)
     sinth2 = np.sqrt(1.-costh2*costh2)
     sinth3 = np.sqrt(1.-costh3*costh3)
+    th1 = np.arccos(costh1)
+    th2 = np.arccos(costh2)
+    th3 = np.arccos(costh3)
     rrt = r**(1./5.)
     x1 = r1 * rrt * sinth1 * sinth2 * sinth3 * np.cos(ph)
     x2 = r2 * rrt * sinth1 * sinth2 * sinth3 * np.sin(ph)
     x3 = r3 * rrt * sinth1 * sinth2 * costh3
     x4 = r4 * rrt * sinth1 * costh2
     x5 = r5 * rrt * costh1
-    randpts = np.transpose((x1,x2,x3,x4,x5))
-    origin =  np.array([[0.,0.,0.,0.,0.]]) # Always put a pt at ellipse center
-    return np.append(origin, randpts, axis=0 )
+    cart_pts = np.transpose((x1,x2,x3,x4,x5))
+    sph_pts = np.transpose((rrt,th1,th2,th3,ph))
+    origin = np.array([[0.,0.,0.,0.,0.]]) # Always put a pt at ellipse center
+    cart_pts = np.append(origin, cart_pts, axis=0)
+    sph_pts = np.append(origin, sph_pts, axis=0)
+    return cart_pts, sph_pts
+

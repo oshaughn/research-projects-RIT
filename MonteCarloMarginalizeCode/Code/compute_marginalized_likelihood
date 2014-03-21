@@ -303,34 +303,45 @@ Nspokes = int(Nrandpts/Nrad)
 ph0 = np.arctan(np.abs(r1) * (rot[0,1])/(np.abs(r2) * rot[0,0]) )
 if opts.linear_spoked:
 	print "Doing linear spoked placement"
-	rand_grid = eff.linear_spoked_ellipsoid(Nrad, Nspokes, [ph0], r1, r2)
+	cart_grid, sph_grid = eff.linear_spoked_ellipsoid(Nrad,Nspokes,[ph0],r1,r2)
 elif opts.uniform_spoked:
 	print "Doing uniform spoked placement"
-	rand_grid = eff.uniform_spoked_ellipsoid(Nrad, Nspokes, [ph0], r1, r2)
+	cart_grid, sph_grid = eff.uniform_spoked_ellipsoid(Nrad,Nspokes,[ph0],r1,r2)
 else: # do random, uniform placement
 	print "Doing uniform random placement"
-	rand_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
+	cart_grid, sph_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
 # Rotate to get coordinates in parameter basis
-rand_grid = np.array([ np.real( np.dot(rot, rand_grid[i]))
-    for i in xrange(len(rand_grid)) ])
+cart_grid = np.array([ np.real( np.dot(rot, cart_grid[i]))
+    for i in xrange(len(cart_grid)) ])
 # Put in convenient units,
 # change from parameter differential (i.e. dtheta)
 # to absolute parameter value (i.e. theta = theta_true + dtheta)
-rand_dMcs_MSUN, rand_detas = tuple(np.transpose(rand_grid)) # dMc, deta
+rand_dMcs_MSUN, rand_detas = tuple(np.transpose(cart_grid)) # dMc, deta
 rand_Mcs = rand_dMcs_MSUN * lal.LAL_MSUN_SI + McSIG # Mc (kg)
 rand_etas = rand_detas + etaSIG # eta
 
-# Prune points with unphysical values of eta from rand_grid
+# Prune points with unphysical values of eta from cart_grid
 rand_etas = np.array(map(partial(lsu.sanitize_eta, exception=np.NAN), rand_etas))
-rand_grid = np.transpose((rand_Mcs,rand_etas))
-phys_cut = ~np.isnan(rand_grid).any(1) # cut to remove unphysical pts
-rand_grid = rand_grid[phys_cut]
+cart_grid = np.transpose((rand_Mcs,rand_etas))
+phys_cut = ~np.isnan(cart_grid).any(1) # cut to remove unphysical pts
+cart_grid = cart_grid[phys_cut]
 print "Requested", Nrandpts, "points inside the ellipsoid of",\
         match_cntr, "match."
-print "Kept", len(rand_grid), "points with physically allowed parameters."
+print "Kept", len(cart_grid), "points with physically allowed parameters."
 
+# Output Cartesian and spherical coordinates of intrinsic grid
+indices = np.arange(len(cart_grid))
+Mcs_MSUN, etas = np.transpose(cart_grid)
+Mcs_MSUN = Mcs_MSUN / lal.LAL_MSUN_SI
+radii, angles = np.transpose(sph_grid[phys_cut])
+outgrid = np.transpose((indices,Mcs_MSUN,etas,radii,angles))
+# If clusters get upgraded, add this header to output:
+# header='index Mc eta radius angle'
+np.savetxt('intrinsic_grid.dat', outgrid)
+
+# Output information about the intrinsic ellipsoid
 area = np.pi * r1 * r2
-frac_area = area * len(rand_grid) / Nrandpts
+frac_area = area * len(cart_grid) / Nrandpts
 gam = np.real(gam)
 test = np.concatenate((gam,np.array([[r1,r2]]),np.array([[area, frac_area]])))
 # If clusters get upgraded, add this header to output:
@@ -338,8 +349,8 @@ test = np.concatenate((gam,np.array([[r1,r2]]),np.array([[area, frac_area]])))
 np.savetxt('ellipsoid.dat', test)
 
 # Convert to m1, m2
-m1m2_grid = np.array([lsu.m1m2(rand_grid[i][0], rand_grid[i][1])
-        for i in xrange(len(rand_grid))])
+m1m2_grid = np.array([lsu.m1m2(cart_grid[i][0], cart_grid[i][1])
+        for i in xrange(len(cart_grid))])
 m1m2_grid /= lal.LAL_MSUN_SI
 
 from glue.ligolw import utils, ligolw, lsctables, ilwd
@@ -472,4 +483,4 @@ dag.set_dag_file(dag_name)
 dag.write_concrete_dag()
 
 print "Created a DAG named %s\n" % dag_name
-print "This will run %i instances of %s in parallel\n" % (len(rand_grid), ile_sub_name)
+print "This will run %i instances of %s in parallel\n" % (len(cart_grid), ile_sub_name)

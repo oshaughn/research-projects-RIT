@@ -117,78 +117,78 @@ Nrandpts=200
 r1 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[0])) # ellipse radii along eigendirections
 r2 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[1]))
 # Get pts. inside an ellipsoid oriented along eigenvectors...
-#rand_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
+#cart_grid, sph_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
 Nrad = 10
 Nspokes = 40
 ph0 = np.arctan(np.abs(r1) * (rot[0,1])/(np.abs(r2) * rot[0,0]) )
 #ph0 = 0.
 print "angle is:", ph0, r1, r2
-#rand_grid = eff.uniform_spoked_ellipsoid(Nrad, Nspokes, [ph0], r1, r2)
-rand_grid = eff.linear_spoked_ellipsoid(Nrad, Nspokes, [ph0], r1, r2)
-gridT = np.transpose(rand_grid)
+#cart_grid, sph_grid = eff.uniform_spoked_ellipsoid(Nrad,Nspokes, [ph0], r1, r2)
+cart_grid, sph_grid = eff.linear_spoked_ellipsoid(Nrad, Nspokes, [ph0], r1, r2)
+gridT = np.transpose(cart_grid)
 xs = gridT[0]
 ys = gridT[1]
 # Rotate to get coordinates in parameter basis
-rand_grid = np.array([ np.real( np.dot(rot, rand_grid[i]))
-    for i in xrange(len(rand_grid)) ])
-gridT = np.transpose(rand_grid)
+cart_grid = np.array([ np.real( np.dot(rot, cart_grid[i]))
+    for i in xrange(len(cart_grid)) ])
+gridT = np.transpose(cart_grid)
 Xs = gridT[0]
 Ys = gridT[1]
 # Put in convenient units,
 # change from parameter differential (i.e. dtheta)
 # to absolute parameter value (i.e. theta = theta_true + dtheta)
-rand_dMcs_MSUN, rand_detas = tuple(np.transpose(rand_grid)) # dMc, deta
+rand_dMcs_MSUN, rand_detas = tuple(np.transpose(cart_grid)) # dMc, deta
 rand_Mcs = rand_dMcs_MSUN * lal.LAL_MSUN_SI + McSIG # Mc (kg)
 rand_etas = rand_detas + etaSIG # eta
 
-# Prune points with unphysical values of eta from rand_grid
+# Prune points with unphysical values of eta from cart_grid
 rand_etas = np.array(map(partial(lsu.sanitize_eta, exception=np.NAN), rand_etas))
-rand_grid = np.transpose((rand_Mcs,rand_etas))
-phys_cut = ~np.isnan(rand_grid).any(1) # cut to remove unphysical pts
-unphys_cut = np.isnan(rand_grid).any(1) # unphysical pts only
-rand_grid = rand_grid[phys_cut]
+cart_grid = np.transpose((rand_Mcs,rand_etas))
+phys_cut = ~np.isnan(cart_grid).any(1) # cut to remove unphysical pts
+unphys_cut = np.isnan(cart_grid).any(1) # unphysical pts only
+cart_grid = cart_grid[phys_cut]
 print "Requested", Nrandpts, "points inside the ellipsoid of",\
         match_cntr, "match."
-print "Kept", len(rand_grid), "points with physically allowed parameters."
+print "Kept", len(cart_grid), "points with physically allowed parameters."
 
 # Save grid of mass points to file
-#np.savetxt("Mc_eta_pts.txt", rand_grid)
-rand_grid2 = np.array([lsu.m1m2(rand_grid[i][0], rand_grid[i][1]) # convert to m1, m2
-        for i in xrange(len(rand_grid))])
-rand_grid2 /= lal.LAL_MSUN_SI
-#np.savetxt("m1_m2_pts.txt", rand_grid2)
-Njobs = int(np.ceil(len(rand_grid2)/float(pts_per_job)))
-rand_grid3 = np.array_split(rand_grid2, Njobs)
+#np.savetxt("Mc_eta_pts.txt", cart_grid)
+cart_grid2 = np.array([lsu.m1m2(cart_grid[i][0], cart_grid[i][1]) # convert to m1, m2
+        for i in xrange(len(cart_grid))])
+cart_grid2 /= lal.LAL_MSUN_SI
+#np.savetxt("m1_m2_pts.txt", cart_grid2)
+Njobs = int(np.ceil(len(cart_grid2)/float(pts_per_job)))
+cart_grid3 = np.array_split(cart_grid2, Njobs)
 for i in xrange(Njobs):
         fname = "m1_m2_pts_%i.txt" % i
-        np.savetxt(fname, rand_grid3[i])
+        np.savetxt(fname, cart_grid3[i])
 
 elapsed = elapsed_time() - elapsed
 print "Time to distribute points, split and write to file:", elapsed
 
 #dag_utils.write_integrate_likelihood_extrinsic_sub('test')
-#dag_utils.write_extrinsic_marginalization_dag(rand_grid2, 'test.sub')
+#dag_utils.write_extrinsic_marginalization_dag(cart_grid2, 'test.sub')
 
 xmldoc = ligolw.Document()
 xmldoc.childNodes.append(ligolw.LIGO_LW())
 #proc_id = process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
 proc_id = process.register_to_xmldoc(xmldoc, sys.argv[0], {})
 proc_id = proc_id.process_id
-xmldoc.childNodes[0].appendChild(write_sngl_params(rand_grid3, proc_id))
+xmldoc.childNodes[0].appendChild(write_sngl_params(cart_grid3, proc_id))
 utils.write_filename(xmldoc, "m1m2_grid.xml.gz", gz=True)
 
 #
-# N.B. Below here, the real code will divy up rand_grid into blocks of intrinsic
+# N.B. Below here, the real code will divy up cart_grid into blocks of intrinsic
 # parameters and compute the marginalized likelihood on each point
 # in intrinsic parameter space
 #
-# For testing purposes, simply evaluate the overlap on rand_grid and plot
+# For testing purposes, simply evaluate the overlap on cart_grid and plot
 # to confirm it is placing points in the expected ellipsoid with the
 # proper distribution, and the overlap behaves properly.
 #
 
 # Evaluate IP on the grid inside the ellipsoid
-rhos2 = eff.evaluate_ip_on_grid(hfSIG, PTMPLT, IP, param_names, rand_grid)
+rhos2 = eff.evaluate_ip_on_grid(hfSIG, PTMPLT, IP, param_names, cart_grid)
 
 # Plot the ambiguity function, effective Fisher and ellipsoid points
 plt.figure(1)
