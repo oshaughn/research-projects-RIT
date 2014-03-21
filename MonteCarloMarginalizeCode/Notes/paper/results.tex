@@ -18,90 +18,13 @@ For each event, the code uses the \gstlal{} input noise power spectrum in each i
 and uses an inverse power spectrum filter targeting the frequency range $[f_{\rm min},f_{\rm max}]=[f_{\rm min},
   2000\unit{Hz}]$, constructed from the measured power spectrum as described in Appendix \ref{ap:DiscreteData}.  
 
-\subsection{2015 BNS MDC}
+\subsection{Advanced Detector Mock Data Challenge}
+\label{sec:BNS_2015_MDC}
 
+The evolution of the sensitivity of the secnod generation detectors has been described in \cite{}. A mock data challenge using data which posseses a sensitivity which matches the median curve in 2015 from that document was used to test our pipeline. In addition to this data set, a population of GW signals from binary neutron stars was added into the data. The population parameters are outlined here, as well as in \cite{first2years}.
 
-For reference, events in the 2015 MDC data were uniformly distributed on the sky, in orientation, and in volume out to
-\textbf{219} \unit{Mpc}.  The BNS injections had random masses in $1.2 M_\odot-1.6 M_\odot$ and randomly oriented spins with
-\textbf{ZZZ}.   The \gstlal{} pipeline was used to select events for further study.  This selection process introduces a
-small selection (Malmquist) bias, described in Figure \ref{fig:SearchSelection}, 
-which slightly disfavors edge-on binaries relative to our prior.    
-%
+Events in the 2015 MDC data were distributed isotropically on the sky, and in uniformly in volume out to \textbf{219} \unit{Mpc}. The BNS injections had uniform random component masses in $1.2 M_\odot-1.6 M_\odot$ and randomly oriented spins with the dimensionless magnitude not exceeding 0.05. The \gstlal{} pipeline was used to select events for further study. We present parameter estimation results from 450 events seleted randomly from a set of recovered events with false alarm rate smaller than one per century. This threshold is motivated by the selection criteria outlined in \cite{obsscendoc}.
 
-Our parameter estimation strategy does not account for selection biases; for a sufficiently large ensemble of events,
-small deviations between the statistical properties of our posteriors and the ensemble are expected. 
-
-
-\begin{figure}
-\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-2015MDC-SelectedEvents-DistanceCumulative}
-\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-2015MDC-SelectedEvents-CosIotaCumulative}
-\caption{\label{fig:SearchSelection}\textbf{Selection biases}: For the 450 (\textbf{currently 120}) events used in our followup study, the cumulative distribution of $d^3$
-  and $\cos \iota$.  In the absence of selection biases and in the limit of many samples, these two parameters should be
-  uniformly distributed; small deviations away from uniformity reflect selection biases and sampling error.
-}
-\end{figure}
-
-
-\subsection{Scaling}
-
-For a quasicircular compact binary, it is well-known that the time to coalescence from a given GW frequency scales as
-$t(f) \propto f^{-8/3}$. As the sensitivity of detectors improves at low frequencies, this requires the use of considerably
-longer waveforms for detection and parameter estimation. For example, the initial LIGO detectors were sensitive down
-to 40 Hz, while the advanced LIGO detectors could be sensitive down to 10 Hz. To cover extra low frequency
-portion would require waveforms that are $\approx 40$ times longer.
-
-Traditional Bayesian parameter estimation is computationally limited by waveform generation and
-likelihood evaluations. Both of these are linearly proportional to waveform length. Note that the likelihood evaluations 
-involve computing an inner product as in Eq.~\ref{eq:InnerProduct}, 
-which is approximated as a finite sum. The number of points in the sum is determined by the length of the waveform 
-and data being analyzed, which is why the cost of likelihood evaluations scales with waveform length.
-Therefore, one would expect the cost of Bayesian parameter estimation using a seismic cutoff of $f_{\rm min} = 10$ Hz
-to be roughly 40 times more expensive than the same analysis using $f_{\rm min} = 40$ Hz.
-
-The method proposed here is not computationally limited by waveform generation. Recall that for each point
-in the intrinsic parameter space we compute the waveform and the inner products between the various modes
-and the data (the assorted $Q_{k,lm}$, $U_{k,lm,l'm'}$, $V_{k,lm,l'm'}$) only once. We then integrate over the 
-extrinsic parameters, which involves evaluating $F_+ + i F_\times$ and the $Y^{(-2)}_{lm}$'s for 
-different values of the extrinsic parameters.
-While generating the waveform and computing inner products does scale with waveform duration, 
-this cost is insignificant (even for $f_{\rm min}=10$ Hz) compared to the integration over extrinsic parameters,
-which is wholly independent of waveform duration.
-Therefore, the cost of our method increases only a little as $f_{\rm min}$ is decreased, in contrast to the sharp
-increase that occurs for waveform-limited techniques such as traditional Bayesian parameter estimation.
-See Fig.~\ref{fig:fmin_scaling}.
-
-\ForInternalReference{
-* scaling versus number of harmonics used.  (Aside on truncating harmonics with trivial content...not used presently)
-}
-
-
-\ForInternalReference{
-\begin{table}
-\begin{tabular}{lll}
-$f_{\rm low}$ & $t_{\rm wave}$ & $T_{\rm wall}$ \\\hline
-10 & & \\
-25 & & \\
-30 & & \\
-\end{tabular}
-\caption{\textbf{Runtime versus starting frequency}: Waveform duration $t_{\rm wave}$ and wallclock time $T_{\rm wall}$  needed to evaluate $L_{\rm red}=\int L p d\theta$
-  for one set of intrinsic parameters $\lambda$ versus starting frequency $f_{|rm low}$, for a $m_1,m_2=\textbf{XXX}$
-  nonspinning black hole binary.  Waveforms were generated using the  \texttt{TaylorT1} and \texttt{EOBNRv2} time-domain
-  codes, respectively.  The
-  computational cost does not depend significantly on waveform duration for starting frequencies of interest. 
-}
-\end{table}
-}
-
-\begin{figure}
-\includegraphics[width=\columnwidth]{../Figures/fig-manual-RuntimeScalingVsFmin.png}
-\caption{\label{fig:fmin_scaling}\textbf{Scaling versus frequency}: Points show the runtime of our parameter estimation strategy as a function
-  of the minimum frequency $f_{\rm min}$.  For comparison, the solid curve shows the scaling $\propto f_{\rm
-    min}^{-8/3}$ expected if our runtime was proportional to the waveform duration (e.g., runtime proportional to the
-  number of time samples). 
-% INTERNAL REF: coinc_id_17494 was used here.
- Waveforms were generated using the standard \texttt{TaylorT1} time-domain code, with $m_1=1.55 M_\odot$ and $m_2=1.23 M_\odot$. 
-}
-\end{figure}
 
 \subsection{Detailed investigation of one event}
 %% WHAT FIGURES CURRENTLY ARE : 
@@ -283,6 +206,79 @@ $P(x_{*1})<P(x_{*2})$, then the points on the plot are $\{P(x_{*,q}),q/n\}$.
   the cumulative distribution of $P_\theta(\theta_k)$ for each extrinsic variable $\theta=d,RA,DEC,\iota,\psi,\phi_{\rm
     orb}$.  \editremark{Beware: currently non-skymap code}
 \emph{Bottom panel}: The sky area associated with higher-probability pixels than the true sky position of the source. \textbf{CREATE}
+}
+\end{figure}
+
+{\color{blue} Integrate: The event selection process outlined \ref{sec:BNS_2015_MDC} introduces a small selection (Malmquist) bias, described in Figure \ref{fig:SearchSelection}, which slightly disfavors edge-on binaries relative to our prior.  Our parameter estimation strategy does not account for selection biases; for a sufficiently large ensemble of events, small deviations between the statistical properties of our posteriors and the ensemble are expected. }
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-2015MDC-SelectedEvents-DistanceCumulative}
+\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-2015MDC-SelectedEvents-CosIotaCumulative}
+\caption{\label{fig:SearchSelection}\textbf{Selection biases}: For the 450 (\textbf{currently 120}) events used in our followup study, the cumulative distribution of $d^3$
+  and $\cos \iota$.  In the absence of selection biases and in the limit of many samples, these two parameters should be
+  uniformly distributed; small deviations away from uniformity reflect selection biases and sampling error.
+}
+\end{figure}
+
+
+\subsection{Scaling}
+
+For a quasicircular compact binary, it is well-known that the time to coalescence from a given GW frequency scales as
+$t(f) \propto f^{-8/3}$. As the sensitivity of detectors improves at low frequencies, this requires the use of considerably
+longer waveforms for detection and parameter estimation. For example, the initial LIGO detectors were sensitive down
+to 40 Hz, while the advanced LIGO detectors could be sensitive down to 10 Hz. To cover extra low frequency
+portion would require waveforms that are $\approx 40$ times longer.
+
+Traditional Bayesian parameter estimation is computationally limited by waveform generation and
+likelihood evaluations. Both of these are linearly proportional to waveform length. Note that the likelihood evaluations 
+involve computing an inner product as in Eq.~\ref{eq:InnerProduct}, 
+which is approximated as a finite sum. The number of points in the sum is determined by the length of the waveform 
+and data being analyzed, which is why the cost of likelihood evaluations scales with waveform length.
+Therefore, one would expect the cost of Bayesian parameter estimation using a seismic cutoff of $f_{\rm min} = 10$ Hz
+to be roughly 40 times more expensive than the same analysis using $f_{\rm min} = 40$ Hz.
+
+The method proposed here is not computationally limited by waveform generation. Recall that for each point
+in the intrinsic parameter space we compute the waveform and the inner products between the various modes
+and the data (the assorted $Q_{k,lm}$, $U_{k,lm,l'm'}$, $V_{k,lm,l'm'}$) only once. We then integrate over the 
+extrinsic parameters, which involves evaluating $F_+ + i F_\times$ and the $Y^{(-2)}_{lm}$'s for 
+different values of the extrinsic parameters.
+While generating the waveform and computing inner products does scale with waveform duration, 
+this cost is insignificant (even for $f_{\rm min}=10$ Hz) compared to the integration over extrinsic parameters,
+which is wholly independent of waveform duration.
+Therefore, the cost of our method increases only a little as $f_{\rm min}$ is decreased, in contrast to the sharp
+increase that occurs for waveform-limited techniques such as traditional Bayesian parameter estimation.
+See Fig.~\ref{fig:fmin_scaling}.
+
+\ForInternalReference{
+* scaling versus number of harmonics used.  (Aside on truncating harmonics with trivial content...not used presently)
+}
+
+
+\ForInternalReference{
+\begin{table}
+\begin{tabular}{lll}
+$f_{\rm low}$ & $t_{\rm wave}$ & $T_{\rm wall}$ \\\hline
+10 & & \\
+25 & & \\
+30 & & \\
+\end{tabular}
+\caption{\textbf{Runtime versus starting frequency}: Waveform duration $t_{\rm wave}$ and wallclock time $T_{\rm wall}$  needed to evaluate $L_{\rm red}=\int L p d\theta$
+  for one set of intrinsic parameters $\lambda$ versus starting frequency $f_{|rm low}$, for a $m_1,m_2=\textbf{XXX}$
+  nonspinning black hole binary.  Waveforms were generated using the  \texttt{TaylorT1} and \texttt{EOBNRv2} time-domain
+  codes, respectively.  The
+  computational cost does not depend significantly on waveform duration for starting frequencies of interest. 
+}
+\end{table}
+}
+
+\begin{figure}
+\includegraphics[width=\columnwidth]{../Figures/fig-manual-RuntimeScalingVsFmin.png}
+\caption{\label{fig:fmin_scaling}\textbf{Scaling versus frequency}: Points show the runtime of our parameter estimation strategy as a function
+  of the minimum frequency $f_{\rm min}$.  For comparison, the solid curve shows the scaling $\propto f_{\rm
+    min}^{-8/3}$ expected if our runtime was proportional to the waveform duration (e.g., runtime proportional to the
+  number of time samples). 
+% INTERNAL REF: coinc_id_17494 was used here.
+ Waveforms were generated using the standard \texttt{TaylorT1} time-domain code, with $m_1=1.55 M_\odot$ and $m_2=1.23 M_\odot$. 
 }
 \end{figure}
 
