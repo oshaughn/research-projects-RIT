@@ -34,3 +34,8 @@ def cumvar(arr, mean=None, var=None, n=0):
 		norm = numpy.arange(n, n + len(s))
 		norm[0] = 1 # avoid a warning about zero division
 		return s/norm
+
+def int_var(samples):
+    mean = numpy.mean(samples)
+    sq_mean = numpy.mean(samples**2)
+    return (sq_mean-mean**2)/len(samples-1)
