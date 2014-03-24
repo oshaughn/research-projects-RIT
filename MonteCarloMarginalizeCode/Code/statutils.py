@@ -42,4 +42,4 @@ def cumvar(arr, mean=None, var=None, n=0):
 def int_var(samples):
     mean = numpy.mean(samples)
     sq_mean = numpy.mean(samples**2)
-    return (sq_mean-mean**2)/len(samples-1)
+    return (sq_mean-mean**2)/(len(samples)-1)
