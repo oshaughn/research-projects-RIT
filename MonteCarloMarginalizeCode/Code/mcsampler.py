@@ -332,7 +332,7 @@ class MCSampler(object):
         mean, var = None, None
 
         if bShowEvaluationLog:
-            print "iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg)  Lmarg ln(Z/Lmax)"
+            print "iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var"
 
         if convergence_tests:
             bConvergenceTests = False   # start out not converged, if tests are on
@@ -442,7 +442,7 @@ class MCSampler(object):
                 raise NanOrInf("maxlnL = inf")
 
             if bShowEvaluationLog:
-                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/ntotal)), int_val1/ntotal, numpy.log(int_val1/ntotal)-maxlnL
+                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/ntotal)), numpy.log(int_val1/ntotal)-maxlnL, numpy.sqrt(var*ntotal)/int_val1
 
             if (not convergence_tests) and ntotal >= nmax and neff != float("inf"):
                 print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
