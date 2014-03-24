@@ -7,7 +7,11 @@ __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 #
 def cumvar(arr, mean=None, var=None, n=0):
 	"""
-	Numerically stable running variance measure. See http://www.johndcook.com/standard_deviation.html for algorithm details. If mean and var are supplied, they will be used as the history values.
+	Numerically stable running sample variance measure. If mean and var are supplied, they will be used as the history values. See 
+
+    http://www.johndcook.com/standard_deviation.html
+
+    for algorithm details.
 	"""
 	if mean and var:
 		m, s = numpy.zeros(len(arr)+1), numpy.zeros(len(arr)+1)
