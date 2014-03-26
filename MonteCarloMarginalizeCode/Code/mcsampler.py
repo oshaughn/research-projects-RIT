@@ -60,6 +60,8 @@ class MCSampler(object):
 
 
     def __init__(self):
+        # Total number of samples drawn
+        self.ntotal = 0
         # Parameter names
         self.params = set()
         # parameter -> pdf function object
@@ -325,14 +327,14 @@ class MCSampler(object):
             p = Pool(nProcesses)
 
         int_val1 = numpy.float128(0)
-        ntotal = 0
+        self.ntotal = 0
         maxval = -float("Inf")
         maxlnL = -float("Inf")
         eff_samp = 0
-        mean, std = None, None 
+        mean, var = None, None
 
         if bShowEvaluationLog:
-            print "iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg)  Lmarg ln(Z/Lmax)"
+            print "iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var"
 
         if convergence_tests:
             bConvergenceTests = False   # start out not converged, if tests are on
@@ -340,7 +342,7 @@ class MCSampler(object):
         else:
             bConvergenceTests = False    # if tests are not available, assume not converged. The other criteria will stop it
             last_convergence_test = defaultdict(lambda: False)   # need record of tests to be returned always
-        while (eff_samp < neff and ntotal < nmax): #  and (not bConvergenceTests):
+        while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
             p_s, p_prior, rv = self.draw(n, *self.params)
                         
@@ -423,14 +425,14 @@ class MCSampler(object):
             for v in int_val[1:]:
                 maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
-            # running stddev
-            var = cumvar(int_val, mean, std, ntotal)[-1]
+            # running variance
+            var = cumvar(int_val, mean, var, self.ntotal)[-1]
             # running integral
             int_val1 += int_val.sum()
             # running number of evaluations
-            ntotal += n
+            self.ntotal += n
             # FIXME: Likely redundant with int_val1
-            mean = int_val1
+            mean = int_val1/self.ntotal
             maxval = maxval[-1]
 
             eff_samp = int_val1/maxval
@@ -442,9 +444,9 @@ class MCSampler(object):
                 raise NanOrInf("maxlnL = inf")
 
             if bShowEvaluationLog:
-                print " :",  ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/ntotal)), int_val1/ntotal, numpy.log(int_val1/ntotal)-maxlnL
+                print " :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/self.ntotal)), numpy.log(int_val1/self.ntotal)-maxlnL, numpy.sqrt(var*self.ntotal)/int_val1
 
-            if (not convergence_tests) and ntotal >= nmax and neff != float("inf"):
+            if (not convergence_tests) and self.ntotal >= nmax and neff != float("inf"):
                 print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
 
             # Convergence tests:
@@ -463,7 +465,7 @@ class MCSampler(object):
             # The total number of adaptive steps is reached
             #
             # FIXME: We need a better stopping condition here
-            if ntotal > n_adapt:
+            if self.ntotal > n_adapt:
                 continue
 
             # FIXME: Hardcoding
@@ -548,7 +550,7 @@ class MCSampler(object):
         if convergence_tests is not None:
             dict_return["convergence_test_results"] = last_convergence_test
 
-        return int_val1/ntotal, var/ntotal, eff_samp, dict_return
+        return int_val1/self.ntotal, var/self.ntotal, eff_samp, dict_return
 
 ### UTILITIES: Predefined distributions
 #  Be careful: vectorization is not always implemented consistently in new versions of numpy
