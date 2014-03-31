@@ -53,6 +53,7 @@ where $\{\gamma_k,v_k\}$ is the eigensystem of $\Gamma$.
 
 \section{[Internal use] Monte Carlo integration}
 
+\subsection{Skymaps}
 \noindent \textbf{[Skymaps]  Discretizing a volume} We integrate over the sky by translating a continuous distribution into
 discrete, equal-area pixels.  Specifically, we start with the abstract process of breaking an integral over a volume
 $\Omega$ in the sky coordinates ($\gamma$)  up into nonoveralapping
@@ -188,6 +189,7 @@ Ideally, the likelihood will be zero in  low-probability pixels, no matter what 
 any issues with undersampling and convergence rate.
 
 
+\subsection{Monte Carlo integration}
 \textbf{Non-uniform, variance-weighted weighting}: By default we combine results with different sampling priors treating
 them equally (e.g., as if they have converged to the same sampling prior) when evaluating the integral at each mass
 point.  
@@ -227,6 +229,19 @@ where the last expression adds errors in quadrature from the numerator and denom
 errors.    (In fact, the two are correlated \editremark{fixme: important for scaling the error as $P(1-P)$ })
 
 
+
+\subsection{Marginalizing over parameter}
+
+\noindent \textbf{Skymap marginalization: A proposal}: A discrete skymap usually has relatively concentrated support -- roughly
+$10^3$ pixels or less, say.  Rather than perform Monte Carlo integration to approximate $\int P_k
+\Like(\lambda,\theta_k)$ over the sky, we can \emph{directly} integrate, via a discrete operation:
+
+
+\emph{Is this a good idea?}: This procedure requires evaluating the likelihood on  \emph{every pixel in the skymap}, so
+is of considerable advantage only for very
+narrowly targeted (3-IFO, high-SNR) sky localizations.  In such a narrowly-focused case, an adaptive integrator will almost certainly
+discover the best-fitting single sky position.  That said, if we're worried about \emph{strongly-separated peaks}, this
+procedure will provide an (expensive) backup.
 
 \section{[Internal use] Results: Targeted studies}
 
