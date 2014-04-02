@@ -249,7 +249,7 @@ for the intrinsic parameters $p_{\rm post}(\itrprm)$ as in Eq.~(\ref{eq:def:Post
 If we do this for a collection of points in the intrinsic parameter space, we can integrate over $\itrprm$ as
 well and obtain the evidence ratio $Z$ as in Eq.~(\ref{eq:def:Z:Modified}).
 Note that the computation for each point in the intrinsic space is completely independent of the others.
-This makes the algorithm embarassingly parallel and given enough CPU cores the entire analysis can be
+This makes the algorithm embarrassingly parallel and given enough CPU cores the entire analysis can be
 run in the time it takes to integrate over the extrinsic parameters (modulo some brief startup and post-processing steps).
 
 The remainder of this section provides more details on the various steps of our algorithm.
@@ -331,12 +331,12 @@ The remainder of this section provides more details on the various steps of our 
 %Q_{k,lm}(\tau) &\equiv \qmstateproduct{{\cal T}_{\tau} h_{lm}}{\hat{H}_k}_k \\
 %&= 2 \int_{-\infty}^{\infty} \frac{df}{S_k(|f|)} e^{+2\pi i f \tau} \tilde{h}_{lm}(f)^* \tilde{\hat{H}}_k(f) \\
 %\end{align}
-%i.e., as the inner product of the timeshifted $h_{lm}$ harmonic [$h_{lm}(t+\tau)\equiv [{\cal T}_\tau h_{lm}](t)$] with the data in the $k$th instrument.
+%i.e., as the inner product of the time shifted $h_{lm}$ harmonic [$h_{lm}(t+\tau)\equiv [{\cal T}_\tau h_{lm}](t)$] with the data in the $k$th instrument.
 
 
 % POINT: This is precomputable
 %Critically, all intrinsic-parameter dependent terms in   Eq. (\ref{eq:def:lnL:Decomposed}) can be evaluated once for
-%each $\lambda$.  Having calculated these constants ($U_{k,lm,l'm'},V_{k,lm,l'm'}$) and timeseries ($Q_{k,lm}(\tau)$),
+%each $\lambda$.  Having calculated these constants ($U_{k,lm,l'm'},V_{k,lm,l'm'}$) and time series ($Q_{k,lm}(\tau)$),
 %the likelihood can be efficiently evaluated for any choice of extrinsic parameters $\theta$.
 %
 
@@ -501,9 +501,9 @@ We \editremark{will} validate this simple estimate.
 
 %
 Unless otherwise indicated, we draw samples using a separable sampling prior $p_s(\alpha) =
-\prod_{\alpha}p_{s,\alpha}(\theta_\alpha)$, with each factor $p_{s,\alpha}$ equal to the corresponding prior in that dimension.  Notable exceptions are
+\prod_{\alpha}p_{s,\alpha}(\theta_\alpha)$, with each factor $p_{s,\alpha}$ equal to the corresponding prior in that dimension. {color{blue} These aren't exceptions: The sampling prior is separable in all parameters unless using a skymap, and then it's effectively $\alpha,\delta\rightarrow\tau$ where $\tau$ is a time delay... Notable exceptions are
 distance (either uniformly or adaptively sampled) and sky position (either uniformly, adaptively, or via a skymap), as
-described below.
+described below.}
 %
 
 % POINT: How many runs?
@@ -574,48 +574,21 @@ each histogram.
 
 \subsubsection{Using search results to target specific areas of the sky}
 
-The \BS{} pipeline \cite{gw-astro-Bayestar} rapidly processes the results of a search to identify candidate sky
-locations consistent with a gravitational wave event, assuming a nonprecessing source.   
+The \BS{} pipeline \cite{gw-astro-Bayestar} rapidly processes the results of a gravitational-wave search to identify candidate sky locations consistent with a gravitational wave event with minimal assumptions about the waveform parameters.
 %
-This code produces a \emph{skymap}: a discrete [Healpix] grid of sky positions, with relative probabilities for each sky
-pixel.  
-%
-Our code can ingest and use these skymaps,  both to construct sampling prior or physical prior \emph{functions}
-$p_s(\alpha,\delta)$ and to generate random samples. 
+This code produces a posterior distribution for the GW signal sky location in a discretized, interlocking, equal-area grid of pixels corresponding to sky regions, with probabilities for each pixel (a healpix skymap). The refinement of the grid is variable and scales with the resolution required to resolve the features of the posterior in $\alpha$ and $\delta$. This posterior produced by \BS{} is usable for both constructing a sampling prior or a physical prior $p_s(\alpha,\delta)$.
 
-Specifically, the \BS{} pipeline provides a normalized array  $b_k$  for $n=1\ldots n_{\rm pix}$ with $\sum_k b_k=1$.    
-Each array index is associated with a unique sky location $(\alpha,\delta)_k $, covering the sky in equal-area tiles.  
+However, because the typical sky resolutions provided by \BS{} are significantly finer than the resolving power of current gravitational-wave detector networks and we moreover are free to adopt higher resolutions as needed --- for simplicity we adopt a purely discrete sky when used as sampling prior. Instead of sampling continuously, the samples are selected from the set of sky region centers as calculated by the healpix library. These regions are sampled appropriately by their weight in the posterior. One possible disadvantage to this is for very sharp features in the posterior, it is possible that this method will fail to find the exact peak of the likelihood function in the sky coordinates. {\color{blue} Can we or should we quantify this?} 
+
+{\color{blue} The remainder of this explanation is technical and may not be appropriate for the paper. It is here for posterity.} Specifically, the \BS{} pipeline provides a set of $N$ pixels represented as a normalized array of probability mass $s_k$, each index $k$ associated with a pixel centered on $(\alpha_k,\delta_k)$.
 %
 % Healpy review: http://planck.oat.ts.astro.it/planck/software_and_manuals/Healpix_1.22/Healpix_intro.pdf
 %   npix = 12*nside^2 = 49152     %% 4 Pi/(49152)/(Degree)^2 // N
 %   nside = 64 (for us)
-Because the sky resolutions used are  significantly finer than the resolving power of gravitational wave detector
-networks -- and we are free to adopt a higher resolution, as needed, given the expected signal strength -- 
- for simplicity we adopt a purely discrete sky.  For example, to generate  random sky positions, we generating random integers $k$ consistent with
-the skymap's probabilities and converting those random integers to sky positions $(\alpha_k,\delta_k)$.  Conversely, to
-generate the two-dimensional PDF consistent with this distribution at a proposed $(\alpha,\delta)$, we look up the
-integer $k$ associated with the tile containing $(\alpha,\delta)$, then return $b_k$.  
-
-
-
-To be more concrete regarding random sky position generation, each random integer is generated as follows. 
-%
-Without loss of generality, assume the $b_k$ are sorted in increasing order and calculate the cumulative distribution $B_k
-= \sum_{q\le k} b_k$.   Random integers $k$ are generated from random real numbers $x$ via finding
-% EQUATION
-%   - discrete array index q
-\begin{eqnarray}
- B_k/B_{n_{\rm pix}} < x <  B_{k+1}/B_{n_{\rm pix}}
-\end{eqnarray}
-%* review healpy, bayestar 
-In practice, to reduce the need to search the $B_k$ array for each new random sample $x$, we quantize the possible probabilities
-using some small scale $\Delta p$ estimated from the skymap, then  precompute a lookup table between $\floor*{x/\Delta
-  p}$ and $k$.    \textbf{Chris, please verify the implementation}
-
-
+To generate sky position samples, we generate instead a set of indices corresponding with each index having a multiplicity of $M_k=\frac{s_k}{s_{\text{min}}}\simeq p_s(\alpha_k, \delta_k)$. This represents the probability mass of the region up to an overall quantization error relative to the smallest $s_k$ chosen ($s_{\text{min}}$). The minimum pixel probability is chosen small enough to well represent the quantized probability distribution. {\color{blue} ...and we have a plot of this if necessary}. Finally, a random element of the set is selected and the index chosen is converted back to its sky coordinates $(\alpha_k,\delta_k)$. 
+% The point is to avoid rejection sampling which is slow
 
 %% POINT: Very high SNR: finer skymaps are available, and we can use
-
 
 \subsubsection{Time marginalization}
 \label{sec:time_marg}
