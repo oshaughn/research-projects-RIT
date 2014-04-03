@@ -180,12 +180,19 @@ p(\mc,\eta)/Z$.  For comparison, this figure also includes the same naive Fisher
 \end{figure}
 
 \begin{figure}
-\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-v2_coinc_833-IntegralVarianceVersusNeff}
-\caption{\label{fig:FiducialEvent:Integral:ErrorEstimate}\textbf{Sampling error analysis II: Integral error}: For each of the 111 mass points evaluated for the fiducial
-  event, a scatterplot of the mean number of effective samples $n_{\rm eff}$ versus the standard deviation in $\ln
-  L_{\rm red}$, where at each mass point the mean and standard deviation are calculated over the 10 independent
-  evaluations performed.  Considering our final prediction for $L_{\rm red}$ combines all 10 events, this figure
-  suggests $L_{\rm red}$ is known to better than $1\%$ for each mass point.  
+\includegraphics[width=\columnwidth]{../Figures/fig-mma-paper-10202-IntegralErrorVersusNeff}
+%\includegraphics[width=\columnwidth]{../Figures/fig-mma-manual-v2_coinc_833-IntegralVarianceVersusNeff}
+\caption{\label{fig:FiducialEvent:Integral:ErrorEstimate}\textbf{Sampling error analysis II: Integral error}: Blue
+  points show the standard deviation in $L_{\rm red}$ versus $n_{\rm eff}$ reported for each of the individual code
+  instances (1470 trials, corresponding to 147 mass points, 10 times each).  Red points shows the composite error
+  $\sigma_{L}$ derived by weighting each of the 10 trials at each mass point, versus the sum of all $n_{\rm eff}$ in
+  each trial.   \editremark{Currently showing 10202 - not clear why this iteration is so bad; previous skymap versions had
+  sub-percent errors in the composite results? }
+%% For each of the 111 mass points evaluated for the fiducial
+%%   event, a scatterplot of the mean number of effective samples $n_{\rm eff}$ versus the standard deviation in $\ln
+%%   L_{\rm red}$, where at each mass point the mean and standard deviation are calculated over the 10 independent
+%%   evaluations performed.  Considering our final prediction for $L_{\rm red}$ combines all 10 events, this figure
+%%   suggests $L_{\rm red}$ is known to better than $1\%$ for each mass point.  
 % Additionally, this figure illustrates just how many effective samples are available for *each* mass point: thousands.
 }
 \end{figure}
