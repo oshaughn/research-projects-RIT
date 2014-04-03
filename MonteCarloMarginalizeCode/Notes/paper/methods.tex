@@ -510,6 +510,16 @@ described below.}
 Currently, we perform $n_{\rm trials}$ ($=10$) evaluations at each mass point, terminating when either $N$ iterations
 crosses a threshold ($=10^6$) or to some fixed
 $n_{\rm eff}$ threshold ($=1000$), whichever comes first.  
+%
+To allow for intrinsic differences in sampling prior between evaluations, the $n_{\rm trials}$ evaluations at each mass
+point are
+recombined weighted by their (estimated) error: if $\LikeRed_k$  and $\sigma_{\LikeRed,k}$ are the reported integral
+values and error estimates for $k=1\ldots n_{\rm trials}$, then
+\begin{eqnarray}
+\hat{\LikeRed}(\lambda) = \frac{\sum_k \LikeRed_k/\sigma_{\LikeRed,k}^2}{\sum_k 1/\sigma_{\LikeRed,k}^2}
+\end{eqnarray}
+
+
 % POINT: Storage
 To mitigate storage requirements, we discard  low-weight samples before recording results.  Low-weight samples are identified by sorting  $w_1<w_2<\ldots$;
 constructing the cumulative $W_=\sum_{q\le k} w_q$; and discarding all samples with $W_k/W_N<10^{-4}$.  
