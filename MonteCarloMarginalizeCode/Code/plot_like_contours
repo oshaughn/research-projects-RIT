@@ -35,8 +35,9 @@ optp.add_option("--log-evidence", action="store_true", help="Plot log evidence")
 optp.add_option("--partial-evidence", action="store_true", help="Plot the partial evidence (L*p)")
 optp.add_option("--show-points", action="store_true", help="Scatter plot the points used.")
 optp.add_option("--show-mdc", help="Mark MDC values from provided XML on the plots.")
-optp.add_option("--fig-extension",help="Type of figure (png,pdf,jpg)",default="png")
-optp.add_option("--input-cache",help="Read files in from this cache")
+optp.add_option("--no-fill-contours", action="store_true", help="Don't fill contours created.")
+optp.add_option("--fig-extension", help="Type of figure (png, pdf, jpg)", default="png")
+optp.add_option("--input-cache", help="Read files in from this cache")
 opts, args = optp.parse_args()
 
 from glue.lal import Cache
@@ -185,7 +186,10 @@ d1d2 = numpy.array(zip(d1g.flatten(), d2g.flatten()))
 int_like = griddata(d1, d2, like, d1g, d2g)
 
 
-pyplot.contourf(d1g, d2g, int_like, 20)
+if opts.no_fill_contours:
+    pyplot.contour(d1g, d2g, int_like, 20)
+else:
+    pyplot.contourf(d1g, d2g, int_like, 20)
 
 if opts.show_mdc:
 

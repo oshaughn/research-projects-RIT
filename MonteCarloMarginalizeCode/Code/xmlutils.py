@@ -124,6 +124,23 @@ def likelihood_to_snglinsp_row(table, loglikelihood, neff=0, converged=False, **
 
     return row
 
+def db_identify_param(db_fname, process_id, param):
+    """
+    Extract the event time for a given process ID. This may fail in the case that the event time was not given on the command line (rather in a pointer to a XML file)
+    NOTE: This is definitely not the best way to do this.
+    """
+
+    cmd_prm = "--" + param.replace("_", "-")
+
+    sql = """select value from process_params where process_id = "%s" and param = "%s" """ % (str(process_id), cmd_prm)
+
+    try:
+        connection = sqlite3.connect(db_fname)
+        result = list(connection.execute(sql))[0][0]
+    finally:
+        connection.close()
+    return result
+
 def db_to_samples(db_fname, tbltype, cols):
     """
     Pull samples from db_fname and return object that resembles a row from an XML table.
