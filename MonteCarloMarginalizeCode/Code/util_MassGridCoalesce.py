@@ -1,8 +1,9 @@
 #! /usr/bin/env python
 """
 util_MassGrid.py <fnames>
-    - prints out <m1> <m2> <lnL>  <neff> for each individual ILE run, to stdout
+    - prints out <m1> <m2> <lnL>  <neff> \sigma/L for each individual ILE *mass point*, to stdout
     - fnames can be an arbitrary mix of .sqlite or .xml files
+    - currently *hardcodes* intrinsic (mass) parameter list
 
 Used to generate ascii dumps summarizing runs
 """
@@ -41,9 +42,12 @@ for fname in sys.argv[1:]:
 
 # Loop over each key and print out
 for intrinsic in data_at_intrinsic.keys():
-    lnL, neff, sigma =   np.transpose(data_at_intrinsic[intrinsic])
-    wts = weight_simulations.AverageSimulationWeights(None, None,sigma)
-    sigmaNet = np.sqrt(1./np.sum(1./sigma/sigma))
-    print intrinsic[0], intrinsic[1], np.log(np.sum(np.exp(lnL)*wts)), np.sum(neff), sigmaNet
+    lnL, neff, sigmaOverL =   np.transpose(data_at_intrinsic[intrinsic])
+    lnLmax = np.max(lnL)
+    sigma = sigmaOverL*np.exp(lnL-lnLmax)  # remove overall Lmax factor, which factors out from the weights constructed from \sigma
+    wts = weight_simulations.AverageSimulationWeights(None, None,sigma)   
+    lnLmeanMinusLmax = np.log(np.sum(np.exp(lnL - lnLmax)*wts))
+    sigmaNetOverL = (np.sqrt(1./np.sum(1./sigma/sigma)))/np.exp(lnLmeanMinusLmax)
+    print intrinsic[0], intrinsic[1], lnLmeanMinusLmax+lnLmax, np.sum(neff), sigmaNetOverL
 
 
