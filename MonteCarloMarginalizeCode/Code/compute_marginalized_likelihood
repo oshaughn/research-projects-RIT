@@ -210,6 +210,8 @@ Nrandpts = opts.N_mass_pts # Requested number of pts to put inside the ellipsoid
 # Setup signal and IP class
 #
 param_names = ['Mc', 'eta']
+McSIG = lsu.mchirp(m1_SI, m2_SI)
+etaSIG = lsu.symRatio(m1_SI, m2_SI)
 PSIG = lsu.ChooseWaveformParams(
         m1=m1_SI, m2=m2_SI,
         fmin=template_min_freq,
@@ -217,8 +219,7 @@ PSIG = lsu.ChooseWaveformParams(
         )
 # Find a deltaF sufficient for entire range to be explored
 PTEST = PSIG.copy()
-PTEST.m1 *= min_mc_factor
-PTEST.m2 *= min_mc_factor
+PTEST.m1, PTEST.m2 = lsu.m1m2(McSIG*min_mc_factor, min_eta)
 PSIG.deltaF = lsu.findDeltaF(PTEST)
 
 PTMPLT = PSIG.copy()
@@ -230,8 +231,6 @@ IP = lsu.Overlap(fLow = ip_min_freq,
         )
 
 hfSIG = lsu.norm_hoff(PSIG, IP)
-McSIG = lsu.mchirp(m1_SI, m2_SI)
-etaSIG = lsu.symRatio(m1_SI, m2_SI)
 
 # Find appropriate parameter ranges
 min_mc = McSIG * min_mc_factor
