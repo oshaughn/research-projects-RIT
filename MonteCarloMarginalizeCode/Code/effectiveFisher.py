@@ -190,7 +190,7 @@ def find_effective_Fisher_region(P, IP, target_match, param_names,param_bounds):
                     "did not bound target match", target_match, ". Using",\
                     param_bounds[i][0], "as the lower bound of", param,\
                     "range for the effective Fisher region.\n"
-            min_param = param_bounds[i][1]
+            min_param = param_bounds[i][0]
         try:
             max_param = brentq(func, param_peak, param_bounds[i][1], xtol=TOL)
         except ValueError:
