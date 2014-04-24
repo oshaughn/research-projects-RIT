@@ -449,7 +449,7 @@ for det in detectors:
     print det, " rho = ", rhoDet
 print "Network : ", np.sqrt(rho2Net)
 
-if checkInputs:
+if checkInputs and not bNoInteractivePlots:
     print " == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
     P = Psig.copy()
     P.tref = Psig.tref
@@ -473,7 +473,7 @@ if opts.opt_UseSkymap:
     smap, smap_meta = bfits.read_sky_map(opts.opt_UseSkymap)
     sides = healpy.npix2nside(len(smap))
 
-    if opts.plot_ShowSamplerInputs:
+    if opts.plot_ShowSamplerInputs and not bNoInteractivePlots:
         try:
             from lalinference.bayestar import plot
             plt.subplot(111, projection='astro mollweide')
@@ -651,7 +651,7 @@ sampler = mcsampler.MCSampler()
 pinned_params = ourparams.PopulateSamplerParameters(sampler, theEpochFiducial,tEventFiducial, distBoundGuess, Psig, opts)
 unpinned_params = set(sampler.params) - set(pinned_params)
 
-if opts.plot_ShowPSD:
+if opts.plot_ShowPSD and not bNoInteractivePlots:
     for det in psd_dict.keys():
         if analyticPSD_Q:
             fvals =  np.arange(opts.fmin_SNR,2000,1.)              # the upper limit is kind of random
