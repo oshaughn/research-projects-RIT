@@ -5,7 +5,8 @@ Ground based gravitational wave detector networks (notably LIGO \cite{gw-detecto
 binaries, both the relatively well understood signal from  the lowest-mass compact binaries
 $M=m_1+m_2\le 16 M_\odot$
 \cite{2003PhRvD..67j4025B,2004PhRvD..70j4003B,2004PhRvD..70f4028D,BCV:PTF,2005PhRvD..71b4039K,2005PhRvD..72h4027B,2006PhRvD..73l4012K,2007MNRAS.374..721T,2008PhRvD..78j4007H,gr-astro-eccentric-NR-2008,gw-astro-mergers-approximations-SpinningPNHigherHarmonics,gw-astro-PN-Comparison-AlessandraSathya2009}
-and the less-well-understood strong-field epoch \editremark{citations}.    
+and the less-well-understood strong-field epoch
+\cite{2011PhRvD..83l2005A,2009CQGra..26p5008A, 2014PhRvD..89d2002K,2009PhRvD..79l4028B,2010PhRvD..82f4016S,2011CQGra..28m4002M,2013PhRvD..87b4009M,2013CQGra..31b5012H}.    
 %
 % POINT: Inference via Bayesian methods
 Interpreting gravitational wave data requires systematically comparing all possible candidate signals to the data,
@@ -13,20 +14,29 @@ constructing a Bayesian posterior probability distribution for candidate binary 
 %
 Owing to the complexity and multimodality of the model space, historically successful strategies have adopted  generic, serial
 algorithms for parameter estimation, such as variants of Markov Chain Monte Carlo or nested sampling
-\cite{2011RvMP...83..943V,gw-astro-PE-lalinference-v1}.  
+\cite{2011RvMP...83..943V,gw-astro-PE-lalinference-v1}.   
+%
+In physics, similar path-based methods have been enormously successful at a broad range of physical problems, by
+exploring all  possible paths  through a configuration space; see,
+e.g.,  \cite{2001RvMP...73...33F,1987PhLB..195..216D}.  
 % POINT: Why do something new?  
 %   -Because they are slow, being serial
 Though successful, these generic algorithms are functionally serial, requiring intensive communication to coordinate the
 current state, and are therefore well-known to scale poorly to large numbers of processors.  
 %
-These algorithms' convergence is also limited by \emph{ergodicity}.  No theorem guarantees these algorithm \emph{must}
- explore the entire model space, let alone efficiently; no expression can robustly assess convergence, using available
+These algorithms' convergence is also limited by \emph{ergodicity}.  
+ No theorem  guarantees these algorithm \emph{must}  explore the entire model space, let alone efficiently; no expression can robustly assess convergence, using available
  sampled data.  
 %
 By contrast, well-understood, efficient, and highly-parallelizable Monte Carlo integration strategies are frequently applied to problems with dimensions comparable or
-higher than coalescing compact binaries \textbf{citations}.    In this work, we apply such methods to gravitational wave
+higher than coalescing compact binaries; see, e.g.,  \cite{lepage1980vegas,1980PhRvD..21.2308C,book-math-Jaeckel-MonteCarlo,mm-QuasiMonteCarlo-Papageorgiou2001}.    In this work, we apply such methods to gravitational wave
 parameter estimation for the first time.  
 %
+% http://en.wikipedia.org/wiki/Quasi-Monte_Carlo_methods_in_finance
+%
+%  Beware re quantum monte carlo -- often it is basically an MCMC
+%    - http://adsabs.harvard.edu/abs/2001RvMP...73...33F
+%    - 1987PhLB..195..216D,
 
 
 % POINT :
@@ -99,9 +109,9 @@ Then, in Section \ref{sec:Methods}, we describe our algorithm in detail.
 %
 To demonstrate  our algorithm provides high performance in a production environment,  Section \ref{sec:Results} we
 provide concrete results drawn from a large sample of events from the ``2015 double neutron star mock data challenge'',
-results from which will be described in \editremark{first2years, others}.  
+results from which will be described in \cite{first2years}.  
 %
 In Section \ref{sec:Discussion} we reflect on the broader significance of our result, in the context of other parameter
 estimation work inside and outside the LSC.  
 %
-We conclude with Section \ref{sec:Conclude}
+We conclude with Section \ref{sec:Conclude}.  
