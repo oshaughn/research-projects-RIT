@@ -1,12 +1,39 @@
 \label{sec:Results}
 
-We present a proof-of-principle study of our parameter estimation pipeline, employed in a environment which should resemble the steps taken after the identification of search triggers. To this purpose, a mock data challenge was constructed to exercise both the low latency gravitational wave searches as well as the parameter estimation follow-up processes expected to be applied to GW candidates identified by the search. This challenge proceeded in several stages, each desgined to emulate the anticipated workflow in a low latency BNS detection environment. First, the \gstlal{} BNS search was performed over the MDC set, identifying events for further follow up. From the search pipeline, we use the $\mc$ and $\eta$ coordinates from which the intrinsic search space is extrapolated, a the window for time marginalization (see Section \ref{sec:time_marg}) is formed around the reported coalescence time $t_r$. In addition, the search pipeline also provides reference power spectral densities $S_n(f)$ utilized in evaluating the likelihood.
+We present a proof-of-principle study of our parameter estimation pipeline, employed in a environment which should
+resemble the steps taken after the identification of search triggers. To this purpose, a mock data challenge was
+constructed to exercise both the low latency gravitational wave searches as well as the parameter estimation follow-up
+processes expected to be applied to GW candidates identified by the search \cite{first2years}. This challenge proceeded
+in several stages, each desgined to emulate the anticipated workflow in a low latency BNS detection environment. 
 
-In addition to the information provided by the search pipeline, we also make use of the posterior probability of $\alpha$ and $\delta$, provided by \BS. It is expected that such information will be available within a few minutes of trigger identification. The gains in time to convergence in the MC integral are expected to outweigh the loss of time waiting for \BS to finish processing if the \BS posterior is used as a sampling function for the sky location.
+Before beginning, data was constructed consistent with the expected  (median) sensitivity for  2015
+from \cite{LIGO-Inspiral-Rates,LIGO-2013-WhitePaper-CoordinatedEMObserving}, documents that describe the evolution of
+sensitivity of second-generation detectors.   A population of GW signals from binary neutron stars was added into the
+data, as described in \cite{first2years} and reviewed here.   Events in this set (the 2015 MDC data) were distributed
+isotropically on the sky, and in uniformly in volume out to \textbf{219} \unit{Mpc}. The BNS injections had uniform
+random component masses in $1.2 M_\odot-1.6 M_\odot$ and randomly oriented spins with the dimensionless magnitude not
+exceeding 0.05. 
+These  (precessing) binary signals  were generated via precessing
+SpinTaylorT4 templates at 3.5 PN order \cite{BCV:PTF}, including all known post-Newtonian modes \cite{gw-astro-mergers-approximations-SpinningPNHigherHarmonics}.  
+
+
+First, the \gstlal{} BNS search was performed over the MDC set, identifying events for further follow up.  We present
+parameter estimation results from 450 events seleted randomly from a set of recovered events with false alarm rate
+smaller than one per century. This threshold is motivated by the selection criteria outlined
+in \cite{LIGO-2013-WhitePaper-CoordinatedEMObserving}. From the reported  search pipeline results, we use the $\mc$ and
+$\eta$ coordinates from which the intrinsic search space is extrapolated, a the window for time marginalization (see
+Section \ref{sec:time_marg}) is formed around the reported coalescence time $t_r$.  The search pipeline also provides reference power spectral densities $S_n(f)$ utilized in evaluating the likelihood.
+
+In addition to the information provided by the search pipeline, we also make use of the posterior probability of $\alpha$ and $\delta$, provided by \BS. It is expected that such information will be available within a few minutes of trigger identification. The gains in time to convergence in the MC integral are expected to outweigh the loss of time waiting for \BS{} to finish processing if the \BS{} posterior is used as a sampling function for the sky location.
 
 %
 % POINT: What code was used
-Unless otherwise stated, the likelihoods were evaluated using nonspinning TaylorT4 templates at 3.5 post-Newtonian order, including only the $(2,\pm 2)$ and $(2,0)$ modes. For each event identified by the GW search pipeline, we distributed the intrinsic points according to the procedure described in Section \ref{sec:itr_placement} and evaluated the Monte Carlo integral $10$ times for each mass point. We outline the form of the priors and sampling functions for each parameter in Table \ref{tbl:priors}.
+Unless otherwise stated, the likelihoods were evaluated using nonspinning TaylorT4 templates at 3.5 post-Newtonian
+order, including only the $(2,\pm 2)$ and $(2,0)$ modes.    As we will discuss at length below, this signal model does \emph{not} include all degrees of
+freedom permitted to the binary in the data.  
+When evaluating the likelihood,   waveforms started at $f_{\rm low}=40\unit{Hz}$.  The inner product (equation \ref{eq:InnerProduct}) integration uses an inverse power spectrum filter targeting the frequency range $[f_{\rm min},f_{\rm max}]=[f_{\rm min}, 2000\unit{Hz}]$, constructed from the measured power spectrum as described in Appendix \ref{ap:DiscreteData}.  
+
+For each event identified by the GW search pipeline, we distributed the intrinsic points according to the procedure described in Section \ref{sec:itr_placement} and evaluated the Monte Carlo integral $10$ times for each mass point. We outline the form of the priors and sampling functions for each parameter in Table \ref{tbl:priors}.
 
 \begin{table}
 \begin{tabular}{r|c}
@@ -21,20 +48,18 @@ declination ($\delta$) & uniform in $\cos\delta$, $\delta$ between $(-\pi, \pi)$
 right ascension ($\phi$) & uniform in $(0, 2\pi)$ \\
 \hline
 \end{tabular}
-\caption{Prior distributions used for the extrinsic parameters in the 2015 MDC study.}
+\caption{\label{tbl:priors}Prior distributions used for the extrinsic parameters in the 2015 MDC study.}
 \end{table}
 
 Only distance used an adaptive sampling function, starting initially with a constant function. Our distance prior was uniform in volume out to $d=300\unit{Mpc}$. The declination and right ascension were sampled from the posterior provided by \BS. As used here, the skymap had \textbf{$12\times 64^2$ pixels, roughly one per square degree.}
 
-{\color{blue} This needs more work. Tie it closer to the inner product definition.}
-The inner product (equation \ref{eqn:InnerProduct}) integration starts the waveform at $f_{\rm low}=40\unit{Hz}$\footnote{ \textbf{Why is this not a command-line option of ILE, tied to data selection in CME?}}, and uses an inverse power spectrum filter targeting the frequency range $[f_{\rm min},f_{\rm max}]=[f_{\rm min}, 2000\unit{Hz}]$, constructed from the measured power spectrum as described in Appendix \ref{ap:DiscreteData}.  
 
-\subsection{Advanced Detector Mock Data Challenge}
-\label{sec:BNS_2015_MDC}
+%\subsection{Advanced Detector Mock Data Challenge}
+%\label{sec:BNS_2015_MDC}
 
-The evolution of the sensitivity of the second generation detectors has been described in \cite{LIGO-Inspiral-Rates,LIGO-2013-WhitePaper-CoordinatedEMObserving}. A mock data challenge using data which posseses a sensitivity which matches the median curve in 2015 from that document was used to test our pipeline. In addition to this data set, a population of GW signals from binary neutron stars was added into the data. The population parameters are outlined here, as well as in \cite{first2years}.
+%The evolution of the sensitivity of the second generation detectors has been described in \cite{LIGO-Inspiral-Rates,LIGO-2013-WhitePaper-CoordinatedEMObserving}. A mock data challenge using data which posseses a sensitivity which matches the median curve in 2015 from that document was used to test our pipeline. In addition to this data set, a population of GW signals from binary neutron stars was added into the data. The population parameters are outlined here, as well as in \cite{first2years}.
 
-Events in the 2015 MDC data were distributed isotropically on the sky, and in uniformly in volume out to \textbf{219} \unit{Mpc}. The BNS injections had uniform random component masses in $1.2 M_\odot-1.6 M_\odot$ and randomly oriented spins with the dimensionless magnitude not exceeding 0.05. The \gstlal{} pipeline was used to select events for further study. We present parameter estimation results from 450 events seleted randomly from a set of recovered events with false alarm rate smaller than one per century. This threshold is motivated by the selection criteria outlined in \cite{LIGO-2013-WhitePaper-CoordinatedEMObserving}.
+%The \gstlal{} pipeline was used to select events for further study. We present parameter estimation results from 450 events seleted randomly from a set of recovered events with false alarm rate smaller than one per century. This threshold is motivated by the selection criteria outlined in \cite{LIGO-2013-WhitePaper-CoordinatedEMObserving}.
 
 
 \subsection{Detailed investigation of one event}
@@ -73,11 +98,12 @@ parameters are provided in Table \ref{tab:FiducialEvent:Parameters}.
 The repeated independent evaluations naturally produced by our algorithm provide a simple self-consistency check,
 allowing us to quantify convergence empirically.  
 Specifically, at each of the 111 mass points automatically targeted for investigation by our algorithm for this event, we
-independently evaluated the integral $L_{\rm red}$ [Figure \ref{fig:FiducialEvent:LikelihoodVersusMchirpEta}] and construct one- and two-dimensional posterior distributions, from
+independently evaluated the integral $\LikeRed$ [Figure \ref{fig:FiducialEvent:LikelihoodVersusMchirpEta}] and construct one- and two-dimensional posterior distributions, from
 10 independent evaluations [e.g., Figure \ref{fig:FiducialEvent:Triplot:TriggerMasses}].    
 %
 As illustrated by example in Figure \ref{fig:FiducialEvent:Triplot:TriggerMasses}, these fixed-mass posterior
-distributions are smooth and overlap the true parameters \editremark{Need to add injection cross}.  
+distributions are smooth; overlap the true parameters \editremark{Need to add injection cross}; and have errors
+consistent  with the previously-reported estimate \editremark{prove me}.  
 %
 Moreover, as illustrated by Figure \ref{fig:FiducialEvent:Cumulatives:Comparison:TriggerMasses}, each of the 10
 independent evaluations make posterior predictions that are consistent with one another.   
@@ -126,7 +152,7 @@ $\mc,\eta$, derived by interpolating between our discrete grid.   As expected, t
 Fisher matrix used to construct our grid. 
 %
 For comparison, the bottom panel of Figure \ref{fig:FiducialEvent:LikelihoodVersusMchirpEta} shows the contours of
-$p(\mc,\eta)\LikeRed(\mc,eta)$, including the strong coordinate singularity near the equal-mass line.  
+$p(\mc,\eta)\LikeRed(\mc,\eta)$, including the strong coordinate singularity near the equal-mass line.  
 %
 Despite the large log-likelihood and the good agreement between the Fisher matrix and likelihood contours, this
 coordinate singularity leads to significant differences between a naive 
@@ -196,6 +222,40 @@ p(\mc,\eta)/Z$.  For comparison, this figure also includes the same naive Fisher
 % Additionally, this figure illustrates just how many effective samples are available for *each* mass point: thousands.
 }
 \end{figure}
+
+
+
+\subsubsection{Controlled, zero-spin tests}
+Though the source investigated here contained two (precessing) spins, our signal model explicitly omitted any spin
+effects.  Recent calculations suggest advanced interferometers can weakly constrain astrophysically plausible spins in
+binary neutron stars  \cite{2014PhRvL.112j1101F,2014arXiv1404.3180C}. 
+%
+For this reason, we have carefully repeated our calculations using a  nonspinning source with otherwise identical parameters, inserted into (a) no
+noise and (b) the same data used above.   
+%
+For simplicity, rather than perform a search, we employed the same skymap and coincidence data identified
+above.  \editremark{explain triggering issues: time offset needs to be fixed}
+%
+Results of this comparison are shown in Figure \editremark{XXX}
+
+
+
+\begin{figure}
+\caption{\textbf{Marginalized likelihood and posterior distribution versus component masses II: Zero spin}:
+As Figure \ref{fig:FiducialEvent:LikelihoodVersusMchirpEta}, but for an injection without spin superimposed on (a) identical data
+[black] and (b) zero noise [blue]. 
+}
+\end{figure}
+
+
+
+\subsubsection{Validating technical assumptions}
+
+
+
+* \editremark{DISCRETE SKY  - resolution limitations? NOT DISCRETE SKY?}
+
+* Validating seperability of posteriors
 
 \subsection{Ensemble of events}
 
