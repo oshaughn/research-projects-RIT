@@ -481,6 +481,15 @@ against known-good extrinsic parameters; etc)
 %useful for exploring mass space using fixed extrinsic grid set by previous 
 %only need a few samples to get an idea
 
+
+\noindent \textbf{Exploration}
+
+* [ROS] Region library (i.e. ellipsoids): test if in; perform integral (mcsampler); return points (grid/unstructured)
+
+** mcsampler: return dump of params, so we can construct marginalized posteriors/PDFs using usual infrastructure
+
+* [ROS] Refinement stage: a single job after a mass point, using the best-suited
+
 \section{Methods  paper 2: Spin}
 
 Adding the spin dimensions is important and worth a detailed study.
