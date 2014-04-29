@@ -82,15 +82,16 @@ $\vec{\mu}$ and $y$ be all other parameters, such that $\vec{\mu} = x \cup y$. T
 \begin{equation} \label{eq:def:Posterior}
 p_{\rm post}(x) \equiv \frac{p(x|H_1)}{Z(\{d\}|{\cal H}_1)} \ \int dy \;  p(y|H_1) \Like(x,y)\ .
 \end{equation}
-\editremark{[Do we like the $p_{\rm post}$ notation for posterior?]}
+%\editremark{[Do we like the $p_{\rm post}$ notation for posterior?]}
 
 \subsection{Intrinsic and extrinsic parameters}
 
-In the next subsection we present a method for decomposing a waveform into intrinsic and extrinsic pieces.
-The intrinsic parameters are fundamental to the description of the binary, and in particular if we change any intrinsic
+On physical grounds, we group waveform parameters $\vec{\mu}=(\vec{\lambda},\vec{\theta})$ into two classes: the
+intrinsic parameters ($\vec{\lambda}$) and extrinsic parameters ($\vec{\theta}$). 
+The intrinsic parameters are fundamental to the description of the binary: if we change any intrinsic
 parameters we must recompute the orbital dynamics of the binary (typically through the relatively expensive process
 of numerically integrating ordinary differential equations). Extrinsic parameters simply describe how the
-binary is oriented in space and time relative to the detector, and changing extrinsic parameters involves a 
+binary is oriented in space and time relative to the detector; changing extrinsic parameters involves a 
 relatively inexpensive rotation, translation or rescaling transformation. As we will show in the next subsection, 
 for the non-spinning case considered here the intrinsic parameters are
 \begin{equation} \label{eq:intrinsic}
@@ -120,9 +121,35 @@ H_k(t) = F_{+,k}(\delta, \alpha, \psi) h_{+,k}(t)
 + F_{\times,k}(\delta, \alpha, \psi) h_{\times,k}(t)\ ,
 \end{equation}
 where $F_{+,k}$, $F_{\times,k}$ are the antenna patterns of the detector and $h_{+,k}$, $h_{\times,k}$
-are the waveform polarizations. The antenna patterns depend only on the extrinsic sky location and polarization
-angle, while the polarizations depend on both intrinsic and extrinsic parameters. Explicitly,
-at leading order for inspiral-only waveforms the polarizations are
+are the two components of the gravitational wave strain, evaluated at the $k$th detector. The antenna patterns depend only on the extrinsic sky location and polarization
+angle, while the polarizations depend on both intrinsic and extrinsic parameters.   In turn, the polarizations can be
+evaluated via the real and imaginary parts of a complex-valued plane wave $h(t|\mc,\eta,\iota,\phi_c)$:
+\begin{align}
+h_{+,k}(t)-i h_{\times, k}(t) &= h(t-t_k|\mc,\eta,\iota,\phi_c)
+\end{align}
+In this expression,  $t_k$  denotes the time of arrival of the coalescence at the $k^{th}$ detector.
+For a network of detectors across the Earth, this will vary for each detector with the offset relative to the geocenter
+time depending on sky location. If $\vec{x}_k$ is a vector pointing from the geocenter to the $k^{th}$ detector
+and $\hat{N}(\alpha,\delta)$ is the direction of GW propagation, then
+\begin{equation} \label{eq:t_k}
+t_k = t_{\rm geo} - \frac{\vec{x}_k \cdot \hat{N}(\alpha,\delta)}{c}\ .
+\end{equation}
+
+
+At this stage, we make no assumptions about the functional form of $h(t|\mc,\eta,\iota,\phi_c)$
+%
+We can use a $-2$ spin-weighted spherical harmonic mode decomposition to further separate intrinsic and extrinsic
+parameters appearing in the polarizations. 
+In particular, we relate the polarizations to a set of $-2$ spin-weighted 
+spherical harmonics modes with the equation
+\begin{equation} \label{eq:h:Expansion}
+h_{+,k}(t) - i\,h_{\times,k}(t) = \frac{D_{\rm ref}}{D} \sum_{lm} \hat{h}_{lm}(\mc,\eta,t_k;t)  \Y{-2}_{lm}(\iota,-\phi_c) \ ,
+\end{equation}
+For the purposes of this work, investigating radiation from inspiralling binaries, we will use $\hat{h}_{lm}$ as the -2
+spin-weighted spherical harmonics modes provided by post-Newtonian calculations for adiabatic quasicircular inpiral \cite{gw-astro-mergers-approximations-SpinningPNHigherHarmonics},
+evaluated at some fixed distance $D_{\rm ref}$ (in this work we choose $D_{\rm ref} = 100$ Mpc).
+%
+As a concrete example, at leading order for inspiral-only waveforms the polarizations are
 \begin{widetext}
 \begin{eqnarray} \label{eq:polarizations}
 h_{+,k}(t) &=& - \frac{2 M \eta}{D}\,v^2(\mc,\eta,t_k;t)\,\left[ \left( 1 + \cos^2 \iota \right)\, \label{eq:h+}
@@ -132,26 +159,8 @@ h_{\times,k}(t) &=& - \frac{2 M \eta}{D}\,v^2(\mc,\eta,t_k;t)\,\left[ \left( 2 \
 \end{eqnarray}
 \end{widetext}
 $\Phi(t)$ and $v(t)$ are the key orbital dynamical quantities, typically obtained via the energy balance equation,
-which are expensive to compute. We use $t_k$ to denote the time of arrival of the coalescence at the $k^{th}$ detector.
-For a network of detectors across the Earth, this will vary for each detector with the offset relative to the geocenter
-time depending on sky location. If $\vec{x}_k$ is a vector pointing from the geocenter to the $k^{th}$ detector
-and $\hat{N}(\alpha,\delta)$ is the direction of GW propagation, then
-\begin{equation} \label{eq:t_k}
-t_k = t_{\rm geo} - \frac{\vec{x}_k \cdot \hat{N}(\alpha,\delta)}{c}\ .
-\end{equation}
-
-We can use a $-2$ spin-weighted spherical harmonic mode decomposition to further separate intrinsic and extrinsic
-parameters appearing in the polarizations. 
-This is true not only for the leading order inspiral-only polarizations in Eqs.~(\ref{eq:h+})-(\ref{eq:hx}),
-but also for inspiral-merger-ringdown waveforms, amplitude-corrected waveforms and in general.
-In particular, we relate the polarizations to a set of $-2$ spin-weighted 
-spherical harmonics modes with the equation
-\begin{equation} \label{eq:h:Expansion}
-h_{+,k}(t) - i\,h_{\times,k}(t) = \frac{D_{\rm ref}}{D} \sum_{lm} \hat{h}_{lm}(\mc,\eta,t_k;t)  \Y{-2}_{lm}(\iota,-\phi_c) \ ,
-\end{equation}
-where the the $\hat{h}_{lm}$ are the -2 spin-weighted spherical harmonics modes (see Ref. \editremark{ADDME})
-evaluated at some fixed distance $D_{\rm ref}$ (in this work we choose $D_{\rm ref} = 100$ Mpc).
-
+which are expensive to compute.
+%
 If we define a complex-valued antenna pattern for each detector as
 \begin{equation} \label{eq:complexF}
 F_k = F_{+,k} + i \, F_{\times,k} \ ,
@@ -172,14 +181,13 @@ the the same mode for some other arrival time $t_k'$ can be simply related by
 \begin{equation} \label{eq:time_shift}
 \tilde{h}_{lm}(t_k';f) = \tilde{h}_{lm}(t_k;f) \, e^{- 2 \pi i f (t_k' - t_k)}\ .
 \end{equation}
-There is a well-known method of efficiently maximizing the overlap between a template and data 
-over time of coalescence using an inverse Fourier transform from detection template searches.
-Plugging Eq.~(\ref{eq:time_shift}) into Eq.~(\ref{eq:InnerProduct}), the overlap between data $d$ and
-some template $h(t_k)$ with time of arrival $t_k$ is
+For this reason, the overlap between a single timeseries  $d(t)$ and a timeshifted complex function $h(t-t_k)$ is 
+%% Plugging Eq.~(\ref{eq:time_shift}) into Eq.~(\ref{eq:InnerProduct}), the overlap between data $d$ and
+%% some template $h(t_k)$ with time of arrival $t_k$ is
 \begin{equation} \label{eq:IFFT}
-\langle h(t_k) | d \rangle = \int_{-\infty}^{\infty} \frac{\tilde{d}(f) \tilde{h}^*(f)}{S_n(f)} e^{2\pi i f t_k} df \ .
+\langle h(t-t_k) | d \rangle = \int_{-\infty}^{\infty} \frac{\tilde{d}(f) \tilde{h}^*(f)}{S_n(f)} e^{2\pi i f t_k} df \ .
 \end{equation}
-It is clear that the overlap for all possible time shifts can be computed with a single inverse Fourier transform
+The  overlap for all possible time shifts can be computed with a single inverse Fourier transform
 of the overlap integrand.
 
 \subsection{Efficiently evaluating the likelihood}
@@ -212,7 +220,8 @@ as in Eq.~(\ref{eq:IFFT}). Because GW detectors can localize a signal to a short
 on the order of milliseconds, The $Q_{k,lm}(\itrprm,t_k)$ will be sharply peaked as functions of $t_k$ 
 and we need only retain the values for a narrow range of $t_k$. To allow for detector arrival times that differ
 from the geocenter time, the range of $t_k$ for which we must store the $Q_{k,lm}$ is set by the light travel
-time across Earth. In this work we store the $Q_{k,lm}$ for a $300$ ms range of $t_k$, which is quite safe.
+time across Earth ($2R_{\oplus}/c\simeq 42 \unit{ms}$).   In this work we store the $Q_{k,lm}$ for a $300$ ms range of
+$t_k$.  
 Because time-shifting translates all $h_{lm}$ modes together, 
 the $U_{k,lm,l'm'}(\lambda)$ and $V_{k,lm,l'm'}(\lambda)$ are independent of $t_k$
 and are computed once by a straightforward use of Eq.~(\ref{eq:InnerProduct}).
@@ -390,30 +399,32 @@ In this work, we use the effective Fisher matrix to approximate the region of in
 which will have overlap $\geq 90\%$ with the masses $\left( {\cal M}^*,\eta^* \right)$.
 
 Once we have defined this $90\%$ overlap ellipsoid, we must fill it with a set of discrete points 
-at which we will compute the likelihood. First, we specify the total number of intrinsic parameter points we wish to place,
-in this work we used 200 points. Then, these points are arranged within a unit sphere. In this work, we placed
+at which we will compute the likelihood. First, we specify the total number of intrinsic parameter points we wish to
+place, here  200 points. Then, these points are arranged within a unit sphere. In this work, we placed
 points along 20 radial ``spokes'', with 10 points per spoke. Along each spoke, the points are placed 
 uniformly in radial distance. Now, the eigenvalues and eigenvectors of the effective Fisher matrix tell us the lengths
 and orientations of the axes of the $90\%$ overlap ellipsoid. We use these to deform and rotate our set
 of points in the sphere to a set of points in the $90\%$ overlap ellipsoid.
-
-One subtlety is that the only physically-meaningful values of $\eta$ are in the range $(0, 0.25]$, but the effective Fisher
-approach does not account for this physical cutoff. Therefore, for near equal mass binaries where $\eta^* \simeq 0.25$
-part of the $90\%$ overlap ellipsoid may have unphysical $\eta$ values. Once we have filled our ellipsoid, we remove
-any points that have unphysical $\eta$. To counteract this somewhat, 
-we ensure that we always place spokes in our ellipsoid along the direction of constant $\eta$,
+%% One subtlety is that the only physically-meaningful values of $\eta$ are in the range $(0, 0.25]$, but the effective Fisher
+%% approach does not account for this physical cutoff. Therefore, for near equal mass binaries where $\eta^* \simeq 0.25$
+%% part of the $90\%$ overlap ellipsoid may have unphysical $\eta$ values. 
+Once we have filled our ellipsoid, we remove
+any points that have unphysical $\eta$ ($>1/4$).   %To counteract this somewhat, 
+We ensure that we always place spokes in our ellipsoid along the direction of constant $\eta$,
 so that we always have many points along this boundary of the parameter space.
 Fig.~\ref{fig:linear_ellipse} illustrates this placement of intrinsic parameter points.
 
-Note that this intrinsic placement routine could be modified in many different ways. For example, 
-we could place points uniformly in volume, rather than uniformly in radius. This would place more points
-towards the edge of the ellipsoid, while we chose uniform-in-radius to get more points near the center.
-We could also place points randomly inside the ellipse (using uniform-in-volume, uniform-in-radius, 
-or any other distribution). We chose the spoked placement so that we can always ensure near-equal mass binaries
-will have many points near the $\eta = 0.25$ boundary of the parameter space.
-One might also use larger or smaller ellipsoids, use multiple ellipsoids centered at different points if there are concerns
-about bias in the masses reported by the detection pipeline, choose points according to a metric, 
-or consider any number of other refinements. We plan to refine the intrinsic parameter placement in future work.
+Note that this intrinsic placement routine could be modified in many different ways. 
+%% For example, 
+%% we could place points uniformly in volume, rather than uniformly in radius. This would place more points
+%% towards the edge of the ellipsoid, while we chose uniform-in-radius to get more points near the center.
+%% We could also place points randomly inside the ellipse (using uniform-in-volume, uniform-in-radius, 
+%% or any other distribution). We chose the spoked placement so that we can always ensure near-equal mass binaries
+%% will have many points near the $\eta = 0.25$ boundary of the parameter space.
+%% One might also use larger or smaller ellipsoids, use multiple ellipsoids centered at different points if there are concerns
+%% about bias in the masses reported by the detection pipeline, choose points according to a metric, 
+%% or consider any number of other refinements. 
+We plan to refine the intrinsic parameter placement in future work.
 
 
 
@@ -423,8 +434,8 @@ or consider any number of other refinements. We plan to refine the intrinsic par
 \label{subsec:extrinsic}
 
 % POINT: General integral form
-Because precomputed quantities allow us to efficiently evaluate the likelihood $L(\lambda,\theta)$ as a function of
-$\theta$, we first integrate the likelihood $L(\lambda,\theta)$ over all extrinsic parameters $\theta$:
+Because precomputed quantities allow us to efficiently evaluate the likelihood $\Like(\lambda,\theta)$ as a function of
+$\theta$, we first integrate the likelihood $\Like(\lambda,\theta)$ over all extrinsic parameters $\theta$:
 \begin{eqnarray}
 \LikeRed(\lambda) = \int \Like(\lambda,\theta) p(\theta) d\theta
 \end{eqnarray}
@@ -454,7 +465,7 @@ integration.  If $p_s$ is a distribution which is never zero when $p>0$, then
 \end{eqnarray}
 % POINT: Integral value and its error
 % 
-If we draw $N$ random samples $\theta_q$ from $p_s$, we can estimate the value $\hat{L}_{\rm red}$ of $L_{\rm red}$ and its error using the
+If we draw $N$ random samples $\theta_q$ from $p_s$, we can estimate the value $\hat{{\cal L}}_{\rm red}$ of $\LikeRed$ and its error using the
 expectation value and central limit theorems for independent, identically-distributed random variables:
 \begin{eqnarray}
 w_q \equiv \frac{\Like(\lambda,\theta_q) p(\theta_q)}{p_s(\theta_q)} \\
@@ -494,6 +505,7 @@ Motivated by the effective number of samples and by analogy to the error in a on
 distribution, we expect the standard deviation in our estimate $\hat{P}$ for $P$ to be comparable to or less than the
 standard deviation of an \emph{equally-weighted} set of $n_{\rm eff}$ samples,  derived from the binomial distribution:
 \begin{eqnarray}
+\label{eq:ErrorEstimateCumulative}
 \left<\hat{P}^2\right > - \left<\hat{P} \right>^2 \lesssim \frac{P(1-P)}{n_{\rm eff}}
 \end{eqnarray}
 We \editremark{will} validate this simple estimate.  
@@ -501,9 +513,14 @@ We \editremark{will} validate this simple estimate.
 
 %
 Unless otherwise indicated, we draw samples using a separable sampling prior $p_s(\alpha) =
-\prod_{\alpha}p_{s,\alpha}(\theta_\alpha)$, with each factor $p_{s,\alpha}$ equal to the corresponding prior in that dimension. {color{blue} These aren't exceptions: The sampling prior is separable in all parameters unless using a skymap, and then it's effectively $\alpha,\delta\rightarrow\tau$ where $\tau$ is a time delay... Notable exceptions are
+\prod_{\alpha}p_{s,\alpha}(\theta_\alpha)$, with each factor $p_{s,\alpha}$ equal to the corresponding prior in that
+dimension. 
+%% {color{blue} These aren't exceptions: The sampling prior is separable in all parameters unless using a
+%% skymap, and then it's effectively $\alpha,\delta\rightarrow\tau$ where $\tau$ is a time delay... 
+For some parameters, we adopt a sampling prior that is different than the physical prior, guided by a priori physical
+choices; search input;  or past Monte Carlo experience.  These parameters include 
 distance (either uniformly or adaptively sampled) and sky position (either uniformly, adaptively, or via a skymap), as
-described below.}
+described below.
 %
 
 % POINT: How many runs?
@@ -527,7 +544,8 @@ constructing the cumulative $W_=\sum_{q\le k} w_q$; and discarding all samples w
 \subsubsection{Adaptive Monte Carlo integration}
 
 To better concentrate our samples in regions of high significance, we implemented a simple adaptive Monte Carlo procedure, adjusting
-the sampling prior based on measured weights $w_k$.   In the long term, we expect to apply more sophisticated adaptive
+the sampling prior  based on measured weights $w_k$.   The adaptive sampler was used only for selected parameters (i.e.,
+distance and sky location), not ubiquitously.   In the long term, we expect to apply more sophisticated adaptive
 algorithms, as described in the literature \cite{book-mm-NumericalRecipies,peter1978new}.  For reference, we describe
 the specific adaptive algorithm implemented used in this work.
 
@@ -566,7 +584,7 @@ tempering exponent using the network SNR $\rho$ reported by the search:
 \end{eqnarray}
 This choice attempts to mitigate the large dynamic range of $L$ to a scale comparable to the number of samples used in
 each histogram.  
-\editremark{We should have changed 10 to nhist...}
+%\editremark{We should have changed 10 to nhist...}
 
 
 %% ---- \editremark{Continue here}
@@ -584,12 +602,32 @@ each histogram.
 
 \subsubsection{Using search results to target specific areas of the sky}
 
-The \BS{} pipeline \cite{gw-astro-Bayestar} rapidly processes the results of a gravitational-wave search to identify candidate sky locations consistent with a gravitational wave event with minimal assumptions about the waveform parameters.
 %
-This code produces a posterior distribution for the GW signal sky location in a discretized, interlocking, equal-area grid of pixels corresponding to sky regions, with probabilities for each pixel (a healpix skymap). The refinement of the grid is variable and scales with the resolution required to resolve the features of the posterior in $\alpha$ and $\delta$. This posterior produced by \BS{} is usable for both constructing a sampling prior or a physical prior $p_s(\alpha,\delta)$.
+Before we begin, gravitational wave search piplelines have usually already identified candidate event times in two or
+more interferometers' data, typically to much less than the light crossing time of the earth.  Triangulation limits the
+set of candidate sky locations consistent with these results.  Rather than waste time sampling irrelevant sky positions,
+we can use search input to immediately target our Monte Carlo at a region of high support.
 
-However, because the typical sky resolutions provided by \BS{} are significantly finer than the resolving power of current gravitational-wave detector networks and we moreover are free to adopt higher resolutions as needed --- for simplicity we adopt a purely discrete sky when used as sampling prior. Instead of sampling continuously, the samples are selected from the set of sky region centers as calculated by the healpix library. These regions are sampled appropriately by their weight in the posterior. One possible disadvantage to this is for very sharp features in the posterior, it is possible that this method will fail to find the exact peak of the likelihood function in the sky coordinates. {\color{blue} Can we or should we quantify this?} 
 
+As a concrete example, the \BS{} pipeline \cite{gw-astro-Bayestar} rapidly processes the results of a gravitational-wave search to identify candidate sky locations consistent with a gravitational wave event with minimal assumptions about the waveform parameters.
+%
+This code produces a posterior distribution $p_{BS}(\alpha,\delta)$ for the GW signal sky location in a discretized, interlocking, equal-area
+grid of pixels corresponding to sky regions, with probabilities for each pixel (a healpix skymap). The refinement of the
+grid is variable and scales with the resolution required to resolve the features of the posterior in $\alpha$ and
+$\delta$.  
+%
+%
+Using a  distribution, we can construct a sampling prior  $p_s(\alpha,\delta)$.
+%
+However,  the typical sky resolutions provided by \BS{} are significantly finer than the resolving power of current
+gravitational-wave detector networks;   moreover, we are free to adopt higher resolutions as needed.  Hence,  for
+simplicity we adopt a purely discrete sky, nstead of sampling continuously: the samples are selected from the set of sky
+region centers as calculated by the healpix library. These regions are sampled appropriately by their weight in the
+posterior.   This method can in principle break down when the true posterior is both large and rapidly changing across
+sky pixels.  We will demonstrate effiacy and limitations of a discrete sky by example, below.
+%  One possible disadvantage to this is for very sharp features in the posterior, it is possible that this method will fail to find the exact peak of the likelihood function in the sky coordinates. {\color{blue} Can we or should we quantify this?} 
+
+\ForInternalReference{
 {\color{blue} The remainder of this explanation is technical and may not be appropriate for the paper. It is here for posterity.} Specifically, the \BS{} pipeline provides a set of $N$ pixels represented as a normalized array of probability mass $s_k$, each index $k$ associated with a pixel centered on $(\alpha_k,\delta_k)$.
 %
 % Healpy review: http://planck.oat.ts.astro.it/planck/software_and_manuals/Healpix_1.22/Healpix_intro.pdf
@@ -597,21 +635,25 @@ However, because the typical sky resolutions provided by \BS{} are significantly
 %   nside = 64 (for us)
 To generate sky position samples, we generate instead a set of indices corresponding with each index having a multiplicity of $M_k=\frac{s_k}{s_{\text{min}}}\simeq p_s(\alpha_k, \delta_k)$. This represents the probability mass of the region up to an overall quantization error relative to the smallest $s_k$ chosen ($s_{\text{min}}$). The minimum pixel probability is chosen small enough to well represent the quantized probability distribution. {\color{blue} ...and we have a plot of this if necessary}. Finally, a random element of the set is selected and the index chosen is converted back to its sky coordinates $(\alpha_k,\delta_k)$. 
 % The point is to avoid rejection sampling which is slow
+}
 
 %% POINT: Very high SNR: finer skymaps are available, and we can use
 
 \subsubsection{Time marginalization}
 \label{sec:time_marg}
 
-While we have to perform a Monte Carlo integration over the other extrinsic parameters, we are able to
-integrate over the geocenter time of coalescence quite simply and efficiently.
-For every sky location drawn by the adaptive Monte Carlo routine, we compute the
+Having already computed all ingredients needed (i.e., $Q_{k,lm}(t)$), we can evaluate the likelihood versus time $\Like(t)$ cheaply, by array
+addition operations.  Hence, rather than performing Monte Carlo integration, we can likewise
+efficiently \emph{integrate} over time.  
+
+Specifically,  for every sky location drawn by the adaptive Monte Carlo routine, we compute the
 corresponding time shift between geocenter and each detector with Eq.~(\ref{eq:t_k}).
-Then, to evaluate the value of $\ln {\cal L}$ for some geocenter time $t_{\rm geo}$,
+To evaluate the value of $\ln {\cal L}$ for some geocenter time $t_{\rm geo}$,
 we simply look up the corresponding value of the $Q_{k,lm}(\itrprm,t_k)$ from our precomputed values and plug them
-into Eq.~(\ref{eq:def:lnL:Decomposed}).
-We can trivially integrate over $t_{\rm geo}$ by performing a finite sum in this way 
-for each $t_{\rm geo}$ in our precomputed $300$ ms range.
+into Eq.~(\ref{eq:def:lnL:Decomposed}).  
+%
+The resulting timeseries can be trivially integrated over  $t_{\rm geo}$ by performing a finite sum; see
+Appendix \ref{ap:DiscreteData} for details. 
 
 
 
@@ -644,7 +686,7 @@ This weighted average requires interpolating both $\LikeRed(\lambda)$ and $P_\la
 
 
 % POINT
-\editremark{Lazy, current approximation}
+%\editremark{Lazy, current approximation}
 To a good approximation, however, the intrinsic and extrinsic parameter distributions often separate after marginalizing
 in time.  In other words, after marginalizing in time, the extrinsic parameter distributions are nearly independent of $\lambda$.  
 In that case, the level of caution exercised above is unwarranted:  each individual
@@ -653,7 +695,7 @@ weighted samples $(x_{\mu,q},w_{\mu,q})$ from all mass points $\mu$:
 \begin{eqnarray}
 \hat{P}(<x) = \frac{\sum_{q\mu} w_{q,\mu}\theta(x-x_{\mu,q})}{\sum_{q\mu} w_{q\mu}}
 \end{eqnarray}
-[This expression agrees with the general approach, for a specific prior.]
+[This expression agrees with the general approach, for the specific prior implied by the uniform, spoked grid.]
 {\color{blue} Feedback?}
 
 
