@@ -27,9 +27,18 @@ try:
         bSavePlots  = False
     else:
         bSavePlots = True
+    if matplotlib.get_backend() is 'TkAgg':  # on cluster
+        print "On cluster"
+        fExtensionHighDensity = "png"
+        fExtensionLowDensity = "png"
+    else:
+        fExtensionHighDensity = "jpeg"
+        fExtensionLowDensity = "png"
     from matplotlib import pylab as plt
     from mpl_toolkits.mplot3d import Axes3D
+    bNoMatplotlib =False
 except:
+    bNoMatplotlib =True
     print "No plots for you!"
 import sys
 import scipy.optimize
@@ -185,7 +194,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             plt.title('q:'+lalsimutils.stringGPSNice(theEpochFiducial))
 
         plt.legend()
-        plt.savefig("FLT-rho22.jpeg")
+        plt.savefig("FLT-rho22."+fExtensionHighDensity)
 
     # lnLmodel (known parameters). 
     #   Using conventional interpolated likelihood, so skip if not available
@@ -368,7 +377,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         ax.set_ylabel('phi')
         ax.set_zlabel('lnL')
 
-    if TestDictionary["lnLDataPlotVersusPsi"] or TestDictionary["lnLDataPlot"] or TestDictionary["DataReport"] or TestDictionary["lnLDataPlotVersusPhiPsi"]:
+    if not bNoMatplotlib and TestDictionary["lnLDataPlotVersusPsi"] or TestDictionary["lnLDataPlot"] or TestDictionary["DataReport"] or TestDictionary["lnLDataPlotVersusPhiPsi"]:
         plt.show()
 
 

@@ -41,7 +41,8 @@ Examples:
 try:
     import matplotlib
     #matplotlib.use("Agg")
-    matplotlib.use("GDK")
+    if matplotlib.get_backend is not 'TkAgg':  # on cluster
+        matplotlib.use("GDK")
     from matplotlib import pylab as plt
     bNoInteractivePlots = True  # Move towards saved fig plots, for speed
 except:
