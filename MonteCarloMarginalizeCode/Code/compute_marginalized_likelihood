@@ -342,9 +342,9 @@ np.savetxt('intrinsic_grid.dat', outgrid)
 area = np.pi * r1 * r2
 frac_area = area * len(cart_grid) / Nrandpts
 gam = np.real(gam)
-test = np.concatenate((gam,np.array([[r1,r2]]),np.array([[area, frac_area]])))
+test = np.concatenate((np.array([[McSIG/lal.LAL_MSUN_SI, etaSIG]]), gam,np.array([[r1,r2]]),np.array([[area, frac_area]])))
 # If clusters get upgraded, add this header to output:
-# header='2x2 effective Fisher matrix, 3rd row: ellipsoid axes, 4th row: total ellipse area, estimated physical area'
+#   header='grid center; 2x2 effective Fisher matrix, 4rd row: ellipsoid axes, 5th row: total ellipse area, estimated physical area'
 np.savetxt('ellipsoid.dat', test)
 
 # Convert to m1, m2
