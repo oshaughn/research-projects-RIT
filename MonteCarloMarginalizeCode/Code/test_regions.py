@@ -3,6 +3,7 @@ import regions
 import scipy.special
 import numpy as np
 from matplotlib import pylab as plt
+import scipy.interpolate as interpolate
 
 slowTests=True
 verySlowTests=False
@@ -47,7 +48,7 @@ if slowTests:
 
 # Test 2: Integrate functions on this region (1; gaussian; ...), using BRUTE FORCE (cartesian+rejection) method
 #    Note the integral will be independent of the region boundaries
-print " -- 0.2: Integrate over region via mcsampler "
+print " -- 0.2: Integrate over region via mcsampler: 1,2, and gaussian "
 mypi,err = el.integrate(lambda x: 1, lambda x:1.,verbose=False)
 print "The following quantity should be pi, plus a small error: ",  mypi,err  # circle of radius 1
 mypi,err = el.integrate(lambda x: 1, lambda x:2.,verbose=False)
@@ -60,27 +61,30 @@ if slowTests:
 
 
 # Test 3: Marginalize: construct posterior distributions for 1d quantitiees
-print " -- 0.3: Marginalized distribution "
+print " -- 0.3(a): Marginalized distribution [1 over circle] "
 weighted_samples = el.sample_and_marginalize(lambda x: x[0], lambda x: 1, lambda x:1.,verbose=False,sort_by_parameter=True)
 # Construct 1d cumulative versus *parameter*.
 # Should agree with 'x' for x in [-1,1] (basically, area of circle]
 # Limited by finite neff
 print "neff for this distribution is", np.sum(weighted_samples[:,1])/np.max(weighted_samples[:,1])  # neff
 xtmp =weighted_samples[:,0]
-plt.plot(xtmp,weighted_samples[:,2])                                                     # Cumulative distribution in 1d (scatter)
-plt.plot(xtmp,  0.5*((2*(xtmp*np.sqrt(1.-xtmp*xtmp) + np.arcsin(xtmp)))/np.pi+1))  # Should recover the area of a circle
+plt.plot(xtmp,weighted_samples[:,2],label="from samples")                                                     # Cumulative distribution in 1d (scatter)
+plt.plot(xtmp,  0.5*((2*(xtmp*np.sqrt(1.-xtmp*xtmp) + np.arcsin(xtmp)))/np.pi+1),label="exact")  # Should recover the area of a circle
+plt.legend()
 plt.xlabel('x')
 plt.ylabel('P(<x)')
 plt.show()
 
 
 if slowTests:
+    print " -- 0.3(b): Marginalized distribution [narrow gaussian in circle] "
     sigma = 0.1
     weighted_samples = el.sample_and_marginalize(lambda x: x[0], lambda x: np.exp(-np.dot(x,x)/(2.*sigma**2))/(2*np.pi*sigma**2), lambda x:1.,verbose=True, sort_by_parameter=True)
     print "neff for this distribution is", np.sum(weighted_samples[:,1])/np.max(weighted_samples[:,1])  # neff
     xtmp =weighted_samples[:,0]
-    plt.plot(xtmp,weighted_samples[:,2])                  # Cumulative distribution in 1d (scatter).  Note this should agree with the error function when sigma is small
-    plt.plot(xtmp,0.5+scipy.special.erf(xtmp/np.sqrt(2)/sigma)*0.5)  # Error function
+    plt.plot(xtmp,weighted_samples[:,2],label="from samples")                  # Cumulative distribution in 1d (scatter).  Note this should agree with the error function when sigma is small
+    plt.plot(xtmp,0.5+scipy.special.erf(xtmp/np.sqrt(2)/sigma)*0.5,label="almost exact")  # Error function
+    plt.legend()
     plt.xlabel('x')
     plt.ylabel('P(<x)')
     plt.show()
@@ -112,7 +116,7 @@ if slowTests:
 
 
 ### GROUP 1c: Elliptical region, with nontrivial correlation
-el = regions.RegionEllipse([['x',-5,5],['y',-5,5]], mtx = [[2,0.1],[0.1,0.5]])
+el = regions.RegionEllipse([['x',-5,5],['y',-5,5]], mtx = [[2,0.6],[0.6,0.5]])
 
 # Test 1.1: Identify region boundary (default circle)
 #   To draw an ellipse, use http://matplotlib.org/api/artist_api.html#matplotlib.patches.Ellipse
@@ -131,7 +135,7 @@ if slowTests:
     plt.scatter(ptsBad_internal[:,0], ptsBad_internal[:,1],color='r')
     plt.xlabel('polar radius (ellipsoidal native)')
     plt.ylabel('polar angle (ellipsoidal native)')
-
+    
     plt.show()
 
 
@@ -192,8 +196,11 @@ if slowTests:
     dat = np.loadtxt("ellipsoid.dat")
     center = dat[0]
     mtx =np.array([dat[1], dat[2]])
+    match_cntr = dat[-1,0]
+    radius_ile = np.sqrt(2*(1-match_cntr))   # coordinate radius that ILE will scale to unity in 'intrinsic_grid.dat', below. Based on match = 1-r^2/2 in ellipsoid coords
     print 'Center: ',center
     print 'Matrix: ',mtx
+    print 'match threshold:', match_cntr
     el = regions.RegionEllipse([['mc',center[0]-5./np.sqrt(mtx[0,0]),center[0]+3./np.sqrt(mtx[0,0])],['eta', 0.05,0.25]],mtx=mtx,center=center)
     el_larger = regions.RegionEllipse([['mc',center[0]-5./np.sqrt(mtx[0,0]),center[0] +3./np.sqrt(mtx[0,0])],['eta', 0.05,0.25]],mtx=0.5*mtx,center=center)
 
@@ -224,21 +231,43 @@ if slowTests:
     # 3.2 : Import and infer coordinates from mass sample file (intrinsic_grid.dat)
     #    indx  mc eta  r th
     #    Use convert_global_to_intrinsic to reproduce it (=confirm codes consistent)
+    #    WARNING: 'intrinsic_grid.dat' uses grid radii that are UNITY at the edge, which is an ARBITRARY match contour
+    #    Used to prove CME and this code have the same underlying grid transformations
     dat_grid = np.loadtxt("intrinsic_grid.dat")
-    plt.scatter(dat_grid[:,1],dat_grid[:,2])
+    plt.scatter(dat_grid[:,1],dat_grid[:,2], label='CME grid')
+    plt.xlabel("Mc (Msun)")
+    plt.ylabel("eta")
     plt.figure(2)
-    plt.scatter(dat_grid[:,3],dat_grid[:,4])
-    pts_intrinsic = np.array([el.convert_global_to_internal(dat_grid[k,1],dat_grid[k,2]) for k in np.arange(len(dat_grid))])
-    plt.scatter(pts_intrinsic[:,0],pts_intrinsic[:,1],color='r')
+    plt.scatter(dat_grid[:,3]*radius_ile,dat_grid[:,4])  # note change of radius to 'sensible' radial coordinate
+    pts_intrinsic = np.array([el.convert_global_to_internal([dat_grid[k,1],dat_grid[k,2]]) for k in np.arange(len(dat_grid))])
+    plt.scatter(pts_intrinsic[:,0],np.mod(pts_intrinsic[:,1], 2*np.pi),color='r')
+    plt.xlabel('polar radius (ellipsoidal native)')
+    plt.ylabel('polar angle (ellipsoidal native)')
     plt.show()
 
     # 3.3 : Import and infer coordinates from mass sample file (output of util_MassGrid.py)
-
+    #    indx m1 m2 lnLred neff sigma_{lnLred}
+    dat_grid_physical = np.loadtxt("massgrid-coal-indexed.dat")
+    dat_grid = np.array(map(lambda x: [lalsimutils.mchirp(x[1],x[2]), lalsimutils.symRatio(x[1],x[2])],   dat_grid_physical))
+    plt.scatter(dat_grid[:,0],dat_grid[:,1], label='CME grid')
+    plt.xlabel("Mc (Msun)")
+    plt.ylabel("eta")
+    plt.show()
 
     # 3.4 : Import and infer coordinates from mass sample file; construct interpolation; do integral, with *uniform* mc,eta prior
-
+    # 3.4.a: Interpolate off of an unstructured grid (i.e., in raw mc, eta)
+    lnL_interp = interpolate.interp2d(dat_grid[:,0], dat_grid[:,1], dat_grid_physical[:,3])
+    fnL = lambda x: np.exp(lnL_interp(x[0], x[1]))
+    val  = el.integrate(fnL, lambda x:1, verbose=True)
+    print "Evidence value, uniform prior: Unstructured grid interpolation: ", val
 
     # 3.4 : Import and infer coordinates from mass sample file; construct interpolation; construct posterior, with  *uniform* mc,eta prior
+    weighted_samples = el.sample_and_marginalize(lambda x: x[0], fnL, lambda x:1.,verbose=True,sort_by_parameter=True)
+    xtmp =weighted_samples[:,0]
+    plt.plot(xtmp,weighted_samples[:,2])                                                     # Cumulative distribution in 1d (scatter)
+    plt.xlabel('mc')
+    plt.ylabel('P(<mc)')
+    plt.show()
 
 
 ### Infrastructure tests
