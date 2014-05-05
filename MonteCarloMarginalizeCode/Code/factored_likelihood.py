@@ -250,7 +250,8 @@ def SingleDetectorLogLikelihoodModel( crossTermsDictionary,tref, RA,DEC, thS,phi
         F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
     distMpc = dist/(lal.LAL_PC_SI*1e6)
 
-    keys = Ylms.keys()
+#    keys = Ylms.keys()
+    keys = crossTermsDictionary.keys()[:0]
 
     # Eq. 26 of Richard's notes
     # APPROXIMATING V BY U (appropriately swapped).  THIS APPROXIMATION MUST BE FIXED FOR PRECSSING SOURCES
