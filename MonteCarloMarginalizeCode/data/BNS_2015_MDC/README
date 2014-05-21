@@ -84,3 +84,7 @@ After the DAG is completed, in the subdirectory, one can clean up and get some p
     make postprocess
 
 This will set up some directories and move plots and data products around. Only use this after the run has completed or you may disrupt the DAG workflow.
+
+
+
+ /home/patrick/opt/mcparamest/bin/integrate_likelihood_extrinsic  --amp-order 0 --n-eff 1000 --time-marginalization --mass1 1.45 --skymap-file 21644.toa_phoa_snr.fits.gz --save-P 0.0001 --save-deltalnL inf --n-max 1000000 --output-file 2015_bns_noise-PRB.xml.gz --convergence-tests-on False --n-chunk 1000 --save-samples --approximant TaylorT4 --reference-freq 0.0 --cache-file 2015_bns_mdc.cache --l-max 2 --mass2 1.33 --adapt-floor-level 0.1 --adapt-weight-exponent 0.081086555712 --event-time 969594665.136343002 --fmax 2000.0 --psd-file H1=H1_PSD_measured.xml.gz --psd-file L1=L1_PSD_measured.xml.gz --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN
