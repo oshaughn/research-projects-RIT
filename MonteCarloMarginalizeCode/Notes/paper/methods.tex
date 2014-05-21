@@ -17,9 +17,6 @@
 
 
 
-\newcommand\itrprm{\vec{\lambda}}
-\newcommand\etrprm{\vec{\theta}}
-
 %\subsection{Preliminaries}
 %We begin with the division of the parameter space of compact binary coalescence waveforms. We first define the difference between ``intrinsic'' and ``extrinsic'' parameters. We define $\itrprm$ as the set of intrinsic parameter as those corresponding to the physical configuration of a binary with component masses $m_1$ and $m_2$: $\itrprm=\{\mc,\eta,\Lambda_1,\Lambda_2,\vec{S}_1,\vec{S}_2\}$, where $\mc$ and $\eta$ are the chirp mass ($(m_1m_2)^{3/5}/(m_1+m_2)^{1/5}$) and symmetric mass ratio ($m_1m_2/(m_1+m_2)^2$), $\Lambda_1$ and $\Lambda_2$ are the tidal numbers of each component mass\footnote{Black holes have no tidal number and thus $\Lambda=0$}, and finally $\vec{S}_1$ and $\vec{S}_2$ correspond to the spin vectors of the component compact objects\footnote{$\vec{L}$, the overall angular momentum of the system is important in the case where the spins are not aligned with the orbital angular momentum, thus causing precession of the orbital plane}. We emphasize in this work rapid determination of source masses --- and possibly compact object type --- thus focusing attention exclusively on $\itrprm=\{\mc,\eta\}$. While the impact of spin and tidal parameters on the waveform are important, they are also potentially complicate the computation of the likelihood in the scheme described later. We thus leave the remaining intrinsic parameters to be built upon in future work.
 %
@@ -83,112 +80,6 @@ $\vec{\mu}$ and $y$ be all other parameters, such that $\vec{\mu} = x \cup y$. T
 p_{\rm post}(x) \equiv \frac{p(x|H_1)}{Z(\{d\}|{\cal H}_1)} \ \int dy \;  p(y|H_1) \Like(x,y)\ .
 \end{equation}
 %\editremark{[Do we like the $p_{\rm post}$ notation for posterior?]}
-
-\subsection{Intrinsic and extrinsic parameters}
-
-On physical grounds, we group waveform parameters $\vec{\mu}=(\vec{\lambda},\vec{\theta})$ into two classes: the
-intrinsic parameters ($\vec{\lambda}$) and extrinsic parameters ($\vec{\theta}$). 
-The intrinsic parameters are fundamental to the description of the binary: if we change any intrinsic
-parameters we must recompute the orbital dynamics of the binary (typically through the relatively expensive process
-of numerically integrating ordinary differential equations). Extrinsic parameters simply describe how the
-binary is oriented in space and time relative to the detector; changing extrinsic parameters involves a 
-relatively inexpensive rotation, translation or rescaling transformation. As we will show in the next subsection, 
-for the non-spinning case considered here the intrinsic parameters are
-\begin{equation} \label{eq:intrinsic}
-\itrprm=\{\mc,\eta\}\ ,
-\end{equation}
-where $\mc = (m_1m_2)^{3/5}/(m_1+m_2)^{1/5}$) is the chirp mass and 
-$\eta = m_1m_2/(m_1+m_2)^2$ is the symmetric mass ratio.
-The extrinsic parameters are
-\begin{equation} \label{eq:extrinsic}
-\etrprm=\{t_{\rm geo},\alpha,\delta,\iota,D,\psi,\phi_c\}\ ,
-\end{equation}
-where $t_{\rm geo}$ is the time at which the waveform coalescence arrives at the Earth geocenter,
-$\alpha$ and $\delta$ are the right ascension and declination, 
-$\iota$ is the inclination angle of the binary's angular momentum vector and the line of sight to Earth, 
-$D$ is the luminosity distance to the binary\footnote{For the sources considered in this paper, 
-	the redshift correction is assumed to be negligible}, 
-$\psi$ is the polarization angle, and $\phi$ is the orbital phase of the binary at coalescence.
-
-Note that throughout the rest of the paper we will denote intrinsic parameters with $\itrprm$ 
-and extrinsic parameters with $\etrprm$.
-
-\subsection{Waveform decomposition}
-
-The gravitational wave strain measured by the $k^{\rm th}$ detector is given by
-\begin{equation} \label{eq:measured_strain}
-H_k(t) = F_{+,k}(\delta, \alpha, \psi) h_{+,k}(t) 
-+ F_{\times,k}(\delta, \alpha, \psi) h_{\times,k}(t)\ ,
-\end{equation}
-where $F_{+,k}$, $F_{\times,k}$ are the antenna patterns of the detector and $h_{+,k}$, $h_{\times,k}$
-are the two components of the gravitational wave strain, evaluated at the $k$th detector. The antenna patterns depend only on the extrinsic sky location and polarization
-angle, while the polarizations depend on both intrinsic and extrinsic parameters.   In turn, the polarizations can be
-evaluated via the real and imaginary parts of a complex-valued plane wave $h(t|\mc,\eta,\iota,\phi_c)$:
-\begin{align}
-h_{+,k}(t)-i h_{\times, k}(t) &= h(t-t_k|\mc,\eta,\iota,\phi_c)
-\end{align}
-In this expression,  $t_k$  denotes the time of arrival of the coalescence at the $k^{th}$ detector.
-For a network of detectors across the Earth, this will vary for each detector with the offset relative to the geocenter
-time depending on sky location. If $\vec{x}_k$ is a vector pointing from the geocenter to the $k^{th}$ detector
-and $\hat{N}(\alpha,\delta)$ is the direction of GW propagation, then
-\begin{equation} \label{eq:t_k}
-t_k = t_{\rm geo} - \frac{\vec{x}_k \cdot \hat{N}(\alpha,\delta)}{c}\ .
-\end{equation}
-
-
-At this stage, we make no assumptions about the functional form of $h(t|\mc,\eta,\iota,\phi_c)$
-%
-We can use a $-2$ spin-weighted spherical harmonic mode decomposition to further separate intrinsic and extrinsic
-parameters appearing in the polarizations. 
-In particular, we relate the polarizations to a set of $-2$ spin-weighted 
-spherical harmonics modes with the equation
-\begin{equation} \label{eq:h:Expansion}
-h_{+,k}(t) - i\,h_{\times,k}(t) = \frac{D_{\rm ref}}{D} \sum_{lm} \hat{h}_{lm}(\mc,\eta,t_k;t)  \Y{-2}_{lm}(\iota,-\phi_c) \ ,
-\end{equation}
-For the purposes of this work, investigating radiation from inspiralling binaries, we will use $\hat{h}_{lm}$ as the -2
-spin-weighted spherical harmonics modes provided by post-Newtonian calculations for adiabatic quasicircular inpiral \cite{gw-astro-mergers-approximations-SpinningPNHigherHarmonics},
-evaluated at some fixed distance $D_{\rm ref}$ (in this work we choose $D_{\rm ref} = 100$ Mpc).
-%
-As a concrete example, at leading order for inspiral-only waveforms the polarizations are
-\begin{widetext}
-\begin{eqnarray} \label{eq:polarizations}
-h_{+,k}(t) &=& - \frac{2 M \eta}{D}\,v^2(\mc,\eta,t_k;t)\,\left[ \left( 1 + \cos^2 \iota \right)\, \label{eq:h+}
-	\cos 2 \left( \Phi(\mc,\eta,t_k;t) - \phi_c \right) + {\cal O}(v^3)\right]\ ,\\
-h_{\times,k}(t) &=& - \frac{2 M \eta}{D}\,v^2(\mc,\eta,t_k;t)\,\left[ \left( 2 \cos \iota\right)\, \label{eq:hx}
-	\sin 2 \left( \Phi(\mc,\eta,t_k;t) - \phi_c \right) + {\cal O}(v^3)\right]\ .
-\end{eqnarray}
-\end{widetext}
-$\Phi(t)$ and $v(t)$ are the key orbital dynamical quantities, typically obtained via the energy balance equation,
-which are expensive to compute.
-%
-If we define a complex-valued antenna pattern for each detector as
-\begin{equation} \label{eq:complexF}
-F_k = F_{+,k} + i \, F_{\times,k} \ ,
-\end{equation}
-then we can re-express the measured strain in the $k^{th}$ detector as
-\begin{widetext}
-\begin{equation} \label{eq:decomposed_strain}
-H_k(\itrprm,\etrprm;t) = {\rm Re}\ \frac{D_{\rm ref}}{D}\, F_k(\alpha,\delta,\psi) \, \sum_{lm} 
-\hat{h}_{lm}(\mc,\eta,t_k;t)  \Y{-2}_{lm}(\iota,-\phi_c)\ .
-\end{equation}
-\end{widetext}
-Aside from $t_k$, we have now completely separated the intrinsic parameters (which enter only the $\hat{h}_{lm}$)
-from the extrinsic parameters (which enter only the $F_k$ and $\Y{-2}_{lm}$). 
-
-Fortunately, the only effect of $t_k$ is to shift the $\hat{h}_{lm}$ in time. 
-If $\tilde{h}_{lm}(t_k;f)$ is the Fourier-domain representation of a mode for some arrival time $t_k$, then
-the the same mode for some other arrival time $t_k'$ can be simply related by
-\begin{equation} \label{eq:time_shift}
-\tilde{h}_{lm}(t_k';f) = \tilde{h}_{lm}(t_k;f) \, e^{- 2 \pi i f (t_k' - t_k)}\ .
-\end{equation}
-For this reason, the overlap between a single timeseries  $d(t)$ and a timeshifted complex function $h(t-t_k)$ is 
-%% Plugging Eq.~(\ref{eq:time_shift}) into Eq.~(\ref{eq:InnerProduct}), the overlap between data $d$ and
-%% some template $h(t_k)$ with time of arrival $t_k$ is
-\begin{equation} \label{eq:IFFT}
-\langle h(t-t_k) | d \rangle = \int_{-\infty}^{\infty} \frac{\tilde{d}(f) \tilde{h}^*(f)}{S_n(f)} e^{2\pi i f t_k} df \ .
-\end{equation}
-The  overlap for all possible time shifts can be computed with a single inverse Fourier transform
-of the overlap integrand.
 
 \subsection{Efficiently evaluating the likelihood}
 
