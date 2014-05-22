@@ -14,6 +14,35 @@
 
 % POINT: Break up the 
 
+A set of data $d(t)$ collected from a gravitational-wave detector is typically decomponsed into the inherent noise of the detector and a putative gravitational wave signal:
+
+\begin{equation}
+d(t) = h(t) + n(t)\ .
+\end{equation}
+
+In the absence of a signal and under the assumption that each detector produces stationary Gaussian noise, the noise $\tilde{n}(f)$ in the $k^{\rm th}$ detector is characterized by its power spectrum $S_k(f)$:
+\begin{eqnarray}
+\left<\tilde{n}_k(f)^* \tilde{n}_k(f')\right> = \frac{1}{2} S_k(|f|) \delta(f-f')
+\end{eqnarray}
+
+In the following discussion, we define a weighted inner-product of two complex Fourier-domain functions $\tilde{a}(f), \tilde{b}(f)$ with a weighting function $1/S(f)$:
+
+\begin{eqnarray} \label{eq:InnerProduct}
+\qmstateproduct{a}{b} \equiv 2 \int_{-\infty}^{\infty} df \frac{\tilde{a}^*(f)\tilde{b}(f)}{S(f)}\
+\end{eqnarray}
+
+The mode decomposed waveforms $\hat{h}_{lm}$, can be shifted in time in reference to a detector relative to the geocentric time. If $\tilde{h}_{lm}(t_k;f)$ is the Fourier-domain representation of a mode for some arrival time $t_k$, then
+the the same mode for some other arrival time $t_k'$ can be simply related by
+\begin{equation} \label{eq:time_shift}
+\tilde{h}_{lm}(t_k';f) = \tilde{h}_{lm}(t_k;f) \, e^{- 2 \pi i f (t_k' - t_k)}\ .
+\end{equation}
+For this reason, the overlap between a single detector data time series  $d(t)$ and a time-shifted complex function $h(t-t_k)$ is 
+%% Plugging Eq.~(\ref{eq:time_shift}) into Eq.~(\ref{eq:InnerProduct}), the overlap between data $d$ and
+%% some template $h(t_k)$ with time of arrival $t_k$ is
+\begin{equation} \label{eq:IFFT}
+\langle h(t_k) | d \rangle = \int_{-\infty}^{\infty} \frac{\tilde{d}(f) \tilde{h}^*(f)}{S_n(f)} e^{2\pi i f t_k} df \ .
+\end{equation}
+This is a statement which states that the overlap for all possible time shifts can be computed with a single inverse Fourier transform of the overlap integrand.
 
 
 
@@ -35,18 +64,6 @@ or whether it consists of Gaussian noise plus a coherent GW signal in each of ou
 (hypothesis ${\cal H}_1$). Additionally, it can be used to determine the likely parameters of a signal,
 if present.
 
-First off, we assume that we have a network of detectors and in the absence of a signal 
-each detector will produce stationary Gaussian noise.
-The noise in the $k^{\rm th}$ detector is characterized by its power spectrum $S_k(f)$:
-\begin{eqnarray}
-\left<\tilde{n}_k(f)^* \tilde{n}_k(f')\right> = \frac{1}{2} S_k(|f|) \delta(f-f')
-\end{eqnarray}
-where  $\tilde{X}$ denotes the (two-sided) fourier transform of the possibly complex-valued time series $X(t)$.  
-For each instrument, the power spectrum defines an inner product between any two time series 
-$a(t)$ and $b(t)$ associated with that instrument
-\begin{eqnarray} \label{eq:InnerProduct}
-\qmstateproduct{a}{b}_k \equiv 2 \int_{-\infty}^{\infty} df \frac{\tilde{a}^*(f)\tilde{b}(f)}{S_k(|f|)}\ .
-\end{eqnarray}
 By our assumption that the noise is Gaussian, it follows that the probability of some set of noise
 realizations in each of our detectors is given by
 \begin{equation}

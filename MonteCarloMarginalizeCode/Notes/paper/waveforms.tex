@@ -29,26 +29,26 @@ and extrinsic parameters with $\etrprm$.
 
 \subsection{Waveform decomposition}
 
-The gravitational wave strain measured by the $k^{\rm th}$ detector is given by
+The gravitational wave strain measured by the $k^{\rm th}$ interferometric detector in a network is given by
 \begin{equation} \label{eq:measured_strain}
-H_k(t) = F_{+,k}(\delta, \alpha, \psi) h_{+,k}(t) 
+h_k(t) = F_{+,k}(\delta, \alpha, \psi) h_{+,k}(t) 
 + F_{\times,k}(\delta, \alpha, \psi) h_{\times,k}(t)\ ,
 \end{equation}
 where $F_{+,k}$, $F_{\times,k}$ are the antenna patterns of the detector and $h_{+,k}$, $h_{\times,k}$
-are the two components of the gravitational wave strain, evaluated at the $k$th detector. The antenna patterns depend only on the extrinsic sky location and polarization
+are the two components of the gravitational wave strain, evaluated at the $k^{\rm th}$ detector. The antenna patterns depend only on the extrinsic sky location and polarization
 angle, while the polarizations depend on both intrinsic and extrinsic parameters.   In turn, the polarizations can be
 evaluated via the real and imaginary parts of a complex-valued plane wave $h(t|\mc,\eta,\iota,\phi_c)$:
 \begin{align}
 h_{+,k}(t)-i h_{\times, k}(t) &= h(t-t_k|\mc,\eta,\iota,\phi_c)
 \end{align}
-In this expression,  $t_k$  denotes the time of arrival of the coalescence at the $k^{th}$ detector.
-For a network of detectors across the Earth, this will vary for each detector with the offset relative to the geocenter
-time depending on sky location. If $\vec{x}_k$ is a vector pointing from the geocenter to the $k^{th}$ detector
-and $\hat{N}(\alpha,\delta)$ is the direction of GW propagation, then
+
+In this expression, $t_k$  denotes the time of arrival of the coalescence  at the $k^{th}$ detector,
+
 \begin{equation} \label{eq:t_k}
 t_k = t_{\rm geo} - \frac{\vec{x}_k \cdot \hat{N}(\alpha,\delta)}{c}\ .
 \end{equation}
 
+If $\vec{x}_k$ is a vector pointing from the geocenter to the $k^{th}$ detector and $\hat{N}(\alpha,\delta)$ is the direction of GW propagation, so each member of the network will have an offset relative to the geocenter time depending on sky location. 
 
 At this stage, we make no assumptions about the functional form of $h(t|\mc,\eta,\iota,\phi_c)$
 %
@@ -87,21 +87,4 @@ H_k(\itrprm,\etrprm;t) = {\rm Re}\ \frac{D_{\rm ref}}{D}\, F_k(\alpha,\delta,\ps
 \end{equation}
 \end{widetext}
 Aside from $t_k$, we have now completely separated the intrinsic parameters (which enter only the $\hat{h}_{lm}$)
-from the extrinsic parameters (which enter only the $F_k$ and $\Y{-2}_{lm}$). 
-
-Fortunately, the only effect of $t_k$ is to shift the $\hat{h}_{lm}$ in time. 
-If $\tilde{h}_{lm}(t_k;f)$ is the Fourier-domain representation of a mode for some arrival time $t_k$, then
-the the same mode for some other arrival time $t_k'$ can be simply related by
-\begin{equation} \label{eq:time_shift}
-\tilde{h}_{lm}(t_k';f) = \tilde{h}_{lm}(t_k;f) \, e^{- 2 \pi i f (t_k' - t_k)}\ .
-\end{equation}
-For this reason, the overlap between a single timeseries  $d(t)$ and a timeshifted complex function $h(t-t_k)$ is 
-%% Plugging Eq.~(\ref{eq:time_shift}) into Eq.~(\ref{eq:InnerProduct}), the overlap between data $d$ and
-%% some template $h(t_k)$ with time of arrival $t_k$ is
-\begin{equation} \label{eq:IFFT}
-\langle h(t-t_k) | d \rangle = \int_{-\infty}^{\infty} \frac{\tilde{d}(f) \tilde{h}^*(f)}{S_n(f)} e^{2\pi i f t_k} df \ .
-\end{equation}
-The  overlap for all possible time shifts can be computed with a single inverse Fourier transform
-of the overlap integrand.
-
-
+from the extrinsic parameters (which enter only the $F_k$ and $\Y{-2}_{lm}$).
