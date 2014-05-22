@@ -68,7 +68,7 @@ export LC_ALL		?= C
 #onlysources.eps	?=
 #
 # If you list files here, they will be treated as _include_ files
-includes.tex		?= appendices.tex conclusions.tex data_handling.tex executive_summary.tex introduction.tex methods.tex notation_etc.tex results.tex significance_and_comparison.tex
+includes.tex		?= appendices.tex conclusions.tex data_handling.tex executive_summary.tex introduction.tex methods.tex notation_etc.tex results.tex significance_and_comparison.tex waveforms.tex
 #includes.tex.sh	?=
 #includes.tex.pl	?=
 #includes.tex.py	?=
