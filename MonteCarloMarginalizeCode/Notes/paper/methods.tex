@@ -14,7 +14,7 @@
 
 % POINT: Break up the 
 
-A set of data $d(t)$ collected from a gravitational-wave detector is typically decomponsed into the inherent noise of the detector and a putative gravitational wave signal:
+A set of data $d(t)$ collected from a gravitational-wave detector is typically decomposed into the inherent noise of the detector and a putative gravitational wave signal:
 
 \begin{equation}
 d(t) = h(t) + n(t)\ .
@@ -69,7 +69,7 @@ realizations in each of our detectors is given by
 \begin{equation}
 p(\{d\}|{\cal H}_0) \propto \prod_k \exp - \frac{ \langle d | d \rangle_k}{2}\ .
 \end{equation}
-Similarly, if we assume that $d = H(\vec{\mu}_0) + n$, so the data in each detector is noise plus a GW signal 
+So the data in each detector is noise plus a GW signal 
 with true parameters $\vec{\mu}_0$, then the likelihood of some parameters values $\vec{\mu}$ is given by
 \begin{equation}
 p(\{d\}|\vec{\mu},{\cal H}_1) \propto \prod_k \exp - \frac{ \langle d - h(\vec{\mu}) | d - h(\vec{\mu}) \rangle_k }{2}\ .
@@ -77,7 +77,7 @@ p(\{d\}|\vec{\mu},{\cal H}_1) \propto \prod_k \exp - \frac{ \langle d - h(\vec{\
 In essence, we subtract a waveform with parameters $\vec{\mu}$ from the data 
 and compute how consistent the residual is with Gaussian noise.
 
-We compute an evidence (or odds) ratio $Z$ to quantify the likelihood of a signal relative to the null hypothesis:
+We compute an odds ratio $Z$ to quantify the likelihood of a signal relative to the null hypothesis:
 \begin{equation} \label{eq:def:Z:Modified}
 Z(\{d\}|{\cal H}_1) \equiv \frac{p(\{d\}|{\cal H}_1)}{p(\{d\}|{\cal H}_0)} 
   = \int d\vec{\mu}\ p(\vec{\mu}|{\cal H}_1) \Like(\vec{\mu}|\{d\})\ .
@@ -89,12 +89,12 @@ is the \emph{likelihood ratio}:
 {\exp - \langle d | d \rangle_k / 2}\ .
 \end{equation}
 
-In addition to the evidence ratio, we can also compute the posterior probability density 
+In addition to the odds ratio, we can also compute the posterior probability density 
 (which we will abbreviate as simply the posterior)
 for one or multiple parameters (marginalized over all other parameters). Let $x$ be one or more parameters in
 $\vec{\mu}$ and $y$ be all other parameters, such that $\vec{\mu} = x \cup y$. Then, the posterior for $x$ is
 \begin{equation} \label{eq:def:Posterior}
-p_{\rm post}(x) \equiv \frac{p(x|H_1)}{Z(\{d\}|{\cal H}_1)} \ \int dy \;  p(y|H_1) \Like(x,y)\ .
+p({\cal H}_1|x) \equiv \frac{p(x|{\cal H}_1)}{Z(\{d\}|{\cal H}_1)} \ \int dy \;  p(y|{\cal H}_1) \Like(x,y)\ .
 \end{equation}
 %\editremark{[Do we like the $p_{\rm post}$ notation for posterior?]}
 
@@ -164,7 +164,7 @@ vary the extrinsic parameters and compute the likelihood for only the cost of th
 This allows us to efficiently integrate over the extrinsic parameters and obtain a marginalized posterior 
 for the intrinsic parameters $p_{\rm post}(\itrprm)$ as in Eq.~(\ref{eq:def:Posterior}).
 If we do this for a collection of points in the intrinsic parameter space, we can integrate over $\itrprm$ as
-well and obtain the evidence ratio $Z$ as in Eq.~(\ref{eq:def:Z:Modified}).
+well and obtain the odds ratio $Z$ as in Eq.~(\ref{eq:def:Z:Modified}).
 Note that the computation for each point in the intrinsic space is completely independent of the others.
 This makes the algorithm embarrassingly parallel and given enough CPU cores the entire analysis can be
 run in the time it takes to integrate over the extrinsic parameters (modulo some brief startup and post-processing steps).
@@ -511,7 +511,7 @@ each histogram.
 \subsubsection{Using search results to target specific areas of the sky}
 
 %
-Before we begin, gravitational wave search piplelines have usually already identified candidate event times in two or
+Before we begin, gravitational wave search pipelines have usually already identified candidate event times in two or
 more interferometers' data, typically to much less than the light crossing time of the earth.  Triangulation limits the
 set of candidate sky locations consistent with these results.  Rather than waste time sampling irrelevant sky positions,
 we can use search input to immediately target our Monte Carlo at a region of high support.
@@ -529,10 +529,10 @@ Using a  distribution, we can construct a sampling prior  $p_s(\alpha,\delta)$.
 %
 However,  the typical sky resolutions provided by \BS{} are significantly finer than the resolving power of current
 gravitational-wave detector networks;   moreover, we are free to adopt higher resolutions as needed.  Hence,  for
-simplicity we adopt a purely discrete sky, nstead of sampling continuously: the samples are selected from the set of sky
+simplicity we adopt a purely discrete sky, instead of sampling continuously: the samples are selected from the set of sky
 region centers as calculated by the healpix library. These regions are sampled appropriately by their weight in the
 posterior.   This method can in principle break down when the true posterior is both large and rapidly changing across
-sky pixels.  We will demonstrate effiacy and limitations of a discrete sky by example, below.
+sky pixels.  We will demonstrate efficacy and limitations of a discrete sky by example, below.
 %  One possible disadvantage to this is for very sharp features in the posterior, it is possible that this method will fail to find the exact peak of the likelihood function in the sky coordinates. {\color{blue} Can we or should we quantify this?} 
 
 \ForInternalReference{
@@ -560,7 +560,7 @@ To evaluate the value of $\ln {\cal L}$ for some geocenter time $t_{\rm geo}$,
 we simply look up the corresponding value of the $Q_{k,lm}(\itrprm,t_k)$ from our precomputed values and plug them
 into Eq.~(\ref{eq:def:lnL:Decomposed}).  
 %
-The resulting timeseries can be trivially integrated over  $t_{\rm geo}$ by performing a finite sum; see
+The resulting time series can be trivially integrated over  $t_{\rm geo}$ by performing a finite sum; see
 Appendix \ref{ap:DiscreteData} for details. 
 
 
