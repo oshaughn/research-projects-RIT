@@ -22,7 +22,7 @@ $\alpha$ and $\delta$ are the right ascension and declination,
 $\iota$ is the inclination angle of the binary's angular momentum vector and the line of sight to Earth, 
 $D$ is the luminosity distance to the binary\footnote{For the sources considered in this paper, 
 	the redshift correction is assumed to be negligible}, 
-$\psi$ is the polarization angle, and $\phi$ is the orbital phase of the binary at coalescence.
+$\psi$ is the polarization angle, and $\phi_c$ is the orbital phase of the binary at coalescence.
 
 Note that throughout the rest of the paper we will denote intrinsic parameters with $\itrprm$ 
 and extrinsic parameters with $\etrprm$.
@@ -82,9 +82,54 @@ F_k = F_{+,k} + i \, F_{\times,k} \ ,
 then we can re-express the measured strain in the $k^{th}$ detector as
 \begin{widetext}
 \begin{equation} \label{eq:decomposed_strain}
-H_k(\itrprm,\etrprm;t) = {\rm Re}\ \frac{D_{\rm ref}}{D}\, F_k(\alpha,\delta,\psi) \, \sum_{lm} 
+h_k(\itrprm,\etrprm;t) = {\rm Re}\ \frac{D_{\rm ref}}{D}\, F_k(\alpha,\delta,\psi) \, \sum_{lm} 
 \hat{h}_{lm}(\mc,\eta,t_k;t)  \Y{-2}_{lm}(\iota,-\phi_c)\ .
 \end{equation}
 \end{widetext}
 Aside from $t_k$, we have now completely separated the intrinsic parameters (which enter only the $\hat{h}_{lm}$)
 from the extrinsic parameters (which enter only the $F_k$ and $\Y{-2}_{lm}$).
+
+Given a time-domain representation of the gravitational wave strain, we can define a 
+frequency-domain version of this strain via a Fourier transform
+\begin{equation} \label{eq:Fourier}
+\tilde{h}(f) = \int_{-\infty}^\infty h(t) e^{- 2 \pi i f t} dt\ .
+\end{equation}
+Time translation of frequency-domain waveforms is trivial.
+If $\tilde{h}(t_k;f)$ is the Fourier-domain representation of a strain for some arrival time $t_k$, then
+the same strain arriving at another time $t_k'$ can be simply related by
+\begin{equation} \label{eq:time_shift}
+\tilde{h}(t_k';f) = \tilde{h}(t_k;f) \, e^{- 2 \pi i f (t_k' - t_k)}\ .
+\end{equation}
+Thus, if we work with frequency-domain waveforms, the arrival time $t_k$ 
+can be factored out as $\exp( - 2 \pi i f t_k)$
+and we can complete the separation of intrinsic and extrinsic parameters.
+
+For the explicit decomposition above, we have focused on non-spinning waveforms 
+and found that they can be separated into two intrinsic parameters and seven
+extrinsic parameters. In the general case, which could include precession,
+tidal effects and any other physics, this intrinsic and extrinsic separation is still
+possible. In fact, there will always be seven extrinsic parameters which enter only
+through inexpensive geometric factors, while any additional parameters will always
+be encoded in the expensive $h_{lm}$ modes.
+
+To see that this is true, first note that Eq.~(\ref{eq:time_shift}) holds for an arbitrary strain
+and so can always be used to factor out the dependence on time of arrival. Similarly,
+a gravitational wave far from its source will always fall off as $1/D$. Furthermore, 
+the antenna patterns $F_+$ and $F_\times$ depend on the detector geometry,
+not the source, and so are unchanged. This gives a total of five extrinsic parameters
+that in general can be factored out exactly as in our non-spinning waveform. Lastly, 
+we have two angles which enter into the $\Y{-2}_{lm}$. The physical interpretation 
+of these angles depends on how the frame in which the harmonic mode decomposition is 
+performed is defined. One should choose a frame which is convenient for expressing 
+and computing the $h_{lm}$. For the non-spinning case, this means aligning the frame 
+with the orbital angular momentum, $\hat{L}$, in which case one can show that the 
+zenith angle is $\iota$ and the azimuth is $- \phi_c$. In the precessing case, one would
+most likely use a frame aligned with the total angular momentum, $\hat{J}$, e.g. using the
+parameterization described in~\cite{Farr:2014qka}. In the notation of that paper, the extrinsic
+spherical harmonic dependence is $\Y{-2}_{lm}(\theta_{JN},-\phi_{JL})$, 
+where $\theta_{JN}$ is the inclination of the \emph{total} angular momentum to line of sight,
+and $\phi_{JL}$ marks the azimuthal position of $\hat{L}$ on its precession cone about $\hat{J}$.
+Note that if we use such a frame $\iota$ and $\phi_c$ must be encoded in the $h_{lm}$, 
+as must any other parameters such as spin vectors or tidal deformabilities.
+
+

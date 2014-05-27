@@ -31,18 +31,18 @@ In the following discussion, we define a weighted inner-product of two complex F
 \qmstateproduct{a}{b} \equiv 2 \int_{-\infty}^{\infty} df \frac{\tilde{a}^*(f)\tilde{b}(f)}{S(f)}\
 \end{eqnarray}
 
-The mode decomposed waveforms $\hat{h}_{lm}$, can be shifted in time in reference to a detector relative to the geocentric time. If $\tilde{h}_{lm}(t_k;f)$ is the Fourier-domain representation of a mode for some arrival time $t_k$, then
-the the same mode for some other arrival time $t_k'$ can be simply related by
-\begin{equation} \label{eq:time_shift}
-\tilde{h}_{lm}(t_k';f) = \tilde{h}_{lm}(t_k;f) \, e^{- 2 \pi i f (t_k' - t_k)}\ .
-\end{equation}
-For this reason, the overlap between a single detector data time series  $d(t)$ and a time-shifted complex function $h(t-t_k)$ is 
+The mode decomposed waveforms $\hat{h}_{lm}$, can be shifted in time in reference 
+to a detector relative to the geocentric time via Eq.~(\ref{eq:time_shift}). 
+For this reason, the overlap between a single detector data time series  
+$d(t)$ and a time-shifted complex function $h(t-t_k)$ is 
 %% Plugging Eq.~(\ref{eq:time_shift}) into Eq.~(\ref{eq:InnerProduct}), the overlap between data $d$ and
 %% some template $h(t_k)$ with time of arrival $t_k$ is
 \begin{equation} \label{eq:IFFT}
 \langle h(t_k) | d \rangle = \int_{-\infty}^{\infty} \frac{\tilde{d}(f) \tilde{h}^*(f)}{S_n(f)} e^{2\pi i f t_k} df \ .
 \end{equation}
-This is a statement which states that the overlap for all possible time shifts can be computed with a single inverse Fourier transform of the overlap integrand.
+Note that this is simply the Fourier transform of the integrand in Eq.~(\ref{eq:InnerProduct}), 
+which means we can compute the overlap for all possible time shifts with a single
+Fourier transform.
 
 
 
