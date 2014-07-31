@@ -366,8 +366,8 @@ if len(data_dict) is 0:
     data_dict['H1'] = lalsimutils.non_herm_hoff(Psig)
     Psig.detector = 'L1'
     data_dict['L1'] = lalsimutils.non_herm_hoff(Psig)
-#    Psig.detector = 'V1'
-#    data_dict['V1'] = lalsimutils.non_herm_hoff(Psig)
+    Psig.detector = 'V1'
+    data_dict['V1'] = lalsimutils.non_herm_hoff(Psig)
 
 # Reset origin of time, if required
 if opts.force_gps_time:
