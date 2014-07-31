@@ -222,7 +222,10 @@ if opts.data_start_time is not None and opts.data_end_time is not None:
 
 # Automatically choose data segment bounds so region of interest isn't corrupted
 else:
+    approxTmp = P.approx
+    P.approx = lalsimutils.lalsim.TaylorT4  # should not impact length much.  IMPORTANT because EOB calls will fail at the default sampling rate
     htmplt = lalsimutils.hoft(P)
+    P.approx = approxTmp
     T_tmplt = - float(htmplt.epoch)
     T_seg = T_tmplt + T_spec + T_safety # Amount before and after event time
     start_time = float(event_time) - T_seg
