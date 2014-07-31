@@ -45,6 +45,8 @@ def ParseStandardArguments():
     parser.add_argument("--LikelihoodType_MargTdisc_array",default=False,action='store_true')
     parser.add_argument( "--adapt-beta", type=float,default=1)
     parser.add_argument("--adapt-mix", type=float,default=0.1)
+    parser.add_argument("--no-adapt-distance", type=float, default=False)
+    parser.add_argument("--no-adapt-sky", type=float, default=False)
     # Infrastructure choices:
     parser.add_argument("--skip-interpolation",dest="opt_SkipInterpolation",default=False,action='store_true')  # skip interpolation : saves time, but some things will crash later
 
@@ -294,12 +296,16 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
             sampler.add_parameter("right_ascension", functools.partial(mcsampler.gauss_samp, Psig.phi,0.03), None, ra_min, ra_max, 
                               prior_pdf = mcsampler.uniform_samp_phase)
             sampler.add_parameter("declination", functools.partial(mcsampler.gauss_samp, Psig.theta,0.03), None, dec_min, dec_max, 
-                              prior_pdf= mcsampler.uniform_samp_dec)
+                              prior_pdf= mcsampler.uniform_samp_dec,
+                                  adaptive_sampling= not opts.no_adapt_sky)
         else:
             sampler.add_parameter("right_ascension", mcsampler.uniform_samp_phase, None, ra_min, ra_max, 
-                                      prior_pdf = mcsampler.uniform_samp_phase)
+                                      prior_pdf = mcsampler.uniform_samp_phase,
+                                  adaptive_sampling= not opts.no_adapt_sky
+                                  )
             sampler.add_parameter("declination",mcsampler.uniform_samp_dec, None, dec_min, dec_max, 
-                          prior_pdf= mcsampler.uniform_samp_dec)
+                          prior_pdf= mcsampler.uniform_samp_dec,
+                                  adaptive_sampling= not opts.no_adapt_sky)
             if opts.fixparams.count('right_ascension') and Psig:
                 print "  ++++ Fixing ra to injected value +++ "
                 pinned_params['right_ascension'] = Psig.phi
@@ -406,7 +412,9 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
 #                          functools.partial(mcsampler.quadratic_samp_vector, distBoundGuess), None, dist_min, dist_max,
 #                          functools.partial(mcsampler.uniform_samp_vector,0, distBoundGuess), None, dist_min, dist_max,
                           functools.partial( uniform_samp_withfloor_vector, numpy.min([distBoundGuess,dist_max]), dist_max, 0.001), None, dist_min, dist_max,
-                         prior_pdf = functools.partial(mcsampler.quadratic_samp_vector, dist_max)
+                         prior_pdf = functools.partial(mcsampler.quadratic_samp_vector, dist_max
+                                                        ),
+                          adaptive_sampling = not opts.no_adapt_distance
                          )
 #        sampler.add_parameter("dist", functools.partial(mcsampler.quadratic_samp_vector,  distBoundGuess ), None, dist_min, dist_max, prior_pdf = numpy.vectorize(lambda x: x**2/(3.*numpy.power(dist_max,3))))
     if opts.fixparams.count('dist') and Psig:
