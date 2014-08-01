@@ -13,7 +13,7 @@ LIGO_FRAME_DURATION_COMB=64 # s
 LIGO_N_FRAMES=1
 
 BASE_DIR=$(shell pwd)/
-PSD_FILE=${BASE_DIR}/../HLV-ILIGO_PSD.xml.gz
+PSD_FILE=${BASE_DIR}/HLV-ILIGO_PSD.xml.gz
 
 
 EVENT_TIME=1000000014.236547946
@@ -25,14 +25,14 @@ test_ile_dag: zero_noise.cache
 	../../Code/compute_marginalized_likelihood --cache-file ${BASE_DIR}/zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file zero_noise.xml.gz --n-copies 10 --time-marginalization --save-P 0.0001 --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000
 
 profile_ile: zero_noise.cache
-	kernprof.py -l -v integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name L1=${INJ_CHANNEL_NAME} --channel-name H1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --n-max 10000 --n-chunk 1000 --time-marginalization
+	kernprof.py -l -v integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name L1=${INJ_CHANNEL_NAME} --channel-name H1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --n-max 10000 --n-chunk 1000 --time-marginalization
 
 test_ile: zero_noise.cache
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --pin-to-sim mdc.xml.gz --reference-freq 0.0
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --pin-to-sim mdc.xml.gz --reference-freq 0.0 --approximant EOBNRv2HM
 
 test_ile_postprocessing: zero_noise.cache
 	rm -f zero_noise.pdf
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --convergence-tests-on --n-eff 100
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --convergence-tests-on --n-eff 100
 	echo " Number of samples stored in this test (<number of samples performed): " `ligolw_print -t sim_inspiral -c alpha1 zero_noise.xml.gz | wc -l `
 	../../Code/convert_output_format_ile2inference zero_noise.xml.gz > flatfile-points.dat
 	../../Code/postprocess_1d_cumulative --save-sampler-file flatfile --inj mdc.xml.gz 
@@ -40,7 +40,7 @@ test_ile_postprocessing: zero_noise.cache
 	../../Code/plot_integral zero_noise.xml.gz -o integral.pdf
 
 test_ile_higher: zero_noise.cache
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 60000 --output-file zero_noise_higher.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --convergence-tests-on --n-eff 100  --amp-order -1 --l-max 4
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 60000 --output-file zero_noise_higher.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --convergence-tests-on --n-eff 100  --amp-order -1 --l-max 4
 	echo " Number of samples stored in this test (<number of samples performed): " `ligolw_print -t sim_inspiral -c alpha1 zero_noise.xml.gz | wc -l `
 	../../Code/convert_output_format_ile2inference zero_noise_higher.xml.gz > flatfile_higher-points.dat
 	../../Code/postprocess_1d_cumulative --save-sampler-file flatfile_higher --inj mdc.xml.gz 
@@ -50,7 +50,7 @@ test_ile_higher: zero_noise.cache
 
 test_ile_postprocessing_2ifo: zero_noise.cache
 	rm -f zero_noise.pdf
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME}  --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz"  --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 10000 --output-file zero_noise_2ifo.xml.gz --save-deltalnL 15 --save-P 0.0001 --convergence-tests-on --n-eff 100
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME}  --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}"  --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --data-start 1000000000 --data-end 1000000016 -i 2 --time-marginalization --n-max 10000 --output-file zero_noise_2ifo.xml.gz --save-deltalnL 15 --save-P 0.0001 --convergence-tests-on --n-eff 100
 	echo " Number of samples stored in this test (<number of samples performed): " `ligolw_print -t sim_inspiral -c alpha1 zero_noise.xml.gz | wc -l `
 	../../Code/convert_output_format_ile2inference zero_noise.xml.gz > flatfile_2ifo-points.dat
 	../../Code/postprocess_1d_cumulative --save-sampler-file flatfile_2ifo --inj mdc.xml.gz 
@@ -104,21 +104,21 @@ ros_test_ile_pinned:
 	find ${INJECTION_DEST}/ -name "*.gwf" | lalapps_path2cache > zero_noise.cache
 #	make test_ile
 # Pinning test 1: time
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --output-file ile-ros-output.xml.gz --save-samples  `../../Code/xmlInspiralToILEPinned.py mdc.xml.gz 0 polarization inclination  phi_orb distance right_ascension declination `
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --output-file ile-ros-output.xml.gz --save-samples  `../../Code/xmlInspiralToILEPinned.py mdc.xml.gz 0 polarization inclination  phi_orb distance right_ascension declination `
 	ligolw_print -t sngl_inspiral -c snr ile-ros-output.xml.gz  > ile-ros-pintest-time-result.dat
 	../../Code/convert_output_format_ile2inference ile-ros-output.xml.gz > ile-ros-pintest-time-points.dat
 	../../Code/plot_like_contours --dimension1=geocent_end_time  --show-points  ile-ros-output.xml.gz  --show-mdc=mdc.xml.gz  --fig-extension pdf
 	mv ile-ros-output.xml.gz ile-ros-pintest-time.xml.gz
 
 # Pinning test 2: distance
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --output-file ile-ros-output.xml.gz --save-samples  `../../Code/xmlInspiralToILEPinned.py mdc.xml.gz 0 polarization inclination  phi_orb  right_ascension declination ` --t-ref 0
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --output-file ile-ros-output.xml.gz --save-samples  `../../Code/xmlInspiralToILEPinned.py mdc.xml.gz 0 polarization inclination  phi_orb  right_ascension declination ` --t-ref 0
 	ligolw_print -t sngl_inspiral -c snr ile-ros-output.xml.gz  > ile-ros-pintest-distance-result.dat
 	../../Code/convert_output_format_ile2inference ile-ros-output.xml.gz > ile-ros-pintest-distance-points.dat
 	../../Code/plot_like_contours --dimension1=distance  --show-points  ile-ros-output.xml.gz  --show-mdc=mdc.xml.gz --fig-extension pdf
 	mv ile-ros-output.xml.gz ile-ros-pintest-distance.xml.gz
 
 # Pinning test 2: distance and cos iota
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=../HLV-ILIGO_PSD.xml.gz" --psd-file "L1=../HLV-ILIGO_PSD.xml.gz" --psd-file "V1=../HLV-ILIGO_PSD.xml.gz" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --output-file ile-ros-output.xml.gz --save-samples  `../../Code/xmlInspiralToILEPinned.py mdc.xml.gz 0 polarization   phi_orb  right_ascension declination ` --t-ref 0
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --output-file ile-ros-output.xml.gz --save-samples  `../../Code/xmlInspiralToILEPinned.py mdc.xml.gz 0 polarization   phi_orb  right_ascension declination ` --t-ref 0
 	ligolw_print -t sngl_inspiral -c snr ile-ros-output.xml.gz  > ile-ros-pintest-DCosI-result.dat
 	../../Code/convert_output_format_ile2inference ile-ros-output.xml.gz > ile-ros-pintest-DCosI-points.dat
 	../../Code/plot_like_contours --dimension1=distance --dimension2=inclination  --show-points  ile-ros-output.xml.gz --show-mdc=mdc.xml.gz  --fig-extension pdf
