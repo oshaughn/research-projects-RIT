@@ -84,8 +84,9 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
 #    tWindowReference =  tWindowReference
     tWindowExplore =     factored_likelihood.tWindowExplore
     tEventFiducial    = float(Psig.tref - theEpochFiducial)
-    plt.figure(0)  # Make sure not overwritten
-    plt.title("Placeholder - reset to this screen")
+    if not bNoMatplotlib:
+            plt.figure(0)  # Make sure not overwritten
+            plt.title("Placeholder - reset to this screen")
 
     rho2Net =0
     print " ++ WARNING : Some tests depend on others.  Not made robust yet ++ "
@@ -168,7 +169,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
                     constraint1+= np.abs(hxx.data.data[i]-np.conj(hyy.data.data[i]))**2
             print "   : Reflection symmetry constraint (Q22,Q2-2) with raw data: : 0 ~= ", constraint1/len(hxx.data.data)    # error per point 
 
-    if TestDictionary["Rho22Timeseries"]:
+    if TestDictionary["Rho22Timeseries"] and not bNoMatplotlib:
         print " ======= rho22: Plot versus time  =========="
         print "    Note in Evan's implementation, they are functions of t in GPS units (i.e., 10^9) "
         plt.clf()
@@ -230,7 +231,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
 
 
     # lnLdata (plot)
-    if TestDictionary["lnLDataPlot"]:
+    if TestDictionary["lnLDataPlot"] and not bNoMatplotlib:
 
         # Plot the interpolated lnLData versus *time*
         print " ======= lnLdata timeseries at the injection parameters =========="
@@ -300,7 +301,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             plt.savefig("FLT-lnL.pdf")
 
     # lnLdata (plot)
-    if TestDictionary["lnLDataPlotVersusPsi"]:
+    if TestDictionary["lnLDataPlotVersusPsi"] and not bNoMatplotlib:
         print " ======= Code test: Plot the lnL versus psi, at the injection parameters =========="
         psivals = np.linspace(0, 2*np.pi,500)
         P = Psig.copy()
