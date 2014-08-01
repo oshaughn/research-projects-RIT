@@ -678,7 +678,7 @@ if opts.plot_ShowPSD and not bNoInteractivePlots:
     plt.ylim(-50,-30)
     plt.savefig("FLT-psd.jpg")  # really not in FLT, but the same kind of plot
 
-if rosShowSamplerInputDistributions:
+if rosShowSamplerInputDistributions and not bNoInteractivePlots:
     print " ====== Plotting prior and sampling distributions ==== "
     print "  PROBLEM: Build in/hardcoded via uniform limits on each parameter! Need to add measure factors "
     nFig = 0
