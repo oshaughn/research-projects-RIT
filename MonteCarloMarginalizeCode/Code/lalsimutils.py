@@ -122,6 +122,14 @@ class ChooseWaveformParams:
         print "s2x =", self.s2x
         print "s2y =", self.s2y
         print "s2z =", self.s2z
+        S1vec = np.array([self.s1x,self.s1y,self.s1z])*self.m1*self.m1
+        S2vec = np.array([self.s2x,self.s2y,self.s2z])*self.m2*self.m2
+        qval = self.m2/self.m1
+        print   " : Vector spin products"
+        print   " : |s1|, |s2| = ", np.sqrt(vecDot([self.s1x,self.s1y,self.s1z],[self.s1x,self.s1y,self.s1z])), np.sqrt(vecDot([self.s2x,self.s2y,self.s2z],[self.s2x,self.s2y,self.s2z]))
+        print   " : s1.s2 = ",  vecDot([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z])
+        print   " : hat(L). s1 x s2 =  ",  vecDot( [np.sin(self.incl),0,np.cos(self.incl)] , vecCross([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z]))
+        print   " : hat(L).(S1(1+q)+S2(1+1/q)) = ", vecDot( [np.sin(self.incl),0,np.cos(self.incl)], S1vec*(1+qval)  + S2vec*(1+1./qval) )/(self.m1+self.m2)/(self.m1+self.m2)
         print "lambda1 =", self.lambda1
         print "lambda2 =", self.lambda2
         print "inclination =", self.incl
