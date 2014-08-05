@@ -51,6 +51,8 @@ def ParseStandardArguments():
     parser.add_argument("--skip-interpolation",dest="opt_SkipInterpolation",default=False,action='store_true')  # skip interpolation : saves time, but some things will crash later
 
     # Noise model
+    parser.add_argument("--psd-name", type=str, default="lalsim.SimNoisePSDaLIGOZeroDetHighPower", help="psd name ('eval'). lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, ... ")
+    parser.add_argument("--psd-name-V", type=str, default="lalsim.SimNoisePSDAdvVirgo", help="psd name ('eval'). lalsim.SimNoisePSDVirgo")
     parser.add_argument("--psd-file",dest='psd_file',default=None, help="psd-file for all instruments. Assumes PSD for all instruments is provided in the file.  If None, uses an analytic PSD")
     parser.add_argument("--psd-file-singleifo",dest="psd_file_singleifo",action="append", help="psd file for one instrument. Not available for all cases")
     parser.add_argument("--psd-truncate-inverse",dest="psd_TruncateInverse",default=True,action='store_true')

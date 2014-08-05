@@ -387,7 +387,12 @@ if not(opts.psd_file) and not(opts.psd_file_singleifo):
     for det in data_dict.keys():
 #        psd_dict[det] = lalsim.SimNoisePSDaLIGOZeroDetHighPower   #lal.LIGOIPsd    # Preserves key equality in data_dict , psd_dict
 #        psd_dict[det] = lal.LIGOIPsd    # Preserves key equality in data_dict , psd_dict
-        psd_dict[det] = lalsim.SimNoisePSDiLIGOSRD    # Preserves key equality in data_dict , psd_dict.  this is Chris' 'iLIGO' PSD, for test data
+        if opts.psd_name != "" and  opts.psd_name_V != "":
+            psd_dict[det] = lalsim.SimNoisePSDiLIGOSRD    # Preserves key equality in data_dict , psd_dict.  this is Chris' 'iLIGO' PSD, for test data
+        if opts.psd_name_V and det =='V1':
+            psd_dict[det] = eval(opts.psd_name_V)  # Better not screw up!
+        if opts.psd_name and (det =='H1'  or det == 'L1'):
+            psd_dict[det] = eval(opts.psd_name)  # Better not screw up!
 
 else:
     analyticPSD_Q = False # For simplicity, using an analytic PSD
