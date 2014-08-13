@@ -63,7 +63,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     crossTerms = {}
 
     # Compute hlms at a reference distance, distance scaling is applied later
-    P.dist = distMpcRef*1e6*lal.LAL_PC_SI
+    P.dist = distMpcRef*1e6*lsu.lsu_PC
 
     print "  ++++ Template data being computed for the following binary +++ "
     P.print_params()
@@ -248,7 +248,7 @@ def SingleDetectorLogLikelihoodModel( crossTermsDictionary,tref, RA,DEC, thS,phi
         F=1
     else:
         F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
-    distMpc = dist/(lal.LAL_PC_SI*1e6)
+    distMpc = dist/(lsu.lsu_PC*1e6)
 
 #    keys = Ylms.keys()
     keys = crossTermsDictionary.keys()[:0]
@@ -282,7 +282,7 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
         detector = lalsim.DetectorPrefixToLALDetector(det)
         tshift = ComputeArrivalTimeAtDetector(det, RA,DEC, tref)
     rholms_intp = rholmsDictionary[det]
-    distMpc = dist/(lal.LAL_PC_SI*1e6)
+    distMpc = dist/(lsu.lsu_PC*1e6)
 
     term1 = 0.
     for key in rholms_intp.keys():
@@ -306,7 +306,7 @@ def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms, tref
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
     Ylms = ComputeYlms(Lmax, thS, -phiS)
-    distMpc = dist/(lal.LAL_PC_SI*1e6)
+    distMpc = dist/(lsu.lsu_PC*1e6)
 
     F = {}
     tshift= {}
@@ -348,7 +348,7 @@ def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTer
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
     Ylms = ComputeYlms(Lmax, thS, -phiS)
-    distMpc = dist/(lal.LAL_PC_SI*1e6)
+    distMpc = dist/(lsu.lsu_PC*1e6)
 
     F = {}
     tshift= {}
@@ -403,7 +403,7 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist):
     Outputs: The value of ln L for a single detector given the inputs.
     """
     global distMpcRef
-    distMpc = dist/(lal.LAL_PC_SI*1e6)
+    distMpc = dist/(lsu.lsu_PC*1e6)
 
     # Eq. 35 of Richard's notes
     term1 = 0.
@@ -604,7 +604,7 @@ def non_herm_hoff(P):
         print  "   : Creating signal for injection with epoch ", float(hp.epoch), " and event time centered at ", lsu.stringGPSNice(P.tref)
         Fp, Fc = lal.ComputeDetAMResponse(lalsim.InstrumentNameToLALDetector(str(P.detector)).response, P.phi, P.theta, P.psi, lal.GreenwichMeanSiderealTime(hp.epoch))
         print "  : creating signal for injection with (det, t,RA, DEC,psi,Fp,Fx)= ", P.detector, float(P.tref), P.phi, P.theta, P.psi, Fp, Fc
-    if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
+    if P.taper != lsu.lsu_TAPER_NONE: # Taper if requested
         lalsim.SimInspiralREAL8WaveTaper(hoft.data, P.taper)
     if P.deltaF == None:
         TDlen = nextPow2(hoft.data.length)
@@ -675,7 +675,7 @@ def NetworkLogLikelihoodTimeMarginalizedDiscrete(epoch,rholmsDictionary,crossTer
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
     Ylms = ComputeYlms(Lmax, thS, -phiS)
-    distMpc = dist/(lal.LAL_PC_SI*1e6)
+    distMpc = dist/(lsu.lsu_PC*1e6)
 
     F = {}
     tshift= {}
@@ -742,7 +742,7 @@ def DiscreteSingleDetectorLogLikelihoodData(epoch,rholmsDictionary, tStart,nBins
         detector = lalsim.DetectorPrefixToLALDetector(det)
         tshift = ComputeArrivalTimeAtDetector(det, RA,DEC, tStart)  -  epoch   # detector time minus reference time (so far)
     rholms_grid = rholmsDictionary[det]
-    distMpc = dist/(lal.LAL_PC_SI*1e6)
+    distMpc = dist/(lsu.lsu_PC*1e6)
 
     rho22 = rholms_grid[( 2,2)]
     nShiftL = int(  float(tshift)/rho22.deltaT)
