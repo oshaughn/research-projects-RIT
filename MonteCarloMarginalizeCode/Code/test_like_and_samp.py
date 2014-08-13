@@ -387,11 +387,15 @@ if not(opts.psd_file) and not(opts.psd_file_singleifo):
     for det in data_dict.keys():
 #        psd_dict[det] = lalsim.SimNoisePSDaLIGOZeroDetHighPower   #lal.LIGOIPsd    # Preserves key equality in data_dict , psd_dict
 #        psd_dict[det] = lal.LIGOIPsd    # Preserves key equality in data_dict , psd_dict
-        if opts.psd_name != "" and  opts.psd_name_V != "":
+        if (opts.psd_name == "" and det != "V") or (opts.psd_name_V=="" and det == "V"):
             psd_dict[det] = lalsim.SimNoisePSDiLIGOSRD    # Preserves key equality in data_dict , psd_dict.  this is Chris' 'iLIGO' PSD, for test data
-        if opts.psd_name_V and det =='V1':
+        if opts.psd_name_V!= "" and det =='V1':
+            if opts.verbose:
+                print " Assigning PSD for", det, opts.psd_name_V
             psd_dict[det] = eval(opts.psd_name_V)  # Better not screw up!
-        if opts.psd_name and (det =='H1'  or det == 'L1'):
+        if opts.psd_name != ""and (det =='H1'  or det == 'L1'):
+            if opts.verbose:
+                print " Assigning PSD for  ", det,  opts.psd_name
             psd_dict[det] = eval(opts.psd_name)  # Better not screw up!
 
 else:
