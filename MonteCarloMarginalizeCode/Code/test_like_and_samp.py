@@ -151,6 +151,7 @@ approxTemplate = approxSignal
 ampO =opts.amporder # sets which modes to include in the template (and signal, if injected)
 Lmax = opts.Lmax # sets which modes to include in the template.  Print warning if inconsistent.
 fref = opts.fref
+fref_signal = opts.signal_fref
 fminWavesTemplate = opts.fmin_Template  # too long can be a memory and time hog, particularly at 16 kHz
 fminWavesSignal = opts.signal_fmin  # too long can be a memory and time hog, particularly at 16 kHz
 fminSNR =opts.fmin_SNR
@@ -203,8 +204,8 @@ if opts.coinc:
         if rosDebugMessagesDictionary["DebugMessages"]:
             det = str(sngl_row.ifo)
             print det, rhoExpected[det]
-    m1 = m1*lal.LAL_MSUN_SI
-    m2 = m2*lal.LAL_MSUN_SI
+    m1 = m1*lalsimutils.lsu_MSUN
+    m2 = m2*lalsimutils.lsu_MSUN
     rho2Net = 0
     for det in rhoExpected:
         rho2Net += rhoExpected[det]**2
@@ -214,7 +215,7 @@ if opts.coinc:
     Psig = lalsimutils.ChooseWaveformParams(
         m1=m1,m2=m2,approx=approxSignal,
         fmin = fminWavesSignal, 
-        dist=factored_likelihood.distMpcRef*1e6*lal.LAL_PC_SI,    # default distance
+        dist=factored_likelihood.distMpcRef*1e6*lalsimutils.lsu_PC,    # default distance
         fref=fref, 
         tref = event_time_gps,
         ampO=ampO      
@@ -229,8 +230,9 @@ if opts.inj:
     Psig = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))[opts.event_id]  # Load in the physical parameters of the injection.  
     m1 = Psig.m1
     m2 = Psig.m2
-    timeWaveform = float(-lalsimutils.hoft(Psig).epoch)
+    timeWaveform = lalsimutils.estimateWaveformDuration(Psig) #float(-lalsimutils.hoft(Psig).epoch)
     Psig.deltaF = 1./lalsimutils.nextPow2(opts.seglen)       # Frequency binning needs to account for target segment length
+    Psig.fref = opts.signal_fref
     theEpochFiducial = Psig.tref  # Reset
     tEventFiducial = 0               # Reset
     print " ++ Targeting event at time ++ ", lalsimutils.stringGPSNice(Psig.tref)
@@ -241,9 +243,9 @@ if opts.inj:
 
 # Use forced parameters, if provided
 if opts.template_mass1:
-    Psig.m1 = opts.template_mass1*lal.LAL_MSUN_SI
+    Psig.m1 = opts.template_mass1*lalsimutils.lsu_MSUN
 if opts.template_mass2:
-    Psig.m2 = opts.template_mass2*lal.LAL_MSUN_SI
+    Psig.m2 = opts.template_mass2*lalsimutils.lsu_MSUN
 
 # Reset origin of time, if required. (This forces different parts of data to be read- important! )
 if opts.force_gps_time:
@@ -266,17 +268,17 @@ if  not Psig and opts.channel_name:  # If data loaded but no signal generated
         sys.exit(0)
     Psig = lalsimutils.ChooseWaveformParams(approx=approxSignal,
         fmin = fminWavesSignal, 
-        dist=factored_likelihood.distMpcRef*1e6*lal.LAL_PC_SI,    # default distance
+        dist=factored_likelihood.distMpcRef*1e6*lalsimutils.lsu_PC,    # default distance
         fref=fref)
-    Psig.m1 = lal.LAL_MSUN_SI*opts.template_mass1
-    Psig.m2 = lal.LAL_MSUN_SI*opts.template_mass2
+    Psig.m1 = lalsimutils.lsu_MSUN*opts.template_mass1
+    Psig.m2 = lalsimutils.lsu_MSUN*opts.template_mass2
     Psig.tref = lal.LIGOTimeGPS(0.000000000)  # Initialize as GPSTime object
     Psig.tref += opts.force_gps_time # Pass value of float into it
 
 
 # TEST THE SEGMENT LENGTH TARGET
 if Psig:
-    timeSegmentLength  = -float(lalsimutils.hoft(Psig).epoch)
+    timeSegmentLength  = lalsimutils.estimateWaveformDuration(Psig) #-float(lalsimutils.hoft(Psig).epoch)  # needs to work if h(t) unavailable (FD waveform). And this is faster.
     if rosDebugMessagesDictionary["DebugMessages"]:
         print " Template duration : ", timeSegmentLength
     if timeSegmentLength > opts.seglen:
@@ -323,8 +325,8 @@ if len(data_dict) is 0:
     analytic_signal = True
 
     if not(Psig):
-        m1 = 4*lal.LAL_MSUN_SI
-        m2 = 3*lal.LAL_MSUN_SI
+        m1 = 4*lalsimutils.lsu_MSUN
+        m2 = 3*lalsimutils.lsu_MSUN
 
         Psig = lalsimutils.ChooseWaveformParams(
             m1 = m1,m2 =m2,
@@ -335,7 +337,7 @@ if len(data_dict) is 0:
             ampO=ampO,
             radec=True, theta=1.2, phi=2.4,
             detector='H1', 
-            dist=opts.signal_distMpc*1.e6*lal.LAL_PC_SI,    # move back to aLIGO distances
+            dist=opts.signal_distMpc*1.e6*lalsimutils.lsu_PC,    # move back to aLIGO distances
             deltaT=1./fSample
                                 )
         timeSegmentLength  = -float(lalsimutils.hoft(Psig).epoch)
@@ -498,7 +500,7 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
          fref=fref,
          tref=theEpochFiducial,
          deltaT=1./fSample,
-         dist=100*1.e6*lal.LAL_PC_SI,
+         dist=100*1.e6*lalsimutils.lsu_PC,
          deltaF=df)
 
 
@@ -608,7 +610,7 @@ if not opts.LikelihoodType_MargTdisc_array:
             P.phiref = phr # ref. orbital phase
             P.incl = ic # inclination
             P.psi = ps # polarization angle
-            P.dist = di*1e6*lal.LAL_PC_SI # luminosity distance.  The sampler assumes Mpc; P requires SI
+            P.dist = di*1e6*lalsimutils.lsu_PC # luminosity distance.  The sampler assumes Mpc; P requires SI
             lnL[i] = factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
             i+=1
 
@@ -640,7 +642,7 @@ else: # Sum over time for every point in other extrinsic params
             P.phiref = phr # ref. orbital phase
             P.incl = ic # inclination
             P.psi = ps # polarization angle
-            P.dist = di* 1.e6 * lal.LAL_PC_SI # luminosity distance
+            P.dist = di* 1.e6 * lalsimutils.lsu_PC # luminosity distance
 
             lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
                     P, rholms_intp,rholms, crossTerms,                   
@@ -755,7 +757,7 @@ if opts.rotate_sky_coordinates:
 
 
 print sampler._rvs.keys()
-retNew = [sampler._rvs["right_ascension"], sampler._rvs['declination'],sampler._rvs['t_ref'], sampler._rvs['phi_orb'],sampler._rvs['inclination'], sampler._rvs['psi'], sampler._rvs['psi'], sampler._rvs['distance'], sampler._rvs["joint_prior"], sampler._rvs["joint_s_prior"],np.log(sampler._rvs["integrand"])]
+retNew = [P.m1/lalsimutils.lsu_MSUN*np.ones(len(sampler._rvs['right_ascension'])), P.m1/lalsimutils.lsu_MSUN*np.ones(len(sampler._rvs['right_ascension'])), sampler._rvs["right_ascension"], sampler._rvs['declination'],sampler._rvs['t_ref'], sampler._rvs['phi_orb'],sampler._rvs['inclination'], sampler._rvs['psi'], sampler._rvs['psi'], sampler._rvs['distance'], sampler._rvs["joint_prior"], sampler._rvs["joint_s_prior"],np.log(sampler._rvs["integrand"])]
 retNew = map(list, zip(*retNew))
 ret = np.array(retNew)
 
@@ -780,11 +782,11 @@ print "   - Time per neff             ", float(tGPSEnd-tGPSStart)/neff
 # Only store some
 fnameBase = opts.points_file_base
 retSorted = ret[ np.argsort(ret[:,-1])]
-ourio.dumpSamplesToFile(fnameBase+"-points.dat", retSorted, ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'p', 'ps', 'lnL']) 
+ourio.dumpSamplesToFile(fnameBase+"-points.dat", retSorted, ['m1', 'm2', 'ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'p', 'ps', 'lnL']) 
 #sampArray = Psig.list_params()  # Eventually, make this used. Note odd structure in list
 #np.savetxt(fnameBase+"-params.dat", np.array(sampArray))
 #print " Parameters : ", sampArray
-ourio.dumpSamplesToFile(fnameBase+'-result.dat', np.array([[res, np.sqrt(var), np.max(ret[:,-1]),ntotal,neff, P.m1/lal.LAL_MSUN_SI,P.m2/lal.LAL_MSUN_SI]]), ['Z', 'sigmaZ', 'lnLmax','N', 'Neff','m1','m2'])  # integral, std dev,  total number of points
+ourio.dumpSamplesToFile(fnameBase+'-result.dat', np.array([[res, np.sqrt(var), np.max(ret[:,-1]),ntotal,neff, P.m1/lalsimutils.lsu_MSUN,P.m2/lalsimutils.lsu_MSUN]]), ['Z', 'sigmaZ', 'lnLmax','N', 'Neff','m1','m2'])  # integral, std dev,  total number of points
 #np.savetxt(fnameBase+'-result.dat', [res, np.sqrt(var), ntotal])   # integral, std dev,  total number of points. Be SURE we do not lose precision!
 #np.savetxt(fnameBase+'-dump-lnLmarg.dat',lnLmarg[::opts.nskip])  # only print output periodically -- otherwise far too large files!
 
@@ -821,11 +823,14 @@ if opts.inj:
     weights = np.exp(ret[:,-1])*ret[:,-3]/ret[:,-2]
     ppdata['ra'] = [Psig.phi,pcum_at(Psig.phi,ret[:,0],weights)]
     ppdata['dec'] = [Psig.theta,pcum_at(Psig.theta,ret[:,1], weights)]
-    ppdata['tref'] = [Psig.tref-theEpochFiducial,pcum_at(Psig.tref-theEpochFiducial,ret[:,2], weights)]
+    if not opts.LikelihoodType_MargTdisc_array:
+        ppdata['tref'] = [Psig.tref-theEpochFiducial,pcum_at(Psig.tref-theEpochFiducial,ret[:,2], weights)]
+    else:
+        ppdata['tref'] = [0,0,0]
     ppdata['phi'] = [Psig.phiref,pcum_at(Psig.phiref,ret[:,3], weights)]
     ppdata['incl'] = [Psig.incl,pcum_at(Psig.incl,ret[:,4], weights)]
     ppdata['psi'] = [Psig.psi,pcum_at(Psig.psi,ret[:,5], weights)]
-    ppdata['dist'] = [Psig.dist/(1e6*lal.LAL_PC_SI),pcum_at(Psig.dist/(1e6*lal.LAL_PC_SI),ret[:,6], weights)]
+    ppdata['dist'] = [Psig.dist/(1e6*lalsimutils.lsu_PC),pcum_at(Psig.dist/(1e6*lalsimutils.lsu_PC),ret[:,6], weights)]
     ppdata['lnL'] =  [lnLAt, pcum_at(lnLAt, ret[:,-1], weights)]
 
     # Dump data: p(<x)
@@ -860,8 +865,8 @@ if  True: # opts.points_file_base:
     # samples["polarization"] = samples["psi"]
     # samples["longitude"] = samples["ra"]
     # samples["loglikelihood"] = np.log(samples["integrand"])
-    m1 = P.m1/lal.LAL_MSUN_SI
-    m2 = P.m2/lal.LAL_MSUN_SI
+    m1 = P.m1/lalsimutils.lsu_MSUN
+    m2 = P.m2/lalsimutils.lsu_MSUN
     samples["mass1"] = np.ones(samples["polarization"].shape)*m1
     samples["mass2"] = np.ones(samples["polarization"].shape)*m2
 #    utils.write_fileobj(xmldoc,sys.stdout)
@@ -891,7 +896,7 @@ if False: #rosShowTerminalSampleHistograms:
     ra,dec,tref,phi,incl, psi,dist,lnL = np.transpose(ret)  # unpack. This can include all or some of the data set. The default configuration returns *all* points
     plt.figure(1)
     plt.clf()
-    H, xedges, yedges = np.histogram2d(dist/(1e6*lal.LAL_PC_SI),incl, weights=np.exp(lnL),bins=(10,10))
+    H, xedges, yedges = np.histogram2d(dist/(1e6*lalsimutils.lsu_PC),incl, weights=np.exp(lnL),bins=(10,10))
     extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
     plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
     plt.colorbar()

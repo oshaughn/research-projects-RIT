@@ -49,6 +49,37 @@ print >>sys.stderr, "[Loading lalsimutils.py : MonteCarloMarginalization version
 
 TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 
+
+# Check lal version (lal.LAL_MSUN_SI or not).  Enables portability through the version transition.
+try:
+    x=lal.LAL_MSUN_SI
+except:
+    lsu_MSUN=lal.MSUN_SI
+    lsu_PC = lal.PC_SI
+    lsu_G = lal.G_SI
+    lsu_C = lal.C_SI
+    lsu_PI=lal.PI
+    lsu_TAPER_NONE=lalsim.SIM_INSPIRAL_TAPER_NONE
+    lsu_TAPER_START=lalsim.SIM_INSPIRAL_TAPER_START
+    lsu_TAPER_END=lalsim.SIM_INSPIRAL_TAPER_END
+    lsu_TAPER_STARTEND=lalsim.SIM_INSPIRAL_TAPER_STARTEND
+    lsu_DimensionlessUnit = lal.DimensionlessUnit
+    lsu_HertzUnit = lal.HertzUnit
+
+else:
+    lsu_MSUN=lal.LAL_MSUN_SI
+    lsu_PC=lal.LAL_PC_SI
+    lsu_G = lal.LAL_G_SI
+    lsu_C = lal.LAL_C_SI
+    lsu_PI = lal.LAL_PI
+    lsu_TAPER_NONE=lalsim.LAL_SIM_INSPIRAL_TAPER_NONE
+    lsu_TAPER_START=lalsim.LAL_SIM_INSPIRAL_TAPER_START
+    lsu_TAPER_END=lalsim.LAL_SIM_INSPIRAL_TAPER_END
+    lsu_TAPER_STARTEND=lalsim.LAL_SIM_INSPIRAL_TAPER_STARTEND
+    lsu_DimensionlessUnit = lal.lalDimensionlessUnit
+    lsu_HertzUnit = lal.lalHertzUnit
+
+
 #
 # Class to hold arguments of ChooseWaveform functions
 #
@@ -63,14 +94,14 @@ class ChooseWaveformParams:
             that assumes (theta,phi) are spherical coord. 
             in a frame centered at the detector
     """
-    def __init__(self, phiref=0., deltaT=1./4096., m1=10.*lal.LAL_MSUN_SI, 
-            m2=10.*lal.LAL_MSUN_SI, s1x=0., s1y=0., s1z=0., 
-            s2x=0., s2y=0., s2z=0., fmin=40., fref=0., dist=1.e6*lal.LAL_PC_SI,
+    def __init__(self, phiref=0., deltaT=1./4096., m1=10.*lsu_MSUN, 
+            m2=10.*lsu_MSUN, s1x=0., s1y=0., s1z=0., 
+            s2x=0., s2y=0., s2z=0., fmin=40., fref=0., dist=1.e6*lsu_PC,
             incl=0., lambda1=0., lambda2=0., waveFlags=None, nonGRparams=None,
             ampO=0, phaseO=7, approx=lalsim.TaylorT4, 
             theta=0., phi=0., psi=0., tref=0., radec=False, detector="H1",
             deltaF=None, fmax=0., # for use w/ FD approximants
-            taper=lalsim.LAL_SIM_INSPIRAL_TAPER_NONE # for use w/TD approximants
+            taper=lsu_TAPER_NONE # for use w/TD approximants
             ):
         self.phiref = phiref
         self.deltaT = deltaT
@@ -114,8 +145,8 @@ class ChooseWaveformParams:
         Print all key-value pairs belonging in the class instance
         """
         print "This ChooseWaveformParams has the following parameter values:"
-        print "m1 =", self.m1 / lal.LAL_MSUN_SI, "(Msun)"
-        print "m2 =", self.m2 / lal.LAL_MSUN_SI, "(Msun)"
+        print "m1 =", self.m1 / lsu_MSUN, "(Msun)"
+        print "m2 =", self.m2 / lsu_MSUN, "(Msun)"
         print "s1x =", self.s1x
         print "s1y =", self.s1y
         print "s1z =", self.s1z
@@ -133,7 +164,7 @@ class ChooseWaveformParams:
         print "lambda1 =", self.lambda1
         print "lambda2 =", self.lambda2
         print "inclination =", self.incl
-        print "distance =", self.dist / 1.e+6 / lal.LAL_PC_SI, "(Mpc)"
+        print "distance =", self.dist / 1.e+6 / lsu_PC, "(Mpc)"
         print "reference orbital phase =", self.phiref
         print "time of coalescence =", float(self.tref)
         print "detector is:", self.detector
@@ -157,7 +188,7 @@ class ChooseWaveformParams:
         print "amplitude order =", self.ampO
         print "waveFlags struct is", self.waveFlags
         print "nonGRparams struct is", self.nonGRparams
-        if self.taper==lalsim.LAL_SIM_INSPIRAL_TAPER_NONE:
+        if self.taper==lsu_TAPER_NONE:
             print "Tapering is set to LAL_SIM_INSPIRAL_TAPER_NONE"
         elif self.taper==lalsim.LAL_SIM_INSPIRAL_TAPER_START:
             print "Tapering is set to LAL_SIM_INSPIRAL_TAPER_START"
@@ -180,8 +211,8 @@ class ChooseWaveformParams:
         be whatever values the instance previously had.
         """
         self.phiref = row.coa_phase
-        self.m1 = row.mass1 * lal.LAL_MSUN_SI
-        self.m2 = row.mass2 * lal.LAL_MSUN_SI
+        self.m1 = row.mass1 * lsu_MSUN
+        self.m2 = row.mass2 * lsu_MSUN
         self.s1x = row.spin1x
         self.s1y = row.spin1y
         self.s1z = row.spin1z
@@ -189,7 +220,7 @@ class ChooseWaveformParams:
         self.s2y = row.spin2y
         self.s2z = row.spin2z
         self.fmin = row.f_lower
-        self.dist = row.distance * lal.LAL_PC_SI * 1.e6
+        self.dist = row.distance * lsu_PC * 1.e6
         self.incl = row.inclination
         self.ampO = row.amp_order
         self.phaseO = lalsim.GetOrderFromString(row.waveform)
@@ -320,10 +351,10 @@ class InnerProduct(object):
             # Create workspace arrays
             WFD = lal.CreateCOMPLEX16FrequencySeries('FD root inv. spec.',
                     lal.LIGOTimeGPS(0.), 0., self.deltaF,
-                    lal.lalDimensionlessUnit, self.len1side)
+                    lsu_DimensionlessUnit, self.len1side)
             WTD = lal.CreateREAL8TimeSeries('TD root inv. spec.',
                     lal.LIGOTimeGPS(0.), 0., self.deltaT,
-                    lal.lalDimensionlessUnit, self.len2side)
+                    lsu_DimensionlessUnit, self.len2side)
             fwdplan = lal.CreateForwardREAL8FFTPlan(self.len2side, 0)
             revplan = lal.CreateReverseREAL8FFTPlan(self.len2side, 0)
             WFD.data.data[:] = np.sqrt(self.weights) # W_FD is 1/sqrt(S_n(f))
@@ -495,10 +526,10 @@ class Overlap(InnerProduct):
         self.deltaT = 1./self.deltaF/self.len2side
         self.revplan = lal.CreateReverseCOMPLEX16FFTPlan(self.len2side, 0)
         self.intgd = lal.CreateCOMPLEX16FrequencySeries("SNR integrand", 
-                lal.LIGOTimeGPS(0.), 0., self.deltaF, lal.lalHertzUnit,
+                lal.LIGOTimeGPS(0.), 0., self.deltaF, lsu_HertzUnit,
                 self.len2side)
         self.ovlp = lal.CreateCOMPLEX16TimeSeries("Complex overlap", 
-                lal.LIGOTimeGPS(0.), 0., self.deltaT, lal.lalDimensionlessUnit,
+                lal.LIGOTimeGPS(0.), 0., self.deltaT, lsu_DimensionlessUnit,
                 self.len2side)
 
     def ip(self, h1, h2):
@@ -529,7 +560,7 @@ class Overlap(InnerProduct):
             # reference to the TimeSeries belonging to the class (self.ovlp),
             # which will be overwritten if its ip() method is called again later
             rhoTS = lal.CreateCOMPLEX16TimeSeries("Complex overlap",
-                lal.LIGOTimeGPS(0.), 0., self.deltaT, lal.lalDimensionlessUnit,
+                lal.LIGOTimeGPS(0.), 0., self.deltaT, lsu_DimensionlessUnit,
                 self.len2side)
             rhoTS.data.data[:] = self.ovlp.data.data[:]
             return rho, rhoTS, rhoIdx, rhoPhase
@@ -597,9 +628,9 @@ class ComplexOverlap(InnerProduct):
         self.revplan=lal.CreateReverseCOMPLEX16FFTPlan(self.len2side, 0)
         self.intgd = lal.CreateCOMPLEX16FrequencySeries("SNR integrand", 
                 lal.LIGOTimeGPS(0.), 0., self.deltaF,
-                lal.lalHertzUnit, self.len2side)
+                lsu_HertzUnit, self.len2side)
         self.ovlp = lal.CreateCOMPLEX16TimeSeries("Complex overlap", 
-                lal.LIGOTimeGPS(0.), 0., self.deltaT, lal.lalDimensionlessUnit,
+                lal.LIGOTimeGPS(0.), 0., self.deltaT, lsu_DimensionlessUnit,
                 self.len2side)
 
     def ip(self, h1, h2):
@@ -627,7 +658,7 @@ class ComplexOverlap(InnerProduct):
             # reference to the TimeSeries belonging to the class (self.ovlp),
             # which will be overwritten if its ip() method is called again later
             rhoTS = lal.CreateCOMPLEX16TimeSeries("Complex overlap",
-                lal.LIGOTimeGPS(0.), 0., self.deltaT, lal.lalDimensionlessUnit,
+                lal.LIGOTimeGPS(0.), 0., self.deltaT, lsu_DimensionlessUnit,
                 self.len2side)
             rhoTS.data.data[:] = self.ovlp.data.data[:]
             return rho, rhoTS, rhoIdx, rhoPhase
@@ -758,10 +789,10 @@ def estimateWaveformDuration(P):
     Input:  P
     Output:estimated duration (in s) based on Newtonian inspiral from P.fmin to infinite frequency
     """
-    fM  = P.fmin*(P.m1+P.m2)*lal.LAL_G_SI / lal.LAL_C_SI**3
+    fM  = P.fmin*(P.m1+P.m2)*lsu_G / lsu_C**3
     eta = symRatio(P.m1,P.m2)
-    Msec = (P.m1+P.m2)*lal.LAL_G_SI / lal.LAL_C_SI**3
-    return Msec*5./256. / eta* np.power((lal.LAL_PI*fM),-8./3.)
+    Msec = (P.m1+P.m2)*lsu_G / lsu_C**3
+    return Msec*5./256. / eta* np.power((lsu_PI*fM),-8./3.)
     
 
 def sanitize_eta(eta, tol=1.e-10, exception='error'):
@@ -837,7 +868,7 @@ def hoft(P, Fp=None, Fc=None):
         ht = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
                 P.phi, P.theta, P.psi, 
                 lalsim.DetectorPrefixToLALDetector(str(P.detector)))
-    if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
+    if P.taper != lsu_TAPER_NONE: # Taper if requested
         lalsim.SimInspiralREAL8WaveTaper(ht.data, P.taper)
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
@@ -907,7 +938,7 @@ def hoff_TD(P, Fp=None, Fc=None, fwdplan=None):
         fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
     FDlen = TDlen/2+1
     hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
-            ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lal.lalHertzUnit, 
+            ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
             FDlen)
     lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
     return hf
@@ -1037,7 +1068,7 @@ def non_herm_hoff(P):
     for i in range(htR.data.length):
         htC.data.data[i] = htR.data.data[i]
     hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)",
-            htR.epoch, htR.f0, 1./htR.deltaT/htR.data.length, lal.lalHertzUnit, 
+            htR.epoch, htR.f0, 1./htR.deltaT/htR.data.length, lsu_HertzUnit, 
             htR.data.length)
     lal.COMPLEX16TimeFreqFFT(hf, htC, fwdplan)
     return hf
@@ -1165,7 +1196,7 @@ def complex_hoft(P, sgn=-1):
             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
             P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
             P.ampO, P.phaseO, P.approx)
-    if P.taper != lalsim.LAL_SIM_INSPIRAL_TAPER_NONE: # Taper if requested
+    if P.taper != lsu_TAPER_NONE: # Taper if requested
         lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
         lalsim.SimInspiralREAL8WaveTaper(hc.data, P.taper)
     if P.deltaF is not None:
@@ -1175,7 +1206,7 @@ def complex_hoft(P, sgn=-1):
         hc = lal.ResizeREAL8TimeSeries(hc, 0, TDlen)
 
     ht = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
-            hp.deltaT, lal.lalDimensionlessUnit, hp.data.length)
+            hp.deltaT, lsu_DimensionlessUnit, hp.data.length)
     ht.epoch = ht.epoch + P.tref
     ht.data.data = hp.data.data + 1j * sgn * hc.data.data
     return ht
@@ -1214,7 +1245,7 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
 
     FDlen = TDlen/2+1
     hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
-            ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lal.lalHertzUnit, 
+            ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
             TDlen)
     lal.COMPLEX16TimeFreqFFT(hf, ht, fwdplan)
     return hf
@@ -1279,7 +1310,7 @@ def NINJA_data_to_hoft(fname, TDlen=-1, scaleT=1., scaleH=1., Fp=1., Fc=0.):
     deltaT = (t[1] - t[0]) * scaleT
 
     ht = lal.CreateREAL8TimeSeries("h(t)", lal.LIGOTimeGPS(tStart), 0.,
-            deltaT, lal.lalDimensionlessUnit, TDlen)
+            deltaT, lsu_DimensionlessUnit, TDlen)
 
     for i in range(tmplen):
         ht.data.data[i] = (Fp*hpdat[i] + Fc*hcdat[i]) * scaleH
@@ -1334,9 +1365,9 @@ def NINJA_data_to_hp_hc(fname, TDlen=-1, scaleT=1., scaleH=1., deltaT=0):
             assert TDlen >= tmplen
 
         hp = lal.CreateREAL8TimeSeries("hplus(t)", lal.LIGOTimeGPS(tStart),
-                0., deltaT, lal.lalDimensionlessUnit, TDlen)
+                0., deltaT, lsu_DimensionlessUnit, TDlen)
         hc = lal.CreateREAL8TimeSeries("hcross(t)", lal.LIGOTimeGPS(tStart),
-                0., deltaT, lal.lalDimensionlessUnit, TDlen)
+                0., deltaT, lsu_DimensionlessUnit, TDlen)
 
         for i in range(tmplen):
             hp.data.data[i] = hpdat[i]
@@ -1361,9 +1392,9 @@ def NINJA_data_to_hp_hc(fname, TDlen=-1, scaleT=1., scaleH=1., deltaT=0):
         else:
             assert TDlen >= newlen
         hp = lal.CreateREAL8TimeSeries("hplus(t)", lal.LIGOTimeGPS(tStart),
-                0., deltaT, lal.lalDimensionlessUnit, TDlen)
+                0., deltaT, lsu_DimensionlessUnit, TDlen)
         hc = lal.CreateREAL8TimeSeries("hcross(t)", lal.LIGOTimeGPS(tStart),
-                0., deltaT, lal.lalDimensionlessUnit, TDlen)
+                0., deltaT, lsu_DimensionlessUnit, TDlen)
 
         # build complex waveform, cubic spline interpolate amp and phase
         hcmplx = hpdat + 1j * hcdat
@@ -1413,7 +1444,7 @@ def NINJA_data_to_hoff(fname, TDlen=0, scaleT=1., scaleH=1., Fp=1., Fc=0.):
     deltaT = (t[1] - t[0]) * scaleT
 
     ht = lal.CreateREAL8TimeSeries("h(t)", lal.LIGOTimeGPS(tStart), 0.,
-            deltaT, lal.lalDimensionlessUnit, TDlen)
+            deltaT, lsu_DimensionlessUnit, TDlen)
 
     for i in range(tmplen):
         ht.data.data[i] = (Fp*hpdat[i] + Fc*hcdat[i]) * scaleH
@@ -1422,7 +1453,7 @@ def NINJA_data_to_hoff(fname, TDlen=0, scaleT=1., scaleH=1., Fp=1., Fc=0.):
 
     fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
     hf = lal.CreateCOMPLEX16FrequencySeries("h(f)", 
-            ht.epoch, ht.f0, 1./deltaT/TDlen, lal.lalHertzUnit, 
+            ht.epoch, ht.f0, 1./deltaT/TDlen, lsu_HertzUnit, 
             TDlen/2+1)
     lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
     return hf
@@ -1458,7 +1489,7 @@ def NINJA_data_to_norm_hoff(fname, IP, TDlen=0, scaleT=1., scaleH=1.,
     deltaT = (t[1] - t[0]) * scaleT
 
     ht = lal.CreateREAL8TimeSeries("h(t)", lal.LIGOTimeGPS(tStart), 0.,
-            deltaT, lal.lalDimensionlessUnit, TDlen)
+            deltaT, lsu_DimensionlessUnit, TDlen)
 
     for i in range(tmplen):
         ht.data.data[i] = (Fp*hpdat[i] + Fc*hcdat[i]) * scaleH
@@ -1467,7 +1498,7 @@ def NINJA_data_to_norm_hoff(fname, IP, TDlen=0, scaleT=1., scaleH=1.,
 
     fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
     hf = lal.CreateCOMPLEX16FrequencySeries("h(f)", 
-            ht.epoch, ht.f0, 1./deltaT/TDlen, lal.lalHertzUnit, 
+            ht.epoch, ht.f0, 1./deltaT/TDlen, lsu_HertzUnit, 
             TDlen/2+1)
     lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
     norm = IP.norm(hf)
@@ -1508,7 +1539,7 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
         
     tmp = lal.CreateREAL8TimeSeries("h(t)", 
             lal.LIGOTimeGPS(float(ht.metadata.segments[0][0])),
-            0., ht.metadata.dt, lal.lalDimensionlessUnit, len(ht))
+            0., ht.metadata.dt, lsu_DimensionlessUnit, len(ht))
     print   "  ++ Frame data sampling rate ", 1./tmp.deltaT, " and epoch ", stringGPSNice(tmp.epoch)
     tmp.data.data[:] = ht
     # Window the data - N.B. default is identity (no windowing)
@@ -1550,7 +1581,7 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
 
     fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
     hf = lal.CreateCOMPLEX16FrequencySeries("h(f)", 
-            ht.epoch, ht.f0, 1./deltaT/TDlen, lal.lalHertzUnit, 
+            ht.epoch, ht.f0, 1./deltaT/TDlen, lsu_HertzUnit, 
             TDlen/2+1)
     lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
     return hf
@@ -1593,7 +1624,7 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
     FDlen = TDlen
     fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
     hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)",
-            ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lal.lalHertzUnit,
+            ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit,
             FDlen)
     lal.COMPLEX16TimeFreqFFT(hf, hoftC, fwdplan)
     if verbose:
@@ -1614,7 +1645,7 @@ def pylal_psd_to_swig_psd(raw_pylal_psd):
     """
     data = raw_pylal_psd.data
     df = raw_pylal_psd.deltaF
-    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., df ,lal.lalHertzUnit, len(data))
+    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., df ,lsu_HertzUnit, len(data))
     for i in range(len(data)):
         psdNew.data.data[i] = data[i]   # don't mix memory management between pylal and swig
     return psdNew
@@ -1664,7 +1695,7 @@ def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqReq
     facStretch = int((nRequired-1)/(n-1))  # n-1 should be power of 2
     if rosDebugMessagesContainer[0]:
         print " extending psd of length ", n, " to ", nRequired, "(i.e., fNyq = ", fNyqRequired, ") elements requires a factor of ", facStretch
-    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired ,lal.lalHertzUnit, n*facStretch)
+    psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired ,lsu_HertzUnit, n*facStretch)
     # Populate the series.  Slow because it is a python loop
     for i in np.arange(n):
         for j in np.arange(facStretch):
