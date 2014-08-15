@@ -30,8 +30,8 @@ For simplicity we will assume samples are distributed througout
 """
 def dumpSamplesToFile(fname, samps, labels):
     headline = ' '.join(labels)
-#    np.savetxt(fname, samps,header=headline)
-    np.savetxt(fname, samps)  # stupid, but needed for cluster work
+    np.savetxt(fname, samps,header=headline)
+#    np.savetxt(fname, samps)  # stupid, but needed for cluster work.  No more!
     return 0
 
 
