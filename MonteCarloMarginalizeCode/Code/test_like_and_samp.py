@@ -761,9 +761,12 @@ if opts.rotate_sky_coordinates:
 
 
 print sampler._rvs.keys()
-retNew = [P.m1/lalsimutils.lsu_MSUN*np.ones(len(sampler._rvs['right_ascension'])), P.m1/lalsimutils.lsu_MSUN*np.ones(len(sampler._rvs['right_ascension'])), sampler._rvs["right_ascension"], sampler._rvs['declination'],sampler._rvs['t_ref'], sampler._rvs['phi_orb'],sampler._rvs['inclination'], sampler._rvs['psi'], sampler._rvs['psi'], sampler._rvs['distance'], sampler._rvs["joint_prior"], sampler._rvs["joint_s_prior"],np.log(sampler._rvs["integrand"])]
+field_names = ['m1', 'm2', 'ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'p', 'ps', 'lnL']   # FIXME: Modify to use record array, so not hardcoding fields
+retNew = [P.m1/lalsimutils.lsu_MSUN*np.ones(len(sampler._rvs['right_ascension'])), P.m2/lalsimutils.lsu_MSUN*np.ones(len(sampler._rvs['right_ascension'])), sampler._rvs["right_ascension"], sampler._rvs['declination'],sampler._rvs['t_ref'], sampler._rvs['phi_orb'],sampler._rvs['inclination'], sampler._rvs['psi'],  sampler._rvs['distance'], sampler._rvs["joint_prior"], sampler._rvs["joint_s_prior"],np.log(sampler._rvs["integrand"])]
 retNew = map(list, zip(*retNew))
 ret = np.array(retNew)
+retNiceIndexed = np.array(np.reshape(ret,-1)).view(dtype=zip(field_names, ['float64']*len(field_names))).copy()  # Nice record array, use for recording outuput without screwing up column indexing.  Reshape makes sure the arrays returned are 1d.  Silly syntax.
+#ret = np.array(retNew)
 
 tGPSEnd = lal.GPSTimeNow()
 print "Parameters returned by this integral ",  sampler._rvs.keys(), len(sampler._rvs)
@@ -786,7 +789,7 @@ print "   - Time per neff             ", float(tGPSEnd-tGPSStart)/neff
 # Only store some
 fnameBase = opts.points_file_base
 retSorted = ret[ np.argsort(ret[:,-1])]
-ourio.dumpSamplesToFile(fnameBase+"-points.dat", retSorted, ['m1', 'm2', 'ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'p', 'ps', 'lnL']) 
+ourio.dumpSamplesToFile(fnameBase+"-points.dat", retSorted, field_names) 
 #sampArray = Psig.list_params()  # Eventually, make this used. Note odd structure in list
 #np.savetxt(fnameBase+"-params.dat", np.array(sampArray))
 #print " Parameters : ", sampArray
@@ -801,13 +804,13 @@ if neff > 5 or opts.force_store_metadata:  # A low threshold but not completely 
         print "  +++ WARNING +++ : Very few effective samples were found. Be VERY careful about using this as input to subsequent searches! "
     metadata={}
     weights = np.exp(ret[:,-1])*ret[:,-3]/ret[:,-2]
-    metadata["ra"] =  mean_and_dev(ret[:,0], weights)
-    metadata["dec"] = mean_and_dev(ret[:,1], weights)
-    metadata["tref"] =  mean_and_dev(ret[:,2], weights)
-    metadata["phi"] =  mean_and_dev(ret[:,3], weights)
-    metadata["incl"] =  mean_and_dev(ret[:,4], weights)
-    metadata["psi"] =  mean_and_dev(ret[:,5], weights)
-    metadata["dist"] =  mean_and_dev(ret[:,6], weights)
+    metadata["ra"] =  mean_and_dev(retNiceIndexed['ra'], weights)
+    metadata["dec"] = mean_and_dev(retNiceIndexed['dec'], weights)
+    metadata["tref"] =  mean_and_dev(ret[:,4], weights)
+    metadata["phi"] =  mean_and_dev(ret[:,5], weights)
+    metadata["incl"] =  mean_and_dev(ret[:,6], weights)
+    metadata["psi"] =  mean_and_dev(ret[:,7], weights)
+    metadata["dist"] =  mean_and_dev(ret[:,8], weights)
     with open(fnameBase+"-seed-data.dat",'w') as f:
         for key in ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist']:
             f.write(key + " " + str(metadata[key][0]) + ' '+ str(metadata[key][1]) + '\n')
@@ -825,16 +828,16 @@ if opts.inj:
     # Evaluate best data point
     ppdata = {}
     weights = np.exp(ret[:,-1])*ret[:,-3]/ret[:,-2]
-    ppdata['ra'] = [Psig.phi,pcum_at(Psig.phi,ret[:,0],weights)]
-    ppdata['dec'] = [Psig.theta,pcum_at(Psig.theta,ret[:,1], weights)]
+    ppdata['ra'] = [Psig.phi,pcum_at(Psig.phi,ret[:,2],weights)]
+    ppdata['dec'] = [Psig.theta,pcum_at(Psig.theta,ret[:,3], weights)]
     if not opts.LikelihoodType_MargTdisc_array:
-        ppdata['tref'] = [Psig.tref-theEpochFiducial,pcum_at(Psig.tref-theEpochFiducial,ret[:,2], weights)]
+        ppdata['tref'] = [Psig.tref-theEpochFiducial,pcum_at(Psig.tref-theEpochFiducial,ret[:,4], weights)]
     else:
         ppdata['tref'] = [0,0,0]
-    ppdata['phi'] = [Psig.phiref,pcum_at(Psig.phiref,ret[:,3], weights)]
-    ppdata['incl'] = [Psig.incl,pcum_at(Psig.incl,ret[:,4], weights)]
-    ppdata['psi'] = [Psig.psi,pcum_at(Psig.psi,ret[:,5], weights)]
-    ppdata['dist'] = [Psig.dist/(1e6*lalsimutils.lsu_PC),pcum_at(Psig.dist/(1e6*lalsimutils.lsu_PC),ret[:,6], weights)]
+    ppdata['phi'] = [Psig.phiref,pcum_at(Psig.phiref,ret[:,5], weights)]
+    ppdata['incl'] = [Psig.incl,pcum_at(Psig.incl,ret[:,6], weights)]
+    ppdata['psi'] = [Psig.psi,pcum_at(Psig.psi,ret[:,7], weights)]
+    ppdata['dist'] = [Psig.dist/(1e6*lalsimutils.lsu_PC),pcum_at(Psig.dist/(1e6*lalsimutils.lsu_PC),ret[:,8], weights)]
     ppdata['lnL'] =  [lnLAt, pcum_at(lnLAt, ret[:,-1], weights)]
 
     # Dump data: p(<x)
@@ -850,13 +853,13 @@ if  True: # opts.points_file_base:
     xmldoc.appendChild(ligolw.LIGO_LW())
     process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
     samples = {}
-    samples["distance"]= ret[:,6]
-    samples["t_ref"] = ret[:,2]
-    samples["polarization"]= ret[:,5]
-    samples["coa_phase"]= ret[:,3]
-    samples["latitude"]= ret[:,1]
-    samples["longitude"]= ret[:,0]
-    samples["inclination"]= ret[:,4]
+    samples["distance"]= retNiceIndexed['dist']
+    samples["t_ref"] = retNiceIndexed['tref']
+    samples["polarization"]= retNiceIndexed['psi']
+    samples["coa_phase"]= retNiceIndexed['phi']
+    samples["latitude"]= retNiceIndexed['dec']
+    samples["longitude"]= retNiceIndexed['ra']
+    samples["inclination"]= retNiceIndexed['incl']
     samples["loglikelihood"]= ret[:,-1]  #alpha1
     samples["joint_prior"]= ret[:,-3]     #alpha2
     samples["joint_s_prior"]= ret[:,-2]  #alpha3
