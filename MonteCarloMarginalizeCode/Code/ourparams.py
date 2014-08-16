@@ -92,8 +92,8 @@ def ParseStandardArguments():
     parser.add_argument("--approx",type=str, default="TaylorT4", help="Specify a template approximant and phase order to use.") # A tighter integration with GetStringFromApproximant and vice versa would be nice
 
     # Fix parameters at injected values.  Assumes injected values present
-    parser.add_argument("--fix-rightascension", action='append_const', dest='fixparams',const='ra',default=[])
-    parser.add_argument("--fix-declination", action='append_const', dest='fixparams',const="dec")
+    parser.add_argument("--fix-rightascension", action='append_const', dest='fixparams',const='right_ascension',default=[])
+    parser.add_argument("--fix-declination", action='append_const', dest='fixparams',const="declination")
     parser.add_argument("--fix-polarization", action='append_const', dest='fixparams',const='psi')
     parser.add_argument("--fix-distance", action='append_const', dest='fixparams',const='dist')
     parser.add_argument("--fix-time", action='append_const', dest='fixparams',const='tref')
@@ -291,6 +291,7 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
 
     pinned_params ={}
 
+    print " Trying to pin parameters ", opts.fixparams
 
     # Uniform sampling (in area) but nonuniform sampling in distance (*I hope*).  Auto-cdf inverse
     if not(opts.opt_UseSkymap):
@@ -309,11 +310,11 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
             sampler.add_parameter("declination",mcsampler.uniform_samp_dec, None, dec_min, dec_max, 
                           prior_pdf= mcsampler.uniform_samp_dec,
                                   adaptive_sampling= not opts.no_adapt_sky)
-            if opts.fixparams.count('right_ascension') and Psig:
+            if opts.fixparams.count('right_ascension') and Psig != None:
                 print "  ++++ Fixing ra to injected value +++ "
                 pinned_params['right_ascension'] = Psig.phi
                 #sampler.add_pinned_parameter('ra', Psig.phi )
-            if opts.fixparams.count('declination') and Psig:
+            if opts.fixparams.count('declination')  and Psig:
                     print "  ++++ Fixing dec to injected value +++ "
                     pinned_params['declination'] = Psig.theta
                     #sampler.add_pinned_parameter('dec', Psig.theta )
