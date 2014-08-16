@@ -804,13 +804,13 @@ if neff > 5 or opts.force_store_metadata:  # A low threshold but not completely 
         print "  +++ WARNING +++ : Very few effective samples were found. Be VERY careful about using this as input to subsequent searches! "
     metadata={}
     weights = np.exp(ret[:,-1])*ret[:,-3]/ret[:,-2]
-    metadata["ra"] =  mean_and_dev(retNiceIndexed['ra'], weights)
-    metadata["dec"] = mean_and_dev(retNiceIndexed['dec'], weights)
-    metadata["tref"] =  mean_and_dev(ret[:,4], weights)
-    metadata["phi"] =  mean_and_dev(ret[:,5], weights)
-    metadata["incl"] =  mean_and_dev(ret[:,6], weights)
-    metadata["psi"] =  mean_and_dev(ret[:,7], weights)
-    metadata["dist"] =  mean_and_dev(ret[:,8], weights)
+    metadata["ra"] =  mean_and_dev(ret[:,-3-7], weights)
+    metadata["dec"] = mean_and_dev(ret[:,-3-6], weights)
+    metadata["tref"] =  mean_and_dev(ret[:,-3-5], weights)
+    metadata["phi"] =  mean_and_dev(ret[:,-3-4], weights)
+    metadata["incl"] =  mean_and_dev(ret[:,-3-3], weights)
+    metadata["psi"] =  mean_and_dev(ret[:,-3-2], weights)
+    metadata["dist"] =  mean_and_dev(ret[:,-3-1], weights)
     with open(fnameBase+"-seed-data.dat",'w') as f:
         for key in ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist']:
             f.write(key + " " + str(metadata[key][0]) + ' '+ str(metadata[key][1]) + '\n')
@@ -853,10 +853,10 @@ if  True: # opts.points_file_base:
     xmldoc.appendChild(ligolw.LIGO_LW())
     process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
     samples = {}
-    samples["distance"]= retNiceIndexed['dist']
-    samples["t_ref"] = retNiceIndexed['tref']
-    samples["polarization"]= retNiceIndexed['psi']
-    samples["coa_phase"]= retNiceIndexed['phi']
+    samples["distance"]= ret[:,-3-1] #retNiceIndexed['dist']
+    samples["t_ref"] = ret[:,-3-5] #retNiceIndexed['tref']
+    samples["polarization"]= ret[:,-3-1] #retNiceIndexed['psi']
+    samples["coa_phase"]= ret[:,-3-4] #retNiceIndexed['phi']
     samples["latitude"]= retNiceIndexed['dec']
     samples["longitude"]= retNiceIndexed['ra']
     samples["inclination"]= retNiceIndexed['incl']
