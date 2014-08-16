@@ -45,8 +45,8 @@ def ParseStandardArguments():
     parser.add_argument("--LikelihoodType_MargTdisc_array",default=False,action='store_true')
     parser.add_argument( "--adapt-beta", type=float,default=1)
     parser.add_argument("--adapt-mix", type=float,default=0.1)
-    parser.add_argument("--no-adapt-distance", type=float, default=False)
-    parser.add_argument("--no-adapt-sky", type=float, default=False)
+    parser.add_argument("--no-adapt-distance",  default=False, action='store_true')
+    parser.add_argument("--no-adapt-sky", default=False,action='store_true')
     # Infrastructure choices:
     parser.add_argument("--skip-interpolation",dest="opt_SkipInterpolation",default=False,action='store_true')  # skip interpolation : saves time, but some things will crash later
 
