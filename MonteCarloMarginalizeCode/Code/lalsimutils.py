@@ -65,6 +65,7 @@ except:
     lsu_TAPER_STARTEND=lalsim.SIM_INSPIRAL_TAPER_STARTEND
     lsu_DimensionlessUnit = lal.DimensionlessUnit
     lsu_HertzUnit = lal.HertzUnit
+    lsu_SecondUnit = lal.SecondUnit
 
 else:
     lsu_MSUN=lal.LAL_MSUN_SI
@@ -78,6 +79,7 @@ else:
     lsu_TAPER_STARTEND=lalsim.LAL_SIM_INSPIRAL_TAPER_STARTEND
     lsu_DimensionlessUnit = lal.lalDimensionlessUnit
     lsu_HertzUnit = lal.lalHertzUnit
+    lsu_SecondUnit = lal.lalSecondUnit
 
 
 #
@@ -190,11 +192,11 @@ class ChooseWaveformParams:
         print "nonGRparams struct is", self.nonGRparams
         if self.taper==lsu_TAPER_NONE:
             print "Tapering is set to LAL_SIM_INSPIRAL_TAPER_NONE"
-        elif self.taper==lalsim.LAL_SIM_INSPIRAL_TAPER_START:
+        elif self.taper==lsu_TAPER_START:
             print "Tapering is set to LAL_SIM_INSPIRAL_TAPER_START"
-        elif self.taper==lalsim.LAL_SIM_INSPIRAL_TAPER_END:
+        elif self.taper==lsu_TAPER_END:
             print "Tapering is set to LAL_SIM_INSPIRAL_TAPER_END"
-        elif self.taper==lalsim.LAL_SIM_INSPIRAL_TAPER_STARTEND:
+        elif self.taper==lsu_TAPER_STARTEND:
             print "Tapering is set to LAL_SIM_INSPIRAL_TAPER_STARTEND"
         else:
             print "Warning! Invalid value for taper:", self.taper
@@ -1737,7 +1739,7 @@ def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     tmpunit = lal.Unit()
     lal.ParseUnitString(tmpunit, str(psd.sampleUnits))
     """
-    tmpunit = lal.lalSecondUnit
+    tmpunit = lsu_SecondUnit
     new_psd = lal.CreateREAL8FrequencySeries(epoch = tmpepoch, deltaF=df,
             f0 = fmin, sampleUnits = tmpunit, name = psd.name,
             length=len(psd_intp))
