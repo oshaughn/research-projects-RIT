@@ -192,6 +192,7 @@ print "Performing integration for intrinsic parameters mass 1: %f, mass 2 %f" % 
 #
 
 fiducial_epoch = lal.LIGOTimeGPS()
+fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more direct access to gpsSeconds
 #fiducial_epoch.gpsSeconds = event_time.seconds
 #fiducial_epoch.gpsNanoSeconds = event_time.nanoseconds
 
