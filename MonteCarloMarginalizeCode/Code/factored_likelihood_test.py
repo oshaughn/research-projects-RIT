@@ -235,7 +235,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
 
         # Plot the interpolated lnLData versus *time*
         print " ======= lnLdata timeseries at the injection parameters =========="
-        tvals = np.linspace(tWindowExplore[0]+tEventFiducial,tWindowExplore[1]+tEventFiducial,fSample*(tWindowExplore[1]-tWindowExplore[0]))
+        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],fSample*(tWindowExplore[1]-tWindowExplore[0]))
         for det in detectors:
             lnLData = map( lambda x: factored_likelihood.SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, det), tvals)
             lnLDataEstimate = np.ones(len(tvals))*rhoExpected[det]*rhoExpected[det]
@@ -270,8 +270,9 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         plt.figure(1)
         plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
         plt.title("lnLdata (interpolated) vs narrow time interval")
+        plt.xlim(-0.05,0.05)
         if bSavePlots:
-            plt.savefig("FLT-lnLData.pdf")
+            plt.savefig("FLT-lnLData."+fExtensionLowDensity)
 
         print " ======= rholm test: Plot the lnL timeseries at the injection parameters =========="
         tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],fSample*(tWindowExplore[1]-tWindowExplore[0]))
@@ -296,9 +297,10 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
         plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
         plt.title("lnL (interpolated) vs narrow time interval")
+        plt.xlim(-0.05,0.05)
         plt.legend()
         if bSavePlots:
-            plt.savefig("FLT-lnL.pdf")
+            plt.savefig("FLT-lnL."+fExtensionLowDensity)
 
     # lnLdata (plot)
     if TestDictionary["lnLDataPlotVersusPsi"] and not bNoMatplotlib:
