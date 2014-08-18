@@ -39,7 +39,7 @@ import lalsimutils
 import bisect
 # Plot always, for now
 import matplotlib
-matplotlib.use("Agg")  # Uncomment this line on clusters.  Need a better solution...
+#matplotlib.use("Agg")  # Uncomment this line on clusters.  Need a better solution...
 fExtension = "jpeg"
 if matplotlib.get_backend() == "MacOSX":
     fExtension = "jpeg"
@@ -192,11 +192,11 @@ if opts.inj:
     ppdata['tref'] = [Psig.tref, 0]  # to make sure this exists for all keys
     ppdata['incl'] = [Psig.incl,pcum_at(Psig.incl, values["incl"], weights)]
     ppdata['psi'] = [Psig.psi,pcum_at(Psig.psi,values["psi"], weights)]
-    ppdata['dist'] = [Psig.dist/(1e6*lal.LAL_PC_SI),pcum_at(Psig.dist/(1e6*lal.LAL_PC_SI),values["dist"], weights)]
+    ppdata['dist'] = [Psig.dist/(1e6*lalsimutils.lsu_PC),pcum_at(Psig.dist/(1e6*lalsimutils.lsu_PC),values["dist"], weights)]
 
     # See comment about mass prior, above! 
-    m1Sun = Psig.m1/lal.LAL_MSUN_SI
-    m2Sun = Psig.m2/lal.LAL_MSUN_SI
+    m1Sun = Psig.m1/lalsimutils.lsu_MSUN
+    m2Sun = Psig.m2/lalsimutils.lsu_MSUN
     ppdata["m1"] = [m1Sun, pcum_at(m1Sun, values["m1"], weights)]
     ppdata["m2"] = [m2Sun, pcum_at(m2Sun, values["m2"], weights)]
     mc = lalsimutils.mchirp(m1Sun,m2Sun)
