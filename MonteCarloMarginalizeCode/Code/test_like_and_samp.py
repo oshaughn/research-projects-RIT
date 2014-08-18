@@ -44,7 +44,8 @@ try:
     if matplotlib.get_backend is not 'TkAgg':  # on cluster
         matplotlib.use("GDK")
     from matplotlib import pylab as plt
-    bNoInteractivePlots = True  # Move towards saved fig plots, for speed
+    bNoInteractivePlots = False  # Move towards saved fig plots, for speed
+    fExtension = "jpeg"
 except:
     print "- no matplotlib -"
     bNoInteractivePlots = True
@@ -231,6 +232,7 @@ if opts.inj:
     m1 = Psig.m1
     m2 = Psig.m2
     timeWaveform = lalsimutils.estimateWaveformDuration(Psig) #float(-lalsimutils.hoft(Psig).epoch)
+    Psig.deltaT = 1./fSample  # default sampling rate
     Psig.deltaF = 1./lalsimutils.nextPow2(opts.seglen)       # Frequency binning needs to account for target segment length
     Psig.fref = opts.signal_fref
     theEpochFiducial = Psig.tref  # Reset
@@ -308,7 +310,7 @@ if opts.channel_name and not (opts.opt_ReadWholeFrameFilesInCache):
     for inst, chan in map(lambda c: c.split("="), opts.channel_name):
         print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
         # FIXME: Assumes a frame file exists covering EXACTLY the needed interval!
-        taper = lalsim.LAL_SIM_INSPIRAL_TAPER_STARTEND
+        taper = lalsimutils.lsu_TAPER_STARTEND
         data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=int(event_time)-start_pad, stop=int(event_time)+end_pad,window_shape=window_beta)
         fSample = len(data_dict[inst].data.data)*data_dict[inst].deltaF
         df = data_dict[inst].deltaF
@@ -403,7 +405,10 @@ if not(opts.psd_file) and not(opts.psd_file_singleifo):
 else:
     analyticPSD_Q = False # For simplicity, using an analytic PSD
     detectors = data_dict.keys()
-    detectors_singlefile_dict = common_cl.parse_cl_key_value(opts.psd_file_singleifo)
+    if opts.psd_file_singleifo:
+        detectors_singlefile_dict = common_cl.parse_cl_key_value(opts.psd_file_singleifo)
+    else:
+        detectors_singlefile_dict ={}
     df = data_dict[detectors[0]].deltaF
     fNyq = (len(data_dict[detectors[0]].data.data)/2)*df
     print " == Loading numerical PSDs =="
@@ -412,7 +417,7 @@ else:
         if detectors_singlefile_dict.has_key(det):
             psd_fname = detectors_singlefile_dict[det]
         else:
-            psd_fname = opts.psd_fname
+            psd_fname = opts.psd_file
         print "Reading PSD for instrument %s from %s" % (det, psd_fname)
 
         # "Standard" PSD parsing code used on master.
@@ -461,22 +466,30 @@ for det in detectors:
     print det, " rho = ", rhoDet
 print "Network : ", np.sqrt(rho2Net)
 
-if checkInputs and not bNoInteractivePlots:
-    print " == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
-    P = Psig.copy()
-    P.tref = Psig.tref
+if opts.plot_ShowH: # and not bNoInteractivePlots:
+    print " == Plotting FRAME DATA == "
+    plt.figure(2)
     for det in detectors:
-        P.detector=det   # we do 
-        hT = lalsimutils.hoft(P)
-        tvals = float(P.tref - theEpochFiducial) + hT.deltaT*np.arange(len(hT.data.data))
-        plt.figure(1)
+        hT = lalsimutils.DataInverseFourier(data_dict[det])  # complex inverse fft, for 2-sided data
+        print "  : Confirm nonzero data! : ",det, np.max(np.abs(data_dict[det].data.data))
+        tvals = float(hT.epoch - theEpochFiducial) + hT.deltaT*np.arange(len(hT.data.data))
         plt.plot(tvals, hT.data.data,label=det)
+    plt.legend()
+    plt.savefig("test_like_and_samp-frames-hoft."+fExtension)
+    print " == Plotting TEMPLATE (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
+    if Psig:
+        P = Psig
+        for det in detectors:
+            P.detector=det   # we do 
+            hT = lalsimutils.hoft(P)
+            tvals = float(hT.epoch -theEpochFiducial)+ hT.deltaT*np.arange(len(hT.data.data))
+            plt.figure(1)
+            plt.plot(tvals, hT.data.data,label=det)
 
-    tlen = hT.deltaT*len(np.nonzero(np.abs(hT.data.data)))
-    tRef = np.abs(float(hT.epoch))
-    plt.xlim( tRef-0.5,tRef+0.1)  # Not well centered, based on epoch to identify physical merger time
-    plt.savefig("test_like_and_samp-input-hoft.pdf")
-
+        plt.legend()
+        plt.savefig("test_like_and_samp-injection-hoft."+fExtension)
+    if not bNoInteractivePlots:
+        plt.show()
 
 # Load skymap, if present
 if opts.opt_UseSkymap:
