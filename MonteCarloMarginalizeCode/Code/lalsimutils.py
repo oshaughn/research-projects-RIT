@@ -1529,7 +1529,18 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
             del cachef[i]
     if verbose:
         print cachef.to_segmentlistdict()
-    fcache = frutils.FrameCache(cachef)
+
+    import os
+    tmpdir = None
+    if os.environ.has_key('TMP'):
+        tmpdir  = os.environ['TMP']
+    elif os.environ.has_key('TMPDIR'):
+        tmpdir = os.environ['TMPDIR']
+    else:
+        tmpdir = '/tmp'
+    fcache = frutils.FrameCache(cachef,scratchdir=tmpdir)
+
+#    fcache = frutils.FrameCache(cachef)
     # FIXME: Horrible, horrible hack -- will only work if all requested channels
     # span the cache *exactly*
     if start is None:
@@ -1819,3 +1830,56 @@ def rotation_matrix(axis,theta):
 # lalsimutils.polar_angles_in_frame(lalsimutils.rotation_matrix(np.array([0,1,0]), 0.01), lalsimutils.nhat(0.1, 0.0))
 # lalsimutils.polar_angles_in_frame_alt(lalsimutils.rotation_matrix(np.array([0,0,1]), 0.1), 0.1, 0.2)
 # lalsimutils.polar_angles_in_frame_alt(lalsimutils.rotation_matrix(np.array([0,1,0]), 0.01), 0.1, 0.0)
+
+def DataFourierREAL8(ht):   # Complex fft wrapper (REAL8Time ->COMPLEX16Freq. No error checking or padding!
+    TDlen = ht.data.length
+    fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
+    FDlen = TDlen/2+1
+    hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
+            ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
+            FDlen)
+    lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
+    # assume memory freed by swig python
+    return hf
+def DataInverseFourierREAL8(hf):   # Complex fft wrapper (COMPLEX16Freq ->REAL8TimeSeries. No error checking or padding!
+    FDlen = hf.data.length
+    dt = 1./hf.deltaF/FDlen
+    TDlen = 2*(FDlen-1)
+    revplan=lal.CreateReverseREAL8FFTPlan(TDlen,0)
+    ht = lal.CreateREAL8TimeSeries("Template h(t)", 
+            hf.epoch, 0, dt, lsu_DimensionlessUnit, 
+            TDlen)
+    lal.REAL8FreqTimeFFT( ht, hf, revplan)  
+    # assume memory freed by swig python
+    return ht
+
+def DataInverseFourier(hf):   # Complex fft wrapper (COMPLEX16Freq ->COMPLEX16Time. No error checking or padding!
+    FDlen = hf.data.length
+    dt = 1./hf.deltaF/FDlen
+    revplan=lal.CreateReverseCOMPLEX16FFTPlan(FDlen,0)
+    ht = lal.CreateCOMPLEX16TimeSeries("Template h(t)", 
+            hf.epoch, hf.f0, dt, lsu_DimensionlessUnit, 
+            FDlen)
+    lal.COMPLEX16FreqTimeFFT( ht, hf, revplan)  
+    # assume memory freed by swig python
+    return ht
+def DataFourier(ht):   # Complex fft wrapper (COMPLEX16Time ->COMPLEX16Freq. No error checking or padding!
+    TDlen = ht.data.length
+    fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
+    hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
+            ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
+            TDlen)
+    lal.COMPLEX16TimeFreqFFT(hf, ht, fwdplan)
+    # assume memory freed by swig python
+    return hf
+def DataFourierREAL8(ht):   # Complex fft wrapper (REAL8Time ->COMPLEX16Freq. No error checking or padding!
+    TDlen = ht.data.length
+    fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
+    FDlen = TDlen/2+1
+    hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
+            ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
+            FDlen)
+    lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
+    # assume memory freed by swig python
+    return hf
+
