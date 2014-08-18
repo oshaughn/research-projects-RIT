@@ -326,12 +326,18 @@ if opts.inj:
     contours = [0.68, 0.99, 0.999]
     true_ra = ppdata['ra'][0]
     true_dec = ppdata['dec'][0]
-    from lalinference.bayestar import postprocess
-    injFound =postprocess.find_injection(smap, true_ra, true_dec,contours=contours)
-    searched_area = injFound.searched_area
-    searched_prob = injFound.searched_prob
-    offset = injFound.offset
-    contour_areas = injFound.contour_areas
+    if not opts.disable_skymap:
+        from lalinference.bayestar import postprocess
+        injFound =postprocess.find_injection(smap, true_ra, true_dec,contours=contours)
+        searched_area = injFound.searched_area
+        searched_prob = injFound.searched_prob
+        offset = injFound.offset
+        contour_areas = injFound.contour_areas
+    else:
+        searched_area=0
+        searched_prob=0
+        offset=0
+        contour_areas=[]
     snrGuess =  np.sqrt(np.max(2*lnLmax))   # Hack. Based on maximum value of lnL ever found.  Would be better to use coinc
     colnames = ['coinc_event_id', 'simulation_id', 'snr', 'far', 'searched_area', \
         'searched_prob', 'offset', 'runtime'] + ["area({0:g})".format(p) \
