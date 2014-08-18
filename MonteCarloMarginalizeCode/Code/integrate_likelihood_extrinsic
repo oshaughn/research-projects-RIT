@@ -192,8 +192,8 @@ print "Performing integration for intrinsic parameters mass 1: %f, mass 2 %f" % 
 #
 
 fiducial_epoch = lal.LIGOTimeGPS()
-fiducial_epoch.gpsSeconds = event_time.seconds
-fiducial_epoch.gpsNanoSeconds = event_time.nanoseconds
+#fiducial_epoch.gpsSeconds = event_time.seconds
+#fiducial_epoch.gpsNanoSeconds = event_time.nanoseconds
 
 # Struct to hold template parameters
 P = lalsimutils.ChooseWaveformParams(
@@ -205,12 +205,12 @@ P = lalsimutils.ChooseWaveformParams(
     theta = 0.0,
     phi = 0.0,
     psi = 0.0,
-    m1 = m1 * lal.LAL_MSUN_SI,
-    m2 = m2 * lal.LAL_MSUN_SI,
+    m1 = m1 * lalsimutils.lsu_MSUN,
+    m2 = m2 * lalsimutils.lsu_MSUN,
     ampO = opts.amp_order,
     fref = opts.reference_freq,
     tref = fiducial_epoch,
-    dist = factored_likelihood.distMpcRef * 1.e6 * lal.LAL_PC_SI
+    dist = factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC
     )
 
 # User requested bounds for data segment
@@ -310,7 +310,7 @@ if opts.pin_to_sim:
     print "\torb phase", P.phiref, sim_row.coa_phase # ref. orbital phase
     print "\tinclination", P.incl, sim_row.inclination # inclination
     print "\tpsi", P.psi, sim_row.polarization # polarization angle
-    print "\tdistance", P.dist/(1e6 * lal.LAL_PC_SI), sim_row.distance  # luminosity distance
+    print "\tdistance", P.dist/(1e6 * lalsimutils.lsu_PC), sim_row.distance  # luminosity distance
 
     logL = factored_likelihood.FactoredLogLikelihood(P, rholms_intp, cross_terms, opts.l_max)
     print "Pinned log likelihood: %g, (%g in \"SNR\")" % (logL, numpy.sqrt(2*logL))
@@ -348,7 +348,7 @@ if opts.pin_to_sim:
 #
 
 dmin = 1.    # min distance
-dmax = 300.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
+dmax = 1000.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 
 param_limits = { "psi": (0, 2*numpy.pi),
     "phi_orb": (0, 2*numpy.pi),
