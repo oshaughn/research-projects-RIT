@@ -748,9 +748,13 @@ def DiscreteSingleDetectorLogLikelihoodData(epoch,rholmsDictionary, tStart,nBins
     nShiftL = int(  float(tshift)/rho22.deltaT)
 
     term1 = 0.
-    for l in range(2,Lmax+1):
-        for m in range(-l,l+1):
-            rhoTSnow  =     rho22 = rholms_grid[( l,m)]
+    # Only loop over terms available in the keys
+    for key in rholms_grid.keys():
+#    for l in range(2,Lmax+1):
+#        for m in range(-l,l+1):
+            l = int(key[0])
+            m = int(key[1])
+            rhoTSnow  = rholms_grid[( l,m)]
             term1 += np.conj(F * Ylms[(l,m)]) * np.roll(rhoTSnow.data.data,nShiftL)
     term1 = np.real(term1) / (distMpc/distMpcRef)
 
