@@ -244,9 +244,9 @@ if opts.inj:
     print "---- End injeciton parameters ----"
 
 # Use forced parameters, if provided
-if opts.template_mass1:
+if opts.template_mass1 and Psig:
     Psig.m1 = opts.template_mass1*lalsimutils.lsu_MSUN
-if opts.template_mass2:
+if opts.template_mass2 and Psig:
     Psig.m2 = opts.template_mass2*lalsimutils.lsu_MSUN
 
 # Reset origin of time, if required. (This forces different parts of data to be read- important! )
