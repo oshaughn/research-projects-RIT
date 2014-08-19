@@ -83,6 +83,7 @@ optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, 
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
 optp.add_option("-s", "--sim-xml", help="XML file containing injected event information.")
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
+optp.add_option("--fmin-template", dest='fmin_template', type=float, default=40, help="Waveform starting frequency.  Default is 40 Hz.") 
 optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
 optp.add_option("-a", "--approximant", default="TaylorT4", help="Waveform family to use for templates. Any approximant implemented in LALSimulation is valid.")
 optp.add_option("-A", "--amp-order", type=int, default=0, help="Include amplitude corrections in template waveforms up to this e.g. (e.g. 5 <==> 2.5PN), default is Newtonian order.")
@@ -189,7 +190,7 @@ print "Computing marginalized likelihood in a neighborhood about intrinsic param
 # FIXME: Hardcoded values - eventually promote to command line arguments
 #
 log_dir="%s/logs/" % opts.working_directory # directory to hold
-template_min_freq = 40.
+template_min_freq = opts.fmin_template
 ip_min_freq = 40.
 eff_fisher_psd = lal.LIGOIPsd
 analyticPSD_Q = True
@@ -396,6 +397,7 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         psd_file=opts.psd_file,
         coinc_xml=opts.coinc_xml,
         reference_freq=opts.reference_freq,
+        fmin_template=opts.fmin_template,
         fmax=opts.fmax,
 		approximant=opts.approximant,
 		amp_order=opts.amp_order,
