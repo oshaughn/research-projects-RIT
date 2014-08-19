@@ -385,7 +385,7 @@ args_pinned = {}
 opts_raw  = vars(opts)  # convert namespace to dictionary
 for arg in ['right_ascension', 'declination']:
     if opts_raw.has_key(arg):
-        print " --- WARNING: PINNING PARAMETER FOR DAG -- ", arg, " -> ", opts_raw[dag]
+        print " --- WARNING: PINNING PARAMETER FOR DAG -- ", arg, " -> ", opts_raw[arg]
         args_pinned[arg] = opts_raw[arg]
 
 ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
