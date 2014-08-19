@@ -381,6 +381,13 @@ dag = pipeline.CondorDAG(log=os.getcwd())
 
 mkdir(log_dir) # Make a directory to hold log files of jobs
 
+args_pinned = {}
+opts_raw  = vars(opts)  # convert namespace to dictionary
+for arg in ['right_ascension', 'declination']:
+    if opts_raw.has_key(arg):
+        print " --- WARNING: PINNING PARAMETER FOR DAG -- ", arg, " -> ", opts_raw[dag]
+        args_pinned[arg] = opts_raw[arg]
+
 ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         tag='integrate',
         log_dir=log_dir,
@@ -406,7 +413,8 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         convergence_tests_on=opts.convergence_tests_on,
         adapt_floor_level=opts.adapt_floor_level,
         adapt_weight_exponent=opts.adapt_weight_exponent,
-        skymap_file=opts.skymap_file
+        skymap_file=opts.skymap_file,
+        **args_pinned
         )
 ile_job_type.write_sub_file()
 
