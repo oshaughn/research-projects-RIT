@@ -34,7 +34,7 @@ import lal
 import bisect
 # Plot always, for now
 import matplotlib
-matplotlib.use("Agg")  # Uncomment this line on clusters.  Need a better solution...
+#matplotlib.use("Agg")  # Uncomment this line on clusters.  Need a better solution...
 fExtension = "jpeg"
 if matplotlib.get_backend() == "MacOSX":
     fExtension = "jpeg"
@@ -93,15 +93,15 @@ for fname in sys.argv[1:]:
     wts = np.zeros(len(values["phi"]))
     for nFig in np.arange(len(keynames)):
         param = keynames[nFig]
-        print param
-        plt.figure(nFig)
+        fig = plt.figure(nFig)
     # Sample distributions.  Copy needed becuase of sorting and sum
         vals = values[param]
         wts = weights
 
-        plt.clf()
+        
         # Stage 2: Cumulative.  *High detail* Note this can be done with 'cumulative=True' in np
         # This also is used to set the plot range, at the 99.9% and 0.1% confidence intervals -- very important for parameters like mc, eta
+        print " Plotting ", len(vals),  " items for ", param
         idx_sorted_util  = np.lexsort((np.arange(len(vals)), vals))
         vals  = np.array([vals[k] for k in idx_sorted_util])
         wts  = np.array([wts[k] for k in idx_sorted_util])
@@ -115,11 +115,13 @@ for fname in sys.argv[1:]:
       
         plt.xlabel(param)
         plt.title("1d cumulative for "+param)
+        plt.legend()
 
 
 for nFig in np.arange(len(keynames)):
     param = keynames[nFig]
 
+    plt.figure(nFig)
     plt.savefig("posterior-cumulative-multiplot-"+param+"-1d."+fExtension)
 
 for key in error_report:
