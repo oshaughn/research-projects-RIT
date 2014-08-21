@@ -118,7 +118,6 @@ template_min_freq = opts.fmin_template # minimum frequency of template
 t_ref_wind = 50e-3 # Interpolate in a window +/- this width about event time. 
 T_safety = 2. # Safety buffer (in sec) for wraparound corruption
 
-
 #
 # Inverse spectrum truncation control
 #
@@ -186,6 +185,8 @@ else:
     raise ValueError("Need either --mass1 --mass2 or --coinc-xml to retrieve masses.")
 print "Performing integration for intrinsic parameters mass 1: %f, mass 2 %f" % (m1, m2)
 
+if 200./((m1+m2)/20) < template_min_freq:
+    print " WARNING: Minimum frequency is smaller than ISCO,  usually causeing template generation to fail"
 
 #
 # Template descriptors
