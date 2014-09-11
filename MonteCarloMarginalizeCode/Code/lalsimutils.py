@@ -54,6 +54,7 @@ TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 try:
     x=lal.LAL_MSUN_SI
 except:
+    print  " New style : no LAL prefix"
     lsu_MSUN=lal.MSUN_SI
     lsu_PC = lal.PC_SI
     lsu_G = lal.G_SI
@@ -66,8 +67,8 @@ except:
     lsu_DimensionlessUnit = lal.DimensionlessUnit
     lsu_HertzUnit = lal.HertzUnit
     lsu_SecondUnit = lal.SecondUnit
-
 else:
+    print  " Old style :  LAL prefix"
     lsu_MSUN=lal.LAL_MSUN_SI
     lsu_PC=lal.LAL_PC_SI
     lsu_G = lal.LAL_G_SI
