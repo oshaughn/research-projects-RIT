@@ -81,7 +81,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # time window we wish to compute the likelihood in, and
         # the time corresponding to the first sample in the rholms
         rho_epoch = data_dict[det].epoch - hlms[hlms.keys()[0]].epoch
-        t_shift =  float(t_det - t_window - rho_epoch)
+        t_shift =  float(float(t_det) - float(t_window) - float(rho_epoch))
         assert t_shift > 0
         # tThe leading edge of our time window of interest occurs
         # this many samples into the rholms
