@@ -380,7 +380,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         ax.set_ylabel('phi')
         ax.set_zlabel('lnL')
 
-    if not bNoMatplotlib and TestDictionary["lnLDataPlotVersusPsi"] or TestDictionary["lnLDataPlot"] or TestDictionary["DataReport"] or TestDictionary["lnLDataPlotVersusPhiPsi"]:
+    if (not bNoMatplotlib) and (TestDictionary["lnLDataPlotVersusPsi"] or TestDictionary["lnLDataPlot"] or TestDictionary["DataReport"] or TestDictionary["lnLDataPlotVersusPhiPsi"]):
         plt.show()
 
 
