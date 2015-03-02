@@ -14,6 +14,9 @@ import lal
 
 from glue.ligolw import utils, lsctables, table, ligolw
 
+import NRWaveformCatalogManager as nrwf
+
+
 rosDebugMessagesDictionary = {}   # Mutable after import (passed by reference). Not clear if it can be used by caling routines
                                                   # BUT if every module has a `PopulateMessagesDictionary' module, I can set their internal copies
 
@@ -59,6 +62,10 @@ def ParseStandardArguments():
     parser.add_argument("--psd-truncate-inverse-time",dest="psd_TruncateInverseTime",default=8,type=float)
 
 #    parser.add_argument("--psd-file",dest='psd_file',default=None, help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments. If None, uses an analytic PSD.  Implemented for compatibility with Pankow")
+
+    # Numerical relativity file (will override approximant used as *template*)
+    parser.add_argument("--NR-template-group", default=None,help="inspiral XML file containing injection information.")
+    parser.add_argument("--NR-template-param", default=None,help="Parameter value")
 
     # Data or injection
     parser.add_argument("-c","--cache-file",dest='cache_file', default=None, help="LIGO cache file containing all data needed.")
@@ -153,6 +160,19 @@ def ParseStandardArguments():
     rosDebugMessagesDictionary["DebugMessagesLong"] = args.super_verbose
     if (rosDebugMessagesDictionary["DebugMessagesLong"]):
         rosDebugMessagesDictionary["DebugMessages"]=True
+
+    # Error check: confirm that the desired template exists
+    print nrwf.internal_ParametersAvailable.keys()
+    if not ( args.NR_template_group in nrwf.internal_ParametersAvailable.keys()):
+#        raise( nrwf.NRNoSimulation,args.NR_template_group)
+       print " ===== UNKNOWN NR PARAMETER ====== "
+       print args.NR_template_group, args.NR_template_param
+    else:
+        if args.NR_template_param:
+            args.NR_template_param = eval(args.NR_template_param) # needs to be evaluated
+        if not ( args.NR_template_param in nrwf.internal_ParametersAvailable[args.NR_template_group]):
+            print " ===== UNKNOWN NR PARAMETER ====== "
+            print args.NR_template_group, args.NR_template_param
 
     return args, rosDebugMessagesDictionary
 
