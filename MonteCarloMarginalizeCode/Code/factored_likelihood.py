@@ -32,6 +32,8 @@ from itertools import product
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
+import NRWaveformCatalogManager as nrwf
+
 
 distMpcRef = 100 # a fiducial distance for the template source.
 tWindowExplore = [-0.05, 0.05] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
@@ -42,7 +44,8 @@ rosDebugMessages = True
 #
 def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         psd_dict, Lmax, fMax, analyticPSD_Q=False,
-        inv_spec_trunc_Q=False, T_spec=0., verbose=True):
+        inv_spec_trunc_Q=False, T_spec=0., verbose=True,
+         NR_group=None,NR_param=None):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -71,8 +74,28 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     detectors = data_dict.keys()
     # Zero-pad to same length as data - NB: Assuming all FD data same resolution
     P.deltaF = data_dict[detectors[0]].deltaF
-    hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
-    hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
+    if not (NR_group) or not (NR_param):
+        hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
+        hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
+
+    else: # NR signal required
+        mtot = P.m1 + P.m2
+        # Load the catalog
+        wfP = nrwf.WaveformModeCatalog(NR_group, NR_param, \
+                                           clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, 
+                                       lmax=Lmax,align_at_peak_l2_m2_emission=True)
+        # Overwrite the parameters in wfP to set the desired scale
+        q = wfP.P.m2/wfP.P.m1
+        wfP.P.m1 *= mtot/(1+q)
+        wfP.P.m2 *= mtot*q/(1+q)
+        wfP.P.dist =100*1e6*lal.PC_SI  # fiducial distance.
+
+        hlms = wfP.hlmoff(mtot, deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window
+
+    # Print statistics on timeseries provided
+    print " Mode  npts T hlms "
+    for mode in hlms.keys():
+        print mode, hlms[mode].data.length, hlms[mode].data.length*P.deltaT, hlms[mode].epoch, hlms[mode].epoch/P.deltaT
 
     for det in detectors:
         # This is the event time at the detector
@@ -82,7 +105,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # the time corresponding to the first sample in the rholms
         rho_epoch = data_dict[det].epoch - hlms[hlms.keys()[0]].epoch
         t_shift =  float(float(t_det) - float(t_window) - float(rho_epoch))
-        assert t_shift > 0
+#        assert t_shift > 0    # because NR waveforms may start at any time, they don't always have t_shift > 0
         # tThe leading edge of our time window of interest occurs
         # this many samples into the rholms
         N_shift = int( t_shift / P.deltaT )
@@ -453,7 +476,7 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
     for pair in hlms.keys():
         rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
         rhoTS.epoch = data.epoch - hlms[pair].epoch
-        rholms[pair] = lal.CutCOMPLEX16TimeSeries(rhoTS, N_shift, N_window)
+        rholms[pair] = rhoTS #lal.CutCOMPLEX16TimeSeries(rhoTS, N_shift, N_window)
 
     return rholms
 
