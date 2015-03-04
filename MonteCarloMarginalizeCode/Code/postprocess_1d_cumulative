@@ -308,8 +308,10 @@ if not opts.disable_skymap:
     from lalinference.bayestar import plot as bplot
     plt.clf()
     plt.subplot(111, projection='astro mollweide')
-    bplot.healpix_heatmap(smap)
-    bplot.colorbar(np.max(smap))  # Match Leo
+    # To keep using this, you will need to edit site-packages/lalinference/plot.py (!) to expose these functions
+    bplot.healpix_heatmap(smap)    # Code has changed to make this not valid overall...need to make available
+#    bplot.heatmap(functools.partial(_healpix_loopkup,map),smap)    # Code has changed to make this not valid overall...need to make available
+#    bplot.colorbar()  # Match Leo
     bplot.outline_text(plt.gca())    # Match Leo
     plt.savefig(opts.points_file_base+"-posterior-skymap."+fExtension)
 
