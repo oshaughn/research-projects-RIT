@@ -226,7 +226,10 @@ class ChooseWaveformParams:
         self.dist = row.distance * lsu_PC * 1.e6
         self.incl = row.inclination
         self.ampO = row.amp_order
-        self.phaseO = lalsim.GetOrderFromString(row.waveform)
+        if not (str(row.waveform).find("Taylor") == -1 ):  # Not meaningful to have an order for EOB, etc
+            self.phaseO = lalsim.GetOrderFromString(str(row.waveform))
+        else:
+            self.phaseO = 01
         self.approx = lalsim.GetApproximantFromString(row.waveform)
         self.theta = row.latitude # Declination
         self.phi = row.longitude # Right ascension
@@ -796,6 +799,13 @@ def estimateWaveformDuration(P):
     eta = symRatio(P.m1,P.m2)
     Msec = (P.m1+P.m2)*lsu_G / lsu_C**3
     return Msec*5./256. / eta* np.power((lsu_PI*fM),-8./3.)
+def estimateDeltaF(P):
+    """
+    Input:  P
+    Output:estimated duration (in s) based on Newtonian inspiral from P.fmin to infinite frequency
+    """
+    T = estimateWaveformDuration(P)+0.1  # buffer for merger
+    return 1./(P.deltaT*nextPow2(T/P.deltaT))
     
 
 def sanitize_eta(eta, tol=1.e-10, exception='error'):
@@ -1508,6 +1518,24 @@ def NINJA_data_to_norm_hoff(fname, IP, TDlen=0, scaleT=1., scaleH=1.,
     hf.data.data /= norm
     return hf
 
+import lalframe
+def hoft_to_frame_data(fname, channel, hoft):
+    """
+    Function to write h(t) to a frame file in a specific channel.
+    NOT YET DEBUGGED
+    """
+    epoch = hoft.epoch
+    duration = hoft.deltaT*hoft.data.length
+    hoft.name = channel  # used by low-level routines
+
+    # Dump to frame, as FAKE-STRAIN
+    # detectorFlags =   lal.LHO_4K_DETECTOR_BIT | lal.LLO_4K_DETECTOR_BIT
+    frame = lalframe.FrameNew(epoch, duration, "LIGO",0 , 0, 0)
+    lalframe.FrameAddREAL8TimeSeriesProcData(frame, hoft) 
+    lalframe.FrameWrite(frame, fname)
+    return True
+
+
 def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
         verbose=True):
     """
@@ -1650,7 +1678,12 @@ def stringGPSNice(tgps):
     """
     Return a string with nice formatting displaying the value of a LIGOTimeGPS
     """
-    return "%d.%d" % (tgps.gpsSeconds, tgps.gpsNanoSeconds)
+    if isinstance(tgps, float):
+        return str(tgps)
+    elif isinstance(tgps, lal.LIGOTimeGPS):
+        return "%d.%d" % (tgps.gpsSeconds, tgps.gpsNanoSeconds)
+    else:
+        return "FAILED"
 
 def pylal_psd_to_swig_psd(raw_pylal_psd):
     """
