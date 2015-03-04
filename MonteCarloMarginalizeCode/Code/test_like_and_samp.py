@@ -154,7 +154,9 @@ Lmax = opts.Lmax # sets which modes to include in the template.  Print warning i
 fref = opts.fref
 fref_signal = opts.signal_fref
 fminWavesTemplate = opts.fmin_Template  # too long can be a memory and time hog, particularly at 16 kHz
-fminWavesSignal = opts.signal_fmin  # too long can be a memory and time hog, particularly at 16 kHz
+fminWavesSignal = opts.signal_fmin   # If I am using synthetic data, be consistent? #opts.signal_fmin  # too long can be a memory and time hog, particularly at 16 kHz
+if fminWavesSignal > fminWavesTemplate:
+    print " WARNING : a choice of fminWavesSignal greater than 0 will cause problems with the cutting and timeshifting code, which requires waveforms to start at the start of the window."
 fminSNR =opts.fmin_SNR
 fmaxSNR =opts.fmax_SNR
 fSample = opts.srate
@@ -190,8 +192,9 @@ if opts.coinc:
     coinc_row = coinc_table[0]
     event_time = float(coinc_row.get_end())  # 
     event_time_gps = lal.GPSTimeNow()    # Pack as GPSTime *explicitly*, so all time operations are type-consistent
-    event_time_gps.gpsSeconds = int(event_time)
-    event_time_gps.gpsNanoSeconds = int(1e9*(event_time -event_time_gps.gpsSeconds))
+#    event_time_gps.gpsSeconds = int(event_time)
+#    event_time_gps.gpsNanoSeconds = int(1e9*(event_time -event_time_gps.gpsSeconds))
+    event_time_gps = event_time
     theEpochFiducial = event_time_gps       # really should avoid duplicate names
     print "Coinc XML loaded, event time: %s" % str(coinc_row.get_end())
     # Populate the SNR sequence and mass sequence
@@ -227,7 +230,7 @@ if opts.coinc:
 
 # Read in *injection* XML
 if opts.inj:
-    print "Loading injection XML:", opts.inj
+    print "====Loading injection XML:", opts.inj, " ======="
     Psig = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))[opts.event_id]  # Load in the physical parameters of the injection.  
     m1 = Psig.m1
     m2 = Psig.m2
@@ -256,8 +259,9 @@ if opts.force_gps_time:
     print "    original " ,lalsimutils.stringGPSNice(theEpochFiducial)
     print "    new      ", opts.force_gps_time
     theEpochFiducial = lal.GPSTimeNow()
-    theEpochFiducial.gpsSeconds = int(opts.force_gps_time)
-    theEpochFiducial.gpsNanoSeconds =  int(1e9*(opts.force_gps_time - int(opts.force_gps_time)))
+    theEpochFiducial = opts.force_gps_time
+#    theEpochFiducial.gpsSeconds = int(opts.force_gps_time)
+#    theEpochFiducial.gpsNanoSeconds =  int(1e9*(opts.force_gps_time - int(opts.force_gps_time)))
 
 # Create artificial "signal".  Needed to minimize duplicate code when I
 #  -  consistently test waveform duration
@@ -325,10 +329,16 @@ if opts.channel_name and not (opts.opt_ReadWholeFrameFilesInCache):
 analytic_signal = False
 if len(data_dict) is 0:
     analytic_signal = True
-
+    print " Generating signal in memory (no frames or inj)"
     if not(Psig):
-        m1 = 4*lalsimutils.lsu_MSUN
-        m2 = 3*lalsimutils.lsu_MSUN
+        if opts.signal_mass1:
+            m1 = opts.signal_mass1*lalsimutils.lsu_MSUN
+        else:
+            m1 = 4*lalsimutils.lsu_MSUN
+        if opts.signal_mass2:
+            m2 = opts.signal_mass2*lalsimutils.lsu_MSUN
+        else:
+            m2 = 3*lalsimutils.lsu_MSUN
 
         Psig = lalsimutils.ChooseWaveformParams(
             m1 = m1,m2 =m2,
@@ -342,7 +352,7 @@ if len(data_dict) is 0:
             dist=opts.signal_distMpc*1.e6*lalsimutils.lsu_PC,    # move back to aLIGO distances
             deltaT=1./fSample
                                 )
-        timeSegmentLength  = -float(lalsimutils.hoft(Psig).epoch)
+        timeSegmentLength  = float(lalsimutils.estimateWaveformDuration(Psig))
         if timeSegmentLength > opts.seglen:
             print " +++ CATASTROPHE : You are requesting less data than your template target needs!  +++"
             print "    Requested data size: ", opts.seglen
@@ -362,16 +372,45 @@ if len(data_dict) is 0:
             Psig.tref = opts.signal_tref
             theEpochFiducial=opts.signal_tref
 
-    df = lalsimutils.findDeltaF(Psig)
+    df = lalsimutils.estimateDeltaF(Psig)
     if 1/df < opts.seglen:   # Allows user to change seglen of data for *analytic* models, on the command line. Particularly useful re testing PSD truncation
         df = 1./lalsimutils.nextPow2(opts.seglen)
-    Psig.print_params()
-    Psig.deltaF = df
-    data_dict['H1'] = lalsimutils.non_herm_hoff(Psig)
-    Psig.detector = 'L1'
-    data_dict['L1'] = lalsimutils.non_herm_hoff(Psig)
-    Psig.detector = 'V1'
-    data_dict['V1'] = lalsimutils.non_herm_hoff(Psig)
+    if not opts.NR_template_group:
+        print " ---  Using synthetic signal --- "
+        Psig.print_params(); print " ---  Writing synthetic signal to memory --- "
+        Psig.deltaF = df
+        Psig.detector='H1'
+        data_dict['H1'] = lalsimutils.non_herm_hoff(Psig)
+        Psig.detector='L1'
+        data_dict['L1'] = lalsimutils.non_herm_hoff(Psig)
+        Psig.detector='V1'
+        data_dict['V1'] = lalsimutils.non_herm_hoff(Psig)
+#        for det in ['H1', 'L1', 'V1']:
+#            Psig.detector = det
+#            data_dict[det] = lalsimutils.non_herm_hoff(Psig)
+
+    elif   opts.NR_template_group and (Psig.m1+Psig.m2)/lal.MSUN_SI > 50:   # prevent sources < 50 Msun from being generated -- let's not be stupid 
+        Psig.deltaF = df
+        print 1./Psig.deltaF
+        mtot = Psig.m1 + Psig.m2
+        # Load the catalog
+        wfP = nrwf.WaveformModeCatalog(opts.NR_template_group, opts.NR_template_param, \
+                                           clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, 
+                                       lmax=Lmax,align_at_peak_l2_m2_emission=True)
+        # Overwrite the parameters in wfP to set the desired scale
+        q = wfP.P.m2/wfP.P.m1
+        wfP.P = Psig
+        wfP.P.m1 = mtot/(1+q)
+        wfP.P.m2 = mtot*q/(1+q)
+        wfP.P.print_params()
+        for det in ['H1', 'L1', 'V1']:
+            wfP.P.detector = det
+            data_dict[det] = wfP.non_herm_hoff()
+       
+    else:
+            print "Not valid NR simulation or injection parameter"
+            sys.exit(0)
+
 
 # Reset origin of time, if required
 if opts.force_gps_time:
@@ -380,8 +419,9 @@ if opts.force_gps_time:
     print "    original " ,theEpochFiducial
     print "    new      ", opts.force_gps_time
     theEpochFiducial = lal.GPSTimeNow()
-    theEpochFiducial.gpsSeconds = int(opts.force_gps_time)
-    theEpochFiducial.gpsNanoSeconds =  int(1e9*(opts.force_gps_time - int(opts.force_gps_time)))
+#    theEpochFiducial.gpsSeconds = int(opts.force_gps_time)
+#    theEpochFiducial.gpsNanoSeconds =  int(1e9*(opts.force_gps_time - int(opts.force_gps_time)))
+    theEpochFiducial = opts.force_gps_time  # seconds etc not manually specifiable
 
 
 # PSD reading
@@ -864,7 +904,9 @@ if  True: # opts.points_file_base:
     print "==== Exporting to xml: <base>.xml.gz ====="
     xmldoc = ligolw.Document()
     xmldoc.appendChild(ligolw.LIGO_LW())
-    process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
+    opts.NR_template_param = ""
+#    process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)    # the process-params generation has not been reliable
+    process.register_to_xmldoc(xmldoc, sys.argv[0], {})    # the process-params generation has not been reliable
     samples = {}
     samples["distance"]= ret[:,-3-1] #retNiceIndexed['dist']
     samples["t_ref"] = ret[:,-3-5] #retNiceIndexed['tref']
