@@ -483,7 +483,7 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
 def InterpolateRholm(rholm, t):
     h_re = np.real(rholm.data.data)
     h_im = np.imag(rholm.data.data)
-    if rosDebugMessage:
+    if rosDebugMessages:
         print "Interpolation length check ", len(t), len(h_re)
     # spline interpolate the real and imaginary parts of the time series
     h_real = interpolate.InterpolatedUnivariateSpline(t, h_re[:len(t)], k=3)
