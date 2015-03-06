@@ -74,7 +74,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     detectors = data_dict.keys()
     # Zero-pad to same length as data - NB: Assuming all FD data same resolution
     P.deltaF = data_dict[detectors[0]].deltaF
-    if not (NR_group) or not (NR_param):
+    if True: #not (NR_group) or not (NR_param):
         hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
         hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
 
@@ -93,7 +93,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         hlms = wfP.hlmoff(mtot, deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window
 
     # Print statistics on timeseries provided
-    print " Mode  npts T hlms "
+    print " Mode  npts epoch  epoch/deltaT "
     for mode in hlms.keys():
         print mode, hlms[mode].data.length, hlms[mode].data.length*P.deltaT, hlms[mode].epoch, hlms[mode].epoch/P.deltaT
 
@@ -476,16 +476,18 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
     for pair in hlms.keys():
         rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
         rhoTS.epoch = data.epoch - hlms[pair].epoch
-        rholms[pair] = rhoTS #lal.CutCOMPLEX16TimeSeries(rhoTS, N_shift, N_window)
+        rholms[pair] = lal.CutCOMPLEX16TimeSeries(rhoTS, N_shift, N_window)  # Warning: code currently fails w/o this cut.
 
     return rholms
 
 def InterpolateRholm(rholm, t):
     h_re = np.real(rholm.data.data)
     h_im = np.imag(rholm.data.data)
+    if rosDebugMessage:
+        print "Interpolation length check ", len(t), len(h_re)
     # spline interpolate the real and imaginary parts of the time series
-    h_real = interpolate.InterpolatedUnivariateSpline(t, h_re, k=3)
-    h_imag = interpolate.InterpolatedUnivariateSpline(t, h_im, k=3)
+    h_real = interpolate.InterpolatedUnivariateSpline(t, h_re[:len(t)], k=3)
+    h_imag = interpolate.InterpolatedUnivariateSpline(t, h_im[:len(t)], k=3)
     return lambda ti: h_real(ti) + 1j*h_imag(ti)
 
     # Little faster
