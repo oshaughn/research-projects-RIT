@@ -117,6 +117,8 @@ def ParseStandardArguments():
     # Test options
     parser.add_argument("--mass1", dest="template_mass1", default=False, type=float)
     parser.add_argument("--mass2", dest="template_mass2", default=False, type=float)
+    parser.add_argument("--signal-mass1", dest="signal_mass1", default=False, type=float)
+    parser.add_argument("--signal-mass2", dest="signal_mass2", default=False, type=float)
     parser.add_argument("--indicate-mass1", dest="indicate_mass1", default=False, type=float)
     parser.add_argument("--indicate-mass2", dest="indicate_mass2", default=False, type=float)
     parser.add_argument("--signal-fmin",dest="signal_fmin",default=30,type=float)
@@ -165,8 +167,9 @@ def ParseStandardArguments():
     print nrwf.internal_ParametersAvailable.keys()
     if not ( args.NR_template_group in nrwf.internal_ParametersAvailable.keys()):
 #        raise( nrwf.NRNoSimulation,args.NR_template_group)
-       print " ===== UNKNOWN NR PARAMETER ====== "
-       print args.NR_template_group, args.NR_template_param
+        if args.NR_template_group:
+            print " ===== UNKNOWN NR PARAMETER ====== "
+            print args.NR_template_group, args.NR_template_param
     else:
         if args.NR_template_param:
             args.NR_template_param = eval(args.NR_template_param) # needs to be evaluated
