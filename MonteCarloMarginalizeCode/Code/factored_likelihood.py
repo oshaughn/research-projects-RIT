@@ -32,8 +32,11 @@ from itertools import product
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
-import NRWaveformCatalogManager as nrwf
-
+try:
+	import NRWaveformCatalogManager as nrwf
+	useNR =True
+except:
+	useNR=False
 
 distMpcRef = 100 # a fiducial distance for the template source.
 tWindowExplore = [-0.05, 0.05] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
