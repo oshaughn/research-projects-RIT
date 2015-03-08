@@ -6,8 +6,8 @@ from matplotlib import pylab as plt
 from mpl_toolkits.mplot3d import Axes3D
 import scipy.interpolate as interpolate
 
-slowTests=False
-verySlowTests=False
+slowTests=True
+verySlowTests=True
 
 
 
@@ -299,7 +299,7 @@ if True: #slowTests:
     lnL_interp_raw = interpolate.interp2d(dat_grid[:,0], dat_grid[:,1], dat_grid_physical[:,3])
     lnL_interp =lambda x,y: lnL_interp_raw(x,y)[0] if el.inside_q(np.array([x,y])) else 0   # force scalar return value, not array. Force 0 outside ellipse
     lnL_interp_polar_raw = interpolate.interp2d(dat_grid_internal[:,0], dat_grid_internal[:,1], dat_grid_physical[:,3])
-    lnL_interp_polar =lambda x,y: lnL_interp_polar_raw(x,y)[0] if x<1 and x>=0.) else 0   # force scalar return value, not array. Force 0 outside ellipse
+    lnL_interp_polar =lambda x,y: lnL_interp_polar_raw(x,y)[0] if (x<1 and x>=0.) else 0   # force scalar return value, not array. Force 0 outside ellipse
     print " Sanity check: lnL at interpolated grid center ", center,  el.inside_q(center), lnL_interp(center[0], center[1])
     mcg, etag  = np.meshgrid(np.linspace(el.llim[0], el.rlim[0], 50), np.linspace(el.llim[1], el.rlim[1],50))
     mcG = mcg.flatten()
