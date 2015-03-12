@@ -350,7 +350,7 @@ if opts.pin_to_sim:
 #
 
 dmin = 1.    # min distance
-dmax = 1000.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
+dmax = 10000.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 
 param_limits = { "psi": (0, 2*numpy.pi),
     "phi_orb": (0, 2*numpy.pi),

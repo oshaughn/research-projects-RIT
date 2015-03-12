@@ -289,7 +289,7 @@ import factored_likelihood
 tWindowExplore  = factored_likelihood.tWindowExplore
 Tmax = numpy.max([0.05,tWindowExplore[1]]) # max ref. time
 Tmin = numpy.min([-0.05,tWindowExplore[0]]) # min ref. time
-Dmax = 4000. #* 1.e6 * lal.LAL_PC_SI # max distance. CAN CAUSE PROBLEMS with the CDF integrator if this limit is large (SI units)
+Dmax = 10000. #* 1.e6 * lal.LAL_PC_SI # max distance. CAN CAUSE PROBLEMS with the CDF integrator if this limit is large (SI units)
 Dmin = 1. # * 1.e6 * lal.LAL_PC_SI      # min distance.  Needs to be nonzero to avoid integrator stupid problems with reconstructing the CDF
 
 # set up bounds on parameters
