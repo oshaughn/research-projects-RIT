@@ -144,7 +144,7 @@ cmdname="%s/command-single.sh" % opts.working_directory
 cmd = open(cmdname, 'w')
 strOut  = " ".join(sys.argv).replace("compute_marginalized_likelihood","integrate_likelihood_extrinsic")
 cmd.write('#!/usr/bin/env bash\n')
-cmd.write( )
+cmd.write(strOut )
 cmd.close()
 st = os.stat(cmdname)
 os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
@@ -240,8 +240,8 @@ PTEST.m1, PTEST.m2 = lsu.m1m2(McSIG*min_mc_factor, min_eta)
 #PSIG.deltaF = np.max([1./4., lsu.estimateDeltaF(PTEST)])#lsu.findDeltaF(PTEST)
 if (m1+m2) > 30:
     PSIG.deltaT = 1./16384  # use a high sampling rate
-    PSIG.fmin=10    # change minimum frequency to resolve high-mass physics
-    ip_min_freq = 10 # change minimum frequency to resolve high-mass physics
+    PSIG.fmin=5    # change minimum frequency to resolve high-mass physics
+    ip_min_freq = 5 # change minimum frequency to resolve high-mass physics
 PSIG.deltaF =  lsu.findDeltaF(PTEST)#lsu.findDeltaF(PTEST)
 PTMPLT = PSIG.copy()
 
