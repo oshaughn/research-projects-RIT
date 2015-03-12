@@ -263,6 +263,32 @@ class ChooseWaveformParams:
         # Call the function to read lalmetaio.SimInspiral format
         self.copy_sim_inspiral(swigrow)
 
+    def scale_to_snr(self,new_SNR,psd, ifo_list,analyticPSD_Q=True):
+        """
+        scale_to_snr
+          - evaluates network SNR in the ifo list provided (assuming *constant* psd for all..may change)
+          - uses network SNR to rescale the distance of the source, so the SNR is now  new_SNR
+          - returns current_SNR, for sanity
+        """
+        deltaF=findDeltaF(self)
+        det_orig = self.detector
+        IP = Overlap(fLow=self.fmin, fNyq=1./self.deltaT/2., deltaF=deltaF, psd=psd, full_output=True,analyticPSD_Q=analyticPSD_Q)
+
+        rho_ifo= {}
+        current_SNR_squared =0
+        for det in ifo_list:
+            self.detector = det
+            self.radec = True
+            h=hoff(self)
+            rho_ifo[det] = IP.norm(h)
+            current_SNR_squared +=rho_ifo[det]*rho_ifo[det]
+        current_SNR = np.sqrt(current_SNR_squared)
+
+        self.detector = det_orig
+        self.dist = (current_SNR/new_SNR)*self.dist
+        return current_SNR
+
+
 def xml_to_ChooseWaveformParams_array(fname, minrow=None, maxrow=None,
         deltaT=1./4096., fref=0., lambda1=0., lambda2=0., waveFlags=None,
         nonGRparams=None, detector="H1", deltaF=None, fmax=0.):
