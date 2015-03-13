@@ -242,7 +242,8 @@ class ChooseWaveformParams:
         """
         Create a sim_inspiral table from P.  *One* element from it
         """
-        if rosDebug:
+        global rosDebugMessagesContainer
+        if rosDebugMessagesContainer[0]:
             print " --- Creating XML row for the following ---- "
             self.print_params()
         sim_valid_cols = [ "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"] # ,  "alpha1", "alpha2", "alpha3"
@@ -274,7 +275,7 @@ class ChooseWaveformParams:
         row.taper = "TAPER_NONE"
         row.f_lower =self.fmin
         # Debug: 
-        if rosDebug:
+        if rosDebugMessagesContainer[0]:
             print " Constructing the following XML table "
             si_table.append(row)
             si_table.write()
