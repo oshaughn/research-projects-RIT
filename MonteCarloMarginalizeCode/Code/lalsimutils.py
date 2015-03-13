@@ -238,6 +238,49 @@ class ChooseWaveformParams:
         self.tref = row.geocent_end_time + 1e-9*row.geocent_end_time_ns
         self.taper = lalsim.GetTaperFromString(row.taper)
 
+    def create_sim_inspiral(self):
+        """
+        Create a sim_inspiral table from P.  *One* element from it
+        """
+        if rosDebug:
+            print " --- Creating XML row for the following ---- "
+            self.print_params()
+        sim_valid_cols = [ "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"] # ,  "alpha1", "alpha2", "alpha3"
+        si_table = lsctables.New(lsctables.SimInspiralTable, sim_valid_cols)
+        row = si_table.RowType()
+        row.simulation_id = si_table.get_next_id()
+        # Set all parameters to default value of zero
+        for slot in row.__slots__: setattr(row, slot, 0.)
+        # Copy parameters
+        row.spin1x = self.s1x
+        row.spin1y = self.s1y
+        row.spin1z = self.s1z
+        row.spin2x = self.s2x
+        row.spin2y = self.s2y
+        row.spin2z = self.s2z
+        row.mass1 = self.m1/lsu_MSUN
+        row.mass2 = self.m2/lsu_MSUN
+        row.mchirp = mchirp(row.mass1,row.mass2)
+        row.longitude = self.theta
+        row.latitude   = self.phi
+        row.inclination = self.incl
+        row.polarization = self.psi
+        row.coa_phase = self.phi
+        row.geocent_end_time = np.floor(self.tref)
+        row.geocent_end_time_ns = np.floor(1e9*(self.tref - row.geocent_end_time))
+        row.distance = self.dist/(1e6*lsu_PC)
+        row.amp_order = self.ampO
+        row.waveform = lalsim.GetStringFromApproximant(self.approx)+lsu_StringFromPNOrder(self.phaseO)
+        row.taper = "TAPER_NONE"
+        row.f_lower =self.fmin
+        # Debug: 
+        if rosDebug:
+            print " Constructing the following XML table "
+            si_table.append(row)
+            si_table.write()
+        return row
+
+
     def copy_lsctables_sim_inspiral(self, row):
         """
         Fill this ChooseWaveformParams with the fields of a
@@ -262,6 +305,32 @@ class ChooseWaveformParams:
                 setattr( swigrow, simattr, getattr(row, simattr) )
         # Call the function to read lalmetaio.SimInspiral format
         self.copy_sim_inspiral(swigrow)
+
+    def scale_to_snr(self,new_SNR,psd, ifo_list,analyticPSD_Q=True):
+        """
+        scale_to_snr
+          - evaluates network SNR in the ifo list provided (assuming *constant* psd for all..may change)
+          - uses network SNR to rescale the distance of the source, so the SNR is now  new_SNR
+          - returns current_SNR, for sanity
+        """
+        deltaF=findDeltaF(self)
+        det_orig = self.detector
+        IP = Overlap(fLow=self.fmin, fNyq=1./self.deltaT/2., deltaF=deltaF, psd=psd, full_output=True,analyticPSD_Q=analyticPSD_Q)
+
+        rho_ifo= {}
+        current_SNR_squared =0
+        for det in ifo_list:
+            self.detector = det
+            self.radec = True
+            h=hoff(self)
+            rho_ifo[det] = IP.norm(h)
+            current_SNR_squared +=rho_ifo[det]*rho_ifo[det]
+        current_SNR = np.sqrt(current_SNR_squared)
+
+        self.detector = det_orig
+        self.dist = (current_SNR/new_SNR)*self.dist
+        return current_SNR
+
 
 def xml_to_ChooseWaveformParams_array(fname, minrow=None, maxrow=None,
         deltaT=1./4096., fref=0., lambda1=0., lambda2=0., waveFlags=None,

@@ -240,9 +240,11 @@ PTEST.m1, PTEST.m2 = lsu.m1m2(McSIG*min_mc_factor, min_eta)
 #PSIG.deltaF = np.max([1./4., lsu.estimateDeltaF(PTEST)])#lsu.findDeltaF(PTEST)
 if (m1+m2) > 30:
     PSIG.deltaT = 1./16384  # use a high sampling rate
-    PSIG.fmin=10    # change minimum frequency to resolve high-mass physics
-    ip_min_freq = 10 # change minimum frequency to resolve high-mass physics
+    PSIG.fmin=5    # change minimum frequency to resolve high-mass physics
+    ip_min_freq = 5 # change minimum frequency to resolve high-mass physics
 PSIG.deltaF =  lsu.findDeltaF(PTEST)#lsu.findDeltaF(PTEST)
+if 1./PSIG.deltaF < 16:
+    PSIG.deltaF=1./16  # force a minimum 16 s window, regularizing behavior for high mass sources.
 PTMPLT = PSIG.copy()
 
 IP = lsu.Overlap(fLow = ip_min_freq,
