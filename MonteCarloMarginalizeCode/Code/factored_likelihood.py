@@ -479,7 +479,9 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
     for pair in hlms.keys():
         rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
         rhoTS.epoch = data.epoch - hlms[pair].epoch
-        rholms[pair] = lal.CutCOMPLEX16TimeSeries(rhoTS, N_shift, N_window)  # Warning: code currently fails w/o this cut.
+#        rholms[pair] = lal.CutCOMPLEX16TimeSeries(rhoTS, N_shift, N_window)  # Warning: code currently fails w/o this cut.
+        tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
+        rholms[pair] =lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
 
     return rholms
 
@@ -655,11 +657,15 @@ def non_herm_hoff(P):
     return hoff
 
 
-def rollTimeSeries(series_dict, nRollRight):
-    # Use the fact that we pass by value and that we swig bind numpy arrays
-    for det in series_dict:
-        print " Rolling timeseries ", nRollRight
-        np.roll(series_dict.data.data, nRollRight)
+# def rollTimeSeries(series_dict, nRollRight):
+#         """
+#         rollTimeSeries
+#         Deprecated -- see DataRollBins in lalsimutils.py
+#         """
+#     # Use the fact that we pass by value and that we swig bind numpy arrays
+#     for det in series_dict:
+#         print " Rolling timeseries ", nRollRight
+#         np.roll(series_dict.data.data, nRollRight)
 
 def estimateUpperDistanceBoundInMpc(rholms,crossTerms):  
     # For nonprecessing sources, use the 22 mode to estimate the optimally oriented distance
