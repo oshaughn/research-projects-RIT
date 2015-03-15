@@ -1987,3 +1987,14 @@ def DataFourierREAL8(ht):   # Complex fft wrapper (REAL8Time ->COMPLEX16Freq. No
     # assume memory freed by swig python
     return hf
 
+def DataRollBins(ht,nL):  # ONLY FOR TIME DOMAIN.  ACTS IN PLACE.
+    assert (isinstance(ht, lal.COMPLEX16TimeSeries) or isinstance(ht,lal.REAL8TimeSeries)) and isinstance(nL,int)
+    t0 = ht.epoch 
+    ht.epoch += nL*ht.deltaT 
+#    print " Rolling by ", nL*ht.deltaT, " or nbins = ", nL
+    ht.data.data = np.roll(ht.data.data, -nL)
+    return ht
+
+def DataRollTime(ht,DeltaT):  # ONLY FOR TIME DOMAIN. ACTS IN PLACE
+    nL = int(DeltaT/ht.deltaT)
+    return DataRollBins(ht, nL)            
