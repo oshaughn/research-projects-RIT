@@ -12,6 +12,9 @@ Options will (eventually) include
 
 
 Examples:
+  # NR testing
+      ./test_like_and_samp.py --NR-template-group 'Sequence-GT-Aligned-UnequalMass' --NR-template-param '(0., 2.)' --signal-mass1 100 --signal-mass2 100 --seglen 32 --approx EOBNRv2HM --fref 0 --signal-distance 5000 --fref 0
+      clear; ./test_like_and_samp.py  --signal-mass1 100 --signal-mass2 100 --seglen 32  --approx EOBNRv2HM --verbose
   # Run with default parameters for injection, with different approximants 
         python test_like_and_samp.py  --show-sampler-inputs --show-sampler-results --show-likelihood-versus-time
         python test_like_and_samp.py --approx TaylorT4 --amporder -1 --Lmax 3 --srate 16384
@@ -251,6 +254,11 @@ if opts.template_mass1 and Psig:
     Psig.m1 = opts.template_mass1*lalsimutils.lsu_MSUN
 if opts.template_mass2 and Psig:
     Psig.m2 = opts.template_mass2*lalsimutils.lsu_MSUN
+# Use forced parameters, if provided. Note these will override the first set
+if opts.signal_mass1 and Psig:
+    Psig.m1 = opts.signal_mass1*lalsimutils.lsu_MSUN
+if opts.template_mass2 and Psig:
+    Psig.m2 = opts.signal_mass2*lalsimutils.lsu_MSUN
 
 # Reset origin of time, if required. (This forces different parts of data to be read- important! )
 if opts.force_gps_time:
@@ -389,22 +397,35 @@ if len(data_dict) is 0:
 #            Psig.detector = det
 #            data_dict[det] = lalsimutils.non_herm_hoff(Psig)
 
-    elif   opts.NR_template_group and (Psig.m1+Psig.m2)/lal.MSUN_SI > 50:   # prevent sources < 50 Msun from being generated -- let's not be stupid 
-        Psig.deltaF = df
-        print 1./Psig.deltaF
-        mtot = Psig.m1 + Psig.m2
+    elif   opts.NR_template_group: # and (Psig.m1+Psig.m2)/lal.MSUN_SI > 50:   # prevent sources < 50 Msun from being generated -- let's not be stupid 
+        print " ---  Using synthetic NR injection file --- "
+        print opts.NR_template_group, opts.NR_template_param   # must be valid: ourparams.py will thrown an error
         # Load the catalog
         wfP = nrwf.WaveformModeCatalog(opts.NR_template_group, opts.NR_template_param, \
                                            clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, 
                                        lmax=Lmax,align_at_peak_l2_m2_emission=True)
-        # Overwrite the parameters in wfP to set the desired scale
+        mtot = Psig.m1 + Psig.m2
         q = wfP.P.m2/wfP.P.m1
-        wfP.P = Psig
         wfP.P.m1 = mtot/(1+q)
         wfP.P.m2 = mtot*q/(1+q)
+        wfP.P.fref = 0
+        wfP.P.tref = theEpochFiducial  # Initialize as GPSTime object  . IMPORTANT - segfault otherwise
+        if opts.signal_distMpc:
+            wfP.P.dist = opts.signal_distMpc*1e6*lal.PC_SI # default
+        else:
+            wfP.P.dist = 2500(mtot/200/lal.MSUN_SI)*1e6*lal.PC_SI     # put at a reasonable distance for this mass, to get a reasonable SNR 
+        Psig = wfP.P 
+
+
+        # Estimate the duration needed and generate accordingly
+        T_window_needed = max([16, opts.seglen, 2**int(np.log(wfP.estimateDurationSec())/np.log(2)+1)])
+        df= Psig.deltaF = 1./T_window_needed   # redefine df!
+        print "NR duration window to be used ", 1./Psig.deltaF
         wfP.P.print_params()
+
         for det in ['H1', 'L1', 'V1']:
             wfP.P.detector = det
+            wfP.P.radec =True  # physical source
             data_dict[det] = wfP.non_herm_hoff()
        
     else:
@@ -567,6 +588,16 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
 #                     ILE adopts a different convention.  ROS old development branch has yet another approach (=set during PSD reading).
 #
 rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime,NR_group=opts.NR_template_group,NR_param=opts.NR_template_param)
+
+# set the lnL overflow value using the peak U value
+lnLOffsetValue = 0
+for det in crossTerms.keys():
+    for mode in crossTerms[det].keys():  # actually a loop over pairs
+        if np.abs(crossTerms[det][mode]) > lnLOffsetValue:
+            lnLOffsetValue = np.abs(crossTerms[det][mode])
+
+print "using lnL offset value ", lnLOffsetValue
+
 epoch_post = theEpochFiducial # Suggested change.  BE CAREFUL: Now that we trim the series, this is NOT what I used to be
 print "Finished Precomputation..."
 print "====Generating metadata from precomputed results ====="
@@ -591,8 +622,8 @@ except:
     print " === Skipping metadata step ==="
 
 TestDictionary = factored_likelihood_test.TestDictionaryDefault
-# TestDictionary["DataReport"]             = True
-# TestDictionary["DataReportTime"]             = False
+TestDictionary["DataReport"]             = True
+TestDictionary["DataReportTime"]             = False
 TestDictionary["UVReport"]              =  analytic_signal  # this report is very confusing for real data
 # TestDictionary["UVReflection"]          = True
 # TestDictionary["QReflection"]          = False
@@ -649,6 +680,7 @@ if not opts.LikelihoodType_MargTdisc_array:
     def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance): # right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
         global nEvals
         global pdfFullPrior
+        global lnLOffsetValue
 
 #        if opts.rotate_sky_coordinates:
 #            print "   -Sky ring width ", np.std(declination), " note contribution from floor is of order p_floor*(pi)/sqrt(12) ~ 0.9 pfloor"
@@ -673,10 +705,11 @@ if not opts.LikelihoodType_MargTdisc_array:
 
 
         nEvals+=i 
-        return np.exp(lnL)
+        return np.exp(lnL - lnLOffsetValue)
 else: # Sum over time for every point in other extrinsic params
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
+        global lnLOffsetValue
         # use EXTREMELY many bits
         lnL = np.zeros(right_ascension.shape,dtype=np.float128)
         i = 0
@@ -705,8 +738,8 @@ else: # Sum over time for every point in other extrinsic params
                     P, rholms_intp,rholms, crossTerms,                   
                     Lmax)
             i+=1
-    
-        return np.exp(lnL)
+        
+        return np.exp(lnL-lnLOffsetValue)
 
 import mcsampler
 sampler = mcsampler.MCSampler()
