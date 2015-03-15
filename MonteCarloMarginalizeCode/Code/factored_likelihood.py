@@ -38,7 +38,7 @@ try:
 except:
 	useNR=False
 
-distMpcRef = 100 # a fiducial distance for the template source.
+distMpcRef = 1000 # a fiducial distance for the template source.
 tWindowExplore = [-0.05, 0.05] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
 rosDebugMessages = True
 
@@ -77,7 +77,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     detectors = data_dict.keys()
     # Zero-pad to same length as data - NB: Assuming all FD data same resolution
     P.deltaF = data_dict[detectors[0]].deltaF
-    if True: #not (NR_group) or not (NR_param):
+    if not (NR_group) or not (NR_param):
         hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
         hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
 
@@ -93,12 +93,12 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         wfP.P.m2 *= mtot*q/(1+q)
         wfP.P.dist =100*1e6*lal.PC_SI  # fiducial distance.
 
-        hlms = wfP.hlmoff(mtot, deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window
+        hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window
 
     # Print statistics on timeseries provided
-    print " Mode  npts epoch  epoch/deltaT "
+    print " Mode  npts(data)   npts epoch  epoch/deltaT "
     for mode in hlms.keys():
-        print mode, hlms[mode].data.length, hlms[mode].data.length*P.deltaT, hlms[mode].epoch, hlms[mode].epoch/P.deltaT
+        print mode, data_dict[detectors[0]].data.length, hlms[mode].data.length, hlms[mode].data.length*P.deltaT, hlms[mode].epoch, hlms[mode].epoch/P.deltaT
 
     for det in detectors:
         # This is the event time at the detector
@@ -108,7 +108,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # the time corresponding to the first sample in the rholms
         rho_epoch = data_dict[det].epoch - hlms[hlms.keys()[0]].epoch
         t_shift =  float(float(t_det) - float(t_window) - float(rho_epoch))
-#        assert t_shift > 0    # because NR waveforms may start at any time, they don't always have t_shift > 0
+#        assert t_shift > 0    # because NR waveforms may start at any time, they don't always have t_shift > 0 ! 
         # tThe leading edge of our time window of interest occurs
         # this many samples into the rholms
         N_shift = int( t_shift / P.deltaT )
