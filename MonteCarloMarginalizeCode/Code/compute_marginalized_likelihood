@@ -510,6 +510,10 @@ for i, (m1, m2) in enumerate(m1m2_grid):
     pos_plot_node.add_parent(pos_1d_plot_node)
     pos_plot_node.add_parent(tri_plot_node)
 
+# FIXME:
+#   in pipeline.py, I need to specify ABSOLUTE pathnames to the .sub files,
+#   so we can use master dags across heterogeneous sources. This will require manually changing pipeline.py
+#
 dag_name="marginalize_extrinsic_parameters"
 dag.set_dag_file(dag_name)
 dag.write_concrete_dag()
