@@ -27,6 +27,8 @@ import lalsimutils as lsu
 import effectiveFisher as eff
 import dag_utils
 
+import regions
+
 JOB_PRIORITIES = { "ILE": 10,
     "SQL": 1,
     "PLOT": 1
@@ -58,6 +60,8 @@ def get_coinc_xml(streamdata, working_dir='./'):
     with open(coincfile, 'w') as local_file:
         shutil.copyfileobj(remote_file, local_file)
 
+
+
 #
 # Pinnable parameters -- for command line processing
 #
@@ -72,6 +76,7 @@ optp = OptionParser()
 optp.add_option("-w", "--working-directory", default="./", help="Directory in which to stage DAG components.")
 optp.add_option("-X", "--mass-points-xml", action="store_true", help="Output mass points as a sim_inspiral table.")
 optp.add_option("-N", "--N-mass-pts", type=int, default=200, help="Number of intrinsic parameter (mass) values at which to compute marginalized likelihood. Default is 200.")
+optp.add_option("--nr-grid",type=float,default=None,help="Ascii table of (group, name, masslist) used to generate massgrid for NR templates")
 optp.add_option("--uniform-spoked", action="store_true", help="Place mass pts along spokes uniform in volume (if omitted placement will be random and uniform in volume")
 optp.add_option("--linear-spoked", action="store_true", help="Place mass pts along spokes linear in radial distance (if omitted placement will be random and uniform in volume")
 optp.add_option("--match-value", type=float, default=0.97, help="Use this as the minimum match value. Default is 0.97")
@@ -208,7 +213,7 @@ print "Computing marginalized likelihood in a neighborhood about intrinsic param
 #
 log_dir="%s/logs/" % opts.working_directory # directory to hold
 template_min_freq = opts.fmin_template
-ip_min_freq = 40.
+ip_min_freq = opts.fmin_template
 eff_fisher_psd = lal.LIGOIPsd
 analyticPSD_Q = True
 # The next 4 lines set the maximum size of the region to explore
