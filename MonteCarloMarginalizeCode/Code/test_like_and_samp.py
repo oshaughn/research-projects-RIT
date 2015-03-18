@@ -12,6 +12,8 @@ Options will (eventually) include
 
 
 Examples:
+  # Test adaptive sampling with running adaptive exponent
+     ./test_like_and_samp.py --Nskip 2000 --LikelihoodType_MargTdisc_array --adapt-beta 0.5  --Niter 100000 --adapt-adapt --convergence-tests-on 
   # NR testing
       ./test_like_and_samp.py --NR-signal-group 'Sequence-GT-Aligned-UnequalMass' --NR-signal-param '(0., 2.)' --signal-mass1 100 --signal-mass2 100 --seglen 32 --approx EOBNRv2HM --fref 0 --signal-distance 1000 --fref 0 --show-input-h --show-likelihood-versus-time
       ./test_like_and_samp.py --NR-signal-group 'Sequence-GT-Aligned-UnequalMass' --NR-signal-param '(0., 2.)' --NR-template-group 'Sequence-GT-Aligned-UnequalMass' --NR-template-param '(0., 1.)'  --signal-mass1 100 --signal-mass2 100 --seglen 32 --approx EOBNRv2HM --fref 0 --signal-distance 1000 --fref 0 --LikelihoodType_MargTdisc_array --show-input-h  --show-likelihood-versus-time
@@ -829,6 +831,8 @@ pinned_params.update({"n": opts.nskip, "nmax": opts.nmax, "neff": opts.neff, "fu
     "convergence_tests" : test_converged,    # Dictionary of convergence tests
 
     "tempering_exp":opts.adapt_beta,
+    "tempering_log": opts.adapt_log,
+    "tempering_adapt": opts.adapt_adapt,
     "floor_level": opts.adapt_mix, # The new sampling distribution at the end of each chunk will be floor_level-weighted average of a uniform distribution and the (L^tempering_exp p/p_s)-weighted histogram of sampled points.
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1-D histograms
     "n_adapt": 100, # Number of chunks to allow adaption over

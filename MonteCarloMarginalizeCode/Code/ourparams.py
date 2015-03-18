@@ -47,6 +47,8 @@ def ParseStandardArguments():
     parser.add_argument("--LikelihoodType_MargTdisc",default=False,action='store_true')
     parser.add_argument("--LikelihoodType_MargTdisc_array",default=False,action='store_true')
     parser.add_argument( "--adapt-beta", type=float,default=1)
+    parser.add_argument("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
+    parser.add_argument("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
     parser.add_argument("--adapt-mix", type=float,default=0.1)
     parser.add_argument("--no-adapt-distance",  default=False, action='store_true')
     parser.add_argument("--no-adapt-sky", default=False,action='store_true')
