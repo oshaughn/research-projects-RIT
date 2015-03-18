@@ -82,6 +82,8 @@ integration_params.add_option("--seed", type=int, help="Random seed to use. Defa
 integration_params.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
 integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
 integration_params.add_option("--adapt-floor-level", type=float, default=0.1, help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.1 (no floor)")
+integration_params.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
+integration_params.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
 integration_params.add_option("--interpolate-time", default=False,help="If using time marginalization, compute using a continuously-interpolated array. (Default=false)")
 optp.add_option_group(integration_params)
 
@@ -527,6 +529,9 @@ pinned_params.update({
 
     # Adaptive sampling settings
     "tempering_exp": opts.adapt_weight_exponent if not opts.no_adapt else 0.0, # Weights will be raised to this power to prevent overconvergence
+    "tempering_log": opts.adapt_log,
+    "tempering_adapt": opts.adapt_adapt,
+
     "floor_level": opts.adapt_floor_level if not opts.no_adapt else 0.0, # The new sampling distribution at the end of each chunk will be floor_level-weighted average of a uniform distribution and the (L^tempering_exp p/p_s)-weighted histogram of sampled points.
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1-D histograms
     "n_adapt": 100 if not opts.no_adapt else 0, # Number of chunks to allow adaption over
