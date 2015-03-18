@@ -440,8 +440,8 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         convergence_tests_on=opts.convergence_tests_on,
         adapt_floor_level=opts.adapt_floor_level,
         adapt_weight_exponent=opts.adapt_weight_exponent,
-        tempering_log=opts.adapt_log,
-        tempering_adapt=opts.adapt_adapt,
+        adapt_log=opts.adapt_log,
+        adapt_adapt=opts.adapt_adapt,
         skymap_file=opts.skymap_file,
         **args_pinned
         )
