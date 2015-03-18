@@ -253,6 +253,8 @@ class MCSampler(object):
         save_integrand -- Save the evaluated value of the integrand at the sample points with the sample point
         history_mult -- Number of chunks (of size n) to use in the adaptive histogramming: only useful if there are parameters with adaptation enabled
         tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
+        temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
+        tempering_adapt -- Gradually evolve the tempering_exp based on previous history.
         floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
         n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
         convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
@@ -305,6 +307,15 @@ class MCSampler(object):
         tempering_exp = kwargs["tempering_exp"] if kwargs.has_key("tempering_exp") else 0.0
         n_adapt = int(kwargs["n_adapt"]*n) if kwargs.has_key("n_adapt") else 0
         floor_integrated_probability = kwargs["floor_level"] if kwargs.has_key("floor_level") else 0
+        temper_log = kwargs["tempering_log"] if kwargs.has_key("temper_log") else False
+        tempering_adapt = kwargs["tempering_adapt"] if kwargs.has_key("tempering_adapt") else False
+        if not tempering_adapt:
+            tempering_exp_running=tempering_exp
+        else:
+            print " Adaptive tempering "
+            #tempering_exp_running=0.01  # decent place to start for the first step. Note starting at zero KEEPS it at zero.
+            tempering_exp_running=tempering_exp
+            
 
         save_intg = kwargs["save_intg"] if kwargs.has_key("save_intg") else False
         # FIXME: The adaptive step relies on the _rvs cache, so this has to be
@@ -483,7 +494,17 @@ class MCSampler(object):
                 if p not in self.adaptive or p in kwargs.keys():
                     continue
                 points = self._rvs[p][-n_history:]
-                weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp
+                # use log weights or weights
+                if not temper_log:
+                    weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp_running
+                else:
+                    weights = numpy.max([1e-5,numpy.log(self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])])**tempering_exp_running
+
+                if tempering_adapt:
+                    # have the adaptive exponent converge to 2/ln(w_max), ln (w)*alpha <= 2. This helps dynamic range
+                    # almost always dominated by the parameters we care about
+                    tempering_exp_running = 0.8 *tempering_exp_running + 0.2*(3./numpy.max([1,numpy.log(numpy.max(weights))]))
+                    print "     -  New adaptive exponent  ", tempering_exp_running, " based on max 1d weight ", numpy.max(weights), " based on parameter ", p
 
                 self._hist[p], edges = numpy.histogram( points,
                     bins = 100,
