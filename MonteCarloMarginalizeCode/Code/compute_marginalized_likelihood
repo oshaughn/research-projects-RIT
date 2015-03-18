@@ -80,7 +80,7 @@ def evaluate_mass_grid_effective_fisher(m1_SI,m2_SI,opts):
     min_mc_factor = 0.9
     max_mc_factor = 1.1
     min_eta = 0.05
-    max_eta = 0.25
+    max_eta = 0.25*0.999   # problem with some codes with eta =0.25 exactly 
     # Control evaluation of the effective Fisher grid
     NMcs = 11
     NEtas = 11
