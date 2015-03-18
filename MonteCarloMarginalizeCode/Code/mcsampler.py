@@ -504,7 +504,8 @@ class MCSampler(object):
                     # have the adaptive exponent converge to 2/ln(w_max), ln (w)*alpha <= 2. This helps dynamic range
                     # almost always dominated by the parameters we care about
                     tempering_exp_running = 0.8 *tempering_exp_running + 0.2*(3./numpy.max([1,numpy.log(numpy.max(weights))]))
-                    print "     -  New adaptive exponent  ", tempering_exp_running, " based on max 1d weight ", numpy.max(weights), " based on parameter ", p
+                    if rosDebugMessages:
+                        print "     -  New adaptive exponent  ", tempering_exp_running, " based on max 1d weight ", numpy.max(weights), " based on parameter ", p
 
                 self._hist[p], edges = numpy.histogram( points,
                     bins = 100,
@@ -517,6 +518,8 @@ class MCSampler(object):
 
                 # Mix with uniform distribution
                 self._hist[p] = (1-floor_integrated_probability)*self._hist[p] + numpy.ones(len(self._hist[p]))*floor_integrated_probability/len(self._hist[p])
+                if rosDebugMessages:
+                    print "         Weight entropy (after histogram) ", numpy.sum(-1*self._hist[p]*numpy.log(self._hist[p]))
 
                 edges = [ (e0+e1)/2.0 for e0, e1 in zip(edges[:-1], edges[1:]) ]
                 edges.append( edges[-1] + (edges[-1] - edges[-2]) )
