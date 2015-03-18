@@ -64,6 +64,8 @@ def ParseStandardArguments():
 #    parser.add_argument("--psd-file",dest='psd_file',default=None, help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments. If None, uses an analytic PSD.  Implemented for compatibility with Pankow")
 
     # Numerical relativity file (will override approximant used as *template*)
+    parser.add_argument("--NR-signal-group", default=None,help="inspiral XML file containing injection information.")
+    parser.add_argument("--NR-signal-param", default=None,help="Parameter value")
     parser.add_argument("--NR-template-group", default=None,help="inspiral XML file containing injection information.")
     parser.add_argument("--NR-template-param", default=None,help="Parameter value")
 
