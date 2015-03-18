@@ -13,7 +13,9 @@ Options will (eventually) include
 
 Examples:
   # NR testing
-      ./test_like_and_samp.py --NR-template-group 'Sequence-GT-Aligned-UnequalMass' --NR-template-param '(0., 2.)' --signal-mass1 100 --signal-mass2 100 --seglen 32 --approx EOBNRv2HM --fref 0 --signal-distance 5000 --fref 0
+      ./test_like_and_samp.py --NR-signal-group 'Sequence-GT-Aligned-UnequalMass' --NR-signal-param '(0., 2.)' --signal-mass1 100 --signal-mass2 100 --seglen 32 --approx EOBNRv2HM --fref 0 --signal-distance 1000 --fref 0 --show-input-h --show-likelihood-versus-time
+      ./test_like_and_samp.py --NR-signal-group 'Sequence-GT-Aligned-UnequalMass' --NR-signal-param '(0., 2.)' --NR-template-group 'Sequence-GT-Aligned-UnequalMass' --NR-template-param '(0., 1.)'  --signal-mass1 100 --signal-mass2 100 --seglen 32 --approx EOBNRv2HM --fref 0 --signal-distance 1000 --fref 0 --LikelihoodType_MargTdisc_array --show-input-h  --show-likelihood-versus-time
+
       clear; ./test_like_and_samp.py  --signal-mass1 100 --signal-mass2 100 --seglen 32  --approx EOBNRv2HM --verbose
   # Run with default parameters for injection, with different approximants 
         python test_like_and_samp.py  --show-sampler-inputs --show-sampler-results --show-likelihood-versus-time
@@ -383,7 +385,7 @@ if len(data_dict) is 0:
     df = lalsimutils.estimateDeltaF(Psig)
     if 1/df < opts.seglen:   # Allows user to change seglen of data for *analytic* models, on the command line. Particularly useful re testing PSD truncation
         df = 1./lalsimutils.nextPow2(opts.seglen)
-    if not opts.NR_template_group:
+    if not opts.NR_signal_group:
         print " ---  Using synthetic signal --- "
         Psig.print_params(); print " ---  Writing synthetic signal to memory --- "
         Psig.deltaF = df
@@ -397,11 +399,11 @@ if len(data_dict) is 0:
 #            Psig.detector = det
 #            data_dict[det] = lalsimutils.non_herm_hoff(Psig)
 
-    elif   opts.NR_template_group: # and (Psig.m1+Psig.m2)/lal.MSUN_SI > 50:   # prevent sources < 50 Msun from being generated -- let's not be stupid 
+    elif   opts.NR_signal_group: # and (Psig.m1+Psig.m2)/lal.MSUN_SI > 50:   # prevent sources < 50 Msun from being generated -- let's not be stupid 
         print " ---  Using synthetic NR injection file --- "
-        print opts.NR_template_group, opts.NR_template_param   # must be valid: ourparams.py will thrown an error
+        print opts.NR_signal_group, opts.NR_signal_param   # must be valid: ourparams.py will thrown an error
         # Load the catalog
-        wfP = nrwf.WaveformModeCatalog(opts.NR_template_group, opts.NR_template_param, \
+        wfP = nrwf.WaveformModeCatalog(opts.NR_signal_group, opts.NR_signal_param, \
                                            clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, 
                                        lmax=Lmax,align_at_peak_l2_m2_emission=True)
         mtot = Psig.m1 + Psig.m2
@@ -532,11 +534,15 @@ if opts.plot_ShowH: # and not bNoInteractivePlots:
     plt.figure(2)
     for det in detectors:
         hT = lalsimutils.DataInverseFourier(data_dict[det])  # complex inverse fft, for 2-sided data
+        # Roll so we are centered
+        hT = lalsimutils.DataRollBins(hT,-len(data_dict[det].data.data)/2)
         print "  : Confirm nonzero data! : ",det, np.max(np.abs(data_dict[det].data.data))
         tvals = float(hT.epoch - theEpochFiducial) + hT.deltaT*np.arange(len(hT.data.data))
         plt.plot(tvals, hT.data.data,label=det)
     plt.legend()
     plt.savefig("test_like_and_samp-frames-hoft."+fExtension)
+    plt.xlim(-0.5,0.5)  # usually centered around t=0
+    plt.savefig("test_like_and_samp-frames-zoomed-hoft."+fExtension)
     print " == Plotting TEMPLATE (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
     if Psig:
         P = Psig
@@ -623,11 +629,11 @@ except:
 
 TestDictionary = factored_likelihood_test.TestDictionaryDefault
 TestDictionary["DataReport"]             = True
-TestDictionary["DataReportTime"]             = False
+#TestDictionary["DataReportTime"]             = False
 TestDictionary["UVReport"]              =  analytic_signal  # this report is very confusing for real data
 # TestDictionary["UVReflection"]          = True
 # TestDictionary["QReflection"]          = False
-TestDictionary["Rho22Timeseries"]      = True
+TestDictionary["Rho22Timeseries"]      = False
 TestDictionary["lnLModelAtKnown"]  =  analytic_signal  # this report is very confusing for real data
 TestDictionary["lnLDataAtKnownPlusOptimalTimePhase"] = False
 TestDictionary["lnLAtKnown"]           = True
