@@ -560,6 +560,11 @@ def uniform_samp(a, b, x):   # I prefer to vectorize with the same call for all 
                 return 1.0/(b-a)
         else:
                 return 0
+def uniform_samp_cdf_inv_vector(a,b,p):
+    # relies on input being a numpy array, with range from 0 to 1
+    out= p.copy()
+    out = p*(b-a) + a
+    return out
 #uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
 uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
 
@@ -598,6 +603,11 @@ def dec_samp(x):
 
 cos_samp_vector = numpy.vectorize(cos_samp,otypes=[numpy.float])
 dec_samp_vector = numpy.vectorize(dec_samp,otypes=[numpy.float])
+def cos_samp_cdf_inv_vector(p):
+    return numpy.arccos( 2*p-1)   # returns from 0 to pi
+def dec_samp_cdf_inv_vector(p):
+    return numpy.arccos(2*p-1) - numpy.pi/2  # target from -pi/2 to pi/2
+
 
 def pseudo_dist_samp(r0,r):
         return r*r*numpy.exp( - (r0/r)*(r0/r)/2. + r0/r)+0.01  # put a floor on probability, so we converge. Note this floor only cuts out NEARBY distances
