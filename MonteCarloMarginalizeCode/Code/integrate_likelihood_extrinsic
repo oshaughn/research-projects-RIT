@@ -373,9 +373,11 @@ sampler = mcsampler.MCSampler()
 #
 psi_sampler = functools.partial(mcsampler.uniform_samp_vector, 
     param_limits["psi"][0], param_limits["psi"][1])
+psi_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
+    param_limits["psi"][0], param_limits["psi"][1])
 sampler.add_parameter("psi", 
     pdf = psi_sampler, 
-    cdf_inv = None, 
+    cdf_inv = psi_sampler_cdf_inv, 
     left_limit = param_limits["psi"][0], 
     right_limit = param_limits["psi"][1],
     prior_pdf = mcsampler.uniform_samp_psi)
@@ -386,9 +388,11 @@ sampler.add_parameter("psi",
 #
 phi_sampler = functools.partial(mcsampler.uniform_samp_vector, 
     param_limits["phi_orb"][0], param_limits["phi_orb"][1])
+phi_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
+    param_limits["phi_orb"][0], param_limits["phi_orb"][1])
 sampler.add_parameter("phi_orb",
     pdf = phi_sampler,
-    cdf_inv = None, 
+    cdf_inv = phi_sampler_cdf_inv,
     left_limit = param_limits["phi_orb"][0], 
     right_limit = param_limits["phi_orb"][1],
     prior_pdf = mcsampler.uniform_samp_phase)
@@ -398,9 +402,10 @@ sampler.add_parameter("phi_orb",
 # sampler: cos(incl) uniform in [-1, 1)
 #
 incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
+incl_sampler_cdf_inv = mcsampler.cos_samp_cdf_inv_vector
 sampler.add_parameter("inclination", 
     pdf = incl_sampler, 
-    cdf_inv = None, 
+    cdf_inv = incl_sampler_cdf_inv, 
     left_limit = param_limits["inclination"][0], 
     right_limit = param_limits["inclination"][1],
     prior_pdf = mcsampler.uniform_samp_theta)
@@ -411,9 +416,11 @@ sampler.add_parameter("inclination",
 #
 dist_sampler = functools.partial(mcsampler.uniform_samp_vector, 
     param_limits["distance"][0], param_limits["distance"][1])
+dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
+    param_limits["distance"][0], param_limits["distance"][1])
 sampler.add_parameter("distance", 
     pdf = dist_sampler, 
-    cdf_inv = None,
+    cdf_inv = dist_sampler_cdf_inv,
     left_limit = param_limits["distance"][0], 
     right_limit = param_limits["distance"][1],
     prior_pdf = numpy.vectorize(
@@ -447,9 +454,11 @@ else:
     #
     ra_sampler = functools.partial(mcsampler.uniform_samp_vector,
         param_limits["right_ascension"][0], param_limits["right_ascension"][1])
+    ra_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,
+        param_limits["right_ascension"][0], param_limits["right_ascension"][1])
     sampler.add_parameter("right_ascension", 
         pdf = ra_sampler, 
-        cdf_inv = None, 
+        cdf_inv = ra_sampler_cdf_inv, 
         left_limit = param_limits["right_ascension"][0],
         right_limit =  param_limits["right_ascension"][1],
         prior_pdf = mcsampler.uniform_samp_phase,
@@ -460,9 +469,10 @@ else:
     # sky sampler: cos(dec) uniform in [-1, 1), adaptive sampling
     #
     dec_sampler = mcsampler.dec_samp_vector
+    dec_sampler_cdf_inv = mcsampler.dec_samp_cdf_inv_vector
     sampler.add_parameter("declination", 
         pdf = dec_sampler, 
-        cdf_inv = None, 
+        cdf_inv = dec_sampler_cdf_inv, 
         left_limit = param_limits["declination"][0], 
         right_limit = param_limits["declination"][1],
         prior_pdf = mcsampler.uniform_samp_dec,
@@ -542,6 +552,8 @@ if not opts.time_marginalization:
     tref_sampler = functools.partial(mcsampler.uniform_samp_vector,
         param_limits["t_ref"][0], param_limits["t_ref"][1])
 
+    tref_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
+                                            param_limits["t_ref"][0], param_limits["t_ref"][1])
     sampler.add_parameter("t_ref", 
                           pdf = tref_sampler, 
                           cdf_inv = None, 
