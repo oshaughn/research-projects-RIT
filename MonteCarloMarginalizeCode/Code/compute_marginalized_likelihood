@@ -29,6 +29,13 @@ import dag_utils
 
 import regions
 
+try:
+	import NRWaveformCatalogManager as nrwf
+	useNR =True
+except:
+	useNR=False
+
+
 JOB_PRIORITIES = { "ILE": 10,
     "SQL": 1,
     "PLOT": 1
@@ -60,6 +67,180 @@ def get_coinc_xml(streamdata, working_dir='./'):
     with open(coincfile, 'w') as local_file:
         shutil.copyfileobj(remote_file, local_file)
 
+def evaluate_mass_grid_effective_fisher(m1_SI,m2_SI,opts):
+
+
+    template_min_freq = opts.fmin_template
+    ip_min_freq = opts.fmin_template
+    eff_fisher_psd = eval(opts.fisher_psd)
+    Nrandpts = opts.N_mass_pts # Requested number of pts to put inside the ellipsoid
+
+    analyticPSD_Q = True
+    # The next 4 lines set the maximum size of the region to explore
+    min_mc_factor = 0.9
+    max_mc_factor = 1.1
+    min_eta = 0.05
+    max_eta = 0.25
+    # Control evaluation of the effective Fisher grid
+    NMcs = 11
+    NEtas = 11
+    match_cntr = opts.match_value # Fill an ellipsoid of this match
+    wide_match = 1-(1-opts.match_value)**(2/3.0)
+    fit_cntr = match_cntr # Do the effective Fisher fit with pts above this match
+
+    #
+    # Setup signal and IP class
+    #
+    param_names = ['Mc', 'eta']
+    McSIG = lsu.mchirp(m1_SI, m2_SI)
+    etaSIG = lsu.symRatio(m1_SI, m2_SI)
+    PSIG = lsu.ChooseWaveformParams(
+        m1=m1_SI, m2=m2_SI,
+        fmin=template_min_freq,
+        approx=lalsim.GetApproximantFromString(opts.approximant)
+        )
+    # Find a deltaF sufficient for entire range to be explored
+    PTEST = PSIG.copy()
+    PTEST.m1, PTEST.m2 = lsu.m1m2(McSIG*min_mc_factor, min_eta)
+    # For very massive signals, the waveform might not be generated, so a good rule of thumb is about 4 sec
+#PSIG.deltaF = np.max([1./4., lsu.estimateDeltaF(PTEST)])#lsu.findDeltaF(PTEST)
+    if (m1+m2) > 30:
+        PSIG.deltaT = 1./16384  # use a high sampling rate
+        PSIG.fmin=5    # change minimum frequency to resolve high-mass physics
+        ip_min_freq = 5 # change minimum frequency to resolve high-mass physics
+        PSIG.deltaF =  lsu.findDeltaF(PTEST)#lsu.findDeltaF(PTEST)
+    if 1./PSIG.deltaF < 16:
+        PSIG.deltaF=1./16  # force a minimum 16 s window, regularizing behavior for high mass sources.
+    PTMPLT = PSIG.copy()
+
+    IP = lsu.Overlap(fLow = ip_min_freq,
+        deltaF = PSIG.deltaF,
+        fNyq = 1./(2*PSIG.deltaT),
+        psd = eff_fisher_psd,
+        analyticPSD_Q = analyticPSD_Q
+        )
+
+    hfSIG = lsu.norm_hoff(PSIG, IP)
+
+    # Find appropriate parameter ranges
+    min_mc = McSIG * min_mc_factor
+    max_mc = McSIG * max_mc_factor
+    param_ranges = eff.find_effective_Fisher_region(PSIG, IP, wide_match,
+        param_names, [[min_mc, max_mc],[min_eta, max_eta]])
+    print "Computing amibiguity function in the range:"
+    for i, param in enumerate(param_names):
+        if param=='Mc' or param=='m1' or param=='m2': # rescale output by MSUN
+            print "\t", param, ":", np.array(param_ranges[i])/lsu.lsu_MSUN,\
+                "(Msun)"
+        else:
+            print "\t", param, ":", param_ranges[i]
+
+    # setup uniform parameter grid for effective Fisher
+    pts_per_dim = [NMcs, NEtas]
+    Mcpts, etapts = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
+    etapts = map(lsu.sanitize_eta, etapts)
+    McMESH, etaMESH = eff.multi_dim_meshgrid(Mcpts, etapts)
+    McFLAT, etaFLAT = eff.multi_dim_flatgrid(Mcpts, etapts)
+    dMcMESH = McMESH - McSIG
+    detaMESH = etaMESH - etaSIG
+    dMcFLAT = McFLAT - McSIG
+    detaFLAT = etaFLAT - etaSIG
+    grid = eff.multi_dim_grid(Mcpts, etapts)
+
+    # Change units on Mc
+    dMcFLAT_MSUN = dMcFLAT / lsu.lsu_MSUN
+    dMcMESH_MSUN = dMcMESH / lsu.lsu_MSUN
+    McMESH_MSUN = McMESH / lsu.lsu_MSUN
+    McSIG_MSUN = McSIG / lsu.lsu_MSUN
+
+    # Evaluate ambiguity function on the grid
+    rhos = np.array(eff.evaluate_ip_on_grid(hfSIG, PTMPLT, IP, param_names, grid))
+    rhogrid = rhos.reshape(NMcs, NEtas)
+
+    # Fit to determine effective Fisher matrix
+    cut = rhos > fit_cntr
+    fitgamma = eff.effectiveFisher(eff.residuals2d, rhos[cut], dMcFLAT_MSUN[cut],
+        detaFLAT[cut])
+    # Find the eigenvalues/vectors of the effective Fisher matrix
+    gam = eff.array_to_symmetric_matrix(fitgamma)
+    evals, evecs, rot = eff.eigensystem(gam)
+
+    # Print information about the effective Fisher matrix
+    # and its eigensystem
+    print "Least squares fit finds g_Mc,Mc = ", fitgamma[0]
+    print "                        g_Mc,eta = ", fitgamma[1]
+    print "                        g_eta,eta = ", fitgamma[2]
+
+    print "\nFisher matrix:"
+    print "eigenvalues:", evals
+    print "eigenvectors:"
+    print evecs
+    print "rotation taking eigenvectors into Mc, eta basis:"
+    print rot
+
+    #
+    # Distribute points inside predicted ellipsoid of certain level of overlap
+    #
+    r1 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[0])) # ellipse radii ...
+    r2 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[1])) # ... along eigendirections
+    # Get pts. inside an ellipsoid oriented along eigenvectors
+    Nrad = 10 # N.B. hard-coded to assume 10 pts per radial spoke!
+    Nspokes = int(Nrandpts/Nrad)
+    # This angle ensures a spoke will be placed along the equal mass line.
+    # N.B. Nspokes must be even to ensure spokes along the equal mass line
+    # pointing both directions from the center!
+    ph0 = np.arctan(np.abs(r1) * (rot[0,1])/(np.abs(r2) * rot[0,0]) )
+    if opts.uniform_spoked:
+	print "Doing linear spoked placement"
+	cart_grid, sph_grid = eff.linear_spoked_ellipsoid(Nrad,Nspokes,[ph0],r1,r2)
+    elif opts.linear_spoked:
+	print "Doing uniform spoked placement"
+	cart_grid, sph_grid = eff.uniform_spoked_ellipsoid(Nrad,Nspokes,[ph0],r1,r2)
+    else: # do random, uniform placement
+	print "Doing uniform random placement"
+	cart_grid, sph_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
+    # Rotate to get coordinates in parameter basis
+    cart_grid = np.array([ np.real( np.dot(rot, cart_grid[i]))    for i in xrange(len(cart_grid)) ])
+    # Put in convenient units,
+    # change from parameter differential (i.e. dtheta)
+    # to absolute parameter value (i.e. theta = theta_true + dtheta)
+    rand_dMcs_MSUN, rand_detas = tuple(np.transpose(cart_grid)) # dMc, deta
+    rand_Mcs = rand_dMcs_MSUN * lsu.lsu_MSUN + McSIG # Mc (kg)
+    rand_etas = rand_detas + etaSIG # eta
+
+    # Prune points with unphysical values of eta from cart_grid
+    rand_etas = np.array(map(partial(lsu.sanitize_eta, exception=np.NAN), rand_etas))
+    cart_grid = np.transpose((rand_Mcs,rand_etas))
+    phys_cut = ~np.isnan(cart_grid).any(1) # cut to remove unphysical pts
+    cart_grid = cart_grid[phys_cut]
+    print "Requested", Nrandpts, "points inside the ellipsoid of",\
+        match_cntr, "match."
+    print "Kept", len(cart_grid), "points with physically allowed parameters."
+
+    # Output Cartesian and spherical coordinates of intrinsic grid
+    indices = np.arange(len(cart_grid))
+    Mcs_MSUN, etas = np.transpose(cart_grid)
+    Mcs_MSUN = Mcs_MSUN / lsu.lsu_MSUN
+    radii, angles = np.transpose(sph_grid[phys_cut])
+    outgrid = np.transpose((indices,Mcs_MSUN,etas,radii,angles))
+    # If clusters get upgraded, add this header to output:
+    # header='index Mc eta radius angle'
+    np.savetxt('intrinsic_grid.dat', outgrid)
+
+    # Output information about the intrinsic ellipsoid
+    area = np.pi * r1 * r2
+    frac_area = area * len(cart_grid) / Nrandpts
+    gam = np.real(gam)
+    test = np.concatenate((np.array([[McSIG/lsu.lsu_MSUN, etaSIG]]), gam,np.array([[r1,r2]]),np.array([[area, frac_area]]), np.array([[match_cntr,match_cntr]]) ))
+    # If clusters get upgraded, add this header to output:
+    #   header='grid center; 2x2 effective Fisher matrix, 4rd row: ellipsoid axes, 5th row: total ellipse area, estimated physical area'
+    np.savetxt('ellipsoid.dat', test)
+
+    # Convert to m1, m2
+    m1m2_grid = np.array([lsu.m1m2(cart_grid[i][0], cart_grid[i][1])
+                          for i in xrange(len(cart_grid))]) 
+    m1m2_grid /= lsu.lsu_MSUN
+    return m1m2_grid
 
 
 #
@@ -76,10 +257,13 @@ optp = OptionParser()
 optp.add_option("-w", "--working-directory", default="./", help="Directory in which to stage DAG components.")
 optp.add_option("-X", "--mass-points-xml", action="store_true", help="Output mass points as a sim_inspiral table.")
 optp.add_option("-N", "--N-mass-pts", type=int, default=200, help="Number of intrinsic parameter (mass) values at which to compute marginalized likelihood. Default is 200.")
-optp.add_option("--nr-grid",type=float,default=None,help="Ascii table of (group, name, masslist) used to generate massgrid for NR templates")
+optp.add_option("--nr-params",default=None, help="List of specific NR parameters and groups (and masses?) to use for the grid.")
 optp.add_option("--uniform-spoked", action="store_true", help="Place mass pts along spokes uniform in volume (if omitted placement will be random and uniform in volume")
 optp.add_option("--linear-spoked", action="store_true", help="Place mass pts along spokes linear in radial distance (if omitted placement will be random and uniform in volume")
+optp.add_option("--grid-cartesian", action="store_true", help="Place mass points using a cartesian grid")
 optp.add_option("--match-value", type=float, default=0.97, help="Use this as the minimum match value. Default is 0.97")
+
+optp.add_option("--fisher-psd",type=str,default="lalsim.SimNoisePSDaLIGOZeroDetHighPower",help="psd name ('eval'). lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, ... ")
 
 # Options transferred to ILE
 optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
@@ -133,6 +317,19 @@ if not opts.output_file:
     print " Output file required "
     sys.exit(0)
 
+
+#
+# Import NR grid
+#
+if opts.nr_params:
+    import re
+    datNR=[]
+    with open(opts.nr_params, "r") as f:
+        for line in f:
+            line=line.strip()
+            line = line.partition('#')[0]
+            line=re.split('\s+', line)
+            datNR.append(line[0:3])    # take first 3 - required.
 
 
 # Move to working directory for generation
@@ -212,176 +409,9 @@ print "Computing marginalized likelihood in a neighborhood about intrinsic param
 # FIXME: Hardcoded values - eventually promote to command line arguments
 #
 log_dir="%s/logs/" % opts.working_directory # directory to hold
-template_min_freq = opts.fmin_template
-ip_min_freq = opts.fmin_template
-eff_fisher_psd = lal.LIGOIPsd
-analyticPSD_Q = True
-# The next 4 lines set the maximum size of the region to explore
-min_mc_factor = 0.9
-max_mc_factor = 1.1
-min_eta = 0.05
-max_eta = 0.25
-# Control evaluation of the effective Fisher grid
-NMcs = 11
-NEtas = 11
-match_cntr = opts.match_value # Fill an ellipsoid of this match
-wide_match = 1-(1-opts.match_value)**(2/3.0)
-fit_cntr = match_cntr # Do the effective Fisher fit with pts above this match
-Nrandpts = opts.N_mass_pts # Requested number of pts to put inside the ellipsoid
 
-#
-# Setup signal and IP class
-#
-param_names = ['Mc', 'eta']
-McSIG = lsu.mchirp(m1_SI, m2_SI)
-etaSIG = lsu.symRatio(m1_SI, m2_SI)
-PSIG = lsu.ChooseWaveformParams(
-        m1=m1_SI, m2=m2_SI,
-        fmin=template_min_freq,
-        approx=lalsim.GetApproximantFromString(opts.approximant)
-        )
-# Find a deltaF sufficient for entire range to be explored
-PTEST = PSIG.copy()
-PTEST.m1, PTEST.m2 = lsu.m1m2(McSIG*min_mc_factor, min_eta)
-# For very massive signals, the waveform might not be generated, so a good rule of thumb is about 4 sec
-#PSIG.deltaF = np.max([1./4., lsu.estimateDeltaF(PTEST)])#lsu.findDeltaF(PTEST)
-if (m1+m2) > 30:
-    PSIG.deltaT = 1./16384  # use a high sampling rate
-    PSIG.fmin=5    # change minimum frequency to resolve high-mass physics
-    ip_min_freq = 5 # change minimum frequency to resolve high-mass physics
-PSIG.deltaF =  lsu.findDeltaF(PTEST)#lsu.findDeltaF(PTEST)
-if 1./PSIG.deltaF < 16:
-    PSIG.deltaF=1./16  # force a minimum 16 s window, regularizing behavior for high mass sources.
-PTMPLT = PSIG.copy()
+m1m2_grid= evaluate_mass_grid_effective_fisher(m1_SI, m2_SI, opts)
 
-IP = lsu.Overlap(fLow = ip_min_freq,
-        deltaF = PSIG.deltaF,
-        fNyq = 1./(2*PSIG.deltaT),
-        psd = eff_fisher_psd,
-        analyticPSD_Q = analyticPSD_Q
-        )
-
-hfSIG = lsu.norm_hoff(PSIG, IP)
-
-# Find appropriate parameter ranges
-min_mc = McSIG * min_mc_factor
-max_mc = McSIG * max_mc_factor
-param_ranges = eff.find_effective_Fisher_region(PSIG, IP, wide_match,
-        param_names, [[min_mc, max_mc],[min_eta, max_eta]])
-print "Computing amibiguity function in the range:"
-for i, param in enumerate(param_names):
-    if param=='Mc' or param=='m1' or param=='m2': # rescale output by MSUN
-        print "\t", param, ":", np.array(param_ranges[i])/lsu.lsu_MSUN,\
-                "(Msun)"
-    else:
-        print "\t", param, ":", param_ranges[i]
-
-# setup uniform parameter grid for effective Fisher
-pts_per_dim = [NMcs, NEtas]
-Mcpts, etapts = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
-etapts = map(lsu.sanitize_eta, etapts)
-McMESH, etaMESH = eff.multi_dim_meshgrid(Mcpts, etapts)
-McFLAT, etaFLAT = eff.multi_dim_flatgrid(Mcpts, etapts)
-dMcMESH = McMESH - McSIG
-detaMESH = etaMESH - etaSIG
-dMcFLAT = McFLAT - McSIG
-detaFLAT = etaFLAT - etaSIG
-grid = eff.multi_dim_grid(Mcpts, etapts)
-
-# Change units on Mc
-dMcFLAT_MSUN = dMcFLAT / lsu.lsu_MSUN
-dMcMESH_MSUN = dMcMESH / lsu.lsu_MSUN
-McMESH_MSUN = McMESH / lsu.lsu_MSUN
-McSIG_MSUN = McSIG / lsu.lsu_MSUN
-
-# Evaluate ambiguity function on the grid
-rhos = np.array(eff.evaluate_ip_on_grid(hfSIG, PTMPLT, IP, param_names, grid))
-rhogrid = rhos.reshape(NMcs, NEtas)
-
-# Fit to determine effective Fisher matrix
-cut = rhos > fit_cntr
-fitgamma = eff.effectiveFisher(eff.residuals2d, rhos[cut], dMcFLAT_MSUN[cut],
-        detaFLAT[cut])
-# Find the eigenvalues/vectors of the effective Fisher matrix
-gam = eff.array_to_symmetric_matrix(fitgamma)
-evals, evecs, rot = eff.eigensystem(gam)
-
-# Print information about the effective Fisher matrix
-# and its eigensystem
-print "Least squares fit finds g_Mc,Mc = ", fitgamma[0]
-print "                        g_Mc,eta = ", fitgamma[1]
-print "                        g_eta,eta = ", fitgamma[2]
-
-print "\nFisher matrix:"
-print "eigenvalues:", evals
-print "eigenvectors:"
-print evecs
-print "rotation taking eigenvectors into Mc, eta basis:"
-print rot
-
-#
-# Distribute points inside predicted ellipsoid of certain level of overlap
-#
-r1 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[0])) # ellipse radii ...
-r2 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[1])) # ... along eigendirections
-# Get pts. inside an ellipsoid oriented along eigenvectors
-Nrad = 10 # N.B. hard-coded to assume 10 pts per radial spoke!
-Nspokes = int(Nrandpts/Nrad)
-# This angle ensures a spoke will be placed along the equal mass line.
-# N.B. Nspokes must be even to ensure spokes along the equal mass line
-# pointing both directions from the center!
-ph0 = np.arctan(np.abs(r1) * (rot[0,1])/(np.abs(r2) * rot[0,0]) )
-if opts.linear_spoked:
-	print "Doing linear spoked placement"
-	cart_grid, sph_grid = eff.linear_spoked_ellipsoid(Nrad,Nspokes,[ph0],r1,r2)
-elif opts.uniform_spoked:
-	print "Doing uniform spoked placement"
-	cart_grid, sph_grid = eff.uniform_spoked_ellipsoid(Nrad,Nspokes,[ph0],r1,r2)
-else: # do random, uniform placement
-	print "Doing uniform random placement"
-	cart_grid, sph_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
-# Rotate to get coordinates in parameter basis
-cart_grid = np.array([ np.real( np.dot(rot, cart_grid[i]))
-    for i in xrange(len(cart_grid)) ])
-# Put in convenient units,
-# change from parameter differential (i.e. dtheta)
-# to absolute parameter value (i.e. theta = theta_true + dtheta)
-rand_dMcs_MSUN, rand_detas = tuple(np.transpose(cart_grid)) # dMc, deta
-rand_Mcs = rand_dMcs_MSUN * lsu.lsu_MSUN + McSIG # Mc (kg)
-rand_etas = rand_detas + etaSIG # eta
-
-# Prune points with unphysical values of eta from cart_grid
-rand_etas = np.array(map(partial(lsu.sanitize_eta, exception=np.NAN), rand_etas))
-cart_grid = np.transpose((rand_Mcs,rand_etas))
-phys_cut = ~np.isnan(cart_grid).any(1) # cut to remove unphysical pts
-cart_grid = cart_grid[phys_cut]
-print "Requested", Nrandpts, "points inside the ellipsoid of",\
-        match_cntr, "match."
-print "Kept", len(cart_grid), "points with physically allowed parameters."
-
-# Output Cartesian and spherical coordinates of intrinsic grid
-indices = np.arange(len(cart_grid))
-Mcs_MSUN, etas = np.transpose(cart_grid)
-Mcs_MSUN = Mcs_MSUN / lsu.lsu_MSUN
-radii, angles = np.transpose(sph_grid[phys_cut])
-outgrid = np.transpose((indices,Mcs_MSUN,etas,radii,angles))
-# If clusters get upgraded, add this header to output:
-# header='index Mc eta radius angle'
-np.savetxt('intrinsic_grid.dat', outgrid)
-
-# Output information about the intrinsic ellipsoid
-area = np.pi * r1 * r2
-frac_area = area * len(cart_grid) / Nrandpts
-gam = np.real(gam)
-test = np.concatenate((np.array([[McSIG/lsu.lsu_MSUN, etaSIG]]), gam,np.array([[r1,r2]]),np.array([[area, frac_area]]), np.array([[match_cntr,match_cntr]]) ))
-# If clusters get upgraded, add this header to output:
-#   header='grid center; 2x2 effective Fisher matrix, 4rd row: ellipsoid axes, 5th row: total ellipse area, estimated physical area'
-np.savetxt('ellipsoid.dat', test)
-
-# Convert to m1, m2
-m1m2_grid = np.array([lsu.m1m2(cart_grid[i][0], cart_grid[i][1])
-        for i in xrange(len(cart_grid))])
-m1m2_grid /= lsu.lsu_MSUN
 
 from glue.ligolw import utils, ligolw, lsctables, ilwd
 from glue.ligolw.utils import process
@@ -528,4 +558,4 @@ dag.set_dag_file(dag_name)
 dag.write_concrete_dag()
 
 print "Created a DAG named %s\n" % dag_name
-print "This will run %i instances of %s in parallel\n" % (len(cart_grid), ile_sub_name)
+print "This will run %i instances of %s in parallel\n" % (len(m1m2_grid), ile_sub_name)
