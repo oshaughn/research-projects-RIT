@@ -14,6 +14,11 @@ from statutils import cumvar
 
 from multiprocessing import Pool
 
+try:
+    import vegas
+except:
+    print " - No vegas - "
+
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
 rosDebugMessages = True
@@ -233,6 +238,80 @@ class MCSampler(object):
         if kwargs.has_key("rdict"):
             return dict(zip(args, res))
         return zip(*res)
+
+
+    def integrate_vegas(self, func, *args, **kwargs):
+        """
+        Uses vegas to do the integral.  Does not return sample points
+        Remember:   pdf, cdf_inv refer to the *sampling* prior, so I need to multiply the integrand by a PDF ratio product!
+        """
+        # Method: use loop over params (=args), 
+        #
+        # Pin values
+        #
+        tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
+        temppdfnormdict = defaultdict(lambda: 1.0)
+        for p, val in kwargs.iteritems():
+            if p in self.params:
+                # Store the previous pdf/cdf in case it's already defined
+                tempcdfdict[p] = self.cdf_inv[p]
+                temppdfdict[p] = self.pdf[p]
+                temppdfnormdict[p] = self._pdf_norm[p]
+                temppriordict[p] = self.prior_pdf[p]
+                # Set a new one to always return the same value
+                self.pdf[p] = functools.partial(delta_func_pdf_vector, val)
+                self._pdf_norm[p] = 1.0
+                self.prior_pdf[p] = functools.partial(delta_func_pdf_vector, val)
+                self.cdf_inv[p] = functools.partial(delta_func_samp_vector, val)
+
+        #
+        # Determine stopping conditions
+        #
+        nmax = kwargs["nmax"] if kwargs.has_key("nmax") else 1e6
+        neff = kwargs["neff"] if kwargs.has_key("neff") else 1000
+        n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)  # chunk size
+        nBlocks = 10
+        n_itr = numpy.max([10,numpy.min([20,int(nmax/nBlocks/n)])])  # largest number to use
+
+
+        # What I am actually doing: an n-dimensional integral with vegas, using the CDF function to generate the parameter
+        # range.
+        paramListDefault = kwargs['param_order'] # do not try to get it from the function
+        strToEval = "lambda x: func("
+        for indx in numpy.arange(len(paramListDefault)):
+            strToEval+= 'self.cdf_inv["'+str(paramListDefault[indx])+'"](x['+str(indx)+']),'
+        strToEval=strToEval[:len(strToEval)-1]  # drop last comma
+        strToEval += ')'
+        # multiply by ratio of p/ps
+        for indx in numpy.arange(len(paramListDefault)):
+            strToEval+= '*( self.prior_pdf["'+str(paramListDefault[indx])+'"](x['+str(indx)+'])/(self.pdf["'+str(paramListDefault[indx])+'"](x['+str(indx)+'])/self._pdf_norm["'  +str(paramListDefault[indx])+ '"] ))'
+        print strToEval
+        fnToUse = eval(strToEval,{'func':func, 'self':self})  # evaluate in context
+#        fnToUse =vegas.batchintegrand(fnToUse)   # batch mode
+#        print fnToUse
+#        grid = numpy.zeros((len(paramListDefault), 2))
+#        grid[:,1] = numpy.ones(len(paramListDefault))
+        integ = vegas.Integrator( len(paramListDefault)*[[0,1]]) # generate the grid
+        # quick and dirty training
+        print 'Start training'
+        result = integ(fnToUse,nitn=10, neval=1000)
+        print result.summary()
+        # result -- problem of very highly peaked function, not clear if vanilla vegas is smart enough.
+        # Loop over blocks of 1000 evaluations, and check that final chi2/dof  is within 0.05 of 1
+        bDone = False
+        alphaRunning = numpy.min([0.1, 8/numpy.log(result.mean)])   # constrain dynamic range to a reaonsable range
+        print 'Start full  : WARNING VEGAS TENDS TO OVERADAPT given huge dynamic range'
+        while (not bDone and nBlocks):  # this is basically training
+            print " Block run " , n_itr, n
+            result=integ(fnToUse,nitn=n_itr, neval=n)
+            alphaRunning = numpy.min([0.1, 8/numpy.log(result.mean)])   # constrain dynamic range to a reaonsable range
+            print nBlocks, numpy.sqrt(2*numpy.log(result.mean)), result.sdev/result.mean, result.chi2/result.dof, alphaRunning
+            print result.summary()
+            nBlocks+= -1
+            if numpy.abs(result.chi2/result.dof - 1) < 0.05:
+                bDone =True
+        print result.summary()
+        return result
 
     #
     # FIXME: The priors are not strictly part of the MC integral, and so any
