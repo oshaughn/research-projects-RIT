@@ -132,7 +132,7 @@ if opts.nr_params and opts.nr_index>-1:
 
     print " Using simulation ", datNR[opts.nr_index]
     NR_template_group = datNR[opts.nr_index][0]
-    NR_template_param =datNR[opts.nr_index][1]
+    NR_template_param =eval(datNR[opts.nr_index][1])
 
 #
 # Hardcoded variables
