@@ -687,7 +687,6 @@ nEvals = 0
 if not opts.LikelihoodType_MargTdisc_array:
     def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance): # right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
         global nEvals
-        global pdfFullPrior
         global lnLOffsetValue
 
 #        if opts.rotate_sky_coordinates:
@@ -701,13 +700,13 @@ if not opts.LikelihoodType_MargTdisc_array:
                 th,ph = rotate_sky_backwards(np.pi/2 - th,ph)
                 th = np.pi/2 - th
                 ph = np.mod(ph, 2*np.pi)
-            P.phi = ph # right ascension
-            P.theta = th # declination
-            P.tref = theEpochFiducial + tr # ref. time (rel to epoch for data taking)
-            P.phiref = phr # ref. orbital phase
-            P.incl = ic # inclination
+            P.phi = float(ph) # right ascension
+            P.theta = float(th) # declination
+            P.tref = float(theEpochFiducial + tr) # ref. time (rel to epoch for data taking)
+            P.phiref = float(phr) # ref. orbital phase
+            P.incl = float(ic) # inclination
             P.psi = ps # polarization angle
-            P.dist = di*1e6*lalsimutils.lsu_PC # luminosity distance.  The sampler assumes Mpc; P requires SI
+            P.dist = float(di*1e6*lalsimutils.lsu_PC) # luminosity distance.  The sampler assumes Mpc; P requires SI
             lnL[i] = factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
             i+=1
 
@@ -717,6 +716,7 @@ if not opts.LikelihoodType_MargTdisc_array:
 else: # Sum over time for every point in other extrinsic params
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
+        global nEvals
         global lnLOffsetValue
         # use EXTREMELY many bits
         lnL = np.zeros(right_ascension.shape,dtype=np.float128)
@@ -734,19 +734,20 @@ else: # Sum over time for every point in other extrinsic params
                 th = np.pi/2 - th
                 ph = np.mod(ph, 2*np.pi)
 
-            P.phi = ph # right ascension
-            P.theta = th # declination
-            P.tref = theEpochFiducial  # see 'tvals', above
-            P.phiref = phr # ref. orbital phase
-            P.incl = ic # inclination
-            P.psi = ps # polarization angle
-            P.dist = di* 1.e6 * lalsimutils.lsu_PC # luminosity distance
+            P.phi = float(ph) # right ascension
+            P.theta = float(th) # declination
+            P.tref = float(theEpochFiducial)  # see 'tvals', above
+            P.phiref = float(phr) # ref. orbital phase
+            P.incl = float(ic) # inclination
+            P.psi = float(ps) # polarization angle
+            P.dist = float(di* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
 
             lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
                     P, rholms_intp,rholms, crossTerms,                   
                     Lmax)
             i+=1
         
+        nEvals +=i # len(tvals)  # go forward using length of tvals
         return np.exp(lnL-lnLOffsetValue)
 
 import mcsampler
@@ -866,7 +867,7 @@ retNiceIndexed = np.array(np.reshape(ret,-1)).view(dtype=zip(field_names, ['floa
 
 tGPSEnd = lal.GPSTimeNow()
 print "Parameters returned by this integral ",  sampler._rvs.keys(), len(sampler._rvs)
-ntotal = opts.nmax  # Not true in general
+ntotal = nEvals # opts.nmax  # Not true in general
 print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
 print " lnLmarg is ", np.log(res), " with nominal relative sampling error ", np.sqrt(var)/res, " but a more reasonable estimate based on the lnL history is " #, np.std(lnLmarg - np.log(res))
 print " expected largest value is ", rho2Net/2, "and observed largest lnL is ", np.max(np.transpose(ret)[-1])
@@ -876,7 +877,7 @@ print "==Returned dictionary==="
 print dict_return
 
 
-print "==Profiling info (assuming MAXIMUM evals hit)==="
+print "==Profiling info==="
 print "   - Time per L evaluation ", float(tGPSEnd-tGPSStart)/ntotal
 print "   - Time per neff             ", float(tGPSEnd-tGPSStart)/neff
 
