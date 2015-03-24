@@ -54,6 +54,8 @@ optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS fil
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
 optp.add_option("--fmin-template", dest='fmin_template', type=float, default=40, help="Waveform starting frequency.  Default is 40 Hz.") 
+optp.add_option("--nr-params",default=None, help="List of specific NR parameters and groups (and masses?) to use for the grid.")
+optp.add_option("--nr-index",type=int,default=-1,help="Index of specific NR simulation to use [integer]. Mass used: mtot= m1+m2")
 optp.add_option("-a", "--approximant", default="TaylorT4", help="Waveform family to use for templates. Any approximant implemented in LALSimulation is valid.")
 optp.add_option("-A", "--amp-order", type=int, default=0, help="Include amplitude corrections in template waveforms up to this e.g. (e.g. 5 <==> 2.5PN), default is Newtonian order.")
 optp.add_option("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")
@@ -112,6 +114,25 @@ if opts.data_start_time is None and opts.data_end_time is not None:
     raise ValueError("You must provide both or neither of --data-start-time and --data-end-time.")
 if opts.data_end_time is None and opts.data_start_time is not None:
     raise ValueError("You must provide both or neither of --data-start-time and --data-end-time.")
+
+#
+# Import NR grid
+#    - FIXME: Modify to use json not text.
+#
+if opts.nr_params and opts.nr_index>-1:
+    import re
+    datNR=[]
+    with open(opts.nr_params, "r") as f:
+        for line in f:
+            line=line.strip()
+            line = line.partition('#')[0]
+            line=re.split('\s+', line)
+            if len(line)>=3:
+                    datNR.append(line[0:3])    # take first 3 - required.
+
+    print " Using simulation ", datNR[opts.nr_index]
+    NR_template_group = datNR[opts.nr_index][0]
+    NR_template_param =datNR[opts.nr_index][1]
 
 #
 # Hardcoded variables
@@ -303,7 +324,8 @@ P.deltaF = deltaF
 t_window = 0.15
 rholms_intp, cross_terms, rholms=factored_likelihood.PrecomputeLikelihoodTerms(
         fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
-        False, inv_spec_trunc_Q, T_spec)
+        False, inv_spec_trunc_Q, T_spec,
+        NR_group=NR_template_group,NR_param=NR_template_param)
 
 if opts.pin_to_sim:
     P.copy_lsctables_sim_inspiral(sim_row)
