@@ -313,6 +313,8 @@ optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
 
+print opts
+
 if not opts.output_file:
     print " Output file required "
     sys.exit(0)
@@ -329,8 +331,12 @@ if opts.nr_params:
             line=line.strip()
             line = line.partition('#')[0]
             line=re.split('\s+', line)
-            datNR.append(line[0:3])    # take first 3 - required.
+            if len(line)>=3:
+                    datNR.append(line[0:3])    # take first 3 - required.
 
+    # Construct table of mass ratios and masses - we will NOT fix the NR simulations
+        qset = map(lambda x: [nrwf.internal_WaveformMetadata[x[0]][eval(x[1])]['q'],x[0],x[1]], datNR)
+    print " NR mass ratio list and simulation ", qset
 
 # Move to working directory for generation
 os.chdir(opts.working_directory)
@@ -410,7 +416,33 @@ print "Computing marginalized likelihood in a neighborhood about intrinsic param
 #
 log_dir="%s/logs/" % opts.working_directory # directory to hold
 
-m1m2_grid= evaluate_mass_grid_effective_fisher(m1_SI, m2_SI, opts)
+if not opts.nr_params:
+        m1m2_grid= evaluate_mass_grid_effective_fisher(m1_SI, m2_SI, opts)
+else:
+        # Use an NR grid layout: mass grid is tied to the q ratio.
+        # For each element of the grid, there is a UNIQUE nr simulation
+        # This list needs to be written to disk.
+        # It * SHOULD *  a DOWNSELECTED set of the original grid, as needed
+        # Downselect is based on EOB (?)
+        #    nr_search_params.txt  
+        #   ------------------------------
+        #   indx m1 m2 group param
+        #
+        mtot  = m1+m2
+        mtot_list_total =[150,200,250,300,350,400,500]
+        m1m2_grid = []
+        nr_param_list = []
+        indx = 0
+        for m in mtot_list_total:
+                for sim in qset:
+                        qnow = sim[0]
+                        m1m2_grid.append( [m/(1.+qnow), m*qnow/(1.+qnow)])
+                        nr_param_list.append( [indx, m1m2_grid[-1][0], m1m2_grid[-1][1], sim[1],sim[2]])
+                        indx+=1
+
+        print "Here is the grid", m1m2_grid
+
+                        
 
 
 from glue.ligolw import utils, ligolw, lsctables, ilwd
@@ -459,6 +491,7 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         reference_freq=opts.reference_freq,
         fmin_template=opts.fmin_template,
         fmax=opts.fmax,
+        nr_params=opts.nr_params,
 		approximant=opts.approximant,
 		amp_order=opts.amp_order,
 		l_max=opts.l_max,
