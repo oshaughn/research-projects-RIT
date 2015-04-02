@@ -1843,9 +1843,10 @@ def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     fmax = fmax or psd_fmax
     df = df or psd_df
 
-    f = np.arange(psd_fmin, psd_fmax, psd_df)
     # Proposed new faster interpolation -- the other code to call 1d interpolation uses several slow map functions
+    f = np.arange(fmin,fmax,df)
     psd_intp = interpolate.griddata( fvals_orig,data,f,fill_value=float("inf"))
+    #f = np.arange(psd_fmin, psd_fmax, psd_df)
     # ifunc = interpolate.interp1d(f, data)
     # def intp_psd(freq):
     #     return float("inf") if freq >= psd_fmax-psd_df or ifunc(freq) == 0.0 else ifunc(freq)
