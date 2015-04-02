@@ -48,14 +48,21 @@ Examples:
 try:
     import matplotlib
     #matplotlib.use("Agg")
-    if matplotlib.get_backend is not 'TkAgg':  # on cluster
-        matplotlib.use("GDK")
+    print matplotlib.get_backend()
+#    if matplotlib.get_backend() is not 'TkAgg':  # on cluster
+#        matplotlib.use("GDK")
+    fExtension = "png"
+    if matplotlib.get_backend() is 'agg':
+        fExtension="png"
+    if matplotlib.get_backend() is 'MacOSX':
+        fExtension='jpeg'
     from matplotlib import pylab as plt
     bNoInteractivePlots = False  # Move towards saved fig plots, for speed
-    fExtension = "jpeg"
+    bNoMatplotlib = False
 except:
     print "- no matplotlib -"
     bNoInteractivePlots = True
+    bNoMatplotlib=True
 
 
 
@@ -531,7 +538,7 @@ for det in detectors:
     print det, " rho = ", rhoDet
 print "Network : ", np.sqrt(rho2Net)
 
-if opts.plot_ShowH: # and not bNoInteractivePlots:
+if opts.plot_ShowH and not bNoMatplotlib: # and not bNoInteractivePlots:
     print " == Plotting FRAME DATA == "
     plt.figure(2)
     for det in detectors:
