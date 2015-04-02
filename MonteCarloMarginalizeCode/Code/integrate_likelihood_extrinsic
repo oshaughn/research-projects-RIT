@@ -119,6 +119,8 @@ if opts.data_end_time is None and opts.data_start_time is not None:
 # Import NR grid
 #    - FIXME: Modify to use json not text.
 #
+NR_template_group=None
+NR_template_param=None
 if opts.nr_params and opts.nr_index>-1:
     import re
     datNR=[]
@@ -373,12 +375,23 @@ if opts.pin_to_sim:
 # Set up parameters and bounds
 #
 
+# PROBLEM: if too large, you can MISS a source. Does NOT need to be fixed for all masses *IF* the problem really has strong support
 dmin = 1.    # min distance
 dmax = 10000.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 
+crossTermNet = 0
+for key in cross_terms.keys():
+    crossTermNet += float(numpy.abs(cross_terms[key][(2,2),(2,2)]))
+dmax_sampling_guess = factored_likelihood.distMpcRef*numpy.min([(0.5/numpy.sqrt(crossTermNet)), dmax])
+distBoundGuess = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, cross_terms)
+print " distance probably less than ", distBoundGuess, " Mpc"
+
+
+print "++Maximum distance for sampling ", dmax_sampling_guess, " and probably near ", distBoundGuess, " smaller than  ", dmax, " ++"
+
 param_limits = { "psi": (0, 2*numpy.pi),
     "phi_orb": (0, 2*numpy.pi),
-    "distance": (dmin, dmax),
+    "distance": (dmin, dmax_sampling_guess),   # designed to not change the integrand: as if we integrated all the way to dmax
     "right_ascension": (0, 2*numpy.pi),
     "declination": (-numpy.pi/2, numpy.pi/2),
     "t_ref": (-t_ref_wind, t_ref_wind),
