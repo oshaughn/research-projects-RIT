@@ -1831,9 +1831,11 @@ def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     # handle pylal REAL8FrequencySeries
     if isinstance(psd, pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
         psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data), psd.deltaF, psd.data
+        fvals_orig = psd.f0 + np.arange(len(psd.data))*psd.deltaF
     # handle SWIG REAL8FrequencySeries
     elif isinstance(psd, lal.REAL8FrequencySeries):
         psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data.data), psd.deltaF, psd.data.data
+        fvals_orig = psd.f0 + np.arange(psd.data.length)*psd_df
     # die horribly
     else:
         raise ValueError("resample_psd_series: Don't know how to handle %s." % type(psd))
@@ -1842,11 +1844,13 @@ def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     df = df or psd_df
 
     f = np.arange(psd_fmin, psd_fmax, psd_df)
-    ifunc = interpolate.interp1d(f, data)
-    def intp_psd(freq):
-        return float("inf") if freq >= psd_fmax-psd_df or ifunc(freq) == 0.0 else ifunc(freq)
-    intp_psd = np.vectorize(intp_psd)
-    psd_intp = intp_psd(np.arange(fmin, fmax, df))
+    # Proposed new faster interpolation -- the other code to call 1d interpolation uses several slow map functions
+    psd_intp = interpolate.griddata( fvals_orig,data,f,fill_value=float("inf"))
+    # ifunc = interpolate.interp1d(f, data)
+    # def intp_psd(freq):
+    #     return float("inf") if freq >= psd_fmax-psd_df or ifunc(freq) == 0.0 else ifunc(freq)
+    # intp_psd = np.vectorize(intp_psd)
+    # psd_intp = intp_psd(np.arange(fmin, fmax, df))
 
     tmpepoch = lal.LIGOTimeGPS(float(psd.epoch))
     # FIXME: Reenable when we figure out generic error
