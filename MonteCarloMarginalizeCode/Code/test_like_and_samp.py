@@ -604,20 +604,28 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
 #
 rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime,NR_group=opts.NR_template_group,NR_param=opts.NR_template_param)
 
-# set the lnL overflow value using the peak U value
-lnLOffsetValue = 0
-for det in crossTerms.keys():
-    for mode in crossTerms[det].keys():  # actually a loop over pairs
-        if np.abs(crossTerms[det][mode]) > lnLOffsetValue:
-            lnLOffsetValue = np.abs(crossTerms[det][mode])
-
-print "using lnL offset value ", lnLOffsetValue
 
 epoch_post = theEpochFiducial # Suggested change.  BE CAREFUL: Now that we trim the series, this is NOT what I used to be
 print "Finished Precomputation..."
 print "====Generating metadata from precomputed results ====="
 distBoundGuess = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, crossTerms)
 print " distance probably less than ", distBoundGuess, " Mpc"
+
+# set the lnL overflow value using the peak U value, scaled
+print "===Setting lnL offset to minimize overflow==="
+lnLOffsetValue = 0
+for det in crossTerms.keys():
+    for mode in crossTerms[det].keys():  # actually a loop over pairs
+        if np.abs(crossTerms[det][mode]) > lnLOffsetValue:
+            lnLOffsetValue = 0.2*np.abs(crossTerms[det][mode])*(factored_likelihood.distMpcRef/distBoundGuess)**2
+#lnLOffsetValue =0
+print "+++using lnL offset value++", lnLOffsetValue
+if lnLOffsetValue > 200:
+    print " ARE YOU SURE THIS LARGE OF AN OFFSET IS A GOOD IDEA?"
+    print " ARE YOU REMOTELY CLOSE TO THE CORRECT PART OF PARAMETER SPACE?"
+
+
+
 
 try:
     print "====Loading metadata from previous runs (if any): <base>-seed-data.dat ====="
