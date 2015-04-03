@@ -382,16 +382,16 @@ dmax = 10000.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 crossTermNet = 0
 for key in cross_terms.keys():
     crossTermNet += float(numpy.abs(cross_terms[key][(2,2),(2,2)]))
-dmax_sampling_guess = factored_likelihood.distMpcRef*numpy.min([(0.5/numpy.sqrt(crossTermNet)), dmax])
+# first estimate tends to have problems for NR
+dmax_sampling_guess = numpy.min([factored_likelihood.distMpcRef*(0.5/numpy.sqrt(crossTermNet)), dmax])
 distBoundGuess = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, cross_terms)
-print " distance probably less than ", distBoundGuess, " Mpc"
 
 
 print "++Maximum distance for sampling ", dmax_sampling_guess, " and probably near ", distBoundGuess, " smaller than  ", dmax, " ++"
 
 param_limits = { "psi": (0, 2*numpy.pi),
     "phi_orb": (0, 2*numpy.pi),
-    "distance": (dmin, dmax_sampling_guess),   # designed to not change the integrand: as if we integrated all the way to dmax
+    "distance": (dmin, distBoundGuess),   # designed to not change the integrand: as if we integrated all the way to dmax
     "right_ascension": (0, 2*numpy.pi),
     "declination": (-numpy.pi/2, numpy.pi/2),
     "t_ref": (-t_ref_wind, t_ref_wind),
