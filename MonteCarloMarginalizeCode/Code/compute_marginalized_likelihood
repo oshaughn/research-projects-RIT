@@ -255,6 +255,7 @@ LIKELIHOOD_PINNABLE_PARAMS = ["right ascension", "declination"]
 optp = OptionParser()
 # Options needed by this program only.
 optp.add_option("-w", "--working-directory", default="./", help="Directory in which to stage DAG components.")
+optp.add_option("--produce-plots", default=False,action='store_true',help="By default, the triplots and SQL generation is NOT included.")
 optp.add_option("-X", "--mass-points-xml", action="store_true", help="Output mass points as a sim_inspiral table.")
 optp.add_option("-N", "--N-mass-pts", type=int, default=200, help="Number of intrinsic parameter (mass) values at which to compute marginalized likelihood. Default is 200.")
 optp.add_option("--nr-params",default=None, help="List of specific NR parameters and groups (and masses?) to use for the grid.")
@@ -262,7 +263,6 @@ optp.add_option("--uniform-spoked", action="store_true", help="Place mass pts al
 optp.add_option("--linear-spoked", action="store_true", help="Place mass pts along spokes linear in radial distance (if omitted placement will be random and uniform in volume")
 optp.add_option("--grid-cartesian", action="store_true", help="Place mass points using a cartesian grid")
 optp.add_option("--match-value", type=float, default=0.97, help="Use this as the minimum match value. Default is 0.97")
-
 optp.add_option("--fisher-psd",type=str,default="lalsim.SimNoisePSDaLIGOZeroDetHighPower",help="psd name ('eval'). lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, ... ")
 
 # Options transferred to ILE
@@ -527,8 +527,8 @@ pos_plot_node.set_category("PLOT")
 pos_plot_node.set_priority(JOB_PRIORITIES["PLOT"])
 dag.add_node(pos_plot_node)
 
-sql_job_type, sql_job_name = dag_utils.write_result_coalescence_sub(tag="coalesce", log_dir=log_dir)
-sql_job_type.write_sub_file()
+#sql_job_type, sql_job_name = dag_utils.write_result_coalescence_sub(tag="coalesce", log_dir=log_dir)
+#sql_job_type.write_sub_file()
 
 for i, (m1, m2) in enumerate(m1m2_grid):
     ile_node = pipeline.CondorDAGNode(ile_job_type)
@@ -544,44 +544,45 @@ for i, (m1, m2) in enumerate(m1m2_grid):
     ile_node.set_category("ILE")
     dag.add_node(ile_node)
 
-    sql_node = pipeline.CondorDAGNode(sql_job_type)
-    sql_node.add_parent(ile_node)
-    sql_node.set_priority(JOB_PRIORITIES["SQL"])
+    if opts.produce_plots:
+            sql_node = pipeline.CondorDAGNode(sql_job_type)
+            sql_node.add_parent(ile_node)
+            sql_node.set_priority(JOB_PRIORITIES["SQL"])
 
-    # The sql node needs to run a PRE script in order to coalesce the data into
-    # a cache
-    sql_node.set_pre_script(dag_utils.which("coalesce.sh"))
-    sql_node.add_pre_script_arg(mass_grouping)
+            # The sql node needs to run a PRE script in order to coalesce the data into
+            # a cache
+            sql_node.set_pre_script(dag_utils.which("coalesce.sh"))
+            sql_node.add_pre_script_arg(mass_grouping)
 
-    # This is to identify output from groupings of the sane mass point
-    sql_node.add_macro("macromassid", mass_grouping)
+            # This is to identify output from groupings of the sane mass point
+            sql_node.add_macro("macromassid", mass_grouping)
 
-    sql_node.set_category("SQL")
-    dag.add_node(sql_node)
+            sql_node.set_category("SQL")
+            dag.add_node(sql_node)
 
-    tri_plot_job_type, tri_plot_job_name = dag_utils.write_tri_plot_sub(tag="tri_plot", injection_file=opts.sim_xml, log_dir=log_dir)
-    tri_plot_job_type.write_sub_file()
-    tri_plot_node = pipeline.CondorDAGNode(tri_plot_job_type)
-    tri_plot_node.add_macro("macromassid", mass_grouping)
-    tri_plot_node.set_category("PLOT")
-    tri_plot_node.set_priority(JOB_PRIORITIES["PLOT"])
-    dag.add_node(tri_plot_node)
-    tri_plot_node.add_parent(sql_node)
+            tri_plot_job_type, tri_plot_job_name = dag_utils.write_tri_plot_sub(tag="tri_plot", injection_file=opts.sim_xml, log_dir=log_dir)
+            tri_plot_job_type.write_sub_file()
+            tri_plot_node = pipeline.CondorDAGNode(tri_plot_job_type)
+            tri_plot_node.add_macro("macromassid", mass_grouping)
+            tri_plot_node.set_category("PLOT")
+            tri_plot_node.set_priority(JOB_PRIORITIES["PLOT"])
+            dag.add_node(tri_plot_node)
+            tri_plot_node.add_parent(sql_node)
+    
+            pos_1d_plot_job_type, pos_1d_plot_job_name = dag_utils.write_1dpos_plot_sub(tag="1d_post_plot", log_dir=log_dir)
+            pos_1d_plot_job_type.write_sub_file()
+            pos_1d_plot_node = pipeline.CondorDAGNode(pos_1d_plot_job_type)
+            pos_1d_plot_node.add_macro("macromassid", mass_grouping)
+            pos_1d_plot_node.set_category("PLOT")
+            pos_1d_plot_node.set_priority(JOB_PRIORITIES["PLOT"])
+            dag.add_node(pos_1d_plot_node)
+            pos_1d_plot_node.add_parent(sql_node)
 
-    pos_1d_plot_job_type, pos_1d_plot_job_name = dag_utils.write_1dpos_plot_sub(tag="1d_post_plot", log_dir=log_dir)
-    pos_1d_plot_job_type.write_sub_file()
-    pos_1d_plot_node = pipeline.CondorDAGNode(pos_1d_plot_job_type)
-    pos_1d_plot_node.add_macro("macromassid", mass_grouping)
-    pos_1d_plot_node.set_category("PLOT")
-    pos_1d_plot_node.set_priority(JOB_PRIORITIES["PLOT"])
-    dag.add_node(pos_1d_plot_node)
-    pos_1d_plot_node.add_parent(sql_node)
-
-    # FIXME: The final mass posterior plot isn't really dependent on either of
-    # the inferior plotting jobs, it's just kind of the cap on the run
-    pos_plot_node.add_parent(pos_1d_plot_node)
-    pos_plot_node.add_parent(tri_plot_node)
-
+            # FIXME: The final mass posterior plot isn't really dependent on either of
+            # the inferior plotting jobs, it's just kind of the cap on the run
+            pos_plot_node.add_parent(pos_1d_plot_node)
+            pos_plot_node.add_parent(tri_plot_node)
+            
 # FIXME:
 #   in pipeline.py, I need to specify ABSOLUTE pathnames to the .sub files,
 #   so we can use master dags across heterogeneous sources. This will require manually changing pipeline.py
