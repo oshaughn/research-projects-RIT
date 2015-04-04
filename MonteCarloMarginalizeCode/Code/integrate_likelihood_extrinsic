@@ -87,6 +87,7 @@ integration_params.add_option("--adapt-floor-level", type=float, default=0.1, he
 integration_params.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
 integration_params.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
 integration_params.add_option("--interpolate-time", default=False,help="If using time marginalization, compute using a continuously-interpolated array. (Default=false)")
+integration_params.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 optp.add_option_group(integration_params)
 
 #
@@ -377,21 +378,29 @@ if opts.pin_to_sim:
 
 # PROBLEM: if too large, you can MISS a source. Does NOT need to be fixed for all masses *IF* the problem really has strong support
 dmin = 1.    # min distance
-dmax = 10000.  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
+dmax = opts.d_max  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 
 crossTermNet = 0
 for key in cross_terms.keys():
     crossTermNet += float(numpy.abs(cross_terms[key][(2,2),(2,2)]))
 # first estimate tends to have problems for NR
-dmax_sampling_guess = numpy.min([factored_likelihood.distMpcRef*(0.5/numpy.sqrt(crossTermNet)), dmax])
+dmax_sampling_guess = numpy.min([factored_likelihood.distMpcRef*(numpy.sqrt(crossTermNet)/8), dmax])
 distBoundGuess = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, cross_terms)
 
 
-print "++Maximum distance for sampling ", dmax_sampling_guess, " and probably near ", distBoundGuess, " smaller than  ", dmax, " ++"
+print "Recommended distance for sampling ", dmax_sampling_guess, " and probably near ", distBoundGuess, " smaller than  ", dmax
+print "    (recommendation not yet used) "
+if distBoundGuess/dmax > 1: 
+    print " *******  WARNING ******** "
+    print " Your distance cutoff for integration may not include the source distance "
+if distBoundGuess/dmax < 0.05 and not  opts.no_adapt:
+    print " *******  WARNING ******** "
+    print " Adaptive integrator in distance can fail if the dynamic range of distance is too great (bins?) "
+    print " Please set --d-max appropriately for your problem "
 
 param_limits = { "psi": (0, 2*numpy.pi),
     "phi_orb": (0, 2*numpy.pi),
-    "distance": (dmin, distBoundGuess),   # designed to not change the integrand: as if we integrated all the way to dmax
+    "distance": (dmin, dmax),   # CAN LEAD TO CATASTROPHIC FAILURE if dmax is too large (adaptive fails - too few bins)
     "right_ascension": (0, 2*numpy.pi),
     "declination": (-numpy.pi/2, numpy.pi/2),
     "t_ref": (-t_ref_wind, t_ref_wind),
