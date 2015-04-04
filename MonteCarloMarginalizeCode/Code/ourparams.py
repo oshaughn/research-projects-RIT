@@ -438,7 +438,8 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
                 ret +=pFlat/rmaxFlat
             return  ret
     quadratic_samp_withfloor_vector = numpy.vectorize(quadratic_samp_withfloor, otypes=[numpy.float])
-    uniform_samp_withfloor_vector = numpy.vectorize(uniform_samp_withfloor, otypes=[numpy.float])
+#    uniform_samp_withfloor_vector = numpy.vectorize(uniform_samp_withfloor, otypes=[numpy.float])
+    uniform_samp_withfloor_vector = mcsampler.uniform_samp_withfloor_vector
     sampler.add_parameter("distance",
 #                          functools.partial(mcsampler.quadratic_samp_vector, distBoundGuess), None, dist_min, dist_max,
 #                          functools.partial(mcsampler.uniform_samp_vector,0, distBoundGuess), None, dist_min, dist_max,
