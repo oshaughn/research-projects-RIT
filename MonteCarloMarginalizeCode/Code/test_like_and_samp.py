@@ -607,7 +607,7 @@ rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(
 
 epoch_post = theEpochFiducial # Suggested change.  BE CAREFUL: Now that we trim the series, this is NOT what I used to be
 print "Finished Precomputation..."
-print "====Generating metadata from precomputed results ====="
+print "====Estimating distance range ====="
 distBoundGuess = factored_likelihood.estimateUpperDistanceBoundInMpc(rholms, crossTerms)
 print " distance probably less than ", distBoundGuess, " Mpc"
 
@@ -618,7 +618,7 @@ for det in crossTerms.keys():
     for mode in crossTerms[det].keys():  # actually a loop over pairs
         if np.abs(crossTerms[det][mode]) > lnLOffsetValue:
             lnLOffsetValue = 0.2*np.abs(crossTerms[det][mode])*(factored_likelihood.distMpcRef/distBoundGuess)**2
-#lnLOffsetValue =0
+lnLOffsetValue =0
 print "+++using lnL offset value++", lnLOffsetValue
 if lnLOffsetValue > 200:
     print " ARE YOU SURE THIS LARGE OF AN OFFSET IS A GOOD IDEA?"
@@ -727,7 +727,7 @@ if not opts.LikelihoodType_MargTdisc_array:
 
 
         nEvals+=i 
-        return np.exp(lnL - lnLOffsetValue)
+        return np.exp(lnLOffsetValue)*np.exp(lnL - lnLOffsetValue)
 else: # Sum over time for every point in other extrinsic params
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
@@ -763,7 +763,7 @@ else: # Sum over time for every point in other extrinsic params
             i+=1
         
         nEvals +=i # len(tvals)  # go forward using length of tvals
-        return np.exp(lnL-lnLOffsetValue)
+        return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
 
 import mcsampler
 sampler = mcsampler.MCSampler()
