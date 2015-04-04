@@ -36,10 +36,12 @@ try:
         fExtensionLowDensity = "png"
     from matplotlib import pylab as plt
     from mpl_toolkits.mplot3d import Axes3D
+    bNoInteractivePlots = False  # Move towards saved fig plots, for speed
     bNoMatplotlib =False
 except:
     bNoMatplotlib =True
-    print "No plots for you!"
+    bNoInteractivePlots = True
+    print "  factored_likelihood_test: No plots for you!"
 import sys
 import scipy.optimize
 from scipy import integrate
@@ -380,7 +382,9 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         ax.set_ylabel('phi')
         ax.set_zlabel('lnL')
 
-    if (not bNoMatplotlib) and (TestDictionary["lnLDataPlotVersusPsi"] or TestDictionary["lnLDataPlot"] or TestDictionary["DataReport"] or TestDictionary["lnLDataPlotVersusPhiPsi"]):
+    if (not bNoMatplotlib) and (not bNoInteractivePlots)  and (TestDictionary["lnLDataPlotVersusPsi"] or TestDictionary["lnLDataPlot"] or  TestDictionary["lnLDataPlotVersusPhiPsi"]): # TestDictionary["DataReport"] or
+        print " Making plots "
+        print TestDictionary
         plt.show()
 
 
