@@ -671,6 +671,29 @@ def uniform_samp_cdf_inv_vector(a,b,p):
 #uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
 uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
 
+# def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
+#     ret =0.
+#     if x<rmaxQuad:
+#         ret+= (1-pFlat)/rmaxQuad
+#     if x<rmaxFlat:
+#         ret +=pFlat/rmaxFlat
+#     return  ret
+# uniform_samp_withfloor_vector = numpy.vectorize(uniform_samp_withfloor, otypes=[numpy.float])
+def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
+    if isinstance(x, float):
+        ret =0.
+        if x<rmaxQuad:
+            ret+= (1-pFlat)/rmaxQuad
+        if x<rmaxFlat:
+            ret +=pFlat/rmaxFlat
+        return  ret
+    ret = numpy.zeros(x.shape)
+    ret += numpy.select([x<rmaxQuad],[(1.-pFlat)/rmaxQuad])
+    ret += numpy.select([x<rmaxFlat],[pFlat/rmaxFlat])
+    return ret
+
+
+
 # syntatic sugar : predefine the most common distributions
 uniform_samp_phase = numpy.vectorize(lambda x: 1/(2*numpy.pi))
 uniform_samp_psi = numpy.vectorize(lambda x: 1/(numpy.pi))
