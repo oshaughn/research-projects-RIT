@@ -293,6 +293,7 @@ optp.add_option("--adapt-weight-exponent", type=float,default=1.0, help="Exponen
 optp.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
 optp.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
 optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
+optp.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 
 #
 # Add the intrinsic parameters
@@ -511,6 +512,7 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
         adapt_log=opts.adapt_log,
         adapt_adapt=opts.adapt_adapt,
         skymap_file=opts.skymap_file,
+        d_max=opts.d_max,
         **args_pinned
         )
 ile_job_type.write_sub_file()
