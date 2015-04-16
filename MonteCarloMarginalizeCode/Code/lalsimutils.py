@@ -26,7 +26,7 @@ import numpy as np
 from numpy import sin, cos
 from scipy import interpolate
 from scipy import signal
-#import scipy  # for decimate
+import scipy  # for decimate
 
 from glue.ligolw import lsctables, table, utils # check all are needed
 from glue.lal import Cache
@@ -46,8 +46,20 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 rosDebugMessagesContainer = [False]
 rosDebugMessagesLongContainer = [False]
 print >>sys.stderr, "[Loading lalsimutils.py : MonteCarloMarginalization version]"
+print >> sys.stderr, "  scipy : ", scipy.__version__
+print >>sys.stderr,"  numpy : ", np.__version__
 
 TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
+
+
+def vecCross(v1,v2):
+    return [v1[1]*v2[2] - v1[2]*v2[1], v1[2]*v2[0] - v1[0]*v2[2], v1[0]*v2[1] - v1[1]*v2[0]]
+
+def vecDot(v1,v2):
+    return v1[0]*v2[0] + v1[1]*v2[1] + v1[2]*v2[2]
+
+def vecUnit(v):
+    return v/np.sqrt(vecDot(v,v))
 
 
 # Check lal version (lal.LAL_MSUN_SI or not).  Enables portability through the version transition.
@@ -137,13 +149,345 @@ class ChooseWaveformParams:
         self.fmax=fmax
         self.taper = taper
 
+    def manual_copy(self):
+        P=self.copy()
+        waveFlags = self.waveFlags
+        if waveFlags:
+            waveFlagsNew = lalsim.SimInspiralCreateWaveformFlags()
+            lalsim.SimInspiralSetSpinOrder(waveFlagsNew, lalsim.SimInspiralGetSpinOrder(waveFlags))
+            lalsim.SimInspiralSetTidalOrder(waveFlagsNew, lalsim.SimInspiralGetTidalOrder(waveFlags))
+            P.waveFlags = waveFlagsNew
+        return P
+
+    def assign_param(self,p,val):
+        """
+        assign_param
+        Syntatic sugar to assign parameters to values.
+        Provides ability to specify a binary by its values of 
+            - mchirp, eta
+            - system frame parameters
+        VERY HELPFUL if you want to change just one parameter at a time (e.g., for Fisher )
+        """
+        if p is 'mc':
+            # change implemented at fixed chi1, chi2, eta
+            eta = symRatio(self.m1,self.m2)
+            self.m1,self.m2 = m1m2(val,eta)
+            return self
+        if p is 'eta':
+            # change implemented at fixed chi1, chi2, eta
+            mc = mchirp(self.m1,self.m2)
+            self.m1,self.m2 = m1m2(mc,val)
+            return self
+        if p is 'chi1':
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi1VecMag = np.sqrt(np.dot(chi1Vec,chi1Vec))
+            if chi1VecMag < 1e-5:
+                Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
+                Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
+                self.s1x,self.s1y,self.s1z = val*Lhat
+            else:
+                self.s1x,self.s1y,self.s1z = val* chi1Vec/chi1VecMag
+            return self
+        if p is 'chi2':
+            chi1Vec = np.array([self.s2x,self.s2y,self.s2z])
+            chi1VecMag = np.sqrt(np.dot(chi1Vec,chi1Vec))
+            if chi1VecMag < 1e-5:
+                Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
+                Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
+                self.s2x,self.s2y,self.s2z = val*Lhat
+            else:
+                self.s2x,self.s2y,self.s2z = val* chi1Vec/chi1VecMag
+            return self
+        if p is 'thetaJN':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
+            return self
+        if p is 'phiJL':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            self.init_via_system_frame(thetaJN=thetaJN,phiJL=val,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
+            return self
+        if p is 'theta1':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=val,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
+            return self
+        if p is 'theta2':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=theta1,theta2=val,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
+            return self
+        if p is 'psiJ':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=val)
+            return self
+        if p is 'beta':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            if chi2 > 1e-5:
+                print " Changing beta only supported for single spin "
+                sys.exit(0)
+            if np.abs(val)<1e-4:
+                theta1=0
+                self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
+                return self
+            #kappa = np.cos(theta1) # target we want to determine
+            SoverL = chi1 * self.VelocityAtFrequency(self.fref) * self.m1/self.m2  # S/L = m1 chi v/m2
+            # sanity check this value of beta is *possible*
+            if  val and np.cos(val)**2 < 1-SoverL**2:
+                print " This value of beta cannot be attained, because SoverL= ", SoverL, " so beta max = ", np.arccos(np.sqrt(1-SoverL**2))
+                sys.exit(0)
+            x=np.cos(val)
+            kappa = (- np.sin(val)**2 + x * np.sqrt( SoverL**2 - np.sin(val)**2))/SoverL
+            # Note that if gamma < 1, there are two roots for each value of beta
+            # def solveme(x):
+            #     return (1+ x *SoverL)/np.sqrt(1+2*x*SoverL+SoverL**2) -val # using a root find instead of algebraic for readability
+            # kappa = optimize.newton(solveme,0.01)
+            theta1 = np.arccos(kappa)
+            self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
+            return self
+        # assign an attribute
+        if hasattr(self,p):
+            setattr(self,p,val)
+            return self
+        print " No attribute ", p, " in ", dir(self)
+        sys.exit(0)
+    def extract_param(self,p):
+        """
+        assign_param
+        Syntatic sugar to extract parameters to values.
+        Necessary to make full use of assign_param on 
+            - mchirp, eta
+            - system frame parameters
+        VERY HELPFUL if you want to change just one parameter at a time (e.g., for Fisher )
+        """
+        if p is 'mc':
+            return mchirp(self.m1,self.m2)
+        if p is 'eta':
+            return symRatio(self.m1,self.m2)
+        if p is 'chi1':
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            return np.sqrt(np.dot(chi1Vec,chi1Vec))
+        if p is 'chi2':
+            chi1Vec = np.array([self.s2x,self.s2y,self.s2z])
+            return np.sqrt(np.dot(chi1Vec,chi1Vec))
+        if p is 'thetaJN':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            return thetaJN
+        if p is 'phiJL':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            return phiJL
+        if p is 'theta1':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            return theta1
+        if p is 'theta2':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            return theta2
+        if p is 'psiJ':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            return psiJ
+        if p is 'beta':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            Jref = self.TotalAngularMomentumAtReferenceOverM2()
+            Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
+            Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
+            Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
+            return np.arccos(np.dot(Lhat,Jhat))   # holds in general
+        # assign an attribute
+        if hasattr(self,p):
+            return getattr(self,p)
+        print " No attribute ", p, " in ", dir(self)
+        sys.exit(0)
+
+
+    def randomize(self,zero_spin_Q=False,aligned_spin_Q=False,default_inclination=None,default_phase=None,default_polarization=None):
+        mMin = 2.   # min component mass (Msun)
+        mMax = 10.  # max component mass (Msun)
+        sMin = 0.   # min spin magnitude
+        sMax = 1.   # max spin magnitude
+        dMin = 20.   # min distance (Mpc)
+        dMax = 500. # max distance (Mpc)
+        self.m1 = np.random.uniform(mMin,mMax)
+        self.m2 = np.random.uniform(mMin,mMax)
+        self.m1 *= lsu_MSUN
+        self.m2 *= lsu_MSUN
+#        self.approx = lalsim.SpinTaylorT4  # need a 2-spin approximant by default!
+        if default_inclination is not None:
+            print "Setting default inclination"
+            self.incl = float(default_inclination)
+        else:
+            self.incl = np.random.uniform(0, np.pi)
+        if default_phase is not None:
+            print "Setting default phase"
+            self.phiref = float(default_phase)
+        else:
+            self.phiref = np.random.uniform(0, np.pi)
+        if default_polarization is not None:
+            print "Setting default polarization"
+            self.psi = float(default_polarization)
+        else:
+            self.psi = np.random.uniform(0, np.pi)
+        if not zero_spin_Q and not aligned_spin_Q:
+            s1mag = np.random.uniform(sMin,sMax)
+            s1theta = np.random.uniform(0,np.pi)
+            s1phi = np.random.uniform(0,2*np.pi)
+            s2mag = np.random.uniform(sMin,sMax)
+            s2theta = np.random.uniform(0,np.pi)
+            s2phi = np.random.uniform(0,2*np.pi)
+            self.s1x = s1mag * sin(s1theta) * cos(s1phi)
+            self.s1y = s1mag * sin(s1theta) * sin(s1phi)
+            self.s1z = s1mag * cos(s1theta)
+            self.s2x = s2mag * sin(s2theta) * cos(s2phi)
+            self.s2y = s2mag * sin(s2theta) * sin(s2phi)
+            self.s2z = s2mag * cos(s2theta)
+        if aligned_spin_Q:
+            s1mag = np.random.uniform(sMin,sMax)
+            s1theta = self.incl
+            s1phi = 0.
+            s2mag = np.random.uniform(sMin,sMax)
+            s2theta = self.incl
+            s2phi = 0.
+            self.s1x = s1mag * sin(s1theta) * cos(s1phi)
+            self.s1y = s1mag * sin(s1theta) * sin(s1phi)
+            self.s1z = s1mag * cos(s1theta)
+            self.s2x = s2mag * sin(s2theta) * cos(s2phi)
+            self.s2y = s2mag * sin(s2theta) * sin(s2phi)
+            self.s2z = s2mag * cos(s2theta)
+        if np.isnan(s1mag):
+            print " catastrophe "
+            sys.exit(0)
+        self.radec=True
+        dist =  dMax*np.power(np.random.uniform(dMin/dMax,1), 1./3)  # rough, but it should work
+        self.dist = dist*1e6 * lsu_PC
+        self.lambda1 = 0.
+        self.lambda2 = 0.
+        self.theta = np.random.uniform(-np.pi/2,np.pi/2) # declination
+        self.phi = np.random.uniform(0,2*np.pi) # right ascension
+        self.psi = np.random.uniform(0,np.pi) # polarization angle
+        self.deltaF = None
+
+    def init_via_system_frame(self,thetaJN=0., phiJL=0., theta1=0., theta2=0., phi12=0., chi1=0., chi2=0.,psiJ=0.):
+        """
+        Populate spin directions (and psi_L) using system frame parameters.   Note this is NOT using \beta
+        Example:
+        P.init_via_system_frame(thetaJN=0.1, phiJL=0.1, theta1=0.1, theta2=0.1, phi12=0.1, chi1=1., chi2=1., psiJ=0.)
+        """
+        # Create basic parameters
+        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
+        # Define psiL via the deficit angle between Jhat in the radiation frame and the psiJ we want to achieve 
+        Jref = self.TotalAngularMomentumAtReferenceOverM2()
+        Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
+        self.psi= np.mod(psiJ  -np.arctan2(Jhat[1],Jhat[0]), 2*np.pi)   # define on [0, 2pi]
+        return True
+
+    def extract_system_frame(self):
+        """
+        Extract system frame angles. 
+        Returned in precisely the format needed for use in init_via_system_frame.
+        P.init_via_system_frame(P.extract_system_frame())  should leave the state unchanged.
+        CHECK DONE IN : LIGO-Development-UpdatedSpinningWaveforms/KISTI-MCMC/PrecessingFisher/Python/overlap_versus_systemframe
+        PROBLEM: Polarization angle isn't stable (oddly?)
+        """
+        M = self.m1+self.m2
+        S1 = (self.m1/M)*(self.m1/M) * np.array([self.s1x,self.s1y, self.s1z])
+        S2 = self.m2*self.m2 * np.array([self.s2x,self.s2y, self.s2z])/(M*M)
+        Jref = self.TotalAngularMomentumAtReferenceOverM2()
+        Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
+        Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
+        Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
+        S1hat = S1/np.sqrt(np.dot(S1,S1))
+        S2hat = S2/np.sqrt(np.dot(S2,S2))
+
+        # extract frame vectors
+        frmJ = VectorToFrame(Jhat)
+        hatX, hatY, hatZ = frmJ  
+      
+        # extract the polar angle of J, KEEPING IN MIND that the J reported above does NOT include psiL!
+        psiJ = self.psi + np.arctan2(Jhat[1], Jhat[0])
+
+        # extract spin magnitudes
+        chi1 = np.sqrt(np.dot(S1,S1)) * (M/self.m1)**2
+        chi2 = np.sqrt(np.dot(S2,S2)) * (M/self.m2)**2
+
+        # Extract angles relative to line of sight, assumed z axis in the radiation frame in which S1, S2 are stored
+        # But theta1,theta2 (system frame angles) are relative to *Lhat*
+        thetaJN = np.arccos(Jhat[2])
+        if any(S1):
+            theta1 = np.arccos( np.dot(S1hat,Lhat))
+            if np.isnan(theta1):
+                theta1 = 0
+        else:
+            theta1 =0.
+            S1hat = Lhat
+        if any(S2):
+            theta2 = np.arccos( np.dot(S2hat,Lhat))
+            if np.isnan(theta2):
+                theta2 = 0
+        else:
+            theta2 = 0.
+            S2hat = Lhat
+
+
+        # extract polar angle of L around J
+        beta = np.arccos(np.dot(Jhat, Lhat))  # not used here, but we can compute it
+        expIalpha = np.dot((hatX+1j*hatY), Lhat)
+        phiJL =alpha = np.real(np.log(expIalpha)/1j)
+        phiJL = phiJL +  np.pi  # phase convention, to be consistent with Evan's code used above in init_via_system_frame
+        if np.isnan(phiJL):
+            phiJL=0
+
+        # compute relative angle of spins, in J frame
+        # Must correctly account for treatment of case that S2 parallel to L
+        expIphi1 = np.dot((hatX+1j*hatY), S1hat)
+        expIphi2 = np.dot((hatX+1j*hatY), S2hat)
+        if np.abs(expIphi2)< 1e-5:
+            phi12 = np.angle(expIphi1)
+        else:
+            phi12 = np.angle(expIphi1)- np.angle(expIphi2) # np.float(np.real(np.log(expIphi2/expIphi1)/1j))   # convert from 1-elemetn array
+        if np.isnan(phi12):
+            phi12 = 0
+
+        return thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ
+
     def copy(self):
         """
         Create a deep copy, so copy and original can be changed separately
+        This does NOT work reliably (segfault side effects possible)
         """
         return copy.deepcopy(self)
 
-    def print_params(self):
+    def print_params(self,show_system_frame=False):
         """
         Print all key-value pairs belonging in the class instance
         """
@@ -164,6 +508,18 @@ class ChooseWaveformParams:
         print   " : s1.s2 = ",  vecDot([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z])
         print   " : hat(L). s1 x s2 =  ",  vecDot( [np.sin(self.incl),0,np.cos(self.incl)] , vecCross([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z]))
         print   " : hat(L).(S1(1+q)+S2(1+1/q)) = ", vecDot( [np.sin(self.incl),0,np.cos(self.incl)], S1vec*(1+qval)  + S2vec*(1+1./qval) )/(self.m1+self.m2)/(self.m1+self.m2)
+        if show_system_frame:
+            thePrefix = ""
+            thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = self.extract_system_frame()
+            print thePrefix, " :+ theta_JN = ", thetaJN
+            print thePrefix, " :+ psiJ = ", psiJ
+            print thePrefix, " :+ phiJL=alphaJL = ", phiJL
+            print thePrefix, " :+ chi1 = ", chi1
+            print thePrefix, " :+ chi2 = ", chi2
+            print thePrefix, " :+ theta1 = ", theta1
+            print thePrefix, " :+ theta2 = ", theta2
+            print thePrefix, " :+ phi12 = ", phi12
+            print thePrefix, " :+ beta = ", self.extract_param('beta')
         print "lambda1 =", self.lambda1
         print "lambda2 =", self.lambda2
         print "inclination =", self.incl
@@ -189,7 +545,12 @@ class ChooseWaveformParams:
         print "approximant is =", lalsim.GetStringFromApproximant(self.approx)
         print "phase order =", self.phaseO
         print "amplitude order =", self.ampO
-        print "waveFlags struct is", self.waveFlags
+        if self.waveFlags:
+            thePrefix=""
+            print thePrefix, " :  Spin order " , lalsim.SimInspiralGetSpinOrder(self.waveFlags)
+            print thePrefix, " :  Tidal order " , lalsim.SimInspiralGetTidalOrder(self.waveFlags)
+        else:
+            print "waveFlags struct is = ", self.waveFlags
         print "nonGRparams struct is", self.nonGRparams
         if self.taper==lsu_TAPER_NONE:
             print "Tapering is set to LAL_SIM_INSPIRAL_TAPER_NONE"
@@ -201,6 +562,63 @@ class ChooseWaveformParams:
             print "Tapering is set to LAL_SIM_INSPIRAL_TAPER_STARTEND"
         else:
             print "Warning! Invalid value for taper:", self.taper
+
+        
+    def VelocityAtFrequency(self,f):  # in units of c
+        m1 = self.m1* lsu_G / lsu_C**3
+        m2 = self.m2*lsu_G / lsu_C**3
+        return ( (m1+m2) * lsu_PI * f)**(1./3.)
+    def FrequencyAtVelocity(self,v):
+        m1 = self.m1* lsu_G / lsu_C**3
+        m2 = self.m2*lsu_G / lsu_C**3
+        return v**3/(lsu_PI*(m1+m2))
+    def OrbitalAngularMomentumAtReference(self):   # in units of kg in SI
+        v = self.VelocityAtFrequency(max(self.fref,self.fmin));
+        Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
+        M = (self.m1+self.m2)
+        eta = symRatio(self.m1,self.m2)   # dimensionless
+        return Lhat*M*M*eta/v     # in units of kg in SI
+    def OrbitalAngularMomentumAtReferenceOverM2(self):
+        L = self.OrbitalAngularMomentumAtReference()
+        return L/(self.m1+self.m2)/(self.m1+self.m2)
+    def TotalAngularMomentumAtReference(self):    # does NOT correct for psi polar angle, per convention
+        L = self.OrbitalAngularMomentumAtReference()
+        S1 = self.m1*self.m1 * np.array([self.s1x,self.s1y, self.s1z])
+        S2 = self.m2*self.m2 * np.array([self.s2x,self.s2y, self.s2z])
+        return L+S1+S2
+    def TotalAngularMomentumAtReferenceOverM2(self):
+        J = self.TotalAngularMomentumAtReference()
+        return J/(self.m1+self.m2)/(self.m1+self.m2)
+
+    def Xi(self):
+        L = self.OrbitalAngularMomentumAtReferenceOverM2()
+        S1 = self.m1*self.m1 * np.array([self.s1x,self.s1y, self.s1z])
+        S2 = self.m2*self.m2 * np.array([self.s2x,self.s2y, self.s2z])
+        S0 = (S1*(1+self.m2/self.m1) + S2*(1+self.m1/self.m2))/(self.m1+self.m2)/(self.m1+self.m2)
+        return vecDot(vecUnit(L), S0)
+
+    def HardAlignedQ(self):
+        """
+        Test if L,S1,S2 all parallel to z
+        """
+        return self.incl == 0. and self.s1y ==0. and self.s1x==0. and self.s2x==0. and self.s2y==0.
+
+    def SoftAlignedQ(self):
+        """
+        Test if L,S1,S2 all parallel to *one another*
+        """
+        Lvec = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
+        S1 = np.array([self.s1x,self.s1y, self.s1z])
+        S2 = np.array([self.s2x,self.s2y, self.s2z])
+        if np.dot(S1,S1) < 1e-5:
+            S1hat = Lvec
+        else:
+            S1hat = S1/np.sqrt(np.dot(S1,S1))
+        if np.dot(S2,S2)<1e-5:
+            S2hat = Lvec
+        else:
+            S2hat = S1/np.sqrt(np.dot(S2,S2))
+        return np.abs(np.dot(Lvec, S1hat))>0.999 and np.abs(np.dot(Lvec,S2hat))>0.999
 
     def copy_sim_inspiral(self, row):
         """
