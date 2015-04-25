@@ -54,6 +54,7 @@ def ParseStandardArguments():
     parser.add_argument("--no-adapt-sky", default=False,action='store_true')
     # Infrastructure choices:
     parser.add_argument("--skip-interpolation",dest="opt_SkipInterpolation",default=False,action='store_true')  # skip interpolation : saves time, but some things will crash later
+    parser.add_argument("--skip-modes-less-than",dest="opt_SkipModeThreshold",default=1e-5,type=float, help="Skip modes with relative effect less than this factor times the 22 mode, in the overlap matrix 'U'. So a choice of 1e-2 roughly  modes greater 10% of the 22 mode amplitude are included. Should be smaller than 1/snr^2.")
 
     # Noise model
     parser.add_argument("--psd-name", type=str, default="", help="psd name ('eval'). lal.LIGOIPsd, lalsim.SimNoisePSDiLIGOSRD, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, ... ")

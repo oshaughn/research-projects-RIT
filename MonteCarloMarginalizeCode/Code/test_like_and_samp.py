@@ -44,6 +44,8 @@ Examples:
         python test_like_and_samp.py --signal-inclination 1.5708 --signal-time 0.02 --signal-polarization 0.3 --signal-phase -0.7  # test inclination, polarization propagated consistently
 
   # Run with convergence tests and adaptation
+  # Run neglecting almost all modes (threshold normally strips out worst cases)
+    ./test_like_and_samp.py --Nskip 2000 --approx EOBNRv2HM --srate 16384 --Lmax 5 --LikelihoodType_MargTdisc_array --skip-modes-less-than 1e-2
 """
 try:
     import matplotlib
@@ -602,7 +604,7 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
 #   WARNING: Using default values for inverse spectrum truncation (True) and inverse spectrun truncation time (8s) from ourparams.py
 #                     ILE adopts a different convention.  ROS old development branch has yet another approach (=set during PSD reading).
 #
-rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime,NR_group=opts.NR_template_group,NR_param=opts.NR_template_param)
+rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,ignore_threshold=opts.opt_SkipModeThreshold,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime,NR_group=opts.NR_template_group,NR_param=opts.NR_template_param)
 
 
 epoch_post = theEpochFiducial # Suggested change.  BE CAREFUL: Now that we trim the series, this is NOT what I used to be
