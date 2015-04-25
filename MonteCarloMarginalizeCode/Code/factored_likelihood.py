@@ -41,6 +41,11 @@ except:
 distMpcRef = 1000 # a fiducial distance for the template source.
 tWindowExplore = [-0.05, 0.05] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
 rosDebugMessages = True
+rosDebugMessagesDictionary = {}   # Mutable after import (passed by reference). Not clear if it can be used by caling routines
+                                                  # BUT if every module has a `PopulateMessagesDictionary' module, I can set their internal copies
+rosDebugMessagesDictionary["DebugMessages"] = True
+rosDebugMessagesDictionary["DebugMessagesLong"] = False
+
 
 #
 # Main driver functions
@@ -48,7 +53,8 @@ rosDebugMessages = True
 def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         psd_dict, Lmax, fMax, analyticPSD_Q=False,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,
-         NR_group=None,NR_param=None):
+         NR_group=None,NR_param=None,
+        ignore_threshold=1e-5):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -94,6 +100,19 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         wfP.P.dist =100*1e6*lal.PC_SI  # fiducial distance.
 
         hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window
+
+
+    if not(ignore_threshold is None):
+            crossTermsFiducial = ComputeModeCrossTermIP(hlms, psd_dict[detectors[0]], 
+                                                        P.fmin, fMax,
+                                                        1./2./P.deltaT, P.deltaF, analyticPSD_Q, inv_spec_trunc_Q, T_spec)
+            theWorthwhileModes =  IdentifyEffectiveModesForDetector(crossTermsFiducial, ignore_threshold, detectors)
+            print "  Worthwhile modes : ", theWorthwhileModes
+            hlmsNew = {}
+            for pair in theWorthwhileModes:
+                    hlmsNew[pair]=hlms[pair]
+            hlms =hlmsNew
+
 
     # Print statistics on timeseries provided
     print " Mode  npts(data)   npts epoch  epoch/deltaT "
@@ -806,3 +825,27 @@ def constructLMIterator(Lmax):  # returns a list of (l,m) pairs covering all mod
         for m in np.arange(-L, L+1):
             mylist.append((L,m))
     return mylist
+
+
+def IdentifyEffectiveModesForDetector(crossTermsOneDetector, fac,det):
+    # extract a list of possible pairs
+    pairsOfPairs = crossTermsOneDetector.keys()
+    pairsUnion = []
+    for x in pairsOfPairs:
+        pairsUnion.append(x[1])
+    pairsUnion = set(pairsUnion)  # a list of unique pairs that occur in crossTerms' first index
+    
+    # Find modes which are less effective
+    pairsIneffective = []
+    for pair in pairsUnion:
+        isEffective = False
+        threshold = crossTermsOneDetector[((2,2),(2,2))]*fac
+        for pair2 in pairsUnion:
+            if crossTermsOneDetector[(pair,pair2)] > threshold:
+                isEffective = True
+        if not isEffective:
+            pairsIneffective.append(pair)
+            if rosDebugMessagesDictionary["DebugMessages"]:
+                print "   ", pair, " - no significant impact on U, less than ", threshold
+
+    return pairsUnion - set(pairsIneffective)
