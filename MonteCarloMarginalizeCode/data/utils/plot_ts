@@ -3,7 +3,7 @@ import sys
 from collections import defaultdict
 
 import matplotlib
-matplotlib.use("Agg")
+#matplotlib.use("Agg")
 from matplotlib import pyplot
 
 import numpy
@@ -23,7 +23,7 @@ for d in ["H1", "L1", "V1"]:
     t = numpy.arange(float(series.epoch), float(series.epoch)+len(series.data.data)*series.deltaT, series.deltaT)
     pyplot.title(d)
     pyplot.plot(t, series.data.data, '-', label=d)
-    pyplot.xlim([1e9+14, 1e9+14.3])
+    pyplot.xlim([1e9+14, 1e9+14.3]) # these should be set interactively -- we may change the event time
     pyplot.legend()
 
-pyplot.savefig("ts.png")
+pyplot.savefig("ts.jpeg")
