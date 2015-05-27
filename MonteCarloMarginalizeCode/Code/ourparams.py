@@ -14,8 +14,10 @@ import lal
 
 from glue.ligolw import utils, lsctables, table, ligolw
 
-import NRWaveformCatalogManager as nrwf
-
+try:
+    import NRWaveformCatalogManager as nrwf
+except:
+    print " - no NR waveforms - "
 
 rosDebugMessagesDictionary = {}   # Mutable after import (passed by reference). Not clear if it can be used by caling routines
                                                   # BUT if every module has a `PopulateMessagesDictionary' module, I can set their internal copies

@@ -82,8 +82,10 @@ from glue.ligolw.utils import process
 import lal
 import lalsimulation as lalsim
 import lalsimutils
-import NRWaveformCatalogManager as nrwf
-
+try:
+    import NRWaveformCatalogManager as nrwf
+except:
+    print " - no NR waveforms -"
 try:
     import healpy
     from lalinference.bayestar import fits as bfits
