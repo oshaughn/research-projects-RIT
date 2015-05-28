@@ -15,8 +15,10 @@ import lal
 from glue.ligolw import utils, lsctables, table, ligolw
 
 try:
+    hasNR=True
     import NRWaveformCatalogManager as nrwf
 except:
+    hasNR=False
     print " - no NR waveforms - "
 
 rosDebugMessagesDictionary = {}   # Mutable after import (passed by reference). Not clear if it can be used by caling routines
@@ -171,13 +173,13 @@ def ParseStandardArguments():
         rosDebugMessagesDictionary["DebugMessages"]=True
 
     # Error check: confirm that the desired template exists
-    print nrwf.internal_ParametersAvailable.keys()
-    if not ( args.NR_template_group in nrwf.internal_ParametersAvailable.keys()):
+#    print nrwf.internal_ParametersAvailable.keys()
+    if hasNR and not ( args.NR_template_group in nrwf.internal_ParametersAvailable.keys()):
 #        raise( nrwf.NRNoSimulation,args.NR_template_group)
         if args.NR_template_group:
             print " ===== UNKNOWN NR PARAMETER ====== "
             print args.NR_template_group, args.NR_template_param
-    else:
+    elif hasNR:
         if args.NR_template_param:
             args.NR_template_param = eval(args.NR_template_param) # needs to be evaluated
         if not ( args.NR_template_param in nrwf.internal_ParametersAvailable[args.NR_template_group]):
