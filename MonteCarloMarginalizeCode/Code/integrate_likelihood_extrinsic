@@ -97,6 +97,8 @@ intrinsic_params = OptionGroup(optp, "Intrinsic Parameters", "Intrinsic paramete
 intrinsic_params.add_option("--pin-to-sim", help="Pin values to sim_inspiral table entry.")
 intrinsic_params.add_option("--mass1", type=float, help="Value of first component mass, in solar masses. Required if not providing coinc tables.")
 intrinsic_params.add_option("--mass2", type=float, help="Value of second component mass, in solar masses. Required if not providing coinc tables.")
+intrinsic_params.add_option("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given.")
+intrinsic_params.add_option("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
 optp.add_option_group(intrinsic_params)
 
 #
@@ -209,10 +211,15 @@ elif opts.coinc_xml is not None:
         m1, m2 = sngl_row.mass1, sngl_row.mass2
 else:
     raise ValueError("Need either --mass1 --mass2 or --coinc-xml to retrieve masses.")
-print "Performing integration for intrinsic parameters mass 1: %f, mass 2 %f" % (m1, m2)
 
 if 200./((m1+m2)/20) < template_min_freq:
     print " WARNING: Minimum frequency is smaller than ISCO,  usually causeing template generation to fail"
+
+lambda1, lambda2 = 0, 0
+if opts.eff_lambda is not None:
+    lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(opts.mass1, opts.mass2, opts.eff_lambda, opts.deff_lambda or 0)
+
+print "Performing integration for intrinsic parameters mass 1: %f, mass 2 %f, lambda1: %f, lambda2: %f" % (m1, m2, lambda1, lambda2)
 
 #
 # Template descriptors
@@ -235,6 +242,8 @@ P = lalsimutils.ChooseWaveformParams(
     psi = 0.0,
     m1 = m1 * lalsimutils.lsu_MSUN,
     m2 = m2 * lalsimutils.lsu_MSUN,
+    lambda1 = lambda1,
+    lambda2 = lambda2,
     ampO = opts.amp_order,
     fref = opts.reference_freq,
     tref = fiducial_epoch,
