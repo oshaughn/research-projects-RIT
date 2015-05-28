@@ -103,7 +103,7 @@ def evaluate_mass_grid_effective_fisher(m1_SI,m2_SI,opts):
     PTEST = PSIG.copy()
     PTEST.m1, PTEST.m2 = lsu.m1m2(McSIG*min_mc_factor, min_eta)
     # For very massive signals, the waveform might not be generated, so a good rule of thumb is about 4 sec
-    PSIG.deltaF = np.max([1./4., lsu.estimateDeltaF(PTEST)])#lsu.findDeltaF(PTEST)
+    PSIG.deltaF = np.min([1./4., lsu.estimateDeltaF(PTEST)])#lsu.findDeltaF(PTEST)
     if (m1+m2) > 30:
         PSIG.deltaT = 1./16384  # use a high sampling rate
         PSIG.fmin=5    # change minimum frequency to resolve high-mass physics
