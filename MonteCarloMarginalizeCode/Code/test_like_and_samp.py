@@ -83,8 +83,10 @@ import lal
 import lalsimulation as lalsim
 import lalsimutils
 try:
+    hasNR=True
     import NRWaveformCatalogManager as nrwf
 except:
+    hasNR=False
     print " - no NR waveforms -"
 try:
     import healpy
