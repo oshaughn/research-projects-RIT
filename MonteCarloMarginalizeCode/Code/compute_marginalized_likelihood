@@ -299,8 +299,10 @@ optp.add_option("--d-max", default=10000,type=float,help="Maximum distance in vo
 # Add the intrinsic parameters
 #
 intrinsic_params = OptionGroup(optp, "Intrinsic Parameters", "Intrinsic parameters (e.g component mass) to use.")
-intrinsic_params.add_option("--mass1", type=float, help="Value of first component mass, in solar masses. Required if not providing coinc tables.")
-intrinsic_params.add_option("--mass2", type=float, help="Value of second component mass, in solar masses. Required if not providing coinc tables.")
+intrinsic_params.add_option("--mass1", type=float, help="Value of first component mass, in solar masses. Required if not providing coinc tables. USUALLY SHOULD NOT BE PASSED TO DAG (unless fixed)")
+intrinsic_params.add_option("--mass2", type=float, help="Value of second component mass, in solar masses. Required if not providing coinc tables. USUALLY SHOULD NOT BE PASSED TO DAG (unless fixed)")
+intrinsic_params.add_option("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given. USUALLY SHOULD NOT BE PASSED TO DAG (unless fixed)")
+intrinsic_params.add_option("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
 optp.add_option_group(intrinsic_params)
 
 #
