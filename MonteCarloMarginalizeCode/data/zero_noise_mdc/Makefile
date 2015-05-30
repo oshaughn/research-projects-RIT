@@ -48,7 +48,7 @@ plot_ts: zero_noise.cache
 
 # Create a full DAG with many mass points, using the automated gridding code
 test_ile_dag: zero_noise.cache
-	../../Code/compute_marginalized_likelihood --cache-file ${BASE_DIR}/zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file zero_noise.xml.gz --n-copies 2 --time-marginalization --save-P 0.01 --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --n-eff 200 --d-max 500
+	../../Code/compute_marginalized_likelihood --cache-file ${BASE_DIR}/zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file zero_noise.xml.gz --n-copies 2 --time-marginalization --save-P 0.01 --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --n-eff 200 --d-max 500 --linear-spoked
 
 # Evaluate the likelihood by MC integral on *one* mass point.  Make a bunch of plots to followup
 test_ile_postprocessing: zero_noise.cache
