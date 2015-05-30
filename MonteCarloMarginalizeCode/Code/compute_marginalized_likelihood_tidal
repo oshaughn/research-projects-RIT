@@ -1,0 +1,517 @@
+#!/usr/bin/env python
+
+"""
+Compute the likelihood of parameters of a GW signal given some data
+that has been marginalized over extrinsic parameters. Creates a dag workflow
+to perform this calculation.
+"""
+
+import os
+import select
+import sys
+import stat
+from functools import partial
+from optparse import OptionParser, OptionGroup
+
+import numpy as np
+
+import lal
+import lalsimulation as lalsim
+
+import glue.lal
+from glue.ligolw import utils, ligolw, lsctables, table
+from glue.ligolw.utils import process
+from glue import pipeline
+
+import lalsimutils as lsu
+import effectiveFisher as eff
+import dag_utils
+
+JOB_PRIORITIES = { "ILE": 10,
+    "SQL": 1,
+    "PLOT": 1
+}
+
+try:
+    from ligo.lvalert.utils import get_LVAdata_from_stdin
+    import ligo.gracedb.rest
+except ImportError:
+    print >>sys.stderr, "Cannot import ligo/lvalert modules, reading from LVAlerts is disabled"
+
+__author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
+
+def mkdir(dir_name):
+    try :
+        os.mkdir(dir_name)
+    except OSError:
+        pass
+
+def parse_lvalert(fd):
+    streamdata = get_LVAdata_from_stdin(fd, as_dict=True)
+    gdb_id = streamdata["uid"]
+    alert_type = streamdata["alert_type"]
+
+def get_coinc_xml(streamdata, working_dir='./'):
+    coincfile = '%s/coinc.xml' % working_dir
+    gracedb_client = ligo.gracedb.rest.GraceDb()
+    remote_file = gracedb_client.files(streamdata['uid'], "coinc.xml")
+    with open(coincfile, 'w') as local_file:
+        shutil.copyfileobj(remote_file, local_file)
+
+#
+# Pinnable parameters -- for command line processing
+#
+LIKELIHOOD_PINNABLE_PARAMS = ["right ascension", "declination"]
+
+#
+# Option parsing
+#
+
+optp = OptionParser()
+# Options needed by this program only.
+optp.add_option("-w", "--working-directory", default="./", help="Directory in which to stage DAG components.")
+optp.add_option("-X", "--mass-points-xml", action="store_true", help="Output mass points as a sim_inspiral table.")
+optp.add_option("-N", "--N-random-pts", type=int, default=200, help="Number of randomly chosen intrinsic parameter values at which to compute marginalized likelihood. Default is 200.")
+optp.add_option("--spoke-pts", type=int, default=10, help="Number of points to lay along each spoke. Default is 10. For spoked placement, total number of intrinsic points is the product of --spoke-pts, --mass-spokes, --tidal-spokes.")
+optp.add_option("--mass-spokes", type=int, default=10, help="Number of spokes to lay in the mass plane. Default is 10.")
+optp.add_option("--tidal-spokes", type=int, default=10, help="Number of spokes to lay in the tidal parameter. Default is 10.")
+optp.add_option("--uniform-spoked", action="store_true", help="Place mass pts along spokes uniform in volume (if omitted placement will be random and uniform in volume")
+optp.add_option("--linear-spoked", action="store_true", help="Place mass pts along spokes linear in radial distance (if omitted placement will be random and uniform in volume")
+optp.add_option("--match-value", type=float, default=0.97, help="Use this as the minimum match value. Default is 0.97")
+
+# Options transferred to ILE
+optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
+optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
+optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
+optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
+optp.add_option("-s", "--sim-xml", help="XML file containing injected event information.")
+optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
+optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
+optp.add_option("-a", "--approximant", default="TaylorT4", help="Waveform family to use for templates. Any approximant implemented in LALSimulation is valid.")
+optp.add_option("-A", "--amp-order", type=int, default=0, help="Include amplitude corrections in template waveforms up to this e.g. (e.g. 5 <==> 2.5PN), default is Newtonian order.")
+optp.add_option("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")
+optp.add_option("-e", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
+optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
+optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
+optp.add_option("-o", "--output-file", help="Save result to this file.")
+optp.add_option("-n", "--n-copies", type=int, default=1, help="Number of copies to do of a given run. Default is 1.")
+optp.add_option("--n-max", type=int, default=1000000, help="Maximum number of throws to use in integrator.")
+optp.add_option("--n-eff", type=int, default=1000, help="Maximum number of effective samples to reach before terminating.")
+optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
+optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
+optp.add_option("--n-chunk", type=int, help="Chunk'.",default=100)
+optp.add_option("--convergence-tests-on",default=False,action='store_true')
+optp.add_option("--adapt-floor-level", type=float,default=0.1,help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.0 (no floor)")
+optp.add_option("--adapt-weight-exponent", type=float,default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
+optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
+
+#
+# Add the intrinsic parameters
+#
+intrinsic_params = OptionGroup(optp, "Intrinsic Parameters", "Intrinsic parameters (e.g component mass) to use.")
+intrinsic_params.add_option("--mass1", type=float, help="Value of first component mass, in solar masses. Required if not providing coinc tables.")
+intrinsic_params.add_option("--mass2", type=float, help="Value of second component mass, in solar masses. Required if not providing coinc tables.")
+intrinsic_params.add_option("--lambdaT", type=float, default=0., help="Value of leading-order tidal parameter \\tilde{\\lambda}. N.B. is not provided by coinc table. Default is 0.")
+optp.add_option_group(intrinsic_params)
+
+#
+# Add the pinnable parameters
+#
+pinnable = OptionGroup(optp, "Pinnable Parameters", "Specifying these command line options will pin the value of that parameter to the specified value with a probability of unity.")
+for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
+    option = "--" + pin_param.replace(" ", "-")
+    pinnable.add_option(option, type=float, help="Pin the value of %s." % pin_param)
+optp.add_option_group(pinnable)
+
+opts, args = optp.parse_args()
+
+# Move to working directory for generation
+os.chdir(opts.working_directory)
+
+# Print command line to a file to recall what was run
+cmdname="%s/command.sh" % opts.working_directory
+cmd = open(cmdname, 'w')
+cmd.write('#!/usr/bin/env bash\n')
+cmd.write(" ".join(sys.argv) )
+cmd.close()
+st = os.stat(cmdname)
+os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+
+#
+# Get trigger information from coinc xml file
+#
+
+# Get end time from coinc inspiral table or command line
+xmldoc = None
+if opts.coinc_xml is not None:
+    xmldoc = utils.load_filename(opts.coinc_xml)
+    coinc_table = table.get_table(xmldoc, lsctables.CoincInspiralTable.tableName)
+    assert len(coinc_table) == 1
+    coinc_row = coinc_table[0]
+    event_time = coinc_row.get_end()
+    print "Coinc XML loaded, event time: %s" % str(coinc_row.get_end())
+elif opts.event_time is not None:
+    event_time = glue.lal.LIGOTimeGPS(opts.event_time)
+    print "Event time from command line: %s" % str(event_time)
+elif select.select([sys.stdin,],[],[],0.0)[0]:
+    # Do we have data incoming on stdin?
+    streamdata = parse_lvalert(sys.stdin)
+    gdb_id, alert_type = streamdata["uid"], streamdata["alert_type"]
+    print "LVAlert received, gracedb ID %d" % gdb_id
+    if alert_type != "create":
+        print >>sys.stderr, "LVAlert type is not 'create', no action to take."
+        exit(0)
+    xmldoc = get_coinc_xml(streamdata)
+    coinc_table = table.get_table(xmldoc, lsctables.CoincInspiralTable.tableName)
+    assert len(coinc_table) == 1
+    coinc_row = coinc_table[0]
+    event_time = coinc_row.get_end()
+    print "Coinc XML loaded, event time: %s" % str(coinc_row.get_end())
+else:
+    raise ValueError("Either --coinc-xml or --event-time must be provided to parse event time.")
+
+# get masses from sngl_inspiral_table
+if opts.mass1 is not None and opts.mass2 is not None:
+    m1, m2 = opts.mass1, opts.mass2
+elif xmldoc is not None:
+    sngl_inspiral_table = table.get_table(xmldoc, lsctables.SnglInspiralTable.tableName)
+    assert len(sngl_inspiral_table) == len(coinc_row.ifos.split(","))
+    m1, m2 = None, None
+    for sngl_row in sngl_inspiral_table:
+        # NOTE: gstlal is exact match, but other pipelines may not be
+        assert m1 is None or (sngl_row.mass1 == m1 and sngl_row.mass2 == m2)
+        m1, m2 = sngl_row.mass1, sngl_row.mass2
+    event_time = glue.lal.LIGOTimeGPS(opts.event_time)
+else:
+    raise ValueError("Need either --mass1 --mass2 or --coinc-xml to retrieve masses.")
+
+m1_SI = m1 * lal.LAL_MSUN_SI
+m2_SI = m2 * lal.LAL_MSUN_SI
+
+# Compute the component tidal parameters
+lambda1, lambda2 = lsu.lambda1lambda2(opts.lambdaT, 0., lsu.symRatio(m1,m2))
+
+print "Computing marginalized likelihood in a neighborhood about intrinsic parameters mass 1: %f, mass 2 %f, lambda1: %f, lambda2: %f" % (m1, m2, lambda1, lambda2)
+
+#
+# FIXME: Hardcoded values - eventually promote to command line arguments
+#
+log_dir="%s/logs/" % opts.working_directory # directory to hold
+template_min_freq = 40.
+ip_min_freq = 40.
+eff_fisher_psd = lal.LIGOIPsd
+analyticPSD_Q = True
+# The next 6 lines set the maximum size of the region to explore
+min_mc_factor = 0.9
+max_mc_factor = 1.1
+min_eta = 0.05
+max_eta = 0.25
+min_lambdaT = 0.
+max_lambdaT = 3000.
+# Control evaluation of the effective Fisher grid
+NMcs = 7
+NEtas = 7
+NLambdas = 7
+match_cntr = opts.match_value # Fill an ellipsoid of this match
+wide_match = 1-(1-opts.match_value)**(2/3.0)
+fit_cntr = match_cntr # Do the effective Fisher fit with pts above this match
+
+#
+# Setup signal and IP class
+#
+param_names = ['Mc', 'eta', 'lambdaT']
+PSIG = lsu.ChooseWaveformParams(
+        m1=m1_SI, m2=m2_SI,
+        fmin=template_min_freq,
+        lambda1=lambda1,
+        lambda2=lambda2,
+        approx=lalsim.GetApproximantFromString(opts.approximant)
+        )
+# Find a deltaF sufficient for entire range to be explored
+PTEST = PSIG.copy()
+PTEST.m1 *= min_mc_factor
+PTEST.m2 *= min_mc_factor
+PSIG.deltaF = lsu.findDeltaF(PTEST)
+
+PTMPLT = PSIG.copy()
+
+IP = lsu.Overlap(fLow = ip_min_freq,
+        deltaF = PSIG.deltaF,
+        psd = eff_fisher_psd,
+        analyticPSD_Q = analyticPSD_Q
+        )
+
+hfSIG = lsu.norm_hoff(PSIG, IP)
+McSIG = lsu.mchirp(m1_SI, m2_SI)
+etaSIG = lsu.symRatio(m1_SI, m2_SI)
+lambdaTSIG = opts.lambdaT
+
+# Find appropriate parameter ranges
+min_mc = McSIG * min_mc_factor
+max_mc = McSIG * max_mc_factor
+param_ranges = eff.find_effective_Fisher_region(PSIG, IP, wide_match,
+        param_names, [[min_mc, max_mc],[min_eta, max_eta],
+        [min_lambdaT, max_lambdaT]])
+print "Computing amibiguity function in the range:"
+for i, param in enumerate(param_names):
+    if param=='Mc' or param=='m1' or param=='m2': # rescale output by MSUN
+        print "\t", param, ":", np.array(param_ranges[i])/lal.LAL_MSUN_SI,\
+                "(Msun)"
+    else:
+        print "\t", param, ":", param_ranges[i]
+
+# setup uniform parameter grid for effective Fisher
+pts_per_dim = [NMcs, NEtas, NLambdas]
+Mcpts, etapts, lambdaTpts = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
+etapts = map(lsu.sanitize_eta, etapts)
+McMESH, etaMESH, lambdaTMESH = eff.multi_dim_meshgrid(Mcpts, etapts, lambdaTpts)
+McFLAT, etaFLAT, lambdaTFLAT = eff.multi_dim_flatgrid(Mcpts, etapts, lambdaTpts)
+dMcMESH = McMESH - McSIG
+detaMESH = etaMESH - etaSIG
+dlambdaTMESH = lambdaTMESH - lambdaTSIG
+dMcFLAT = McFLAT - McSIG
+detaFLAT = etaFLAT - etaSIG
+dlambdaTFLAT = lambdaTFLAT - lambdaTSIG
+grid = eff.multi_dim_grid(Mcpts, etapts, lambdaTpts)
+
+# Change units on Mc
+dMcFLAT_MSUN = dMcFLAT / lal.LAL_MSUN_SI
+dMcMESH_MSUN = dMcMESH / lal.LAL_MSUN_SI
+McMESH_MSUN = McMESH / lal.LAL_MSUN_SI
+McSIG_MSUN = McSIG / lal.LAL_MSUN_SI
+
+# Evaluate ambiguity function on the grid
+rhos = np.array(eff.evaluate_ip_on_grid(hfSIG, PTMPLT, IP, param_names, grid))
+
+# Fit to determine effective Fisher matrix
+cut = rhos > fit_cntr
+fitgamma = eff.effectiveFisher(eff.residuals3d, rhos[cut], dMcFLAT_MSUN[cut],
+        detaFLAT[cut], dlambdaTFLAT[cut])
+# Find the eigenvalues/vectors of the effective Fisher matrix
+gam = eff.array_to_symmetric_matrix(fitgamma)
+evals, evecs, rot = eff.eigensystem(gam)
+
+# Print information about the effective Fisher matrix
+# and its eigensystem
+print "Least squares fit finds g_Mc,Mc = ", fitgamma[0]
+print "                        g_Mc,eta = ", fitgamma[1]
+print "                        g_Mc,lambdaT = ", fitgamma[2]
+print "                        g_eta,eta = ", fitgamma[3]
+print "                        g_eta,lambdaT = ", fitgamma[4]
+print "                        g_lambdaT,lambdaT = ", fitgamma[5]
+
+print "\nFisher matrix:"
+print "eigenvalues:", evals
+print "eigenvectors:"
+print evecs
+print "rotation taking eigenvectors into Mc, eta, lambdaT basis:"
+print rot
+
+#
+# Distribute points inside predicted ellipsoid of certain level of overlap
+#
+r1 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[0])) # ellipse radii ...
+r2 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[1])) # ... along eigendirections
+r3 = np.sqrt(2.*(1.-match_cntr)/np.real(evals[2]))
+# This angle ensures a spoke will be placed along the equal mass line.
+# N.B. Nspokes must be even to ensure spokes along the equal mass line
+# pointing both directions from the center!
+ph0 = np.arctan(np.abs(r1) * (rot[0,1])/(np.abs(r2) * rot[0,0]) )
+# Get pts. inside an ellipsoid oriented along eigenvectors
+if opts.linear_spoked:
+    print "Doing linear spoked placement"
+    Npts = opts.spoke_pts * opts.mass_spokes * opts.tidal_spokes
+    eig_grid, sph_grid = eff.linear_spoked_ellipsoid(opts.spoke_pts,
+            [opts.mass_spokes, opts.tidal_spokes], [ph0, 0.], r1, r2, r3)
+elif opts.uniform_spoked:
+    print "Doing uniform spoked placement"
+    Npts = opts.spoke_pts * opts.mass_spokes * opts.tidal_spokes
+    eig_grid, sph_grid = eff.uniform_spoked_ellipsoid(opts.spoke_pts,
+            [opts.mass_spokes, opts.tidal_spokes], [ph0, 0.], r1, r2, r3)
+else: # do random, uniform placement
+    print "Doing uniform random placement"
+    Npts = opts.N_random_pts
+    eig_grid, sph_grid = eff.uniform_random_ellipsoid(
+            opts.N_random_pts, r1, r2, r3)
+# Rotate to get coordinates in parameter basis
+param_grid = np.array([ np.real( np.dot(rot, eig_grid[i]))
+    for i in xrange(len(eig_grid)) ])
+# Put in convenient units,
+# change from parameter differential (i.e. dtheta)
+# to absolute parameter value (i.e. theta = theta_true + dtheta)
+rand_dMcs_MSUN, rand_detas, rand_dlambdaTs = tuple(np.transpose(param_grid))
+rand_Mcs = rand_dMcs_MSUN * lal.LAL_MSUN_SI + McSIG # Mc (kg)
+rand_etas = rand_detas + etaSIG # eta
+rand_lambdaTs = rand_dlambdaTs + lambdaTSIG
+
+# Prune points with unphysical values of eta from param_grid
+rand_etas = np.array(map(partial(lsu.sanitize_eta, exception=np.NAN), rand_etas))
+param_grid = np.transpose((rand_Mcs,rand_etas,rand_lambdaTs))
+phys_cut = ~np.isnan(param_grid).any(1) # cut to remove unphysical pts
+param_grid = param_grid[phys_cut]
+# Prune points where lambdaT is not in [0,3000]
+Lcut = (rand_lambdaTs[phys_cut] >= 0.) & (rand_lambdaTs[phys_cut] <= 3000.)
+param_grid = param_grid[Lcut]
+print "Requested",  Npts, "points inside the ellipsoid of",\
+        match_cntr, "match."
+print "Kept", len(param_grid), "points with physically allowed parameters."
+
+# Output Cartesian and spherical coordinates of intrinsic grid
+indices = np.arange(len(param_grid))
+Mcs_MSUN, etas, lambdaTs = np.transpose(param_grid)
+Mcs_MSUN = Mcs_MSUN / lal.LAL_MSUN_SI
+radii, thetas, phis = np.transpose(sph_grid[phys_cut][Lcut])
+outgrid = np.transpose((indices,Mcs_MSUN,etas,lambdaTs,radii,thetas,phis))
+# If clusters get upgraded, add this header to output:
+# header='index Mc eta radius angle'
+np.savetxt('intrinsic_grid.dat', outgrid)
+
+# Output information about the intrinsic ellipsoid
+area = (4./3.) * np.pi * r1 * r2 * r3
+frac_area = area * len(param_grid) / Npts
+gam = np.real(gam)
+#test = np.concatenate((gam,np.array([[r1,r2,r3]]),np.array([[area, frac_area]])))
+# If clusters get upgraded, add this header to output:
+# header='3x3 effective Fisher matrix, 3rd row: ellipsoid axes, 4th row: total ellipse area, estimated physical area'
+#np.savetxt('ellipsoid.dat', test)
+
+# Convert to m1, m2
+m1m2_grid = np.array([ [lsu.mass1(param_grid[i][0],param_grid[i][1])
+        /lal.LAL_MSUN_SI, lsu.mass2(param_grid[i][0],param_grid[i][1])
+        /lal.LAL_MSUN_SI, param_grid[i][2] ]
+        for i in xrange(len(param_grid))])
+
+from glue.ligolw import utils, ligolw, lsctables, ilwd
+from glue.ligolw.utils import process
+
+if opts.mass_points_xml:
+    xmldoc = ligolw.Document()
+    xmldoc.appendChild(ligolw.LIGO_LW())
+    procrow = process.append_process(xmldoc, program=sys.argv[0])
+    procid = procrow.process_id
+    process.append_process_params(xmldoc, procrow, process.process_params_from_dict(opts.__dict__))
+    
+    sim_insp_tbl = lsctables.New(lsctables.SimInspiralTable, ["simulation_id", "process_id", "numrel_data", "mass1", "mass2"])
+    for itr, (m1, m2) in enumerate(m1m2_grid):
+        sim_insp = sim_insp_tbl.RowType()
+        sim_insp.numrel_data = "MASS_SET_%d" % itr
+        sim_insp.simulation_id = ilwd.ilwdchar("sim_inspiral:sim_inspiral_id:%d" % itr)
+        sim_insp.process_id = procid
+        sim_insp.mass1, sim_insp.mass2 = m1, m2
+        sim_insp_tbl.append(sim_insp)
+    xmldoc.childNodes[0].appendChild(sim_insp_tbl)
+    ifos = "".join([o.split("=")[0][0] for o in opts.channel_name])
+    start = int(event_time)
+    fname = "%s-MASS_POINTS-%d-1.xml.gz" % (ifos, start)
+    utils.write_filename(xmldoc, fname, gz=True)
+
+# Write the sub file and DAG
+dag = pipeline.CondorDAG(log=os.getcwd())
+
+mkdir(log_dir) # Make a directory to hold log files of jobs
+
+ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_sub(
+        add_tides=True,
+        tag='integrate',
+        log_dir=log_dir,
+        cache_file=opts.cache_file,
+        channel_name=opts.channel_name,
+        psd_file=opts.psd_file,
+        coinc_xml=opts.coinc_xml,
+        reference_freq=opts.reference_freq,
+        fmax=opts.fmax,
+        approximant=opts.approximant,
+        amp_order=opts.amp_order,
+        l_max=opts.l_max,
+        lambdaT=opts.lambdaT,
+        event_time=event_time,
+        time_marginalization=opts.time_marginalization,
+        save_samples=opts.save_samples,
+        output_file=opts.output_file,
+        n_eff=opts.n_eff,
+        n_max=opts.n_max,
+        ncopies=opts.n_copies,
+        save_deltalnL=opts.save_deltalnL,
+        save_P=opts.save_P,
+        n_chunk=opts.n_chunk,
+        convergence_tests_on=opts.convergence_tests_on,
+        adapt_floor_level=opts.adapt_floor_level,
+        adapt_weight_exponent=opts.adapt_weight_exponent,
+        skymap_file=opts.skymap_file
+        )
+ile_job_type.write_sub_file()
+
+#
+# Make the posterior plot here since we need to make it the child of every sql
+# node in the DAG
+#
+pos_plot_job_type, pos_plot_job_name = dag_utils.write_posterior_plot_sub(tag="pos_plot", log_dir=log_dir)
+pos_plot_job_type.write_sub_file()
+pos_plot_node = pipeline.CondorDAGNode(pos_plot_job_type)
+pos_plot_node.set_pre_script(dag_utils.which("coalesce.sh"))
+pos_plot_node.set_category("PLOT")
+pos_plot_node.set_priority(JOB_PRIORITIES["PLOT"])
+dag.add_node(pos_plot_node)
+
+sql_job_type, sql_job_name = dag_utils.write_result_coalescence_sub(tag="coalesce", log_dir=log_dir)
+sql_job_type.write_sub_file()
+
+for i, (m1, m2, LT) in enumerate(m1m2_grid):
+    ile_node = pipeline.CondorDAGNode(ile_job_type)
+    ile_node.set_priority(JOB_PRIORITIES["ILE"])
+    ile_node.add_macro("macromass1", m1)
+    ile_node.add_macro("macromass2", m2)
+    ile_node.add_macro("macrolambdaT", LT)
+
+    mass_grouping = "MASS_SET_%d" % i
+
+    # This is to identify output from groupings of the sane mass point
+    ile_node.add_macro("macromassid", mass_grouping)
+
+    ile_node.set_category("ILE")
+    dag.add_node(ile_node)
+
+    sql_node = pipeline.CondorDAGNode(sql_job_type)
+    sql_node.add_parent(ile_node)
+    sql_node.set_priority(JOB_PRIORITIES["SQL"])
+
+    # The sql node needs to run a PRE script in order to coalesce the data into
+    # a cache
+    sql_node.set_pre_script(dag_utils.which("coalesce.sh"))
+    sql_node.add_pre_script_arg(mass_grouping)
+
+    # This is to identify output from groupings of the sane mass point
+    sql_node.add_macro("macromassid", mass_grouping)
+
+    sql_node.set_category("SQL")
+    dag.add_node(sql_node)
+
+    tri_plot_job_type, tri_plot_job_name = dag_utils.write_tri_plot_sub(tag="tri_plot", injection_file=opts.sim_xml, log_dir=log_dir)
+    tri_plot_job_type.write_sub_file()
+    tri_plot_node = pipeline.CondorDAGNode(tri_plot_job_type)
+    tri_plot_node.add_macro("macromassid", mass_grouping)
+    tri_plot_node.set_category("PLOT")
+    tri_plot_node.set_priority(JOB_PRIORITIES["PLOT"])
+    dag.add_node(tri_plot_node)
+    tri_plot_node.add_parent(sql_node)
+
+    pos_1d_plot_job_type, pos_1d_plot_job_name = dag_utils.write_1dpos_plot_sub(tag="1d_post_plot", log_dir=log_dir)
+    pos_1d_plot_job_type.write_sub_file()
+    pos_1d_plot_node = pipeline.CondorDAGNode(pos_1d_plot_job_type)
+    pos_1d_plot_node.add_macro("macromassid", mass_grouping)
+    pos_1d_plot_node.set_category("PLOT")
+    pos_1d_plot_node.set_priority(JOB_PRIORITIES["PLOT"])
+    dag.add_node(pos_1d_plot_node)
+    pos_1d_plot_node.add_parent(sql_node)
+
+    # FIXME: The final mass posterior plot isn't really dependent on either of
+    # the inferior plotting jobs, it's just kind of the cap on the run
+    pos_plot_node.add_parent(pos_1d_plot_node)
+    pos_plot_node.add_parent(tri_plot_node)
+
+dag_name="marginalize_extrinsic_parameters"
+dag.set_dag_file(dag_name)
+dag.write_concrete_dag()
+
+print "Created a DAG named %s\n" % dag_name
+print "This will run %i instances of %s in parallel\n" % (len(param_grid), ile_sub_name)
