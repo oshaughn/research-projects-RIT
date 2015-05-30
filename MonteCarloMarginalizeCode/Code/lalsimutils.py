@@ -28,7 +28,7 @@ from scipy import interpolate
 from scipy import signal
 import scipy  # for decimate
 
-from glue.ligolw import lsctables, table, utils # check all are needed
+from glue.ligolw import lsctables, table, utils, ligolw,ilwd # check all are needed
 from glue.lal import Cache
 
 import lal
@@ -79,6 +79,15 @@ except:
     lsu_DimensionlessUnit = lal.DimensionlessUnit
     lsu_HertzUnit = lal.HertzUnit
     lsu_SecondUnit = lal.SecondUnit
+
+    lsu_PNORDER_NEWTONIAN = lalsim.PNORDER_NEWTONIAN
+    lsu_PNORDER_HALF = lalsim.PNORDER_HALF
+    lsu_PNORDER_ONE = lalsim.PNORDER_ONE
+    lsu_PNORDER_ONE_POINT_FIVE = lalsim.PNORDER_ONE_POINT_FIVE
+    lsu_PNORDER_TWO = lalsim.PNORDER_TWO
+    lsu_PNORDER_TWO_POINT_FIVE = lalsim.PNORDER_TWO_POINT_FIVE
+    lsu_PNORDER_THREE = lalsim.PNORDER_THREE
+    lsu_PNORDER_THREE_POINT_FIVE = lalsim.PNORDER_THREE_POINT_FIVE
 else:
     print  " Old style :  LAL prefix"
     lsu_MSUN=lal.LAL_MSUN_SI
@@ -94,6 +103,35 @@ else:
     lsu_HertzUnit = lal.lalHertzUnit
     lsu_SecondUnit = lal.lalSecondUnit
 
+    lsu_PNORDER_NEWTONIAN = lalsim.LAL_PNORDER_NEWTONIAN
+    lsu_PNORDER_HALF = lalsim.LAL_PNORDER_HALF
+    lsu_PNORDER_ONE = lalsim.LAL_PNORDER_ONE
+    lsu_PNORDER_ONE_POINT_FIVE = lalsim.LAL_PNORDER_ONE_POINT_FIVE
+    lsu_PNORDER_TWO = lalsim.LAL_PNORDER_TWO
+    lsu_PNORDER_TWO_POINT_FIVE = lalsim.LAL_PNORDER_TWO_POINT_FIVE
+    lsu_PNORDER_THREE = lalsim.LAL_PNORDER_THREE
+    lsu_PNORDER_THREE_POINT_FIVE = lalsim.LAL_PNORDER_THREE_POINT_FIVE
+
+# https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_l_a_l_sim_inspiral_8c_source.html#l02910
+def lsu_StringFromPNOrder(order):
+    if (order == lsu_PNORDER_NEWTONIAN):
+        return "newtonian"
+    elif (order == lsu_PNORDER_HALF):
+        return "oneHalfPN"
+    elif (order == lsu_PNORDER_ONE):
+        return "onePN"
+    elif (order == lsu_PNORDER_ONE_POINT_FIVE):
+        return "onePointFivePN"
+    elif (order == lsu_PNORDER_TWO):
+        return "twoPN"
+    elif (order == lsu_PNORDER_TWO_POINT_FIVE):
+        return "twoPointFivePN"
+    elif (order == lsu_PNORDER_THREE):
+        return "threePN"
+    elif (order == lsu_PNORDER_THREE_POINT_FIVE):
+        return "threePointFivePN"
+    else:
+        raise "Unknown PN order "
 
 #
 # Class to hold arguments of ChooseWaveform functions
@@ -655,6 +693,9 @@ class ChooseWaveformParams:
         self.psi = row.polarization
         self.tref = row.geocent_end_time + 1e-9*row.geocent_end_time_ns
         self.taper = lalsim.GetTaperFromString(row.taper)
+        # FAKED COLUMNS (nonstandard)
+        self.lambda1 = row.alpha5
+        self.lambda2 = row.alpha6
 
     def create_sim_inspiral(self):
         """
@@ -692,6 +733,9 @@ class ChooseWaveformParams:
         row.waveform = lalsim.GetStringFromApproximant(self.approx)+lsu_StringFromPNOrder(self.phaseO)
         row.taper = "TAPER_NONE"
         row.f_lower =self.fmin
+        # NONSTANDARD
+        row.alpha5 = self.lambda1
+        row.alpha6 = self.lambda2
         # Debug: 
         if rosDebugMessagesContainer[0]:
             print " Constructing the following XML table "
@@ -789,6 +833,31 @@ def xml_to_ChooseWaveformParams_array(fname, minrow=None, maxrow=None,
     except ValueError:
         print >>sys.stderr, "No SimInspiral table found in xml file"
     return Ps
+
+#
+# end-to-end XML i/o as sim_inspiral
+#
+def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, maxrow=None,
+        deltaT=1./4096., fref=0., waveFlags=None,
+        nonGRparams=None, detector="H1", deltaF=None, fMax=0.):
+    """
+    Standard XML storage for parameters.
+    Note that lambda values are NOT stored in xml table entries --- I have a special hack to do this
+    """
+    xmldoc = ligolw.Document()
+    xmldoc.appendChild(ligolw.LIGO_LW())
+    sim_table = lsctables.New(lsctables.SimInspiralTable)
+    xmldoc.childNodes[0].appendChild(sim_table)
+    indx =0
+    for P in P_list:
+        row= P.create_sim_inspiral()
+        row.process_id = ilwd.ilwdchar("process:process_id:{}".format(indx))
+        row.simulation_id = ilwd.ilwdchar("sim_inspiral:simulation_id:{}".format(indx))
+        indx+=1
+        sim_table.append(row)
+    utils.write_filename(xmldoc, fname+".xml.gz", gz=True)
+
+    return True
 
 
 #
