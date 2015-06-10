@@ -76,6 +76,9 @@ def ParseStandardArguments():
     parser.add_argument("--NR-template-group", default=None,help="Specific NR simulation group to use")
     parser.add_argument("--NR-template-param", default=None,help="Parameter value")
 
+    # Use external EOB matlab code
+    parser.add_argument("--use-external-EOB",default=False,action='store_true')
+
     # Data or injection
     parser.add_argument("-c","--cache-file",dest='cache_file', default=None, help="LIGO cache file containing all data needed.")
     parser.add_argument("-C","--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")

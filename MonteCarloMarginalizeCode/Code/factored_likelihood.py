@@ -37,6 +37,12 @@ try:
 	useNR =True
 except:
 	useNR=False
+try:
+    hasEOB=True
+    import EOBTidalExternal as eobwf
+except:
+    hasEOB=False
+
 
 distMpcRef = 1000 # a fiducial distance for the template source.
 tWindowExplore = [-0.05, 0.05] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
@@ -54,7 +60,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         psd_dict, Lmax, fMax, analyticPSD_Q=False,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,
          NR_group=None,NR_param=None,
-        ignore_threshold=1e-5):
+        ignore_threshold=1e-5,
+       use_external_EOB=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -79,14 +86,33 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
 
     print "  ++++ Template data being computed for the following binary +++ "
     P.print_params()
+    if use_external_EOB:
+            # Mass sanity check "
+            if  (P.m1/lal.MSUN_SI)>3 or P.m2/lal.MSUN_SI>3:
+                    print " ----- external EOB code: MASS DANGER ---"
     # Compute all hlm modes with l <= Lmax
     detectors = data_dict.keys()
     # Zero-pad to same length as data - NB: Assuming all FD data same resolution
     P.deltaF = data_dict[detectors[0]].deltaF
-    if not (NR_group) or not (NR_param):
+    if (not (NR_group) or not (NR_param)) and  (not use_external_EOB):
         hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
         hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
 
+    elif use_external_EOB:
+            print "    Using external EOB interface (Bernuzzi)    "
+            # Code WILL FAIL IF LAMBDA=0
+            if P.lambda1<1:
+                    P.lambda1=1
+            if P.lambda2<1:
+                    P.lambda2=1
+            if P.deltaT > 1./16384:
+                    print 
+            wfP = eobwf.WaveformModeCatalog(P,lmax=Lmax)
+            hlms = wfP.hlmoff(force_T=1./P.deltaF,deltaT=P.deltaT)
+            # Code will not make the EOB waveform shorter, so the code can fail if you have insufficient data, later
+            print " External EOB length check ", hlms[(2,2)].data.length, data_dict[detectors[0]].data.length, data_dict[detectors[0]].data.length*P.deltaT
+            print " Comparison EOB duration check ", wfP.estimateDurationSec()
+            assert hlms[(2,2)].data.length ==data_dict[detectors[0]].data.length
     else: # NR signal required
         mtot = P.m1 + P.m2
         # Load the catalog
