@@ -53,6 +53,89 @@ def generate_job_id():
     r = str( long( np.random.random() * 100000000000000000L ) )
     return md5(t + r).hexdigest()
 
+def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log_dir=None, ncopies=1, **kwargs):
+    """
+    Write a submit file for launching jobs to marginalize the likelihood over
+    extrinsic parameters.
+    Like the other case (below), but modified to use the sim_xml
+    and loop over 'event'
+
+    Inputs:
+        - 'tag' is a string to specify the base name of output files. The output
+          submit file will be named tag.sub, and the jobs will write their
+          output to tag-ID.out, tag-ID.err, tag.log, where 'ID' is a unique
+          identifier for each instance of a job run from the sub file.
+        - 'cache' is the path to a cache file which gives the location of the
+          data to be analyzed.
+        - 'sim' is the path to the XML file with the grid
+        - 'channelH1/L1/V1' is the channel name to be read for each of the
+          H1, L1 and V1 detectors.
+        - 'psdH1/L1/V1' is the path to an XML file specifying the PSD of
+          each of the H1, L1, V1 detectors.
+        - 'ncopies' is the number of runs with identical input parameters to
+          submit per condor 'cluster'
+
+    Outputs:
+        - An instance of the CondorDAGJob that was generated for ILE
+    """
+
+    assert len(kwargs["psd_file"]) == len(kwargs["channel_name"])
+
+    exe = exe or which("integrate_likelihood_extrinsic")
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+        #
+        # Need to modify the output file so it's unique
+        #
+        ofname = kwargs["output_file"].split(".")
+        ofname, ext = ofname[0], ".".join(ofname[1:])
+        ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
+        del kwargs["output_file"]
+        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+            ile_job.add_opt("save-samples", None)
+            del kwargs["save_samples"]
+
+    #
+    # Add normal arguments
+    # FIXME: Get valid options from a module
+    #
+    for opt, param in kwargs.iteritems():
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    #
+    # Macro based options
+    #
+    ile_job.add_var_opt("event")
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', '2048')
+    
+    return ile_job, ile_sub_name
+
+
 # FIXME: Keep in sync with arguments of integrate_likelihood_extrinsic
 def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=None, ncopies=1, **kwargs):
     """
