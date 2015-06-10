@@ -136,6 +136,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'LambdaTilde', 'DeltaLambdaTilde']
 class ChooseWaveformParams:
     """
     Class containing all the arguments needed for SimInspiralChooseTD/FDWaveform
@@ -206,12 +207,12 @@ class ChooseWaveformParams:
             - system frame parameters
         VERY HELPFUL if you want to change just one parameter at a time (e.g., for Fisher )
         """
-        if p is 'mc':
+        if p == 'mc':
             # change implemented at fixed chi1, chi2, eta
             eta = symRatio(self.m1,self.m2)
             self.m1,self.m2 = m1m2(val,eta)
             return self
-        if p is 'eta':
+        if p == 'eta':
             # change implemented at fixed chi1, chi2, eta
             mc = mchirp(self.m1,self.m2)
             self.m1,self.m2 = m1m2(mc,val)
@@ -298,6 +299,17 @@ class ChooseWaveformParams:
             theta1 = np.arccos(kappa)
             self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
+        # tidal parameters
+        if p == 'LambdaTilde':
+            Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
+            Lt = val
+            self.lambda1, self.lambda2 = tidal_lambda_from_tilde(self.m1, self.m2, Lt, dLt)
+            return self
+        if p == 'DeltaLambdaTilde':
+            Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
+            dLt = val
+            self.lambda1, self.lambda2 = tidal_lambda_from_tilde(self.m1, self.m2, Lt, dLt)
+            return self
         # assign an attribute
         if hasattr(self,p):
             setattr(self,p,val)
@@ -313,17 +325,17 @@ class ChooseWaveformParams:
             - system frame parameters
         VERY HELPFUL if you want to change just one parameter at a time (e.g., for Fisher )
         """
-        if p is 'mc':
+        if p == 'mc':
             return mchirp(self.m1,self.m2)
-        if p is 'eta':
+        if p == 'eta':
             return symRatio(self.m1,self.m2)
-        if p is 'chi1':
+        if p == 'chi1':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             return np.sqrt(np.dot(chi1Vec,chi1Vec))
-        if p is 'chi2':
+        if p == 'chi2':
             chi1Vec = np.array([self.s2x,self.s2y,self.s2z])
             return np.sqrt(np.dot(chi1Vec,chi1Vec))
-        if p is 'thetaJN':
+        if p == 'thetaJN':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
@@ -1255,6 +1267,42 @@ class ComplexOverlap(InnerProduct):
         return tShift
 
 
+def CreateCompatibleComplexOverlap(hlmf,**kwargs):
+    """
+    CreateCompatibleComplexOverlap: accepts dictionary or single instance of COMPLEX16FrequencySeries
+    """
+    if isinstance(hlmf, dict):
+        modes = hlmf.keys()
+        hbase = hlmf[modes[0]]
+    else:
+        hbase =hlmf
+    deltaF = hbase.deltaF
+    fNyq = hbase.deltaF*hbase.data.length/2 # np.max(evaluate_fvals(hbase))
+    if rosDebugMessagesContainer[0]:
+        print kwargs
+        print "dF, fNyq, npts = ",deltaF, fNyq, len(hbase.data.data)
+    IP = ComplexOverlap(fNyq=fNyq, deltaF=deltaF, **kwargs)
+    return IP
+
+def CreateCompatibleComplexIP(hlmf,**kwargs):
+    """
+    Creates complex IP (no maximization)
+    """
+    if isinstance(hlmf, dict):
+        modes = hlmf.keys()
+        hbase = hlmf[modes[0]]
+    else:
+        hbase =hlmf
+    deltaF = hbase.deltaF
+    fNyq = hbase.deltaF*hbase.data.length/2 # np.max(evaluate_fvals(hbase))
+    if rosDebugMessagesContainer[0]:
+        print kwargs
+        print "dF, fNyq, npts = ",deltaF, fNyq, len(hbase.data.data)
+    IP = ComplexIP(fNyq=fNyq, deltaF=deltaF, **kwargs)
+    return IP
+
+
+
 #
 # Antenna pattern functions
 #
@@ -1299,6 +1347,10 @@ def m1m2(Mc, eta):
     m2 = 0.5*Mc*eta**(-3./5.)*(1. - np.sqrt(1 - 4.*eta))
     return m1, m2
 
+def eta_crit(Mc, m2_min):
+    sol = scipy.optimize.root(lambda etv: m1m2(Mc, etv)[1] - m2_min, 0.23)
+    return sol.x[0]
+
 def Mceta(m1, m2):
     """Compute chirp mass and symmetric mass ratio from component masses"""
     Mc = (m1*m2)**(3./5.)*(m1+m2)**(-1./5.)
@@ -1314,8 +1366,8 @@ def tidal_lambda_tilde(mass1, mass2, lambda1, lambda2):
     """
     mt = mass1 + mass2
     eta = mass1 * mass2 / mt**2
-    q = sqrt(1 - 4*eta)
-    lt1, lt2 = lambda1 / mass1**5, lambda2 / mass2**5
+    q = np.sqrt(1 - 4*eta)
+    lt1, lt2 = lambda1, lambda2 # lambda1 / mass1**5, lambda2 / mass2**5  # Code is already dimensionless
     lt_sym = lt1 + lt2
     lt_asym = lt1 - lt2
 
@@ -1331,7 +1383,7 @@ def tidal_lambda_from_tilde(mass1, mass2, lam_til, dlam_til):
     """
     mt = mass1 + mass2
     eta = mass1 * mass2 / mt**2
-    q = sqrt(1 - 4*eta)
+    q = np.sqrt(1 - 4*eta)
 
     a = (8./13) * (1 + 7*eta - 31*eta**2)
     b = (8./13) * q * (1 + 9*eta - 11*eta**2)
