@@ -79,14 +79,13 @@ else:
     event = opts.event_id
     xmldoc = utils.load_filename(filename, verbose = True)
     sim_inspiral_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
-    wfP.P.copy_sim_inspiral(sim_inspiral_table[int(event)])
+    P.copy_sim_inspiral(sim_inspiral_table[int(event)])
 P.detector = opts.instrument
 
 P.print_params()
 wfP = eobwf.WaveformModeCatalog(P,lmax=opts.lmax)
 print " Loaded modes ", wfP.waveform_modes_complex.keys()
 print " Duration of stored signal ", wfP.estimateDurationSec()
-wfP.P.incl = opts.incl
 mtotMsun = (wfP.P.m1+wfP.P.m2)/lal.MSUN_SI
 
 
