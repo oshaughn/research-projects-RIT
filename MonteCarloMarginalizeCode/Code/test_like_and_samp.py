@@ -26,6 +26,7 @@ Examples:
   # Use a numerical psd or analytic PSD.  Plot what you are using
         python test_like_and_samp.py --show-psd
         python test_like_and_samp.py --psd-file psd.xml.gz --show-psd
+        python test_like_and_samp.py --psd-file-singleifo H1=HLV.xml.gz --psd-file-singleifo V1=HLV.xml.gz
   # Run using several likelihood approximations
         python test_like_and_samp.py  --show-sampler-inputs --show-sampler-results --LikelihoodType_MargTdisc   # NOT DEBUGGED
   
@@ -46,6 +47,10 @@ Examples:
   # Run with convergence tests and adaptation
   # Run neglecting almost all modes (threshold normally strips out worst cases)
     ./test_like_and_samp.py --Nskip 2000 --approx EOBNRv2HM --srate 16384 --Lmax 5 --LikelihoodType_MargTdisc_array --skip-modes-less-than 1e-2
+
+  # EOB tidal implementation: Make sure source and template are both of consistent mass
+     python test_like_and_samp.py  --mass1 1.5 --mass2 1.35  --signal-mass1 1.5 --signal-mass2 1.35 --seglen 128 --verbose
+     python test_like_and_samp.py --use-external-EOB  --mass1 1.5 --mass2 1.35  --signal-mass1 1.5 --signal-mass2 1.35 --seglen 128 --verbose
 """
 try:
     import matplotlib
@@ -88,6 +93,12 @@ try:
 except:
     hasNR=False
     print " - no NR waveforms -"
+try:
+    hasEOB=True
+    import EOBTidalExternal as eobwf
+except:
+    hasEOB=False
+    print " - no EOB waveforms - "
 try:
     import healpy
     from lalinference.bayestar import fits as bfits
@@ -400,6 +411,7 @@ if len(data_dict) is 0:
     df = lalsimutils.estimateDeltaF(Psig)
     if 1/df < opts.seglen:   # Allows user to change seglen of data for *analytic* models, on the command line. Particularly useful re testing PSD truncation
         df = 1./lalsimutils.nextPow2(opts.seglen)
+        Psig.deltaF = df  # change the df
     if not opts.NR_signal_group:
         print " ---  Using synthetic signal --- "
         Psig.print_params(); print " ---  Writing synthetic signal to memory --- "
@@ -448,6 +460,13 @@ if len(data_dict) is 0:
     else:
             print "Not valid NR simulation or injection parameter"
             sys.exit(0)
+
+# Report on signal injected
+if opts.verbose:
+    print "  ---- Report on detector data ----- "
+    print "  det  length    duration "
+    for det in data_dict:
+        print det, data_dict[det].data.length, data_dict[det].data.length*Psig.deltaT
 
 
 # Reset origin of time, if required
@@ -608,7 +627,7 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
 #   WARNING: Using default values for inverse spectrum truncation (True) and inverse spectrun truncation time (8s) from ourparams.py
 #                     ILE adopts a different convention.  ROS old development branch has yet another approach (=set during PSD reading).
 #
-rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,ignore_threshold=opts.opt_SkipModeThreshold,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime,NR_group=opts.NR_template_group,NR_param=opts.NR_template_param)
+rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,ignore_threshold=opts.opt_SkipModeThreshold,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime,NR_group=opts.NR_template_group,NR_param=opts.NR_template_param,use_external_EOB=opts.use_external_EOB)
 
 
 epoch_post = theEpochFiducial # Suggested change.  BE CAREFUL: Now that we trim the series, this is NOT what I used to be
