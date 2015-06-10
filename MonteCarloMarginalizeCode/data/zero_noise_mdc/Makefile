@@ -50,6 +50,10 @@ plot_ts: zero_noise.cache
 test_ile_dag: zero_noise.cache
 	../../Code/compute_marginalized_likelihood --cache-file ${BASE_DIR}/zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0 --reference-freq 0.0 --save-samples --output-file zero_noise.xml.gz --n-copies 2 --time-marginalization --save-P 0.01 --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --n-eff 200 --d-max 500 --linear-spoked
 
+# Create a DAG using the grid code
+test_ile_dag_grid: zero_noise.cache
+	../../Code/create_event_dag_via_grid --sim-xml mdc.xml.gz --cache-file ${BASE_DIR}/zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME}  --reference-freq 0.0 --save-samples --output-file zero_noise.xml.gz --n-copies 2 --time-marginalization --save-P 0.01 --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --n-eff 200 --d-max 500 --linear-spoked
+
 # Evaluate the likelihood by MC integral on *one* mass point.  Make a bunch of plots to followup
 test_ile_postprocessing: zero_noise.cache
 	rm -f zero_noise.pdf
@@ -84,3 +88,6 @@ test_ile_pinned: zero_noise.cache
 	../../Code/plot_like_contours --dimension1=distance --dimension2=inclination  --show-points  ile-ros-output.xml.gz --show-mdc=mdc.xml.gz  --fig-extension pdf
 	mv ile-ros-output.xml.gz ile-ros-pintest-DCosI.xml.gz
 
+ros_test_likelihood:
+# TEST VERSION 1: Analytic (iLIGO) PSD model
+	test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4 --mass2 4  --Lmax 2 --amporder -1 --show-likelihood-versus-time --show-sampler-inputs --show-psd   # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
