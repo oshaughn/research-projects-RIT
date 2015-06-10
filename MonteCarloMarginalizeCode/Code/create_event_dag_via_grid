@@ -1,0 +1,223 @@
+#!/usr/bin/env python
+# create_event_dag_via_grid
+#   Based on rapidpe_create_event_dag.py (Pankow)
+#   Just implements 'map' over condor
+# IDEA
+#    - Trivial DAG pointing at an XML file: each job evaluates L at one point
+#    - XML file generation provided by another tool
+
+
+import os
+import select
+import sys
+import stat
+from functools import partial
+from optparse import OptionParser, OptionGroup
+
+import numpy as np
+
+import lal
+import lalsimulation as lalsim
+
+import glue.lal
+from glue.ligolw import utils, ligolw, lsctables, table
+from glue.ligolw.utils import process
+from glue import pipeline
+
+import lalsimutils as lsu
+import effectiveFisher as eff
+import dag_utils
+
+import regions
+
+try:
+	import NRWaveformCatalogManager as nrwf
+	useNR =True
+except:
+	useNR=False
+
+
+JOB_PRIORITIES = { "ILE": 10,
+    "SQL": 1,
+    "PLOT": 1
+}
+
+
+def mkdir(dir_name):
+    try :
+        os.mkdir(dir_name)
+    except OSError:
+        pass
+
+#
+# Pinnable parameters -- for command line processing
+#
+LIKELIHOOD_PINNABLE_PARAMS = ["right ascension", "declination"]
+
+
+#
+# Option parsing
+#
+
+optp = OptionParser()
+# Options needed by this program only.
+optp.add_option("-w", "--working-directory", default="./", help="Directory in which to stage DAG components.")
+optp.add_option("--produce-plots", default=False,action='store_true',help="By default, the triplots and SQL generation is NOT included.")
+optp.add_option("--nr-params",default=None, help="List of specific NR parameters and groups (and masses?) to use for the grid.")
+optp.add_option("--uniform-spoked", action="store_true", help="Place mass pts along spokes uniform in volume (if omitted placement will be random and uniform in volume")
+optp.add_option("--linear-spoked", action="store_true", help="Place mass pts along spokes linear in radial distance (if omitted placement will be random and uniform in volume")
+optp.add_option("--grid-cartesian", action="store_true", help="Place mass points using a cartesian grid")
+optp.add_option("--match-value", type=float, default=0.97, help="Use this as the minimum match value. Default is 0.97")
+optp.add_option("--fisher-psd",type=str,default="lalsim.SimNoisePSDaLIGOZeroDetHighPower",help="psd name ('eval'). lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, ... ")
+
+# Options transferred to ILE
+optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
+optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
+optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
+# optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
+optp.add_option("-s", "--sim-xml", help="XML file containing mass grid to be evaluated")
+optp.add_option("-E", "--event", default=0, help="Event number used for this run")
+optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
+optp.add_option("--fmin-template", dest='fmin_template', type=float, default=40, help="Waveform starting frequency.  Default is 40 Hz.") 
+optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
+optp.add_option("-a", "--approximant", default="TaylorT4", help="Waveform family to use for templates. Any approximant implemented in LALSimulation is valid.")
+optp.add_option("-A", "--amp-order", type=int, default=0, help="Include amplitude corrections in template waveforms up to this e.g. (e.g. 5 <==> 2.5PN), default is Newtonian order.")
+optp.add_option("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")
+optp.add_option("-e", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
+optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
+optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
+optp.add_option("-o", "--output-file", help="Save result to this file. REQUIRED, else why run a DAG?")
+optp.add_option("-n", "--n-copies", type=int, default=1, help="Number of copies to do of a given run. Default is 1.")
+optp.add_option("--n-max", type=int, default=1000000, help="Maximum number of throws to use in integrator.")
+optp.add_option("--n-eff", type=int, default=1000, help="Maximum number of effective samples to reach before terminating.")
+optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
+optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
+optp.add_option("--n-chunk", type=int, help="Chunk'.",default=100)
+optp.add_option("--convergence-tests-on",default=False,action='store_true')
+optp.add_option("--adapt-floor-level", type=float,default=0.1,help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.0 (no floor)")
+optp.add_option("--adapt-weight-exponent", type=float,default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
+optp.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
+optp.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
+optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
+optp.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
+
+
+#
+# Add the pinnable parameters
+#
+pinnable = OptionGroup(optp, "Pinnable Parameters", "Specifying these command line options will pin the value of that parameter to the specified value with a probability of unity.")
+for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
+    option = "--" + pin_param.replace(" ", "-")
+    pinnable.add_option(option, type=float, help="Pin the value of %s." % pin_param)
+optp.add_option_group(pinnable)
+
+opts, args = optp.parse_args()
+
+print opts
+
+if not opts.output_file:
+    print " Output file required "
+    sys.exit(0)
+
+# Event time
+event_time = glue.lal.LIGOTimeGPS(opts.event_time)
+
+# Move to working directory for generation
+os.chdir(opts.working_directory)
+
+# Print command line to a file to recall what was run
+cmdname="%s/command.sh" % opts.working_directory
+cmd = open(cmdname, 'w')
+cmd.write('#!/usr/bin/env bash\n')
+cmd.write(" ".join(sys.argv) )
+cmd.close()
+st = os.stat(cmdname)
+os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+
+cmdname="%s/command-single.sh" % opts.working_directory
+cmd = open(cmdname, 'w')
+strOut  = " ".join(sys.argv).replace("compute_marginalized_likelihood","integrate_likelihood_extrinsic")
+cmd.write('#!/usr/bin/env bash\n')
+cmd.write(strOut )
+cmd.close()
+st = os.stat(cmdname)
+os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+
+log_dir="%s/logs/" % opts.working_directory # directory to hold
+
+###
+### DAG generation
+###
+dag = pipeline.CondorDAG(log=os.getcwd())
+
+mkdir(log_dir) # Make a directory to hold log files of jobs
+
+args_pinned = {}
+opts_raw  = vars(opts)  # convert namespace to dictionary
+for arg in ['right_ascension', 'declination']:
+    if opts_raw.has_key(arg):
+        print " --- WARNING: PINNING PARAMETER FOR DAG -- ", arg, " -> ", opts_raw[arg]
+        args_pinned[arg] = opts_raw[arg]
+
+
+ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid_sub(
+        tag='integrate',
+        log_dir=log_dir,
+        cache_file=opts.cache_file,
+        channel_name=opts.channel_name,
+        psd_file=opts.psd_file,
+        sim_xml=opts.sim_xml,
+        reference_freq=opts.reference_freq,
+        fmin_template=opts.fmin_template,
+        fmax=opts.fmax,
+        nr_params=opts.nr_params,
+		approximant=opts.approximant,
+		amp_order=opts.amp_order,
+		l_max=opts.l_max,
+        event_time=event_time,
+        time_marginalization=opts.time_marginalization,
+        save_samples=opts.save_samples,
+        output_file=opts.output_file,
+        n_eff=opts.n_eff,
+        n_max=opts.n_max,
+        ncopies=opts.n_copies,
+        save_deltalnL=opts.save_deltalnL,
+        save_P=opts.save_P,
+        n_chunk=opts.n_chunk,
+        convergence_tests_on=opts.convergence_tests_on,
+        adapt_floor_level=opts.adapt_floor_level,
+        adapt_weight_exponent=opts.adapt_weight_exponent,
+        adapt_log=opts.adapt_log,
+        adapt_adapt=opts.adapt_adapt,
+        skymap_file=opts.skymap_file,
+        d_max=opts.d_max,
+        **args_pinned
+        )
+ile_job_type.write_sub_file()
+
+
+# Read the XML file to determine how many lines are in it.
+n_events= 10
+
+# Create one node per index
+for i in np.arange(n_events):
+    ile_node = pipeline.CondorDAGNode(ile_job_type)
+    ile_node.set_priority(JOB_PRIORITIES["ILE"])
+    ile_node.add_macro("macroevent", i)
+
+    mass_grouping = "EVENT_%d" % i
+
+    # This is to identify output from groupings of the sane mass point
+    ile_node.add_macro("macromassid", mass_grouping)
+
+    ile_node.set_category("ILE")
+    dag.add_node(ile_node)
+
+
+dag_name="marginalize_extrinsic_parameters_grid"
+dag.set_dag_file(dag_name)
+dag.write_concrete_dag()
+
+print "Created a DAG named %s\n" % dag_name
+print "This will run %i instances of %s in parallel\n" % (n_events, ile_sub_name)
+
