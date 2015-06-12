@@ -56,8 +56,8 @@ P=lalsimutils.ChooseWaveformParams()
 P.m1 = opts.mass1 *lal.MSUN_SI
 P.m2 = opts.mass2 *lal.MSUN_SI
 P.dist = 150*1e6*lal.PC_SI
-P.lambda1  = 500
-P.lambda2  = 500
+P.lambda1  = opts.lambda1
+P.lambda2  = opts.lambda2
 P.fmin=opts.fmin   # Just for comparison!  Obviously only good for iLIGO
 P.ampO=-1  # include 'full physics'
 P.deltaT=1./16384
@@ -83,11 +83,16 @@ else:
 P.detector = opts.instrument
 
 P.print_params()
+
+# FAIL if masses are not viable
+if P.m1/lal.MSUN_SI > 3 or P.m2/lal.MSUN_SI > 3:
+    print " Invalid NS mass "
+    sys.exit(0)
+
 wfP = eobwf.WaveformModeCatalog(P,lmax=opts.lmax)
 print " Loaded modes ", wfP.waveform_modes_complex.keys()
 print " Duration of stored signal ", wfP.estimateDurationSec()
 mtotMsun = (wfP.P.m1+wfP.P.m2)/lal.MSUN_SI
-
 
 
 # Generate signal
@@ -136,6 +141,7 @@ if not opts.fname:
 
 print "Writing signal with ", hoft.data.length*hoft.deltaT, " to file ", fname
 print "Maximum original ", np.max(hoft.data.data)
+print "Start time", hoft.epoch
 lalsimutils.hoft_to_frame_data(fname,channel,hoft)
 
 bNoInteractivePlots=True # default
@@ -184,10 +190,11 @@ if opts.verbose and not bNoPlots:
 
     ncrit = np.argmax(hoft2.data.data)
     tcrit = float(hoft2.epoch) - float(wfP.P.tref) + ncrit*hoft2.deltaT    # zero time
-    print ncrit, tcrit
 
     print " Maximum original ", np.max(hoft.data.data), " size ", len(tvals), len(hoft.data.data)
     print " Maximum frames ", np.max(hoft2.data.data), " size ", len(tvals2), len(hoft2.data.data)
+    print " Location of maximum in samples. relative time ", ncrit, tcrit
+    print " Location of maximum in samples, compared to tref", tcrit+P.tref, 
 
     plt.plot(tvals2,hoft2.data.data,label='Fr')
     plt.xlim(tcrit-1,tcrit+1)
@@ -199,9 +206,9 @@ if opts.verbose and not bNoPlots:
     else:
         for indx in [1]:
             print "Writing figure ", indx
-            plt.xlim(tcrit-1,tcrit+1)
+            plt.xlim(tcrit-0.1,tcrit+0.01)
             plt.figure(indx); plt.savefig("eob-framedump-" +str(indx)+fig_extension)
-            plt.xlim(min(tvals2),max(tvals2)) # full range with pad
-            plt.figure(indx); plt.savefig("eob-framedump-full-" +str(indx)+fig_extension)
+#            plt.xlim(min(tvals2),max(tvals2)) # full range with pad
+#            plt.figure(indx); plt.savefig("eob-framedump-full-" +str(indx)+fig_extension)
 
 

@@ -337,7 +337,9 @@ class WaveformModeCatalog:
 
             # Set the epoch for the time series correctly: should have peak near center of series by construction
             # note all have the same length
-            wfmTS.epoch = -deltaT*wfmTS.data.length/2
+            # wfmTS.epoch = -deltaT*wfmTS.data.length/2  # did not work
+            #n_crit = np.argmax(wfmTS.data.data)
+            #print n_crit*wfmTS.deltaT, wfmTS.epoch   # this should be nearly zero
 
             # taper the start (1s. Only needed if I do not grab the whole range, because I taper the raw data)
             if taper_start_time:
@@ -349,6 +351,13 @@ class WaveformModeCatalog:
 
             # Store the resulting mode
             hlmT[mode] = wfmTS
+
+
+        # Set time at peak of 22 mode. This is a hack, but good enough for us
+        n_crit = np.argmax(hlmT[(2,2)].data.data)
+        epoch_crit = -deltaT*n_crit
+        for mode in hlmT:
+            hlmT[mode].epoch = epoch_crit
 
         return hlmT
 
