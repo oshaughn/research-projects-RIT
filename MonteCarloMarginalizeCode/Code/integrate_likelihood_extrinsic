@@ -58,6 +58,7 @@ optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Wavef
 optp.add_option("--fmin-template", dest='fmin_template', type=float, default=40, help="Waveform starting frequency.  Default is 40 Hz.") 
 optp.add_option("--nr-params",default=None, help="List of specific NR parameters and groups (and masses?) to use for the grid.")
 optp.add_option("--nr-index",type=int,default=-1,help="Index of specific NR simulation to use [integer]. Mass used: mtot= m1+m2")
+optp.add_option("--use-external-EOB",default=False,action='store_true')
 optp.add_option("-a", "--approximant", default="TaylorT4", help="Waveform family to use for templates. Any approximant implemented in LALSimulation is valid.")
 optp.add_option("-A", "--amp-order", type=int, default=0, help="Include amplitude corrections in template waveforms up to this e.g. (e.g. 5 <==> 2.5PN), default is Newtonian order.")
 optp.add_option("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")
@@ -354,7 +355,8 @@ t_window = 0.15
 rholms_intp, cross_terms, rholms=factored_likelihood.PrecomputeLikelihoodTerms(
         fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
         False, inv_spec_trunc_Q, T_spec,
-        NR_group=NR_template_group,NR_param=NR_template_param)
+        NR_group=NR_template_group,NR_param=NR_template_param,
+        use_external_EOB=opts.use_external_EOB)
 
 if opts.pin_to_sim:
     P.copy_lsctables_sim_inspiral(sim_row)

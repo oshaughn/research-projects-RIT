@@ -427,7 +427,7 @@ if len(data_dict) is 0:
     if 1/df < opts.seglen:   # Allows user to change seglen of data for *analytic* models, on the command line. Particularly useful re testing PSD truncation
         df = 1./lalsimutils.nextPow2(opts.seglen)
         Psig.deltaF = df  # change the df
-    if not opts.NR_signal_group:
+    if not opts.NR_signal_group and not opts.use_external_EOB:
         print " ---  Using synthetic signal --- "
         Psig.print_params(); print " ---  Writing synthetic signal to memory --- "
         Psig.deltaF = df
@@ -440,6 +440,21 @@ if len(data_dict) is 0:
 #        for det in ['H1', 'L1', 'V1']:
 #            Psig.detector = det
 #            data_dict[det] = lalsimutils.non_herm_hoff(Psig)
+
+    elif opts.use_external_EOB:
+        print " ---  Using external EOB signal --- "
+        Psig.print_params()
+        Psig.deltaF = df
+        # Load the underlying hlm sequence
+        wfP = eobwf.WaveformModeCatalog(Psig,lmax=Lmax)
+        # Generate the data in each detector
+        Psig.detector='H1'
+        data_dict['H1'] = wfP.non_herm_hoff()
+        Psig.detector='L1'
+        data_dict['L1'] = wfP.non_herm_hoff()
+        Psig.detector='V1'
+        data_dict['V1'] = wfP.non_herm_hoff()
+
 
     elif   opts.NR_signal_group: # and (Psig.m1+Psig.m2)/lal.MSUN_SI > 50:   # prevent sources < 50 Msun from being generated -- let's not be stupid 
         print " ---  Using synthetic NR injection file --- "
