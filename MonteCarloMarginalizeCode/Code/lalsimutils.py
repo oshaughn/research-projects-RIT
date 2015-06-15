@@ -698,13 +698,13 @@ class ChooseWaveformParams:
             self.phaseO = lalsim.GetOrderFromString(str(row.waveform))
         else:
             self.phaseO = 01
-        self.approx = lalsim.GetApproximantFromString(row.waveform)
+        self.approx = lalsim.GetApproximantFromString(str(row.waveform))
         self.theta = row.latitude # Declination
         self.phi = row.longitude # Right ascension
         self.radec = True # Flag to interpret (theta,phi) as (DEC,RA)
         self.psi = row.polarization
         self.tref = row.geocent_end_time + 1e-9*row.geocent_end_time_ns
-        self.taper = lalsim.GetTaperFromString(row.taper)
+        self.taper = lalsim.GetTaperFromString(str(row.taper))
         # FAKED COLUMNS (nonstandard)
         self.lambda1 = row.alpha5
         self.lambda2 = row.alpha6
