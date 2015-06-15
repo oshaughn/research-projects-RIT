@@ -109,4 +109,4 @@ ros_test_likelihood:
 # Confirm EOB interface works
 ros_test_likelihood_eob:
 # EOB with test_like_and_samp.py
-	test_like_and_samp.py --mass1 1.35 --mass2 1.35 --signal-mass1 1.35 --signal-mass2 1.35 --eff-lambda 590   --Lmax 2 --amporder -1 --use-external-EOB --show-likelihood-versus-time --show-sampler-inputs --show-psd  --seglen 128  # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
+	test_like_and_samp.py --mass1 1.35 --mass2 1.35 --signal-mass1 1.35 --signal-mass2 1.35 --eff-lambda 590   --Lmax 2 --amporder -1 --use-external-EOB --show-likelihood-versus-time --show-sampler-inputs --show-input-h --show-psd  --seglen 128  # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
