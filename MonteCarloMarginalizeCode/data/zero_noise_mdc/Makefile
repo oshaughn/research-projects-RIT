@@ -104,3 +104,9 @@ test_ile_pinned: zero_noise.cache
 ros_test_likelihood:
 # TEST VERSION 1: Analytic (iLIGO) PSD model
 	test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4 --mass2 4  --Lmax 2 --amporder -1 --show-likelihood-versus-time --show-sampler-inputs --show-psd   # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
+
+
+# Confirm EOB interface works
+ros_test_likelihood_eob:
+# EOB with test_like_and_samp.py
+	test_like_and_samp.py --mass1 1.35 --mass2 1.35 --signal-mass1 1.35 --signal-mass2 1.35 --eff-lambda 590   --Lmax 2 --amporder -1 --use-external-EOB --show-likelihood-versus-time --show-sampler-inputs --show-psd  --seglen 128  # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
