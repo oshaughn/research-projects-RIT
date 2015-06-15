@@ -287,6 +287,13 @@ if opts.signal_mass1 and Psig:
     Psig.m1 = opts.signal_mass1*lalsimutils.lsu_MSUN
 if opts.template_mass2 and Psig:
     Psig.m2 = opts.signal_mass2*lalsimutils.lsu_MSUN
+if opts.eff_lambda and Psig:
+    lambda1, lambda2 = 0, 0
+    if opts.eff_lambda is not None:
+        lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1, m2, opts.eff_lambda, opts.deff_lambda or 0)
+        Psig.lambda1 = lambda1
+        Psig.lambda2 = lambda2
+
 
 # Reset origin of time, if required. (This forces different parts of data to be read- important! )
 if opts.force_gps_time:
@@ -376,6 +383,7 @@ if len(data_dict) is 0:
         else:
             m2 = 3*lalsimutils.lsu_MSUN
 
+
         Psig = lalsimutils.ChooseWaveformParams(
             m1 = m1,m2 =m2,
             fmin = fminWavesSignal, 
@@ -388,6 +396,13 @@ if len(data_dict) is 0:
             dist=opts.signal_distMpc*1.e6*lalsimutils.lsu_PC,    # move back to aLIGO distances
             deltaT=1./fSample
                                 )
+        print " Effective lambda ", opts.eff_lambda
+        if opts.eff_lambda and m1/lal.MSUN_SI<3 and m2/lal.MSUN_SI<3:
+            lambda1, lambda2 = 0, 0
+            if opts.eff_lambda is not None:
+                lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1, m2, opts.eff_lambda, opts.deff_lambda or 0)
+            Psig.lambda1 = lambda1
+            Psig.lambda2 = lambda2
         timeSegmentLength  = float(lalsimutils.estimateWaveformDuration(Psig))
         if timeSegmentLength > opts.seglen:
             print " +++ CATASTROPHE : You are requesting less data than your template target needs!  +++"
@@ -620,7 +635,9 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
          deltaT=1./fSample,
          dist=100*1.e6*lalsimutils.lsu_PC,
          deltaF=df)
-
+if lambda1 or lambda2:
+    P.lambda1 = lambda1
+    P.lambda2 = lambda2
 
 #
 # Perform the Precompute stage

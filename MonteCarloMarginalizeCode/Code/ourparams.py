@@ -131,6 +131,8 @@ def ParseStandardArguments():
     parser.add_argument("--mass2", dest="template_mass2", default=False, type=float)
     parser.add_argument("--signal-mass1", dest="signal_mass1", default=False, type=float)
     parser.add_argument("--signal-mass2", dest="signal_mass2", default=False, type=float)
+    parser.add_argument("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given")
+    parser.add_argument("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
     parser.add_argument("--indicate-mass1", dest="indicate_mass1", default=False, type=float)
     parser.add_argument("--indicate-mass2", dest="indicate_mass2", default=False, type=float)
     parser.add_argument("--signal-fmin",dest="signal_fmin",default=30,type=float)
