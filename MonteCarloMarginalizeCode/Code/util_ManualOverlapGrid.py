@@ -28,11 +28,19 @@ import lalsimutils
 import lalsimulation as lalsim
 import lalframe
 import lal
+import functools
 
 import effectiveFisher  as eff   # for the mesh grid generation
 import PrecessingFisherMatrix   as pcf   # Superior tools to perform overlaps. Will need to standardize with Evans' approach in effectiveFisher.py
 
-
+from multiprocessing import Pool
+try:
+    import os
+    n_threads = int(os.environ['OMP_NUM_THREADS'])
+    print " Pool size : ", n_threads
+except:
+    n_threads=1
+    print " - No multiprocessing - "
 
 ###
 ### Load options
@@ -73,6 +81,58 @@ opts=  parser.parse_args()
 if opts.verbose:
     True
     #lalsimutils.rosDebugMessagesContainer[0]=True   # enable error logging inside lalsimutils
+
+
+###
+### Define grid overlap functions
+###   - Python's 'multiprocessing' module seems to cause process lock
+###
+
+def eval_overlap(grid,P_list, IP,indx):
+    if opts.verbose: 
+        print " Evaluating for ", indx
+    P2 = P_list[indx]
+    hf2 = lalsimutils.complex_hoff(P2); nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
+    if opts.verbose:
+        print " Waveform normalized for ", indx
+    ip_val = IP.ip(hfBase,hf2)
+    ip_list.append(ip_val)
+    line_out = []
+    line_out = list(grid[indx])
+    line_out.append(ip_val)
+    print " Ha ", indx, line_out
+    return line_out
+
+def evaluate_overlap_on_grid(hfbase,param_names, grid):
+    # Validate grid is working: Create a loop and print for each one.
+    # WARNING: Assumes grid for mass-unit variables hass mass units (!)
+    P_list = []
+    for line in grid:
+        Pgrid = P.manual_copy()
+        # Set attributes that are being changed as necessary, leaving all others fixed
+        for indx in np.arange(len(param_names)):
+            Pgrid.assign_param(param_names[indx], line[indx])
+            P_list.append(Pgrid)
+    ###
+    ### Loop over grid and make overlaps : see effective fisher code for wrappers
+    ###
+    #  FIXME: More robust multiprocessing implementation -- very heavy!
+    ip_list =[]
+    p=Pool(n_threads)
+    grid_out = np.array(p.map(functools.partial(eval_overlap, grid, P_list,IP), np.arange(len(grid))))
+    # Remove mass units at end
+    for p in ['mc', 'm1', 'm2']:
+        if p in param_names:
+            indx = param_names.index(p)
+            grid_out[:,indx] /= lal.MSUN_SI
+    # Truncate grid so overlap with the base point is > opts.min_match. Make sure to CONSISTENTLY truncate all lists (e.g., the P_list)
+    grid_out_new = []
+    for indx in np.arange(len(grid_out)):
+        if grid_out[indx,-1] > opts.match_value:
+            grid_out_new.append(grid_out[indx])
+    grid_out = np.array(grid_out_new)
+    return grid_out
+
 
 
 ###
@@ -183,66 +243,24 @@ else:
 ### Lay out grid, currently CARTESIAN.   OPTIONAL: Load grid from file
 ###
 # WARNINGS: The code will NOT enforce sanity, and can produce lambda's < 0. This may cause some codes to barf.
+# FIXME: Use seed cartesian grid to help lay out an effective Fisher grid
 
 
-# Cartesian grid
+# Base Cartesian grid
 grid_tuples = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
 # Strip unphysical parameters
 print "  NEED TO IMPLEMENT: Stripping of unphysical parameters "
 grid = eff.multi_dim_grid(*grid_tuples)  # eacy line in 'grid' is a set of parameter values
-# if opts.verbose:
-#     print param_names
-#     print grid.shape
-#     print grid
 
-# Validate grid is working: Create a loop and print for each one
-P_list = []
-for line in grid:
-    Pgrid = P.manual_copy()
-    # Set attributes that are being changed as necessary, leaving all others fixed
-    for indx in np.arange(len(param_names)):
-        Pgrid.assign_param(param_names[indx], line[indx])
-    P_list.append(Pgrid)
-    # if opts.verbose:
-    #     print " Assigning ", line
-    #     #Pgrid.print_params()
-
-###
-### Loop over grid and make overlaps : see effective fisher code for wrappers
-###
-#  FIXME: More robust multiprocessing implementation -- very heavy!
-ip_list =[]
-def eval_overlap(indx):
-    P2 = P_list[indx]
-    hf2 = lalsimutils.complex_hoff(P2); nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
-    ip_val = IP.ip(hfBase,hf2)
-    ip_list.append(ip_val)
-    line_out = list(grid[indx])
-    line_out.append(ip_val)
-    if opts.verbose:
-        print line_out
-    return line_out
-from multiprocessing import Pool
-try:
-    import os
-    n_threads = eval(os.environ['OMP_NUM_THREADS'])
-    if opts.verbose:
-        print " Pool size : ", n_threads
-except:
-    n_threads=1
-p=Pool(n_threads)
-grid_out = np.array(p.map(eval_overlap, np.arange(len(grid))))
-
-# Remove mass units at end
-for p in ['mc', 'm1', 'm2']:
-    if p in param_names:
-        indx = param_names.index(p)
-        grid_out[:,indx] /= lal.MSUN_SI
+grid_out = evaluate_overlap_on_grid(hfBase, param_names, grid)
 
 
 ###
-### Optional: Truncate grid so overlap with the base point is > opts.min_match. Make sure to CONSISTENTLY truncate all lists (e.g., the P_list)
+### (Fisher matrix-based grids): 
+###     - Use seed cartesian grid to compute the effective fisher matrix
+###     - Loop *again* to evaluate overlap on that grid
 ###
+
 
 
 ###
