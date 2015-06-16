@@ -52,14 +52,6 @@ print >>sys.stderr,"  numpy : ", np.__version__
 TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 
 
-def vecCross(v1,v2):
-    return [v1[1]*v2[2] - v1[2]*v2[1], v1[2]*v2[0] - v1[0]*v2[2], v1[0]*v2[1] - v1[1]*v2[0]]
-
-def vecDot(v1,v2):
-    return v1[0]*v2[0] + v1[1]*v2[1] + v1[2]*v2[2]
-
-def vecUnit(v):
-    return v/np.sqrt(vecDot(v,v))
 
 
 # Check lal version (lal.LAL_MSUN_SI or not).  Enables portability through the version transition.
@@ -1396,8 +1388,99 @@ def tidal_lambda_from_tilde(mass1, mass2, lam_til, dlam_til):
     return lambda1, lambda2
 
 #
+# Bernuzzi's tidal conversion functions
+#
+###
+### Bernuzzi's conversion routines
+###
+try:
+    from scipy import factorial2
+except:  
+    from scipy.misc import factorial2
+def lamtilde_of_eta_lam1_lam2(eta, lam1, lam2):
+    """
+    $\tilde\Lambda(\eta, \Lambda_1, \Lambda_2)$.
+    Lambda_1 is assumed to correspond to the more massive (primary) star m_1.
+    Lambda_2 is for the secondary star m_2.
+    """
+    return (8.0/13.0)*((1.0+7.0*eta-31.0*eta**2)*(lam1+lam2) + np.sqrt(1.0-4.0*eta)*(1.0+9.0*eta-11.0*eta**2)*(lam1-lam2))
+    
+def deltalamtilde_of_eta_lam1_lam2(eta, lam1, lam2):
+    """
+    This is the definition found in Les Wade's paper.
+    Les has factored out the quantity \sqrt(1-4\eta). It is different from Marc Favata's paper.
+    $\delta\tilde\Lambda(\eta, \Lambda_1, \Lambda_2)$.
+    Lambda_1 is assumed to correspond to the more massive (primary) star m_1.
+    Lambda_2 is for the secondary star m_2.
+    """
+    return (1.0/2.0)*(
+        np.sqrt(1.0-4.0*eta)*(1.0 - 13272.0*eta/1319.0 + 8944.0*eta**2/1319.0)*(lam1+lam2)
+        + (1.0 - 15910.0*eta/1319.0 + 32850.0*eta**2/1319.0 + 3380.0*eta**3/1319.0)*(lam1-lam2)
+    )
+    
+def lam1_lam2_of_pe_params(eta, lamt, dlamt):
+    """
+    lam1 is for the the primary mass m_1.
+    lam2 is for the the secondary mass m_2.
+    m_1 >= m2.
+    """
+    a = (8.0/13.0)*(1.0+7.0*eta-31.0*eta**2)
+    b = (8.0/13.0)*np.sqrt(1.0-4.0*eta)*(1.0+9.0*eta-11.0*eta**2)
+    c = (1.0/2.0)*np.sqrt(1.0-4.0*eta)*(1.0 - 13272.0*eta/1319.0 + 8944.0*eta**2/1319.0)
+    d = (1.0/2.0)*(1.0 - 15910.0*eta/1319.0 + 32850.0*eta**2/1319.0 + 3380.0*eta**3/1319.0)
+    den = (a+b)*(c-d) - (a-b)*(c+d)
+    lam1 = ( (c-d)*lamt - (a-b)*dlamt )/den
+    lam2 = (-(c+d)*lamt + (a+b)*dlamt )/den
+    # Adjust lam1 and lam2 if lam1 becomes negative
+    # lam2 should be adjusted such that lamt is held fixed
+    if lam1<0:
+        lam1 = 0
+        lam2 = lamt / (a-b)
+    return lam1, lam2
+
+def Yagi13_fitcoefs(ell):
+    """
+    Coefficients of Yagi 2013 fits for multipolar
+    $\bar{\lambda}_\ell = 2 k_\ell/(C^{2\ell+1} (2\ell-1)!!)$
+    Tab.I (NS) http://arxiv.org/abs/1311.0872
+    """
+    if ell==3:
+        c = [-1.15,1.18,2.51e-2,-1.31e-3,2.52e-5];
+    elif ell==4:
+        c = [-2.45,1.43,3.95e-2,-1.81e-3,2.8e-5];
+    else:
+        c = [];
+    return c;
+
+def Yagi13_fit_barlamdel(barlam2, ell):
+    """
+    Yagi 2013 fits for multipolar
+    $\bar{\lambda}_\ell$ = 2 k_\ell/(C^{2\ell+1} (2\ell-1)!!)$
+    Eq.(10),(61); Tab.I; Fig.8 http://arxiv.org/abs/1311.0872
+    """
+    lnx = np.log(barlam2);
+    coefs = Yagi13_fitcoefs(ell);
+    lny = np.polyval(coefs[::-1], lnx);
+    return np.exp(lny)
+
+def barlamdel_to_kappal(q, barlaml, ell):
+    """
+    $\kappa^{A,B}_\ell(\bar{\lambda}_\ell)$
+    Assume $q=M_A/M_B>=1$
+    """
+    XA = q/(1.+q);
+    XB = 1. - XA;
+    blamfact = factorial2(2*ell-1) * barlaml;
+    p = 2*ell + 1;
+    kappaAl = blamfact * XA**p / q; 
+    kappaBl = blamfact * XB**p * q; 
+    return  kappaAl, kappaBl
+
+
+#
 # Other utility functions
 #
+
 def unwind_phase(phase,thresh=5.):
     """
     Unwind an array of values of a periodic variable so that it does not jump
@@ -1407,18 +1490,48 @@ def unwind_phase(phase,thresh=5.):
     Note: 'thresh', which determines if a discontinuous jump occurs, should be
     somewhat less than the periodic interval. Empirically, 5 is usually a safe
     value of thresh for a variable with period 2 pi.
+
+    Fast method: take element-by-element differences, use mod 2 pi, and then add
     """
     cnt = 0 # count number of times phase wraps around branch cut
     length = len(phase)
     unwound = np.zeros(length)
-    unwound[0] = phase[0]
-    for i in range(1,length):
-        if phase[i-1] - phase[i] > thresh: # phase wrapped forward
-            cnt += 1
-        elif phase[i] - phase[i-1] > thresh: # phase wrapped backward
-            cnt += 1
-        unwound[i] = phase[i] + cnt * 2. * np.pi
+    delta = np.zeros(length)
+
+    unwound[0] =phase[0]
+    delta = np.mod(phase[1:] - phase[:-1]+np.pi,2*np.pi)-np.pi                 # d(n)= p(n+1)-p(n) : the step forward item. The modulus is positive, so use an offset. The phase delta should be ~ 0 for each step
+    unwound[1:] =unwound[0]+np.cumsum(delta)            # d(n)+d(n-1)=p(n)
+#    print delta, unwound
+
+    # unwound[0] = phase[0]
+    # for i in range(1,length):
+    #     if phase[i-1] - phase[i] > thresh: # phase wrapped forward
+    #         cnt += 1
+    #     elif phase[i] - phase[i-1] > thresh: # phase wrapped backward
+    #         cnt -= 1
+    #     unwound[i] = phase[i] + cnt * 2. * np.pi
     return unwound
+# def unwind_phase(phase,thresh=5.):
+#     """
+#     Unwind an array of values of a periodic variable so that it does not jump
+#     discontinuously when it hits the periodic boundary, but changes smoothly
+#     outside the periodic range.
+
+#     Note: 'thresh', which determines if a discontinuous jump occurs, should be
+#     somewhat less than the periodic interval. Empirically, 5 is usually a safe
+#     value of thresh for a variable with period 2 pi.
+#     """
+#     cnt = 0 # count number of times phase wraps around branch cut
+#     length = len(phase)
+#     unwound = np.zeros(length)
+#     unwound[0] = phase[0]
+#     for i in range(1,length):
+#         if phase[i-1] - phase[i] > thresh: # phase wrapped forward
+#             cnt += 1
+#         elif phase[i] - phase[i-1] > thresh: # phase wrapped backward
+#             cnt += 1
+#         unwound[i] = phase[i] + cnt * 2. * np.pi
+#     return unwound
 
 def nextPow2(length):
     """
@@ -2443,12 +2556,64 @@ def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     new_psd.data.data = psd_intp
     return new_psd
 
+def evaluate_tvals(lal_tseries):
+    return float(lal_tseries.epoch) +lal_tseries.deltaT*np.arange(lal_tseries.data.length)
+
+def evaluate_fvals(lal_2sided_fseries):
+    """
+    evaluate_fvals(lal_2sided_fseries)
+    Associates frequencies with a 2sided lal complex array.  Compare with 'self.longweights' code
+    Done by HAND in PrecessingOrbitModesOfFrequency
+    Manually *reverses* convention re sign of \omega used in lal!
+
+    Notes:
+       a) XXXFrequencySeries  have an f0 and a deltaF, and *logically* they should run from f0....f0+N*df
+       b)  I will always use COMPLEX16FrequencySeries, which should run from -fNyq...fNyq-df 
+            with fNyq=fSample/2.=1/(2*deltaT)
+       c) In practice, I have a REVERSED frequency series associated...WHY? (finish doc review)
+          Probably an overall sign difference in \omega t vs -\omega t in FFT definition? LAL documentation
+          isn't clear with the overall sign.
+                lal:       \int dt exp( -i \omega t) F(t)  = \tilde{F}(\omega)  [lal]
+                me:      \int dt exp(  i \omega t) F(t) = \tilde{F}(omega)
+                        following Poisson and Will, my old 'DataFourier' code, etc
+       d) The low-level code just rotates the original vector right by half the length -- so the usual FFTW
+           code data is mapped right.  
+    Checks:
+       P=lalsimutils.ChooseWaveformParams()
+       hf = lalsimutils.complex_hoff(P)
+       lalsimutils.evaluate_fvals(hf)
+       hf.f0
+    Notes:
+     ''Physics convention : <math>  \int dt exp(-i \omega t) F(t) </math>
+      - my notes use -2 pi i f t convention
+      - my NR papers *text* uses \int dt exp(-i \omega t)  convention
+
+    ''Other convention (PN-convenient)   <math>  \int dt exp(i \omega t) F(t) </math>
+     - Prakash notes use opposite convention
+     - low-level mathematica code (DataFourier) uses \int dt exp(i \omega t) convention
+     - Poisson and Will uses opposite convention http://arxiv.org/pdf/gr-qc/9502040v1.pdf, as do all subsequent PN work
+      - Cutler and Flanagan use the opposite convention
+
+    """
+    npts = lal_2sided_fseries.data.length
+    df = lal_2sided_fseries.deltaF
+    fvals = np.zeros(npts)
+    # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/group___time_freq_f_f_t__h.html
+    # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_time_freq_f_f_t_8h.html
+    # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_time_freq_f_f_t_8c_source.html
+    fvals = df* np.array([ npts/2 -k if  k<=npts/2 else -k+npts/2 for k in np.arange(npts)])  # How lal packs its fft
+    return fvals
+
 
 def vecCross(v1,v2):
     return [v1[1]*v2[2] - v1[2]*v2[1], v1[2]*v2[0] - v1[0]*v2[2], v1[0]*v2[1] - v1[1]*v2[0]]
 
 def vecDot(v1,v2):
     return v1[0]*v2[0] + v1[1]*v2[1] + v1[2]*v2[2]
+
+def vecUnit(v):
+    return v/np.sqrt(vecDot(v,v))
+
 
 def VectorToFrame(vecRef):
     """
