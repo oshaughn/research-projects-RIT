@@ -19,6 +19,7 @@ debug_output = False
 import numpy as np
 import os
 import sys
+import shutil
 import lalsimutils
 import lalsimulation as lalsim
 import lal
@@ -27,9 +28,12 @@ from scipy.interpolate import interp1d
 
 import pickle
 
+rosUseArchivedWaveforms = True
+
 rosDebug = False
 #dirBaseFiles =os.environ["HOME"] + "/unixhome/Projects/LIGO-ILE-Applications/ILE-Tides/MatlabCodePolished"
 dirBaseFiles =os.environ["EOB_BASE"]
+dirBaseFilesArchive =os.environ["EOB_ARCHIVE"]
 dirBaseMatlab=os.environ["MATLAB_BASE"]
 
 #default_interpolation_kind = 'quadratic'  # spline interpolation   # very slow! 
@@ -85,9 +89,40 @@ class WaveformModeCatalog:
         # Delete files from previous case"
         m1InMsun = P.m1/lal.MSUN_SI
         m2InMsun = P.m2/lal.MSUN_SI
-        cmd = dirBaseFiles+"/run_goeob_standalone.sh " + dirBaseMatlab + " " +str(m1InMsun) + " "+str(m2InMsun) + " " + str(P.lambda1) + " " + str(P.lambda2) + " " + str(P.fmin)
-        print " Generating tidal EOB with ", cmd
-        cwd = os.getcwd();      os.chdir(dirBaseFiles); os.system(cmd); 
+
+        # Convert lambda's to kappa
+        # Note we are passed lambda1, lambda2.  We convert to (l=2) kappaA, kappaB
+        #  - Generate lambdatilde
+        #  - generate lambda2
+        LambdaTilde, DeltaLambdaTilde = lalsimutils.tidal_lambda_tilde(m1InMsun, m2InMsun, P.lambda1,P.lambda2)
+        kappaA2, kappaB2 =  lalsimutils.barlamdel_to_kappal( m1InMsun/m2InMsun, LambdaTilde,2)
+
+        fname_base = "stored_"+"_".join([str(m1InMsun),str(m2InMsun),str(kappaA2),str(kappaB2),str(P.fmin)]) +".dir";
+        print "  IMPLEMENT ME : saving to file ", fname_base
+
+        retrieve_directory = ''
+        cwd = os.getcwd(); 
+        if rosUseArchivedWaveforms and os.path.exists(dirBaseFilesArchive+"/"+fname_base) and os.path.exists(dirBaseFilesArchive+"/"+fname_base+"/test_h22.dat"):
+            retrieve_directory = dirBaseFilesArchive+"/"+fname_base
+            print " Attempting to use archived waveform data  in ", retrieve_directory
+        else:
+            cmd = dirBaseFiles+"/run_goeob_standalone.sh " + dirBaseMatlab + " " +str(m1InMsun) + " "+str(m2InMsun) + " " + str(kappaA2) + " " + str(kappaB2) + " " + str(P.fmin) 
+            print " Generating tidal EOB with ", cmd
+            os.chdir(dirBaseFiles); os.system(cmd); 
+            retrieve_directory = dirBaseFiles
+            if rosUseArchivedWaveforms:
+                retrieve_directory = dirBaseFilesArchive+"/"+fname_base
+                # Create directory 
+                if not os.path.exists(retrieve_directory):
+                    print " Making directory to archive this run ... ", retrieve_directory
+                    os.makedirs(retrieve_directory)
+                # Copy
+                print " Copying files into storage directory ", retrieve_directory
+                shutil.copyfile(dirBaseFiles+"/test_h22.dat", retrieve_directory+"/test_h22.dat")
+                shutil.copyfile(dirBaseFiles+"/test_h21.dat", retrieve_directory+"/test_h21.dat")
+                shutil.copyfile(dirBaseFiles+"/test_h33.dat", retrieve_directory+"/test_h33.dat")
+                shutil.copyfile(dirBaseFiles+"/test_h32.dat", retrieve_directory+"/test_h32.dat")
+                shutil.copyfile(dirBaseFiles+"/test_h31.dat", retrieve_directory+"/test_h31.dat")
 
 
 
@@ -99,7 +134,7 @@ class WaveformModeCatalog:
         for mode in internal_ModesAvailable:
             if mode[0]<= lmax:   
                 # Note all modes are REFLECTION-SYMMETRIC
-                self.waveform_modes[mode] = np.loadtxt(dirBaseFiles+"/test_h"+ModeToString( (mode[0], np.abs(mode[1])))+".dat")
+                self.waveform_modes[mode] = np.loadtxt(retrieve_directory+"/test_h"+ModeToString( (mode[0], np.abs(mode[1])))+".dat")
                 self.waveform_modes_nonuniform_smallest_timestep[mode] = self.waveform_modes[mode][1,0]-self.waveform_modes[mode][0,0]  # uniform in time
                 self.waveform_modes_nonuniform_largest_timestep[mode] = self.waveform_modes[mode][1,0]-self.waveform_modes[mode][0,0]  # uniform in time
                 self.waveform_modes_uniform_in_time[mode] =True
