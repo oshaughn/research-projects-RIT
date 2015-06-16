@@ -63,8 +63,10 @@ parser.add_argument("--psd-file",  help="File name for PSD (assumed hanford). Ov
 parser.add_argument("--srate",type=int,default=16384,help="Sampling rate")
 parser.add_argument("--seglen", type=float,default=256*2., help="Default window size for processing.")
 parser.add_argument("--fref",type=float,default=0.);
+# External grid
+parser.add_argument("--external-grid-xml", default=None,help="Inspiral XML file (injection form) for alternate grid")
 # Base point
-parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing injection information. Used for extrinsic informaion")
+parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing the base point.")
 parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
 parser.add_argument("--fmin", default=35,type=float,help="Mininmum frequency in Hz, default is 40Hz to make short enough waveforms. Focus will be iLIGO to keep comutations short")
 parser.add_argument("--mass1", default=1.50,type=float,help="Mass in solar masses")  # 150 turns out to be ok for Healy et al sims
@@ -89,18 +91,18 @@ if opts.verbose:
 ###
 
 def eval_overlap(grid,P_list, IP,indx):
-    if opts.verbose: 
-        print " Evaluating for ", indx
+#    if opts.verbose: 
+#        print " Evaluating for ", indx
     P2 = P_list[indx]
     hf2 = lalsimutils.complex_hoff(P2); nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
-    if opts.verbose:
-        print " Waveform normalized for ", indx
+#    if opts.verbose:
+#        print " Waveform normalized for ", indx
     ip_val = IP.ip(hfBase,hf2)
-    ip_list.append(ip_val)
     line_out = []
     line_out = list(grid[indx])
     line_out.append(ip_val)
-    print " Ha ", indx, line_out
+#    if opts.verbose:
+#        print " Answer ", indx, line_out
     return line_out
 
 def evaluate_overlap_on_grid(hfbase,param_names, grid):
@@ -117,9 +119,9 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     ### Loop over grid and make overlaps : see effective fisher code for wrappers
     ###
     #  FIXME: More robust multiprocessing implementation -- very heavy!
-    ip_list =[]
-    p=Pool(n_threads)
-    grid_out = np.array(p.map(functools.partial(eval_overlap, grid, P_list,IP), np.arange(len(grid))))
+#    p=Pool(n_threads)
+    # PROBLEM: Pool code doesn't work in new configuration.
+    grid_out = np.array(map(functools.partial(eval_overlap, grid, P_list,IP), np.arange(len(grid))))
     # Remove mass units at end
     for p in ['mc', 'm1', 'm2']:
         if p in param_names:
@@ -127,11 +129,13 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
             grid_out[:,indx] /= lal.MSUN_SI
     # Truncate grid so overlap with the base point is > opts.min_match. Make sure to CONSISTENTLY truncate all lists (e.g., the P_list)
     grid_out_new = []
+    P_list_out_new = []
     for indx in np.arange(len(grid_out)):
         if grid_out[indx,-1] > opts.match_value:
             grid_out_new.append(grid_out[indx])
+            P_list_out_new.append(P_list[indx])
     grid_out = np.array(grid_out_new)
-    return grid_out
+    return grid_out, P_list_out_new
 
 
 
@@ -252,7 +256,7 @@ grid_tuples = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
 print "  NEED TO IMPLEMENT: Stripping of unphysical parameters "
 grid = eff.multi_dim_grid(*grid_tuples)  # eacy line in 'grid' is a set of parameter values
 
-grid_out = evaluate_overlap_on_grid(hfBase, param_names, grid)
+grid_out, P_list = evaluate_overlap_on_grid(hfBase, param_names, grid)
 
 
 ###
@@ -260,8 +264,28 @@ grid_out = evaluate_overlap_on_grid(hfBase, param_names, grid)
 ###     - Use seed cartesian grid to compute the effective fisher matrix
 ###     - Loop *again* to evaluate overlap on that grid
 ###
+if opts.linear_spoked or opts.uniform_spoked:
+    print " Effective fisher report. GRID NOT YET IMPLEMENTED "
+    if len(param_names)==2:
+        fitgamma = eff.effectiveFisher(eff.residuals2d, grid_out[:,-1], *grid_out[:,0:len(param_names)-1])
+        gam = eff.array_to_symmetric_matrix(fitgamma)
+        evals, evecs, rot = eff.eigensystem(gam)
+        # Print information about the effective Fisher matrix
+        # and its eigensystem
+        print "Least squares fit finds ", fitgamma
+        print "\nFisher matrix:"
+        print "eigenvalues:", evals
+        print "eigenvectors:"
+        print evecs
+        print "rotation "
+        print rot
 
-
+    else:
+        print " Higher-dimensional grids not yet implemented "
+        sys.exit(0)
+    print "Fisher grid not yet implemented"
+    sys.exit(0)
+                             
 
 ###
 ### Write output to text file:  p1 p2 p3 ... overlap, only including named params
@@ -278,10 +302,18 @@ lalsimutils.ChooseWaveformParams_array_to_xml(P_list, fname=opts.fname, fref=P.f
 ###
 ### Optional: Scatterplot
 ###
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-ax.scatter(grid_out[:,0], grid_out[:,1], grid_out[:,2])
+if opts.verbose and len(param_names)==1:
+    import matplotlib.pyplot as plt
+    fig = plt.figure()
+    plt.plot(grid_out[:,0], grid_out[:,1])
+    plt.show()
+
+if opts.verbose and len(param_names)==2:
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(grid_out[:,0], grid_out[:,1], grid_out[:,2])
+    plt.show()
 
 print " ---- DONE ----"
