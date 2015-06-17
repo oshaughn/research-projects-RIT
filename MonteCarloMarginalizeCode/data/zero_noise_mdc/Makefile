@@ -109,4 +109,9 @@ ros_test_likelihood:
 # Confirm EOB interface works
 ros_test_likelihood_eob:
 # EOB with test_like_and_samp.py
-	test_like_and_samp.py --mass1 1.35 --mass2 1.35 --signal-mass1 1.35 --signal-mass2 1.35 --eff-lambda 590   --Lmax 2 --amporder -1 --use-external-EOB --show-likelihood-versus-time --show-sampler-inputs --show-input-h --show-psd  --seglen 128  # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
+	../../Code/test_like_and_samp.py --signal-fmin 70 --fmin-template 70 --mass1 1.35 --mass2 1.35 --signal-mass1 1.35 --signal-mass2 1.35 --eff-lambda 590   --Lmax 2 --amporder -1 --use-external-EOB --show-likelihood-versus-time --show-sampler-inputs --show-input-h   --seglen 128  # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
+
+
+ros_test_ile_eob:
+# EOB with test_like_and_samp.py
+	../../Code/integrate_likelihood_extrinsic --fmin-template 40 --mass1 1.35 --mass2 1.35  --eff-lambda 500 --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME}  --reference-freq 0.0  --save-samples  --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000  --n-eff 100  --d-max 500 --use-external-EOB # --adapt-adapt  --convergence-tests-on
