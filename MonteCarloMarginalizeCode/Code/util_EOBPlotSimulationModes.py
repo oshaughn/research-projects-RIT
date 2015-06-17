@@ -130,7 +130,7 @@ print " TIME DOMAIN PLOTS"
 figindex =0
 tmax = np.abs(wfP.waveform_modes_complex[(2,2)][-1,0])
 for mode in wfP.waveform_modes_complex.keys():
- if opts.show_plots:
+ if opts.show_plots or opts.save_plots:
     figindex+=1; plt.figure(figindex)
     plt.xlim(tmax-0.1, tmax)
     plt.xlabel("$t (s)$")
@@ -154,7 +154,7 @@ for mode in wfP.waveform_modes_complex.keys():
 
 figindex=20
 for mode in hlmT_lal.keys():
-  if opts.show_plots and mode[1]>0:
+  if (opts.show_plots or opts.save_plots) and mode[1]>0:
     figindex+=1
     plt.figure(figindex)
     plt.xlim(-1, 0.1)
@@ -176,9 +176,12 @@ for mode in hlmT_lal.keys():
 
     plt.legend()
 
+  if opts.save_plots:
+      plt.savefig("EOB_mode_"+str(mode)+".jpg")
+
  
 print "FREQUENCY VERSUS TIME"
-if opts.show_plots:
+if opts.show_plots or opts.save_plots:
     datPhase= lalsimutils.unwind_phase(np.angle(hlmT_eob[(2,2)].data.data))
     nStride=4
     freq = (np.roll(datPhase,nStride/2) - np.roll(datPhase,-nStride/2))/(P.deltaT*nStride)
@@ -195,8 +198,10 @@ if opts.show_plots:
     plt.ylim(0,2000)
     plt.xlim(-50,0)
     plt.legend()
-
-    plt.show()
+    if opts.show_plots:
+        plt.show()
+    else:
+        plt.savefig("EOB_fft.jpg")
 
 
 ###
@@ -229,7 +234,7 @@ fvals_lal = lalsimutils.evaluate_fvals(hlm_lal[(2,2)])
 
 
 for mode in hlm_lal.keys():
- if opts.show_plots:
+ if opts.show_plots or opts.save_plots:
     if mode[1]>0 and mode in hlmF_NR_lal.keys():
         print " Handling mode ", mode
         # Re-evaluate the frequency sampling each time
@@ -251,11 +256,16 @@ for mode in hlm_lal.keys():
         plt.plot(fvals_NR_lal, np.abs(hlmF_NR_lal[mode].data.data)**2/datSh_eob,eobT.mode_line_style[mode], label=str(mode)+"_eob",lw=2)
 
 
-if opts.show_plots:
+if opts.show_plots or opts.save_plots:
     plt.figure(1);plt.legend()
     plt.figure(2);plt.legend()
     plt.figure(3);plt.legend()
-    plt.show()
+    if opts.show_plots:
+        plt.show()
+    else:
+        plt.figure(1);  plt.savefig("EOB_plt1.jpg")
+        plt.figure(2);  plt.savefig("EOB_plt2.jpg")
+        plt.figure(3);  plt.savefig("EOB_plt3.jpg")
 
 
 ###
