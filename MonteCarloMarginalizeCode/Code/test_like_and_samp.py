@@ -650,10 +650,12 @@ P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0
          deltaT=1./fSample,
          dist=100*1.e6*lalsimutils.lsu_PC,
          deltaF=df)
-if lambda1 or lambda2:
+try:
+  if lambda1 or lambda2:
     P.lambda1 = lambda1
     P.lambda2 = lambda2
-
+except:
+    True
 #
 # Perform the Precompute stage
 #   WARNING: Using default values for inverse spectrum truncation (True) and inverse spectrun truncation time (8s) from ourparams.py
