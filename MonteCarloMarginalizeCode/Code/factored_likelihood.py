@@ -98,7 +98,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
         hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
 
-    elif use_external_EOB:
+    elif hasEOB adn use_external_EOB:
             print "    Using external EOB interface (Bernuzzi)    "
             # Code WILL FAIL IF LAMBDA=0
             if P.lambda1<1:
@@ -106,7 +106,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             if P.lambda2<1:
                     P.lambda2=1
             if P.deltaT > 1./16384:
-                    print 
+                    print " Bad idea to use such a low sampling rate for EOB tidal "
             wfP = eobwf.WaveformModeCatalog(P,lmax=Lmax)
             hlms = wfP.hlmoff(force_T=1./P.deltaF,deltaT=P.deltaT)
             # Code will not make the EOB waveform shorter, so the code can fail if you have insufficient data, later
