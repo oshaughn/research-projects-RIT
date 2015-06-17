@@ -6,6 +6,12 @@
 #   util_ManualOverlapGrid.py --inj inj.xml.gz --parameter LambdaTilde  # 1d grid in changing LambdaTilde
 #   util_ManualOverlapGrid.py  --verbose --parameter LambdaTilde --parameter-range '[0,1000]'
 #   util_ManualOverlapGrid.py  --verbose --parameter LambdaTilde --parameter-range '[0,1000]' --parameter eta --parameter-range '[0.23,0.25]' --grid-cartesian-npts 10
+#
+# EOB SOURCE EXAMPLES
+#
+#   util_ManualOverlapGrid.py --inj inj.xml.gz --parameter LambdaTilde  --parameter-range '[0,1000]' --grid-cartesian-npts 10 --use-external-EOB-source
+#   util_ManualOverlapGrid.py --inj inj.xml.gz --parameter LambdaTilde  --parameter-range '[0,1000]' --grid-cartesian-npts 10 --use-external-EOB-source --use-external-EOB
+#  
 
 #
 # IDEA
@@ -42,6 +48,13 @@ except:
     n_threads=1
     print " - No multiprocessing - "
 
+try:
+    hasEOB=True
+    import EOBTidalExternal as eobwf
+except:
+    hasEOB=False
+
+
 ###
 ### Load options
 ###
@@ -50,6 +63,9 @@ parser = argparse.ArgumentParser()
 # Parameters
 parser.add_argument("--parameter", action='append')
 parser.add_argument("--parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used")
+# Use external EOB for source or template?
+parser.add_argument("--use-external-EOB-source",action="store_true",help="One external EOB call is performed to generate the reference signal")
+parser.add_argument("--use-external-EOB",action="store_true",help="External EOB calls are performed for each template")
 # Grid layout options
 parser.add_argument("--uniform-spoked", action="store_true", help="Place mass pts along spokes uniform in volume (if omitted placement will be random and uniform in volume")
 parser.add_argument("--linear-spoked", action="store_true", help="Place mass pts along spokes linear in radial distance (if omitted placement will be random and uniform in volume")
@@ -58,7 +74,7 @@ parser.add_argument("--grid-cartesian-npts", default=100, type=int)
 # Cutoff options
 parser.add_argument("--match-value", type=float, default=0.97, help="Use this as the minimum match value. Default is 0.97")
 # Overlap options
-parser.add_argument("--fisher-psd",type=str,default="lalsim.SimNoisePSDaLIGOZeroDetHighPower",help="psd name ('eval'). lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, ... ")
+parser.add_argument("--fisher-psd",type=str,default="lalsim.SimNoisePSDiLIGOSRD",help="psd name ('eval'). lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, .SimNoisePSDiLIGOSRD... ")
 parser.add_argument("--psd-file",  help="File name for PSD (assumed hanford). Overrides --fisher-psd if provided")
 parser.add_argument("--srate",type=int,default=16384,help="Sampling rate")
 parser.add_argument("--seglen", type=float,default=256*2., help="Default window size for processing.")
@@ -101,8 +117,8 @@ def eval_overlap(grid,P_list, IP,indx):
     line_out = []
     line_out = list(grid[indx])
     line_out.append(ip_val)
-#    if opts.verbose:
-#        print " Answer ", indx, line_out
+    if opts.verbose:
+        print " Answer ", indx, line_out
     return line_out
 
 def evaluate_overlap_on_grid(hfbase,param_names, grid):
@@ -143,6 +159,18 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
 ### Define base point 
 ###
 
+
+# Handle PSD
+# FIXME: Change to getattr call, instead of 'eval'
+eff_fisher_psd = lalsim.SimNoisePSDiLIGOSRD
+if not opts.psd_file:
+    eff_fisher_psd = eval(opts.fisher_psd)
+    analyticPSD_Q=True
+else:
+    sys.exit(0)
+
+
+
 P=lalsimutils.ChooseWaveformParams()
 if opts.inj:
     from glue.ligolw import lsctables, table, utils # check all are needed
@@ -168,8 +196,22 @@ P.print_params()
 
 # Define base COMPLEX signal.  ASSUME length long enough via seglen for this  to work always
 # Define base COMPLEX overlap 
-hfBase = lalsimutils.complex_hoff(P)
-IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase)
+
+if hasEOB and opts.use_external_EOB_source:
+    print "    Using external EOB interface (Bernuzzi)    "
+    # Code WILL FAIL IF LAMBDA=0
+    if P.lambda1<1:
+        P.lambda1=1
+    if P.lambda2<1:
+        P.lambda2=1
+    if P.deltaT > 1./16384:
+        print 
+    wfP = eobwf.WaveformModeCatalog(P,lmax=2)  # only include l=2 for us.
+    hfBase = wfP.complex_hoff(P,force_T=True)
+    print "EOB waveform length ", hfBase.data.length
+else:
+    hfBase = lalsimutils.complex_hoff(P)
+IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd)
 nmBase = IP.norm(hfBase)
 hfBase.data.data *= 1./nmBase
 if opts.verbose:
@@ -230,16 +272,6 @@ else:
 
 template_min_freq = opts.fmin
 ip_min_freq = opts.fmin
-
-
-# Handle PSD
-if not opts.psd_file:
-    opts.eff_fisher_psd = eval(opts.fisher_psd)
-    analyticPSD_Q=True
-else:
-    sys.exit(0)
-
-
 
 
 
