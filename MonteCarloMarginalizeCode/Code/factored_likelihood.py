@@ -101,6 +101,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     elif hasEOB and use_external_EOB:
             print "    Using external EOB interface (Bernuzzi)    "
             # Code WILL FAIL IF LAMBDA=0
+            P.taper = lsu.lsu_TAPER_START
             if P.lambda1<1:
                     P.lambda1=1
             if P.lambda2<1:
@@ -113,6 +114,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             print " External EOB length check ", hlms[(2,2)].data.length, data_dict[detectors[0]].data.length, data_dict[detectors[0]].data.length*P.deltaT
             print " Comparison EOB duration check ", wfP.estimateDurationSec()
             assert hlms[(2,2)].data.length ==data_dict[detectors[0]].data.length
+            print  " Time offset of largest sample (should be zero if centered) ", hlms[(2,2)].epoch + np.argmax(np.abs(hlms[(2,2)].data.data))*P.deltaT
+            print  " Epoch ", hlms[(2,2)].epoch
     else: # NR signal required
         mtot = P.m1 + P.m2
         # Load the catalog

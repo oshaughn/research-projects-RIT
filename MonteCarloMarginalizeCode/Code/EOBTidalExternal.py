@@ -98,7 +98,7 @@ class WaveformModeCatalog:
         kappaA2, kappaB2 =  lalsimutils.barlamdel_to_kappal( m1InMsun/m2InMsun, LambdaTilde,2)
 
         fname_base = "stored_"+"_".join([str(m1InMsun),str(m2InMsun),str(kappaA2),str(kappaB2),str(P.fmin)]) +".dir";
-        print "  IMPLEMENT ME : saving to file ", fname_base
+        print "  Saving to file (beware collisions!) ", fname_base
 
         retrieve_directory = ''
         cwd = os.getcwd(); 
