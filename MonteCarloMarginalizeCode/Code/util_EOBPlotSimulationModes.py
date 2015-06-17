@@ -35,6 +35,7 @@ parser.add_argument("--print-group-list",default=False,action='store_true')
 parser.add_argument("--print-param-list",default=False,action='store_true')
 parser.add_argument("--show-plots",default=False,action='store_true')
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
+parser.add_argument("--seglen",default=None,type=float)
 opts = parser.parse_args()
 
 
@@ -106,6 +107,8 @@ P.deltaT=1./16384
 P.taper = lalsim.SIM_INSPIRAL_TAPER_START
 P.deltaF = lalsimutils.findDeltaF(P)
 P.scale_to_snr(20,lalsim.SimNoisePSDaLIGOZeroDetHighPower,['H1', 'L1'])
+if opts.seglen:
+    P.deltaF = 1./opts.seglen
 if P.deltaF > 1./T_window:
     print " time too short "
 P.print_params()
@@ -115,7 +118,7 @@ print " Loaded modes ", wfP.waveform_modes_complex.keys()
 wfP.P.incl = opts.incl
 
 # LAL hlm(t)
-hlmT_lal = lalsimutils.SphHarmTimeSeries_to_dict(lalsimutils.hlmoft(wfP.P,opts.l),opts.l)
+hlmT_lal = lalsimutils.SphHarmTimeSeries_to_dict(lalsimutils.hlmoft(wfP.P,opts.l,force_T=1./P.deltaF),opts.l)
 tvals_lal = lalsimutils.evaluate_tvals(hlmT_lal[(2,2)])  #float(hlmT_lal[(2,2)].epoch) + np.arange(len(hlmT_lal[(2,2)].data.data))*hlmT_lal[(2,2)].deltaT
 
 # EOB hlm(t)

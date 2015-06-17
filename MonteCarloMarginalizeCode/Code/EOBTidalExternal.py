@@ -68,6 +68,11 @@ class WaveformModeCatalog:
         self.quantity = "h"
         self.fOrbitLower =0.    #  Used to clean results.  Based on the phase of the 22 mode
         self.fMinMode ={}
+        # Mode storage convention
+        #   - event time in first element
+        #     - t=0 MAY be at peak, if opts.align_at_peak_l2m2_emission.  Cannot promise...but raw samples show the valid range
+        #     - t in seconds
+        #   - h*r/M in second element
         self.waveform_modes = {}
         self.waveform_modes_uniform_in_time={}
         self.waveform_modes_nonuniform_smallest_timestep = {}
@@ -320,11 +325,9 @@ class WaveformModeCatalog:
 
     def estimateDurationSec(self):
         """
-        estimateDuration uses fmin*M from the (2,2) mode to estimate the waveform duration from the *well-posed*
-        part.  By default it uses the *entire* waveform duration.
-        CURRENTLY DOES NOT IMPLEMENT frequency-dependent duration
+        estimateDuration uses the ACTUAL UNITS IN THE WAVEFORM, which are already in sec
         """
-        return float(MsunInSec*((self.P.m1+self.P.m2)/(lal.MSUN_SI))*(self.waveform_modes_complex[(2,2)][-1,0]-self.waveform_modes_complex[(2,2)][0,0])) # self.deltaToverM*(self.len(self.waveform_modes[(2,2)])
+        return np.real(self.waveform_modes_complex[(2,2)][-1,0]-self.waveform_modes_complex[(2,2)][0,0]) # self.deltaToverM*(self.len(self.waveform_modes[(2,2)])
 
     def hlmoft(self,  force_T=False, deltaT=1./16384, time_over_M_zero=0.,taper_start_time=True):
         """
@@ -340,9 +343,9 @@ class WaveformModeCatalog:
 
         # Create a suitable set of time samples.  Zero pad to 2^n samples.
         # Note waveform is stored in s already
-        T_estimated = self.waveform_modes_complex[(2,2)][-1,0] - self.waveform_modes_complex[(2,2)][0,0]
-#        print " estimated time window ", T_estimated
+        T_estimated = np.real(self.waveform_modes_complex[(2,2)][-1,0] - self.waveform_modes_complex[(2,2)][0,0])
         npts=0
+        n_crit = 0
         if not force_T:
             npts_estimated = int(T_estimated/deltaT)
 #            print " Estimated length: ",npts_estimated, T_estimated
@@ -350,12 +353,26 @@ class WaveformModeCatalog:
         else:
             npts = int(force_T/deltaT)
             print " Forcing length T=", force_T, " length ", npts
-        tvals = (np.arange(npts)-npts/2)*deltaT   # Use CENTERED time to make sure I handle CENTERED NR signal (usual)
+        # WARNING: Time range may not cover the necessary time elements.
+        # Plan on having a few seconds buffer at the end
+        T_buffer_required = npts*deltaT
+        print " EOB internal: Estimated time window (sec) ", T_estimated, " versus buffer duration ", T_buffer_required
+        print " EOB internal: Requested size vs buffer size",   npts, len(self.waveform_modes_complex[(2,2)])
+
+        # If the buffer requested is SHORTER than the waveform, work backwards
+        # If the buffer requested is LONGER than the waveform, work forwards from the start of all data
+        if T_buffer_required > T_estimated:
+            tvals = np.arange(npts)*deltaT + float(self.waveform_modes_complex[(2,2)][0,0])   # start at time t=0 and go forwards
+            n_crit = int(T_estimated/deltaT) # estiamted peak sample location in the t array, working forward
+        else:
+            # ASSUME we are running in a configuration with align_at_peak_l2m2_emission
+            # FIXME: Change this
+            tvals = (-npts + 1+ np.arange(npts))*deltaT + np.real(self.waveform_modes_complex[(2,2)][-1,0])  # last insures we get some ringdown
+            n_crit = npts - int(np.real(self.waveform_modes_complex[(2,2)][-1,0]/deltaT))-2
+            
         if rosDebug:
             print " time range being sampled ", [min(tvals),max(tvals)], " corresponding to dimensionless range", [min(tvals)/m_total_s,max(tvals)/m_total_s]
-
-#        print " hlmt NOT YET IMPLEMENTED WITH SCALING "
-#        return None
+            print " estimated peak sample at ", n_crit
 
         # Loop over all modes in the system
         for mode in self.waveform_modes.keys():
@@ -389,8 +406,9 @@ class WaveformModeCatalog:
 
 
         # Set time at peak of 22 mode. This is a hack, but good enough for us
-        n_crit = np.argmax(hlmT[(2,2)].data.data)
+#        n_crit = np.argmax(hlmT[(2,2)].data.data)
         epoch_crit = -deltaT*n_crit
+        print n_crit, np.argmax(np.abs(hlmT[(2,2)].data.data))
         for mode in hlmT:
             hlmT[mode].epoch = epoch_crit
 
