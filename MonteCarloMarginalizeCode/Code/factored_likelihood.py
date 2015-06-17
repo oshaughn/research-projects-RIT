@@ -98,7 +98,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
         hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
 
-    elif hasEOB adn use_external_EOB:
+    elif hasEOB and use_external_EOB:
             print "    Using external EOB interface (Bernuzzi)    "
             # Code WILL FAIL IF LAMBDA=0
             if P.lambda1<1:
