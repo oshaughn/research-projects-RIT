@@ -231,6 +231,7 @@ if opts.sim_xml:
     P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))[opts.event]  # Load in the physical parameters of the injection.  
     P.radec =False  # do NOT propagate the epoch later
     P.fref = opts.reference_freq
+    P.fmin = template_min_freq
     P.tref = fiducial_epoch  # the XML table
     m1 = P.m1/lal.MSUN_SI
     m2 =P.m2/lal.MSUN_SI

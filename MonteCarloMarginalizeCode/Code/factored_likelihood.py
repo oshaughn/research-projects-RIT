@@ -42,7 +42,7 @@ try:
     import EOBTidalExternal as eobwf
 except:
     hasEOB=False
-
+    print " factored_likelihood: no EOB "
 
 distMpcRef = 1000 # a fiducial distance for the template source.
 tWindowExplore = [-0.05, 0.05] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
@@ -110,13 +110,15 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                     print " Bad idea to use such a low sampling rate for EOB tidal "
             wfP = eobwf.WaveformModeCatalog(P,lmax=Lmax)
             hlms = wfP.hlmoff(force_T=1./P.deltaF,deltaT=P.deltaT)
+
             # Code will not make the EOB waveform shorter, so the code can fail if you have insufficient data, later
             print " External EOB length check ", hlms[(2,2)].data.length, data_dict[detectors[0]].data.length, data_dict[detectors[0]].data.length*P.deltaT
-            print " Comparison EOB duration check ", wfP.estimateDurationSec()
+            print " External EOB length check (in M) " , 
+            print " Comparison EOB duration check vs epoch (time in sec) ", wfP.estimateDurationSec(), 1./hlms[(2,2)].deltaF
             assert hlms[(2,2)].data.length ==data_dict[detectors[0]].data.length
             print  " Time offset of largest sample (should be zero if centered) ", hlms[(2,2)].epoch + np.argmax(np.abs(hlms[(2,2)].data.data))*P.deltaT
             print  " Epoch ", hlms[(2,2)].epoch
-    else: # NR signal required
+    elif hasNR: # NR signal required
         mtot = P.m1 + P.m2
         # Load the catalog
         wfP = nrwf.WaveformModeCatalog(NR_group, NR_param, \
@@ -129,7 +131,9 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         wfP.P.dist =100*1e6*lal.PC_SI  # fiducial distance.
 
         hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window
-
+    else:
+            print " No waveform available "
+            sys.exit(0)
 
     if not(ignore_threshold is None):
             crossTermsFiducial = ComputeModeCrossTermIP(hlms, psd_dict[detectors[0]], 
