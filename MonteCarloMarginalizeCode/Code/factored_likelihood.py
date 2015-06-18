@@ -114,10 +114,11 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             # Code will not make the EOB waveform shorter, so the code can fail if you have insufficient data, later
             print " External EOB length check ", hlms[(2,2)].data.length, data_dict[detectors[0]].data.length, data_dict[detectors[0]].data.length*P.deltaT
             print " External EOB length check (in M) " , 
-            print " Comparison EOB duration check vs epoch (time in sec) ", wfP.estimateDurationSec(), 1./hlms[(2,2)].deltaF
+            print " Comparison EOB duration check vs epoch vs window size (sec) ", wfP.estimateDurationSec(),  -hlms[(2,2)].epoch, 1./hlms[(2,2)].deltaF
             assert hlms[(2,2)].data.length ==data_dict[detectors[0]].data.length
-            print  " Time offset of largest sample (should be zero if centered) ", hlms[(2,2)].epoch + np.argmax(np.abs(hlms[(2,2)].data.data))*P.deltaT
-            print  " Epoch ", hlms[(2,2)].epoch
+            if rosDebugMessagesDictionary["DebugMessagesLong"]:
+                    hlmT_ref = lsu.DataInverseFourier(hlms[(2,2)])
+                    print  " External EOB: Time offset of largest sample (should be zero) ", hlms[(2,2)].epoch + np.argmax(np.abs(hlmT_ref.data.data))*P.deltaT
     elif hasNR: # NR signal required
         mtot = P.m1 + P.m2
         # Load the catalog
