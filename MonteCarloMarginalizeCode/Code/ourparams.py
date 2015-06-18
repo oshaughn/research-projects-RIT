@@ -43,6 +43,7 @@ def ParseStandardArguments():
     parser.add_argument("--Neff", dest='neff', default=100,type=int,help="Target number of effective samples")
     parser.add_argument("--Nskip", dest='nskip', default=2000,type=int,help="How often MC progress is reported (in verbose mode)")
     parser.add_argument("--convergence-tests-on", default=False,action='store_true')
+    parser.add_argument("--d-max",default=10000,type=float,help="Maximum distance in Mpc")
 
     # Likelihood functions
     parser.add_argument("--LikelihoodType_raw",default=True,action='store_true')
@@ -303,7 +304,7 @@ import factored_likelihood
 tWindowExplore  = factored_likelihood.tWindowExplore
 Tmax = numpy.max([0.05,tWindowExplore[1]]) # max ref. time
 Tmin = numpy.min([-0.05,tWindowExplore[0]]) # min ref. time
-Dmax = 10000. #* 1.e6 * lal.LAL_PC_SI # max distance. CAN CAUSE PROBLEMS with the CDF integrator if this limit is large (SI units)
+Dmax = 10000 #* 1.e6 * lal.LAL_PC_SI # max distance. CAN CAUSE PROBLEMS with the CDF integrator if this limit is large (SI units). SHOULD BE OVERRIDDED
 Dmin = 1. # * 1.e6 * lal.LAL_PC_SI      # min distance.  Needs to be nonzero to avoid integrator stupid problems with reconstructing the CDF
 
 # set up bounds on parameters
@@ -450,11 +451,13 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
     quadratic_samp_withfloor_vector = numpy.vectorize(quadratic_samp_withfloor, otypes=[numpy.float])
 #    uniform_samp_withfloor_vector = numpy.vectorize(uniform_samp_withfloor, otypes=[numpy.float])
     uniform_samp_withfloor_vector = mcsampler.uniform_samp_withfloor_vector
+    # Use an option for maximum distance
+    dist_max_to_use = opts.d_max
     sampler.add_parameter("distance",
 #                          functools.partial(mcsampler.quadratic_samp_vector, distBoundGuess), None, dist_min, dist_max,
 #                          functools.partial(mcsampler.uniform_samp_vector,0, distBoundGuess), None, dist_min, dist_max,
-                          functools.partial( uniform_samp_withfloor_vector, numpy.min([distBoundGuess,dist_max]), dist_max, 0.001), None, dist_min, dist_max,
-                         prior_pdf = functools.partial(mcsampler.quadratic_samp_vector, dist_max
+                          functools.partial( uniform_samp_withfloor_vector, numpy.min([distBoundGuess,dist_max_to_use]), dist_max_to_use, 0.001), None, dist_min, dist_max_to_use,
+                         prior_pdf = functools.partial(mcsampler.quadratic_samp_vector, dist_max_to_use
                                                         ),
                           adaptive_sampling = not opts.no_adapt_distance
                          )
