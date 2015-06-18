@@ -289,6 +289,8 @@ else:
     T_tmplt = - float(htmplt.epoch)    # ASSUMES time returned by hlm is a RELATIVE time that does not add tref. P.radec=False !
     print fiducial_epoch, event_time, htmplt.epoch
     T_seg = T_tmplt + T_spec + T_safety # Amount before and after event time
+    if opts.use_external_EOB:
+        T_seg *=2   # extra safety factor
     start_time = float(event_time) - T_seg
     end_time = float(event_time) + T_seg
     print "Fetching data segment with start=", start_time
