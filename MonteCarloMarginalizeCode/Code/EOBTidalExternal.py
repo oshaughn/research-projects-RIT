@@ -63,7 +63,7 @@ class WaveformModeCatalog:
 
 
     def __init__(self, P,  lmax=2,
-                 align_at_peak_l2_m2_emission=False, mode_list_to_load=[],build_fourier_time_window=1000,clean_with_taper=True,use_internal_interpolation_deltaT=None,build_strain_and_conserve_memory=False,reference_phase_at_peak=None,fix_phase_zero_at_coordinate=False):
+                 align_at_peak_l2_m2_emission=True, mode_list_to_load=[],build_fourier_time_window=1000,clean_with_taper=True,use_internal_interpolation_deltaT=None,build_strain_and_conserve_memory=False,reference_phase_at_peak=None,fix_phase_zero_at_coordinate=False):
         self.P  = P
         self.quantity = "h"
         self.fOrbitLower =0.    #  Used to clean results.  Based on the phase of the 22 mode
@@ -358,13 +358,16 @@ class WaveformModeCatalog:
         T_buffer_required = npts*deltaT
         print " EOB internal: Estimated time window (sec) ", T_estimated, " versus buffer duration ", T_buffer_required
         print " EOB internal: Requested size vs buffer size",   npts, len(self.waveform_modes_complex[(2,2)])
+        # If the waveform is longer than the buffer, we need to avoid wraparound
 
-        # If the buffer requested is SHORTER than the waveform, work backwards
+        # If the buffer requested is SHORTER than the 2*waveform, work backwards
         # If the buffer requested is LONGER than the waveform, work forwards from the start of all data
-        if T_buffer_required > T_estimated:
+        if T_buffer_required/2 > T_estimated:
             tvals = np.arange(npts)*deltaT + float(self.waveform_modes_complex[(2,2)][0,0])   # start at time t=0 and go forwards
-            n_crit = int(T_estimated/deltaT) # estiamted peak sample location in the t array, working forward
+            n_crit = int(-self.waveform_modes_complex[(2,2)][0,0]/deltaT) # estiamted peak sample location in the t array, working forward
         else:
+            print "  EOB internal: Warning LOSSY conversion to insure half of data is zeros "
+            # Create time samples by walking backwards from the last sample of the waveform, a suitable duration
             # ASSUME we are running in a configuration with align_at_peak_l2m2_emission
             # FIXME: Change this
             tvals = (-npts + 1+ np.arange(npts))*deltaT + np.real(self.waveform_modes_complex[(2,2)][-1,0])  # last insures we get some ringdown
@@ -408,7 +411,7 @@ class WaveformModeCatalog:
         # Set time at peak of 22 mode. This is a hack, but good enough for us
 #        n_crit = np.argmax(hlmT[(2,2)].data.data)
         epoch_crit = -deltaT*n_crit
-        print n_crit, np.argmax(np.abs(hlmT[(2,2)].data.data))
+        print " EOB internal: zero epoch sample location", n_crit, np.argmax(np.abs(hlmT[(2,2)].data.data))
         for mode in hlmT:
             hlmT[mode].epoch = epoch_crit
 
