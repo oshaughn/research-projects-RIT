@@ -118,7 +118,7 @@ print " Loaded modes ", wfP.waveform_modes_complex.keys()
 wfP.P.incl = opts.incl
 
 # LAL hlm(t)
-hlmT_lal = lalsimutils.SphHarmTimeSeries_to_dict(lalsimutils.hlmoft(wfP.P,opts.l,force_T=1./P.deltaF),opts.l)
+hlmT_lal = lalsimutils.SphHarmTimeSeries_to_dict(lalsimutils.hlmoft(wfP.P,opts.l),opts.l)
 tvals_lal = lalsimutils.evaluate_tvals(hlmT_lal[(2,2)])  #float(hlmT_lal[(2,2)].epoch) + np.arange(len(hlmT_lal[(2,2)].data.data))*hlmT_lal[(2,2)].deltaT
 
 # EOB hlm(t)
