@@ -121,6 +121,9 @@ opts, rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 print opts
 print rosDebugMessagesDictionary
 
+if bNoInteractivePlots:  # change the state only if possible
+    bNoInteractivePlots = opts.no_interactive_plots
+
 if opts.verbose:
     try:
         from subprocess import call
@@ -279,7 +282,6 @@ if opts.inj:
     print " +++ WARNING: ADOPTING STRONG PRIORS +++ "
     rosUseStrongPriorOnParameters= True
 #    Psig.print_params()
-    print "---- End injection parameters ----"
 
 # Use forced parameters, if provided
 if opts.template_mass1 and Psig:
@@ -297,8 +299,9 @@ if opts.eff_lambda and Psig:
         lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1, m2, opts.eff_lambda, opts.deff_lambda or 0)
         Psig.lambda1 = lambda1
         Psig.lambda2 = lambda2
-if Psig:
+if Psig and not opts.cache_file:  # Print parameters of fake data
     Psig.print_params()
+    print "---- End injection parameters ----"
 
 # Reset origin of time, if required. (This forces different parts of data to be read- important! )
 if opts.force_gps_time:
@@ -318,7 +321,8 @@ if opts.force_gps_time:
 #       WARNING: Test code plots will not look perfect, because we don't know the true sky location (or phase, polarization, ...)
 if  not Psig and opts.channel_name:  # If data loaded but no signal generated
     if (not opts.template_mass1) or (not opts.template_mass2) or (not opts.force_gps_time):
-        print " CANCEL: Specifying parameters via m1, m2, and time on the command line "
+        print " CANCEL: For frame-file reading, arguments --mass1 --mass2 --event-time  all required "
+#        print opts.template_mass1, opts.template_mass2,opts.force_gps_time
         sys.exit(0)
     Psig = lalsimutils.ChooseWaveformParams(approx=approxSignal,
         fmin = fminWavesSignal, 

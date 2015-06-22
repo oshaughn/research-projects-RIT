@@ -150,6 +150,7 @@ def ParseStandardArguments():
     parser.add_argument("--show-sampler-inputs",dest='plot_ShowSamplerInputs', action='store_true', default=False,help ="Show interactive plots from sampler *inputs*. ")
     parser.add_argument("--show-likelihood-versus-time",dest="plot_ShowLikelihoodVersusTime", action='store_true',default=False,help="Show single-IFO likelihoods versus time. If injection parameters are known, also plot L(t) in the geocenter. Useful to confirm a signal has been correctly windowed at all!")
     parser.add_argument("--show-psd",dest='plot_ShowPSD',action='store_true',default=False,help="Plot PSDs, as imported and stored.")
+    parser.add_argument("--no-interactive-plots",action='store_true', default=False)
 
     # File output and conditions controlling output
     parser.add_argument("--save-sampler-file", dest="points_file_base",default="sampler-output-file")
