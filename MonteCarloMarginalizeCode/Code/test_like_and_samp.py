@@ -265,7 +265,11 @@ if opts.inj:
     Psig = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))[opts.event_id]  # Load in the physical parameters of the injection.  
     m1 = Psig.m1
     m2 = Psig.m2
+    f_temp = Psig.fmin
+    if Psig.fmin < 1e-2:
+        Psig.fmin=opts.fmin_SNR  # necessary for duration estimate
     timeWaveform = lalsimutils.estimateWaveformDuration(Psig) #float(-lalsimutils.hoft(Psig).epoch)
+    Psig.fmin=f_temp
     Psig.deltaT = 1./fSample  # default sampling rate
     Psig.deltaF = 1./lalsimutils.nextPow2(opts.seglen)       # Frequency binning needs to account for target segment length
     Psig.fref = opts.signal_fref
@@ -274,8 +278,8 @@ if opts.inj:
     print " ++ Targeting event at time ++ ", lalsimutils.stringGPSNice(Psig.tref)
     print " +++ WARNING: ADOPTING STRONG PRIORS +++ "
     rosUseStrongPriorOnParameters= True
-    Psig.print_params()
-    print "---- End injeciton parameters ----"
+#    Psig.print_params()
+    print "---- End injection parameters ----"
 
 # Use forced parameters, if provided
 if opts.template_mass1 and Psig:
@@ -285,7 +289,7 @@ if opts.template_mass2 and Psig:
 # Use forced parameters, if provided. Note these will override the first set
 if opts.signal_mass1 and Psig:
     Psig.m1 = opts.signal_mass1*lalsimutils.lsu_MSUN
-if opts.template_mass2 and Psig:
+if opts.signal_mass2 and Psig:
     Psig.m2 = opts.signal_mass2*lalsimutils.lsu_MSUN
 if opts.eff_lambda and Psig:
     lambda1, lambda2 = 0, 0
@@ -293,7 +297,8 @@ if opts.eff_lambda and Psig:
         lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1, m2, opts.eff_lambda, opts.deff_lambda or 0)
         Psig.lambda1 = lambda1
         Psig.lambda2 = lambda2
-
+if Psig:
+    Psig.print_params()
 
 # Reset origin of time, if required. (This forces different parts of data to be read- important! )
 if opts.force_gps_time:
@@ -327,7 +332,13 @@ if  not Psig and opts.channel_name:  # If data loaded but no signal generated
 
 # TEST THE SEGMENT LENGTH TARGET
 if Psig:
+    f_temp = Psig.fmin
+    if Psig.fmin < 1e-2:
+        Psig.fmin=opts.fmin_SNR  # necessary for duration estimate
+    print " Min frequency for duration ... ", Psig.fmin
+    Psig.print_params()
     timeSegmentLength  = lalsimutils.estimateWaveformDuration(Psig) #-float(lalsimutils.hoft(Psig).epoch)  # needs to work if h(t) unavailable (FD waveform). And this is faster.
+    Psig.fmin=f_temp
     if rosDebugMessagesDictionary["DebugMessages"]:
         print " Template duration : ", timeSegmentLength
     if timeSegmentLength > opts.seglen:
