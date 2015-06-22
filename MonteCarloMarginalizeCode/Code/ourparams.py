@@ -51,6 +51,7 @@ def ParseStandardArguments():
     parser.add_argument("--LikelihoodType_MargT",default=False,action='store_true',help="Deprecated/disabled")
     parser.add_argument("--LikelihoodType_MargTdisc",default=False,action='store_true',help="Deprecated/disabled")
     parser.add_argument("--LikelihoodType_MargTdisc_array",default=True,action='store_true',help="Default")
+    parser.add_argument("--adapt-parameter", action='append',help = "Adapt in this parameter (ra, dec, tref, incl,dist,phi,psi)")
     parser.add_argument( "--adapt-beta", type=float,default=1)
     parser.add_argument("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
     parser.add_argument("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
@@ -332,6 +333,18 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
 
     print " Trying to pin parameters ", opts.fixparams
 
+    
+    adapt_ra = (not opts.no_adapt_sky) #and ('ra' in opts.adapt_paramter)
+    adapt_dec = (not opts.no_adapt_sky)# and ('dec' in opts.adapt_parameter)
+    adapt_dist = (not opts.no_adapt_distance) # and ('dist' in opts.adapt_parameter)
+   
+    adapt_incl=False;adapt_phi=False; adapt_psi=False
+    if opts.adapt_parameter:
+        adapt_incl = ('incl' in opts.adapt_parameter)
+        adapt_phi = 'phi' in opts.adapt_parameter
+        adapt_psi = 'psi' in opts.adapt_parameter
+
+
     # Uniform sampling (in area) but nonuniform sampling in distance (*I hope*).  Auto-cdf inverse
     if not(opts.opt_UseSkymap):
         if opts.opt_UseKnownSkyPosition:
@@ -339,16 +352,15 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
             sampler.add_parameter("right_ascension", functools.partial(mcsampler.gauss_samp, Psig.phi,0.03), None, ra_min, ra_max, 
                               prior_pdf = mcsampler.uniform_samp_phase)
             sampler.add_parameter("declination", functools.partial(mcsampler.gauss_samp, Psig.theta,0.03), None, dec_min, dec_max, 
-                              prior_pdf= mcsampler.uniform_samp_dec,
-                                  adaptive_sampling= not opts.no_adapt_sky)
+                              prior_pdf= mcsampler.uniform_samp_dec)
         else:
             sampler.add_parameter("right_ascension", mcsampler.uniform_samp_phase, None, ra_min, ra_max, 
                                       prior_pdf = mcsampler.uniform_samp_phase,
-                                  adaptive_sampling= not opts.no_adapt_sky
+                                  adaptive_sampling= adapt_ra
                                   )
             sampler.add_parameter("declination",mcsampler.uniform_samp_dec, None, dec_min, dec_max, 
                           prior_pdf= mcsampler.uniform_samp_dec,
-                                  adaptive_sampling= not opts.no_adapt_sky)
+                                  adaptive_sampling= adapt_dec)
             if opts.fixparams.count('right_ascension') and Psig != None:
                 print "  ++++ Fixing ra to injected value +++ "
                 pinned_params['right_ascension'] = Psig.phi
@@ -401,7 +413,8 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
 
 
     sampler.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max,
-                      prior_pdf =mcsampler.uniform_samp_psi )
+                      prior_pdf =mcsampler.uniform_samp_psi,
+                          adaptive_sampling=adapt_psi)
     if opts.fixparams.count('psi') and Psig:
         print "  ++++ Fixing psi to injected value +++ "
         pinned_params['psi'] = Psig.psi
@@ -419,7 +432,8 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
 
     # Phase (angle of L)
     sampler.add_parameter("phi_orb", functools.partial(mcsampler.uniform_samp_vector, phi_min, phi_max), None, phi_min, phi_max,
-                      prior_pdf = mcsampler.uniform_samp_phase)
+                      prior_pdf = mcsampler.uniform_samp_phase,
+                          adaptive_sampling = adapt_phi)
     if opts.fixparams.count('phi') and Psig:
             print "  ++++ Fixing phi to injected value +++ "
             pinned_params['phi_orb'] = Psig.phiref
@@ -428,7 +442,8 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
 
     # Inclination (angle of L; nonspinning)
     sampler.add_parameter("inclination", functools.partial(mcsampler.cos_samp_vector), None, inc_min, inc_max,
-                      prior_pdf = mcsampler.uniform_samp_theta)
+                      prior_pdf = mcsampler.uniform_samp_theta,
+                          adaptive_sampling = adapt_incl)
     if opts.fixparams.count('incl') and Psig:
         print "  ++++ Fixing incl to injected value +++ "
         pinned_params['inclination'] = Psig.incl
@@ -460,7 +475,7 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
                           functools.partial( uniform_samp_withfloor_vector, numpy.min([distBoundGuess,dist_max_to_use]), dist_max_to_use, 0.001), None, dist_min, dist_max_to_use,
                          prior_pdf = functools.partial(mcsampler.quadratic_samp_vector, dist_max_to_use
                                                         ),
-                          adaptive_sampling = not opts.no_adapt_distance
+                          adaptive_sampling = adapt_dist
                          )
 #        sampler.add_parameter("dist", functools.partial(mcsampler.quadratic_samp_vector,  distBoundGuess ), None, dist_min, dist_max, prior_pdf = numpy.vectorize(lambda x: x**2/(3.*numpy.power(dist_max,3))))
     if opts.fixparams.count('dist') and Psig:
