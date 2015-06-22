@@ -902,6 +902,8 @@ if opts.convergence_tests_on:
     test_converged["normal_integral"] = functools.partial(mcsampler.convergence_test_NormalSubIntegrals, 25, 0.01, 0.1)   # 20 sub-integrals are gaussian distributed *and* relative error < 10%, based on sub-integrals . Should use # of intervals << neff target from above.  Note this sets our target error tolerance on  lnLmarg
 
 
+import time
+tManualStart = time.clock()
 tGPSStart = lal.GPSTimeNow()
 print " Unpinned : ", unpinned_params
 print " Pinned : ",  pinned_params
@@ -943,6 +945,7 @@ retNiceIndexed = np.array(np.reshape(ret,-1)).view(dtype=zip(field_names, ['floa
 #ret = np.array(retNew)
 
 tGPSEnd = lal.GPSTimeNow()
+tManualEnd = time.clock()
 print "Parameters returned by this integral ",  sampler._rvs.keys(), len(sampler._rvs)
 ntotal = nEvals # opts.nmax  # Not true in general
 print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
@@ -955,7 +958,7 @@ print dict_return
 
 
 print "==Profiling info==="
-print "   - Time per L evaluation ", float(tGPSEnd-tGPSStart)/ntotal
+print "   - Time per L evaluation ", float(tGPSEnd-tGPSStart)/ntotal,   (tManualEnd-tManualStart)/ntotal
 print "   - Time per neff             ", float(tGPSEnd-tGPSStart)/neff
 
 
