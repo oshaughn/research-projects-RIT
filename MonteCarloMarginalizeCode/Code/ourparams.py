@@ -47,10 +47,10 @@ def ParseStandardArguments():
 
     # Likelihood functions
     parser.add_argument("--LikelihoodType_raw",default=True,action='store_true')
-    parser.add_argument("--LikelihoodType_MargPhi",default=False,action='store_true')
-    parser.add_argument("--LikelihoodType_MargT",default=False,action='store_true')
-    parser.add_argument("--LikelihoodType_MargTdisc",default=False,action='store_true')
-    parser.add_argument("--LikelihoodType_MargTdisc_array",default=False,action='store_true')
+    parser.add_argument("--LikelihoodType_MargPhi",default=False,action='store_true',help="Deprecated/disabled")
+    parser.add_argument("--LikelihoodType_MargT",default=False,action='store_true',help="Deprecated/disabled")
+    parser.add_argument("--LikelihoodType_MargTdisc",default=False,action='store_true',help="Deprecated/disabled")
+    parser.add_argument("--LikelihoodType_MargTdisc_array",default=True,action='store_true',help="Default")
     parser.add_argument( "--adapt-beta", type=float,default=1)
     parser.add_argument("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
     parser.add_argument("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
