@@ -19,23 +19,24 @@ PSD_FILE=${BASE_DIR}/HLV-ILIGO_PSD.xml.gz
 EVENT_TIME=1000000014.236547946
 
 # Make the data
-zero_noise.cache: H1_zero_noise.cache L1_zero_noise.cache V1_zero_noise.cache
-	cat H1_zero_noise.cache L1_zero_noise.cache V1_zero_noise.cache > zero_noise.cache
+zero_noise.cache: mdc.xml.gz
+	util_WriteFrameAndCacheFromXML.sh mdc.xml.gz 0 zero_noise
 
-H1_zero_noise.cache:
-	mkdir ${INJECTION_DEST}; exit 0
-	(cd ${INJECTION_DEST};	util_LALWriteFrame.py --start ${START} --stop ${STOP} --inj ../${INJ_XML} --event 0  --single-ifo --instrument H1 --seglen 64)
-	find ${INJECTION_DEST}/ -name "H-*.gwf" | lalapps_path2cache > H1_zero_noise.cache
+bns_frames.cache: mdc-bns.xml.gz
+	util_WriteFrameAndCacheFromXML.sh mdc-bns.xml.gz 0 bns_frames 
 
-L1_zero_noise.cache:
-	mkdir ${INJECTION_DEST}; exit 0
-	(cd ${INJECTION_DEST};	util_LALWriteFrame.py --start ${START} --stop ${STOP} --inj ../${INJ_XML} --event 0  --single-ifo --instrument L1 --seglen 64)
-	find ${INJECTION_DEST}/ -name "L-*.gwf" | lalapps_path2cache > L1_zero_noise.cache
-
-V1_zero_noise.cache:
-	mkdir ${INJECTION_DEST}; exit 0
-	(cd ${INJECTION_DEST};	util_LALWriteFrame.py --start ${START} --stop ${STOP} --inj ../${INJ_XML} --event 0  --single-ifo --instrument V1 --seglen 64)
-	find ${INJECTION_DEST}/ -name "V-*.gwf" | lalapps_path2cache > V1_zero_noise.cache
+# H1_zero_noise.cache:
+# 	mkdir ${INJECTION_DEST}; exit 0
+# 	(cd ${INJECTION_DEST};	util_LALWriteFrame.py --start ${START} --stop ${STOP} --inj ../${INJ_XML} --event 0  --single-ifo --instrument H1 --seglen 64)
+# 	find ${INJECTION_DEST}/ -name "H-*.gwf" | lalapps_path2cache > H1_zero_noise.cache
+# L1_zero_noise.cache:
+# 	mkdir ${INJECTION_DEST}; exit 0
+# 	(cd ${INJECTION_DEST};	util_LALWriteFrame.py --start ${START} --stop ${STOP} --inj ../${INJ_XML} --event 0  --single-ifo --instrument L1 --seglen 64)
+# 	find ${INJECTION_DEST}/ -name "L-*.gwf" | lalapps_path2cache > L1_zero_noise.cache
+# V1_zero_noise.cache:
+# 	mkdir ${INJECTION_DEST}; exit 0
+# 	(cd ${INJECTION_DEST};	util_LALWriteFrame.py --start ${START} --stop ${STOP} --inj ../${INJ_XML} --event 0  --single-ifo --instrument V1 --seglen 64)
+# 	find ${INJECTION_DEST}/ -name "V-*.gwf" | lalapps_path2cache > V1_zero_noise.cache
 
 clean:
 	rm *.cache
@@ -101,20 +102,21 @@ test_ile_pinned: zero_noise.cache
 	../../Code/plot_like_contours --dimension1=distance --dimension2=inclination  --show-points  ile-ros-output.xml.gz --show-mdc=mdc.xml.gz  --fig-extension pdf
 	mv ile-ros-output.xml.gz ile-ros-pintest-DCosI.xml.gz
 
-ros_test_likelihood:
+ros_test_likelihood: zero_noise.cache
 # TEST VERSION 1: Analytic (iLIGO) PSD model
-	test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4 --mass2 4  --Lmax 2 --amporder -1 --show-likelihood-versus-time  --show-psd  --d-max 500  # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
+	test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4 --mass2 4  --Lmax 2 --amporder -1 --show-likelihood-versus-time  --show-input-h  --show-psd  --d-max 500  # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
 
 
 # Confirm EOB interface works
-ros_test_likelihood_eob:
+ros_test_likelihood_eob: 
 # EOB with test_like_and_samp.py, both as signal and as template
-	../../Code/test_like_and_samp.py --signal-fmin 70 --fmin-template 70 --mass1 1.35 --mass2 1.35 --signal-mass1 1.35 --signal-mass2 1.35 --eff-lambda 590   --Lmax 2 --amporder -1 --use-external-EOB --show-likelihood-versus-time --show-sampler-inputs --show-input-h   --seglen 128 --d-max 500 
-ros_test_likelihood_eob_direct:
+	../../Code/test_like_and_samp.py --signal-fmin 70 --fmin-template 70 --mass1 1.35 --mass2 1.35 --signal-mass1 1.35 --signal-mass2 1.35 --eff-lambda 590   --Lmax 2 --amporder -1 --use-external-EOB --show-likelihood-versus-time --show-sampler-inputs --show-input-h   --seglen 128 --d-max 500 --no-interactive-plots
+
+ros_test_likelihood_eob_direct: bns_frames.cache
 # EOB with test_like_and_samp.py, as template, using frame files as signal
-	../../Code/test_like_and_samp.py --cache-file zero_noise.cache  --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --fmin-template 70 --mass1 1.35 --mass2 1.35 --force-gps-time ${EVENT_TIME}   --Lmax 2 --amporder -1 --use-external-EOB --show-likelihood-versus-time  --show-input-h   --seglen 128 --d-max 500 
+	../../Code/test_like_and_samp.py  --inj mdc-bns.xml.gz --cache-file bns_frames.cache --eff-lambda 500  --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --fmin-template 70   --Lmax 2 --amporder -1 --use-external-EOB --show-likelihood-versus-time  --show-input-h --seglen 128 --d-max 500 
 
 
-ros_test_ile_eob:
+ros_test_ile_eob: bns_frames.cache
 # EOB with test_like_and_samp.py
-	../../Code/integrate_likelihood_extrinsic --fmin-template 40 --mass1 1.35 --mass2 1.35  --eff-lambda 500 --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME}  --reference-freq 0.0  --save-samples  --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000  --n-eff 100  --d-max 500 --use-external-EOB # --adapt-adapt  --convergence-tests-on
+	../../Code/integrate_likelihood_extrinsic --fmin-template 40 --mass1 1.35 --mass2 1.35  --eff-lambda 500 --cache-file bns_frames.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME}  --reference-freq 0.0  --save-samples  --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000  --n-eff 100  --d-max 500 --use-external-EOB # --adapt-adapt  --convergence-tests-on
