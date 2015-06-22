@@ -106,11 +106,23 @@ if opts.verbose:
 ###   - Python's 'multiprocessing' module seems to cause process lock
 ###
 
+use_external_EOB=opts.use_external_EOB
+Lmax = 2
+
 def eval_overlap(grid,P_list, IP,indx):
 #    if opts.verbose: 
 #        print " Evaluating for ", indx
+    global use_external_EOB
+    global Lmax
     P2 = P_list[indx]
-    hf2 = lalsimutils.complex_hoff(P2); nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
+    T_here = 1./IP.deltaF
+    if not use_external_EOB:
+        hf2 = lalsimutils.complex_hoff(P2)
+    else:
+        print "  Waiting for EOB waveform ....", indx, " with duration  ", T_here
+        wfP = eobwf.WaveformModeCatalog(P2,lmax=Lmax)  # only include l=2 for us.
+        hf2 = wfP.complex_hoff(force_T=T_here)
+    nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
 #    if opts.verbose:
 #        print " Waveform normalized for ", indx
     ip_val = IP.ip(hfBase,hf2)
@@ -198,7 +210,8 @@ P.print_params()
 # Define base COMPLEX overlap 
 
 if hasEOB and opts.use_external_EOB_source:
-    print "    Using external EOB interface (Bernuzzi)    "
+    print "    -------INTERFACE ------"
+    print "    Using external EOB interface (Bernuzzi)   with window  ", opts.seglen
     # Code WILL FAIL IF LAMBDA=0
     if P.lambda1<1:
         P.lambda1=1
@@ -206,10 +219,19 @@ if hasEOB and opts.use_external_EOB_source:
         P.lambda2=1
     if P.deltaT > 1./16384:
         print 
-    wfP = eobwf.WaveformModeCatalog(P,lmax=2)  # only include l=2 for us.
-    hfBase = wfP.complex_hoff(P,force_T=True)
+    wfP = eobwf.WaveformModeCatalog(P,lmax=Lmax)  # only include l=2 for us.
+    if opts.verbose:
+        print " Duration of stored signal (cut if necessary) ", wfP.estimateDurationSec()
+    hfBase = wfP.complex_hoff(force_T=opts.seglen)
     print "EOB waveform length ", hfBase.data.length
+    print "EOB waveform duration", -hfBase.epoch
+elif opts.use_external_EOB_source and not hasEOB:
+    # do not do something else silently!
+    print " Failure: EOB requested but impossible "
+    sys.exit(0)
 else:
+    print "    -------INTERFACE ------"
+    print "    Using lalsuite   ", hasEOB, opts.use_external_EOB_source
     hfBase = lalsimutils.complex_hoff(P)
 IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd)
 nmBase = IP.norm(hfBase)
@@ -289,7 +311,8 @@ print "  NEED TO IMPLEMENT: Stripping of unphysical parameters "
 grid = eff.multi_dim_grid(*grid_tuples)  # eacy line in 'grid' is a set of parameter values
 
 grid_out, P_list = evaluate_overlap_on_grid(hfBase, param_names, grid)
-
+if len(grid_out)==0:
+    print " No points survive...."
 
 ###
 ### (Fisher matrix-based grids): 
@@ -334,7 +357,7 @@ lalsimutils.ChooseWaveformParams_array_to_xml(P_list, fname=opts.fname, fref=P.f
 ###
 ### Optional: Scatterplot
 ###
-if opts.verbose and len(param_names)==1:
+if opts.verbose and len(param_names)==1 and len(grid_out)>0:
     import matplotlib.pyplot as plt
     fig = plt.figure()
     plt.plot(grid_out[:,0], grid_out[:,1])
