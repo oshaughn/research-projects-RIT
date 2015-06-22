@@ -164,7 +164,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
 #        assert t_shift > 0    # because NR waveforms may start at any time, they don't always have t_shift > 0 ! 
         # tThe leading edge of our time window of interest occurs
         # this many samples into the rholms
-        N_shift = int( t_shift / P.deltaT )
+        N_shift = int( t_shift / P.deltaT + 0.5 )  # be careful about rounding: might be one sample off!
         # Number of samples in the window [t_ref - t_window, t_ref + t_window]
         N_window = int( 2 * t_window / P.deltaT )
         # Compute cross terms < h_lm | h_l'm' >
@@ -229,7 +229,8 @@ def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
     # Said another way, the m^th harmonic of the waveform should transform as
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
-    Ylms = ComputeYlms(Lmax, incl, -phiref)
+    # In practice, all detectors have the same set of Ylms selected, so we only compute for a subset
+    Ylms = ComputeYlms(Lmax, incl, -phiref, selected_modes=rholms_intp[rholms_intp.keys()[0]].keys())
 
     lnL = 0.
     for det in detectors:
@@ -279,7 +280,7 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
     # Said another way, the m^th harmonic of the waveform should transform as
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
-    Ylms = ComputeYlms(Lmax, incl, -phiref)
+    Ylms = ComputeYlms(Lmax, incl, -phiref, selected_modes=rholms_intp[rholms.keys()[0]].keys())
 
     lnL = 0.
     for det in detectors:
@@ -384,7 +385,7 @@ def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms, tref
     # Said another way, the m^th harmonic of the waveform should transform as
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
-    Ylms = ComputeYlms(Lmax, thS, -phiS)
+    Ylms = ComputeYlms(Lmax, thS, -phiS, selected_modes = rholmsDictionary[rholmsDictionary.keys()[0]].keys())
     distMpc = dist/(lsu.lsu_PC*1e6)
 
     F = {}
@@ -426,7 +427,7 @@ def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTer
     # Said another way, the m^th harmonic of the waveform should transform as
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
-    Ylms = ComputeYlms(Lmax, thS, -phiS)
+    Ylms = ComputeYlms(Lmax, thS, -phiS, selected_modes = rholmsDictionary[rholmsDictionary.keys()[0]].keys())
     distMpc = dist/(lsu.lsu_PC*1e6)
 
     F = {}
@@ -483,12 +484,15 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist):
     """
     global distMpcRef
     distMpc = dist/(lsu.lsu_PC*1e6)
+    invDistMpc = distMpcRef/distMpc
+    Fstar = np.conj(F)
 
     # Eq. 35 of Richard's notes
     term1 = 0.
-    for mode in rholm_vals:
-        term1 += np.conj(F * Ylms[mode]) * rholm_vals[mode]
-    term1 = np.real(term1) / (distMpc/distMpcRef)
+#    for mode in rholm_vals:
+    for mode, Ylm in Ylms.iteritems():
+        term1 += Fstar * np.conj( Ylms[mode]) * rholm_vals[mode]
+    term1 = np.real(term1) *invDistMpc
 
     # Eq. 26 of Richard's notes
     term2 = 0.
@@ -637,7 +641,7 @@ def ComplexAntennaFactor(det, RA, DEC, psi, tref):
 
     return Fp + 1j * Fc
 
-def ComputeYlms(Lmax, theta, phi):
+def ComputeYlms(Lmax, theta, phi, selected_modes=None):
     """
     Return a dictionary keyed by tuples
     (l,m)
@@ -650,6 +654,8 @@ def ComputeYlms(Lmax, theta, phi):
     Ylms = {}
     for l in range(2,Lmax+1):
         for m in range(-l,l+1):
+            if selected_modes is not None and (l,m) not in selected_modes:
+                continue
             Ylms[ (l,m) ] = lal.SpinWeightedSphericalHarmonic(theta, phi,-2, l, m)
 
     return Ylms
