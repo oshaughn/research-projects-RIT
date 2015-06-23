@@ -49,6 +49,11 @@ except:
     print " - No multiprocessing - "
 
 try:
+	import NRWaveformCatalogManager as nrwf
+	hasNR =True
+except:
+	hasNR=False
+try:
     hasEOB=True
     import EOBTidalExternal as eobwf
 except:
@@ -66,6 +71,13 @@ parser.add_argument("--parameter-range", action='append', type=str,help="Add a r
 # Use external EOB for source or template?
 parser.add_argument("--use-external-EOB-source",action="store_true",help="One external EOB call is performed to generate the reference signal")
 parser.add_argument("--use-external-EOB",action="store_true",help="External EOB calls are performed for each template")
+# Use external EOB for source or template?
+parser.add_argument("--use-external-NR-source",action="store_true",help="One external NR call is performed to generate the reference signal")
+parser.add_argument("--use-external-NR",action="store_true",help="External NR calls are performed for each template")
+parser.add_argument("--NR-signal-group", default="Sequence-GT-Aligned-UnequalMass",help="Specific NR simulation group to use")
+parser.add_argument("--NR-signal-param", default=(0.0,2.),help="Parameter value")
+parser.add_argument("--NR-template-group", default=None,help="Specific NR simulation group to use")
+parser.add_argument("--NR-template-param", default=None,help="Parameter value")
 # Grid layout options
 parser.add_argument("--uniform-spoked", action="store_true", help="Place mass pts along spokes uniform in volume (if omitted placement will be random and uniform in volume")
 parser.add_argument("--linear-spoked", action="store_true", help="Place mass pts along spokes linear in radial distance (if omitted placement will be random and uniform in volume")
@@ -87,9 +99,12 @@ parser.add_argument("--event",type=int, dest="event_id", default=None,help="even
 parser.add_argument("--fmin", default=35,type=float,help="Mininmum frequency in Hz, default is 40Hz to make short enough waveforms. Focus will be iLIGO to keep comutations short")
 parser.add_argument("--mass1", default=1.50,type=float,help="Mass in solar masses")  # 150 turns out to be ok for Healy et al sims
 parser.add_argument("--mass2", default=1.35,type=float,help="Mass in solar masses")
-parser.add_argument("--lambda1",default=590,type=float)
-parser.add_argument("--lambda2", default=590,type=float)
+#parser.add_argument("--lambda1",default=590,type=float)
+#parser.add_argument("--lambda2", default=590,type=float)
+parser.add_argument("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given")
+parser.add_argument("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
 parser.add_argument("--lmax", default=2, type=int)
+parser.add_argument("--approx",type=str,default=None)
 # Output options
 parser.add_argument("--fname", default="overlap-grid", help="Base output file for ascii text (.dat) and xml (.xml.gz)")
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
@@ -99,6 +114,33 @@ opts=  parser.parse_args()
 if opts.verbose:
     True
     #lalsimutils.rosDebugMessagesContainer[0]=True   # enable error logging inside lalsimutils
+
+
+###
+### Handle NR arguments
+###
+if hasNR and not ( opts.NR_signal_group in nrwf.internal_ParametersAvailable.keys()):
+    if opts.NR_signal_group:
+        print " ===== UNKNOWN NR PARAMETER ====== "
+        print opts.NR_signal_group, opts.NR_signal_param
+elif hasNR:
+    if opts.NR_signal_param:
+        opts.NR_signal_param = eval(str(opts.NR_signal_param)) # needs to be evaluated
+    if not ( opts.NR_signal_param in nrwf.internal_ParametersAvailable[opts.NR_signal_group]):
+        print " ===== UNKNOWN NR PARAMETER ====== "
+        print opts.NR_signal_group, opts.NR_signal_param
+if hasNR and not ( opts.NR_template_group in nrwf.internal_ParametersAvailable.keys()):
+    if opts.NR_template_group:
+        print " ===== UNKNOWN NR PARAMETER ====== "
+        print opts.NR_template_group, opts.NR_template_param
+elif hasNR:
+    if opts.NR_template_param:
+        opts.NR_template_param = eval(opts.NR_template_param) # needs to be evaluated
+    if not ( opts.NR_template_param in nrwf.internal_ParametersAvailable[opts.NR_template_group]):
+        print " ===== UNKNOWN NR PARAMETER ====== "
+        print opts.NR_template_group, opts.NR_template_param
+
+
 
 
 ###
@@ -116,6 +158,7 @@ def eval_overlap(grid,P_list, IP,indx):
     global Lmax
     P2 = P_list[indx]
     T_here = 1./IP.deltaF
+    P2.deltaF=1./T_here
     if not use_external_EOB:
         hf2 = lalsimutils.complex_hoff(P2)
     else:
@@ -195,10 +238,24 @@ else:
     P.m1 = opts.mass1 *lal.MSUN_SI
     P.m2 = opts.mass2 *lal.MSUN_SI
     P.dist = 150*1e6*lal.PC_SI
-    P.lambda1  = 500
-    P.lambda2  = 500
+    if opts.eff_lambda and Psig:
+        lambda1, lambda2 = 0, 0
+        if opts.eff_lambda is not None:
+            lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1, m2, opts.eff_lambda, opts.deff_lambda or 0)
+            Psig.lambda1 = lambda1
+            Psig.lambda2 = lambda2
+
     P.fmin=opts.fmin   # Just for comparison!  Obviously only good for iLIGO
     P.ampO=-1  # include 'full physics'
+    if opts.approx:
+        P.approx = lalsim.GetApproximantFromString(opts.approx)
+        if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
+            # Do not use tidal parameters in approximant which does not implement them
+            print " Do not use tidal parameters in approximant which does not implement them "
+            P.lambda1 = 0
+            P.lambda2 = 0
+    else:
+        P.approx = lalsim.GetApproximantFromString("TaylorT4")
 P.deltaT=1./16384
 P.taper = lalsim.SIM_INSPIRAL_TAPER_START
 P.deltaF = 1./opts.seglen #lalsimutils.findDeltaF(P)
@@ -228,6 +285,34 @@ if hasEOB and opts.use_external_EOB_source:
 elif opts.use_external_EOB_source and not hasEOB:
     # do not do something else silently!
     print " Failure: EOB requested but impossible "
+    sys.exit(0)
+elif opts.use_external_NR_source and hasNR:
+    m1Msun = P.m1/lal.MSUN_SI;     m2Msun = P.m2/lal.MSUN_SI
+    if m1Msun < 50 or m2Msun < 50:
+        print " Invalid NR mass "
+        sys.exit(0)
+    print " Using NR ", opts.NR_signal_group, opts.NR_signal_param
+    T_window = 16. # default 
+    wfP = nrwf.WaveformModeCatalog(opts.NR_signal_group, opts.NR_signal_param, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, lmax=opts.lmax,align_at_peak_l2_m2_emission=True,build_strain_and_conserve_memory=True)
+    q = wfP.P.m2/wfP.P.m1
+    print " NR q  (overrides anything)", q
+    mtotOrig  =(wfP.P.m1+wfP.P.m2)/lal.MSUN_SI
+    wfP.P.m1 *= (m1Msun+m2Msun)/mtotOrig
+    wfP.P.m2 *= (m1Msun+m2Msun)/mtotOrig
+
+    wfP.P.deltaT = 1./opts.srate
+    print " NR duration (in s) of simulation at this mass = ", wfP.estimateDurationSec()
+    print " NR starting 22 mode frequency at this mass = ", wfP.estimateFminHz()
+    T_window = max([16, 2**int(np.log(wfP.estimateDurationSec())/np.log(2)+1)])
+    wfP.P.deltaF = 1./T_window
+    print " Final T_window ", T_window
+    wfP.P.radec = False  # use a real source with a real instrument
+    wfP.P.fmin = 10
+    print "  ---- NR interface: Overriding parameters to match simulation requested ---- "
+    wfP.P.print_params()
+    hfBase = wfP.complex_hoff(force_T=T_window)
+elif opts.use_external_NR_source and not hasNR:
+    print " Failure: NR requested but impossible "
     sys.exit(0)
 else:
     print "    -------INTERFACE ------"
