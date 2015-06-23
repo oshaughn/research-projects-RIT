@@ -25,6 +25,10 @@ zero_noise.cache: mdc.xml.gz
 bns_frames.cache: mdc-bns.xml.gz
 	util_WriteFrameAndCacheFromXML.sh mdc-bns.xml.gz 0 bns_frames 
 
+bns_eob_frames.cache: mdc-bns.xml.gz
+	util_WriteFrameAndCacheFromXML.sh mdc-bns.xml.gz 0 bns_eob_frames MATLAB
+
+
 # H1_zero_noise.cache:
 # 	mkdir ${INJECTION_DEST}; exit 0
 # 	(cd ${INJECTION_DEST};	util_LALWriteFrame.py --start ${START} --stop ${STOP} --inj ../${INJ_XML} --event 0  --single-ifo --instrument H1 --seglen 64)
