@@ -84,7 +84,7 @@ parser.add_argument("--linear-spoked", action="store_true", help="Place mass pts
 parser.add_argument("--grid-cartesian", action="store_true", help="Place mass points using a cartesian grid")
 parser.add_argument("--grid-cartesian-npts", default=100, type=int)
 # Cutoff options
-parser.add_argument("--match-value", type=float, default=0.97, help="Use this as the minimum match value. Default is 0.97")
+parser.add_argument("--match-value", type=float, default=0.01, help="Use this as the minimum match value. Default is 0.01 (i.e., keep almost everything)")
 # Overlap options
 parser.add_argument("--fisher-psd",type=str,default="lalsim.SimNoisePSDiLIGOSRD",help="psd name ('eval'). lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, .SimNoisePSDiLIGOSRD... ")
 parser.add_argument("--psd-file",  help="File name for PSD (assumed hanford). Overrides --fisher-psd if provided")
@@ -185,7 +185,8 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
         # Set attributes that are being changed as necessary, leaving all others fixed
         for indx in np.arange(len(param_names)):
             Pgrid.assign_param(param_names[indx], line[indx])
-            P_list.append(Pgrid)
+        P_list.append(Pgrid)
+#    print "Length check", len(P_list), len(grid)
     ###
     ### Loop over grid and make overlaps : see effective fisher code for wrappers
     ###
