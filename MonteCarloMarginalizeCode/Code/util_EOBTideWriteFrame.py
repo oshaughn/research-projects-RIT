@@ -40,6 +40,8 @@ parser.add_argument("--seglen", type=float,default=256*2., help="Default window 
 parser.add_argument("--incl",default=0,type=float,help="Set the inclination of the simuation. Helpful for aligned spin tests")
 parser.add_argument("--start", type=int,default=None)
 parser.add_argument("--stop", type=int,default=None)
+parser.add_argument("--approx",type=str,default=None,help="Unused")
+parser.add_argument("--single-ifo",action='store_true',default=None,help="Unused")
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
 opts=  parser.parse_args()
@@ -62,6 +64,8 @@ P.fmin=opts.fmin   # Just for comparison!  Obviously only good for iLIGO
 P.ampO=-1  # include 'full physics'
 P.deltaT=1./16384
 P.taper = lalsim.SIM_INSPIRAL_TAPER_START
+if opts.start and opts.stop:
+    opts.seglen = opts.stop-opts.start # override
 P.deltaF = 1./opts.seglen #lalsimutils.findDeltaF(P)
 P.scale_to_snr(20,lalsim.SimNoisePSDaLIGOZeroDetHighPower,['H1', 'L1'])
 if P.deltaF > 1./T_window:
@@ -195,6 +199,7 @@ if opts.verbose and not bNoPlots:
     print " Maximum frames ", np.max(hoft2.data.data), " size ", len(tvals2), len(hoft2.data.data)
     print " Location of maximum in samples. relative time ", ncrit, tcrit
     print " Location of maximum in samples, compared to tref", tcrit+P.tref, 
+    print " Location of maximum as GPS time ", ncrit*hoft2.deltaT+ float(hof2.epoch)
 
     plt.plot(tvals2,hoft2.data.data,label='Fr')
     plt.xlim(tcrit-1,tcrit+1)
