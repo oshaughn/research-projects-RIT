@@ -112,7 +112,7 @@ print " Loaded modes ", wfP.waveform_modes_complex.keys()
 wfP.P.incl = opts.incl
 
 # LAL hlm(t)
-hlmT_lal = lalsimutils.hlmoft(wfP.P,opts.l)
+hlmT_lal = lalsimutils.SphHarmTimeSeries_to_dict(lalsimutils.hlmoft(wfP.P,opts.l),opts.l)
 tvals_lal = lalsimutils.evaluate_tvals(hlmT_lal[(2,2)])  #float(hlmT_lal[(2,2)].epoch) + np.arange(len(hlmT_lal[(2,2)].data.data))*hlmT_lal[(2,2)].deltaT
 
 # EOB hlm(t)
@@ -158,14 +158,15 @@ for mode in hlmT_lal.keys():
     tvals = lalsimutils.evaluate_tvals(hlmT_lal[mode])
     plt.plot(tvals, np.abs(hlmT_lal[mode].data.data),'r-' ,label=str(mode)+"_lal")
     plt.plot(tvals, np.real(hlmT_lal[mode].data.data),'r--' ,label=str(mode)+"_lal")
-    plt.plot(tvals_eob, np.abs(hlmT_eob[mode].data.data),'b-' ,label=str(mode)+"_eob")
-    plt.plot(tvals_eob, np.real(hlmT_eob[mode].data.data),'b--' ,label=str(mode)+"_eob")
+    if mode in hlmT_eob:
+        plt.plot(tvals_eob, np.abs(hlmT_eob[mode].data.data),'b-' ,label=str(mode)+"_eob")
+        plt.plot(tvals_eob, np.real(hlmT_eob[mode].data.data),'b--' ,label=str(mode)+"_eob")
 
-    hlm_NR = wfP.waveform_modes_complex[mode]
-    scaleFactorM = eobT.MsunInSec*(wfP.P.m1+wfP.P.m2)/lal.MSUN_SI
-    scaleFactorDinSeconds =  wfP.P.dist/lal.C_SI
-    hlm_NR[:,1] *=  scaleFactorM/scaleFactorDinSeconds  # Nominally we report r h in units of M
-    plt.plot(hlm_NR[:,0], np.abs(hlm_NR[:,1]),'k', label=str(mode)+"_eob_manual")
+        hlm_NR = wfP.waveform_modes_complex[mode]
+        scaleFactorM = eobT.MsunInSec*(wfP.P.m1+wfP.P.m2)/lal.MSUN_SI
+        scaleFactorDinSeconds =  wfP.P.dist/lal.C_SI
+        hlm_NR[:,1] *=  scaleFactorM/scaleFactorDinSeconds  # Nominally we report r h in units of M
+        plt.plot(hlm_NR[:,0], np.abs(hlm_NR[:,1]),'k', label=str(mode)+"_eob_manual")
 
     plt.legend()
 
@@ -214,7 +215,7 @@ plt.figure(6)
 hlmF_NR_lal = wfP.hlmoff(  deltaT=wfP.P.deltaT,force_T=1./P.deltaF)  
 fvals_NR_lal = lalsimutils.evaluate_fvals(hlmF_NR_lal[(2,2)])
 # lal 
-hlm_lal = lalsimutils.hlmoff(wfP.P,opts.l)
+hlm_lal = lalsimutils.SphHarmFrequencySeries_to_dict(lalsimutils.hlmoff(wfP.P,opts.l),opts.l)
 fvals_lal = lalsimutils.evaluate_fvals(hlm_lal[(2,2)])
 
 
@@ -257,4 +258,5 @@ print hlmF_NR_lal[(2,2)].deltaF, len(hlmF_NR_lal[(2,2)].data.data)
 IP = lalsimutils.CreateCompatibleComplexOverlap(hlm_lal)
 
 for mode in hlm_lal:
+ if mode in hlmF_NR_lal:
     print mode, IP.norm(hlm_lal[mode]), IP.norm(hlmF_NR_lal[mode]), IP.ip(hlm_lal[mode],hlmF_NR_lal[mode])/(IP.norm(hlm_lal[mode]) * IP.norm(hlmF_NR_lal[mode]))
