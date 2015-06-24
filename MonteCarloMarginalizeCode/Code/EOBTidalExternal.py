@@ -335,6 +335,9 @@ class WaveformModeCatalog:
         to physical units for use in injection code.
 
         If the time window is sufficiently short, the result is NOT tapered (!!) -- no additional tapering is applied
+
+        The code will ALWAYS have zero padding on the end -- half of the buffer is zero padding!
+        This can cause loss of frequency content if you are not careful
         """
         hlmT ={}
         # Define units
@@ -363,15 +366,18 @@ class WaveformModeCatalog:
         # If the buffer requested is SHORTER than the 2*waveform, work backwards
         # If the buffer requested is LONGER than the waveform, work forwards from the start of all data
         if T_buffer_required/2 > T_estimated:
-            tvals = np.arange(npts)*deltaT + float(self.waveform_modes_complex[(2,2)][0,0])   # start at time t=0 and go forwards
-            n_crit = int(-self.waveform_modes_complex[(2,2)][0,0]/deltaT) # estiamted peak sample location in the t array, working forward
+            tvals =  np.arange(npts)*deltaT + float(self.waveform_modes_complex[(2,2)][0,0])   # start at time t=0 and go forwards (zeros automatically padded by interpolation code)
+            t_crit = float( -self.waveform_modes_complex[(2,2)][0,0])
+            n_crit = int( t_crit/deltaT) # estiamted peak sample location in the t array, working forward
+
         else:
             print "  EOB internal: Warning LOSSY conversion to insure half of data is zeros "
             # Create time samples by walking backwards from the last sample of the waveform, a suitable duration
             # ASSUME we are running in a configuration with align_at_peak_l2m2_emission
             # FIXME: Change this
-            tvals = (-npts + 1+ np.arange(npts))*deltaT + np.real(self.waveform_modes_complex[(2,2)][-1,0])  # last insures we get some ringdown
-            n_crit = npts - int(np.real(self.waveform_modes_complex[(2,2)][-1,0]/deltaT))-2
+            tvals = T_buffer_required/2  + (-npts + 1+ np.arange(npts))*deltaT + np.real(self.waveform_modes_complex[(2,2)][-1,0])  # last insures we get some ringdown
+            t_crit = T_buffer_required/2 - (np.real(self.waveform_modes_complex[(2,2)][-1,0]))
+            n_crit = int(t_crit/deltaT)
             
         if rosDebug:
             print " time range being sampled ", [min(tvals),max(tvals)], " corresponding to dimensionless range", [min(tvals)/m_total_s,max(tvals)/m_total_s]
@@ -410,7 +416,7 @@ class WaveformModeCatalog:
 
         # Set time at peak of 22 mode. This is a hack, but good enough for us
 #        n_crit = np.argmax(hlmT[(2,2)].data.data)
-        epoch_crit = -deltaT*n_crit
+        epoch_crit = float(-t_crit) #-deltaT*n_crit 
         print " EOB internal: zero epoch sample location", n_crit, np.argmax(np.abs(hlmT[(2,2)].data.data))
         for mode in hlmT:
             hlmT[mode].epoch = epoch_crit
