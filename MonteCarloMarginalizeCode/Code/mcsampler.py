@@ -422,7 +422,7 @@ class MCSampler(object):
         maxval = -float("Inf")
         maxlnL = -float("Inf")
         eff_samp = 0
-        mean, var = None, None
+        mean, var = None, numpy.float128(0)    # to prevent infinite variance due to overflow
 
         if bShowEvaluationLog:
             print "iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var"
