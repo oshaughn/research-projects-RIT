@@ -64,10 +64,11 @@ P.fmin=opts.fmin   # Just for comparison!  Obviously only good for iLIGO
 P.ampO=-1  # include 'full physics'
 P.deltaT=1./16384
 P.taper = lalsim.SIM_INSPIRAL_TAPER_START
+# This must be done BEFORE changing the duration
+P.scale_to_snr(20,lalsim.SimNoisePSDaLIGOZeroDetHighPower,['H1', 'L1'])
 if opts.start and opts.stop:
     opts.seglen = opts.stop-opts.start # override
 P.deltaF = 1./opts.seglen #lalsimutils.findDeltaF(P)
-P.scale_to_snr(20,lalsim.SimNoisePSDaLIGOZeroDetHighPower,['H1', 'L1'])
 if P.deltaF > 1./T_window:
     print " time too short "
 
