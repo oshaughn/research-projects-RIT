@@ -146,6 +146,10 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             for pair in theWorthwhileModes:
                     hlmsNew[pair]=hlms[pair]
             hlms =hlmsNew
+            if len(hlms.keys()) == 0:
+                    print " Failure "
+                    import sys
+                    sys.exit(0)
 
 
     # Print statistics on timeseries provided
