@@ -465,11 +465,11 @@ if len(data_dict) is 0:
         wfP = eobwf.WaveformModeCatalog(Psig,lmax=Lmax)
         # Generate the data in each detector
         # Confirm data maximum is not at the edge of the window
-        Psig.detector='H1'
+        wfP.P.detector='H1'
         data_dict['H1'] = wfP.non_herm_hoff()
-        Psig.detector='L1'
+        wfP.P.detector='L1'
         data_dict['L1'] = wfP.non_herm_hoff()
-        Psig.detector='V1'
+        wfP.P.detector='V1'
         data_dict['V1'] = wfP.non_herm_hoff()
 
 
@@ -620,7 +620,7 @@ if opts.plot_ShowH and not bNoMatplotlib: # and not bNoInteractivePlots:
         print "  : Confirm nonzero data! : ",det, np.max(np.abs(data_dict[det].data.data))
         tvals = float(hT.epoch - theEpochFiducial) + hT.deltaT*np.arange(len(hT.data.data))
         plt.plot(tvals, hT.data.data,label=det)
-    plt.title(" Frame data h(t)")
+    plt.title(" data_dict h(t)")
     plt.legend()
     plt.savefig("test_like_and_samp-frames-hoft."+fExtension)
     plt.xlim(-0.5,0.5)  # usually centered around t=0
