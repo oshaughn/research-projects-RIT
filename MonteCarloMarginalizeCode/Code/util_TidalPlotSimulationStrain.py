@@ -7,7 +7,10 @@
 #
 # BONUS USES
 #    - validate tapering (as needed)
-
+#
+# USAGE
+#    util_TidalPlotSimulationStrain --simulate-network  --seglen 64 # only plots individual detectors
+#    util_TidalPlotSimulationStrain --simulate-network  --seglen 256 # only plots individual detectors
 
 import argparse
 import numpy as np
@@ -30,6 +33,8 @@ parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--incl", type=float,default=np.pi/4)
 parser.add_argument("--print-group-list",default=False,action='store_true')
 parser.add_argument("--print-param-list",default=False,action='store_true')
+parser.add_argument("--simulate-network",default=False, action='store_true')
+parser.add_argument("--seglen",default=64,type=int)
 parser.add_argument("--show-plots",default=False,action='store_true')
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
 opts = parser.parse_args()
@@ -72,7 +77,7 @@ group = opts.group
 param = eval(str(opts.param))
 if opts.verbose:
     print "Importing ", group, param 
-
+    
 
 if opts.print_group_list:
     print "Simulations available"
@@ -88,7 +93,7 @@ if opts.print_param_list:
 
 
 l = opts.l
-T_window = 64
+T_window = opts.seglen
 fmin =10
 
 P=lalsimutils.ChooseWaveformParams()
@@ -105,11 +110,45 @@ P.deltaF = lalsimutils.findDeltaF(P)
 P.scale_to_snr(20,lalsim.SimNoisePSDaLIGOZeroDetHighPower,['H1', 'L1'])
 if P.deltaF > 1./T_window:
     print " time too short "
+P.deltaF = 1./opts.seglen
 P.print_params()
 
 wfP = eobT.WaveformModeCatalog(P,lmax=l,align_at_peak_l2_m2_emission=True)
 print " Loaded modes ", wfP.waveform_modes_complex.keys()
 wfP.P.incl = opts.incl
+
+###
+### Rest of code: Plot modes. Use PRECISELY the same code path as ILE
+###
+data_dict={}
+if opts.simulate_network:
+    detectors = ['H1', 'L1','V1']
+
+    # Convert to time domain
+    for det in detectors:
+        # Generate data
+        wfP.P.detector=det
+        data_dict[det] = wfP.non_herm_hoff()
+
+        hT = lalsimutils.DataInverseFourier(data_dict[det])  # complex inverse fft, for 2-sided data
+        # Roll so we are centered
+        ncrit  = np.argmax(np.abs(hT.data.data))
+        print "  : Maximum at (discrete) time: ",det, ncrit*hT.deltaT + hT.epoch, " relative to tref "
+        tvals = lalsimutils.evaluate_tvals(hT)  - P.tref
+        plt.plot(tvals, hT.data.data,label=det)
+    plt.title(" data_dict h(t)")
+    plt.legend()
+    plt.savefig("tidal_plot_strain-hoft"+fig_extension)
+    plt.xlim(-0.5,0.5)  # usually centered around t=0
+    plt.savefig("tidal_plot_strain-hoft-zoomed"+fig_extension)
+    
+    plt.show()
+    sys.exit(0)
+
+
+###
+### Rest of code: Plot modes
+###
 
 # LAL hlm(t)
 hlmT_lal = lalsimutils.SphHarmTimeSeries_to_dict(lalsimutils.hlmoft(wfP.P,opts.l),opts.l)
