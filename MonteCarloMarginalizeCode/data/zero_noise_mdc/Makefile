@@ -1,5 +1,5 @@
-START=999999900
-STOP=1000000100
+START=999999400
+STOP=1000000600
 DUR=$(shell python -c "print ${STOP}-${START}")
 
 INJ_CHANNEL_NAME=FAKE-STRAIN
@@ -14,6 +14,7 @@ LIGO_N_FRAMES=1
 
 BASE_DIR=$(shell pwd)/
 PSD_FILE=${BASE_DIR}/HLV-ILIGO_PSD.xml.gz
+ALIGO_PSD_FILE=${BASE_DIR}/HLV-aLIGO_PSD.xml.gz
 
 
 EVENT_TIME=1000000014.236547946
@@ -24,6 +25,11 @@ zero_noise.cache: mdc.xml.gz
 
 bns_frames.cache: mdc-bns.xml.gz
 	util_WriteFrameAndCacheFromXML.sh mdc-bns.xml.gz 0 bns_frames 
+
+# appropriate for aLIGO
+bns_frames_lowf.cache: mdc-bns.xml.gz
+	util_WriteFrameAndCacheFromXML.sh mdc-bns-aligo.xml.gz 0 bns_frames_lowf
+
 
 bns_eob_frames.cache: mdc-bns.xml.gz
 	util_WriteFrameAndCacheFromXML.sh mdc-bns.xml.gz 0 bns_eob_frames MATLAB
@@ -110,11 +116,16 @@ ros_test_likelihood: zero_noise.cache
 # TEST VERSION 1: Analytic (iLIGO) PSD model
 	test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-ILIGO_PSD.xml.gz"  --mass1 4 --mass2 4  --Lmax 2 --amporder -1 --show-likelihood-versus-time  --show-input-h  --show-psd  --d-max 500  # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
 
+ros_test_likelihood_aligo: bns_frames_lowf.cache
+# TEST VERSION 1: Analytic (aLIGO) PSD model, with source scaled to sensible low frequency
+	test_like_and_samp.py --inj-xml mdc-bns-aligo.xml.gz   --cache-file bns_frames_lowf.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME}  --psd-file "HLV-aLIGO_PSD.xml.gz"  --mass1 1.35 --mass2 1.35  --Lmax 2 --amporder -1 --show-likelihood-versus-time  --d-max 500 --seglen 1024  # --sampling-prior-use-skymap skymap.fits.gz   --force-read-full-frames
+
 
 # Confirm EOB interface works
 ros_test_likelihood_eob: 
 # EOB with test_like_and_samp.py, both as signal and as template
 	../../Code/test_like_and_samp.py --signal-fmin 70 --fmin-template 70 --mass1 1.35 --mass2 1.35 --signal-mass1 1.35 --signal-mass2 1.35 --eff-lambda 590   --Lmax 2 --amporder -1 --use-external-EOB --show-likelihood-versus-time  --show-input-h   --seglen 128 --d-max 500 --no-interactive-plots
+
 
 ros_test_likelihood_eob_direct: bns_frames.cache
 # EOB with test_like_and_samp.py, as template, using frame files as signal
@@ -122,5 +133,10 @@ ros_test_likelihood_eob_direct: bns_frames.cache
 
 
 ros_test_ile_eob: bns_frames.cache
-# EOB with test_like_and_samp.py
 	../../Code/integrate_likelihood_extrinsic --fmin-template 40 --mass1 1.35 --mass2 1.35  --eff-lambda 500 --cache-file bns_frames.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME}  --reference-freq 0.0  --save-samples  --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 10000  --n-eff 100  --d-max 25 --use-external-EOB --convergence-tests-on   # --adapt-adapt  --convergence-tests-on
+
+ros_test_ile_eob_aligo: bns_frames_lowf.cache
+	../../Code/integrate_likelihood_extrinsic --fmin-template 35 --mass1 1.35 --mass2 1.35  --eff-lambda 500 --cache-file bns_frames_lowf.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${ALIGO_PSD_FILE}" --psd-file "L1=${ALIGO_PSD_FILE}" --psd-file "V1=${ALIGO_PSD_FILE}" --event-time ${EVENT_TIME}  --reference-freq 0.0  --save-samples  --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 10000  --n-eff 100  --d-max 25 --use-external-EOB --convergence-tests-on   # --adapt-adapt  --convergence-tests-on
+
+
+
