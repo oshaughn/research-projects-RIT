@@ -94,6 +94,7 @@ class WaveformModeCatalog:
         # Delete files from previous case"
         m1InMsun = P.m1/lal.MSUN_SI
         m2InMsun = P.m2/lal.MSUN_SI
+        m1InMsun, m2InMsun = reversed(sorted([m1InMsun, m2InMsun]))   # FORCE m1 > m2
 
         # Convert lambda's to kappa
         # Note we are passed lambda1, lambda2.  We convert to (l=2) kappaA, kappaB
