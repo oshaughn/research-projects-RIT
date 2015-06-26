@@ -93,6 +93,7 @@ parser.add_argument("--seglen", type=float,default=256*2., help="Default window 
 parser.add_argument("--fref",type=float,default=0.);
 # External grid
 parser.add_argument("--external-grid-xml", default=None,help="Inspiral XML file (injection form) for alternate grid")
+parser.add_argument("--external-grid-txt", default=None, help="Cartesian grid. Must provide parameter names in header. Exactly like output of code. Last column not used.")
 # Base point
 parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing the base point.")
 parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
@@ -395,6 +396,17 @@ grid_tuples = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
 # Strip unphysical parameters
 print "  NEED TO IMPLEMENT: Stripping of unphysical parameters "
 grid = eff.multi_dim_grid(*grid_tuples)  # eacy line in 'grid' is a set of parameter values
+
+# If external grid provided, erase this grid and set of names, and replace it with the new one.
+if opts.external_grid_txt:
+    tmp = np.genfromtxt(opts.external_grid_txt, names=True)
+    raw_names = tmp.dtype.names
+#    print tmp, tmp['eta'], tmp['ip'], raw_names
+    param_names = np.array(list(set(raw_names) - set(['ip'])))
+    print param_names
+    grid = np.array(tmp[param_names])
+#    print grid, grid[1][0]
+#    sys.exit(0)
 
 grid_out, P_list = evaluate_overlap_on_grid(hfBase, param_names, grid)
 if len(grid_out)==0:
