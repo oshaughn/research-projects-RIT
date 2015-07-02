@@ -112,23 +112,28 @@ class WaveformModeCatalog:
             retrieve_directory = dirBaseFilesArchive+"/"+fname_base
             print " Attempting to use archived waveform data  in ", retrieve_directory
         else:
-            cmd = dirBaseFiles+"/run_goeob_standalone.sh " + dirBaseMatlab + " " +str(m1InMsun) + " "+str(m2InMsun) + " " + str(kappaA2) + " " + str(kappaB2) + " " + str(P.fmin) 
+            retrieve_directory = dirBaseFilesArchive+"/"+fname_base + "/"
+            cmd = dirBaseFiles+"/run_goeob_standalone.sh " + dirBaseMatlab + " " +str(m1InMsun) + " "+str(m2InMsun) + " " + str(kappaA2) + " " + str(kappaB2) + " " + str(P.fmin) + " " + retrieve_directory
+            # Create directory 
+            if not os.path.exists(retrieve_directory):
+                print " Making directory to archive this run ... ", retrieve_directory
+                os.makedirs(retrieve_directory)
             print " Generating tidal EOB with ", cmd
             os.chdir(dirBaseFiles); os.system(cmd); 
-            retrieve_directory = dirBaseFiles
-            if rosUseArchivedWaveforms:
-                retrieve_directory = dirBaseFilesArchive+"/"+fname_base
-                # Create directory 
-                if not os.path.exists(retrieve_directory):
-                    print " Making directory to archive this run ... ", retrieve_directory
-                    os.makedirs(retrieve_directory)
-                # Copy
-                print " Copying files into storage directory ", retrieve_directory
-                shutil.copyfile(dirBaseFiles+"/test_h22.dat", retrieve_directory+"/test_h22.dat")
-                shutil.copyfile(dirBaseFiles+"/test_h21.dat", retrieve_directory+"/test_h21.dat")
-                shutil.copyfile(dirBaseFiles+"/test_h33.dat", retrieve_directory+"/test_h33.dat")
-                shutil.copyfile(dirBaseFiles+"/test_h32.dat", retrieve_directory+"/test_h32.dat")
-                shutil.copyfile(dirBaseFiles+"/test_h31.dat", retrieve_directory+"/test_h31.dat")
+            # retrieve_directory = dirBaseFiles
+            # if rosUseArchivedWaveforms:
+            #     retrieve_directory = dirBaseFilesArchive+"/"+fname_base
+            #     # Create directory 
+            #     if not os.path.exists(retrieve_directory):
+            #         print " Making directory to archive this run ... ", retrieve_directory
+            #         os.makedirs(retrieve_directory)
+            #     # Copy
+            #     print " Copying files into storage directory ", retrieve_directory
+            #     shutil.copyfile(dirBaseFiles+"/test_h22.dat", retrieve_directory+"/test_h22.dat")
+            #     shutil.copyfile(dirBaseFiles+"/test_h21.dat", retrieve_directory+"/test_h21.dat")
+            #     shutil.copyfile(dirBaseFiles+"/test_h33.dat", retrieve_directory+"/test_h33.dat")
+            #     shutil.copyfile(dirBaseFiles+"/test_h32.dat", retrieve_directory+"/test_h32.dat")
+            #     shutil.copyfile(dirBaseFiles+"/test_h31.dat", retrieve_directory+"/test_h31.dat")
 
 
 
