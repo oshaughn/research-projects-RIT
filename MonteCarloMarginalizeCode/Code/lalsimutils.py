@@ -855,8 +855,8 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
     indx =0
     for P in P_list:
         row= P.create_sim_inspiral()
-        row.process_id = ilwd.ilwdchar("process:process_id:{}".format(indx))
-        row.simulation_id = ilwd.ilwdchar("sim_inspiral:simulation_id:{}".format(indx))
+        row.process_id = ilwd.ilwdchar("process:process_id:{0}".format(indx))
+        row.simulation_id = ilwd.ilwdchar("sim_inspiral:simulation_id:{0}".format(indx))
         indx+=1
         sim_table.append(row)
     utils.write_filename(xmldoc, fname+".xml.gz", gz=True)
