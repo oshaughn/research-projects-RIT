@@ -160,6 +160,7 @@ def eval_overlap(grid,P_list, IP,indx):
     P2 = P_list[indx]
     T_here = 1./IP.deltaF
     P2.deltaF=1./T_here
+#    P2.print_params()
     if not use_external_EOB:
         hf2 = lalsimutils.complex_hoff(P2)
     else:
@@ -196,7 +197,7 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     # PROBLEM: Pool code doesn't work in new configuration.
     grid_out = np.array(map(functools.partial(eval_overlap, grid, P_list,IP), np.arange(len(grid))))
     # Remove mass units at end
-    for p in ['mc', 'm1', 'm2']:
+    for p in ['mc', 'm1', 'm2', 'mtot']:
         if p in param_names:
             indx = param_names.index(p)
             grid_out[:,indx] /= lal.MSUN_SI
@@ -348,7 +349,7 @@ else:
     if len(param_names) == len(opts.parameter_range):
         param_ranges = map(eval, opts.parameter_range)
         # Rescale hand-specified ranges to SI units
-        for p in ['mc', 'm1', 'm2']:
+        for p in ['mc', 'm1', 'm2', 'mtot']:
           if p in param_names:
             indx = param_names.index(p)
             #print p, param_names[indx], param_ranges[indx]

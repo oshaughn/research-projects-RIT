@@ -128,7 +128,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'LambdaTilde', 'DeltaLambdaTilde']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot']
 class ChooseWaveformParams:
     """
     Class containing all the arguments needed for SimInspiralChooseTD/FDWaveform
@@ -199,6 +199,16 @@ class ChooseWaveformParams:
             - system frame parameters
         VERY HELPFUL if you want to change just one parameter at a time (e.g., for Fisher )
         """
+        if p == 'mtot':
+            # change implemented at fixed chi1, chi2, eta
+            q = self.m2/self.m1
+            self.m1,self.m2 = np.array( [1./(1+q), q/(1.+q)])*val
+            return self
+        if p == 'q':
+            # change implemented at fixed chi1, chi2, eta
+            mtot = self.m2+self.m1
+            self.m1,self.m2 = np.array( [1./(1+val), val/(1.+val)])*mtot
+            return self
         if p == 'mc':
             # change implemented at fixed chi1, chi2, eta
             eta = symRatio(self.m1,self.m2)
