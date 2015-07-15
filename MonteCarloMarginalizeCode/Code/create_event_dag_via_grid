@@ -197,7 +197,18 @@ ile_job_type.write_sub_file()
 
 
 # Read the XML file to determine how many lines are in it.
-n_events= 10
+n_events= 0
+xmldoc = utils.load_filename( opts.sim_xml )
+try:
+        from glue.ligolw import lsctables, table, utils, ligolw, ilwd # check all are needed
+        # Read SimInspiralTable from the xml file, set row bounds
+        sim_insp = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
+        n_events = len(sim_insp)
+        print " === NUMBER OF EVENTS === "
+        print n_events
+except ValueError:
+        print >>sys.stderr, "No SimInspiral table found in xml file"
+
 
 # Create one node per index
 for i in np.arange(n_events):
