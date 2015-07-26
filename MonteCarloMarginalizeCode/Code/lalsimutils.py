@@ -1628,6 +1628,12 @@ def hoft(P, Fp=None, Fc=None):
 
     Returns a REAL8TimeSeries object
     """
+
+    # special sauce for EOB, because it is so finicky regarding
+    if P.approx == lalsim.EOBNRv2HM and P.m1 == P.m2:
+#        print " Using ridiculous tweak for equal-mass line EOB"
+        P.m2 = P.m1*(1-1e-6)
+
     hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
             P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
