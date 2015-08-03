@@ -52,6 +52,9 @@ print >>sys.stderr,"  numpy : ", np.__version__
 TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 
 
+cthdler = ligolw.LIGOLWContentHandler #defines a content handler to load xml grids
+lsctables.use_in(cthdler)
+
 
 
 # Check lal version (lal.LAL_MSUN_SI or not).  Enables portability through the version transition.
@@ -825,7 +828,9 @@ def xml_to_ChooseWaveformParams_array(fname, minrow=None, maxrow=None,
     that are not present in SimInspiral tables. Any of these arguments not given
     values will use the standard default values of ChooseWaveformParams.
     """
-    xmldoc = utils.load_filename( fname )
+    
+  
+    xmldoc = utils.load_filename( fname ,contenthandler = cthdler )
     try:
         # Read SimInspiralTable from the xml file, set row bounds
         sim_insp = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
@@ -2527,7 +2532,7 @@ def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqReq
     return psdNew
 
 def get_psd_series_from_xmldoc(fname, inst):
-    return read_psd_xmldoc(utils.load_filename(fname))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+    return read_psd_xmldoc(utils.load_filename(fname ,contenthandler = cthdler))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
 
 def get_intp_psd_series_from_xmldoc(fname, inst):
     psd = get_psd_series_from_xmldoc(fname, inst)
