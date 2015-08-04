@@ -27,6 +27,7 @@ from numpy import sin, cos
 from scipy import interpolate
 from scipy import signal
 import scipy  # for decimate
+sci_ver = map(int, scipy.version.version.split('.'))  # scipy version number as int list.
 
 from glue.ligolw import lsctables, table, utils, ligolw,ilwd # check all are needed
 from glue.lal import Cache
@@ -2555,15 +2556,18 @@ def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     fmax = fmax or psd_fmax
     df = df or psd_df
 
-    # Proposed new faster interpolation -- the other code to call 1d interpolation uses several slow map functions
-    f = np.arange(fmin,fmax,df)
-    psd_intp = interpolate.griddata( fvals_orig,data,f,fill_value=float("inf"))
-    #f = np.arange(psd_fmin, psd_fmax, psd_df)
-    # ifunc = interpolate.interp1d(f, data)
-    # def intp_psd(freq):
-    #     return float("inf") if freq >= psd_fmax-psd_df or ifunc(freq) == 0.0 else ifunc(freq)
-    # intp_psd = np.vectorize(intp_psd)
-    # psd_intp = intp_psd(np.arange(fmin, fmax, df))
+    if sci_ver[0]==0 and sci_ver[1]<9:
+        # Original interpolation; see also Pankow tweaks in master: https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/rapid_pe/lalsimutils.py
+        f = np.arange(psd_fmin, psd_fmax, psd_df)
+        ifunc = interpolate.interp1d(f, data)
+        def intp_psd(freq):
+            return float("inf") if freq >= psd_fmax-psd_df or ifunc(freq) == 0.0 else ifunc(freq)
+        intp_psd = np.vectorize(intp_psd)
+        psd_intp = intp_psd(np.arange(fmin, fmax, df))
+    else: 
+        # Proposed new faster interpolation -- the other code to call 1d interpolation uses several slow map functions
+        f = np.arange(fmin,fmax,df)
+        psd_intp = interpolate.griddata( fvals_orig,data,f,fill_value=float("inf"))
 
     tmpepoch = lal.LIGOTimeGPS(float(psd.epoch))
     # FIXME: Reenable when we figure out generic error
