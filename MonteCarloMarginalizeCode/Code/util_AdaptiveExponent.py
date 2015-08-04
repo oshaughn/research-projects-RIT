@@ -30,14 +30,14 @@ if __file__ == sys.argv[0]:
 
     if opts.coinc:
         # Extract trigger SNRs
-        ci_table = table.get_table(utils.load_filename(opts.coinc), lsctables.CoincInspiralTable.tableName)
+        ci_table = table.get_table(utils.load_filename(opts.coinc,contenthandler =lalsimutils.cthdler), lsctables.CoincInspiralTable.tableName)
         rho2Net = ci_table[0].snr**2
 
     if opts.inj and opts.channel_name:
         # Make fake signal.  Use one instrument.
     
         # Read injection parameters
-        sim_inspiral_table = table.get_table(utils.load_filename(opts.inj), lsctables.SimInspiralTable.tableName)
+        sim_inspiral_table = table.get_table(utils.load_filename(opts.inj,contenthandler =lalsimutils.cthdler), lsctables.SimInspiralTable.tableName)
         Psig = lalsimutils.ChooseWaveformParams()
         Psig.copy_lsctables_sim_inspiral(sim_inspiral_table[opts.event_id])
     

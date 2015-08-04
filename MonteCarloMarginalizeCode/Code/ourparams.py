@@ -203,7 +203,7 @@ def PopulateTriggerSNRs(opts):
     rhoExpected ={}
     # Read in *coincidence* XML (overridden by injection, if present)
     if opts.coinc:
-        xmldoc = utils.load_filename(opts.coinc)
+        xmldoc = utils.load_filename(opts.coinc,contenthandler =lalsimutils.cthdler)
         coinc_table = table.get_table(xmldoc, lsctables.CoincInspiralTable.tableName)
         assert len(coinc_table) == 1
         coinc_row = coinc_table[0]

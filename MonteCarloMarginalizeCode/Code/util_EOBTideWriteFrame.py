@@ -82,7 +82,7 @@ else:
 
     filename = opts.inj
     event = opts.event_id
-    xmldoc = utils.load_filename(filename, verbose = True)
+    xmldoc = utils.load_filename(filename, verbose = True,contenthandler =lalsimutils.cthdler)
     sim_inspiral_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
     P.copy_sim_inspiral(sim_inspiral_table[int(event)])
 P.detector = opts.instrument

@@ -24,7 +24,7 @@ for fname in sys.argv[1:]:
             print row.mass1, row.mass2, row.snr, row.tau0, row.event_duration
     # otherwise xml: could have just used ligolw_print
     elif fExtension == "xml" or fExtension == "gz":
-        samples = table.get_table(utils.load_filename(fname), lsctables.SnglInspiralTable.tableName)
+        samples = table.get_table(utils.load_filename(fname), lsctables.SnglInspiralTable.tableName,contenthandler =lalsimutils.cthdler)
         for row in samples:  # print each individual row, don't reweight yet
             print row.mass1, row.mass2, row.snr, row.tau0, row.event_duration
 
