@@ -59,6 +59,8 @@ then
 fi
 
 
+
+
 INJ_CHANNEL_NAME=FAKE-STRAIN
 export DUR_EST=`${ED} --inj-xml ${INJ_XML} --event ${EVENT} | tail -n 1`
 export DUR=`python -c "import math; print 2**(2+int(math.log(${DUR_EST}*2)/math.log(2)))"`  # use a longer window
@@ -72,7 +74,8 @@ fi
 
 
 
-EVENT_TIME=`${PI} --inj mdc.xml.gz  --event 0 --verbose | grep coal | awk '{print $6}'`
+EVENT_TIME=`${PI} --inj ${INJ_XML}  --event ${EVENT} --verbose | grep coal` # | awk '{print $6}'`
+EVENT_TIME=${EVENT_TIME##* }   #  http://stackoverflow.com/questions/3162385/how-to-split-a-string-in-shell-and-get-the-last-field
 # Modified so the buffer has a power-of-2 length
 START=`python -c "print int(${EVENT_TIME}-${DUR})"`
 STOP=`python -c "print int(${EVENT_TIME}+${DUR})"`

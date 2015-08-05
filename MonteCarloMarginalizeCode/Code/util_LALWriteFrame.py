@@ -83,7 +83,7 @@ if opts.seglen/hoft.deltaT > hoft.data.length:
 
 # zero pad some more on either side, to make sure the segment covers start to stop
 if opts.start and hoft.epoch > opts.start:
-    nToAddBefore = int((hoft.epoch-opts.start)/hoft.deltaT)
+    nToAddBefore = int((float(hoft.epoch)-opts.start)/hoft.deltaT)
     print nToAddBefore, hoft.data.length
     ht = lal.CreateREAL8TimeSeries("Template h(t)", 
             hoft.epoch - nToAddBefore*hoft.deltaT, 0, hoft.deltaT, lalsimutils.lsu_DimensionlessUnit, 
