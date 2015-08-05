@@ -283,11 +283,16 @@ if not (opts.data_start_time == None) and  not (opts.data_end_time == None):
 # FIXME: Use estimate, instead of painful full waveform generation call here.
 else:
     approxTmp = P.approx
-    P.approx = lalsimutils.lalsim.TaylorT4  # should not impact length much.  IMPORTANT because EOB calls will fail at the default sampling rate
-    htmplt = lalsimutils.hoft(P)
-    P.approx = approxTmp
-    T_tmplt = - float(htmplt.epoch)    # ASSUMES time returned by hlm is a RELATIVE time that does not add tref. P.radec=False !
-    print fiducial_epoch, event_time, htmplt.epoch
+    if (m1+m2)<30:
+        P.approx = lalsimutils.lalsim.TaylorT4  # should not impact length much.  IMPORTANT because EOB calls will fail at the default sampling rate
+        htmplt = lalsimutils.hoft(P)   # Horribly wasteful waveform gneeration solely to estimate duration.
+        P.approx = approxTmp
+        T_tmplt = - float(htmplt.epoch)    # ASSUMES time returned by hlm is a RELATIVE time that does not add tref. P.radec=False !
+        print fiducial_epoch, event_time, htmplt.epoch
+    else:
+        print " Using estimate for waveform length in a high mass regime: beware!"
+        T_tmplt = lalsimutils.estimateWaveformDuration + 4
+#        T_tmplt = 16  # terrible hack, but need a better option for these high-mass systems
     T_seg = T_tmplt + T_spec + T_safety # Amount before and after event time
     if opts.use_external_EOB:
         T_seg *=2   # extra safety factor
