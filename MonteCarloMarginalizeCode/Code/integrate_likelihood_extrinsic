@@ -285,7 +285,7 @@ else:
     approxTmp = P.approx
     if (m1+m2)<30:
         P.approx = lalsimutils.lalsim.TaylorT4  # should not impact length much.  IMPORTANT because EOB calls will fail at the default sampling rate
-        htmplt = lalsimutils.hoft(P)   # Horribly wasteful waveform gneeration solely to estimate duration.
+        htmplt = lalsimutils.hoft(P)   # Horribly wasteful waveform gneeration solely to estimate duration.  Will also crash if spins are used.
         P.approx = approxTmp
         T_tmplt = - float(htmplt.epoch)    # ASSUMES time returned by hlm is a RELATIVE time that does not add tref. P.radec=False !
         print fiducial_epoch, event_time, htmplt.epoch
