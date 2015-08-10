@@ -712,6 +712,21 @@ else: # Sum over time for every point in other extrinsic params
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
 
+# Ascii output of core result (XML can be mangled by GLUE and is not lightweight)
+#   ONLY KEEPS MASSES
+#   FOR GENERIC GRIDS, key on the 'event_id', which uniquely identified which element of the sim_inspiral table was used
+#
+if opts.output_file:
+    fname_output_txt = opts.output_file  + ".dat"
+    if opts.sim_xml: 
+        event_id = opts.event
+    else:
+        event_id = 0
+    numpy.savetxt(fname_output_txt, numpy.array([[opts.event, opts.mass1, opts.mass2, numpy.log(res), numpy.sqrt(var)/res,sampler.ntotal, neff,  dict_return["convergence_test_results"]["normal_integral"]]]))
+
+# Standard XML output
+#   ONLY KEEPS MASSES
+#   NOT SAFE FOR GENERIC GRIDS
 if opts.output_file:
     xmldoc = ligolw.Document()
     xmldoc.appendChild(ligolw.LIGO_LW())
