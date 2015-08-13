@@ -721,8 +721,10 @@ if opts.output_file:
     if opts.sim_xml: 
         event_id = opts.event
     else:
-        event_id = 0
-    numpy.savetxt(fname_output_txt, numpy.array([[opts.event, opts.mass1, opts.mass2, numpy.log(res), numpy.sqrt(var)/res,sampler.ntotal, neff,  dict_return["convergence_test_results"]["normal_integral"]]]))
+        event_id = -1
+    if opts.event == None:
+        event_id = -1
+    numpy.savetxt(fname_output_txt, numpy.array([[event_id, opts.mass1, opts.mass2, numpy.log(res), numpy.sqrt(var)/res,sampler.ntotal, neff,  dict_return["convergence_test_results"]["normal_integral"]]]))
 
 # Standard XML output
 #   ONLY KEEPS MASSES
