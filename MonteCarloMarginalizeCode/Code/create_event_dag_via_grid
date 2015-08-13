@@ -100,7 +100,7 @@ optp.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering ex
 optp.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
 optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
 optp.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
-
+optp.add_option("--use-external-EOB",default=False,action='store_true')
 
 #
 # Add the pinnable parameters
@@ -159,6 +159,8 @@ for arg in ['right_ascension', 'declination']:
         print " --- WARNING: PINNING PARAMETER FOR DAG -- ", arg, " -> ", opts_raw[arg]
         args_pinned[arg] = opts_raw[arg]
 
+# Single-use arguments: if present, add to list 
+
 
 ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid_sub(
         tag='integrate',
@@ -191,6 +193,7 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid
         adapt_adapt=opts.adapt_adapt,
         skymap_file=opts.skymap_file,
         d_max=opts.d_max,
+        use_external_EOB=opts.use_external_EOB,
         **args_pinned
         )
 ile_job_type.write_sub_file()
