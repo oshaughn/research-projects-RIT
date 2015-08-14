@@ -120,7 +120,7 @@ def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log
                 ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
         elif param is True:
             ile_job.add_opt(opt.replace("_", "-"), None)
-        elif param is None:
+        elif param is None or param is False:
             continue
         else:
             ile_job.add_opt(opt.replace("_", "-"), str(param))

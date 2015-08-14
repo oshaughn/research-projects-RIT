@@ -63,7 +63,7 @@ fi
 
 INJ_CHANNEL_NAME=FAKE-STRAIN
 export DUR_EST=`${ED} --inj-xml ${INJ_XML} --event ${EVENT} | tail -n 1`
-export DUR=`python -c "import math; print 2**(2+int(math.log(${DUR_EST}*2)/math.log(2)))"`  # use a longer window
+export DUR=`python -c "import math; print 100+2**(2+int(math.log(${DUR_EST}*2)/math.log(2)))"`  # use a longer window
 echo " Estimated duration "   ${DUR_EST}
 echo " Target buffer length "  ${DUR}
 if [ "${DUR_EST}" == '' ]; 

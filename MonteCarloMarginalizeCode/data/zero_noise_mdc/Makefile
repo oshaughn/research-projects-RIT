@@ -71,7 +71,7 @@ test_ile_dag_grid: zero_noise.cache
 # Evaluate the likelihood by MC integral on *one* mass point specified by the command line.  Make a bunch of plots to followup
 test_ile_postprocessing: zero_noise.cache
 	rm -f zero_noise.pdf
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000  --n-eff 100  --d-max 500  # --adapt-adapt  --convergence-tests-on
+	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000  --n-eff 100  --d-max 500    # --adapt-adapt  --convergence-tests-on
 	echo " Number of samples stored in this test (<number of samples performed): " `ligolw_print -t sim_inspiral -c alpha1 zero_noise.xml.gz | wc -l `
 	../../Code/convert_output_format_ile2inference zero_noise.xml.gz > flatfile-points.dat
 	../../Code/postprocess_1d_cumulative --save-sampler-file flatfile --inj mdc.xml.gz 
@@ -134,6 +134,15 @@ ros_test_likelihood_eob_direct: bns_frames.cache
 
 ros_test_ile_eob: bns_frames.cache
 	../../Code/integrate_likelihood_extrinsic --fmin-template 40 --mass1 1.35 --mass2 1.35  --eff-lambda 500 --cache-file bns_frames.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME}  --reference-freq 0.0  --save-samples  --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 10000  --n-eff 100  --d-max 25 --use-external-EOB --convergence-tests-on   # --adapt-adapt  --convergence-tests-on
+
+
+bns_grid.xml.gz:
+	util_ManualOverlapGrid.py  --mass1 1.4 --mass2 1.4   --parameter 'eta' --parameter-range '[0.24,0.25]' --grid-cartesian-npts 3  --inj mdc-bns.xml.gz  --event 0
+	mv overlap-grid.xml.gz bns_grid.xml.gz
+
+ros_test_ile_eob_dag: bns_frames.cache bns_grid.xml.gz
+	create_event_dag_via_grid --sim-xml ${BASE_DIR}/bns_grid.xml.gz  --fmin-template 10  --cache-file bns_frames.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME}  --reference-freq 0.0  --save-samples  --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001 --n-chunk 10000  --n-eff 100  --d-max 25 --use-external-EOB --convergence-tests-on     --adapt-adapt 
+
 
 ros_test_ile_eob_aligo: bns_frames_lowf.cache
 	../../Code/integrate_likelihood_extrinsic --fmin-template 35 --mass1 1.35 --mass2 1.35  --eff-lambda 500 --cache-file bns_frames_lowf.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${ALIGO_PSD_FILE}" --psd-file "L1=${ALIGO_PSD_FILE}" --psd-file "V1=${ALIGO_PSD_FILE}" --event-time ${EVENT_TIME}  --reference-freq 0.0  --save-samples  --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 10000  --n-eff 100  --d-max 25 --use-external-EOB --convergence-tests-on   # --adapt-adapt  --convergence-tests-on
