@@ -222,10 +222,12 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
 # FIXME: Change to getattr call, instead of 'eval'
 eff_fisher_psd = lalsim.SimNoisePSDiLIGOSRD
 if not opts.psd_file:
-    eff_fisher_psd = eval(opts.fisher_psd)
+    #eff_fisher_psd = eval(opts.fisher_psd)
+    eff_fisher_psd = getattr(lalsim, opts.fisher_psd)   # --fisher-psd SimNoisePSDaLIGOZeroDetHighPower   now
     analyticPSD_Q=True
 else:
-    sys.exit(0)
+    eff_fisher_psd = lalsimutils.load_resample_and_clean_psd(opts.psd_file, 'H1', 1./opts.seglen)
+    analyticPSD_Q = False
 
 
 
