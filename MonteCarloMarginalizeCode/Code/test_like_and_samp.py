@@ -262,6 +262,13 @@ if opts.coinc:
         print " === Coinc table : estimated signal [overridden if injection] ==="
         Psig.print_params()
 
+# If no coinc file, set m1, m2 using command line arguments by default
+if not opts.coinc:
+    if opts.template_mass1:
+        m1 = opts.template_mass1*lal.MSUN_SI
+    if opts.template_mass2:
+        m2 = opts.template_mass2*lal.MSUN_SI
+
 # Read in *injection* XML
 if opts.inj:
     print "====Loading injection XML:", opts.inj, " ======="
@@ -657,6 +664,7 @@ if opts.opt_UseSkymap:
             print " No skymap for you "
 
 
+# Get masses: Note if no signal, these need to be defined
 
 # Struct to hold template parameters
 P = lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,
