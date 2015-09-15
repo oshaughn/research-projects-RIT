@@ -46,7 +46,7 @@ import sys
 import scipy.optimize
 from scipy import integrate
 
-tWindowReference = [-0.15, 0.15]
+tWindowReference = [-0.2, 0.2]  # need to be consistent with tWindowExplore from factored_likelihood.py
 
 TestDictionaryDefault = {}
 TestDictionaryDefault["DataReport"]             = True

@@ -45,7 +45,7 @@ except:
     print " factored_likelihood: no EOB "
 
 distMpcRef = 1000 # a fiducial distance for the template source.
-tWindowExplore = [-0.05, 0.05] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
+tWindowExplore = [-0.15, 0.15] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
 rosDebugMessages = True
 rosDebugMessagesDictionary = {}   # Mutable after import (passed by reference). Not clear if it can be used by caling routines
                                                   # BUT if every module has a `PopulateMessagesDictionary' module, I can set their internal copies
