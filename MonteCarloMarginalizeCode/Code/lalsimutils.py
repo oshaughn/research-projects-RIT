@@ -1899,6 +1899,7 @@ def hlmoft(P, Lmax=2, Fp=None, Fc=None):
         hlm_dict = {}
         hlm_dict[(2,2)] = h22T
         hlm_dict[(2,-2)] = h2m2T
+	hlms = hlm_dict
     else:
       hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
             P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
