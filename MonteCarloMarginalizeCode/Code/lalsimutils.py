@@ -1882,7 +1882,27 @@ def hlmoft(P, Lmax=2):
     and all values of m for these l.
     """
     assert Lmax >= 2
-    hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
+    # TEMPORARY HACK for aligned-spin SEOB
+    if P.approx==lalsim.SEOBNRv2:
+        Ptmp = P.manual_copy()
+        Ptmp.incl = 0
+        h22T = complex_hoft(Ptmp)
+        h22T.data.data *= 1./lal.SpinWeightedSphericalHarmonic(0.,0., -2,2,2)  # recsale
+        h2m2T = lal.CreateCOMPLEX16TimeSeries("h2m2(t)", h22T.epoch, 0, h22T.deltaT,lsu_DimensionlessUnit, h22T.data.length)
+        h2m2T.data.data = np.conj(h22T.data.data)
+
+        # Create the necessary data structure
+	# Serious problem for python access: python management of h22T
+#	hlms_type = lalsim.SphHarmTimeSeries() # Allocate pointer, hopefully this will work
+#        hlms = lalsim.SphHarmTimeSeriesAddMode(None, h22T,2,2)
+#        hlms = lalsim.SphHarmTimeSeriesAddMode(hlms, h2m2T,2,-2)
+        # Better solution in the long run: convert early. Requires tweaked code path later
+        hlm_dict = {}
+        hlm_dict[(2,2)] = h22T
+        hlm_dict[(2,-2)] = h2m2T
+	hlms = hlm_dict
+    else:
+      hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
             P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
             P.nonGRparams, P.ampO, P.phaseO, Lmax, P.approx)
     # FIXME: Add ability to taper
