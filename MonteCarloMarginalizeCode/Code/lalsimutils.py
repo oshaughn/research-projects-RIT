@@ -1871,7 +1871,8 @@ def non_herm_hoff(P):
 
 
 
-def hlmoft(P, Lmax=2, Fp=None, Fc=None):
+
+def hlmoft(P, Lmax=2):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -1896,6 +1897,41 @@ def hlmoft(P, Lmax=2, Fp=None, Fc=None):
 
 
     return hlms
+
+def hlmoft_SEOB_dict(P,Lmax=2):
+    """
+    Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
+    with parameters P. Returns a dictionary of modes.
+    Just for SEOBNRv2HM and SEOBNRv1HM.  Uses aligned-spin trick to get (2,2) and (2,-2) modes.
+    A hack.
+    Works for any aligned-spin time-domain waveform with only (2,\pm 2) modes though.
+    """
+
+    if not (P.approx == lalsim.SEOBNRv2 or P.approx=lalsim.SEOBNRv1):
+        return None
+
+    TDlen=0
+    if P.deltaF is not None:
+        TDlen = int(1./P.deltaF * 1./P.deltaT)
+
+    # Remember, we have a fiducial orientation for the h22
+    P2 = P.manual_copy()
+    P2.phiref=0.
+    P2.psi=0.
+    hC = complex_hoft(P2,TDlen=TDlen)  # pad as needed
+    hC.data.data *=1./lal.SpinWeightedSphericalHarmonic(0.,0., -2,2,2)
+
+    # Copy...but I don't trust lalsuite copy
+    hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0, 
+            hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
+    hC2.data.data =np.conj(hC.data.data)
+
+    hlm_dict={}
+    hlm_dict[(2,2)] = hC
+    hlm_dict[(2,-2)] = hC2
+
+    return hlm_dict
+
 
 def hlmoff(P, Lmax=2, Fp=None, Fc=None):
     """
