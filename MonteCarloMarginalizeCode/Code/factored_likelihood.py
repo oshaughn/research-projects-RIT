@@ -94,7 +94,22 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     detectors = data_dict.keys()
     # Zero-pad to same length as data - NB: Assuming all FD data same resolution
     P.deltaF = data_dict[detectors[0]].deltaF
-    if (not (NR_group) or not (NR_param)) and  (not use_external_EOB):
+    if P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1:
+        print "  FACTORED LIKELIHOOD WITH SEOB "    
+        hlmsT = lsu.hlmoft_SEOB_dict(P)  # only 2,2 modes -- Lmax irrelevant
+        print "  hlm generation complete "    
+        if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
+                TDlen = nextPow2(h22.data.length)
+                print " Resizing to ", TDlen, " from ", hlmsT[(2,2)].data.length
+                h22 = hlmsT[(2,2)]
+                h2m2 = hlmsT[(2,-2)]
+                hlmsT[(2,2)] = lalsim.ResizeCOMPLEX16TimeSeries(h22, 0, TDlen)
+                hlmsT[(2,-2)] = lalsim.ResizeCOMPLEX16TimeSeries(h2m2, 0, TDlen)
+        hlms = {}
+        for mode in hlmsT:
+                print " FFT for mode ", mode
+                hlms[mode] = lsu.DataFourier(hlmsT[mode])
+    elif (not (NR_group) or not (NR_param)) and  (not use_external_EOB):
         hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
         hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
 

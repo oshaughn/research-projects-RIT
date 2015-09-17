@@ -1882,27 +1882,7 @@ def hlmoft(P, Lmax=2):
     and all values of m for these l.
     """
     assert Lmax >= 2
-    # TEMPORARY HACK for aligned-spin SEOB
-    if P.approx==lalsim.SEOBNRv2:
-        Ptmp = P.manual_copy()
-        Ptmp.incl = 0
-        h22T = complex_hoft(Ptmp)
-        h22T.data.data *= 1./lal.SpinWeightedSphericalHarmonic(0.,0., -2,2,2)  # recsale
-        h2m2T = lal.CreateCOMPLEX16TimeSeries("h2m2(t)", h22T.epoch, 0, h22T.deltaT,lsu_DimensionlessUnit, h22T.data.length)
-        h2m2T.data.data = np.conj(h22T.data.data)
-
-        # Create the necessary data structure
-	# Serious problem for python access: python management of h22T
-#	hlms_type = lalsim.SphHarmTimeSeries() # Allocate pointer, hopefully this will work
-#        hlms = lalsim.SphHarmTimeSeriesAddMode(None, h22T,2,2)
-#        hlms = lalsim.SphHarmTimeSeriesAddMode(hlms, h2m2T,2,-2)
-        # Better solution in the long run: convert early. Requires tweaked code path later
-        hlm_dict = {}
-        hlm_dict[(2,2)] = h22T
-        hlm_dict[(2,-2)] = h2m2T
-	hlms = hlm_dict
-    else:
-      hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
+    hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
             P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
             P.nonGRparams, P.ampO, P.phaseO, Lmax, P.approx)
     # FIXME: Add ability to taper
@@ -1927,18 +1907,17 @@ def hlmoft_SEOB_dict(P,Lmax=2):
     Works for any aligned-spin time-domain waveform with only (2,\pm 2) modes though.
     """
 
-    if not (P.approx == lalsim.SEOBNRv2 or P.approx=lalsim.SEOBNRv1):
+    if not (P.approx == lalsim.SEOBNRv2 or P.approx==lalsim.SEOBNRv1):
         return None
 
-    TDlen=0
-    if P.deltaF is not None:
-        TDlen = int(1./P.deltaF * 1./P.deltaT)
-
-    # Remember, we have a fiducial orientation for the h22
-    P2 = P.manual_copy()
-    P2.phiref=0.
-    P2.psi=0.
-    hC = complex_hoft(P2,TDlen=TDlen)  # pad as needed
+    # Remember, we have a fiducial orientation for the h22. 
+    # WARNING THIS MAY BE DESTRUCTIVE
+#    P2 = P.manual_copy()
+    P.phiref=0.
+    P.psi=0.
+    hC = complex_hoft(P)  # pad as needed
+    hC.epoch = hC.epoch - P.tref  # need to CORRECT the event time: hoft adds an epoch
+    print " SEOB hlm trick: epoch of hC ", hC.epoch
     hC.data.data *=1./lal.SpinWeightedSphericalHarmonic(0.,0., -2,2,2)
 
     # Copy...but I don't trust lalsuite copy
@@ -1953,7 +1932,7 @@ def hlmoft_SEOB_dict(P,Lmax=2):
     return hlm_dict
 
 
-def hlmoff(P, Lmax=2, Fp=None, Fc=None):
+def hlmoff(P, Lmax=2):
     """
     Generate the FD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -1963,7 +1942,7 @@ def hlmoff(P, Lmax=2, Fp=None, Fc=None):
     and all values of m for these l.
     """
 
-    hlms = hlmoft(P, Lmax, Fp, Fc)
+    hlms = hlmoft(P, Lmax)
     hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
     if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
         TDlen = nextPow2(hxx.data.length)
