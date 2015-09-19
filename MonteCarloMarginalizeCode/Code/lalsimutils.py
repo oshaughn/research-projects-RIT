@@ -706,6 +706,8 @@ class ChooseWaveformParams:
         else:
             self.phaseO = 01
         self.approx = lalsim.GetApproximantFromString(str(row.waveform))
+        if rosDebugMessagesContainer[0]:
+            print " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform
         self.theta = row.latitude # Declination
         self.phi = row.longitude # Right ascension
         self.radec = True # Flag to interpret (theta,phi) as (DEC,RA)
@@ -745,10 +747,12 @@ class ChooseWaveformParams:
         row.inclination = self.incl
         row.polarization = self.psi
         row.coa_phase = self.phi
-        row.geocent_end_time = np.floor(self.tref)
+        # http://stackoverflow.com/questions/6032781/pythonnumpy-why-does-numpy-log-throw-an-attribute-error-if-its-operand-is-too
+        row.geocent_end_time = np.floor( float(self.tref))
         row.geocent_end_time_ns = np.floor(1e9*(self.tref - row.geocent_end_time))
         row.distance = self.dist/(1e6*lsu_PC)
         row.amp_order = self.ampO
+        # PROBLEM: This line is NOT ROBUST, because of type conversions
         row.waveform = lalsim.GetStringFromApproximant(self.approx)+lsu_StringFromPNOrder(self.phaseO)
         row.taper = "TAPER_NONE"
         row.f_lower =self.fmin
@@ -847,10 +851,11 @@ def xml_to_ChooseWaveformParams_array(fname, minrow=None, maxrow=None,
         rng = range(minrow,maxrow)
         # Create a ChooseWaveformParams for each requested row
         Ps = [ChooseWaveformParams(deltaT=deltaT, fref=fref, lambda1=lambda1,
-            lambda2=lambda2, waveFlags=waveFlags, nonGRparams=nonGRparams,
+            lambda2=lambda2, waveFlags=waveFlags, nonGRparams=nonGRparams,                                   
             detector=detector, deltaF=deltaF, fmax=fmax) for i in rng]
         # Copy the information from requested rows to the ChooseWaveformParams
         [Ps[i-minrow].copy_lsctables_sim_inspiral(sim_insp[i]) for i in rng]
+        # set the approximants correctly -- this is NOT straightforward because of conversions
     except ValueError:
         print >>sys.stderr, "No SimInspiral table found in xml file"
     return Ps
@@ -876,6 +881,10 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
         row.simulation_id = ilwd.ilwdchar("sim_inspiral:simulation_id:{0}".format(indx))
         indx+=1
         sim_table.append(row)
+    if rosDebugMessagesContainer[0]:
+            print " Preparing to write the followingXML "
+            sim_table.write()
+
     utils.write_filename(xmldoc, fname+".xml.gz", gz=True)
 
     return True
