@@ -68,6 +68,7 @@ parser = argparse.ArgumentParser()
 # Parameters
 parser.add_argument("--parameter", action='append')
 parser.add_argument("--parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used")
+parser.add_argument("--parameter-value-list", action='append', type=str,help="Add an explicit list of parameter choices to use. ONLY those values will be used. Intended for NR simulations (e.g., q, a1, a2)")
 # Use external EOB for source or template?
 parser.add_argument("--use-external-EOB-source",action="store_true",help="One external EOB call is performed to generate the reference signal")
 parser.add_argument("--use-external-EOB",action="store_true",help="External EOB calls are performed for each template")
@@ -100,6 +101,7 @@ parser.add_argument("--event",type=int, dest="event_id", default=None,help="even
 parser.add_argument("--fmin", default=35,type=float,help="Mininmum frequency in Hz, default is 40Hz to make short enough waveforms. Focus will be iLIGO to keep comutations short")
 parser.add_argument("--mass1", default=1.50,type=float,help="Mass in solar masses")  # 150 turns out to be ok for Healy et al sims
 parser.add_argument("--mass2", default=1.35,type=float,help="Mass in solar masses")
+parser.add_argument("--s1z", default=0.,type=float,help="Spin1z")
 #parser.add_argument("--lambda1",default=590,type=float)
 #parser.add_argument("--lambda2", default=590,type=float)
 parser.add_argument("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given")
@@ -242,6 +244,7 @@ if opts.inj:
 else:    
     P.m1 = opts.mass1 *lal.MSUN_SI
     P.m2 = opts.mass2 *lal.MSUN_SI
+    P.s1z = opts.s1z
     P.dist = 150*1e6*lal.PC_SI
     if opts.eff_lambda and Psig:
         lambda1, lambda2 = 0, 0
