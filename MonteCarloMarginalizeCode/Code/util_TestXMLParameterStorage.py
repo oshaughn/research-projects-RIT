@@ -12,10 +12,11 @@ parser.add_argument("--output-file", default="output")
 opts = parser.parse_args()
 
 P_list_in =[]
-for i in np.arange(2):
+for i in np.arange(5):
     P_list_in.append( lalsimutils.ChooseWaveformParams(m1=lal.MSUN_SI*(i+1)))
     P_list_in[-1].lambda1 = 3*i+1
     P_list_in[-1].lambda2 = 3*i+2
+    P_list_in[-1].approx = 3*i+2
     P_list_in[-1].print_params()
 
 lalsimutils.ChooseWaveformParams_array_to_xml(P_list_in, fname=opts.output_file)
