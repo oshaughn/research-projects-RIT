@@ -99,6 +99,7 @@ parser.add_argument("--external-grid-txt", default=None, help="Cartesian grid. M
 parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing the base point.")
 parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
 parser.add_argument("--fmin", default=35,type=float,help="Mininmum frequency in Hz, default is 40Hz to make short enough waveforms. Focus will be iLIGO to keep comutations short")
+parser.add_argument("--fmax",default=2000,type=float,help="Maximum frequency in Hz, used for PSD integral.")
 parser.add_argument("--mass1", default=1.50,type=float,help="Mass in solar masses")  # 150 turns out to be ok for Healy et al sims
 parser.add_argument("--mass2", default=1.35,type=float,help="Mass in solar masses")
 parser.add_argument("--s1z", default=0.,type=float,help="Spin1z")
@@ -189,7 +190,9 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
         # Set attributes that are being changed as necessary, leaving all others fixed
         for indx in np.arange(len(param_names)):
             Pgrid.assign_param(param_names[indx], line[indx])
-        P_list.append(Pgrid)
+
+        if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
+            P_list.append(Pgrid)
 #    print "Length check", len(P_list), len(grid)
     ###
     ### Loop over grid and make overlaps : see effective fisher code for wrappers
@@ -228,8 +231,13 @@ if not opts.psd_file:
     eff_fisher_psd = getattr(lalsim, opts.fisher_psd)   # --fisher-psd SimNoisePSDaLIGOZeroDetHighPower   now
     analyticPSD_Q=True
 else:
+    print " Importing PSD file ", opts.psd_file
     eff_fisher_psd = lalsimutils.load_resample_and_clean_psd(opts.psd_file, 'H1', 1./opts.seglen)
     analyticPSD_Q = False
+
+#    from matplotlib import pyplot as plt
+#    plt.plot(eff_fisher_psd.f0+np.arange(eff_fisher_psd.data.length)*eff_fisher_psd.deltaF,np.log10(eff_fisher_psd.data.data))
+#    plt.show()
 
 
 
@@ -326,7 +334,7 @@ else:
     print "    -------INTERFACE ------"
     print "    Using lalsuite   ", hasEOB, opts.use_external_EOB_source
     hfBase = lalsimutils.complex_hoff(P)
-IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd)
+IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=2000)
 nmBase = IP.norm(hfBase)
 hfBase.data.data *= 1./nmBase
 if opts.verbose:
