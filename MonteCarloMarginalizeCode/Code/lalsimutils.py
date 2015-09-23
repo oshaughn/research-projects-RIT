@@ -332,6 +332,10 @@ class ChooseWaveformParams:
             - system frame parameters
         VERY HELPFUL if you want to change just one parameter at a time (e.g., for Fisher )
         """
+        if p == 'mtot':
+            return (self.m2+self.m1)
+        if p == 'q':
+            return self.m2/self.m1
         if p == 'mc':
             return mchirp(self.m1,self.m2)
         if p == 'eta':
