@@ -279,34 +279,6 @@ if len(grid_out)==0:
     print " No points survive...."
 
 ###
-### (Fisher matrix-based grids): 
-###     - Use seed cartesian grid to compute the effective fisher matrix
-###     - Loop *again* to evaluate overlap on that grid
-###
-if opts.linear_spoked or opts.uniform_spoked:
-    print " Effective fisher report. GRID NOT YET IMPLEMENTED "
-    if len(param_names)==2:
-        fitgamma = eff.effectiveFisher(eff.residuals2d, grid_out[:,-1], *grid_out[:,0:len(param_names)-1])
-        gam = eff.array_to_symmetric_matrix(fitgamma)
-        evals, evecs, rot = eff.eigensystem(gam)
-        # Print information about the effective Fisher matrix
-        # and its eigensystem
-        print "Least squares fit finds ", fitgamma
-        print "\nFisher matrix:"
-        print "eigenvalues:", evals
-        print "eigenvectors:"
-        print evecs
-        print "rotation "
-        print rot
-
-    else:
-        print " Higher-dimensional grids not yet implemented "
-        sys.exit(0)
-    print "Fisher grid not yet implemented"
-    sys.exit(0)
-                             
-
-###
 ### Write output to text file:  p1 p2 p3 ... overlap, only including named params
 ###
 headline = ' '.join(param_names + ['ip'])
