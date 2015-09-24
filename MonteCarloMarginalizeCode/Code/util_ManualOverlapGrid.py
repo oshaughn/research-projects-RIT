@@ -193,6 +193,9 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
 
         if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
             P_list.append(Pgrid)
+        else:
+            Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
+            P_list.append(Pgrid)
 #    print "Length check", len(P_list), len(grid)
     ###
     ### Loop over grid and make overlaps : see effective fisher code for wrappers
@@ -409,7 +412,16 @@ ip_min_freq = opts.fmin
 grid_tuples = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
 # Strip unphysical parameters
 print "  NEED TO IMPLEMENT: Stripping of unphysical parameters "
-grid = eff.multi_dim_grid(*grid_tuples)  # eacy line in 'grid' is a set of parameter values
+grid = eff.multi_dim_grid(*grid_tuples)  # each line in 'grid' is a set of parameter values
+
+# Special check: m2<m1 : if both names appear, strip parameters from the grid
+if ('m1' in param_names) and ('m2' in param_names):
+    print " Grid uses m1, m2. Eliminating points with m1<m2"
+    indx1 = param_names.index('m1')
+    indx2 = param_names.index('m2')
+    indxOk = grid[:,indx1] >= grid[:,indx2]
+    grid = grid[indxOk] # Boolean indexing
+    print " Revised grid size : ", len(grid)
 
 # If external grid provided, erase this grid and set of names, and replace it with the new one.
 if opts.external_grid_txt:

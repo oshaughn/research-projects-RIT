@@ -195,6 +195,18 @@ class ChooseWaveformParams:
             P.waveFlags = waveFlagsNew
         return P
 
+    def swap_components(self):
+        s1x,s1y,s1z = self.s1x,self.s1y,self.s1z
+        s2x,s2y,s2z = self.s2x,self.s2y,self.s2z
+        m1 =self.m1
+        m2 = self.m2
+        self.s1x,self.s1y,self.s1z  = s2x,s2y,s2z 
+        self.s2x,self.s2y,self.s2z  = s1x,s1y,s1z
+        self.m1 = m2
+        self.m2  = m1
+
+        
+
     def assign_param(self,p,val):
         """
         assign_param
