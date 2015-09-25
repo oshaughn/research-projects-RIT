@@ -35,6 +35,7 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 try:
 	import NRWaveformCatalogManager as nrwf
 	useNR =True
+        print " factored_likelihood.py : NRWaveformCatalogManager available "
 except:
 	useNR=False
 try:
@@ -61,7 +62,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-5,
-       use_external_EOB=False):
+       use_external_EOB=False,nr_lookup=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -109,9 +110,37 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         for mode in hlmsT:
                 print " FFT for mode ", mode
                 hlms[mode] = lsu.DataFourier(hlmsT[mode])
-    elif (not (NR_group) or not (NR_param)) and  (not use_external_EOB):
+    elif (not (NR_group) or not (NR_param)) and  (not use_external_EOB) and (not nr_lookup):
         hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
         hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
+
+    elif nr_lookup and useNR:
+	    # look up simulation
+	    # use nrwf to get hlmf
+        print " Using NR waveform "
+        compare_dict = {}
+        compare_dict['q'] = P.m2/P.m1
+        compare_dict['s1z'] = P.s1z
+        compare_dict['s2z'] = P.s2z
+	good_sim_list = nrwf.NRSimulationLookup(compare_dict)
+        print " Identified set of matching NR simulations ", good_sim_list
+        good_sim  = good_sim_list[0] # pick the first one.  Note we will want to reduce /downselect the lookup process
+	group = good_sim[0]
+	param = good_sim[1]
+        print " Identified matching NR simulation ", group, param
+	mtot = P.m1 + P.m2
+        q = P.m2/P.m1
+        # Load the catalog
+        wfP = nrwf.WaveformModeCatalog(group, param, \
+                                           clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, 
+                                       lmax=Lmax,align_at_peak_l2_m2_emission=True)
+        # Overwrite the parameters in wfP to set the desired scale
+
+        wfP.P.m1 *= mtot/(1+q)
+        wfP.P.m2 *= mtot*q/(1+q)
+        wfP.P.dist =100*1e6*lal.PC_SI  # fiducial distance.
+
+        hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window.  Check the time!
 
     elif hasEOB and use_external_EOB:
             print "    Using external EOB interface (Bernuzzi)    "
@@ -134,7 +163,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             if rosDebugMessagesDictionary["DebugMessagesLong"]:
                     hlmT_ref = lsu.DataInverseFourier(hlms[(2,2)])
                     print  " External EOB: Time offset of largest sample (should be zero) ", hlms[(2,2)].epoch + np.argmax(np.abs(hlmT_ref.data.data))*P.deltaT
-    elif hasNR: # NR signal required
+    elif useNR: # NR signal required
         mtot = P.m1 + P.m2
         # Load the catalog
         wfP = nrwf.WaveformModeCatalog(NR_group, NR_param, \
@@ -219,6 +248,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         rholms_intp[det] =  InterpolateRholms(rholms[det], t)
 
     return rholms_intp, crossTerms, rholms
+
 
 def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
     """
