@@ -337,7 +337,7 @@ else:
     print "    -------INTERFACE ------"
     print "    Using lalsuite   ", hasEOB, opts.use_external_EOB_source
     hfBase = lalsimutils.complex_hoff(P)
-IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=2000)
+IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=opts.fmax)
 nmBase = IP.norm(hfBase)
 hfBase.data.data *= 1./nmBase
 if opts.verbose:

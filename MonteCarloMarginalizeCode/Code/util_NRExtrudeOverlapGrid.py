@@ -68,6 +68,7 @@ parser.add_argument("--external-grid-txt", default=None, help="Cartesian grid. M
 parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing the base point.")
 parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
 parser.add_argument("--fmin", default=10,type=float,help="Mininmum frequency in Hz, default is 40Hz to make short enough waveforms. Focus will be iLIGO to keep comutations short")
+parser.add_argument("--fmax",default=2000,type=float,help="Maximum frequency in Hz, used for PSD integral.")
 parser.add_argument("--mass1", default=35,type=float,help="Mass in solar masses")  # 150 turns out to be ok for Healy et al sims
 parser.add_argument("--mass2", default=35,type=float,help="Mass in solar masses")
 parser.add_argument("--s1z", default=0.1,type=float,help="Spin1z")
@@ -209,7 +210,7 @@ P.print_params()
 
 print "    -------INTERFACE ------"
 hfBase = lalsimutils.complex_hoff(P)
-IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd)
+IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=opts.fmax)
 nmBase = IP.norm(hfBase)
 hfBase.data.data *= 1./nmBase
 if opts.verbose:
@@ -239,7 +240,7 @@ for group in glist:
         if wfP.P.SoftAlignedQ() and wfP.P.extract_param('eta') >= eta_range[0] and wfP.P.extract_param('eta')<=eta_range[1]:
             print " Adding aligned sim ", group, param
             wfP.P.approx = lalsim.GetApproximantFromString(opts.approx)  # Make approx consistent and sane
-            wfP.P.m2 *= 0.999  # Prevent failure for exactly equal!
+            wfP.P.m2 *= 0.999999  # Prevent failure for exactly equal!
             # Satisfy error checking condition for lal
             wfP.P.s1x = 0
             wfP.P.s2x = 0
