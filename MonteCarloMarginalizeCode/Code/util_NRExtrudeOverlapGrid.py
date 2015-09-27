@@ -51,10 +51,12 @@ parser = argparse.ArgumentParser()
 # Parameters
 parser.add_argument("--mtot-range",default='[50,110]')
 parser.add_argument("--grid-cartesian-npts",default=30)
+parser.add_argument("--group",default=None)
+parser.add_argument("--eta-range",default='[0.1,0.25]')
 # Cutoff options
 parser.add_argument("--match-value", type=float, default=0.01, help="Use this as the minimum match value. Default is 0.01 (i.e., keep almost everything)")
 # Overlap options
-parser.add_argument("--fisher-psd",type=str,default="SimNoisePSDiLIGOSRD",help="psd name ('eval'). lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, .SimNoisePSDiLIGOSRD... ")
+parser.add_argument("--fisher-psd",type=str,default="SimNoisePSDaLIGOZeroDetHighPower",help="psd name ('eval'). lalsim., lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, .SimNoisePSDiLIGOSRD... ")
 parser.add_argument("--psd-file",  help="File name for PSD (assumed hanford). Overrides --fisher-psd if provided")
 parser.add_argument("--srate",type=int,default=16384,help="Sampling rate")
 parser.add_argument("--seglen", type=float,default=64., help="Default window size for processing. Short for NR waveforms")
@@ -218,15 +220,24 @@ if opts.verbose:
 ### Load in the NR simulation array metadata
 ###
 P_list_NR = []
-for group in nrwf.internal_ParametersAvailable.keys():
+
+glist = []
+if opts.group:
+    glist = [opts.group]
+else:
+    glist = nrwf.internal_ParametersAvailable.keys()
+
+eta_range = eval(opts.eta_range)
+
+for group in glist:
     for param in nrwf.internal_ParametersAvailable[group]:
         wfP = nrwf.WaveformModeCatalog(group,param,metadata_only=True)
         wfP.P.deltaT = P.deltaT
         wfP.P.deltaF = P.deltaF
         wfP.P.fmin = P.fmin
 #        wfP.P.print_params()
-        if wfP.P.SoftAlignedQ():
-#            print " Adding aligned sim ", group, param
+        if wfP.P.SoftAlignedQ() and wfP.P.extract_param('eta') >= eta_range[0] and wfP.P.extract_param('eta')<=eta_range[1]:
+            print " Adding aligned sim ", group, param
             wfP.P.approx = lalsim.GetApproximantFromString(opts.approx)  # Make approx consistent and sane
             wfP.P.m2 *= 0.999  # Prevent failure for exactly equal!
             # Satisfy error checking condition for lal
