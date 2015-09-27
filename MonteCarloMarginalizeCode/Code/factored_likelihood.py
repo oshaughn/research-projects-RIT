@@ -135,9 +135,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                                            clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, 
                                        lmax=Lmax,align_at_peak_l2_m2_emission=True)
         # Overwrite the parameters in wfP to set the desired scale
-
-        wfP.P.m1 *= mtot/(1+q)
-        wfP.P.m2 *= mtot*q/(1+q)
+        wfP.P.m1 = mtot/(1+q)
+        wfP.P.m2 = mtot*q/(1+q)
         wfP.P.dist =100*1e6*lal.PC_SI  # fiducial distance.
 
         hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window.  Check the time!
