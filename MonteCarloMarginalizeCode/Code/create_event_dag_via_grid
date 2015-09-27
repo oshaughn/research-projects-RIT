@@ -101,7 +101,8 @@ optp.add_option("--adapt-log",action='store_true',help="Use a logarithmic temper
 optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
 optp.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 optp.add_option("--use-external-EOB",default=False,action='store_true')
-
+optp.add_option("--nr-lookup",default=False,action='store_true')
+optp.add_option("--nr-lookup-group",action='append')
 #
 # Add the pinnable parameters
 #
@@ -194,6 +195,8 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid
         skymap_file=opts.skymap_file,
         d_max=opts.d_max,
         use_external_EOB=opts.use_external_EOB,
+        nr_lookup=opts.nr_lookup,
+        nr_lookup_group=opts.nr_lookup_group,
         **args_pinned
         )
 ile_job_type.write_sub_file()
