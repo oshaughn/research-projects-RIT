@@ -61,8 +61,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         psd_dict, Lmax, fMax, analyticPSD_Q=False,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,
          NR_group=None,NR_param=None,
-        ignore_threshold=1e-5,
-       use_external_EOB=False,nr_lookup=False):
+        ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -95,7 +95,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     detectors = data_dict.keys()
     # Zero-pad to same length as data - NB: Assuming all FD data same resolution
     P.deltaF = data_dict[detectors[0]].deltaF
-    if P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1:
+    if (not nr_lookup) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1):
         print "  FACTORED LIKELIHOOD WITH SEOB "    
         hlmsT = lsu.hlmoft_SEOB_dict(P)  # only 2,2 modes -- Lmax irrelevant
         print "  hlm generation complete "    
@@ -117,12 +117,17 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     elif nr_lookup and useNR:
 	    # look up simulation
 	    # use nrwf to get hlmf
-        print " Using NR waveform "
+        print " Using NR waveforms "
         compare_dict = {}
-        compare_dict['q'] = P.m2/P.m1
+        compare_dict['q'] = P.m2/P.m1 # Need to match the template parameter. NOTE: VERY IMPORTANT that P is updated with the event params
         compare_dict['s1z'] = P.s1z
         compare_dict['s2z'] = P.s2z
-	good_sim_list = nrwf.NRSimulationLookup(compare_dict)
+        print " Parameter matching condition ", compare_dict
+	good_sim_list = nrwf.NRSimulationLookup(compare_dict,valid_groups=nr_lookup_valid_groups)
+        if len(good_sim_list)< 1:
+                print " ------- NO MATCHING SIMULATIONS FOUND ----- "
+                import sys
+                sys.exit(0)
         print " Identified set of matching NR simulations ", good_sim_list
         good_sim  = good_sim_list[0] # pick the first one.  Note we will want to reduce /downselect the lookup process
 	group = good_sim[0]
@@ -139,7 +144,14 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         wfP.P.m2 = mtot*q/(1+q)
         wfP.P.dist =100*1e6*lal.PC_SI  # fiducial distance.
 
-        hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window.  Check the time!
+        hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window.  Check the time
+
+        # Remove memory modes (ALIGNED ONLY: Dangerous for precessing spins)
+        if no_memory and wfP.P.SoftAlignedQ():
+                for key in hlms.keys():
+                        if key[1]==0:
+                                hlms[key].data.data *=0.
+
 
     elif hasEOB and use_external_EOB:
             print "    Using external EOB interface (Bernuzzi)    "
@@ -177,6 +189,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window
     else:
             print " No waveform available "
+            import sys
             sys.exit(0)
 
     if not(ignore_threshold is None):
@@ -184,6 +197,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                                                         P.fmin, fMax,
                                                         1./2./P.deltaT, P.deltaF, analyticPSD_Q, inv_spec_trunc_Q, T_spec)
             theWorthwhileModes =  IdentifyEffectiveModesForDetector(crossTermsFiducial, ignore_threshold, detectors)
+            # Make sure worthwhile modes satisfy reflection symmetry! Do not truncate egregiously!
+            theWorthwhileModes  = theWorthwhileModes.union(  set([(p,-q) for (p,q) in theWorthwhileModes]))
             print "  Worthwhile modes : ", theWorthwhileModes
             hlmsNew = {}
             for pair in theWorthwhileModes:
