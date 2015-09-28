@@ -466,16 +466,20 @@ if opts.linear_spoked or opts.uniform_spoked:
     sys.exit(0)
                              
 
-###
-### Write output to text file:  p1 p2 p3 ... overlap, only including named params
-###
-headline = ' '.join(param_names + ['ip'])
-np.savetxt(opts.fname+".dat", grid_out, header=headline)
 
 ###
 ### Optional: Write grid to XML file (ONLY if using cutoff option)
 ###
 lalsimutils.ChooseWaveformParams_array_to_xml(P_list, fname=opts.fname, fref=P.fref)
+
+###
+### Write output to text file:  p1 p2 p3 ... overlap, only including named params
+###
+headline = ' '.join(param_names + ['ip'])
+if int(np.version.short_version.split('.')[1])>=7:  # http://docs.scipy.org/doc/numpy/reference/generated/numpy.savetxt.html
+    np.savetxt(opts.fname+".dat", grid_out, header=headline)
+else:
+    np.savetxt(opts.fname+".dat", grid_out)   # 
 
 
 ###
