@@ -72,7 +72,7 @@ parser.add_argument("--star-P",default=0.01,type=float,help="For density plots, 
 parser.add_argument("--star-pratio",default=0.3,type=float,help="For density plots, star conditions when p/ps > pratio.  Useful for identifying overweighted points (e.g. unusually low ps)")
 parser.add_argument("--disable-triplot", default=False,action="store_true")
 parser.add_argument("--disable-1d-density", default=False,action="store_true")
-parser.add_argument("--disable-skymap", default=False,action="store_true")
+parser.add_argument("--disable-skymap", default=True,action="store_true") # bugs with skyymapsa
 opts = parser.parse_args()
 
 values ={}
