@@ -1981,8 +1981,8 @@ def hlmoff(P, Lmax=2):
 
     return Hlms
 
-def conj_hlmoff(P, Lmax=2, Fp=None, Fc=None):
-    hlms = hlmoft(P, Lmax, Fp, Fc)
+def conj_hlmoff(P, Lmax=2):
+    hlms = hlmoft(P, Lmax)
     hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
     if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
         TDlen = nextPow2(hxx.data.length)
