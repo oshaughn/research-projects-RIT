@@ -193,7 +193,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             sys.exit(0)
 
     if not(ignore_threshold is None):
-            crossTermsFiducial = ComputeModeCrossTermIP(hlms, psd_dict[detectors[0]], 
+            crossTermsFiducial = ComputeModeCrossTermIP(hlms,hlms, psd_dict[detectors[0]], 
                                                         P.fmin, fMax,
                                                         1./2./P.deltaT, P.deltaF, analyticPSD_Q, inv_spec_trunc_Q, T_spec)
             theWorthwhileModes =  IdentifyEffectiveModesForDetector(crossTermsFiducial, ignore_threshold, detectors)
@@ -230,7 +230,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # Number of samples in the window [t_ref - t_window, t_ref + t_window]
         N_window = int( 2 * t_window / P.deltaT )
         # Compute cross terms < h_lm | h_l'm' >
-        crossTerms[det] = ComputeModeCrossTermIP(hlms, psd_dict[det], P.fmin,
+        crossTerms[det] = ComputeModeCrossTermIP(hlms, hlms, psd_dict[det], P.fmin,
                 fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
                 inv_spec_trunc_Q, T_spec)
         # Compute rholm(t) = < h_lm(t) | d >
@@ -662,7 +662,7 @@ def InterpolateRholms(rholms, t):
 
     return rholm_intp
 
-def ComputeModeCrossTermIP(hlms, psd, fmin, fMax, fNyq, deltaF,
+def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF,
         analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0., verbose=True):
     """
     Compute the 'cross terms' between waveform modes, i.e.
@@ -679,11 +679,11 @@ def ComputeModeCrossTermIP(hlms, psd, fmin, fMax, fNyq, deltaF,
 
     crossTerms = {}
 
-    for mode1 in hlms.keys():
-        for mode2 in hlms.keys():
-            crossTerms[ (mode1,mode2) ] = IP.ip(hlms[mode1], hlms[mode2])
+    for mode1 in hlmsA.keys():
+        for mode2 in hlmsB.keys():
+            crossTerms[ (mode1,mode2) ] = IP.ip(hlmsA[mode1], hlmsB[mode2])
             if verbose:
-                print "       : U populated ", (mode1, mode2), "  = ",\
+                print "       : U or V populated ", (mode1, mode2), "  = ",\
                         crossTerms[(mode1,mode2) ]
 
     return crossTerms
