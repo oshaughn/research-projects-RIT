@@ -275,10 +275,10 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # to bring the desired samples to the front of the array
         rholms_intp[det] =  InterpolateRholms(rholms[det], t)
 
-    return rholms_intp, crossTerms,  rholms
+    return rholms_intp, crossTerms, crossTermsV,  rholms
 
 
-def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
+def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, crossTermsV,  Lmax):
     """
     Compute the log-likelihood = -1/2 < d - h | d - h > from:
         - extr_params is an object containing values of all extrinsic parameters
@@ -312,6 +312,7 @@ def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
     lnL = 0.
     for det in detectors:
         CT = crossTerms[det]
+        CTV = crossTermsV[det]
         F = ComplexAntennaFactor(det, RA, DEC, psi, tref)
 
         # This is the GPS time at the detector
@@ -321,11 +322,11 @@ def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
             func = rholms_intp[det][key]
             det_rholms[key] = func(float(t_det))
 
-        lnL += SingleDetectorLogLikelihood(det_rholms, CT, Ylms, F, dist)
+        lnL += SingleDetectorLogLikelihood(det_rholms, CT, CTV,Ylms, F, dist)
 
     return lnL
 
-def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholms, crossTerms, Lmax, interpolate=False):
+def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholms, crossTerms, crossTermsV, Lmax, interpolate=False):
     """
     Compute the log-likelihood = -1/2 < d - h | d - h > from:
         - extr_params is an object containing values of all extrinsic parameters
@@ -362,6 +363,7 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
     lnL = 0.
     for det in detectors:
         CT = crossTerms[det]
+        CTV = crossTermsV[det]
         F = ComplexAntennaFactor(det, RA, DEC, psi, tref)
 
         # This is the GPS time at the detector
@@ -379,7 +381,7 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
                 ilast = ifirst + len(tvals)
                 det_rholms[key] = rhoTS.data.data[ifirst:ilast]
 
-        lnL += SingleDetectorLogLikelihood(det_rholms, CT, Ylms, F, dist)
+        lnL += SingleDetectorLogLikelihood(det_rholms, CT, CTV, Ylms, F, dist)
 
     maxlnL = np.max(lnL)
     return maxlnL + np.log(integrate.simps(np.exp(lnL - maxlnL), dx=tvals[1]-tvals[0]))
@@ -388,13 +390,14 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
 #
 # Internal functions
 #
-def SingleDetectorLogLikelihoodModel( crossTermsDictionary,tref, RA,DEC, thS,phiS,psi,  dist, Lmax, det):
+def SingleDetectorLogLikelihoodModel( crossTermsDictionary,crossTermsVDictionary, tref, RA,DEC, thS,phiS,psi,  dist, Lmax, det):
     """
     DOCUMENT ME!!!
     """
     global distMpcRef
 
     crossTerms = crossTermsDictionary[det]
+    crossTermsV = crossTermsVDictionary[det]
     # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
     # the source frame, rather than actively rotating the binary.
     # Said another way, the m^th harmonic of the waveform should transform as
@@ -415,7 +418,7 @@ def SingleDetectorLogLikelihoodModel( crossTermsDictionary,tref, RA,DEC, thS,phi
     term2 = 0.
     for pair1 in keys:
         for pair2 in keys:
-            term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
+            term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F*F*Ylms[pair1]*Ylms[pair2]*crossTermsV[(pair1,pair2)]  #((-1)**pair1[0])*crossTerms[((pair1[0],-pair1[1]),pair2)]
     term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
     return term2
 
@@ -451,7 +454,7 @@ def SingleDetectorLogLikelihoodData(epoch,rholmsDictionary,tref, RA,DEC, thS,phi
     return term1
 
 # Prototyping speed of time marginalization.  Not yet confirmed
-def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms, tref, RA,DEC, thS,phiS,psi,  dist, Lmax, detList):
+def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms,crossTermsV, tref, RA,DEC, thS,phiS,psi,  dist, Lmax, detList):
     """
     DOCUMENT ME!!!
     """
@@ -476,7 +479,7 @@ def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms, tref
     for det in detList:
         for pair1 in rholmsDictionary[det]:
             for pair2 in rholmsDictionary[det]:
-                term2 += F[det] * np.conj(F[det]) * ( crossTerms[det][(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F[det]*F[det]*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[det][((pair1[0],-pair1[1]),pair2)]
+                term2 += F[det] * np.conj(F[det]) * ( crossTerms[det][(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F[det]*F[det]*Ylms[pair1]*Ylms[pair2]*crossTermsV[(pair1,pair2)] #((-1)**pair1[0])*crossTerms[det][((pair1[0],-pair1[1]),pair2)]
     term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
 
     def fnIntegrand(dt):
@@ -493,7 +496,7 @@ def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms, tref
     return np.log(LmargTime)
 
 # Prototyping speed of time marginalization.  Not yet confirmed
-def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTerms, tref, RA,DEC, thS,phiS,psi,  dist, Lmax, detList):
+def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTerms, crossTermsV, tref, RA,DEC, thS,phiS,psi,  dist, Lmax, detList):
     """
     DOCUMENT ME!!!
     """
@@ -520,7 +523,7 @@ def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTer
         for pair1 in rholmsDictionary[det]:
             for pair2 in rholmsDictionary[det]:
                 term2a += F[det] * np.conj(F[det]) * ( crossTerms[det][(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] 
-                term2b += F[det]*F[det]*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[det][((pair1[0],-pair1[1]),pair2)]
+                term2b += F[det]*F[det]*Ylms[pair1]*Ylms[pair2]*crossTermsV[(pair1,pair2)] #((-1)**pair1[0])*crossTerms[det][((pair1[0],-pair1[1]),pair2)]
     term2a = -np.real(term2a) / 4. /(distMpc/distMpcRef)**2
     term2b = -term2b/4./(distMpc/distMpcRef)**2   # coefficient of exp(-4ipsi)
 
@@ -541,7 +544,7 @@ def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTer
         LmargPsi = integrate.quad(fnIntegrand,0,np.pi,limit=100,epsrel=1e-4)[0]
         return np.log(LmargPsi)
 
-def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist):
+def SingleDetectorLogLikelihood(rholm_vals, crossTerms,crossTermsV, Ylms, F, dist):
     """
     Compute the value of the log-likelihood at a single detector from
     several intermediate pieces of data.
@@ -575,10 +578,8 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms, Ylms, F, dist):
     term2 = 0.
     for pair1 in rholm_vals:
         for pair2 in rholm_vals:
-            term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])\
-                    * np.conj(Ylms[pair1]) * Ylms[pair2]\
-                    + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])\
-                    * crossTerms[((pair1[0],-pair1[1]),pair2)]
+            term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] \
+                    + F*F*Ylms[pair1]*Ylms[pair2]*crossTermsV[pair1,pair2] #((-1)**pair1[0])* crossTerms[((pair1[0],-pair1[1]),pair2)]
     term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
 
     return term1 + term2
@@ -862,7 +863,7 @@ def NetworkLogLikelihoodTimeMarginalizedDiscrete(epoch,rholmsDictionary,crossTer
     for det in detList:
         for pair1 in keys:
             for pair2 in keys:
-                term2 += F[det] * np.conj(F[det]) * ( crossTerms[det][(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F[det]*F[det]*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[det][((pair1[0],-pair1[1]),pair2)]
+                term2 += F[det] * np.conj(F[det]) * ( crossTerms[det][(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F[det]*F[det]*Ylms[pair1]*Ylms[pair2]*crossTermsV[(pair1,pair2)] #((-1)**pair1[0])*crossTerms[det][((pair1[0],-pair1[1]),pair2)]
     term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
 
 
