@@ -687,7 +687,7 @@ except:
 #   WARNING: Using default values for inverse spectrum truncation (True) and inverse spectrun truncation time (8s) from ourparams.py
 #                     ILE adopts a different convention.  ROS old development branch has yet another approach (=set during PSD reading).
 #
-rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,ignore_threshold=opts.opt_SkipModeThreshold,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime,NR_group=opts.NR_template_group,NR_param=opts.NR_template_param,use_external_EOB=opts.use_external_EOB)
+rholms_intp, crossTerms, crossTermsV, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,ignore_threshold=opts.opt_SkipModeThreshold,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime,NR_group=opts.NR_template_group,NR_param=opts.NR_template_param,use_external_EOB=opts.use_external_EOB)
 
 
 epoch_post = theEpochFiducial # Suggested change.  BE CAREFUL: Now that we trim the series, this is NOT what I used to be
@@ -747,7 +747,7 @@ TestDictionary["lnLDataPlotVersusPhiPsi"]            = False # opts.plot_ShowLik
 
 #opts.fmin_SNR=40
 
-factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,  data_dict, psd_dict, fmaxSNR,analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, detectors,Lmax)
+factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,  data_dict, psd_dict, fmaxSNR,analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, crossTermsV,  detectors,Lmax)
 
 if opts.rotate_sky_coordinates:  # FIXME: should also test that both theta, phi are coordinates *and* adaptation is on
     det0 = data_dict.keys()[0]
@@ -807,7 +807,7 @@ if not opts.LikelihoodType_MargTdisc_array:
             P.incl = float(ic) # inclination
             P.psi = ps # polarization angle
             P.dist = float(di*1e6*lalsimutils.lsu_PC) # luminosity distance.  The sampler assumes Mpc; P requires SI
-            lnL[i] = factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+            lnL[i] = factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms, crossTermsV, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
             i+=1
 
 
@@ -843,7 +843,7 @@ else: # Sum over time for every point in other extrinsic params
             P.dist = float(di* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
 
             lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
-                    P, rholms_intp,rholms, crossTerms,                   
+                    P, rholms_intp,rholms, crossTerms, crossTermsV,                   
                     Lmax)
             i+=1
         
@@ -1024,7 +1024,7 @@ if neff > 5 or opts.force_store_metadata:  # A low threshold but not completely 
 
 if opts.inj:
     print "==== PP data: <base>-pp-instance.dat ====="
-    lnLAt = factored_likelihood.FactoredLogLikelihood(Psig, rholms_intp, crossTerms, Lmax)
+    lnLAt = factored_likelihood.FactoredLogLikelihood(Psig, rholms_intp, crossTerms, crossTermsV, Lmax)
     # Evaluate best data point
     ppdata = {}
     weights = np.exp(ret[:,-1])*ret[:,-3]/ret[:,-2]

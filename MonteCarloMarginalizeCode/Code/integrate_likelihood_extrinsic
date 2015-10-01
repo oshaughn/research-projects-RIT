@@ -367,7 +367,7 @@ P.deltaF = deltaF
 # while in principal we may want to set it separately
 
 t_window = 0.15
-rholms_intp, cross_terms, rholms=factored_likelihood.PrecomputeLikelihoodTerms(
+rholms_intp, cross_terms, cross_terms_V,  rholms=factored_likelihood.PrecomputeLikelihoodTerms(
         fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
         False, inv_spec_trunc_Q, T_spec,
         NR_group=NR_template_group,NR_param=NR_template_param,
@@ -678,7 +678,7 @@ if not opts.time_marginalization:
             P.dist = di* 1.e6 * lalsimutils.lsu_PC # luminosity distance
     
             lnL[i] = factored_likelihood.FactoredLogLikelihood(
-                    P, rholms_intp, cross_terms, opts.l_max)
+                    P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
             i+=1
     
         return numpy.exp(lnL)
@@ -703,7 +703,7 @@ else: # Sum over time for every point in other extrinsic params
             P.dist = di* 1.e6 * lalsimutils.lsu_PC # luminosity distance
 
             lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
-                    P, rholms_intp, rholms, cross_terms,                   
+                    P, rholms_intp, rholms, cross_terms, cross_terms_V,                   
                     opts.l_max,interpolate=opts.interpolate_time)
             i+=1
     
