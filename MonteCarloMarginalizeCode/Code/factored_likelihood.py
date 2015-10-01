@@ -81,6 +81,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     rholms = {}
     rholms_intp = {}
     crossTerms = {}
+    crossTermsV = {}
 
     # Compute hlms at a reference distance, distance scaling is applied later
     P.dist = distMpcRef*1e6*lsu.lsu_PC
@@ -107,13 +108,18 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 hlmsT[(2,2)] = lalsim.ResizeCOMPLEX16TimeSeries(h22, 0, TDlen)
                 hlmsT[(2,-2)] = lalsim.ResizeCOMPLEX16TimeSeries(h2m2, 0, TDlen)
         hlms = {}
+        hlms_conj = {}
         for mode in hlmsT:
                 print " FFT for mode ", mode
                 hlms[mode] = lsu.DataFourier(hlmsT[mode])
+                print " FFT for conjugate mode ", mode
+                hlmsT[mode].data.data = np.conj(hlmsT[mode].data.data)
+                hlms_conj[mode] = lsu.DataFourier(hlmsT[mode])
     elif (not (NR_group) or not (NR_param)) and  (not use_external_EOB) and (not nr_lookup):
         hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
         hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
-
+        hlms_conj_list = lsu.conj_hlmoff(P, Lmax)
+        hlms_conj = lsu.SphHarmFrequencySeries_to_dict(hlms_conj_list, Lmax) # a dictionary
     elif nr_lookup and useNR:
 	    # look up simulation
 	    # use nrwf to get hlmf
@@ -145,12 +151,14 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         wfP.P.dist =100*1e6*lal.PC_SI  # fiducial distance.
 
         hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window.  Check the time
+        hlms_conj = wfP.conj_hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window.  Check the time
 
         # Remove memory modes (ALIGNED ONLY: Dangerous for precessing spins)
         if no_memory and wfP.P.SoftAlignedQ():
                 for key in hlms.keys():
                         if key[1]==0:
                                 hlms[key].data.data *=0.
+                                hlms_conj[key].data.data *=0.
 
 
     elif hasEOB and use_external_EOB:
@@ -201,9 +209,12 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             theWorthwhileModes  = theWorthwhileModes.union(  set([(p,-q) for (p,q) in theWorthwhileModes]))
             print "  Worthwhile modes : ", theWorthwhileModes
             hlmsNew = {}
+            hlmsConjNew = {}
             for pair in theWorthwhileModes:
                     hlmsNew[pair]=hlms[pair]
+                    hlmsConjNew[pair] = hlms_conj[pair]
             hlms =hlmsNew
+            hlms_conj= hlmsConjNew
             if len(hlms.keys()) == 0:
                     print " Failure "
                     import sys
@@ -233,6 +244,9 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         crossTerms[det] = ComputeModeCrossTermIP(hlms, hlms, psd_dict[det], P.fmin,
                 fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
                 inv_spec_trunc_Q, T_spec)
+        crossTermsV[det] = ComputeModeCrossTermIP(hlms_conj, hlms, psd_dict[det], P.fmin,
+                fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
+                inv_spec_trunc_Q, T_spec,prefix="V")
         # Compute rholm(t) = < h_lm(t) | d >
         rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
                 psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, N_shift, N_window,
@@ -261,7 +275,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # to bring the desired samples to the front of the array
         rholms_intp[det] =  InterpolateRholms(rholms[det], t)
 
-    return rholms_intp, crossTerms, rholms
+    return rholms_intp, crossTerms,  rholms
 
 
 def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, Lmax):
@@ -663,7 +677,7 @@ def InterpolateRholms(rholms, t):
     return rholm_intp
 
 def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF,
-        analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0., verbose=True):
+        analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0., verbose=True,prefix="U"):
     """
     Compute the 'cross terms' between waveform modes, i.e.
     < h_lm | h_l'm' >.
@@ -683,7 +697,7 @@ def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF,
         for mode2 in hlmsB.keys():
             crossTerms[ (mode1,mode2) ] = IP.ip(hlmsA[mode1], hlmsB[mode2])
             if verbose:
-                print "       : U or V populated ", (mode1, mode2), "  = ",\
+                print "       : ", prefix, " populated ", (mode1, mode2), "  = ",\
                         crossTerms[(mode1,mode2) ]
 
     return crossTerms
