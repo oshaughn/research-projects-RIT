@@ -52,8 +52,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--mtot-range",default='[50,110]')
 parser.add_argument("--grid-cartesian-npts",default=30)
 parser.add_argument("--group",default=None)
+parser.add_argument("--param", action='append', help='Explicit list of parameters to use')
 parser.add_argument("--eta-range",default='[0.1,0.25]')
 # Cutoff options
+parser.add_argument("--skip-overlap",action='store_true', help="If true, the grid is generated without actually performing overlaps. Very helpful if the grid is just in mtot, for the purposes of reproducing a specific NR simulation")
 parser.add_argument("--match-value", type=float, default=0.01, help="Use this as the minimum match value. Default is 0.01 (i.e., keep almost everything)")
 # Overlap options
 parser.add_argument("--fisher-psd",type=str,default="SimNoisePSDaLIGOZeroDetHighPower",help="psd name ('eval'). lalsim., lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, .SimNoisePSDiLIGOSRD... ")
@@ -101,20 +103,22 @@ def eval_overlap(grid,P_list, IP,indx):
 #    if opts.verbose: 
 #        print " Evaluating for ", indx
     global Lmax
+    global opts
     P2 = P_list[indx]
     T_here = 1./IP.deltaF
     P2.deltaF=1./T_here
 #    P2.print_params()
-    hf2 = lalsimutils.complex_hoff(P2)
-    nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
-#    if opts.verbose:
-#        print " Waveform normalized for ", indx
-    ip_val = IP.ip(hfBase,hf2)
     line_out = []
     line_out = list(grid[indx])
-    line_out.append(ip_val)
+    if not opts.skip_overlap:
+        hf2 = lalsimutils.complex_hoff(P2)
+        nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
+        ip_val = IP.ip(hfBase,hf2)
+        line_out.append(ip_val)
+    else:
+        line_out.append(-1)
     if opts.verbose:
-        print " Answer ", indx, line_out
+            print " Answer ", indx, line_out
     return line_out
 
 def evaluate_overlap_on_grid(hfbase,param_names, grid):
@@ -144,7 +148,7 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     grid_out_new = []
     P_list_out_new = []
     for indx in np.arange(len(grid_out)):
-        if grid_out[indx,-1] > opts.match_value:
+        if (opts.skip_overlap) or (grid_out[indx,-1] > opts.match_value):
             grid_out_new.append(grid_out[indx])
             P_list_out_new.append(P_list[indx])
     grid_out = np.array(grid_out_new)
@@ -231,13 +235,16 @@ else:
 eta_range = eval(opts.eta_range)
 
 for group in glist:
+  print opts.group, opts.param
+  if not opts.param:
     for param in nrwf.internal_ParametersAvailable[group]:
         wfP = nrwf.WaveformModeCatalog(group,param,metadata_only=True)
         wfP.P.deltaT = P.deltaT
         wfP.P.deltaF = P.deltaF
         wfP.P.fmin = P.fmin
 #        wfP.P.print_params()
-        if wfP.P.SoftAlignedQ() and wfP.P.extract_param('eta') >= eta_range[0] and wfP.P.extract_param('eta')<=eta_range[1]:
+        # Add parameters. Because we will compare with SEOB, we need an ALIGNED waveform, so we fake it
+        if (not opts.skip_overlap) and wfP.P.SoftAlignedQ() and wfP.P.extract_param('eta') >= eta_range[0] and wfP.P.extract_param('eta')<=eta_range[1]:
             print " Adding aligned sim ", group, param
             wfP.P.approx = lalsim.GetApproximantFromString(opts.approx)  # Make approx consistent and sane
             wfP.P.m2 *= 0.999999  # Prevent failure for exactly equal!
@@ -247,9 +254,27 @@ for group in glist:
             wfP.P.s1y = 0
             wfP.P.s2y = 0
             P_list_NR = P_list_NR + [wfP.P]
+        else:
+            print " Adding generic sim; for layout only ", group, param
+            P_list_NR = P_list_NR + [wfP.P]
 
+  else: # target case if a single group and parameter sequence are specified
+        print "Looping over list ", opts.param
+        for paramKey in opts.param:
+            print " Adding specific simulation ", opts.group, paramKey
+            if nrwf.internal_ParametersAreExpressions[group]:
+                param = eval(paramKey)
+            else:
+                param = paramKey
+        wfP = nrwf.WaveformModeCatalog(group,param,metadata_only=True)
+        wfP.P.deltaT = P.deltaT
+        wfP.P.deltaF = P.deltaF
+        wfP.P.fmin = P.fmin
+        P_list_NR = P_list_NR + [wfP.P]
 
-
+if len(P_list_NR)<1:
+    print " No simulations"
+    sys.exit(0)
 ###
 ### Define parameter ranges to be changed
 ###
@@ -265,7 +290,10 @@ ip_min_freq = opts.fmin
 
 
 # For now, we just extrude in these parameters
-param_names = ['mtot', 'eta','s1z','s2z']
+if not opts.skip_overlap:  # aligned only!  Compare to SEOB
+    param_names = ['mtot', 'eta','s1z','s2z']
+else:
+    param_names = ['mtot', 'eta', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
 
 mass_range = np.array(eval(opts.mtot_range))*lal.MSUN_SI
 mass_grid =np.linspace( mass_range[0],mass_range[1],opts.grid_cartesian_npts)
