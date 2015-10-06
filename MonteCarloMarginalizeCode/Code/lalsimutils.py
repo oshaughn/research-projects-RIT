@@ -1940,10 +1940,12 @@ def hlmoft_SEOB_dict(P,Lmax=2):
 #    P2 = P.manual_copy()
     P.phiref=0.
     P.psi=0.
+    P.incl = 0
     hC = complex_hoft(P)  # pad as needed
     hC.epoch = hC.epoch - P.tref  # need to CORRECT the event time: hoft adds an epoch
     print " SEOB hlm trick: epoch of hC ", hC.epoch
-    hC.data.data *=1./lal.SpinWeightedSphericalHarmonic(0.,0., -2,2,2)
+    fac = np.sqrt(5./np.pi)/2
+    hC.data.data *=1./fac #lal.SpinWeightedSphericalHarmonic(0.,0., -2,2,2)
 
     # Copy...but I don't trust lalsuite copy
     hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0, 
@@ -1995,7 +1997,8 @@ def conj_hlmoff(P, Lmax=2):
     for l in range(2, Lmax+1):
         for m in range(-l, l+1):
             hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, l, m)
-            hxx.data.data = np.conj(hxx.data.data)
+            if hxx:
+                hxx.data.data = np.conj(hxx.data.data)
     # FFT the hlms
     Hlms = lalsim.SphHarmFrequencySeriesFromSphHarmTimeSeries(hlms)
 
