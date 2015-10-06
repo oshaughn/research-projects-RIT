@@ -60,6 +60,7 @@ optp.add_option("--nr-params",default=None, help="List of specific NR parameters
 optp.add_option("--nr-index",type=int,default=-1,help="Index of specific NR simulation to use [integer]. Mass used: mtot= m1+m2")
 optp.add_option("--nr-lookup",action='store_true', help=" Look up parameters from an NR catalog, instead of using the approximant specified")
 optp.add_option("--nr-lookup-group",action='append', help="Restriction on 'group' for NR lookup")
+optp.add_option("--nr-perturbative-extraction",default=False,action='store_true')
 optp.add_option("--use-external-EOB",default=False,action='store_true')
 optp.add_option("-a", "--approximant", default="TaylorT4", help="Waveform family to use for templates. Any approximant implemented in LALSimulation is valid.")
 optp.add_option("-A", "--amp-order", type=int, default=0, help="Include amplitude corrections in template waveforms up to this e.g. (e.g. 5 <==> 2.5PN), default is Newtonian order.")
@@ -366,12 +367,15 @@ P.deltaF = deltaF
 # N.B. P.fmin is being used to set the lower freq. limit of the IP integrals
 # while in principal we may want to set it separately
 
+if opts.nr_perturbative_extraction:
+    print " ------------ USING PERTURBATIVE EXTRACTION ------ "
+
 t_window = 0.15
 rholms_intp, cross_terms, cross_terms_V,  rholms=factored_likelihood.PrecomputeLikelihoodTerms(
         fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
         False, inv_spec_trunc_Q, T_spec,
         NR_group=NR_template_group,NR_param=NR_template_param,
-        use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group)
+        use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction)
 
 if opts.pin_to_sim:
     P.copy_lsctables_sim_inspiral(sim_row)
