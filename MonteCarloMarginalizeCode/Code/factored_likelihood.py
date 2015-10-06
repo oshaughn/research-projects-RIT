@@ -62,7 +62,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True):
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -127,7 +127,11 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         compare_dict = {}
         compare_dict['q'] = P.m2/P.m1 # Need to match the template parameter. NOTE: VERY IMPORTANT that P is updated with the event params
         compare_dict['s1z'] = P.s1z
+        compare_dict['s1x'] = P.s1x
+        compare_dict['s1y'] = P.s1y
         compare_dict['s2z'] = P.s2z
+        compare_dict['s2x'] = P.s2x
+        compare_dict['s2y'] = P.s2y
         print " Parameter matching condition ", compare_dict
 	good_sim_list = nrwf.NRSimulationLookup(compare_dict,valid_groups=nr_lookup_valid_groups)
         if len(good_sim_list)< 1:
@@ -143,7 +147,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         q = P.m2/P.m1
         # Load the catalog
         wfP = nrwf.WaveformModeCatalog(group, param, \
-                                           clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, 
+                                           clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, perturbative_extraction=perturbative_extraction,
                                        lmax=Lmax,align_at_peak_l2_m2_emission=True)
         # Overwrite the parameters in wfP to set the desired scale
         wfP.P.m1 = mtot/(1+q)
@@ -479,7 +483,9 @@ def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms,cross
     for det in detList:
         for pair1 in rholmsDictionary[det]:
             for pair2 in rholmsDictionary[det]:
-                term2 += F[det] * np.conj(F[det]) * ( crossTerms[det][(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] + F[det]*F[det]*Ylms[pair1]*Ylms[pair2]*crossTermsV[(pair1,pair2)] #((-1)**pair1[0])*crossTerms[det][((pair1[0],-pair1[1]),pair2)]
+                term2 += F[det] * np.conj(F[det]) * ( crossTerms[det][(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2]  \
+                    + F[det]*F[det]*Ylms[pair1]*Ylms[pair2]*crossTermsV[det][(pair1,pair2)] #((-1)**pair1[0])*crossTerms[det][((pair1[0],-pair1[1]),pair2)]
+#                    + F[det]*F[det]*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])*crossTerms[det][((pair1[0],-pair1[1]),pair2)]
     term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
 
     def fnIntegrand(dt):
@@ -579,7 +585,8 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms,crossTermsV, Ylms, F, dis
     for pair1 in rholm_vals:
         for pair2 in rholm_vals:
             term2 += F * np.conj(F) * ( crossTerms[(pair1,pair2)])* np.conj(Ylms[pair1]) * Ylms[pair2] \
-                    + F*F*Ylms[pair1]*Ylms[pair2]*crossTermsV[pair1,pair2] #((-1)**pair1[0])* crossTerms[((pair1[0],-pair1[1]),pair2)]
+                + F*F*Ylms[pair1]*Ylms[pair2]*crossTermsV[pair1,pair2] #((-1)**pair1[0])* crossTerms[((pair1[0],-pair1[1]),pair2)]
+#                + F*F*Ylms[pair1]*Ylms[pair2]*((-1)**pair1[0])* crossTerms[((pair1[0],-pair1[1]),pair2)]
     term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
 
     return term1 + term2
