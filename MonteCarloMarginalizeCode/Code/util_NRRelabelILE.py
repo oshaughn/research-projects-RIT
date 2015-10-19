@@ -65,6 +65,7 @@ if len(dat.shape)<2:
     dat = np.array([dat])
 
 best_matches = {}
+best_matches_masses ={}
 for line in dat:
 #    print line
     m1 = line[1]
@@ -79,15 +80,25 @@ for line in dat:
     params_to_test['s2x'] = s2x
     params_to_test['s2y'] = s2y
     params_to_test['s2z'] = s2z
-    matches = nrwf.NRSimulationLookup(params_to_test)
+    if opts.group:
+        matches = nrwf.NRSimulationLookup(params_to_test,valid_groups=[opts.group])
+    else:
+        matches = nrwf.NRSimulationLookup(params_to_test)
     if len(matches)>0:
-        print matches[0][0], matches[0][1], line[9], line[10], line[11], line[12]
+        if opts.verbose:
+            print matches[0][0], matches[0][1], line[9], line[10], line[11], line[12]
         if best_matches.has_key((matches[0])):
             if best_matches[matches[0]] < line[9]:
+#                print " Replacing "
                 best_matches[matches[0]] = line[9]
+                best_matches_masses[matches[0]] = (line[1],line[2])
         else:
             best_matches[matches[0]] = line[9]
+            best_matches_masses[matches[0]] = (line[1],line[2])
 
 print " -----  BEST MATCHES ------ "  # unsorted
 for key in best_matches:
-    print key,  best_matches[key]
+    tmax =0
+    if nrwf.internal_EstimatePeakL2M2Emission[key[0]].has_key(key[1]):
+        tmax = nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+    print best_matches[key], key,   best_matches_masses[key][0], best_matches_masses[key][1], tmax
