@@ -244,19 +244,20 @@ for group in glist:
         wfP.P.fmin = P.fmin
 #        wfP.P.print_params()
         # Add parameters. Because we will compare with SEOB, we need an ALIGNED waveform, so we fake it
-        if (not opts.skip_overlap) and wfP.P.SoftAlignedQ() and wfP.P.extract_param('eta') >= eta_range[0] and wfP.P.extract_param('eta')<=eta_range[1]:
-            print " Adding aligned sim ", group, param
-            wfP.P.approx = lalsim.GetApproximantFromString(opts.approx)  # Make approx consistent and sane
-            wfP.P.m2 *= 0.999999  # Prevent failure for exactly equal!
+        if wfP.P.extract_param('eta') >= eta_range[0] and wfP.P.extract_param('eta')<=eta_range[1]:
+            if (not opts.skip_overlap) and wfP.P.SoftAlignedQ():
+                print " Adding aligned sim ", group, param
+                wfP.P.approx = lalsim.GetApproximantFromString(opts.approx)  # Make approx consistent and sane
+                wfP.P.m2 *= 0.999999  # Prevent failure for exactly equal!
             # Satisfy error checking condition for lal
-            wfP.P.s1x = 0
-            wfP.P.s2x = 0
-            wfP.P.s1y = 0
-            wfP.P.s2y = 0
-            P_list_NR = P_list_NR + [wfP.P]
-        else:
-            print " Adding generic sim; for layout only ", group, param
-            P_list_NR = P_list_NR + [wfP.P]
+                wfP.P.s1x = 0
+                wfP.P.s2x = 0
+                wfP.P.s1y = 0
+                wfP.P.s2y = 0
+                P_list_NR = P_list_NR + [wfP.P]
+            else:
+                print " Adding generic sim; for layout only ", group, param
+                P_list_NR = P_list_NR + [wfP.P]
 
   else: # target case if a single group and parameter sequence are specified
         print "Looping over list ", opts.param
