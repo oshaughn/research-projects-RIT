@@ -974,3 +974,236 @@ def IdentifyEffectiveModesForDetector(crossTermsOneDetector, fac,det):
                 print "   ", pair, " - no significant impact on U, less than ", threshold
 
     return pairsUnion - set(pairsIneffective)
+
+####
+#### Reimplementation with arrays   [NOT YET GENERALIZED TO USE V]
+####
+
+def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetector, rholmsDictionaryForDetector,crossTermsForDetector):
+    """
+    Accepts list of LM pairs, dictionary for rholms against keys, and cross terms (a dictionary)
+
+    PROBLEM: Different detectors may have different time zeros. User must use the returned arrays with great care.
+    """
+    #print pairKeys, rholmsDictionaryForDetector
+    nKeys  = len(pairKeys)
+    keyRef = pairKeys[0]
+    npts = rholmsDictionaryForDetector[keyRef].data.length
+
+
+    ### Step 0: Create two lookup tables: index->pair and pair->index
+    lookupNumberToKeys = np.zeros((nKeys,2),dtype=np.int)
+    lookupKeysToNumber = {}
+    for indx, val in enumerate(pairKeys):
+        lookupNumberToKeys[indx][0]= val[0]  
+        lookupNumberToKeys[indx][1]= val[1]  
+        lookupKeysToNumber[val] = indx
+    # Now create a *second* lookup table, for complex-conjugation-in-time: (l,m)->(l,-m)
+    lookupNumberToNumberConjugation = np.zeros(nKeys,dtype=np.int)
+    for indx in np.arange(nKeys):
+        l = lookupNumberToKeys[indx][0]
+        m = lookupNumberToKeys[indx][1]
+        indxOut = lookupKeysToNumber[(l,-m)]
+        lookupNumberToNumberConjugation[indx] = indxOut
+        
+    ### Step 1: Convert crossTermsForDetector explicitly into a matrix
+    crossTermsArrayU = np.zeros((nKeys,nKeys),dtype=np.complex)   # Make sure complex numbers can be stored
+    crossTermsArrayV = np.zeros((nKeys,nKeys),dtype=np.complex)   # Make sure complex numbers can be stored
+    for pair1 in pairKeys:
+        for pair2 in pairKeys:
+            indx1 = lookupKeysToNumber[pair1]
+            indx2 = lookupKeysToNumber[pair2]
+            crossTermsArrayU[indx1][indx2] = crossTermsForDetector[(pair1,pair2)]
+            pair1New = (pair1[0], -pair1[1])
+            crossTermsArrayV[indx1][indx2] = (-1)**pair1[0]*crossTermsForDetector[(pair1New,pair2)]   # this actually should be a seperate array in general; we are assuming reflection symmetry to populate it
+    if rosDebugMessagesDictionary["DebugMessagesLong"]:
+        print  " Built cross-terms matrix ", crossTermsArray
+
+    ### Step 2: Convert rholmsDictionaryForDetector
+    rholmArray = np.zeros((nKeys,npts),dtype=np.complex)
+    for pair1 in pairKeys:
+        indx1 = lookupKeysToNumber[pair1]
+        rholmArray[indx1][:] = rholmsDictionaryForDetector[pair1].data.data  # Copy the array of time values.
+
+    ### Step 3: Create rholm_intp array-ized structure
+    rholm_intpArray = range(nKeys)   # create a flexible python array of the desired size, to hold function pointers
+    if rholms_intpDictionaryForDetector:
+        for pair1 in pairKeys:
+            indx1 = lookupKeysToNumber[pair1]
+            rholm_intpArray[indx1] = rholms_intpDictionaryForDetector[pair1]
+            
+    
+    return lookupNumberToKeys,lookupKeysToNumber, lookupNumberToNumberConjugation, crossTermsArrayU,crossTermsArrayV, rholmArray, rholm_intpArray
+
+
+def SingleDetectorLogLikelihoodDataViaArray(epoch,lookupNK, rholms_intpArrayDict,tref, RA,DEC, thS,phiS,psi,  dist, det):
+    """
+    SingleDetectorLogLikelihoodDataViaArray evaluates everything using *arrays* for each (l,m) pair
+    """
+    global distMpcRef
+
+    # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
+    # the source frame, rather than actively rotating the binary.
+    # Said another way, the m^th harmonic of the waveform should transform as
+    # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
+    # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
+    Ylms = ComputeYlmsArray(lookupNK[det], thS,-phiS)
+    if (det == "Fake"):
+        F=np.exp(-2.*1j*psi)  # psi is applied through *F* in our model
+        tshift= tref - epoch
+    else:
+        F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
+        detector = lalsim.DetectorPrefixToLALDetector(det)
+        tshift = ComputeArrivalTimeAtDetector(det, RA,DEC, tref)  -  epoch   # detector time minus reference time (so far)
+    rholmsArray = np.array(map( lambda x : complex(x( float(tshift))) , rholms_intpArrayDict[det]),dtype=complex)  # Evaluate interpolating functions at target time
+    distMpc = dist/(lal.PC_SI*1e6)
+
+    # Following loop *should* be implemented as an array multiply!
+    term1 = 0.j
+    term1 = np.dot(np.conj(F*Ylms),rholmsArray)   # be very careful re how this multiplication is done: suitable to use this form of multiply
+    term1 = np.real(term1) / (distMpc/distMpcRef)
+
+    return term1
+
+def DiscreteSingleDetectorLogLikelihoodDataViaArray(epoch,lookupNK, rholmsArrayDict,deltaT, tref, RA,DEC, thS,phiS,psi,  dist, det):
+    """
+    SingleDetectorLogLikelihoodDataViaArray evaluates everything using *arrays* for each (l,m) pair
+    """
+    global distMpcRef
+
+    # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
+    # the source frame, rather than actively rotating the binary.
+    # Said another way, the m^th harmonic of the waveform should transform as
+    # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
+    # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
+    Ylms = ComputeYlmsArray(lookupNK[det], thS,-phiS)
+    if (det == "Fake"):
+        F=np.exp(-2.*1j*psi)  # psi is applied through *F* in our model
+        tshift= tref - epoch
+    else:
+        F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
+        detector = lalsim.DetectorPrefixToLALDetector(det)
+        tshift = ComputeArrivalTimeAtDetector(det, RA,DEC, tref)  -  epoch   # detector time minus reference time (so far)
+    rholmsArray = rholmsArrayDict[det]
+    distMpc = dist/(lal.PC_SI*1e6)
+
+    npts = len(rholmsArray[0])
+    # Following loop *should* be implemented as an array multiply!
+    term1 = np.zeros(npts,dtype=complex)
+    term1 = np.dot(np.conj(F*Ylms),rholmsArray)   # be very careful re how this multiplication is done: suitable to use this form of multiply
+    term1 = np.real(term1) / (distMpc/distMpcRef)
+
+    # Apply timeshift *at end*, without loss of generality: this is a single detector. Note no subsample interpolation
+    # This timeshift should *only* be applied if all detectors start at the same array index!
+    nShiftL = int(  float(tshift)/deltaT)
+    term1 = np.roll(term1,-nShiftL)
+
+    return term1
+
+def SingleDetectorLogLikelihoodModelViaArray(lookupNKDict,ctUArrayDict,ctVArrayDict, tref, RA,DEC, thS,phiS,psi,  dist,det):
+    """
+    DOCUMENT ME!!!
+    """
+    global distMpcRef
+
+    # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
+    # the source frame, rather than actively rotating the binary.
+    # Said another way, the m^th harmonic of the waveform should transform as
+    # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
+    # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
+    U = ctUArrayDict[det]
+    V = ctVArrayDict[det]
+    Ylms = ComputeYlmsArray(lookupNKDict[det], thS,-phiS)
+    if (det == "Fake"):
+        F=np.exp(-2.*1j*psi)  # psi is applied through *F* in our model
+    else:
+        F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
+    distMpc = dist/(lal.PC_SI*1e6)
+
+
+    # Term 2 part 1 : conj(Ylms*F)*crossTermsU*F*Ylms
+    # Term 2 part 2:  Ylms*F*crossTermsV*F*Ylms
+    term2 = 0.j
+    term2 += F*np.conj(F)*(np.dot(np.conj(Ylms), np.dot(U,Ylms)))
+    term2 += F*F*np.dot(Ylms,np.dot(V,Ylms))
+    term2 = np.sum(term2)
+
+    term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
+    return term2
+
+
+def  FactoredLogLikelihoodViaArray(epoch, P, lookupNKDict, rholms_intpArrayDict, ctUArrayDict,ctVArrayDict):
+    """
+    FactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood, a single scalar value.
+    This generally is marginally faster, particularly if Lmax is large.
+
+    Speed-wise, because we extract a *single* scalar value, this code has the same efficiency as FactoredLogLikelihoood
+
+    Note 'P' must have the *sampling rate* set to correctly interpret the event time.
+    """
+    global distMpcRef
+
+    detectors = rholms_intpArrayDict.keys()
+
+    RA = P.phi
+    DEC =  P.theta
+    tref = P.tref # geocenter time
+    phiref = P.phiref
+    incl = P.incl
+    psi = P.psi
+    dist = P.dist
+
+    deltaT = P.deltaT
+
+    term1 = 0.
+    term2 = 0.
+    for det in detectors:
+        term1 += SingleDetectorLogLikelihoodDataViaArray(epoch,lookupNKDict, rholms_intpArrayDict,tref, RA, DEC, incl,phiref,psi,dist,det)
+        term2 += SingleDetectorLogLikelihoodModelViaArray(lookupNKDict, ctUArrayDict, ctVArrayDict, tref, RA, DEC, incl,phiref,psi,dist,det)
+
+
+    return term1+term2
+
+
+def  DiscreteFactoredLogLikelihoodViaArray(epoch, P, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,array_output=False):
+    """
+    DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
+    either as an array vs time *or* marginalized in time. 
+    This generally is marginally faster, particularly if Lmax is large.
+
+    The biggest speedup from array-izing structures comes.
+
+    Note 'P' must have the *sampling rate* set to correctly interpret the event time.
+    """
+    global distMpcRef
+
+    detectors = rholmsArrayDict.keys()
+
+    npts = len(rholmsArrayDict[detectors[0]][0])
+
+    RA = P.phi
+    DEC =  P.theta
+    tref = P.tref # geocenter time
+    phiref = P.phiref
+    incl = P.incl
+    psi = P.psi
+    dist = P.dist
+
+    deltaT = P.deltaT
+    Twindow  = deltaT*npts  # assume the user has set this to the prior. Be careful
+
+    term1 = np.zeros(npts)
+    term2 = 0.
+    for det in detectors:
+        term1 += DiscreteSingleDetectorLogLikelihoodDataViaArray(epoch,lookupNKDict, rholmsArrayDict,deltaT,tref, RA, DEC, incl,phiref,psi,dist,det)
+        term2 += SingleDetectorLogLikelihoodModelViaArray(lookupNKDict, ctUArrayDict, ctVArrayDict, tref, RA, DEC, incl,phiref,psi,dist,det)
+
+
+    if  array_output:  # return the raw array
+        return term1+term2
+    else:  # return the marginalized lnL in time
+        lnLArray = np.zeros(npts,dtype=np.complex128)   # avoid nan's
+        lnLArray = term1+term2
+#        lnLmargT = np.log(deltaT*np.sum(np.exp(lnLArray))/Twindow)
+        lnLmargT = np.log(integrate.simps(np.exp(lnLArray), dx=deltaT))
+        return lnLmargT
