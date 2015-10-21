@@ -244,7 +244,7 @@ for group in glist:
         wfP.P.fmin = P.fmin
 #        wfP.P.print_params()
         # Add parameters. Because we will compare with SEOB, we need an ALIGNED waveform, so we fake it
-        if wfP.P.extract_param('eta') >= eta_range[0] and wfP.P.extract_param('eta')<=eta_range[1]:
+        if wfP.P.extract_param('eta') >= eta_range[0] and wfP.P.extract_param('eta')<=eta_range[1] and (not np.isnan(wfP.P.s1z) and not np.isnan(wfP.P.s2z)):
             if (not opts.skip_overlap) and wfP.P.SoftAlignedQ():
                 print " Adding aligned sim ", group, param
                 wfP.P.approx = lalsim.GetApproximantFromString(opts.approx)  # Make approx consistent and sane
