@@ -244,6 +244,8 @@ if opts.sim_xml:
     P.psi=0.0
     P.incl = 0.0       # only works for aligned spins. Be careful.
     P.fref = opts.reference_freq
+    if opts.approximant != "TaylorT4": # not default setting
+        P.approx = lalsimutils.lalsim.GetApproximantFromString(opts.approximant)  # allow user to override the approx setting. Important for NR followup, where no approx set in sim_xml!
 else:
  lambda1, lambda2 = 0, 0
  if opts.eff_lambda is not None:
