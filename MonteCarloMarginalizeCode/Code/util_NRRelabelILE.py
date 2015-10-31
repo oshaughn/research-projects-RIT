@@ -66,6 +66,7 @@ if len(dat.shape)<2:
 
 best_matches = {}
 best_matches_masses ={}
+best_matches_xi = {}
 for line in dat:
 #    print line
     m1 = line[1]
@@ -84,6 +85,33 @@ for line in dat:
         matches = nrwf.NRSimulationLookup(params_to_test,valid_groups=[opts.group])
     else:
         matches = nrwf.NRSimulationLookup(params_to_test)
+    if not len(matches)>0:
+        pass
+    # Pick the longest simulation"
+    try:
+      if len(matches)> 2:
+            
+        print  "   Attempting to pick the longest simulation matching  the simulation from ", matches
+        MOmega0  = 1
+        tmax = -1
+        good_sim = None
+        for key in matches:
+#            print "    ... trying ", key
+            # First choice is to look up by Momega0
+            if nrwf.internal_WaveformMetadata[key[0]][key[1]].has_key('Momega0')  and  tmax == -1:
+                if nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0'] < MOmega0:
+                    good_sim = key
+                    MOmega0 = nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0']
+            # second choice is to look up by NR peak value.  This may not be available (i.e., no preprocessed data)  , so the entire system could crash
+            else:
+                if nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]] > tmax:
+                    good_sim = key
+                    tmax = nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+#        print " Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+        matches = [good_sim]
+    except:
+        matches  = [matches[0]] # pick the first one.  Note we will want to reduce /downselect the lookup process
+
     if len(matches)>0:
         if opts.verbose:
             print matches[0][0], matches[0][1], line[9], line[10], line[11], line[12]
@@ -92,13 +120,23 @@ for line in dat:
 #                print " Replacing "
                 best_matches[matches[0]] = line[9]
                 best_matches_masses[matches[0]] = (line[1],line[2])
+                q = m2/m1
+                best_matches_xi[matches[0]] = (s1z + q*s2z)/(1+q)  # assumes simulation L is parallel to z
         else:
             best_matches[matches[0]] = line[9]
             best_matches_masses[matches[0]] = (line[1],line[2])
+            q = m2/m1
+            best_matches_xi[matches[0]] = (s1z + q*s2z)/(1+q)  # assumes simulation L is parallel to z
 
 print " -----  BEST MATCHES ------ "  # unsorted
 for key in best_matches:
     tmax =0
     if nrwf.internal_EstimatePeakL2M2Emission[key[0]].has_key(key[1]):
         tmax = nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
-    print best_matches[key], key,   best_matches_masses[key][0], best_matches_masses[key][1], tmax
+    af = -1000
+    Mf = -1000
+    if nrwf.internal_WaveformMetadata[key[0]][key[1]].has_key('ChiFMagnitude'):
+        af = nrwf.internal_WaveformMetadata[key[0]][key[1]]['ChiFMagnitude']
+    if nrwf.internal_WaveformMetadata[key[0]][key[1]].has_key('MF'):
+        Mf = nrwf.internal_WaveformMetadata[key[0]][key[1]]['MF']
+    print best_matches[key], key,   best_matches_masses[key][0], best_matches_masses[key][1], tmax, best_matches_xi[key], Mf, af
