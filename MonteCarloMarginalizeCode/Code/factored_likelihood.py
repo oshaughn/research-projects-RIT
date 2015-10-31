@@ -139,7 +139,18 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 import sys
                 sys.exit(0)
         print " Identified set of matching NR simulations ", good_sim_list
-        good_sim  = good_sim_list[0] # pick the first one.  Note we will want to reduce /downselect the lookup process
+        try:
+                print  "   Attempting to pick longest simulation matching  the simulation  "
+                MOmega0  = 1
+                good_sim = None
+                for key in good_sim_list:
+                        print key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+                        if nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0'] < MOmega0:
+                                good_sim = key
+                                MOmega0 = nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0']
+                print " Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+        except:
+                good_sim  = good_sim_list[0] # pick the first one.  Note we will want to reduce /downselect the lookup process
 	group = good_sim[0]
 	param = good_sim[1]
         print " Identified matching NR simulation ", group, param
