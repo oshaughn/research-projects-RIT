@@ -84,6 +84,7 @@ parser.add_argument("--uniform-spoked", action="store_true", help="Place mass pt
 parser.add_argument("--linear-spoked", action="store_true", help="Place mass pts along spokes linear in radial distance (if omitted placement will be random and uniform in volume")
 parser.add_argument("--grid-cartesian", action="store_true", help="Place mass points using a cartesian grid")
 parser.add_argument("--grid-cartesian-npts", default=100, type=int)
+parser.add_argument("--skip-overlap",action='store_true', help="If true, the grid is generated without actually performing overlaps. Very helpful for uncertain configurations or low SNR")
 # Cutoff options
 parser.add_argument("--match-value", type=float, default=0.01, help="Use this as the minimum match value. Default is 0.01 (i.e., keep almost everything)")
 # Overlap options
@@ -160,6 +161,7 @@ def eval_overlap(grid,P_list, IP,indx):
 #        print " Evaluating for ", indx
     global use_external_EOB
     global Lmax
+    global opts
     P2 = P_list[indx]
     T_here = 1./IP.deltaF
     P2.deltaF=1./T_here
@@ -176,7 +178,13 @@ def eval_overlap(grid,P_list, IP,indx):
     ip_val = IP.ip(hfBase,hf2)
     line_out = []
     line_out = list(grid[indx])
-    line_out.append(ip_val)
+    if not opts.skip_overlap:
+        hf2 = lalsimutils.complex_hoff(P2)
+        nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
+        ip_val = IP.ip(hfBase,hf2)
+        line_out.append(ip_val)
+    else:
+        line_out.append(-1)
     if opts.verbose:
         print " Answer ", indx, line_out
     return line_out
