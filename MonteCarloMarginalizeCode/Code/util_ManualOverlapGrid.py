@@ -166,22 +166,20 @@ def eval_overlap(grid,P_list, IP,indx):
     T_here = 1./IP.deltaF
     P2.deltaF=1./T_here
 #    P2.print_params()
-    if not use_external_EOB:
-        hf2 = lalsimutils.complex_hoff(P2)
-    else:
-        print "  Waiting for EOB waveform ....", indx, " with duration  ", T_here
-        wfP = eobwf.WaveformModeCatalog(P2,lmax=Lmax)  # only include l=2 for us.
-        hf2 = wfP.complex_hoff(force_T=T_here)
-    nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
+    if not opts.skip_overlap:
+        if not use_external_EOB:
+            hf2 = lalsimutils.complex_hoff(P2)
+        else:
+            print "  Waiting for EOB waveform ....", indx, " with duration  ", T_here
+            wfP = eobwf.WaveformModeCatalog(P2,lmax=Lmax)  # only include l=2 for us.
+            hf2 = wfP.complex_hoff(force_T=T_here)
+        nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
 #    if opts.verbose:
 #        print " Waveform normalized for ", indx
-    ip_val = IP.ip(hfBase,hf2)
+        ip_val = IP.ip(hfBase,hf2)
     line_out = []
     line_out = list(grid[indx])
     if not opts.skip_overlap:
-        hf2 = lalsimutils.complex_hoff(P2)
-        nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
-        ip_val = IP.ip(hfBase,hf2)
         line_out.append(ip_val)
     else:
         line_out.append(-1)
