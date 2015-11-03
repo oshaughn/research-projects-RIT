@@ -219,7 +219,7 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     grid_out_new = []
     P_list_out_new = []
     for indx in np.arange(len(grid_out)):
-        if grid_out[indx,-1] > opts.match_value:
+        if opts.skip_overlap or grid_out[indx,-1] > opts.match_value:
             grid_out_new.append(grid_out[indx])
             P_list_out_new.append(P_list[indx])
     grid_out = np.array(grid_out_new)
