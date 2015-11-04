@@ -6,6 +6,7 @@
 #   util_ManualOverlapGrid.py --inj inj.xml.gz --parameter LambdaTilde  # 1d grid in changing LambdaTilde
 #   util_ManualOverlapGrid.py  --verbose --parameter LambdaTilde --parameter-range '[0,1000]'
 #   util_ManualOverlapGrid.py  --verbose --parameter LambdaTilde --parameter-range '[0,1000]' --parameter eta --parameter-range '[0.23,0.25]' --grid-cartesian-npts 10
+#   util_ManualOverlapGrid.py --parameter s1z --parameter-range '[-0.9,0.9]' --parameter s2z --parameter-range '[-0.9,0.9]' --downselect-parameter xi --downselect-parameter-range '[-0.1,0.1]' --skip-overlap --verbose
 #
 # EOB SOURCE EXAMPLES
 #
@@ -68,6 +69,8 @@ parser = argparse.ArgumentParser()
 # Parameters
 parser.add_argument("--parameter", action='append')
 parser.add_argument("--parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used")
+parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
+parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--parameter-value-list", action='append', type=str,help="Add an explicit list of parameter choices to use. ONLY those values will be used. Intended for NR simulations (e.g., q, a1, a2)")
 # Use external EOB for source or template?
 parser.add_argument("--use-external-EOB-source",action="store_true",help="One external EOB call is performed to generate the reference signal")
@@ -188,20 +191,32 @@ def eval_overlap(grid,P_list, IP,indx):
     return line_out
 
 def evaluate_overlap_on_grid(hfbase,param_names, grid):
+    global downselect_dict
     # Validate grid is working: Create a loop and print for each one.
     # WARNING: Assumes grid for mass-unit variables hass mass units (!)
     P_list = []
+    grid_revised = []
     for line in grid:
         Pgrid = P.manual_copy()
         # Set attributes that are being changed as necessary, leaving all others fixed
         for indx in np.arange(len(param_names)):
             Pgrid.assign_param(param_names[indx], line[indx])
 
-        if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
+        # Downselect
+        include_item =True
+        for param in downselect_dict:
+            if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
+                include_item =False
+        if include_item:
+         grid_revised.append(line)
+         if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
             P_list.append(Pgrid)
-        else:
+         else:
             Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
             P_list.append(Pgrid)
+        else:
+            True
+            #print " skipping "
 #    print "Length check", len(P_list), len(grid)
     ###
     ### Loop over grid and make overlaps : see effective fisher code for wrappers
@@ -209,7 +224,7 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     #  FIXME: More robust multiprocessing implementation -- very heavy!
 #    p=Pool(n_threads)
     # PROBLEM: Pool code doesn't work in new configuration.
-    grid_out = np.array(map(functools.partial(eval_overlap, grid, P_list,IP), np.arange(len(grid))))
+    grid_out = np.array(map(functools.partial(eval_overlap, grid_revised, P_list,IP), np.arange(len(grid_revised))))
     # Remove mass units at end
     for p in ['mc', 'm1', 'm2', 'mtot']:
         if p in param_names:
@@ -401,11 +416,23 @@ else:
             print param_names[indx], param_ranges[indx], pts_per_dim[indx]
 
 
-
 template_min_freq = opts.fmin
 ip_min_freq = opts.fmin
 
 
+###
+### Downselect parameters
+###
+
+downselect_dict = {}
+dlist = opts.downselect_parameter
+dlist_ranges  = map(eval,opts.downselect_parameter_range)
+if len(dlist) != len(dlist_ranges):
+    print " downselect parameters inconsistent", dlist, dlist_ranges
+for indx in np.arange(len(dlist_ranges)):
+    downselect_dict[dlist[indx]] = dlist_ranges[indx]
+
+print " Downselect dictionary ", downselect_dict
 
 ###
 ### Lay out grid, currently CARTESIAN.   OPTIONAL: Load grid from file

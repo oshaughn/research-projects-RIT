@@ -133,7 +133,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi']
 class ChooseWaveformParams:
     """
     Class containing all the arguments needed for SimInspiralChooseTD/FDWaveform
@@ -358,6 +358,12 @@ class ChooseWaveformParams:
         if p == 'chi2':
             chi1Vec = np.array([self.s2x,self.s2y,self.s2z])
             return np.sqrt(np.dot(chi1Vec,chi1Vec))
+        if p == 'xi':
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!   Uses OLD convention for spins!
+            xi = np.dot(Lhat, (self.m1*chi1Vec + self.m2* chi2Vec))/(self.m1+self.m2)   # see also 'Xi', defined below
+            return xi
         if p == 'thetaJN':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
