@@ -50,6 +50,7 @@ except:
 parser = argparse.ArgumentParser()
 # Parameters
 parser.add_argument("--mtot-range",default='[50,110]')
+parser.add_argument("--mc-range",default=None, help='If specified, overrides the total mass range [24,38]')
 parser.add_argument("--grid-cartesian-npts",default=30)
 parser.add_argument("--group",default=None)
 parser.add_argument("--param", action='append', help='Explicit list of parameters to use')
@@ -248,7 +249,7 @@ for group in glist:
             if (not opts.skip_overlap) and wfP.P.SoftAlignedQ():
                 print " Adding aligned sim ", group, param
                 wfP.P.approx = lalsim.GetApproximantFromString(opts.approx)  # Make approx consistent and sane
-                wfP.P.m2 *= 0.999999  # Prevent failure for exactly equal!
+                wfP.P.m2 *= 1. - 1e-6  # Prevent failure for exactly equal!
             # Satisfy error checking condition for lal
                 wfP.P.s1x = 0
                 wfP.P.s2x = 0
@@ -296,15 +297,24 @@ if not opts.skip_overlap:  # aligned only!  Compare to SEOB
 else:
     param_names = ['mtot', 'eta', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
 
-mass_range = np.array(eval(opts.mtot_range))*lal.MSUN_SI
+mass_range =[]
+if opts.mc_range:
+    mass_range = np.array(eval(opts.mc_range))*lal.MSUN_SI
+else:
+    mass_range = np.array(eval(opts.mtot_range))*lal.MSUN_SI
 mass_grid =np.linspace( mass_range[0],mass_range[1],opts.grid_cartesian_npts)
 
 # Loop over simulations and mass grid
 grid = []
 for P in P_list_NR:
 #    P.print_params()
+    eta0 = P.extract_param('eta')   # prevent drift in mass ratio across the set if I change mc
     for M in mass_grid:
-        P.assign_param('mtot', M)
+        if opts.mc_range:
+            P.assign_param('mc', M)
+            P.assign_param('eta', eta0)  # prevent drift in mass ratio
+        else:
+            P.assign_param('mtot', M)
         newline = []
         for param in param_names:
             newline = newline + [P.extract_param(param)]
