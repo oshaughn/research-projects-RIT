@@ -306,7 +306,12 @@ P.print_params()
 # Define base COMPLEX signal.  ASSUME length long enough via seglen for this  to work always
 # Define base COMPLEX overlap 
 
-if hasEOB and opts.use_external_EOB_source:
+hfBase = None
+if opts.skip_overlap:
+    hfBase = None
+    IP=lalsimutils.InnerProduct()  # Default, so IP.deltaF code etc does not need to be wrapped
+else:
+ if hasEOB and opts.use_external_EOB_source:
     print "    -------INTERFACE ------"
     print "    Using external EOB interface (Bernuzzi)   with window  ", opts.seglen
     # Code WILL FAIL IF LAMBDA=0
@@ -322,11 +327,11 @@ if hasEOB and opts.use_external_EOB_source:
     hfBase = wfP.complex_hoff(force_T=opts.seglen)
     print "EOB waveform length ", hfBase.data.length
     print "EOB waveform duration", -hfBase.epoch
-elif opts.use_external_EOB_source and not hasEOB:
+ elif opts.use_external_EOB_source and not hasEOB:
     # do not do something else silently!
     print " Failure: EOB requested but impossible "
     sys.exit(0)
-elif opts.use_external_NR_source and hasNR:
+ elif opts.use_external_NR_source and hasNR:
     m1Msun = P.m1/lal.MSUN_SI;     m2Msun = P.m2/lal.MSUN_SI
     if m1Msun < 50 or m2Msun < 50:
         print " Invalid NR mass "
@@ -351,17 +356,17 @@ elif opts.use_external_NR_source and hasNR:
     print "  ---- NR interface: Overriding parameters to match simulation requested ---- "
     wfP.P.print_params()
     hfBase = wfP.complex_hoff(force_T=T_window)
-elif opts.use_external_NR_source and not hasNR:
+ elif opts.use_external_NR_source and not hasNR:
     print " Failure: NR requested but impossible "
     sys.exit(0)
-else:
+ else:
     print "    -------INTERFACE ------"
     print "    Using lalsuite   ", hasEOB, opts.use_external_EOB_source
     hfBase = lalsimutils.complex_hoff(P)
-IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=opts.fmax)
-nmBase = IP.norm(hfBase)
-hfBase.data.data *= 1./nmBase
-if opts.verbose:
+ IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=opts.fmax)
+ nmBase = IP.norm(hfBase)
+ hfBase.data.data *= 1./nmBase
+ if opts.verbose:
     print " ------  SIGNAL DURATION ----- "
     print hfBase.data.length*P.deltaT
 
@@ -425,8 +430,12 @@ ip_min_freq = opts.fmin
 ###
 
 downselect_dict = {}
-dlist = opts.downselect_parameter
-dlist_ranges  = map(eval,opts.downselect_parameter_range)
+if opts.downselect_parameter:
+    dlist = opts.downselect_parameter
+    dlist_ranges  = map(eval,opts.downselect_parameter_range)
+else:
+    dlist = []
+    dlist_ranges = []
 if len(dlist) != len(dlist_ranges):
     print " downselect parameters inconsistent", dlist, dlist_ranges
 for indx in np.arange(len(dlist_ranges)):
