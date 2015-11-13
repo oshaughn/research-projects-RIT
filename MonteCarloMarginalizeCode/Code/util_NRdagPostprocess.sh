@@ -21,7 +21,7 @@ util_CleanILE.py tmp.dat | sort -rg -k10 > $BASE_OUT.composite
 
 # index them
 echo " Reindexing the data to   .... "
-util_ILEToNRIndex.py --group ${GROUP} --fname ${BASE_OUT}.composite | grep '^-1*' > ${BASE_OUT}.indexed
+util_ILEtoNRIndex.py --group ${GROUP} --fname ${BASE_OUT}.composite | grep '^-1*' > ${BASE_OUT}.indexed
 
 
 # Manifest
