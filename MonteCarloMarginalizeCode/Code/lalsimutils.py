@@ -696,7 +696,7 @@ class ChooseWaveformParams:
         if np.dot(S2,S2)<1e-5:
             S2hat = Lvec
         else:
-            S2hat = S1/np.sqrt(np.dot(S2,S2))
+            S2hat = S2/np.sqrt(np.dot(S2,S2))
         return np.abs(np.dot(Lvec, S1hat))>0.999 and np.abs(np.dot(Lvec,S2hat))>0.999
 
     def copy_sim_inspiral(self, row):
