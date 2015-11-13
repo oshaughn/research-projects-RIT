@@ -1,4 +1,4 @@
-#
+#! /usr/bin/env python
 # util_CleanILE.py
 #
 #  Reads FILE (not stdin). Consolidates ILE entries for the same physical system.

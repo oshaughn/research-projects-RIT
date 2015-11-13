@@ -256,9 +256,13 @@ for group in glist:
                 wfP.P.s1y = 0
                 wfP.P.s2y = 0
                 P_list_NR = P_list_NR + [wfP.P]
-            else:
+            elif opts.skip_overlap:
                 print " Adding generic sim; for layout only ", group, param
                 P_list_NR = P_list_NR + [wfP.P]
+            else:
+                print " Skipping non-aligned simulation because overlaps active (=SEOBNRv2 comparison usually)", group, param
+#                wfP.P.print_params()
+#                print nrwf.internal_WaveformMetadata[group][param]
 
   else: # target case if a single group and parameter sequence are specified
         print "Looping over list ", opts.param
