@@ -28,7 +28,7 @@ util_ILEToNRIndex.py --group ${GROUP} --fname ${BASE_OUT}.composite | grep '^-1*
 rm -f ${BASE_OUT}.manifest
 echo '#Host:' `hostname` >>  ${BASE_OUT}.manifest
 echo '#Directory:' `pwd` >>  ${BASE_OUT}.manifest
-cat ${DIR_PROCESS}/testme_command.sh >>  ${BASE_OUT}.manifest  
+cat ${DIR_PROCESS}/testme-command.sh >>  ${BASE_OUT}.manifest  
 
 # tar file
 tar cvzf ${BASE_OUT}.tgz ${BASE_OUT}.composite ${BASE_OUT}.indexed ${BASE_OUT}.manifest
