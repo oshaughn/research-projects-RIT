@@ -2606,6 +2606,7 @@ def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqReq
     return psdNew
 
 def get_psd_series_from_xmldoc(fname, inst):
+    #return read_psd_xmldoc(utils.load_filename(fname, contenthandler=series.LIGOLWContentHandler ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
     return read_psd_xmldoc(utils.load_filename(fname ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
 
 def get_intp_psd_series_from_xmldoc(fname, inst):
