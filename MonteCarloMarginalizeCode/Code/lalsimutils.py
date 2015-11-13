@@ -1383,8 +1383,11 @@ def symRatio(m1, m2):
 
 def m1m2(Mc, eta):
     """Compute component masses from Mc, eta. Returns m1 >= m2"""
-    m1 = 0.5*Mc*eta**(-3./5.)*(1. + np.sqrt(1 - 4.*eta))
-    m2 = 0.5*Mc*eta**(-3./5.)*(1. - np.sqrt(1 - 4.*eta))
+    etaV = 1-4*eta
+    if etaV < 0:
+	etaV = 0
+    m1 = 0.5*Mc*eta**(-3./5.)*(1. + np.sqrt(etaV))
+    m2 = 0.5*Mc*eta**(-3./5.)*(1. - np.sqrt(etaV))
     return m1, m2
 
 def eta_crit(Mc, m2_min):
@@ -2603,7 +2606,7 @@ def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqReq
     return psdNew
 
 def get_psd_series_from_xmldoc(fname, inst):
-    return read_psd_xmldoc(utils.load_filename(fname ,contenthandler = series.LIGOLWContentHandler))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+    return read_psd_xmldoc(utils.load_filename(fname ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
 
 def get_intp_psd_series_from_xmldoc(fname, inst):
     psd = get_psd_series_from_xmldoc(fname, inst)
