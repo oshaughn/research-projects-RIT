@@ -26,9 +26,12 @@ util_ILEtoNRIndex.py --group ${GROUP} --fname ${BASE_OUT}.composite | grep '^-1*
 
 # Manifest
 rm -f ${BASE_OUT}.manifest
+echo '#User:' `whoami` >>  ${BASE_OUT}.manifest
+echo '#Date:' `date` >>  ${BASE_OUT}.manifest
 echo '#Host:' `hostname` >>  ${BASE_OUT}.manifest
 echo '#Directory:' `pwd` >>  ${BASE_OUT}.manifest
 cat ${DIR_PROCESS}/testme-command.sh >>  ${BASE_OUT}.manifest  
+env >> ${BASE_OUT}.environment  
 
 # tar file
-tar cvzf ${BASE_OUT}.tgz ${BASE_OUT}.composite ${BASE_OUT}.indexed ${BASE_OUT}.manifest
+tar cvzf ${BASE_OUT}.tgz ${BASE_OUT}.composite ${BASE_OUT}.indexed ${BASE_OUT}.manifest ${BASE_OUT}.environment
