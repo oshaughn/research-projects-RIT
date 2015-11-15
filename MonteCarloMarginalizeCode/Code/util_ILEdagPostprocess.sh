@@ -12,7 +12,10 @@ BASE_OUT=$2
 # join together the .dat files
 echo " Joining data files .... "
 rm -f tmp.dat tmp2.dat
-cat ${DIR_PROCESS}/CME*.dat > tmp.dat
+# CAT can be ineffective
+FNAME=`pwd`/tmp.dat
+#cat ${DIR_PROCESS}/CME*.dat > tmp.dat
+find ${DIR_PROCESS} -name 'CME*.dat' -exec cat {} \; > tmp.dat
 
 # clean them (=join duplicate lines)
 echo " Consolidating multiple instances of the monte carlo  .... "
