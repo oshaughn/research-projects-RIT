@@ -30,12 +30,6 @@ import dag_utils
 
 import regions
 
-try:
-	import NRWaveformCatalogManager as nrwf
-	useNR =True
-except:
-	useNR=False
-
 
 JOB_PRIORITIES = { "ILE": 10,
     "SQL": 1,
