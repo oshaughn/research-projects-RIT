@@ -31,7 +31,9 @@ echo '#Date:' `date` >>  ${BASE_OUT}.manifest
 echo '#Host:' `hostname` >>  ${BASE_OUT}.manifest
 echo '#Directory:' `pwd` >>  ${BASE_OUT}.manifest
 cat ${DIR_PROCESS}/testme-command.sh >>  ${BASE_OUT}.manifest  
+cat ${DIR_PROCESS}/integrate.sub >>  ${BASE_OUT}.submit
+
 env >> ${BASE_OUT}.environment  
 
 # tar file
-tar cvzf ${BASE_OUT}.tgz ${BASE_OUT}.composite ${BASE_OUT}.indexed ${BASE_OUT}.manifest ${BASE_OUT}.environment
+tar cvzf ${BASE_OUT}.tgz ${BASE_OUT}.composite ${BASE_OUT}.indexed ${BASE_OUT}.manifest ${BASE_OUT}.environment ${BASE_OUT}.submit

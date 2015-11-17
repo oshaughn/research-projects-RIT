@@ -30,12 +30,6 @@ import dag_utils
 
 import regions
 
-try:
-	import NRWaveformCatalogManager as nrwf
-	useNR =True
-except:
-	useNR=False
-
 
 JOB_PRIORITIES = { "ILE": 10,
     "SQL": 1,
@@ -104,6 +98,9 @@ optp.add_option("--use-external-EOB",default=False,action='store_true')
 optp.add_option("--nr-lookup",default=False,action='store_true')
 optp.add_option("--nr-lookup-group",action='append')
 optp.add_option("--nr-perturbative-extraction",action='store_true')
+optp.add_option('--nr-group', default=None,help="If using a *ssingle specific simulation* specified on the command line, provide it here")
+optp.add_option('--nr-param', default=None,help="If using a *ssingle specific simulation* specified on the command line, provide it here")
+
 
 #
 # Add the pinnable parameters
@@ -121,6 +118,9 @@ print opts
 if not opts.output_file:
     print " Output file required "
     sys.exit(0)
+
+
+
 
 # Event time
 event_time = glue.lal.LIGOTimeGPS(opts.event_time)
@@ -175,6 +175,8 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid
         reference_freq=opts.reference_freq,
         fmin_template=opts.fmin_template,
         fmax=opts.fmax,
+        nr_group=opts.nr_group,
+        nr_param=opts.nr_param,
         nr_params=opts.nr_params,
 		approximant=opts.approximant,
 		amp_order=opts.amp_order,
