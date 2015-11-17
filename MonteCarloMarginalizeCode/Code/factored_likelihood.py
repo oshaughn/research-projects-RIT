@@ -120,39 +120,45 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
         hlms_conj_list = lsu.conj_hlmoff(P, Lmax)
         hlms_conj = lsu.SphHarmFrequencySeries_to_dict(hlms_conj_list, Lmax) # a dictionary
-    elif nr_lookup and useNR:
+    elif (nr_lookup or NR_group) and useNR:
 	    # look up simulation
 	    # use nrwf to get hlmf
         print " Using NR waveforms "
-        compare_dict = {}
-        compare_dict['q'] = P.m2/P.m1 # Need to match the template parameter. NOTE: VERY IMPORTANT that P is updated with the event params
-        compare_dict['s1z'] = P.s1z
-        compare_dict['s1x'] = P.s1x
-        compare_dict['s1y'] = P.s1y
-        compare_dict['s2z'] = P.s2z
-        compare_dict['s2x'] = P.s2x
-        compare_dict['s2y'] = P.s2y
-        print " Parameter matching condition ", compare_dict
-	good_sim_list = nrwf.NRSimulationLookup(compare_dict,valid_groups=nr_lookup_valid_groups)
-        if len(good_sim_list)< 1:
-                print " ------- NO MATCHING SIMULATIONS FOUND ----- "
-                import sys
-                sys.exit(0)
-        print " Identified set of matching NR simulations ", good_sim_list
-        try:
-                print  "   Attempting to pick longest simulation matching  the simulation  "
-                MOmega0  = 1
-                good_sim = None
-                for key in good_sim_list:
-                        print key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
-                        if nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0'] < MOmega0:
-                                good_sim = key
-                                MOmega0 = nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0']
-                print " Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
-        except:
-                good_sim  = good_sim_list[0] # pick the first one.  Note we will want to reduce /downselect the lookup process
-	group = good_sim[0]
-	param = good_sim[1]
+        group = None
+        param = None
+        if nr_lookup:
+                compare_dict = {}
+                compare_dict['q'] = P.m2/P.m1 # Need to match the template parameter. NOTE: VERY IMPORTANT that P is updated with the event params
+                compare_dict['s1z'] = P.s1z
+                compare_dict['s1x'] = P.s1x
+                compare_dict['s1y'] = P.s1y
+                compare_dict['s2z'] = P.s2z
+                compare_dict['s2x'] = P.s2x
+                compare_dict['s2y'] = P.s2y
+                print " Parameter matching condition ", compare_dict
+                good_sim_list = nrwf.NRSimulationLookup(compare_dict,valid_groups=nr_lookup_valid_groups)
+                if len(good_sim_list)< 1:
+                        print " ------- NO MATCHING SIMULATIONS FOUND ----- "
+                        import sys
+                        sys.exit(0)
+                        print " Identified set of matching NR simulations ", good_sim_list
+                try:
+                        print  "   Attempting to pick longest simulation matching  the simulation  "
+                        MOmega0  = 1
+                        good_sim = None
+                        for key in good_sim_list:
+                                print key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+                                if nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0'] < MOmega0:
+                                        good_sim = key
+                                        MOmega0 = nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0']
+                                print " Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+                except:
+                        good_sim  = good_sim_list[0] # pick the first one.  Note we will want to reduce /downselect the lookup process
+                group = good_sim[0]
+                param = good_sim[1]
+        else:
+                group = NR_group
+                param = NR_param
         print " Identified matching NR simulation ", group, param
 	mtot = P.m1 + P.m2
         q = P.m2/P.m1
