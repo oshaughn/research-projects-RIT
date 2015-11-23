@@ -142,8 +142,8 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
         # Rescale mass parameters using the xi factor
         xi_now = Pgrid.extract_param('xi')
         eta_now = Pgrid.extract_param('eta')
-        Pgrid.m1 *= (1.+xi_now*xi_factor + eta_factor*(0.25-eta_now))
-        Pgrid.m2 *= (1.+xi_now*xi_factor + eta_factor*(0.25-eta_now))
+        Pgrid.m1 *= (1.+xi_now*xi_factor + eta_factor0*(0.25-eta_now))
+        Pgrid.m2 *= (1.+xi_now*xi_factor + eta_factor0*(0.25-eta_now))
         P_list.append(Pgrid)
 #    print "Length check", len(P_list), len(grid)
     ###
