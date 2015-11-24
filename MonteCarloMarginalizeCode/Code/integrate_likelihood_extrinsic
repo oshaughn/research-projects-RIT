@@ -67,7 +67,7 @@ optp.add_option("--nr-lookup",action='store_true', help=" Look up parameters fro
 optp.add_option("--nr-lookup-group",action='append', help="Restriction on 'group' for NR lookup")
 optp.add_option("--nr-perturbative-extraction",default=False,action='store_true')
 optp.add_option("--use-external-EOB",default=False,action='store_true')
-optp.add_option("--maximize-only",default=False, action='store_true',help="Instead of integrating, attempts to find the single best fitting point")
+optp.add_option("--maximize-only",default=False, action='store_true',help="After integrating, attempts to find the single best fitting point")
 optp.add_option("-a", "--approximant", default="TaylorT4", help="Waveform family to use for templates. Any approximant implemented in LALSimulation is valid.")
 optp.add_option("-A", "--amp-order", type=int, default=0, help="Include amplitude corrections in template waveforms up to this e.g. (e.g. 5 <==> 2.5PN), default is Newtonian order.")
 optp.add_option("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")
