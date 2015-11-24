@@ -1,5 +1,8 @@
 #!/usr/bin/env python
-
+#
+# FOLLOWUP TEST (if known injection)
+#    util_PrintInjection.py --inj mdc.xml.gz --event 0 --verbose
+#   util_PrintInjection.py --inj maxpt_zero_noise.xml.gz.xml.gz --event 0
 """
 Integrate the extrinsic parameters of the prefactored likelihood function.
 """
@@ -741,6 +744,7 @@ if opts.maximize_only:
           return -1.0* factored_likelihood.FactoredLogLikelihood(
                     P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
 
+    # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
     indx_guess = numpy.argmax(sampler._rvs["integrand"])   # start search near maximum-weight point
     x0 = [  sampler._rvs["right_ascension"][indx_guess]/(2*numpy.pi) , \
        (sampler._rvs["declination"][indx_guess]/numpy.pi)+0.5,  \
@@ -750,13 +754,31 @@ if opts.maximize_only:
        sampler._rvs["psi"][indx_guess]/numpy.pi,\
        sampler._rvs["distance"][indx_guess]/dmax\
             ]
-    print " Starting point ", x0
-    print " lnL at start :", fn_scaled(x0), " [note can be lower than peak because of time offset]: best reported by ILE (including weights) is ", numpy.log(numpy.max(sampler._rvs["integrand"]))
-    x = scipy.optimize.fmin(fn_scaled,x0, xtol=0.01,maxiter=opts.n_max)
+    # Pick the best starting time. BRUTE FORCE METHOD: use a 500-element grid
+    def fn_scaled_t(t,x0):
+        return fn_scaled( [x0[0], x0[1], t, x0[3], x0[4], x0[5], x0[6]])
+    tvals_guess = numpy.linspace(0,1,500)
+    lnLvals = numpy.array([fn_scaled_t(t,x0) for t in tvals_guess])
+    tbest = tvals_guess[numpy.argmax(lnLvals)]
+    x0[2] = tbest
+    x0p = x0
+#    x0p = scipy.optimize.brent(fn_scaled_t, brack=[tbest-0.01,tbest,tbest+0.01],args=[x0],maxiter=5000)
+    print " Fitting best (geocentric) time : ", fiducial_epoch + (x0p[2]-0.5)*2*t_ref_wind, " relative time ", (x0p[2]-0.5)*2*t_ref_wind
+    x0  = x0p
+    # Full multi-d search for best point
+    print " Starting point [dimensionless] ", x0
+    print " Starting point [physocal] ", [x0[0]*2*numpy.pi, numpy.pi*(x0[1]-0.5),  t_ref_wind*2*(x0[2]-0.5), 2*numpy.pi*x0[3], numpy.pi*x0[4], numpy.pi*x0[5], x0[6]*dmax]
+    lnLstart = fn_scaled(x0)
+    print " lnL at start :", lnLstart, " [note can be lower than peak because of time offset]: best reported by ILE (including weights) is ", numpy.log(numpy.max(sampler._rvs["integrand"]))
+    x = scipy.optimize.fmin(fn_scaled,x0, xtol=1e-5,ftol=1e-3,maxiter=opts.n_max,maxfun=opts.n_max)
     lnLmax = -1.0*fn_scaled(x)
+    if lnLmax < lnLstart:
+        print " Maximization failed to improve our initial point ! "
+        x = x0p
+        lnLmax = lnLstart
     print "Best lnL = ", lnLmax
     print "Best point", [x[0]*2*numpy.pi, numpy.pi*(x[1]-0.5),  t_ref_wind*2*(x[2]-0.5), 2*numpy.pi*x[3], numpy.pi*x[4], numpy.pi*x[5], x[6]*dmax]
-    # Rewrite sample array
+    # Output best fit.  Note STANDARD output will occur as usual
     P_max = P.manual_copy()
     P_max.tref = fiducial_epoch + t_ref_wind*2*(x[2]-0.5)
     P_max.phi = x[0]*2*numpy.pi
@@ -769,7 +791,7 @@ if opts.maximize_only:
     P_max.m2 = lal.MSUN_SI*m2
     P_list = [P_max]
     lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"maxpt_"+opts.output_file)
-    sys.exit(0)
+#    sys.exit(0)
     # sampler._rvs  ={}
     # sampler._rvs["t_ref"]            = numpy.array([t_ref_wind*2*(x[2]-0.5)])
     # sampler._rvs["distance"]       = numpy.array([x[6]*dmax])
