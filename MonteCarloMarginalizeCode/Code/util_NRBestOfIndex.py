@@ -44,6 +44,7 @@ parser = argparse.ArgumentParser()
 #parser.add_argument("--group",default=None)
 parser.add_argument("--fname", default=None, help="Base output file for ascii text (.dat) and xml (.xml.gz)")
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
+parser.add_argument("--fit", action="store_true",default=False, help="Local quadratic fit on best points")
 opts=  parser.parse_args()
 
 if opts.verbose:
@@ -63,8 +64,8 @@ with open(opts.fname) as f:
  for line_str in f:
      # string split
      line = line_str.split()
-     if opts.verbose:
-         print "  Input ", line
+#     if opts.verbose:
+#         print "  Input ", line
      # Get NR data
      group = line[3]
      if not nrwf.internal_ParametersAreExpressions.has_key(group):
@@ -92,7 +93,30 @@ with open(opts.fname) as f:
      else:
          full_spoke[key] = [[mtot,lnLhere]]
 
-print " -----  BEST MATCHES ------ "  # unsorted
+print " -----  BEST SINGLE POINT MATCHES ------ "  # unsorted
+if  opts.fit:
+  print "  +++ Using fit code +++ "
+  for key in best_matches:
+      full_spoke[key] = np.array(sorted(np.array(full_spoke[key]),key=lambda p: p[-1]))
+      lnLmaxHere = np.max(full_spoke[key][:,1])
+      indx_crit =np.max([10,np.argmin( np.abs(full_spoke[key][:,1]-10))])
+      reduced_spoke = full_spoke[key][-indx_crit:]
+      mMin = np.min(reduced_spoke[:,0])
+      mMax = np.max(reduced_spoke[:,0])
+      z = np.polyfit(reduced_spoke[:,0], reduced_spoke[:,1],2)
+      mBestGuess = -0.5*z[1]/z[0]
+      lnLBestGuess = z[2] -0.25*z[1]**2/z[0] 
+      print key, z[0], mBestGuess, lnLBestGuess, best_matches[key]
+      if z[2]<0 and mBestGuess> mMin and mBestGuess < mMax:
+          if opts.verbose:
+              print " Replacing peak ", key, best_matches[key], " -> ", lnLBestGuess, " at mass ", mBestGuess
+          best_matches[key] = lnLBestGuess 
+      if z[2]<0 and not ( mBestGuess> mMin and mBestGuess < mMax):
+          print " PLACEMENT FAILURE: ", key, mBestGuess, " outside of ", [mMin,mMax]
+      
+      
+
+
 for key in best_matches:
     tmax =0
     if nrwf.internal_EstimatePeakL2M2Emission[key[0]].has_key(key[1]):

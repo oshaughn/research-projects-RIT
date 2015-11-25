@@ -1,5 +1,8 @@
 #!/usr/bin/env python
-
+#
+# FOLLOWUP TEST (if known injection)
+#    util_PrintInjection.py --inj mdc.xml.gz --event 0 --verbose
+#   util_PrintInjection.py --inj maxpt_zero_noise.xml.gz.xml.gz --event 0
 """
 Integrate the extrinsic parameters of the prefactored likelihood function.
 """
@@ -64,6 +67,7 @@ optp.add_option("--nr-lookup",action='store_true', help=" Look up parameters fro
 optp.add_option("--nr-lookup-group",action='append', help="Restriction on 'group' for NR lookup")
 optp.add_option("--nr-perturbative-extraction",default=False,action='store_true')
 optp.add_option("--use-external-EOB",default=False,action='store_true')
+optp.add_option("--maximize-only",default=False, action='store_true',help="After integrating, attempts to find the single best fitting point")
 optp.add_option("-a", "--approximant", default="TaylorT4", help="Waveform family to use for templates. Any approximant implemented in LALSimulation is valid.")
 optp.add_option("-A", "--amp-order", type=int, default=0, help="Include amplitude corrections in template waveforms up to this e.g. (e.g. 5 <==> 2.5PN), default is Newtonian order.")
 optp.add_option("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")
@@ -128,7 +132,6 @@ if opts.data_end_time is None and opts.data_start_time is not None:
 
 #
 # Import NR grid
-#    - FIXME: Modify to use json not text.
 #
 NR_template_group=None
 NR_template_param=None
@@ -694,7 +697,6 @@ if not opts.time_marginalization:
             i+=1
     
         return numpy.exp(lnL)
-
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else: # Sum over time for every point in other extrinsic params
@@ -725,6 +727,84 @@ else: # Sum over time for every point in other extrinsic params
 
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
+
+
+
+if opts.maximize_only:
+    import scipy.optimize
+    def fn_scaled(x):
+          P.phi = x[0]*2*numpy.pi # right ascension
+          P.theta = (x[1]-0.5)*numpy.pi # declination
+          P.tref = fiducial_epoch + (x[2]-0.5)*2*t_ref_wind # ref. time (rel to epoch for data taking)
+          P.phiref = x[3]*numpy.pi*2 # ref. orbital phase
+          P.incl = x[4]*numpy.pi # inclination
+          P.psi = x[5]*numpy.pi # polarization angle
+          P.dist = x[6]*dmax* 1.e6 * lalsimutils.lsu_PC # luminosity distance
+    
+          return -1.0* factored_likelihood.FactoredLogLikelihood(
+                    P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
+
+    # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
+    indx_guess = numpy.argmax(sampler._rvs["integrand"])   # start search near maximum-weight point
+    x0 = [  sampler._rvs["right_ascension"][indx_guess]/(2*numpy.pi) , \
+       (sampler._rvs["declination"][indx_guess]/numpy.pi)+0.5,  \
+       0.5, \
+       (sampler._rvs["phi_orb"][indx_guess]/(2*numpy.pi)), \
+       sampler._rvs["inclination"][indx_guess]/(numpy.pi),\
+       sampler._rvs["psi"][indx_guess]/numpy.pi,\
+       sampler._rvs["distance"][indx_guess]/dmax\
+            ]
+    # Pick the best starting time. BRUTE FORCE METHOD: use a 500-element grid
+    def fn_scaled_t(t,x0):
+        return fn_scaled( [x0[0], x0[1], t, x0[3], x0[4], x0[5], x0[6]])
+    tvals_guess = numpy.linspace(0,1,500)
+    lnLvals = numpy.array([fn_scaled_t(t,x0) for t in tvals_guess])
+    tbest = tvals_guess[numpy.argmax(lnLvals)]
+    x0[2] = tbest
+    x0p = x0
+#    x0p = scipy.optimize.brent(fn_scaled_t, brack=[tbest-0.01,tbest,tbest+0.01],args=[x0],maxiter=5000)
+    print " Fitting best (geocentric) time : ", fiducial_epoch + (x0p[2]-0.5)*2*t_ref_wind, " relative time ", (x0p[2]-0.5)*2*t_ref_wind
+    x0  = x0p
+    # Full multi-d search for best point
+    print " Starting point [dimensionless] ", x0
+    print " Starting point [physocal] ", [x0[0]*2*numpy.pi, numpy.pi*(x0[1]-0.5),  t_ref_wind*2*(x0[2]-0.5), 2*numpy.pi*x0[3], numpy.pi*x0[4], numpy.pi*x0[5], x0[6]*dmax]
+    lnLstart = fn_scaled(x0)
+    print " lnL at start :", lnLstart, " [note can be lower than peak because of time offset]: best reported by ILE (including weights) is ", numpy.log(numpy.max(sampler._rvs["integrand"]))
+    x = scipy.optimize.fmin(fn_scaled,x0, xtol=1e-5,ftol=1e-3,maxiter=opts.n_max,maxfun=opts.n_max)
+    lnLmax = -1.0*fn_scaled(x)
+    if lnLmax < lnLstart:
+        print " Maximization failed to improve our initial point ! "
+        x = x0p
+        lnLmax = lnLstart
+    print "Best lnL = ", lnLmax
+    print "Best point", [x[0]*2*numpy.pi, numpy.pi*(x[1]-0.5),  t_ref_wind*2*(x[2]-0.5), 2*numpy.pi*x[3], numpy.pi*x[4], numpy.pi*x[5], x[6]*dmax]
+    # Output best fit.  Note STANDARD output will occur as usual
+    P_max = P.manual_copy()
+    P_max.tref = fiducial_epoch + t_ref_wind*2*(x[2]-0.5)
+    P_max.phi = x[0]*2*numpy.pi
+    P_max.theta = numpy.pi*(x[1]-0.5)
+    P_max.phiref =x[3]*numpy.pi*2
+    P_max.incl = x[4]*numpy.pi
+    P_max.psi = x[5]*numpy.pi
+    P_max.dist = x[6]*dmax*1e6*lal.PC_SI
+    P_max.m1 = lal.MSUN_SI*m1
+    P_max.m2 = lal.MSUN_SI*m2
+    P_list = [P_max]
+    lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"maxpt_"+opts.output_file)
+#    sys.exit(0)
+    # sampler._rvs  ={}
+    # sampler._rvs["t_ref"]            = numpy.array([t_ref_wind*2*(x[2]-0.5)])
+    # sampler._rvs["distance"]       = numpy.array([x[6]*dmax])
+    # sampler._rvs["psi"]  = numpy.array([x[5]*numpy.pi])
+    # sampler._rvs["right_ascension"]  = numpy.array([x[0]*2*numpy.pi])
+    # sampler._rvs["declination"]  = numpy.array([)
+    # sampler._rvs["inclination"]  = numpy.array([x[4]*numpy.pi])
+    # sampler._rvs["phi_orb"]  = numpy.array([x[3]*numpy.pi])
+    # sampler._rvs["integrand"] = numpy.array([lnLmax])
+    # sampler._rvs["alpha1"]  = numpy.array([1])
+    # sampler._rvs["alpha2"]  = numpy.array([1])
+    # sampler._rvs["alpha3"]  = numpy.array([1])
+
 
 # Ascii output of core result (XML can be mangled by GLUE and is not lightweight)
 #   ONLY KEEPS MASSES

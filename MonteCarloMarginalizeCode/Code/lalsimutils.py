@@ -1932,6 +1932,29 @@ def hlmoft(P, Lmax=2):
 
     return hlms
 
+
+def hlmoft_SEOBv3_dict(P,Lmax=2):
+    """
+    Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
+    with parameters P. Returns a dictionary of modes.
+    A hack for SEOBNRv3, because there's not a natural dictionary output
+    """
+
+    ampFac = (P.m1 + P.m2)/lal.MSUN_SI * lal.MRSUN_SI / P.dist
+
+    hplus, hcross, dynHi, hlmPTS, hlmPTSHi, hIMRlmJTSHi, hLM, attachP = lalsim.SimIMRSpinEOBWaveformAll(0, P.deltaT, \
+                                            P.m1, P.m1, P.fmin, P.dist, P.incl, \
+                                            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z)
+    hlm_dict = SphHarmTimeSeries_to_dict(hLM,2)
+    # for j in range(5):
+    #     m = hLM.m
+    #     hlm_dict[(l,m)]  = hLM.mode
+    #     hLM= hLM.next
+    for key in hlm_dict:
+        hlm_dict[key].data.data *= ampFac
+
+    return hlm_dict
+
 def hlmoft_SEOB_dict(P,Lmax=2):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
