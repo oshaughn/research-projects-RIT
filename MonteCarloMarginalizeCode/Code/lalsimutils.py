@@ -771,7 +771,7 @@ class ChooseWaveformParams:
         row.coa_phase = self.phi
         # http://stackoverflow.com/questions/6032781/pythonnumpy-why-does-numpy-log-throw-an-attribute-error-if-its-operand-is-too
         row.geocent_end_time = np.floor( float(self.tref))
-        row.geocent_end_time_ns = np.floor(1e9*(self.tref - row.geocent_end_time))
+        row.geocent_end_time_ns = np.floor( float(1e9*(self.tref - row.geocent_end_time)))
         row.distance = self.dist/(1e6*lsu_PC)
         row.amp_order = self.ampO
         # PROBLEM: This line is NOT ROBUST, because of type conversions
