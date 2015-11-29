@@ -19,8 +19,52 @@ import lal
 import lalsimutils
 import weight_simulations
 
+rosDebug=False
+
 default_deltaLogL = 5  # Standard de
 
+
+##
+## Spoke fitting
+##
+def FitSpokeNearPeak(xvals,lnLVals,deltaLogL=default_deltaLogL,refinement_scale_min=0.2,**kwargs):
+    # Find the peak
+    lnLmax = np.max(lnLVals)
+    lnLmin = np.min(lnLVals)
+    xmax =np.max(xvals)
+    xmin = np.min(xvals)
+
+    # Find x values "sufficiently near" the peak (assume ONE set, for now).  Use top 30%, PLUS anything within 5
+    pts_vals = np.array([xvals,np.real(lnLVals)]).T
+    pts_sorted = pts_vals[pts_vals[:,1].argsort()] #  np.sort(pts_vals.T,axis=-1)   # usual sort was NOT reliable, oddly!!
+#    print " Sorted array ", pts_sorted
+    indx_max_base = int(len(pts_sorted)*refinement_scale_min)   # maximum index, based on fraction to keep
+    indx_max_delta = np.sum(1 for x in lnLVals if  x > lnLmax-deltaLogL) # len( [x for x,lnL in pts_sorted if lnL> lnLMax-deltaLogL])  # maximum index based on deltaLogL
+#    print indx_max_base, indx_max_delta, np.max([indx_max_base,indx_max_delta])
+    indx_max = np.max([indx_max_base,indx_max_delta])
+    pts_sorted_reduced = pts_sorted[-indx_max:]  # Reduce the number. Minimum length is 3
+
+    xmin_here = np.min(pts_sorted_reduced[:,0])
+    xmax_here = np.max(pts_sorted_reduced[:,0])
+    z = np.polyfit(pts_sorted_reduced[:,0],pts_sorted_reduced[:,1],2)   # note z[0] is coefficient of x^2, z[2] is coefficient of constant
+    if z[0]<0:
+        fn = np.poly1d(z)
+        def fnReturn(x):
+            return np.piecewise(x, [np.logical_and(x>xmin_here, x<xmax_here),np.logical_not(np.logical_and(x>xmin_here , x<xmax_here))] ,[ fn, 0])
+        return fnReturn
+
+    if z[0]>0:
+        z = np.polyfit(pts_sorted_reduced[:,0],pts_sorted_reduced[:,1],1) 
+        fn = np.poly1d(z)
+        def fnReturn(x):
+            return np.piecewise(x, [np.logical_and(x>xmin_here, x<xmax_here),np.logical_not(np.logical_and(x>xmin_here , x<xmax_here))] ,[ fn, 0])
+        return fnReturn
+    
+    return None
+
+##
+## Refinement
+##
 def Refine(xvals,lnLVals,deltaLogL=default_deltaLogL,npts=10,refinement_scale_min=0.2,**kwargs):
     """
     Refine(xvals,lnLVals) takes a 1d grid of lnL(x) and returns a simple grid refinement guess.
@@ -30,9 +74,10 @@ def Refine(xvals,lnLVals,deltaLogL=default_deltaLogL,npts=10,refinement_scale_mi
     return_code = None
     len_min = 10
     if len(xvals) < len_min:
-        print " FAILED REFINEMENT: Too few points for safety"
+        if rosDebug:
+            print " FAILED REFINEMENT: Too few points for safety"
         return 'fail', None
-    if len(xvals)*refinement_scale_min > npts:
+    if rosDebug and len(xvals)*refinement_scale_min > npts:
         print " WARNING: Refinement will not increase point density"
 
 
@@ -57,7 +102,7 @@ def Refine(xvals,lnLVals,deltaLogL=default_deltaLogL,npts=10,refinement_scale_mi
     # Find x values "sufficiently near" the peak (assume ONE set, for now).  Use top 30%, PLUS anything within 5
     pts_vals = np.array([xvals,np.real(lnLVals)]).T
     pts_sorted = pts_vals[pts_vals[:,1].argsort()] #  np.sort(pts_vals.T,axis=-1)   # usual sort was NOT reliable, oddly!!
-    print " Sorted array ", pts_sorted
+#    print " Sorted array ", pts_sorted
     indx_max_base = int(len(pts_sorted)*refinement_scale_min)   # maximum index, based on fraction to keep
     indx_max_delta = np.sum(1 for x in lnLVals if  x > lnLmax-deltaLogL) # len( [x for x,lnL in pts_sorted if lnL> lnLMax-deltaLogL])  # maximum index based on deltaLogL
 #    print indx_max_base, indx_max_delta, np.max([indx_max_base,indx_max_delta])
@@ -185,3 +230,4 @@ def CleanSpokeEntries(spoke_entries,digits=4):
         spoke_entries_out.append([key,lnLmeanMinusLmax+lnLmax, sigmaNetOverL])
 
     return np.around(np.array(spoke_entries_out),decimals=digits)
+
