@@ -7,13 +7,17 @@
 #    - library to manage two arrays: *results* and *XML grids*
 #    - provides
 #         - i/o
+#         - consolidating (=joining entries from duplicate masses)
 #         - fitting
 #         - maximum finding
 #         - grid refinement
+#
+#   - should NOT need NR lookup: works entirely with XML and reported ILE output
 
 import numpy as np
-
-
+import lal
+import lalsimutils
+import weight_simulations
 
 default_deltaLogL = 5  # Standard de
 
@@ -51,7 +55,9 @@ def Refine(xvals,lnLVals,deltaLogL=default_deltaLogL,npts=10,refinement_scale_mi
         return 'extended',xvals_new
 
     # Find x values "sufficiently near" the peak (assume ONE set, for now).  Use top 30%, PLUS anything within 5
-    pts_sorted = np.sort(np.array([xvals,lnLVals]).T)
+    pts_vals = np.array([xvals,np.real(lnLVals)]).T
+    pts_sorted = pts_vals[pts_vals[:,1].argsort()] #  np.sort(pts_vals.T,axis=-1)   # usual sort was NOT reliable, oddly!!
+    print " Sorted array ", pts_sorted
     indx_max_base = int(len(pts_sorted)*refinement_scale_min)   # maximum index, based on fraction to keep
     indx_max_delta = np.sum(1 for x in lnLVals if  x > lnLmax-deltaLogL) # len( [x for x,lnL in pts_sorted if lnL> lnLMax-deltaLogL])  # maximum index based on deltaLogL
 #    print indx_max_base, indx_max_delta, np.max([indx_max_base,indx_max_delta])
@@ -90,3 +96,92 @@ def Refine(xvals,lnLVals,deltaLogL=default_deltaLogL,npts=10,refinement_scale_mi
     xmax_here = np.max(pts_sorted_reduced[:,0])
     return 'refined', np.linspace(xmin_here, xmax_here, npts)
 
+
+def ChooseWaveformParams_to_spoke_label(P,digits=4):
+    m1 = P.m1/lal.MSUN_SI
+    m2 = P.m2/lal.MSUN_SI
+    s1x = P.s1x
+    s1y = P.s1y
+    s1z = P.s1z
+    s2x = P.s2x
+    s2y = P.s2y
+    s2z = P.s2z
+
+    line = np.array([m2/m1,s1x,s1y,s1z,s2x,s2y,s2z ])
+    return np.around(line, decimals=digits)
+
+def Line_to_spoke_label(line,digits=4):
+    m1,m2,s1x,s1y, s1z, s2x,s2y,s2z = line[1:9]
+    line = np.array([m2/m1,s1x,s1y,s1z,s2x,s2y,s2z ])
+    return np.around(line, decimals=digits)
+    
+def Line_to_spoke_entry(line,digits=4):
+    m1 = line[1]
+    m2 = line[2]
+    lnL = line[9]
+    deltaLogL = line[10]
+    return np.around(np.array([m1+m2,lnL,deltaLogL]), decimals=digits)
+
+def ChooseWaveformParams_to_spoke_mass(P,digits=4):
+    m1 = P.m1
+    m2 = P.m2
+    return np.around((m1+m2)/lal.MSUN_SI, decimals=4)
+
+
+def LoadSpokeDAT(fname):
+    # load the *.dat concatenated file 
+    dat = np.loadtxt(fname)
+
+    # group by spokes
+    sdHere = {}
+    for line in dat:
+        spoke_id = str(Line_to_spoke_label(line))
+        spoke_contents = Line_to_spoke_entry(line)
+        if sdHere.has_key(spoke_id):
+            sdHere[spoke_id].append(spoke_contents)
+        else:
+            sdHere[spoke_id] = [spoke_contents]
+    # return 
+    return sdHere
+
+def LoadSpokeXML(fname):
+    # load the xml file
+    P_list = lalsimutils.xml_to_ChooseWaveformParams_array(fname)
+
+    # group by spokes
+    sdHere = {}
+    for P in P_list:
+        spoke_id = str(ChooseWaveformParams_to_spoke_label(P))
+        if sdHere.has_key(spoke_id):
+            sdHere[spoke_id].append(P)
+        else:
+            sdHere[spoke_id] = [P]
+    # return 
+    return sdHere
+
+
+
+##
+## Clean spoke entries: remove duplicate masses
+##
+def CleanSpokeEntries(spoke_entries,digits=4):
+    data_at_intrinsic = {}
+    # Group entries by their total mass (data in spoke: M, lnL, deltalnL
+    for line in spoke_entries:
+        mtot, lnL, sigmaOverlnL = line
+        if data_at_intrinsic.has_key(mtot):
+            data_at_intrinsic[mtot].append( [lnL,sigmaOverlnL])
+        else:
+            data_at_intrinsic[mtot] = [[lnL,sigmaOverlnL]]
+
+    spoke_entries_out = []
+    for key in data_at_intrinsic:
+        lnL, sigmaOverL =   np.transpose(data_at_intrinsic[key])
+        lnLmax = np.max(lnL)
+        sigma = sigmaOverL*np.exp(lnL-lnLmax)  # remove overall Lmax factor, which factors out from the weights constructed from \sigma
+        wts = weight_simulations.AverageSimulationWeights(None, None,sigma)   
+        lnLmeanMinusLmax = np.log(np.sum(np.exp(lnL - lnLmax)*wts))
+        sigmaNetOverL = (np.sqrt(1./np.sum(1./sigma/sigma)))/np.exp(lnLmeanMinusLmax)
+        spoke_entries_out.append([key,lnLmeanMinusLmax+lnLmax, sigmaNetOverL])
+
+    return np.around(np.array(spoke_entries_out),decimals=digits)
