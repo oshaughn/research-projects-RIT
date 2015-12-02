@@ -27,7 +27,7 @@ rm -f ${BASE_OUT}.manifest
 echo '#User:' `whoami` >>  ${BASE_OUT}.manifest
 echo '#Date:' `date` >>  ${BASE_OUT}.manifest
 echo '#Host:' `hostname` >>  ${BASE_OUT}.manifest
-echo '#Directory:' `pwd` >>  ${BASE_OUT}.manifest
+echo '#Directory:' `pwd`/${DIR_PROCESS} >>  ${BASE_OUT}.manifest
 cat ${DIR_PROCESS}/testme-command.sh >>  ${BASE_OUT}.manifest  
 env >> ${BASE_OUT}.environment  
 

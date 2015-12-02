@@ -246,7 +246,7 @@ class ChooseWaveformParams:
             else:
                 self.s1x,self.s1y,self.s1z = val* chi1Vec/chi1VecMag
             return self
-        if p is 'chi2':
+        if p == 'chi2':
             chi1Vec = np.array([self.s2x,self.s2y,self.s2z])
             chi1VecMag = np.sqrt(np.dot(chi1Vec,chi1Vec))
             if chi1VecMag < 1e-5:
@@ -256,21 +256,21 @@ class ChooseWaveformParams:
             else:
                 self.s2x,self.s2y,self.s2z = val* chi1Vec/chi1VecMag
             return self
-        if p is 'thetaJN':
+        if p == 'thetaJN':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
-        if p is 'phiJL':
+        if p == 'phiJL':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=val,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
-        if p is 'theta1':
+        if p == 'theta1':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
@@ -771,7 +771,7 @@ class ChooseWaveformParams:
         row.coa_phase = self.phi
         # http://stackoverflow.com/questions/6032781/pythonnumpy-why-does-numpy-log-throw-an-attribute-error-if-its-operand-is-too
         row.geocent_end_time = np.floor( float(self.tref))
-        row.geocent_end_time_ns = np.floor(1e9*(self.tref - row.geocent_end_time))
+        row.geocent_end_time_ns = np.floor( float(1e9*(self.tref - row.geocent_end_time)))
         row.distance = self.dist/(1e6*lsu_PC)
         row.amp_order = self.ampO
         # PROBLEM: This line is NOT ROBUST, because of type conversions

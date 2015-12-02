@@ -733,12 +733,12 @@ print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
 if opts.maximize_only:
     import scipy.optimize
     def fn_scaled(x):
-          P.phi = x[0]*2*numpy.pi # right ascension
-          P.theta = (x[1]-0.5)*numpy.pi # declination
-          P.tref = fiducial_epoch + (x[2]-0.5)*2*t_ref_wind # ref. time (rel to epoch for data taking)
-          P.phiref = x[3]*numpy.pi*2 # ref. orbital phase
-          P.incl = x[4]*numpy.pi # inclination
-          P.psi = x[5]*numpy.pi # polarization angle
+          P.phi = float(x[0]*2*numpy.pi) # right ascension
+          P.theta = float((x[1]-0.5)*numpy.pi) # declination
+          P.tref = fiducial_epoch + float((x[2]-0.5)*2*t_ref_wind) # ref. time (rel to epoch for data taking)
+          P.phiref = float(x[3]*numpy.pi*2) # ref. orbital phase
+          P.incl = float(x[4]*numpy.pi) # inclination
+          P.psi = float(x[5]*numpy.pi) # polarization angle
           P.dist = x[6]*dmax* 1.e6 * lalsimutils.lsu_PC # luminosity distance
     
           return -1.0* factored_likelihood.FactoredLogLikelihood(
@@ -746,24 +746,30 @@ if opts.maximize_only:
 
     # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
     indx_guess = numpy.argmax(sampler._rvs["integrand"])   # start search near maximum-weight point
-    x0 = [  sampler._rvs["right_ascension"][indx_guess]/(2*numpy.pi) , \
+    x0 =numpy.array( [  sampler._rvs["right_ascension"][indx_guess]/(2*numpy.pi) , \
        (sampler._rvs["declination"][indx_guess]/numpy.pi)+0.5,  \
        0.5, \
        (sampler._rvs["phi_orb"][indx_guess]/(2*numpy.pi)), \
        sampler._rvs["inclination"][indx_guess]/(numpy.pi),\
        sampler._rvs["psi"][indx_guess]/numpy.pi,\
        sampler._rvs["distance"][indx_guess]/dmax\
-            ]
+            ],dtype=numpy.float128)
     # Pick the best starting time. BRUTE FORCE METHOD: use a 500-element grid
     def fn_scaled_t(t,x0):
         return fn_scaled( [x0[0], x0[1], t, x0[3], x0[4], x0[5], x0[6]])
-    tvals_guess = numpy.linspace(0,1,500)
-    lnLvals = numpy.array([fn_scaled_t(t,x0) for t in tvals_guess])
-    tbest = tvals_guess[numpy.argmax(lnLvals)]
+    npts_guess = int(t_ref_wind*2/(0.5*1e-4))   # Need to have enough points to fully explore the peak, timing to sub-ms accuracy
+    print " Using ", npts_guess, " time points to select the best time, fixing the remaining extrinsic parameters "
+    tvals_scaled_guess = numpy.linspace(0,1,npts_guess)
+    lnLvals = numpy.array([fn_scaled_t(t,x0) for t in tvals_scaled_guess])
+    tbest = tvals_scaled_guess[numpy.argmax(lnLvals)]
     x0[2] = tbest
     x0p = x0
 #    x0p = scipy.optimize.brent(fn_scaled_t, brack=[tbest-0.01,tbest,tbest+0.01],args=[x0],maxiter=5000)
-    print " Fitting best (geocentric) time : ", fiducial_epoch + (x0p[2]-0.5)*2*t_ref_wind, " relative time ", (x0p[2]-0.5)*2*t_ref_wind
+    t_best_now = lal.LIGOTimeGPS()   # create correct data type
+    t_best_now = fiducial_epoch + float((x0p[2]-0.5)*2*t_ref_wind)
+    t_best_now_s = int(numpy.floor(t_best_now))
+    t_best_now_ns = int((t_best_now - t_best_now_s)*1e9)
+    print " Fitting best (geocentric) time : ", str(t_best_now_s)+ '.'+ str(t_best_now_ns) , " relative time ", (x0p[2]-0.5)*2*t_ref_wind
     x0  = x0p
     # Full multi-d search for best point
     print " Starting point [dimensionless] ", x0
@@ -776,19 +782,23 @@ if opts.maximize_only:
         print " Maximization failed to improve our initial point ! "
         x = x0p
         lnLmax = lnLstart
+    t_best_now = fiducial_epoch + float((x[2]-0.5)*2*t_ref_wind)
     print "Best lnL = ", lnLmax
+    print "Best time =", t_best_now
     print "Best point", [x[0]*2*numpy.pi, numpy.pi*(x[1]-0.5),  t_ref_wind*2*(x[2]-0.5), 2*numpy.pi*x[3], numpy.pi*x[4], numpy.pi*x[5], x[6]*dmax]
     # Output best fit.  Note STANDARD output will occur as usual
     P_max = P.manual_copy()
-    P_max.tref = fiducial_epoch + t_ref_wind*2*(x[2]-0.5)
-    P_max.phi = x[0]*2*numpy.pi
-    P_max.theta = numpy.pi*(x[1]-0.5)
-    P_max.phiref =x[3]*numpy.pi*2
-    P_max.incl = x[4]*numpy.pi
-    P_max.psi = x[5]*numpy.pi
+    P_max.tref = t_best_now
+    P_max.phi = float(x[0]*2*numpy.pi)
+    P_max.theta = float(numpy.pi*(x[1]-0.5))
+    P_max.phiref =float(x[3]*numpy.pi*2)
+    P_max.incl = float(x[4]*numpy.pi)
+    P_max.psi = float(x[5]*numpy.pi)
     P_max.dist = x[6]*dmax*1e6*lal.PC_SI
     P_max.m1 = lal.MSUN_SI*m1
     P_max.m2 = lal.MSUN_SI*m2
+    print " Sanity check: log likelihood for this set is ", factored_likelihood.FactoredLogLikelihood(
+                    P_max, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
     P_list = [P_max]
     lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"maxpt_"+opts.output_file)
 #    sys.exit(0)
