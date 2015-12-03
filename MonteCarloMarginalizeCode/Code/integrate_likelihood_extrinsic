@@ -746,7 +746,8 @@ if opts.maximize_only:
 
     # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
     indx_guess = numpy.argmax(sampler._rvs["integrand"])   # start search near maximum-weight point
-    x0 =numpy.array( [  sampler._rvs["right_ascension"][indx_guess]/(2*numpy.pi) , \
+    x0 =numpy.array( [ \
+       sampler._rvs["right_ascension"][indx_guess]/(2*numpy.pi) , \
        (sampler._rvs["declination"][indx_guess]/numpy.pi)+0.5,  \
        0.5, \
        (sampler._rvs["phi_orb"][indx_guess]/(2*numpy.pi)), \
@@ -760,7 +761,7 @@ if opts.maximize_only:
     npts_guess = int(t_ref_wind*2/(0.5*1e-4))   # Need to have enough points to fully explore the peak, timing to sub-ms accuracy
     print " Using ", npts_guess, " time points to select the best time, fixing the remaining extrinsic parameters "
     tvals_scaled_guess = numpy.linspace(0,1,npts_guess)
-    lnLvals = numpy.array([fn_scaled_t(t,x0) for t in tvals_scaled_guess])
+    lnLvals = numpy.array([-1*fn_scaled_t(t,x0) for t in tvals_scaled_guess])   # note the two -1's cancel
     tbest = tvals_scaled_guess[numpy.argmax(lnLvals)]
     x0[2] = tbest
     x0p = x0
@@ -773,8 +774,8 @@ if opts.maximize_only:
     x0  = x0p
     # Full multi-d search for best point
     print " Starting point [dimensionless] ", x0
-    print " Starting point [physocal] ", [x0[0]*2*numpy.pi, numpy.pi*(x0[1]-0.5),  t_ref_wind*2*(x0[2]-0.5), 2*numpy.pi*x0[3], numpy.pi*x0[4], numpy.pi*x0[5], x0[6]*dmax]
-    lnLstart = fn_scaled(x0)
+    print " Starting point [physical] ", [x0[0]*2*numpy.pi, numpy.pi*(x0[1]-0.5),  t_ref_wind*2*(x0[2]-0.5), 2*numpy.pi*x0[3], numpy.pi*x0[4], numpy.pi*x0[5], x0[6]*dmax]
+    lnLstart = -1*fn_scaled(x0)   # note the two -1's cancel. Compare to 'rho^2/2' value reported by code
     print " lnL at start :", lnLstart, " [note can be lower than peak because of time offset]: best reported by ILE (including weights) is ", numpy.log(numpy.max(sampler._rvs["integrand"]))
     x = scipy.optimize.fmin(fn_scaled,x0, xtol=1e-5,ftol=1e-3,maxiter=opts.n_max,maxfun=opts.n_max)
     lnLmax = -1.0*fn_scaled(x)
