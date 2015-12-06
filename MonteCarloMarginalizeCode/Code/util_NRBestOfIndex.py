@@ -107,7 +107,7 @@ if  opts.fit:
       mBestGuess = -0.5*z[1]/z[0]
       lnLBestGuess = z[2] -0.25*z[1]**2/z[0] 
       print key, z[0], mBestGuess, lnLBestGuess, best_matches[key]
-      if z[2]<0 and mBestGuess> mMin and mBestGuess < mMax:
+      if z[2]<0 and mBestGuess> mMin and mBestGuess < mMax and lnLBestGuess < lnLmaxHere+50:  # do not allow arbitrary extrapolation
           if opts.verbose:
               print " Replacing peak ", key, best_matches[key], " -> ", lnLBestGuess, " at mass ", mBestGuess
           best_matches[key] = lnLBestGuess 
