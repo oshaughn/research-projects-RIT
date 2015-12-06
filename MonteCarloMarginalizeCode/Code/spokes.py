@@ -106,7 +106,7 @@ def Refine(xvals,lnLVals,deltaLogL=default_deltaLogL,npts=10,refinement_scale_mi
     indx_max_base = int(len(pts_sorted)*refinement_scale_min)   # maximum index, based on fraction to keep
     indx_max_delta = np.sum(1 for x in lnLVals if  x > lnLmax-deltaLogL) # len( [x for x,lnL in pts_sorted if lnL> lnLMax-deltaLogL])  # maximum index based on deltaLogL
 #    print indx_max_base, indx_max_delta, np.max([indx_max_base,indx_max_delta])
-    indx_max = np.max([indx_max_base,indx_max_delta])
+    indx_max = np.max([2,indx_max_base,indx_max_delta])
     pts_sorted_reduced = pts_sorted[-indx_max:]  # Reduce the number. Minimum length is 3
     # Fail if length too small (should not happen)
     if len(pts_sorted_reduced) < 3: 

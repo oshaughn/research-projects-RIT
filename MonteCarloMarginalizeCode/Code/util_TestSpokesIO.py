@@ -100,6 +100,7 @@ if opts.fname and opts.fname_dat:
 
    P_list = []
    for spoke_id in sd_dat.keys():
+    if len(sd_dat[spoke_id])>0:
       # Cross-look-up
       try:
          P_sample = sd_P[spoke_id][0] # if this fails
