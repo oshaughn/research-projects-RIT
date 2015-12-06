@@ -78,6 +78,7 @@ with open(opts.fname) as f:
 
      key = (group,param)
      lnLhere = float(line[5])
+     sigma_here = float(line[6])
      if best_matches.has_key(key):
          if best_matches[key] < lnLhere:
                 best_matches[key] = lnLhere
@@ -89,28 +90,36 @@ with open(opts.fname) as f:
      # Add to spoke
      mtot = float(line[1])+ float(line[2])
      if full_spoke.has_key(key):
-        full_spoke[key].append([mtot, lnLhere])
+        full_spoke[key].append([mtot, lnLhere,sigma_here])
      else:
-         full_spoke[key] = [[mtot,lnLhere]]
+         full_spoke[key] = [[mtot,lnLhere, sigma_here]]
 
 print " -----  BEST SINGLE POINT MATCHES ------ "  # unsorted
 if  opts.fit:
   print "  +++ Using fit code +++ "
   for key in best_matches:
-      full_spoke[key] = np.array(sorted(np.array(full_spoke[key]),key=lambda p: p[-1]))
+      full_spoke[key] = np.array(sorted(np.array(full_spoke[key]),key=lambda p: p[1]))
       lnLmaxHere = np.max(full_spoke[key][:,1])
-      indx_crit =np.max([10,np.argmin( np.abs(full_spoke[key][:,1]-10))])
+      indx_peak = np.argmax(full_spoke[key][:,1])
+      sigma_crit = full_spoke[key][indx_peak][2]
+      n_required =np.max([4,np.min([10, 0.1*len(full_spoke[key])])])
+      indx_crit =np.max([n_required-1,np.argmin( np.abs(full_spoke[key][:,1]-10))])
+      if opts.verbose:
+	print " Spoke needs ", key, indx_crit+1
       reduced_spoke = full_spoke[key][-indx_crit:]
       mMin = np.min(reduced_spoke[:,0])
       mMax = np.max(reduced_spoke[:,0])
-      z = np.polyfit(reduced_spoke[:,0], reduced_spoke[:,1],2)
+      z = np.polyfit(reduced_spoke[:,0], reduced_spoke[:,1],2,w=(reduced_spoke[:,2]**2))
       mBestGuess = -0.5*z[1]/z[0]
       lnLBestGuess = z[2] -0.25*z[1]**2/z[0] 
-      print key, z[0], mBestGuess, lnLBestGuess, best_matches[key]
-      if z[2]<0 and mBestGuess> mMin and mBestGuess < mMax and lnLBestGuess < lnLmaxHere+50:  # do not allow arbitrary extrapolation
+      print key, z[0], mBestGuess, lnLBestGuess, best_matches[key], sigma_crit
+      if z[2]<0 and mBestGuess> mMin and mBestGuess < mMax:
+        if lnLBestGuess < lnLmaxHere+50 and lnLBestGuess > lnLmaxHere-5*sigma_crit:  # do not allow arbitrary extrapolation
           if opts.verbose:
               print " Replacing peak ", key, best_matches[key], " -> ", lnLBestGuess, " at mass ", mBestGuess
           best_matches[key] = lnLBestGuess 
+        else:
+	  print " Replacement rejected as out of range "
       if z[2]<0 and not ( mBestGuess> mMin and mBestGuess < mMax):
           print " PLACEMENT FAILURE: ", key, mBestGuess, " outside of ", [mMin,mMax]
       
