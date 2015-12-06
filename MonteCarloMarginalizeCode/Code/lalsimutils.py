@@ -604,6 +604,7 @@ class ChooseWaveformParams:
         print "inclination =", self.incl
         print "distance =", self.dist / 1.e+6 / lsu_PC, "(Mpc)"
         print "reference orbital phase =", self.phiref
+        print "polarization angle =", self.psi
         print "time of coalescence =", float(self.tref)
         print "detector is:", self.detector
         if self.radec==False:
@@ -614,7 +615,13 @@ class ChooseWaveformParams:
             print "Sky position relative to geocenter is:"
             print "declination =", self.theta, "(radians)"
             print "right ascension =", self.phi, "(radians)"
-        print "polarization angle =", self.psi
+        if self.radec==True:
+            print " -- derived parameters (detection-relevant) -- "
+            print "   + 2(phi+psi) ", np.fmod(2*(self.psi+self.phiref),2*np.pi)
+            print "   + 2(phi-psi) ", np.fmod(2*(self.phiref- self.psi),2*np.pi)
+            for ifo in ['H1', 'L1']:
+                detector = lalsim.DetectorPrefixToLALDetector(ifo)
+                print "   +Arrival time at ", ifo, " = ", self.tref - np.round(float(self.tref))+ lal.TimeDelayFromEarthCenter(detector.location, self.phi, self.theta, self.tref), " versus int second"
         print "starting frequency is =", self.fmin
         print "reference frequency is =", self.fref
         print "Max frequency is =", self.fmax
@@ -764,11 +771,11 @@ class ChooseWaveformParams:
         row.mass1 = self.m1/lsu_MSUN
         row.mass2 = self.m2/lsu_MSUN
         row.mchirp = mchirp(row.mass1,row.mass2)
-        row.longitude = self.theta
-        row.latitude   = self.phi
+        row.longitude = self.phi
+        row.latitude   = self.theta
         row.inclination = self.incl
         row.polarization = self.psi
-        row.coa_phase = self.phi
+        row.coa_phase = self.phiref
         # http://stackoverflow.com/questions/6032781/pythonnumpy-why-does-numpy-log-throw-an-attribute-error-if-its-operand-is-too
         row.geocent_end_time = np.floor( float(self.tref))
         row.geocent_end_time_ns = np.floor( float(1e9*(self.tref - row.geocent_end_time)))
