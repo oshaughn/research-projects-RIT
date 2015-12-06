@@ -17,8 +17,10 @@ import numpy as np
 import lalsimutils
 import lal
 
-from matplotlib import pyplot as plt
-
+try:
+	from matplotlib import pyplot as plt
+except:
+	print " no plots"
 ###
 ### Load options
 ###
@@ -56,8 +58,8 @@ if opts.fname_dat:
  print " Spoke count : ", len(sdHere.keys())
  fig_index =0
  for key in sdHere:
-    print " Spoke : ", key
     sdHereCleaned = spokes.CleanSpokeEntries(sdHere[key])
+    print " Spoke ", key, len(sdHereCleaned)
     if opts.mega_verbose:
      for spoke_entry in sdHere[key]:
         print spoke_entry
@@ -100,7 +102,6 @@ if opts.fname and opts.fname_dat:
 
    P_list = []
    for spoke_id in sd_dat.keys():
-    if len(sd_dat[spoke_id])>0:
       # Cross-look-up
       try:
          P_sample = sd_P[spoke_id][0] # if this fails
@@ -111,9 +112,10 @@ if opts.fname and opts.fname_dat:
          print " Failed cross lookup for ", spoke_id
          pass
       # Clean
-      sd_here =spokes.CleanSpokeEntries(sd_dat[key])
+      sd_here =spokes.CleanSpokeEntries(sd_dat[spoke_id])
       # Refine: find mass values
       code, mvals_new = spokes.Refine(sd_here[:,0], sd_here[:,1])
+      print key, len(sd_here), code, mvals_new
       if code == 'refined' or code =='extended':
          for m in mvals_new:
             print m

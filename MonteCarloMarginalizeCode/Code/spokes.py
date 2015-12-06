@@ -72,10 +72,10 @@ def Refine(xvals,lnLVals,deltaLogL=default_deltaLogL,npts=10,refinement_scale_mi
     Refinement by default fits to top 30%
     """
     return_code = None
-    len_min = 10
+    len_min = 5
     if len(xvals) < len_min:
-        if rosDebug:
-            print " FAILED REFINEMENT: Too few points for safety"
+#        if rosDebug:
+        print " FAILED REFINEMENT: Too few points for safety", len(xvals)
         return 'fail', None
     if rosDebug and len(xvals)*refinement_scale_min > npts:
         print " WARNING: Refinement will not increase point density"
@@ -105,12 +105,12 @@ def Refine(xvals,lnLVals,deltaLogL=default_deltaLogL,npts=10,refinement_scale_mi
 #    print " Sorted array ", pts_sorted
     indx_max_base = int(len(pts_sorted)*refinement_scale_min)   # maximum index, based on fraction to keep
     indx_max_delta = np.sum(1 for x in lnLVals if  x > lnLmax-deltaLogL) # len( [x for x,lnL in pts_sorted if lnL> lnLMax-deltaLogL])  # maximum index based on deltaLogL
-#    print indx_max_base, indx_max_delta, np.max([indx_max_base,indx_max_delta])
-    indx_max = np.max([2,indx_max_base,indx_max_delta])
+    #print indx_max_base, indx_max_delta, np.max([indx_max_base,indx_max_delta])
+    indx_max = np.max([3,indx_max_base,indx_max_delta])
     pts_sorted_reduced = pts_sorted[-indx_max:]  # Reduce the number. Minimum length is 3
     # Fail if length too small (should not happen)
     if len(pts_sorted_reduced) < 3: 
-        print "FAILURE: Reduced length "
+        print "FAILURE: Reduced length "  # should never happen
         return 'fail', None
     # Return no refinement possible if the array is long.
     if len(pts_sorted_reduced) > 0.8*len(xvals):
