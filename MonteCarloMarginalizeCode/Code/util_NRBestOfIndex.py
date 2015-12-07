@@ -76,8 +76,12 @@ with open(opts.fname) as f:
      else:
          param = line[4]
 
+     if len(line)<6:
+         pass
+
      key = (group,param)
-     lnLhere = float(line[5])
+     # in case line abbreviated for some reason
+     lnLhere = float(line[5])  
      sigma_here = float(line[6])
      if best_matches.has_key(key):
          if best_matches[key] < lnLhere:
@@ -138,4 +142,4 @@ for key in best_matches:
         Mf = nrwf.internal_WaveformMetadata[key[0]][key[1]]['MF']
     wfP = nrwf.WaveformModeCatalog(key[0],key[1], metadata_only=True)
     xi = wfP.P.extract_param('xi')
-    print best_matches[key], key,   best_matches_masses[key][0], best_matches_masses[key][1], tmax, xi, Mf, af
+    print best_matches[key], key[0], str(key[1]).replace(' ',''),   best_matches_masses[key][0], best_matches_masses[key][1], tmax, xi, Mf, af
