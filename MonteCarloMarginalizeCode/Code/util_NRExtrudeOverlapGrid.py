@@ -58,7 +58,7 @@ parser.add_argument("--group",default=None)
 parser.add_argument("--param", action='append', help='Explicit list of parameters to use')
 parser.add_argument("--eta-range",default='[0.1,0.25]')
 parser.add_argument("--mass-xi-factor",default=0.6,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
-parser.add_argument("--mass-eta-factor",default=4,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
+parser.add_argument("--mass-eta-factor",default=2,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
 # Cutoff options
 parser.add_argument("--skip-overlap",action='store_true', help="If true, the grid is generated without actually performing overlaps. Very helpful if the grid is just in mtot, for the purposes of reproducing a specific NR simulation")
 parser.add_argument("--match-value", type=float, default=0.01, help="Use this as the minimum match value. Default is 0.01 (i.e., keep almost everything)")
@@ -142,8 +142,8 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
         # Rescale mass parameters using the xi factor
         xi_now = Pgrid.extract_param('xi')
         eta_now = Pgrid.extract_param('eta')
-        Pgrid.m1 *= (1.+xi_now*xi_factor + eta_factor0*(0.25-eta_now))
-        Pgrid.m2 *= (1.+xi_now*xi_factor + eta_factor0*(0.25-eta_now))
+        Pgrid.m1 *= (1.+xi_now*xi_factor - eta_factor0*(0.25-eta_now))
+        Pgrid.m2 *= (1.+xi_now*xi_factor - eta_factor0*(0.25-eta_now))
         P_list.append(Pgrid)
 #    print "Length check", len(P_list), len(grid)
     ###
