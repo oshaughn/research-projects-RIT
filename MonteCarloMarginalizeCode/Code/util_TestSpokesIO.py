@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/env python
 #
 #  GOAL
 #     - demonstrate spoke reconstruction from xml and from ILE *.dat output
@@ -68,7 +68,7 @@ if opts.fname_dat:
         print spoke_entry
     if opts.test_refinement:
         #print sdHereCleaned[:,0], sdHereCleaned[:,1]
-        code, xvals_new = spokes.Refine(sdHereCleaned[:,0], sdHereCleaned[:,1])
+        code, xvals_new = spokes.Refine(sdHereCleaned[:,0], sdHereCleaned[:,1],xmin=1)  
         if opts.mega_verbose:
            print code, xvals_new
 

@@ -65,7 +65,7 @@ def FitSpokeNearPeak(xvals,lnLVals,deltaLogL=default_deltaLogL,refinement_scale_
 ##
 ## Refinement
 ##
-def Refine(xvals,lnLVals,deltaLogL=default_deltaLogL,npts=10,refinement_scale_min=0.2,**kwargs):
+def Refine(xvals,lnLVals,xmin=None,deltaLogL=default_deltaLogL,npts=10,refinement_scale_min=0.2,**kwargs):
     """
     Refine(xvals,lnLVals) takes a 1d grid of lnL(x) and returns a simple grid refinement guess.
     If the maximum is at or very near an edge (1 or two samples).
@@ -134,6 +134,8 @@ def Refine(xvals,lnLVals,deltaLogL=default_deltaLogL,npts=10,refinement_scale_mi
             predicted_roots[0] = xmin_here
         if predicted_roots[1] > xmax_here+len_min*dx:
             predicted_roots[1] = xmax_here
+        if (not (xmin == None)) and predicted_roots[0]<xmin:
+            predicted_roots[0] = xmin   # prevent negative total masses
         xvals_new = np.linspace(predicted_roots[0],predicted_roots[1], npts)
         return 'refined', xvals_new
     # OPTION 2: Literal refinement based on surviving points
