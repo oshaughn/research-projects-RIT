@@ -165,7 +165,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # Load the catalog
         wfP = nrwf.WaveformModeCatalog(group, param, \
                                            clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, perturbative_extraction=perturbative_extraction,
-                                       lmax=Lmax,align_at_peak_l2_m2_emission=True)
+                                       lmax=Lmax,align_at_peak_l2_m2_emission=True, build_strain_and_conserve_memory=True)
         # Overwrite the parameters in wfP to set the desired scale
         wfP.P.m1 = mtot/(1+q)
         wfP.P.m2 = mtot*q/(1+q)
