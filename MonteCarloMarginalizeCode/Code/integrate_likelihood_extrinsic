@@ -744,6 +744,9 @@ else: # Sum over time for every point in other extrinsic params
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
 
+# Unpack paired sky coordinates
+if ("declination", "right_ascension") in sampler.params:
+    sampler._rvs["declination"], sampler._rvs["right_ascension"] = sampler._rvs[("declination", "right_ascension")]
 
 
 if opts.maximize_only:
