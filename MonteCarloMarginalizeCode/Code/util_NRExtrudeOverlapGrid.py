@@ -142,6 +142,7 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
         # Rescale mass parameters using the xi factor
         xi_now = Pgrid.extract_param('xi')
         eta_now = Pgrid.extract_param('eta')
+        # THIS CAN BE NEGATIVE: PATHOLOGICAL
         Pgrid.m1 *= (1.+xi_now*xi_factor - eta_factor0*(0.25-eta_now))
         Pgrid.m2 *= (1.+xi_now*xi_factor - eta_factor0*(0.25-eta_now))
         P_list.append(Pgrid)
@@ -162,6 +163,7 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     grid_out_new = []
     P_list_out_new = []
     for indx in np.arange(len(grid_out)):
+      if P_list[indx].m1 >0 and P_list[indx].m2>0:   # reject insane cases where the masses were scaled to be <0
         if (opts.skip_overlap) or (grid_out[indx,-1] > opts.match_value):
             grid_out_new.append(grid_out[indx])
             P_list_out_new.append(P_list[indx])
