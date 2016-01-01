@@ -32,7 +32,8 @@ def AverageSimulationWeights(param_list, length_list,sigma_list, prior_volume_li
                  I =( \sum_k I_k \Delta P_k /\sigma_k^2)/ \sum_k 1/\sigma_k^2
     """
 
-    assert np.min(sigma_list) >0.
+    if np.min(sigma_list) <0.:
+        return np.ones(len(sigma_list))   # Allow the user to be a moron
 
     weights = np.ones(len(sigma_list))
 
