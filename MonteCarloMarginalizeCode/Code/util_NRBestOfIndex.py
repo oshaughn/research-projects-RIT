@@ -44,6 +44,7 @@ parser = argparse.ArgumentParser()
 #parser.add_argument("--group",default=None)
 parser.add_argument("--fname", default=None, help="Base output file for ascii text (.dat) and xml (.xml.gz)")
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
+parser.add_argument("--lnL-cut-up",default=5,type=float,help="Maximum amount (in lnL) a fit can increase lnL, based on what is calculated. Use a tighter threshold for a denser grid, and a wide threshold if you want to live dangerously.")
 parser.add_argument("--fit", action="store_true",default=False, help="Local quadratic fit on best points")
 opts=  parser.parse_args()
 
@@ -80,22 +81,36 @@ with open(opts.fname) as f:
          pass
 
      key = (group,param)
+
+     failure_mode=False; sigma_here = 1e6
      # in case line abbreviated for some reason
-     lnLhere = float(line[5])  
-     sigma_here = float(line[6])
-     if best_matches.has_key(key):
+     try:
+         lnLhere = float(line[5])  
+         sigma_here = float(line[6])
+         npts_here = float(line[7])
+     except:
+         lnLhere = -10
+         sigma_here = 0.1
+         npts_here = 1
+         failure_mode=True
+         pass
+     if sigma_here > 0.95:
+         failure_mode=True
+         pass  # DO NOT RECORD ITEMS which are completely unconverged (one point). Insane answers likely.  (should ALSO have tunable cutoff on accuracy)
+     if not failure_mode:
+      if best_matches.has_key(key):
          if best_matches[key] < lnLhere:
                 best_matches[key] = lnLhere
                 best_matches_masses[key] = (float(line[1]),float(line[2]))
-     else:
+      else:
          best_matches[key] = line[5]
          best_matches_masses[key] = (float(line[1]),float(line[2]))
 
-     # Add to spoke
-     mtot = float(line[1])+ float(line[2])
-     if full_spoke.has_key(key):
+      # Add to spoke
+      mtot = float(line[1])+ float(line[2])
+      if full_spoke.has_key(key):
         full_spoke[key].append([mtot, lnLhere,sigma_here])
-     else:
+      else:
          full_spoke[key] = [[mtot,lnLhere, sigma_here]]
 
 print " -----  BEST SINGLE POINT MATCHES ------ "  # unsorted
@@ -113,17 +128,27 @@ if  opts.fit:
       reduced_spoke = full_spoke[key][-indx_crit:]
       mMin = np.min(reduced_spoke[:,0])
       mMax = np.max(reduced_spoke[:,0])
+      weights = reduced_spoke[:,2]
+      reduced_spoke[np.isnan(weights),2] = 0  # do not use NAN entries with errors
+      reduced_spoke[np.isnan(weights),1] = 0  # do not use NAN entries with errors
+#      print " Fitting ", key, reduced_spoke
       z = np.polyfit(reduced_spoke[:,0], reduced_spoke[:,1],2,w=(reduced_spoke[:,2]**2))
       mBestGuess = -0.5*z[1]/z[0]
       lnLBestGuess = z[2] -0.25*z[1]**2/z[0] 
       print key, z[0], mBestGuess, lnLBestGuess, best_matches[key], sigma_crit
       if z[2]<0 and mBestGuess> mMin and mBestGuess < mMax:
-        if lnLBestGuess < lnLmaxHere+50 and lnLBestGuess > lnLmaxHere-5*sigma_crit:  # do not allow arbitrary extrapolation
+        if lnLBestGuess < lnLmaxHere+opts.lnL_cut_up and lnLBestGuess > lnLmaxHere-5*sigma_crit:  # do not allow arbitrary extrapolation
           if opts.verbose:
               print " Replacing peak ", key, best_matches[key], " -> ", lnLBestGuess, " at mass ", mBestGuess
+              if lnLBestGuess > lnLmaxHere+5:
+                  print " VERY LARGE CHANGE FOR", key, lnLmaxHere, "->", lnLBestGuess
           best_matches[key] = lnLBestGuess 
+          orig_mtot = best_matches_masses[key][0]+best_matches_masses[key][1]
+          orig_m1 = best_matches_masses[key][0]
+          orig_m2 = best_matches_masses[key][1]
+          best_matches_masses[key]=(mBestGuess* orig_m1/orig_mtot, mBestGuess* orig_m2/orig_mtot)
         else:
-	  print " Replacement rejected as out of range "
+	  print " Replacement rejected as out of range ", key, " reject ", lnLmaxHere, "->", lnLBestGuess, " : you probably need to rerun this spoke"
       if z[2]<0 and not ( mBestGuess> mMin and mBestGuess < mMax):
           print " PLACEMENT FAILURE: ", key, mBestGuess, " outside of ", [mMin,mMax]
       
@@ -131,6 +156,7 @@ if  opts.fit:
 
 
 for key in best_matches:
+  try:
     tmax =0
     if nrwf.internal_EstimatePeakL2M2Emission[key[0]].has_key(key[1]):
         tmax = nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
@@ -143,3 +169,5 @@ for key in best_matches:
     wfP = nrwf.WaveformModeCatalog(key[0],key[1], metadata_only=True)
     xi = wfP.P.extract_param('xi')
     print best_matches[key], key[0], str(key[1]).replace(' ',''),   best_matches_masses[key][0], best_matches_masses[key][1], tmax, xi, Mf, af
+  except:
+     print "Skipping ", key
