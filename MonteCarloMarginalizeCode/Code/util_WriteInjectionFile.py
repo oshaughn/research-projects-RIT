@@ -22,6 +22,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--parameter", action='append', help='Explicit list of parameters to use')
 parser.add_argument("--parameter-value", action="append",help="Explicit list of parameter values to use")
 parser.add_argument("--fname",default="mdc",help="Injection xml name (.xml.gz will be added)")
+parser.add_argument("--approximant",default="TaylorT4",help="Set approximant. Useful for creating LAL comparison injections.")
 # Add option to use NR waveforms!
 parser.add_argument("--group",default=None)
 parser.add_argument("--param",default=None)
@@ -42,6 +43,14 @@ else:
         param = eval(param)
     wfP = nrwf.WaveformModeCatalog(opts.group, param, metadata_only=True)
     P = wfP.P
+
+# default sky location, etc [will be overridden]
+P.radec = True
+P.theta = np.pi/2
+P.phi = 0
+P.phiref = 0
+P.psi = 0
+P.approx = lalsimutils.lalsim.GetApproximantFromString(opts.approximant)  # allow user to override the approx setting. Important for NR followup, where no approx set in sim_xml!
 
 param_names = opts.parameter
 for param in param_names:
