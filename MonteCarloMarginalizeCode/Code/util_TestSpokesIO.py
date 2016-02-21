@@ -110,7 +110,7 @@ if opts.fname and opts.fname_dat:
          P_sample.print_params()
       except:
          print " Failed cross lookup for ", spoke_id
-         pass
+         continue
       # Clean
       sd_here =spokes.CleanSpokeEntries(sd_dat[spoke_id])
       # Refine: find mass values

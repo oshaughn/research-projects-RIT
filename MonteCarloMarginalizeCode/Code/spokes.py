@@ -21,7 +21,8 @@ import weight_simulations
 
 rosDebug=False
 
-default_deltaLogL = 5  # Standard de
+default_deltaLogL = 10 # 10  # Standard refinement interval in lnL.
+n_refine_min =3           # minimum number of points needed for refinement
 
 
 ##
@@ -106,15 +107,31 @@ def Refine(xvals,lnLVals,xmin=None,deltaLogL=default_deltaLogL,npts=10,refinemen
     indx_max_base = int(len(pts_sorted)*refinement_scale_min)   # maximum index, based on fraction to keep
     indx_max_delta = np.sum(1 for x in lnLVals if  x > lnLmax-deltaLogL) # len( [x for x,lnL in pts_sorted if lnL> lnLMax-deltaLogL])  # maximum index based on deltaLogL
     #print indx_max_base, indx_max_delta, np.max([indx_max_base,indx_max_delta])
-    indx_max = np.max([3,indx_max_base,indx_max_delta])
+    indx_max = np.max([n_refine_min,indx_max_base,indx_max_delta])
     pts_sorted_reduced = pts_sorted[-indx_max:]  # Reduce the number. Minimum length is 3
+
+    # Add on elements which are immediately outside the interval, on either side
+    #   - important in case the peak is asymmetrically sampled (i.e., only one side of a hill is well-explored)
+    xc_min = np.min(pts_sorted_reduced[:,0])
+    xc_max = np.min(pts_sorted_reduced[:,0])
+    tmp =  pts_sorted[pts_sorted[:,0]<  xc_min ]
+    if len(tmp) >0:
+        best_before = tmp[-1]
+        pts_sorted_reduced = np.append(pts_sorted_reduced,[best_before],axis=0)
+    tmp = pts_sorted[pts_sorted[:,0]>  xc_max ]
+    if len(tmp)>0:
+        best_after = tmp[-1]
+        pts_sorted_reduced = np.append(pts_sorted_reduced,[best_after],axis=0)
+
     # Fail if length too small (should not happen)
-    if len(pts_sorted_reduced) < 3: 
-        print "FAILURE: Reduced length "  # should never happen
-        return 'fail', None
-    # Return no refinement possible if the array is long.
-    if len(pts_sorted_reduced) > 0.8*len(xvals):
-        return 'no-refine',None
+    if len(pts_sorted_reduced) < n_refine_min: 
+        print "PROBLEM: Reduced length "  # should never happen
+        deltaLogLNew = (n_refine_min+1)*1.0/len(xvals) * np.max(lnLVals)  # top few elements are autoselected
+        return Refine(xvals,lnLVals, xmin=xmin,deltaLogL=deltaLogLNew,npts=npts,refinement_scale_min=refinement_scale_min)
+#        return 'fail', None
+    # Return no refinement possible if the array is long (i.e., lnLVals is nearly constant)
+#    if len(pts_sorted_reduced) > 0.8*len(xvals):
+#        return 'no-refine',None
 
     # Refine
     # OPTION 1: Quadratic fit refinement
