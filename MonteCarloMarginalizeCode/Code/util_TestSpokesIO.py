@@ -69,6 +69,9 @@ if opts.fname_dat:
     if opts.test_refinement:
         #print sdHereCleaned[:,0], sdHereCleaned[:,1]
         code, xvals_new = spokes.Refine(sdHereCleaned[:,0], sdHereCleaned[:,1],xmin=1)  
+        xvals_new = np.array(xvals_new)
+        xvals_new = xvals_new[ xvals_new > 0]  # eliminate negtive masses!
+
         if opts.mega_verbose:
            print code, xvals_new
 
@@ -78,7 +81,7 @@ if opts.fname_dat:
 #        plt.plot(sdHereCleaned[:,0], sdHereCleaned[:,1],'o')
         plt.text(np.mean(sdHereCleaned[:,0])-10,np.max(sdHereCleaned[:,1]), str(key))
         plt.errorbar(sdHereCleaned[:,0], sdHereCleaned[:,1],yerr=sdHereCleaned[:,2],linestyle='none')
-        if opts.test_refinement and code=='refined':
+        if opts.test_refinement and code!='fail':
             plt.plot(xvals_new, 200*np.ones(len(xvals_new)),'o')
 
         xvals_min_here = np.min(sdHereCleaned[:,0])
@@ -100,8 +103,15 @@ if opts.fname and opts.fname_dat:
    sd_dat = spokes.LoadSpokeDAT(opts.fname_dat)
    sd_P =  sdHere = spokes.LoadSpokeXML(opts.fname)
 
+   print " --- Refinement: Writing XML --- "
+   print " data file ", len(sd_dat)
+   print " xml file ", len(sd_P)
+
    P_list = []
+   nCount = 0;
+   nFailures = 0
    for spoke_id in sd_dat.keys():
+      nCount +=1
       # Cross-look-up
       try:
          P_sample = sd_P[spoke_id][0] # if this fails
@@ -109,12 +119,15 @@ if opts.fname and opts.fname_dat:
          P_sample.nonGRparams = None
          P_sample.print_params()
       except:
-         print " Failed cross lookup for ", spoke_id
+         nFailures +=1
+         print " Failed cross lookup for ", spoke_id, nCount, " failure count = ", nFailures
          continue
       # Clean
       sd_here =spokes.CleanSpokeEntries(sd_dat[spoke_id])
       # Refine: find mass values
       code, mvals_new = spokes.Refine(sd_here[:,0], sd_here[:,1])
+      mvals_new = np.array(mvals_new)
+      mvals_new = mvals_new[ mvals_new > 0]  # eliminate negtive masses!
       print key, len(sd_here), code, mvals_new
       if code == 'refined' or code =='extended':
          for m in mvals_new:
