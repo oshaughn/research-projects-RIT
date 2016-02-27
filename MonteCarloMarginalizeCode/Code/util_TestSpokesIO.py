@@ -69,6 +69,8 @@ if opts.fname_dat:
     if opts.test_refinement:
         #print sdHereCleaned[:,0], sdHereCleaned[:,1]
         code, xvals_new = spokes.Refine(sdHereCleaned[:,0], sdHereCleaned[:,1],xmin=1)  
+	if xvals_new is None:
+		continue
         xvals_new = np.array(xvals_new)
         xvals_new = xvals_new[ xvals_new > 0]  # eliminate negtive masses!
 
@@ -126,6 +128,8 @@ if opts.fname and opts.fname_dat:
       sd_here =spokes.CleanSpokeEntries(sd_dat[spoke_id])
       # Refine: find mass values
       code, mvals_new = spokes.Refine(sd_here[:,0], sd_here[:,1])
+      if mvals_new is None:
+	continue  # Failed
       mvals_new = np.array(mvals_new)
       mvals_new = mvals_new[ mvals_new > 0]  # eliminate negtive masses!
       print key, len(sd_here), code, mvals_new
