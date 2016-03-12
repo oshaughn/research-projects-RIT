@@ -83,21 +83,25 @@ def Refine(xvals,lnLVals,xmin=None,deltaLogL=default_deltaLogL,npts=10,refinemen
 
 
     # Find the peak
+    # warning: x values are NOT necessarily sorted
     lnLmax = np.max(lnLVals)
     lnLmin = np.min(lnLVals)
     xmax =np.max(xvals)
     xmin = np.min(xvals)
+    indx_first = np.argmin(xvals)
+    indx_last = np.argmin(xvals)
+
 
     # If we are at an edge, extend, with the same resolution as the CLOSEST FEW POINTS
-    if lnLVals[0]==lnLmax:
+    if lnLVals[indx_first]==lnLmax:
         return_code = 'extended'
-        dx = np.std( xvals[-len_min:])   # reduces chance of numerical catastrophe. Note this is a  large stride
-        xvals_new = xvals[0] - np.arange(npts)*dx
+        dx = np.std( xvals[-len_min:])/len_min   # reduces chance of numerical catastrophe. Note this is a  large stride
+        xvals_new = xmin - np.arange(npts)*dx
         return 'extended',xvals_new
-    if lnLVals[-1]==lnLmax:
+    if lnLVals[indx_last]==lnLmax:
         return_code = 'extended'
-        dx = np.std( xvals[-len_min:])   # reduces chance of numerical catastrophe. Note this is a large stride
-        xvals_new = xvals[-1] + np.arange(npts)*dx
+        dx = np.std( xvals[-len_min:])/len_min   # reduces chance of numerical catastrophe. Note this is a large stride
+        xvals_new = xmax + np.arange(npts)*dx
         return 'extended',xvals_new
 
     # Find x values "sufficiently near" the peak (assume ONE set, for now).  Use top 30%, PLUS anything within 5
@@ -199,6 +203,7 @@ def LoadSpokeDAT(fname):
     # group by spokes
     sdHere = {}
     for line in dat:
+#        spoke_id = str([round(elem, 3) for elem in Line_to_spoke_label(line)])
         spoke_id = str(Line_to_spoke_label(line))
         spoke_contents = Line_to_spoke_entry(line)
         if sdHere.has_key(spoke_id):
@@ -215,6 +220,7 @@ def LoadSpokeXML(fname):
     # group by spokes
     sdHere = {}
     for P in P_list:
+#        spoke_id = str( [round(elem, 3) for elem in ChooseWaveformParams_to_spoke_label(P)])
         spoke_id = str(ChooseWaveformParams_to_spoke_label(P))
         if sdHere.has_key(spoke_id):
             sdHere[spoke_id].append(P)
