@@ -15,11 +15,11 @@ rm -f tmp.dat tmp2.dat
 # CAT can be ineffective
 FNAME=`pwd`/tmp.dat
 #cat ${DIR_PROCESS}/CME*.dat > tmp.dat
-find ${DIR_PROCESS} -name 'CME*.dat' -exec cat {} \; > tmp.dat
+find ${DIR_PROCESS} -name 'CME*.dat' -exec cat {} \; > ${DIR_PROCESS}_tmp.dat
 
 # clean them (=join duplicate lines)
 echo " Consolidating multiple instances of the monte carlo  .... "
-util_CleanILE.py tmp.dat | sort -rg -k10 > $BASE_OUT.composite
+util_CleanILE.py ${DIR_PROCESS}_tmp.dat | sort -rg -k10 > $BASE_OUT.composite
 
 
 # Manifest
