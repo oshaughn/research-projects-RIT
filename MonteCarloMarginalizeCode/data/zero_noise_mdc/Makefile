@@ -69,14 +69,14 @@ test_ile_dag_grid: zero_noise.cache
 	create_event_dag_via_grid --sim-xml ${BASE_DIR}/overlap-grid.xml.gz --cache-file ${BASE_DIR}/zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME}  --reference-freq 0.0 --save-samples --output-file zero_noise.xml.gz --n-copies 2 --time-marginalization --save-P 0.01 --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000 --n-eff 200 --d-max 500 
 
 # Evaluate the likelihood by MC integral on *one* mass point specified by the command line.  Make a bunch of plots to followup
-test_ile_postprocessing: zero_noise.cache
+test_ile_postprocessing:  #zero_noise.cache
 	rm -f zero_noise.pdf
-	../../Code/integrate_likelihood_extrinsic --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --time-marginalization --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000  --n-eff 100  --d-max 500    # --adapt-adapt  --convergence-tests-on
-	echo " Number of samples stored in this test (<number of samples performed): " `ligolw_print -t sim_inspiral -c alpha1 zero_noise.xml.gz | wc -l `
-	../../Code/convert_output_format_ile2inference zero_noise.xml.gz > flatfile-points.dat
-	../../Code/postprocess_1d_cumulative --save-sampler-file flatfile --inj mdc.xml.gz 
-	../../Code/make_triplot zero_noise.xml.gz --output triplot.pdf
-	../../Code/plot_integral zero_noise.xml.gz -o integral.pdf
+	../../Code/integrate_likelihood_extrinsic --maximize-only --cache-file zero_noise.cache --channel-name H1=${INJ_CHANNEL_NAME} --channel-name L1=${INJ_CHANNEL_NAME} --channel-name V1=${INJ_CHANNEL_NAME} --psd-file "H1=${PSD_FILE}" --psd-file "L1=${PSD_FILE}" --psd-file "V1=${PSD_FILE}" --event-time ${EVENT_TIME} --mass1 4.0 --mass2 4.0  --reference-freq 0.0  --save-samples  --n-max 60000 --output-file zero_noise.xml.gz --save-deltalnL 15 --save-P 0.0001  --adapt-floor-level 0.1 --adapt-weight-exponent 0.8 --n-chunk 2000  --n-eff 100  --d-max 500    # --adapt-adapt  --convergence-tests-on
+#	echo " Number of samples stored in this test (<number of samples performed): " `ligolw_print -t sim_inspiral -c alpha1 zero_noise.xml.gz | wc -l `
+#	../../Code/convert_output_format_ile2inference zero_noise.xml.gz > flatfile-points.dat
+#	../../Code/postprocess_1d_cumulative --save-sampler-file flatfile --inj mdc.xml.gz 
+#	../../Code/make_triplot zero_noise.xml.gz --output triplot.pdf
+#	../../Code/plot_integral zero_noise.xml.gz -o integral.pdf
 
 # As above, but specify the point using the XML file
 test_ile_postprocessing_grid: zero_noise.cache
