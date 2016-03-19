@@ -27,6 +27,8 @@ for fname in sys.argv[1:]:
     for line in data:
         line = np.around(line, decimals=my_digits)
         indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,lnL, sigmaOverL, ntot, neff = line
+	if sigmaOverL>0.9:
+	    continue    # do not allow poorly-resolved cases (e.g., dominated by one point). These are often useless
         if data_at_intrinsic.has_key(tuple(line[1:9])):
 #            print " repeated occurrence ", line[1:9]
             data_at_intrinsic[tuple(line[1:9])].append(line[9:])
