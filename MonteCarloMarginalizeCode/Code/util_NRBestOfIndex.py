@@ -132,9 +132,17 @@ if  opts.fit:
       reduced_spoke[np.isnan(weights),2] = 0  # do not use NAN entries with errors
       reduced_spoke[np.isnan(weights),1] = 0  # do not use NAN entries with errors
 #      print " Fitting ", key, reduced_spoke
-      z = np.polyfit(reduced_spoke[:,0], reduced_spoke[:,1],2,w=(reduced_spoke[:,2]**2))
-      mBestGuess = -0.5*z[1]/z[0]
-      lnLBestGuess = z[2] -0.25*z[1]**2/z[0] 
+      z=[]; mBestGuess = 0; lnLBestGuess = 0;
+      try:
+          z = np.polyfit(reduced_spoke[:,0], reduced_spoke[:,1],2,w=(reduced_spoke[:,2]**2))
+          mBestGuess = -0.5*z[1]/z[0]
+          lnLBestGuess = z[2] -0.25*z[1]**2/z[0] 
+      except:
+          print " Interpolation failure (internal to polyfit, VERY UNUSUAL) for spoke ", key, " reverting to pointwise best "
+          indxMax = np.argmax(reduced_spoke[:,2])
+          mBestGuess = reduced_spoke[indxMax,0]
+          lnLBestGuess = reduced_spoke[indxMax,2]
+          z = [0,0,lnLBestGuess]
       print key, z[0], mBestGuess, lnLBestGuess, best_matches[key], sigma_crit
       if z[2]<0 and mBestGuess> mMin and mBestGuess < mMax:
         if lnLBestGuess < lnLmaxHere+opts.lnL_cut_up and lnLBestGuess > lnLmaxHere-5*sigma_crit:  # do not allow arbitrary extrapolation
