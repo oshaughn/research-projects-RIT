@@ -19,6 +19,7 @@ import lalsimulation as lalsim
 import lalframe
 import lal
 import functools
+import gp
 
 from multiprocessing import Pool
 try:
@@ -122,7 +123,7 @@ if  opts.fit:
       indx_peak = np.argmax(full_spoke[key][:,1])
       sigma_crit = full_spoke[key][indx_peak][2]
       n_required =np.max([4,np.min([10, 0.1*len(full_spoke[key])])])
-      indx_crit =np.max([n_required-1,np.argmin( np.abs(full_spoke[key][:,1]-10))])
+      indx_crit =int(np.max([n_required-1,np.argmin( np.abs(full_spoke[key][:,1]-10))]))
       if opts.verbose:
 	print " Spoke needs ", key, indx_crit+1
       reduced_spoke = full_spoke[key][-indx_crit:]
@@ -160,7 +161,28 @@ if  opts.fit:
       if z[2]<0 and not ( mBestGuess> mMin and mBestGuess < mMax):
           print " PLACEMENT FAILURE: ", key, mBestGuess, " outside of ", [mMin,mMax]
       
-      
+
+      ## REVISE BEST FIT VIA GAUSSIAN PROCESS
+      #   GP is much less problematic for very crazy values that are far above trend due to bad MC luck
+      #   Has VERY significant implications for rankings overall - often downranking
+      try:
+          my_gp = gp.GaussianProcess1d(reduced_spoke, sigma0=0.1,sigmab=0.2,h=1)
+          xvals_dense = np.linspace(mMin,mMax,1000)
+          yvals_dense = my_gp.predict(xvals_dense)[:,0]
+          indx_gp_best = np.argmax(yvals_dense)
+          print " GP best fit ", xvals_dense[indx_gp_best], yvals_dense[indx_gp_best][0,0], "versus", mBestGuess, lnLmaxHere
+          if  mBestGuess-2 < xvals_dense[indx_gp_best] < mBestGuess+2 and yvals_dense[indx_gp_best][0,0] < lnLBestGuess+5*sigma_crit:
+              mBestGuess = xvals_dense[indx_gp_best]
+              lnLmaxHere= yvals_dense[indx_gp_best][0,0]
+              best_matches[key] = lnLmaxHere
+              orig_mtot = best_matches_masses[key][0]+best_matches_masses[key][1]
+              orig_m1 = best_matches_masses[key][0]
+              orig_m2 = best_matches_masses[key][1]
+              best_matches_masses[key]=(mBestGuess* orig_m1/orig_mtot, mBestGuess* orig_m2/orig_mtot)
+              print "  ....using GP best fit  for ", key, best_matches[key], best_matches_masses[key]
+
+      except:
+          print " GP failure"
 
 
 for key in best_matches:
