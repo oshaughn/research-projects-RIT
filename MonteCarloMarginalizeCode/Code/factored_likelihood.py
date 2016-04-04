@@ -96,9 +96,13 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     detectors = data_dict.keys()
     # Zero-pad to same length as data - NB: Assuming all FD data same resolution
     P.deltaF = data_dict[detectors[0]].deltaF
-    if (not nr_lookup) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1):
+    if (not nr_lookup) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3):
         print "  FACTORED LIKELIHOOD WITH SEOB "    
-        hlmsT = lsu.hlmoft_SEOB_dict(P)  # only 2,2 modes -- Lmax irrelevant
+        hlmst = {}
+        if P.approx == lalsim.SEOBNRv3:
+                hlmsT = lsu.hlmoft_SEOBv3_dict(P)  # only 2,2 modes -- Lmax irrelevant
+        else:
+                hlmsT = lsu.hlmoft_SEOB_dict(P)  # only 2,2 modes -- Lmax irrelevant
         print "  hlm generation complete "    
         if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
                 TDlen = nextPow2(h22.data.length)
