@@ -12,6 +12,7 @@
 #
 #   util_ManualOverlapGrid.py --inj inj.xml.gz --parameter LambdaTilde  --parameter-range '[0,1000]' --grid-cartesian-npts 10 --use-external-EOB-source
 #   util_ManualOverlapGrid.py --inj inj.xml.gz --parameter LambdaTilde  --parameter-range '[0,1000]' --grid-cartesian-npts 10 --use-external-EOB-source --use-external-EOB
+#   python util_ManualOverlapGrid.py --parameter s1x --parameter-range [-1,1] --parameter s1y --parameter-range [-1,1] --parameter --s1z --parameter-range [-1,1] --skip-overlap  --verbose # check Kerr bound is enforced
 #  
 
 #
@@ -26,7 +27,8 @@
 #      May want a caching interface on disk?
 #    - Option to load grid from file: standard xml (injection format)
 #    - default is to work for an ALIGNED-SPIN BINARY, not for more generic sources.
-
+#
+#    - enable automatic rejection of systems that violate the kerr bound
 
 import argparse
 import sys
@@ -440,6 +442,10 @@ if len(dlist) != len(dlist_ranges):
     print " downselect parameters inconsistent", dlist, dlist_ranges
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
+
+# Enforce Kerr bound
+downselect_dict['chi1'] = [0,1]
+downselect_dict['chi2'] = [0,1]
 
 print " Downselect dictionary ", downselect_dict
 
