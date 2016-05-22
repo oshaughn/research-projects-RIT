@@ -47,6 +47,7 @@ parser.add_argument("--fname", default=None, help="Base output file for ascii te
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
 parser.add_argument("--lnL-cut-up",default=5,type=float,help="Maximum amount (in lnL) a fit can increase lnL, based on what is calculated. Use a tighter threshold for a denser grid, and a wide threshold if you want to live dangerously.")
 parser.add_argument("--fit", action="store_true",default=False, help="Local quadratic fit on best points")
+parser.add_argument("--no-gp",action="store_true")
 opts=  parser.parse_args()
 
 if opts.verbose:
@@ -166,6 +167,7 @@ if  opts.fit:
       #   GP is much less problematic for very crazy values that are far above trend due to bad MC luck
       #   Has VERY significant implications for rankings overall - often downranking
       try:
+       if not opts.no_gp:
           my_gp = gp.GaussianProcess1d(reduced_spoke, sigma0=0.1,sigmab=0.2,h=1)
           xvals_dense = np.linspace(mMin,mMax,1000)
           yvals_dense = my_gp.predict(xvals_dense)[:,0]
