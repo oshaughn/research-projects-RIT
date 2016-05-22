@@ -1982,7 +1982,8 @@ def hlmoft_SEOB_dict(P,Lmax=2):
     P.incl = 0
     hC = complex_hoft(P)  # pad as needed
     hC.epoch = hC.epoch - P.tref  # need to CORRECT the event time: hoft adds an epoch
-    print " SEOB hlm trick: epoch of hC ", hC.epoch
+    if rosDebugMessagesContainer[0]:
+        print " SEOB hlm trick: epoch of hC ", hC.epoch
     fac = np.sqrt(5./np.pi)/2
     hC.data.data *=1./fac #lal.SpinWeightedSphericalHarmonic(0.,0., -2,2,2)
 
