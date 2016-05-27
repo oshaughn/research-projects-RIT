@@ -104,19 +104,22 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         else:
                 hlmsT = lsu.hlmoft_SEOB_dict(P)  # only 2,2 modes -- Lmax irrelevant
         print "  hlm generation complete "    
-        if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
-                TDlen = nextPow2(h22.data.length)
+        if P.approx == lalsim.SEOBNRv3 or  P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
+                TDlen = int(1./(P.deltaF*P.deltaT))#TDlen = lsu.nextPow2(hlmsT[(2,2)].data.length)
                 print " Resizing to ", TDlen, " from ", hlmsT[(2,2)].data.length
-                h22 = hlmsT[(2,2)]
-                h2m2 = hlmsT[(2,-2)]
-                hlmsT[(2,2)] = lalsim.ResizeCOMPLEX16TimeSeries(h22, 0, TDlen)
-                hlmsT[(2,-2)] = lalsim.ResizeCOMPLEX16TimeSeries(h2m2, 0, TDlen)
+		for mode in hlmsT:
+			hlmsT[mode] = lal.ResizeCOMPLEX16TimeSeries(hlmsT[mode],0, TDlen)
+                #h22 = hlmsT[(2,2)]
+                #h2m2 = hlmsT[(2,-2)]
+                #hlmsT[(2,2)] = lal.ResizeCOMPLEX16TimeSeries(h22, 0, TDlen)
+                #hlmsT[(2,-2)] = lal.ResizeCOMPLEX16TimeSeries(h2m2, 0, TDlen)
         hlms = {}
         hlms_conj = {}
         for mode in hlmsT:
-                print " FFT for mode ", mode
+                print " FFT for mode ", mode, hlmsT[mode].data.length, " note duration = ", hlmsT[mode].data.length*hlmsT[mode].deltaT
                 hlms[mode] = lsu.DataFourier(hlmsT[mode])
-                print " FFT for conjugate mode ", mode
+		print  " -> ", hlms[mode].data.length
+                print " FFT for conjugate mode ", mode, hlmsT[mode].data.length
                 hlmsT[mode].data.data = np.conj(hlmsT[mode].data.data)
                 hlms_conj[mode] = lsu.DataFourier(hlmsT[mode])
     elif (not (NR_group) or not (NR_param)) and  (not use_external_EOB) and (not nr_lookup):
