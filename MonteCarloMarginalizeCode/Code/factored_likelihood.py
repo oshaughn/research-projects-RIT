@@ -62,7 +62,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False):
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,use_provided_strain=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -124,9 +124,15 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 hlms_conj[mode] = lsu.DataFourier(hlmsT[mode])
     elif (not (NR_group) or not (NR_param)) and  (not use_external_EOB) and (not nr_lookup):
         hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
-        hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
+        if not isinstance(hlms_list, dict):
+                hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
+        else:
+                hlms = hlms_list
         hlms_conj_list = lsu.conj_hlmoff(P, Lmax)
-        hlms_conj = lsu.SphHarmFrequencySeries_to_dict(hlms_conj_list, Lmax) # a dictionary
+        if not isinstance(hlms_list,dict):
+                hlms_conj = lsu.SphHarmFrequencySeries_to_dict(hlms_conj_list, Lmax) # a dictionary
+        else:
+                hlms_conj = hlm_conj_list
     elif (nr_lookup or NR_group) and useNR:
 	    # look up simulation
 	    # use nrwf to get hlmf
@@ -172,7 +178,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # Load the catalog
         wfP = nrwf.WaveformModeCatalog(group, param, \
                                            clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, perturbative_extraction=perturbative_extraction,
-                                       lmax=Lmax,align_at_peak_l2_m2_emission=True, build_strain_and_conserve_memory=True)
+                                       lmax=Lmax,align_at_peak_l2_m2_emission=True, build_strain_and_conserve_memory=True,use_provided_strain=use_provided_strain)
         # Overwrite the parameters in wfP to set the desired scale
         wfP.P.m1 = mtot/(1+q)
         wfP.P.m2 = mtot*q/(1+q)
@@ -215,7 +221,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # Load the catalog
         wfP = nrwf.WaveformModeCatalog(NR_group, NR_param, \
                                            clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, 
-                                       lmax=Lmax,align_at_peak_l2_m2_emission=True)
+                                       lmax=Lmax,align_at_peak_l2_m2_emission=True,use_provided_strain=use_provided_strain)
         # Overwrite the parameters in wfP to set the desired scale
         q = wfP.P.m2/wfP.P.m1
         wfP.P.m1 *= mtot/(1+q)

@@ -66,6 +66,7 @@ optp.add_option('--nr-param', default=None,help="If using a *ssingle specific si
 optp.add_option("--nr-lookup",action='store_true', help=" Look up parameters from an NR catalog, instead of using the approximant specified")
 optp.add_option("--nr-lookup-group",action='append', help="Restriction on 'group' for NR lookup")
 optp.add_option("--nr-perturbative-extraction",default=False,action='store_true')
+optp.add_option("--nr-use-provided-strain",default=False,action='store_true')
 optp.add_option("--use-external-EOB",default=False,action='store_true')
 optp.add_option("--maximize-only",default=False, action='store_true',help="After integrating, attempts to find the single best fitting point")
 optp.add_option("--dump-lnL-time-series",default=False, action='store_true',help="(requires --sim-xml) Dump lnL(t) at the injected parameters")
@@ -387,7 +388,7 @@ rholms_intp, cross_terms, cross_terms_V,  rholms=factored_likelihood.PrecomputeL
         fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
         False, inv_spec_trunc_Q, T_spec,
         NR_group=NR_template_group,NR_param=NR_template_param,
-        use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction)
+        use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,use_provided_strain=opts.nr_use_provided_strain)
 
 if opts.dump_lnL_time_series and opts.sim_xml:
     # LOAD IN PARAMETERS

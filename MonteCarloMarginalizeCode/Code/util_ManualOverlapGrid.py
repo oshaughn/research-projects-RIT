@@ -12,7 +12,7 @@
 #
 #   util_ManualOverlapGrid.py --inj inj.xml.gz --parameter LambdaTilde  --parameter-range '[0,1000]' --grid-cartesian-npts 10 --use-external-EOB-source
 #   util_ManualOverlapGrid.py --inj inj.xml.gz --parameter LambdaTilde  --parameter-range '[0,1000]' --grid-cartesian-npts 10 --use-external-EOB-source --use-external-EOB
-#   python util_ManualOverlapGrid.py --parameter s1x --parameter-range [-1,1] --parameter s1y --parameter-range [-1,1] --parameter --s1z --parameter-range [-1,1] --skip-overlap  --verbose # check Kerr bound is enforced
+#   python util_ManualOverlapGrid.py --parameter s1x --parameter-range [-1,1] --parameter s1y --parameter-range [-1,1] --parameter s1z --parameter-range [-1,1] --skip-overlap  --verbose # check Kerr bound is enforced
 #  
 
 #
