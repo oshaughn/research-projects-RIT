@@ -797,6 +797,10 @@ if opts.maximize_only:
     lnLvals = numpy.array([-1*fn_scaled_t(t,x0) for t in tvals_scaled_guess])   # note the two -1's cancel
 #    from matplotlib import pyplot as plt;  plt.plot(tvals_scaled_guess,lnLvals,'o'); plt.show(); numpy.savetxt("dump-lnL.dat", numpy.array([tvals_scaled_guess*2*t_ref_wind,lnLvals]).T)
     tbest = tvals_scaled_guess[numpy.argmax(lnLvals)]
+    print " ---- Best extrinsic paramers in MC, after time offset   ---- "
+    P.tref = fiducial_epoch + tbest
+    P.print_params()
+    lalsimutils.ChooseWaveformParams_array_to_xml([P],"withtime_raw_maxpt_"+opts.output_file) # best point, not including time
     x0[2] = tbest
     x0p = x0
     # Refine best starting time with a search
