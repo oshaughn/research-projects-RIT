@@ -254,6 +254,7 @@ for group in glist:
   print opts.group, opts.param
   if not opts.param:
     for param in nrwf.internal_ParametersAvailable[group]:
+     try:
         wfP = nrwf.WaveformModeCatalog(group,param,metadata_only=True)
         wfP.P.deltaT = P.deltaT
         wfP.P.deltaF = P.deltaF
@@ -278,7 +279,8 @@ for group in glist:
                 print " Skipping non-aligned simulation because overlaps active (=SEOBNRv2 comparison usually)", group, param
 #                wfP.P.print_params()
 #                print nrwf.internal_WaveformMetadata[group][param]
-
+     except:
+	print " Failed to add ", group, param
   else: # target case if a single group and parameter sequence are specified
         print "Looping over list ", opts.param
         for paramKey in opts.param:

@@ -1,4 +1,4 @@
-#! /bin/env python
+#! /usr/bin/python
 
 from glue.lal import Cache
 from glue.lal import CacheEntry
