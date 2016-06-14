@@ -33,11 +33,13 @@
 import argparse
 import sys
 import numpy as np
+import scipy
 import lalsimutils
 import lalsimulation as lalsim
 import lalframe
 import lal
 import functools
+import itertools
 
 import effectiveFisher  as eff   # for the mesh grid generation
 import PrecessingFisherMatrix   as pcf   # Superior tools to perform overlaps. Will need to standardize with Evans' approach in effectiveFisher.py
@@ -64,6 +66,101 @@ except:
 
 
 ###
+### Linear fits. Resampling a quadratic. (Export me)
+###
+
+def fit_quadratic(x,y,x0=None):
+    """
+    x = array so x[0] , x[1], x[2] are points.
+    """
+    x0_val = np.zeros(len(x[0]))
+    if not (x0 is None):
+        if opts.verbose:
+            print " Fisher: Using reference point ", x0
+        x0_val = x0
+
+    dim = len(x[0])   
+    npts = len(x)
+#    print x.shape, y.shape
+    if opts.verbose:
+        print " Fisher : dimension, npts = " ,dim, npts
+    # Constant, linear, quadratic functions. 
+    # Beware of lambda:  f_list = [(lambda x: k) for k in range(5)] does not  work, but this does
+    #     f_list = [(lambda x,k=k: k) for k in range(5)]
+    f0 = [lambda z: np.ones(len(z),dtype=np.float128)]
+    # indx_lookup_linear = {}   # protect against packing errors
+    # indx_here = len(f0)
+    # f_linear = []
+    # for k in np.arange(dim):
+    #     f_linear.append( (lambda z,k=k,x0V=x0_val: z.T[k] - x0V[k]))
+    #     indx_lookup_linear[k] =indx_here
+    #     indx_here+=1
+    f_linear = [(lambda z,k=k,x0V=x0_val: z.T[k] - x0V[k]) for k in np.arange(dim)]
+    f_quad = []
+    indx_lookup = {}
+    indx_here =len(f0)+len(f_linear) 
+    for k in np.arange(dim):
+        for q in range(k,dim):
+            f_quad.append( (lambda z,k=k,q=q: (z.T[k] - x0_val[k])*(z.T[q]-x0_val[k]))   )
+            indx_lookup[(k,q)] = indx_here
+            indx_here+=1
+    f_list=f0+f_linear + f_quad
+    n_params_model = len(f_list)
+    F = np.matrix(np.zeros((len(x), n_params_model),dtype=np.float128))
+    for q in np.arange(n_params_model):
+        fval = f_list[q](np.array(x,dtype=np.float128))
+#        print q, f_list[q], fval, fval.shape, len(x)
+        F[:,q] = np.reshape(fval, (len(x),1))
+    if opts.verbose:
+        print " ---- index pattern --- "
+        print indx_lookup
+    gamma = np.matrix( np.diag(np.ones(npts,dtype=np.float128)))
+    Gamma = F.T * gamma * F      # Fisher matrix for the fit
+    Sigma = scipy.linalg.inv(Gamma)  # Covariance matrix for the fit. WHICH CODE YOU USE HERE IS VERY IMPORTANT.
+#    print x[-5]
+#    print F[-5]
+#    print F
+#    print Sigma
+    if opts.verbose:
+        print " -- should be identity (error here is measure of overall error) --- "
+        print "   Fisher: Matrix inversion/manipulation error ", np.linalg.norm(Sigma*Gamma - np.eye(len(Sigma))) , " which can be large if the fit coordinates are not centered near the peak"
+        print " --  --- "
+    lambdaHat =  np.array((Sigma* F.T*gamma* np.matrix(y).T))[:,0]  # point estimate for the fit parameters (i.e., fisher matrix and best fit point)
+    if opts.verbose:
+        print " Fisher: LambdaHat = ", lambdaHat
+#    print " Fisher: Shape of lambda = ",  lambdaHat.shape
+    constant_term_est = lambdaHat[0]  # Constant term
+    linear_term_est = lambdaHat[1:dim+1]  # Coefficient of linear terms
+    my_fisher_est = np.zeros((dim,dim),dtype=np.float64)   #  A SIGNIFICANT LIMITATION...
+    for pair in indx_lookup:
+        k = pair[0]; q=pair[1];
+        indx_here = indx_lookup[pair]
+        my_fisher_est[k,q] += -lambdaHat[indx_here]
+        my_fisher_est[q,k] += -lambdaHat[indx_here]  # this will produce a factor of 2 if the two terms are identical
+#    peak_val_est = F*lambdaHat         # Peak value of the quadratic
+    if opts.verbose:
+        print "  Fisher: ", my_fisher_est
+        print "  Fisher: Sanity check (-0.5)*Fisher matrix vs components (diagonal only) : ", -0.5*my_fisher_est, "versus",  lambdaHat
+    my_fisher_est_inv = scipy.linalg.inv(my_fisher_est)   # SEE INVERSE DISCUSSION
+    if opts.verbose:
+        print " Fisher: Matrix inversion/manipulation error test 2", np.linalg.norm(np.dot(my_fisher_est,my_fisher_est_inv) - np.eye(len(my_fisher_est)))
+    # Peak value:   a - b cinv b/4
+#    print constant_term_est.shape, linear_term_est.shape, my_fisher_est_inv.shape
+#    print my_fisher_est_inv 
+#    print np.dot(my_fisher_est_inv,linear_term_est)
+#    print np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))
+    peak_val_est = float(constant_term_est) +np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2
+    best_val_est = np.dot(my_fisher_est_inv,linear_term_est)   # estimated peak location
+    if opts.verbose:
+        print " Fisher : Sanity check: peak value estimate = ", peak_val_est, " which arises as a delicate balance between ",  constant_term_est, " and ",  np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2
+        print " Fisher : Best coordinate estimate = ", best_val_est
+        print " Fisher : eigenvalues ", np.linalg.eig(my_fisher_est)
+#        print " Fisher : Sanity check: sizes and indexes ", dim*dim, -dim*dim+1, lambdaHat[-dim*dim+1:], len(lambdaHat[-dim*dim+1:])
+    print " WARNING: Fisher matrix reliable, but linear term and max value are not. Mostly impacts eta -- why?"
+    return [peak_val_est, best_val_est, my_fisher_est, linear_term_est]
+
+
+###
 ### Load options
 ###
 
@@ -85,6 +182,8 @@ parser.add_argument("--NR-signal-param", default=(0.0,2.),help="Parameter value"
 parser.add_argument("--NR-template-group", default=None,help="Specific NR simulation group to use")
 parser.add_argument("--NR-template-param", default=None,help="Parameter value")
 # Grid layout options
+parser.add_argument("--use-fisher", action='store_true',help="Instead of just reporting the overlap results, perform a fit to them, and use the resulting Fisher matrix to select points. REVAMPING IMPLEMENTATION")
+parser.add_argument("--fake-data", action='store_true', help="Use perfectly quadratic data. Test for fisher code.")
 parser.add_argument("--uniform-spoked", action="store_true", help="Place mass pts along spokes uniform in volume (if omitted placement will be random and uniform in volume")
 parser.add_argument("--linear-spoked", action="store_true", help="Place mass pts along spokes linear in radial distance (if omitted placement will be random and uniform in volume")
 parser.add_argument("--grid-cartesian", action="store_true", help="Place mass points using a cartesian grid")
@@ -491,6 +590,23 @@ if len(grid_out)==0:
 ###     - Use seed cartesian grid to compute the effective fisher matrix
 ###     - Loop *again* to evaluate overlap on that grid
 ###
+
+
+if opts.use_fisher:
+    if opts.fake_data:
+        grid_out[:,-1] = np.ones(len(grid_out))
+        for k in np.arange(len(param_names)):
+            grid_out[:,-1] += -1.0*np.power(grid_out[:,k] - np.mean(grid_out[:,k]),2)/np.power(np.std(grid_out[:,k]),2)   # simple quadratic sum in all data. Change to rhange
+
+    x0_val_here =grid_out[0,:len(param_names)]
+#    print grid_out[0], x0_val_here
+    the_quadratic_results = fit_quadratic( grid_out[:,:len(param_names)], grid_out[:,len(param_names)],x0=x0_val_here)#x0=None)#x0_val_here)
+    print the_quadratic_results
+    peak_val_est, best_val_est, my_fisher_est, linear_term_est = the_quadratic_results
+    np.savetxt("fisher_bestpt.dat",best_val_est)   # ompletely unreliable
+    np.savetxt("fisher_gamma.dat",my_fisher_est)
+    np.savetxt("fisher_linear.dat",linear_term_est)
+
 if opts.linear_spoked or opts.uniform_spoked:
     print " Effective fisher report. GRID NOT YET IMPLEMENTED "
     if len(param_names)==2:
