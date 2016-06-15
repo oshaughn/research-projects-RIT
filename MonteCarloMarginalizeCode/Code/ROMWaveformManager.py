@@ -22,6 +22,7 @@ except:
     print " Make sure you set the GW_SURROGATE environment variable"
     sys.exit(0)
 
+print " ROMWaveformManager: ILE version"
 
 #default_interpolation_kind = 'quadratic'  # spline interpolation   # very slow! 
 default_interpolation_kind = 'linear'  # robust, fast
@@ -510,13 +511,13 @@ class WaveformModeCatalog:
 
         return hlmT
 
-    def hlmoff(self, P,force_T=False, deltaT=1./16384, time_over_M_zero=0.):
+    def hlmoff(self, P,force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False):
         """
         hlmoff takes fourier transforms of LAL timeseries generated from hlmoft.
         All modes have physical units, appropriate to a physical signal.
         """
         hlmF ={}
-        hlmT = self.hlmoft(P,force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero)
+        hlmT = self.hlmoft(P,force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero,use_basis=use_basis)
         for mode in hlmT.keys():
             wfmTS=hlmT[mode]
             # Take the fourier transform
