@@ -38,6 +38,15 @@ try:
         print " factored_likelihood.py : NRWaveformCatalogManager available "
 except:
 	useNR=False
+
+try:
+        import ROMWaveformManager as romwf
+        print " factored_likelihood.py: ROMWaveformManager as romwf"
+        useROM=True
+except:
+        useROM=False
+        print " factored_likelihood.py: - no ROM - "
+
 try:
     hasEOB=True
     import EOBTidalExternal as eobwf
@@ -62,7 +71,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,use_provided_strain=False):
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -96,7 +105,26 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     detectors = data_dict.keys()
     # Zero-pad to same length as data - NB: Assuming all FD data same resolution
     P.deltaF = data_dict[detectors[0]].deltaF
-    if (not nr_lookup) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3):
+    if not( ROM_group is None) and not (ROM_param is None):
+       # For ROM, use the ROM basis. Note that hlmoff -> basis_off henceforth
+       acatHere= romwf.WaveformModeCatalog(ROM_group,ROM_param)
+       if ROM_use_basis:
+            bT = acatHere.basis_oft(P,return_numpy=False)
+            # Fake names, to re-use the code below.  
+            hlms = {}
+            hlms_conj = {}
+            for mode in bT:
+                print " FFT for mode ", mode, bT[mode].data.length, " note duration = ", bT[mode].data.length*bT[mode].deltaT
+                hlms[mode] = lsu.DataFourier(bT[mode])
+                print " FFT for conjugate mode ", mode, bT[mode].data.length
+                bT[mode].data.data = np.conj(bT[mode].data.data)
+                hlms_conj[mode] = lsu.DataFourier(bT[mode])
+       else:
+           # this code is modular but inefficient: the waveform is regenerated twice
+           hlms = acatHere.hlmoff(P, use_basis=False,force_T=1./P.deltaF)  # Must force duration consistency, very annoying
+           hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False)  # Must force duration consistency, very annoying
+
+    elif (not nr_lookup) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3):
         print "  FACTORED LIKELIHOOD WITH SEOB "    
         hlmst = {}
         if P.approx == lalsim.SEOBNRv3:
