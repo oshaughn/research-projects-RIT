@@ -526,6 +526,22 @@ class WaveformModeCatalog:
             hlmF[mode] = wfmFD
         return hlmF
 
+    def conj_hlmoff(self, P,force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False):
+        """
+        conj_hlmoff takes fourier transforms of LAL timeseries generated from hlmoft, but after complex conjugation.
+        All modes have physical units, appropriate to a physical signal.
+        """
+        hlmF ={}
+        hlmT = self.hlmoft(P,force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero,use_basis=use_basis)
+        for mode in hlmT.keys():
+            wfmTS=hlmT[mode]
+            wfmTS.data.data = np.conj(wfmTS.data.data)  # complex conjugate
+            # Take the fourier transform
+            wfmFD = lalsimutils.DataFourier(wfmTS)  # this creates a new f series for *each* call.
+            # Store the resulting mode
+            hlmF[mode] = wfmFD
+        return hlmF
+
 
 class WaveformMode:
     """
