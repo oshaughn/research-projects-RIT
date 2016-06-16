@@ -78,6 +78,9 @@ def ParseStandardArguments():
     parser.add_argument("--NR-template-group", default=None,help="Specific NR simulation group to use")
     parser.add_argument("--NR-template-param", default=None,help="Parameter value")
 
+    parser.add_argument("--ROM-template-group",default=None)
+    parser.add_argument("--ROM-template-param",default=None)
+
     # Use external EOB matlab code
     parser.add_argument("--use-external-EOB",default=False,action='store_true')
 
