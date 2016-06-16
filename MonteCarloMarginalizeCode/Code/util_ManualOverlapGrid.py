@@ -649,18 +649,20 @@ else:
 ###
 ### Optional: Scatterplot
 ###
-if opts.verbose and len(param_names)==1 and len(grid_out)>0:
+if opts.save_plots and opts.verbose and len(param_names)==1 and len(grid_out)>0:
     import matplotlib.pyplot as plt
     fig = plt.figure()
     plt.plot(grid_out[:,0], grid_out[:,1])
-    plt.show()
+    plt.savefig("fig-grid2d.png")
+#    plt.show()
 
-if opts.verbose and len(param_names)==2:
+if opts.save_plots and opts.verbose and len(param_names)==2:
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     ax.scatter(grid_out[:,0], grid_out[:,1], grid_out[:,2])
-    plt.show()
+    plt.savefig("fig-grid3d.png")
+#    plt.show()
 
 print " ---- DONE ----"
