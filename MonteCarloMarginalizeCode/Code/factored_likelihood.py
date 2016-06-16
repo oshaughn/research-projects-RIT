@@ -43,9 +43,11 @@ try:
         import ROMWaveformManager as romwf
         print " factored_likelihood.py: ROMWaveformManager as romwf"
         useROM=True
+        rom_basis_scale = 1.0*1e-21   # Fundamental problem: Inner products with ROM basis vectors/Sh are tiny. Need to rescale to avoid overflow/underflow and simplify comparisons
 except:
         useROM=False
         print " factored_likelihood.py: - no ROM - "
+        rom_basis_scale =1
 
 try:
     hasEOB=True
@@ -59,7 +61,7 @@ tWindowExplore = [-0.15, 0.15] # Not used in main code.  Provided for backward c
 rosDebugMessages = True
 rosDebugMessagesDictionary = {}   # Mutable after import (passed by reference). Not clear if it can be used by caling routines
                                                   # BUT if every module has a `PopulateMessagesDictionary' module, I can set their internal copies
-rosDebugMessagesDictionary["DebugMessages"] = True
+rosDebugMessagesDictionary["DebugMessages"] = False
 rosDebugMessagesDictionary["DebugMessagesLong"] = False
 
 
@@ -114,11 +116,16 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             hlms = {}
             hlms_conj = {}
             for mode in bT:
-                print " FFT for mode ", mode, bT[mode].data.length, " note duration = ", bT[mode].data.length*bT[mode].deltaT
+                if rosDebugMessagesDictionary["DebugMessagesLong"]:
+                        print " FFT for mode ", mode, bT[mode].data.length, " note duration = ", bT[mode].data.length*bT[mode].deltaT
                 hlms[mode] = lsu.DataFourier(bT[mode])
-                print " FFT for conjugate mode ", mode, bT[mode].data.length
+#                print " FFT for conjugate mode ", mode, bT[mode].data.length
                 bT[mode].data.data = np.conj(bT[mode].data.data)
                 hlms_conj[mode] = lsu.DataFourier(bT[mode])
+
+                # APPLY SCALE FACTOR
+                hlms[mode].data.data *=rom_basis_scale
+                hlms_conj[mode].data.data *=rom_basis_scale
        else:
            # this code is modular but inefficient: the waveform is regenerated twice
            hlms = acatHere.hlmoff(P, use_basis=False,force_T=1./P.deltaF)  # Must force duration consistency, very annoying
@@ -262,7 +269,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             import sys
             sys.exit(0)
 
-    if not(ignore_threshold is None):
+    if not(ignore_threshold is None) and (not ROM_use_basis):
             crossTermsFiducial = ComputeModeCrossTermIP(hlms,hlms, psd_dict[detectors[0]], 
                                                         P.fmin, fMax,
                                                         1./2./P.deltaT, P.deltaF, analyticPSD_Q, inv_spec_trunc_Q, T_spec)
@@ -337,7 +344,64 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # to bring the desired samples to the front of the array
         rholms_intp[det] =  InterpolateRholms(rholms[det], t)
 
-    return rholms_intp, crossTerms, crossTermsV,  rholms
+    if not ROM_use_basis:
+            return rholms_intp, crossTerms, crossTermsV,  rholms, None
+    else:
+            return rholms_intp, crossTerms, crossTermsV,  rholms, acatHere   # labels are misleading for use_rom_basis
+
+def ReconstructPrecomputedLikelihoodTermsROM(P,acat_rom,rho_intp_rom,crossTerms_rom, crossTermsV_rom, rho_rom,verbose=True):
+        """
+        Using a set of ROM coefficients for hlm[lm] = coef[l,m,basis] w[basis], reconstructs <h[lm]|data>, <h[lm]|h[l'm']>
+        Requires ROM also be loaded in top level, for simplicity
+        """
+        # Extract coefficients
+        coefs = acat_rom.coefficients(P)
+        # Identify available modes
+        modelist = acat_rom.modes_available      
+
+        detectors = crossTerms_rom.keys()
+        rholms = {}
+        rholms_intp = {}
+        crossTerms = {}
+        crossTermsV = {}
+
+        # Reproduce rholms and rholms_intp
+        # Loop over detectors
+        for det in detectors:
+              rholms[det] ={}
+              rholms_intp[det] ={}
+              # Loop over available modes
+              for mode in modelist:
+                # Identify relevant terms in the sum
+                indx_list_ok = [indx for indx in coefs.keys()  if indx[0]==mode[0] and indx[1]==mode[1]]
+                # Discrete case: 
+                #   - Create data structure to hold it
+                indx0 = indx_list_ok[0]
+                rhoTS = lal.CreateCOMPLEX16TimeSeries("rho",rho_rom[det][indx0].epoch,rho_rom[det][indx0].f0,rho_rom[det][indx0].deltaT,rho_rom[det][indx0].sampleUnits,rho_rom[det][indx0].data.length)
+                #  - fill the data structure
+                for indx in indx_list_ok:
+                        rhoTS.data.data+= np.conj(coefs[indx])*rho_rom[det][indx].data.data
+                rholms[det][mode]=rhoTS
+                # Interpolated case
+                #   - create a lambda structure for it, holding the coefficients.  NOT IMPLEMENTED since not used in production
+                print " factored_likelihood: ROM: interpolated timeseries ", det, mode, " NOT CREATED"
+                rholms_intp[det][mode] = None
+        # Reproduce  crossTerms, crossTermsV
+        for det in detectors:
+              crossTerms[det] ={}
+              crossTermsV[det] ={}
+              for mode1 in modelist:
+                      indx_list_ok1 = [indx for indx in coefs.keys()  if indx[0]==mode1[0] and indx[1]==mode1[1]]
+                      for mode2 in modelist:
+                              crossTerms[det][(mode1,mode2)] =0.j
+                              indx_list_ok2 = [indx for indx in coefs.keys()  if indx[0]==mode2[0] and indx[1]==mode2[1]]
+                              crossTerms[det][(mode1,mode2)] = np.sum(np.array([ np.conj(coefs[indx1])*coefs[indx2]*crossTerms_rom[det][(indx1,indx2)] for indx1 in indx_list_ok1 for indx2 in indx_list_ok2]))
+                              crossTermsV[det][(mode1,mode2)] = np.sum(np.array([ coefs[indx1]*coefs[indx2]*crossTermsV_rom[det][(indx1,indx2)] for indx1 in indx_list_ok1 for indx2 in indx_list_ok2]))
+                              if verbose:
+                                      print "       : U populated ", (mode1, mode2), "  = ",crossTerms[det][(mode1,mode2) ]
+                                      print "       : V populated ", (mode1, mode2), "  = ",crossTermsV[det][(mode1,mode2) ]
+                    
+        return rholms_intp, crossTerms, crossTermsV, rholms, None  # Same return pattern as Precompute...
 
 
 def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, crossTermsV,  Lmax):
