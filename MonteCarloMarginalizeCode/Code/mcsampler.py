@@ -8,7 +8,10 @@ from scipy import integrate, interpolate
 import itertools
 import functools
 
-import healpy
+try:
+    import healpy
+except:
+    print " - No healpy - "
 
 from statutils import cumvar
 
