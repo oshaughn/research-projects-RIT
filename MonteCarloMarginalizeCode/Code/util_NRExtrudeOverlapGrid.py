@@ -7,6 +7,11 @@
 #
 # EXAMPLES
 #
+#     # grid targeted to a single simulation
+#        python util_NRExtrudeOverlapGrid.py --inj mdc.xml.gz  --group Sequence-SXS-All --param 1 --event 0 --verbose --skip-overlap
+#     # extend the grid, to include the rest of the simlations
+#        python util_NRExtrudeOverlapGrid.py --inj overlap-grid.xml.gz  --group Sequence-SXS-All  --event 0 --verbose --skip-overlap --insert-missing-spokes
+#
 # WARNINGS: i
 #   xi_factor: meaning of grid is CHANGED from original interpretation
 #
@@ -56,6 +61,7 @@ parser.add_argument("--mc-range",default=None, help='If specified, overrides the
 parser.add_argument("--grid-cartesian-npts",default=30)
 parser.add_argument("--group",default=None)
 parser.add_argument("--param", action='append', help='Explicit list of parameters to use')
+parser.add_argument("--insert-missing-spokes", action='store_true')
 parser.add_argument("--eta-range",default='[0.1,0.25]')
 parser.add_argument("--mass-xi-factor",default=0.6,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
 parser.add_argument("--mass-eta-factor",default=2,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
@@ -72,7 +78,7 @@ parser.add_argument("--fref",type=float,default=0.);
 parser.add_argument("--external-grid-xml", default=None,help="Inspiral XML file (injection form) for alternate grid")
 parser.add_argument("--external-grid-txt", default=None, help="Cartesian grid. Must provide parameter names in header. Exactly like output of code. Last column not used.")
 # Base point
-parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing the base point.")
+parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing the base point (OR containing the reference XML grid to check against a database)")
 parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
 parser.add_argument("--fmin", default=10,type=float,help="Mininmum frequency in Hz, default is 40Hz to make short enough waveforms. Focus will be iLIGO to keep comutations short")
 parser.add_argument("--fmax",default=2000,type=float,help="Maximum frequency in Hz, used for PSD integral.")
@@ -113,12 +119,12 @@ def eval_overlap(grid,P_list, IP,indx):
     global Lmax
     global opts
     P2 = P_list[indx]
-    T_here = 1./IP.deltaF
-    P2.deltaF=1./T_here
 #    P2.print_params()
     line_out = []
     line_out = list(grid[indx])
     if not opts.skip_overlap:
+        T_here = 1./IP.deltaF
+        P2.deltaF=1./T_here
         hf2 = lalsimutils.complex_hoff(P2)
         nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
         ip_val = IP.ip(hfBase,hf2)
@@ -229,13 +235,64 @@ P.print_params()
 
 
 print "    -------INTERFACE ------"
-hfBase = lalsimutils.complex_hoff(P)
-IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=opts.fmax)
-nmBase = IP.norm(hfBase)
-hfBase.data.data *= 1./nmBase
-if opts.verbose:
-    print " ------  SIGNAL DURATION ----- "
-    print hfBase.data.length*P.deltaT
+hfBase =None
+IP=None
+if not opts.skip_overlap:
+    hfBase = lalsimutils.complex_hoff(P)
+    IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=opts.fmax)
+    nmBase = IP.norm(hfBase)
+    hfBase.data.data *= 1./nmBase
+    if opts.verbose:
+        print " ------  SIGNAL DURATION ----- "
+        print hfBase.data.length*P.deltaT
+
+
+
+###
+### If we are testing an existing grid to see if simulations are missing
+###
+
+# Step 1: Load in the grid, identify NR simulations
+
+P_list_nr = []
+gp_list = []
+if opts.inj and opts.insert_missing_spokes:
+    import spokes
+    sdHere = spokes.LoadSpokeXML(opts.inj)
+    for key in sdHere:
+        P_here =sdHere[key][0]
+        P_list_nr.append(P_here) 
+        compare_dict = {}
+        compare_dict['q'] = P_here.m2/P_here.m1 # Need to match the template parameter. NOTE: VERY IMPORTANT that P is updated with the event params
+        compare_dict['s1z'] = P_here.s1z
+        compare_dict['s1x'] = P_here.s1x
+        compare_dict['s1y'] = P_here.s1y
+        compare_dict['s2z'] = P_here.s2z
+        compare_dict['s2x'] = P_here.s2x
+        compare_dict['s2y'] = P_here.s2y
+        good_sim_list = nrwf.NRSimulationLookup(compare_dict,valid_groups=[opts.group])
+        if len(good_sim_list)< 1:
+                        print " ------- NO MATCHING SIMULATIONS FOUND ----- "
+                        import sys
+                        sys.exit(0)
+                        print " Identified set of matching NR simulations ", good_sim_list
+        try:
+                        print  "   Attempting to pick longest simulation matching  the simulation  "
+                        MOmega0  = 1
+                        good_sim = None
+                        for key in good_sim_list:
+                                print key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+                                if nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0'] < MOmega0:
+                                        good_sim = key
+                                        MOmega0 = nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0']
+                                print " Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+        except:
+            good_sim  = good_sim_list[0] # pick the first one.  Note we will want to reduce /downselect the lookup process
+            group = good_sim[0]
+            param = good_sim[1] 
+            gp_list.append( (group,param))
+
+
 
 ###
 ### Load in the NR simulation array metadata
@@ -298,6 +355,8 @@ for group in glist:
 if len(P_list_NR)<1:
     print " No simulations"
     sys.exit(0)
+
+
 ###
 ### Define parameter ranges to be changed
 ###
