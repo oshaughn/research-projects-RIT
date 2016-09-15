@@ -101,7 +101,7 @@ def fit_quadratic(x,y,x0=None):
     indx_here =len(f0)+len(f_linear) 
     for k in np.arange(dim):
         for q in range(k,dim):
-            f_quad.append( (lambda z,k=k,q=q: (z.T[k] - x0_val[k])*(z.T[q]-x0_val[k]))   )
+            f_quad.append( (lambda z,k=k,q=q: (z.T[k] - x0_val[k])*(z.T[q]-x0_val[q]))   )
             indx_lookup[(k,q)] = indx_here
             indx_here+=1
     f_list=f0+f_linear + f_quad
