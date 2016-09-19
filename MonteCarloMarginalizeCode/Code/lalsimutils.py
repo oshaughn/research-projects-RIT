@@ -1241,10 +1241,11 @@ class ComplexOverlap(InnerProduct):
     """
     def __init__(self, fLow=10., fMax=None, fNyq=2048., deltaF=1./8.,
             psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower, analyticPSD_Q=True,
-            inv_spec_trunc_Q=False, T_spec=0., full_output=False):
+            inv_spec_trunc_Q=False, T_spec=0., full_output=False,interpolate_max=False):
         super(ComplexOverlap, self).__init__(fLow, fMax, fNyq, deltaF, psd,
                 analyticPSD_Q, inv_spec_trunc_Q, T_spec) # Call base constructor
         self.full_output=full_output
+        self.interpolate_max=interpolate_max
         self.deltaT = 1./self.deltaF/self.len2side
         # Create FFT plan and workspace vectors
         self.revplan=lal.CreateReverseCOMPLEX16FFTPlan(self.len2side, 0)
@@ -1269,6 +1270,14 @@ class ComplexOverlap(InnerProduct):
         lal.COMPLEX16FreqTimeFFT(self.ovlp, self.intgd, self.revplan)
         rhoSeries = np.abs(self.ovlp.data.data)
         rho = rhoSeries.max()
+        if self.interpolate_max:
+            # see: spokes.py and util_ManualOverlapGrid.py
+            rhoIdx = rhoSeries.argmax()
+            datReduced = rhoSeries[rhoIdx-2:rhoIdx+2]
+            z =np.polyfit(datReduced,2)
+            if z[0]<0:
+                return z[2] - z[1]*z[1]/4/z[2]
+            # Otherwise, act as normally
         if self.full_output==False:
             # Return overlap maximized over time, phase
             return rho
@@ -1923,6 +1932,29 @@ def hlmoft(P, Lmax=2):
     and all values of m for these l.
     """
     assert Lmax >= 2
+
+    if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4):
+        hlm_out = hlmoft_SEOB_dict(P)
+        if True: #P.taper:
+            ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
+            vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+            for key in hlm_out.keys():
+                # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
+                hlm_out[key].data.data[:ntaper]*=vectaper
+        return hlm_out
+    elif P.approx == lalsim.SEOBNRv3:
+        hlm_out = hlmoft_SEOBv3_dict(P)
+        if not hlm_out:
+            print " Failed generation: SEOBNRv3 "
+            sys.exit(0)
+        if True: #P.taper:
+            ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
+            vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+            for key in hlm_out.keys():
+                # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
+                hlm_out[key].data.data[:ntaper]*=vectaper
+        return hlm_out
+
     hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
             P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
             P.nonGRparams, P.ampO, P.phaseO, Lmax, P.approx)
@@ -1937,7 +1969,7 @@ def hlmoft(P, Lmax=2):
         hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
 
 
-    return hlms
+    return hlms   # note data type is different than with SEOB; need to finish port to pure dictionary
 
 
 def hlmoft_SEOBv3_dict(P,Lmax=2):
