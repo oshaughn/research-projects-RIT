@@ -73,7 +73,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False):
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,hybrid_use=False,use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -131,12 +131,15 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
            hlms = acatHere.hlmoff(P, use_basis=False,force_T=1./P.deltaF)  # Must force duration consistency, very annoying
            hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False)  # Must force duration consistency, very annoying
 
-    elif (not nr_lookup) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3):
+    elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3):
         print "  FACTORED LIKELIHOOD WITH SEOB "    
         hlmst = {}
         if P.approx == lalsim.SEOBNRv3:
                 hlmsT = lsu.hlmoft_SEOBv3_dict(P)  # only 2,2 modes -- Lmax irrelevant
         else:
+                if useNR:
+                        nrwf.HackRoundTransverseSpin(P) # HACK, to make reruns of NR play nicely, without needing to rerun
+
                 hlmsT = lsu.hlmoft_SEOB_dict(P)  # only 2,2 modes -- Lmax irrelevant
         print "  hlm generation complete "    
         if P.approx == lalsim.SEOBNRv3 or  P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
@@ -218,10 +221,16 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         wfP.P.m1 = mtot/(1+q)
         wfP.P.m2 = mtot*q/(1+q)
         wfP.P.dist =distMpcRef*1e6*lal.PC_SI  # fiducial distance
+        wfP.P.approx = P.approx
+        wfP.P.deltaT = P.deltaT
+        wfP.P.deltaF = P.deltaF
+        wfP.P.fmin = P.fmin
 
-        hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window.  Check the time
-        hlms_conj = wfP.conj_hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window.  Check the time
+        hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF,hybrid_use=hybrid_use)  # force a window.  Check the time
+        hlms_conj = wfP.conj_hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF,hybrid_use=hybrid_use)  # force a window.  Check the time
 
+        if rosDebugMessages:
+                print "NR variant: Length check: ",hlms[(2,2)].data.length, data_dict[detectors[0]].data.length
         # Remove memory modes (ALIGNED ONLY: Dangerous for precessing spins)
         if no_memory and wfP.P.SoftAlignedQ():
                 for key in hlms.keys():
