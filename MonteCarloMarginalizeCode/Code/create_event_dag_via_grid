@@ -101,6 +101,11 @@ optp.add_option("--nr-lookup-group",action='append')
 optp.add_option("--nr-perturbative-extraction",action='store_true')
 optp.add_option('--nr-group', default=None,help="If using a *ssingle specific simulation* specified on the command line, provide it here")
 optp.add_option('--nr-param', default=None,help="If using a *ssingle specific simulation* specified on the command line, provide it here")
+optp.add_option("--nr-hybrid-use",action='store_true',help="Enable use of NR hybrid, using --approx as the default approximant and with a frequency fmin")
+optp.add_option("--rom-group",default=None)
+optp.add_option("--rom-param",default=None)
+optp.add_option("--rom-use-basis",default=False,action='store_true')
+
 
 
 #
@@ -179,6 +184,10 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid
         nr_group=opts.nr_group,
         nr_param=opts.nr_param,
         nr_params=opts.nr_params,
+        nr_hybrid_use=opts.nr_hybrid_use,
+        rom_group=opts.rom_group,
+        rom_param=opts.rom_param,
+        rom_use_basis=opts.rom_use_basis,
 		approximant=opts.approximant,
 		amp_order=opts.amp_order,
 		l_max=opts.l_max,
