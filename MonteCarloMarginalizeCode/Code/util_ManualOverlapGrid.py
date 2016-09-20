@@ -117,10 +117,6 @@ def fit_quadratic(x,y,x0=None):
     gamma = np.matrix( np.diag(np.ones(npts,dtype=np.float128)))
     Gamma = F.T * gamma * F      # Fisher matrix for the fit
     Sigma = scipy.linalg.inv(Gamma)  # Covariance matrix for the fit. WHICH CODE YOU USE HERE IS VERY IMPORTANT.
-#    print x[-5]
-#    print F[-5]
-#    print F
-#    print Sigma
     if opts.verbose:
         print " -- should be identity (error here is measure of overall error) --- "
         print "   Fisher: Matrix inversion/manipulation error ", np.linalg.norm(Sigma*Gamma - np.eye(len(Sigma))) , " which can be large if the fit coordinates are not centered near the peak"
@@ -128,7 +124,6 @@ def fit_quadratic(x,y,x0=None):
     lambdaHat =  np.array((Sigma* F.T*gamma* np.matrix(y).T))[:,0]  # point estimate for the fit parameters (i.e., fisher matrix and best fit point)
     if opts.verbose:
         print " Fisher: LambdaHat = ", lambdaHat
-#    print " Fisher: Shape of lambda = ",  lambdaHat.shape
     constant_term_est = lambdaHat[0]  # Constant term
     linear_term_est = lambdaHat[1:dim+1]  # Coefficient of linear terms
     my_fisher_est = np.zeros((dim,dim),dtype=np.float64)   #  A SIGNIFICANT LIMITATION...
@@ -150,13 +145,13 @@ def fit_quadratic(x,y,x0=None):
 #    print np.dot(my_fisher_est_inv,linear_term_est)
 #    print np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))
     peak_val_est = float(constant_term_est) +np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2
-    best_val_est = np.dot(my_fisher_est_inv,linear_term_est)   # estimated peak location
+    best_val_est = x0_val +  np.dot(my_fisher_est_inv,linear_term_est)   # estimated peak location, including correction for reference point
     if opts.verbose:
         print " Fisher : Sanity check: peak value estimate = ", peak_val_est, " which arises as a delicate balance between ",  constant_term_est, " and ",  np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2
         print " Fisher : Best coordinate estimate = ", best_val_est
         print " Fisher : eigenvalues ", np.linalg.eig(my_fisher_est)
 #        print " Fisher : Sanity check: sizes and indexes ", dim*dim, -dim*dim+1, lambdaHat[-dim*dim+1:], len(lambdaHat[-dim*dim+1:])
-    print " WARNING: Fisher matrix reliable, but linear term and max value are not. Mostly impacts eta -- why?"
+    print " WARNING: Constant offsets seen in recovery, tied to base point"
     return [peak_val_est, best_val_est, my_fisher_est, linear_term_est]
 
 
@@ -603,6 +598,7 @@ if opts.use_fisher:
     the_quadratic_results = fit_quadratic( grid_out[:,:len(param_names)], grid_out[:,len(param_names)],x0=x0_val_here)#x0=None)#x0_val_here)
     print the_quadratic_results
     peak_val_est, best_val_est, my_fisher_est, linear_term_est = the_quadratic_results
+    np.savetxt("fisher_reference.dat",x0_val_here)   # ompletely unreliable
     np.savetxt("fisher_bestpt.dat",best_val_est)   # ompletely unreliable
     np.savetxt("fisher_gamma.dat",my_fisher_est)
     np.savetxt("fisher_linear.dat",linear_term_est)
