@@ -62,6 +62,7 @@ parser.add_argument("--grid-cartesian-npts",default=30)
 parser.add_argument("--group",default=None)
 parser.add_argument("--param", action='append', help='Explicit list of parameters to use')
 parser.add_argument("--insert-missing-spokes", action='store_true')
+parser.add_argument("--aligned-only",action='store_true')
 parser.add_argument("--eta-range",default='[0.1,0.25]')
 parser.add_argument("--mass-xi-factor",default=0.6,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
 parser.add_argument("--mass-eta-factor",default=2,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
@@ -320,7 +321,7 @@ for group in glist:
         # Add parameters. Because we will compare with SEOB, we need an ALIGNED waveform, so we fake it
         if wfP.P.extract_param('eta') >= eta_range[0] and wfP.P.extract_param('eta')<=eta_range[1] and (not np.isnan(wfP.P.s1z) and not np.isnan(wfP.P.s2z)):
             if (not opts.skip_overlap) and wfP.P.SoftAlignedQ():
-                print " Adding aligned sim ", group, param
+                print " Adding aligned sim ", group, param,  " and changing spin values, so we can compute overlaps "
                 wfP.P.approx = lalsim.GetApproximantFromString(opts.approx)  # Make approx consistent and sane
                 wfP.P.m2 *= 1. - 1e-6  # Prevent failure for exactly equal!
             # Satisfy error checking condition for lal
@@ -330,8 +331,17 @@ for group in glist:
                 wfP.P.s2y = 0
                 P_list_NR = P_list_NR + [wfP.P]
             elif opts.skip_overlap:
-                print " Adding generic sim; for layout only ", group, param
-                P_list_NR = P_list_NR + [wfP.P]
+                if not opts.aligned_only:
+                    print " Adding generic sim; for layout only ", group, param
+                    P_list_NR = P_list_NR + [wfP.P]
+                elif opts.aligned_only and  wfP.P.SoftAlignedQ():
+                    print " Adding aligned spin simulation; for layout only", group, param, " and fixing transverse spins accordingly"
+                    wfP.P.s1x = 0
+                    wfP.P.s2x = 0
+                    wfP.P.s1y = 0
+                    wfP.P.s2y = 0
+                    P_list_NR = P_list_NR + [wfP.P]
+                    
             else:
                 print " Skipping non-aligned simulation because overlaps active (=SEOBNRv2 comparison usually)", group, param
 #                wfP.P.print_params()
