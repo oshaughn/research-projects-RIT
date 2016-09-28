@@ -256,6 +256,7 @@ use_external_EOB=opts.use_external_EOB
 Lmax = 2
 
 def eval_overlap(grid,P_list, IP,indx):
+    global opts
 #    if opts.verbose: 
 #        print " Evaluating for ", indx
     global use_external_EOB
@@ -459,7 +460,7 @@ else:
     print "    -------INTERFACE ------"
     print "    Using lalsuite   ", hasEOB, opts.use_external_EOB_source
     hfBase = lalsimutils.complex_hoff(P)
- IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=opts.fmax)
+ IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=opts.fmax,interpolate_max=True)
  nmBase = IP.norm(hfBase)
  hfBase.data.data *= 1./nmBase
  if opts.verbose:
@@ -571,8 +572,14 @@ if opts.external_grid_txt:
     raw_names = tmp.dtype.names
 #    print tmp, tmp['eta'], tmp['ip'], raw_names
     param_names = np.array(list(set(raw_names) - set(['ip'])))
+    for p in ['mc', 'm1', 'm2', 'mtot']:
+        if p in param_names:
+            tmp[p] *= lal.MSUN_SI  # add back units
     print param_names
     grid = np.array(tmp[param_names])
+    param_names = list(param_names)
+    # rescale arrays that correspond to masses
+
 #    print grid, grid[1][0]
 #    sys.exit(0)
 
@@ -593,13 +600,15 @@ if opts.use_fisher:
         for k in np.arange(len(param_names)):
             grid_out[:,-1] += -1.0*np.power(grid_out[:,k] - np.mean(grid_out[:,k]),2)/np.power(np.std(grid_out[:,k]),2)   # simple quadratic sum in all data. Change to rhange
 
+    # Reference point for fit should NOT MATTER
     x0_val_here =grid_out[0,:len(param_names)]
 #    print grid_out[0], x0_val_here
     the_quadratic_results = fit_quadratic( grid_out[:,:len(param_names)], grid_out[:,len(param_names)],x0=x0_val_here)#x0=None)#x0_val_here)
     print the_quadratic_results
     peak_val_est, best_val_est, my_fisher_est, linear_term_est = the_quadratic_results
-    np.savetxt("fisher_reference.dat",x0_val_here)   # ompletely unreliable
-    np.savetxt("fisher_bestpt.dat",best_val_est)   # ompletely unreliable
+    np.savetxt("fisher_reference.dat",x0_val_here) 
+    np.savetxt("fisher_peakval.dat",[peak_val_est])   # generally not very useful
+    np.savetxt("fisher_bestpt.dat",best_val_est)  
     np.savetxt("fisher_gamma.dat",my_fisher_est)
     np.savetxt("fisher_linear.dat",linear_term_est)
 
