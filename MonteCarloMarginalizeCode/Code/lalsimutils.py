@@ -649,7 +649,6 @@ class ChooseWaveformParams:
         else:
             print "Warning! Invalid value for taper:", self.taper
 
-        
     def VelocityAtFrequency(self,f):  # in units of c
         m1 = self.m1* lsu_G / lsu_C**3
         m2 = self.m2*lsu_G / lsu_C**3
@@ -1274,9 +1273,12 @@ class ComplexOverlap(InnerProduct):
             # see: spokes.py and util_ManualOverlapGrid.py
             rhoIdx = rhoSeries.argmax()
             datReduced = rhoSeries[rhoIdx-2:rhoIdx+2]
-            z =np.polyfit(datReduced,2)
-            if z[0]<0:
-                return z[2] - z[1]*z[1]/4/z[2]
+            try:
+                z =np.polyfit(np.arange(len(datReduced)),datReduced,2)
+                if z[0]<0:
+                    return z[2] - z[1]*z[1]/4/z[2]
+            except:
+                print " Duration error ", datReduced, " skipping interpolation in time to best point "
             # Otherwise, act as normally
         if self.full_output==False:
             # Return overlap maximized over time, phase
