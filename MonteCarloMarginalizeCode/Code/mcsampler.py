@@ -724,6 +724,15 @@ def gauss_samp_withfloor(mu, std, myfloor, x):
 gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,otypes=[numpy.float])
 
 
+# Mass ratio. Defined so mass ratio is < 1
+def q_samp_vector(qmin,qmax,x):
+    scale = 1./(1+qmin) - 1./(1+qmax)
+    return 1/numpy.power((1+x),2)/scale
+def q_cdf_inv_vector(qmin,qmax,x):
+    return 
+
+
+
 def cos_samp(x):
         return numpy.sin(x)/2   # x from 0, pi
 
