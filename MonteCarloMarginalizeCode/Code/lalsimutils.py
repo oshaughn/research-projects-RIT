@@ -109,6 +109,13 @@ else:
     lsu_PNORDER_THREE = lalsim.LAL_PNORDER_THREE
     lsu_PNORDER_THREE_POINT_FIVE = lalsim.LAL_PNORDER_THREE_POINT_FIVE
 
+try:
+    lalSEOBv4 = lalsim.SEOBNRv4
+    lalIMRPhenomD = lalsim.IMRPhenomD
+except:
+    lalSEOBv4 =-1
+    lalPD = -2
+
 # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_l_a_l_sim_inspiral_8c_source.html#l02910
 def lsu_StringFromPNOrder(order):
     if (order == lsu_PNORDER_NEWTONIAN):
@@ -222,7 +229,7 @@ class ChooseWaveformParams:
             self.m1,self.m2 = np.array( [1./(1+q), q/(1.+q)])*val
             return self
         if p == 'q':
-            # change implemented at fixed chi1, chi2, eta
+            # change implemented at fixed Mtot (NOT mc)
             mtot = self.m2+self.m1
             self.m1,self.m2 = np.array( [1./(1+val), val/(1.+val)])*mtot
             return self
@@ -232,7 +239,7 @@ class ChooseWaveformParams:
             self.m1,self.m2 = m1m2(val,eta)
             return self
         if p == 'eta':
-            # change implemented at fixed chi1, chi2, eta
+            # change implemented at fixed chi1, chi2, mc
             mc = mchirp(self.m1,self.m2)
             self.m1,self.m2 = m1m2(mc,val)
             return self
@@ -348,6 +355,8 @@ class ChooseWaveformParams:
             return (self.m2+self.m1)
         if p == 'q':
             return self.m2/self.m1
+        if p == 'delta':
+            return (self.m1-self.m2)/(self.m1+self.m2)
         if p == 'mc':
             return mchirp(self.m1,self.m2)
         if p == 'eta':
@@ -363,6 +372,18 @@ class ChooseWaveformParams:
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!   Uses OLD convention for spins!
             xi = np.dot(Lhat, (self.m1*chi1Vec + self.m2* chi2Vec))/(self.m1+self.m2)   # see also 'Xi', defined below
+            return xi
+        if p == 'chiMinus':
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!   Uses OLD convention for spins!
+            xi = np.dot(Lhat, (self.m1*chi1Vec - self.m2* chi2Vec))/(self.m1+self.m2)   # see also 'Xi', defined below
+            return xi
+        if p == 'chiMinusAlt':
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!   Uses OLD convention for spins!
+            xi = np.dot(Lhat, (self.m1*chi1Vec - self.m2* chi2Vec))/(self.m1- self.m2)   # see also 'Xi', defined below
             return xi
         if p == 'thetaJN':
             if self.fref is 0:
