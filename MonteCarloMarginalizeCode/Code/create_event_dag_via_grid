@@ -148,7 +148,7 @@ os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 
 cmdname="%s/command-single.sh" % opts.working_directory
 cmd = open(cmdname, 'w')
-strOut  = " ".join(sys.argv).replace("compute_marginalized_likelihood","integrate_likelihood_extrinsic")
+strOut  = " ".join(sys.argv).replace("create_event_dag_via_grid","integrate_likelihood_extrinsic")
 cmd.write('#!/usr/bin/env bash\n')
 cmd.write(strOut )
 cmd.close()
