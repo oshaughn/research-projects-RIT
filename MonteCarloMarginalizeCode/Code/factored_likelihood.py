@@ -111,7 +111,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
        # For ROM, use the ROM basis. Note that hlmoff -> basis_off henceforth
        acatHere= romwf.WaveformModeCatalog(ROM_group,ROM_param)
        if ROM_use_basis:
-            bT = acatHere.basis_oft(P,return_numpy=False)
+            bT = acatHere.basis_oft(P,return_numpy=False,force_T=1./P.deltaF)
             # Fake names, to re-use the code below.  
             hlms = {}
             hlms_conj = {}
@@ -393,7 +393,8 @@ def ReconstructPrecomputedLikelihoodTermsROM(P,acat_rom,rho_intp_rom,crossTerms_
                 rholms[det][mode]=rhoTS
                 # Interpolated case
                 #   - create a lambda structure for it, holding the coefficients.  NOT IMPLEMENTED since not used in production
-                print " factored_likelihood: ROM: interpolated timeseries ", det, mode, " NOT CREATED"
+                if verbose:
+                        print " factored_likelihood: ROM: interpolated timeseries ", det, mode, " NOT CREATED"
                 rholms_intp[det][mode] = None
         # Reproduce  crossTerms, crossTermsV
         for det in detectors:
