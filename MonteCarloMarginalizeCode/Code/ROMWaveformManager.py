@@ -13,6 +13,7 @@ import lal
 
 from scipy.interpolate import interp1d
 from scipy.linalg import inv
+from scipy.interpolate import splrep as _splrep
 
 import pickle
 import h5py
@@ -156,25 +157,27 @@ class WaveformModeCatalog:
             self.parameter_convert[mode] = ConvertWPtoSurrogateParams   # default conversion routine
             print ' mode ', mode, self.sur_dict[mode].B.shape
             self.nbasis_per_mode[mode] = (self.sur_dict[mode].B.shape)[1]
-            if max_nbasis_per_mode != None: # and self.sur_dict[mode].surrogate_mode_type == 'waveform_basis':
+            if max_nbasis_per_mode != None  and self.sur_dict[mode].surrogate_mode_type == 'waveform_basis':
              if max_nbasis_per_mode >0: # and max_nbasis_per_mode < self.nbasis_per_mode[mode]:
                 # See  https://arxiv.org/pdf/1308.3565v2.pdf  Eqs. 13 - 19
                 # Must truncate *orthogonal* basis.
                 # Works only for LINEAR basis
-                print " Truncating basis for mode ", mode, " to size ", max_nbasis_per_mode
+                # B are samples of the basis on some long time, V
+                sur = self.sur_dict[mode]
+                print " Truncating basis for mode ", mode, " to size ", max_nbasis_per_mode,  " but note the number of EIM points remains the same..."
                 V = self.sur_dict[mode].V
                 n_basis = len(V)
                 V_inv = inv(V)
-                mtx_E = np.dot(self.sur_dict[mode].B,V_inv)
+                mtx_E = np.dot(self.sur_dict[mode].B,V)
+#                print "E ", mtx_E.shape
                 # Zero out the components we don't want
                 if max_nbasis_per_mode < n_basis:
                     mtx_E[:,max_nbasis_per_mode:n_basis] *=0
-                    mtx_E[max_nbasis_per_mode:n_basis,:] *=0
-#                mtx_E[:,0:n_basis-max_nbasis_per_mode] *=0
-#                mtx_E[0:n_basis-max_nbasis_per_mode,:] *=0
                 # Regenerate
-                self.sur_dict[mode].B = np.dot(mtx_E , V)
-                self.nbasis_per_mode[mode] = np.min([max_nbasis_per_mode, len(self.sur_dict[mode].V)])  # reset
+                sur.B = np.dot(mtx_E , V_inv)
+                sur.reB_spline_params = [_splrep(sur.times, sur.B[:,jj].real, k=3) for jj in range(sur.B.shape[1])]
+                sur.imB_spline_params = [_splrep(sur.times, sur.B[:,jj].imag, k=3) for jj in range(sur.B.shape[1])]
+                self.nbasis_per_mode[mode] = len(self.sur_dict[mode].V) # if you truncate over the orthogonal basis, you still need to use the fit at all the EIM points!
                 # This SHOULD update the copies inside the surrogate, so the later interpolation called by EvaluateSingleModeSurrogate will interpolate this data
                 
             if reflection_symmetric and raw_modes.count((mode[0],-mode[1]))<1:
