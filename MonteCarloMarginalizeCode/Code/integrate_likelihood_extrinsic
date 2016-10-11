@@ -455,7 +455,7 @@ if opts.dump_lnL_time_series and opts.sim_xml:
             # No time-domain interpolation stored for ROMs,  must use raw data
             lnLvals[indx] = factored_likelihood.FactoredLogLikelihood(P, rholms_A, rholms_intp_A, cross_terms_A, cross_terms_V_A, opts.l_max,interpolate=False)
         else:
-            lnLvals[indx] = factored_likelihood.FactoredLogLikelihood(P, rholms, rholms_intp, cross_terms, cross_terms_V, opts.l_max,interpolate=not opt.rom_integrate_intrinsic)
+            lnLvals[indx] = factored_likelihood.FactoredLogLikelihood(P, rholms, rholms_intp, cross_terms, cross_terms_V, opts.l_max,interpolate=not opts.rom_integrate_intrinsic)
     numpy.savetxt("lnL_time_dump"+opts.output_file+".dat", numpy.array([tvals+fiducial_epoch,lnLvals]).T)
     print " Peak lnL value : ", numpy.max(lnLvals)
     sys.exit(0)
