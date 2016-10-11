@@ -73,7 +73,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,hybrid_use=False,use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False):
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,hybrid_use=False,use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -109,7 +109,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     P.deltaF = data_dict[detectors[0]].deltaF
     if not( ROM_group is None) and not (ROM_param is None):
        # For ROM, use the ROM basis. Note that hlmoff -> basis_off henceforth
-       acatHere= romwf.WaveformModeCatalog(ROM_group,ROM_param)
+       acatHere= romwf.WaveformModeCatalog(ROM_group,ROM_param,max_nbasis_per_mode=ROM_limit_basis_size)
        if ROM_use_basis:
             bT = acatHere.basis_oft(P,return_numpy=False,force_T=1./P.deltaF)
             # Fake names, to re-use the code below.  
@@ -321,10 +321,10 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # Compute cross terms < h_lm | h_l'm' >
         crossTerms[det] = ComputeModeCrossTermIP(hlms, hlms, psd_dict[det], P.fmin,
                 fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
-                inv_spec_trunc_Q, T_spec)
+                inv_spec_trunc_Q, T_spec,verbose=verbose)
         crossTermsV[det] = ComputeModeCrossTermIP(hlms_conj, hlms, psd_dict[det], P.fmin,
                 fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
-                inv_spec_trunc_Q, T_spec,prefix="V")
+                inv_spec_trunc_Q, T_spec,prefix="V",verbose=verbose)
         # Compute rholm(t) = < h_lm(t) | d >
         rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
                 psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, N_shift, N_window,
@@ -388,14 +388,19 @@ def ReconstructPrecomputedLikelihoodTermsROM(P,acat_rom,rho_intp_rom,crossTerms_
                 indx0 = indx_list_ok[0]
                 rhoTS = lal.CreateCOMPLEX16TimeSeries("rho",rho_rom[det][indx0].epoch,rho_rom[det][indx0].f0,rho_rom[det][indx0].deltaT,rho_rom[det][indx0].sampleUnits,rho_rom[det][indx0].data.length)
                 #  - fill the data structure
+                fn_list_here = []
+                wt_list_here = []
                 for indx in indx_list_ok:
                         rhoTS.data.data+= np.conj(coefs[indx])*rho_rom[det][indx].data.data
+                        wt_list_here.append(np.conj(coefs[indx]) )
+                        fn_list_here = rho_intp_rom[det][indx]
                 rholms[det][mode]=rhoTS
                 # Interpolated case
                 #   - create a lambda structure for it, holding the coefficients.  NOT IMPLEMENTED since not used in production
                 if verbose:
                         print " factored_likelihood: ROM: interpolated timeseries ", det, mode, " NOT CREATED"
-                rholms_intp[det][mode] = None
+                wt_list_here = np.array(wt_list_here)
+                rholms_intp[det][mode] = lambda t, fns=fn_list_here, wts=wt_list_here: np.sum(np.array(map(fn_list_here,t))*wt_list_here )
         # Reproduce  crossTerms, crossTermsV
         for det in detectors:
               crossTerms[det] ={}
@@ -414,7 +419,7 @@ def ReconstructPrecomputedLikelihoodTermsROM(P,acat_rom,rho_intp_rom,crossTerms_
         return rholms_intp, crossTerms, crossTermsV, rholms, None  # Same return pattern as Precompute...
 
 
-def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, crossTermsV,  Lmax):
+def FactoredLogLikelihood(extr_params, rholms,rholms_intp, crossTerms, crossTermsV,  Lmax,interpolate=True):
     """
     Compute the log-likelihood = -1/2 < d - h | d - h > from:
         - extr_params is an object containing values of all extrinsic parameters
@@ -454,9 +459,17 @@ def FactoredLogLikelihood(extr_params, rholms_intp, crossTerms, crossTermsV,  Lm
         # This is the GPS time at the detector
         t_det = ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
         det_rholms = {}  # rholms evaluated at time at detector
-        for key in rholms_intp[det]:
-            func = rholms_intp[det][key]
-            det_rholms[key] = func(float(t_det))
+        if (interpolate):
+                for key in rholms_intp[det]:
+                        func = rholms_intp[det][key]
+                        det_rholms[key] = func(float(t_det))
+        else:
+            # do not interpolate, just use nearest neighbor.
+            for key, rhoTS in rholms[det].iteritems():
+                tfirst = t_det
+                ifirst = int(np.round(( float(tfirst) - float(rhoTS.epoch)) / rhoTS.deltaT) + 0.5)
+                det_rholms[key] = rhoTS.data.data[ifirst]
+
 
         lnL += SingleDetectorLogLikelihood(det_rholms, CT, CTV,Ylms, F, dist)
 
@@ -496,7 +509,8 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
     Ylms = ComputeYlms(Lmax, incl, -phiref, selected_modes=rholms_intp[rholms.keys()[0]].keys())
 
-    lnL = 0.
+#    lnL = 0.
+    lnL = np.zeros(len(tvals),dtype=np.float128)
     for det in detectors:
         CT = crossTerms[det]
         CTV = crossTermsV[det]
