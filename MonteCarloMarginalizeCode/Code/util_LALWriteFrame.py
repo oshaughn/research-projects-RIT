@@ -60,8 +60,10 @@ else:
     xmldoc = utils.load_filename(filename, verbose = True, contenthandler =lalsimutils.cthdler)
     sim_inspiral_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
     P.copy_sim_inspiral(sim_inspiral_table[int(event)])
+    P.taper = lalsimutils.lsu_TAPER_START
     if opts.approx:
         P.approx = lalsim.GetApproximantFromString(str(opts.approx))
+P.taper = lalsimutils.lsu_TAPER_START  # force taper
 P.detector = opts.instrument
 P.print_params()
 
@@ -109,6 +111,7 @@ lalsimutils.hoft_to_frame_data(fname,channel,hoft)
 
 # TEST: Confirm it works by reading the frame
 if opts.verbose:
+    print " -----  Plotting data ------ "
     import os
     from matplotlib import pyplot as plt
     # First must create corresponding cache file
@@ -121,4 +124,5 @@ if opts.verbose:
     tvals = (float(hoft.epoch) - float(P.tref)) +  np.arange(hoft.data.length)*hoft.deltaT
     plt.plot(tvals2,hoft2.data.data,label='Fr')
     plt.plot(tvals,hoft.data.data,label='orig')
-    plt.legend(); plt.show()
+    plt.legend(); #plt.show()
+    plt.savefig("injected-data_"+opts.instrument +".png")
