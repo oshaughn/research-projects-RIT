@@ -375,10 +375,20 @@ class WaveformModeCatalog:
 
         # Otherwise, pack into a set of LAL data structures, with epoch etc set appropriately, so we can use in ILE without changes
         ret = {}
+
+        # Taper design.  Note taper needs to be applied IN THE RIGHT PLACE.  
+        print " Tapering basis "
+        t_start_taper = -self.ToverM_peak*m_total_s
+        t_end_taper = t_start_taper +100*m_total_s  # taper over around 100 M
+#        print t_start_taper, t_end_taper, tvals
+        def fn_taper(x):
+            return np.piecewise(x,[x<t_start_taper,x>t_end_taper,np.logical_and(x>=t_start_taper, x<=t_end_taper)], [0,1,lambda z: 0.5-0.5*np.cos(np.pi* (z-t_start_taper)/(t_end_taper-t_start_taper))])
+        vectaper= fn_taper(tvals)
+
         for ind in basis_grid:
             wfmTS = lal.CreateCOMPLEX16TimeSeries("h", lal.LIGOTimeGPS(0.), 0., deltaT, lalsimutils.lsu_DimensionlessUnit, npts)
             wfmTS.epoch = tvals[0]
-            wfmTS.data.data = basis_grid[ind]
+            wfmTS.data.data = vectaper*basis_grid[ind]
             ret[ind] = wfmTS
 
         return ret
