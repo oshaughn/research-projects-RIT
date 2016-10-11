@@ -387,6 +387,7 @@ def ReconstructPrecomputedLikelihoodTermsROM(P,acat_rom,rho_intp_rom,crossTerms_
                 #   - Create data structure to hold it
                 indx0 = indx_list_ok[0]
                 rhoTS = lal.CreateCOMPLEX16TimeSeries("rho",rho_rom[det][indx0].epoch,rho_rom[det][indx0].f0,rho_rom[det][indx0].deltaT,rho_rom[det][indx0].sampleUnits,rho_rom[det][indx0].data.length)
+                rhoTS.data.data *=0   # problems with data initialization common with LAL
                 #  - fill the data structure
                 fn_list_here = []
                 wt_list_here = []
