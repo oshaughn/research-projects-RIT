@@ -69,6 +69,8 @@ optp.add_option("--nr-hybrid-use",action='store_true',help="Enable use of NR hyb
 optp.add_option("--rom-group",default=None)
 optp.add_option("--rom-param",default=None)
 optp.add_option("--rom-use-basis",default=False,action='store_true')
+optp.add_option("--rom-limit-basis-size-to",default=None,type=int)
+optp.add_option("--rom-integrate-intrinsic",default=False,action='store_true',help='Integrate over intrinsic variables. REQUIRES rom_use_basis at present. ONLY integrates in mass ratio as present')
 optp.add_option("--nr-perturbative-extraction",default=False,action='store_true')
 optp.add_option("--nr-use-provided-strain",default=False,action='store_true')
 optp.add_option("--use-external-EOB",default=False,action='store_true')
@@ -119,6 +121,18 @@ intrinsic_params.add_option("--eff-lambda", type=float, help="Value of effective
 intrinsic_params.add_option("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
 optp.add_option_group(intrinsic_params)
 
+
+#
+# Add options to integrate over intrinsic parameters.  Same conventions as util_ManualOverlapGrid.py.  
+# Parameters have special names, and we adopt priors that use those names.
+# NOTE: Only 'q' implemented
+#
+intrinsic_int_params = OptionGroup(optp, "Intrinsic integrated parameters", "Intrinsic parameters to integrate over. ONLY currently used with ROM version")
+intrinsic_int_params.add_option("--parameter",action='append')
+intrinsic_int_params.add_option("--parameter-range",action='append',type=str)
+optp.add_option_group(intrinsic_int_params)
+
+
 #
 # Add the pinnable parameters
 #
@@ -129,6 +143,27 @@ for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
 optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
+
+
+intrinsic_param_names = opts.parameter
+valid_intrinsic_param_names = ['q']
+if intrinsic_param_names:
+ for param in intrinsic_param_names:
+    
+    # Check if in the valid list
+    if not(param in valid_intrinsic_param_names):
+            print ' Invalid param ', param, ' not in ', valid_intrinsic_param_names
+            sys.exit(0)
+    param_ranges = []
+    if len(intrinsic_param_names) == len(opts.parameter_range):
+        param_ranges = map(eval, opts.parameter_range)
+        # Rescale mass-dependent ranges to SI units
+        for p in ['mc', 'm1', 'm2', 'mtot']:
+          if p in intrinsic_param_names:
+            indx = intrinsic_param_names.index(p)
+            param_ranges[indx]= np.array(param_ranges[indx])* lal.MSUN_SI
+
+
 
 # Check both or neither of --data-start/end-time given
 if opts.data_start_time is None and opts.data_end_time is not None:
@@ -218,7 +253,7 @@ else:
 
 
 #
-# Set masses
+# Set masses 
 #
 if opts.mass1 is not None and opts.mass2 is not None:
     m1, m2 = opts.mass1, opts.mass2
@@ -392,24 +427,35 @@ rholms_intp, cross_terms, cross_terms_V,  rholms, rest=factored_likelihood.Preco
         fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
         False, inv_spec_trunc_Q, T_spec,
         NR_group=NR_template_group,NR_param=NR_template_param,
-        use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis)
+        use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=not opts.rom_integrate_intrinsic,ROM_limit_basis_size=opts.rom_limit_basis_size_to)
 
+### DEBUGGING CHECK: what keys are used (for rom)
 if opts.rom_use_basis:
+    detector_list = data_dict.keys()
+    print " Keys for each instrument (ROM sanity check) ", rholms_intp[detector_list[0]].keys()
+
+if opts.rom_use_basis and not opts.rom_integrate_intrinsic:
+    print " ROM : Trivial use (fixed extrinsic): Reconstruct standard expressions "
     # If ROM basis, transform to standard form, and proceed normally.
     # Note this is NOT allowing us to change intrinsic parameters
     # It is included to enable a code test: running with hlm directly provided by ROM, vs running with coefficient reconstruction
-    rholms_intp, cross_terms, cross_terms_V, rholms, rest = factored_likelihood.ReconstructPrecomputedLikelihoodTermsROM(P, rest, rholms_intp, cross_terms, cross_terms_V, rholms)
+    rholms_intp, cross_terms, cross_terms_V, rholms, rest = factored_likelihood.ReconstructPrecomputedLikelihoodTermsROM(P, rest, rholms_intp, cross_terms, cross_terms_V, rholms,verbose=False)
 
 if opts.dump_lnL_time_series and opts.sim_xml:
     # LOAD IN PARAMETERS
     P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))[opts.event]  # Load in the physical parameters of the injection.  
     print " ---- Compare at intrinsic parameters (masses irrelevant) ---- "
     P.print_params()
-    tvals = numpy.linspace(-2*t_ref_wind,2*t_ref_wind,5000)
+    tvals = numpy.linspace(-2*t_ref_wind,2*t_ref_wind,numpy.sqrt(5)*t_ref_wind/P.deltaT)  # make sure I have enough points to oversample. Use irrational number
     lnLvals = numpy.ones(len(tvals))
     for indx in numpy.arange(len(tvals)):
         P.tref = fiducial_epoch + tvals[indx]
-        lnLvals[indx] = factored_likelihood.FactoredLogLikelihood(P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
+        if opts.rom_integrate_intrinsic:
+            rholms_intp_A, cross_terms_A, cross_terms_V_A, rholms_A, rest_A = factored_likelihood.ReconstructPrecomputedLikelihoodTermsROM(P, rest, rholms_intp, cross_terms, cross_terms_V, rholms,verbose=False)
+            # No time-domain interpolation stored for ROMs,  must use raw data
+            lnLvals[indx] = factored_likelihood.FactoredLogLikelihood(P, rholms_A, rholms_intp_A, cross_terms_A, cross_terms_V_A, opts.l_max,interpolate=False)
+        else:
+            lnLvals[indx] = factored_likelihood.FactoredLogLikelihood(P, rholms, rholms_intp, cross_terms, cross_terms_V, opts.l_max,interpolate=not opt.rom_integrate_intrinsic)
     numpy.savetxt("lnL_time_dump"+opts.output_file+".dat", numpy.array([tvals+fiducial_epoch,lnLvals]).T)
     print " Peak lnL value : ", numpy.max(lnLvals)
     sys.exit(0)
@@ -467,7 +513,7 @@ dmax = opts.d_max  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 
 
 
-if True: #not opts.rom_use_basis:  # Does not work for ROM 
+if not opts.rom_integrate_intrinsic: #not opts.rom_use_basis:  # Does not work for ROM 
 
  crossTermNet = 0
  for key in cross_terms.keys():
@@ -564,6 +610,27 @@ sampler.add_parameter("distance",
             lambda x: x**2/(param_limits["distance"][1]**3/3.
                     - param_limits["distance"][0]**3/3.) ),
     adaptive_sampling = not opts.no_adapt)
+
+
+#
+# Intrinsic parameters
+#
+sampler_lookup = {}
+sampler_lookup['q'] = mcsampler.q_samp_vector   # only one intrinsic parameter possible
+if opts.rom_use_basis and opts.rom_integrate_intrinsic:
+ for p in intrinsic_param_names:
+    indx = intrinsic_param_names.index(p)
+    qmin,qmax = param_ranges[indx]
+    q_pdf =functools.partial(mcsampler.uniform_samp_vector, qmin, qmax)   # sample uniformly by default
+    q_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, qmin,qmax) # sample uniformly by default
+    q_pdf_prior = functools.partial(sampler_lookup[param], qmin, qmax)  # true prior, from lookup
+    sampler.add_parameter(p, 
+        pdf=q_pdf, 
+        cdf_inv=q_cdf_inv, 
+        left_limit=qmin, right_limit=qmax,prior_pdf=q_pdf, 
+        adaptive_sampling = not opts.no_adapt)
+
+
 
 if opts.skymap_file is not None:
     #
@@ -672,7 +739,7 @@ pinned_params.update({
     "n_adapt": 100 if not opts.no_adapt else 0, # Number of chunks to allow adaption over
 
     # Verbosity settings
-    "verbose": True, 
+    "verbose": not opts.rom_integrate_intrinsic, 
     "extremely_verbose": False, 
 
     # Sample caching
@@ -732,6 +799,7 @@ if not opts.time_marginalization:
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else: # Sum over time for every point in other extrinsic params
+ if not opts.rom_integrate_intrinsic:
     def likelihood_function(right_ascension, declination, phi_orb, inclination,
             psi, distance):
         # use EXTREMELY many bits
@@ -757,7 +825,58 @@ else: # Sum over time for every point in other extrinsic params
     
         return numpy.exp(lnL)
 
+    args = likelihood_function.func_code.co_varnames[:likelihood_function.func_code.co_argcount]
+    print " --------> Arguments ", args
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+ else: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
+    def likelihood_function(right_ascension, declination, phi_orb, inclination,
+            psi, distance,q):
+        lnL = numpy.zeros(len(right_ascension),dtype=numpy.float128)
+        i = 0
+        tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+
+
+        t_start =lal.GPSTimeNow() 
+        print " ILE with intrinsic (ROM) ", rholms_intp["H1"].keys()
+#        for qi in q:
+#         P.assign_param('q',qi)  # mass ratio
+       #      print " Re-constructing U,V, rho for ", qi, " time cost ", t_end - t_start
+        for ph, th, phr, ic, ps, di,qi in zip(right_ascension, declination,
+                phi_orb, inclination, psi, distance,q):
+             # Reconstruct U,V using ROM fits.  PROBABLY should do this once for every q, rather than deep on the loop
+            P.assign_param('q',qi)  # mass ratio
+            rholms_intp_A, cross_terms_A, cross_terms_V_A, rholms_A, rest_A = factored_likelihood.ReconstructPrecomputedLikelihoodTermsROM(P, rest, rholms_intp, cross_terms, cross_terms_V, rholms,verbose=False)
+
+
+            # proceed for rest
+            P.phi = ph # right ascension
+            P.theta = th # declination
+            P.tref = fiducial_epoch  # see 'tvals', above
+            P.phiref = phr # ref. orbital phase
+            P.incl = ic # inclination
+            P.psi = ps # polarization angle
+            P.dist = di* 1.e6 * lalsimutils.lsu_PC # luminosity distance
+            
+            
+            lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
+                    P, rholms_intp_A, rholms_A, cross_terms_A, cross_terms_V_A,                   
+                    opts.l_max,interpolate=opts.interpolate_time)
+            print qi, lnL[i]
+            if numpy.abs(lnL[i])>500 or numpy.isnan(lnL[i]):
+                print " Debug ! "
+                print cross_terms_A["H1"]
+                print cross_terms_V_A["H1"]
+                print numpy.max(numpy.abs(rholms_A["H1"][(2,2)].data.data))
+            i+=1
+        t_end =lal.GPSTimeNow() 
+        print " Cost per evaluation ", (t_end - t_start)/len(q)
+        print " Max lnL for this iteration ", numpy.max(lnL)
+        return numpy.exp(lnL)
+
+    args = likelihood_function.func_code.co_varnames[:likelihood_function.func_code.co_argcount]
+    print " --------> Arguments ", args
+    res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+
 
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
@@ -914,8 +1033,14 @@ if opts.output_file:
             samples["latitude"] = samples["declination"]
             samples["longitude"] = samples["right_ascension"]
         samples["loglikelihood"] = numpy.log(samples["integrand"])
-        samples["mass1"] = numpy.ones(samples["psi"].shape)*m1 # opts.mass1
-        samples["mass2"] = numpy.ones(samples["psi"].shape)*m2 # opts.mass2
+        if not opts.rom_integrate_intrinsic:
+            samples["mass1"] = numpy.ones(samples["psi"].shape)*m1 # opts.mass1
+            samples["mass2"] = numpy.ones(samples["psi"].shape)*m2 # opts.mass2
+        else:
+            mtot = m1+m2
+            # convention: q =m2/m1 < 1
+            samples["mass1"] = mtot/(1+samples['q'])
+            samples["mass2"] = mtot*samples['q']/(1+samples['q'])
         xmlutils.append_samples_to_xmldoc(xmldoc, samples)
     # FIXME: likelihood or loglikehood
     # FIXME: How to encode variance?
