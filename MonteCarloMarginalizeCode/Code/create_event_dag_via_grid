@@ -148,7 +148,11 @@ os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 
 cmdname="%s/command-single.sh" % opts.working_directory
 cmd = open(cmdname, 'w')
-strOut  = " ".join(sys.argv).replace("create_event_dag_via_grid","integrate_likelihood_extrinsic")
+arg_list = sys.argv
+indx_copies = arg_list.index("--n-copies")
+del arg_list[indx_copies]
+del arg_list[indx_copies]
+strOut  = " ".join(arg_list).replace("create_event_dag_via_grid","integrate_likelihood_extrinsic")  # also need to remove n-copies
 cmd.write('#!/usr/bin/env bash\n')
 cmd.write(strOut )
 cmd.close()
