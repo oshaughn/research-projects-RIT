@@ -863,10 +863,7 @@ else: # Sum over time for every point in other extrinsic params
                     opts.l_max,interpolate=opts.interpolate_time)
             print qi, lnL[i]
             if numpy.abs(lnL[i])>500 or numpy.isnan(lnL[i]):
-                print " Debug ! "
-                print cross_terms_A["H1"]
-                print cross_terms_V_A["H1"]
-                print numpy.max(numpy.abs(rholms_A["H1"][(2,2)].data.data))
+                print " Debug : Q series too large ", numpy.max(numpy.abs(rholms_A["H1"][(2,2)].data.data))
             i+=1
         t_end =lal.GPSTimeNow() 
         print " Cost per evaluation ", (t_end - t_start)/len(q)
