@@ -446,7 +446,7 @@ if opts.dump_lnL_time_series and opts.sim_xml:
     P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))[opts.event]  # Load in the physical parameters of the injection.  
     print " ---- Compare at intrinsic parameters (masses irrelevant) ---- "
     P.print_params()
-    tvals = numpy.linspace(-2*t_ref_wind,2*t_ref_wind,numpy.sqrt(5)*t_ref_wind/P.deltaT)  # make sure I have enough points to oversample. Use irrational number
+    tvals = numpy.linspace(-2*t_ref_wind,2*t_ref_wind,numpy.sqrt(3)*4*t_ref_wind/P.deltaT)  # make sure I have enough points to oversample. Use irrational number, and oversample
     lnLvals = numpy.ones(len(tvals))
     for indx in numpy.arange(len(tvals)):
         P.tref = fiducial_epoch + tvals[indx]
@@ -455,7 +455,7 @@ if opts.dump_lnL_time_series and opts.sim_xml:
             # No time-domain interpolation stored for ROMs,  must use raw data
             lnLvals[indx] = factored_likelihood.FactoredLogLikelihood(P, rholms_A, rholms_intp_A, cross_terms_A, cross_terms_V_A, opts.l_max,interpolate=False)
         else:
-            lnLvals[indx] = factored_likelihood.FactoredLogLikelihood(P, rholms, rholms_intp, cross_terms, cross_terms_V, opts.l_max,interpolate=not opts.rom_integrate_intrinsic)
+            lnLvals[indx] = factored_likelihood.FactoredLogLikelihood(P, rholms, rholms_intp, cross_terms, cross_terms_V, opts.l_max,interpolate=not opts.rom_use_basis)
     numpy.savetxt("lnL_time_dump"+opts.output_file+".dat", numpy.array([tvals+fiducial_epoch,lnLvals]).T)
     print " Peak lnL value : ", numpy.max(lnLvals)
     sys.exit(0)
@@ -739,7 +739,7 @@ pinned_params.update({
     "n_adapt": 100 if not opts.no_adapt else 0, # Number of chunks to allow adaption over
 
     # Verbosity settings
-    "verbose": not opts.rom_integrate_intrinsic, 
+    "verbose": True, #not opts.rom_integrate_intrinsic, 
     "extremely_verbose": False, 
 
     # Sample caching
@@ -837,7 +837,7 @@ else: # Sum over time for every point in other extrinsic params
 
 
         t_start =lal.GPSTimeNow() 
-        print " ILE with intrinsic (ROM) ", rholms_intp["H1"].keys()
+#        print " ILE with intrinsic (ROM) ", rholms_intp["H1"].keys()
 #        for qi in q:
 #         P.assign_param('q',qi)  # mass ratio
        #      print " Re-constructing U,V, rho for ", qi, " time cost ", t_end - t_start
@@ -861,9 +861,8 @@ else: # Sum over time for every point in other extrinsic params
             lnL[i] = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,
                     P, rholms_intp_A, rholms_A, cross_terms_A, cross_terms_V_A,                   
                     opts.l_max,interpolate=opts.interpolate_time)
-            print qi, lnL[i]
-            if numpy.abs(lnL[i])>500 or numpy.isnan(lnL[i]):
-                print " Debug : Q series too large ", numpy.max(numpy.abs(rholms_A["H1"][(2,2)].data.data))
+            if numpy.isnan(lnL[i]) or lnL[i]<-200:
+                lnL[i] = -200   # regularize  : a hack, for now, to deal with rare ROM problems. Only on the ROM logic fork
             i+=1
         t_end =lal.GPSTimeNow() 
         print " Cost per evaluation ", (t_end - t_start)/len(q)
