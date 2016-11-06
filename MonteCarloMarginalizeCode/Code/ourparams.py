@@ -249,13 +249,13 @@ def PopulatePrototypeSignal(opts):
             # NOTE: gstlal is exact match, but other pipelines may not be
             assert m1 is None or (sngl_row.mass1 == m1 and sngl_row.mass2 == m2)
             m1, m2 = sngl_row.mass1, sngl_row.mass2
-        m1 = m1*lal.LAL_MSUN_SI
-        m2 = m2*lal.LAL_MSUN_SI
+        m1 = m1*lal.MSUN_SI
+        m2 = m2*lal.MSUN_SI
        # Create a 'best recovered signal'
         Psig = lalsimutils.ChooseWaveformParams(
             m1=m1,m2=m2,approx=approxSignal,
             fmin = fminWavesSignal, 
-            dist=factored_likelihood.distMpcRef*1e6*lal.LAL_PC_SI,    # default distance
+            dist=factored_likelihood.distMpcRef*1e6*lal.PC_SI,    # default distance
             fref=fref, 
             ampO=ampO)  # FIXME: Parameter mapping from trigger space to search space
 
@@ -272,17 +272,17 @@ def PopulatePrototypeSignal(opts):
                 print " CANCEL: Specifying parameters via m1, m2, and time on the command line "
             Psig = lalsimutils.ChooseWaveformParams(approx=approxSignal,
                                                     fmin = fminWavesSignal, 
-                                                    dist=factored_likelihood.distMpcRef*1e6*lal.LAL_PC_SI,    # default distance
+                                                    dist=factored_likelihood.distMpcRef*1e6*lal.PC_SI,    # default distance
                                                     fref=fref)
-            Psig.m1 = lal.LAL_MSUN_SI*opts.template_mass1
-            Psig.m2 = lal.LAL_MSUN_SI*opts.template_mass2
+            Psig.m1 = lal.MSUN_SI*opts.template_mass1
+            Psig.m2 = lal.MSUN_SI*opts.template_mass2
             Psig.tref = lal.LIGOTimeGPS(0.000000000)  # Initialize as GPSTime object
             Psig.tref += opts.force_gps_time # Pass value of float into it
 
             
     if not(Psig):
-            m1 = 4*lal.LAL_MSUN_SI
-            m2 = 3*lal.LAL_MSUN_SI
+            m1 = 4*lal.MSUN_SI
+            m2 = 3*lal.MSUN_SI
             Psig = lalsimutils.ChooseWaveformParams(
                 m1 = m1,m2 =m2,
                 fmin = fminWavesSignal, 
