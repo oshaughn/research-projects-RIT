@@ -312,8 +312,10 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
             Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
             P_list.append(Pgrid)
         else:
+            print "skipping"
+            Pgrid.print_params()
             True
-            #print " skipping "
+#            print " skipping "
 #    print "Length check", len(P_list), len(grid)
     ###
     ### Loop over grid and make overlaps : see effective fisher code for wrappers
@@ -321,6 +323,8 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     #  FIXME: More robust multiprocessing implementation -- very heavy!
 #    p=Pool(n_threads)
     # PROBLEM: Pool code doesn't work in new configuration.
+    if len(grid_revised) ==0 :
+        return [],[]
     grid_out = np.array(map(functools.partial(eval_overlap, grid_revised, P_list,IP), np.arange(len(grid_revised))))
     # Remove mass units at end
     for p in ['mc', 'm1', 'm2', 'mtot']:
@@ -543,6 +547,14 @@ downselect_dict['chi1'] = [0,1]
 downselect_dict['chi2'] = [0,1]
 
 print " Downselect dictionary ", downselect_dict
+
+# downselection procedure: fix units so I can downselect on mass parameters
+for p in ['mc', 'm1', 'm2', 'mtot']:
+    if p in downselect_dict.keys():
+        downselect_dict[p] = np.array(downselect_dict[p],dtype=np.float64)
+        downselect_dict[p] *= lal.MSUN_SI  # add back units
+
+
 
 ###
 ### Lay out grid, currently CARTESIAN.   OPTIONAL: Load grid from file
