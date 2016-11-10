@@ -2026,7 +2026,7 @@ def hlmoft_SEOB_dict(P,Lmax=2):
     Works for any aligned-spin time-domain waveform with only (2,\pm 2) modes though.
     """
 
-    if not (P.approx == lalsim.SEOBNRv2 or P.approx==lalsim.SEOBNRv1):
+    if not (P.approx == lalsim.SEOBNRv2 or P.approx==lalsim.SEOBNRv1 or P.approx == lalSEOBv4):
         return None
 
     # Remember, we have a fiducial orientation for the h22. 
@@ -2692,8 +2692,8 @@ def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqReq
     return psdNew
 
 def get_psd_series_from_xmldoc(fname, inst):
-    return read_psd_xmldoc(utils.load_filename(fname, contenthandler=series.LIGOLWContentHandler ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
-    #return read_psd_xmldoc(utils.load_filename(fname ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+    #return read_psd_xmldoc(utils.load_filename(fname, contenthandler=series.LIGOLWContentHandler ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+    return read_psd_xmldoc(utils.load_filename(fname ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
 
 def get_intp_psd_series_from_xmldoc(fname, inst):
     psd = get_psd_series_from_xmldoc(fname, inst)
