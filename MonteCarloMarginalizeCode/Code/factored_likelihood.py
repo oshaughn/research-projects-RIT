@@ -73,7 +73,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,hybrid_use=False,use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None):
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -226,7 +226,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         wfP.P.deltaF = P.deltaF
         wfP.P.fmin = P.fmin
 
-        hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF,hybrid_use=hybrid_use)  # force a window.  Check the time
+        hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # force a window.  Check the time
         hlms_conj = wfP.conj_hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF,hybrid_use=hybrid_use)  # force a window.  Check the time
 
         if rosDebugMessages:
