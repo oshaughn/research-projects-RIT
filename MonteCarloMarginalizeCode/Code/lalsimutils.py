@@ -116,6 +116,9 @@ except:
     lalSEOBv4 =-1
     lalPD = -2
 
+MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
+
+
 # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_l_a_l_sim_inspiral_8c_source.html#l02910
 def lsu_StringFromPNOrder(order):
     if (order == lsu_PNORDER_NEWTONIAN):
