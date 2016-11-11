@@ -66,6 +66,7 @@ optp.add_option('--nr-param', default=None,help="If using a *ssingle specific si
 optp.add_option("--nr-lookup",action='store_true', help=" Look up parameters from an NR catalog, instead of using the approximant specified")
 optp.add_option("--nr-lookup-group",action='append', help="Restriction on 'group' for NR lookup")
 optp.add_option("--nr-hybrid-use",action='store_true',help="Enable use of NR hybrid, using --approx as the default approximant and with a frequency fmin")
+optp.add_option("--nr-hybrid-method",default="taper_add",help="Hybridization method for NR.  Passed through to LALHybrid. pseudo_aligned_from22 will provide ad-hoc higher modes, if the early-time hybridization model only includes the 22 mode")
 optp.add_option("--rom-group",default=None)
 optp.add_option("--rom-param",default=None)
 optp.add_option("--rom-use-basis",default=False,action='store_true')
@@ -427,7 +428,7 @@ rholms_intp, cross_terms, cross_terms_V,  rholms, rest=factored_likelihood.Preco
         fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
         False, inv_spec_trunc_Q, T_spec,
         NR_group=NR_template_group,NR_param=NR_template_param,
-        use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=not opts.rom_integrate_intrinsic,ROM_limit_basis_size=opts.rom_limit_basis_size_to)
+        use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=not opts.rom_integrate_intrinsic,ROM_limit_basis_size=opts.rom_limit_basis_size_to)
 
 ### DEBUGGING CHECK: what keys are used (for rom)
 if opts.rom_use_basis:
