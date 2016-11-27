@@ -439,10 +439,18 @@ class MCSampler(object):
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
             p_s, p_prior, rv = self.draw(n, *self.params)
+
+#            print "Prior ",  type(p_prior[0]), p_prior[0]
+#            print "rv ",  type(rv[0]), rv[0]    # rv generally has dtype = object, to enable joint sampling with multid variables
+#            print "Sampling prior ", type(p_s[0]), p_s[0]  
                         
             # Calculate the overall p_s assuming each pdf is independent
             joint_p_s = numpy.prod(p_s, axis=0)
             joint_p_prior = numpy.prod(p_prior, axis=0)
+            joint_p_prior = numpy.array(joint_p_prior,dtype=numpy.float128)  # Force type. Some type issues have arisen (dtype=object returns by accident)
+
+#            print "Joint prior ",  type(joint_p_prior), joint_p_prior.dtype, joint_p_prior
+#            print "Joint sampling prior ", type(joint_p_s), joint_p_s.dtype
 
             #
             # Prevent zeroes in the sampling prior
@@ -486,6 +494,9 @@ class MCSampler(object):
                 # will come out as a scalar here, hence the hack
                 if not isinstance(joint_p_prior, numpy.ndarray):
                     joint_p_prior = numpy.ones(fval.shape)*joint_p_prior
+
+
+#                print "      Prior", type(joint_p_prior), joint_p_prior.dtype
 
                 # FIXME: See warning at beginning of function. The prior values
                 # need to be moved out of this, as they are not part of MC
@@ -576,6 +587,7 @@ class MCSampler(object):
                 if p not in self.adaptive or p in kwargs.keys():
                     continue
                 points = self._rvs[p][-n_history:]
+#                print "      Points", p, type(points),points.dtype
                 # use log weights or weights
                 if not temper_log:
                     weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp_running
@@ -589,6 +601,7 @@ class MCSampler(object):
                     if rosDebugMessages:
                         print "     -  New adaptive exponent  ", tempering_exp_running, " based on max 1d weight ", numpy.max(weights), " based on parameter ", p
 
+#                print "      Weights",  type(weights),weights.dtype
                 self._hist[p], edges = numpy.histogram( points,
                     bins = 100,
                     range = (self.llim[p], self.rlim[p]),
@@ -690,7 +703,7 @@ def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
         if x<rmaxFlat:
             ret +=pFlat/rmaxFlat
         return  ret
-    ret = numpy.zeros(x.shape)
+    ret = numpy.zeros(x.shape,dtype=numpy.float64)
     ret += numpy.select([x<rmaxQuad],[(1.-pFlat)/rmaxQuad])
     ret += numpy.select([x<rmaxFlat],[pFlat/rmaxFlat])
     return ret
@@ -734,7 +747,7 @@ def q_samp_vector(qmin,qmax,x):
     scale = 1./(1+qmin) - 1./(1+qmax)
     return 1/numpy.power((1+x),2)/scale
 def q_cdf_inv_vector(qmin,qmax,x):
-    return (qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x)
+    return np.array((qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x),dtype=np.float128)
 
 # total mass. Assumed used with q.  2M/Mmax^2-Mmin^2
 def M_samp_vector(Mmin,Mmax,x):
