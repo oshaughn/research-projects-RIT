@@ -617,18 +617,24 @@ sampler.add_parameter("distance",
 # Intrinsic parameters
 #
 sampler_lookup = {}
+sampler_inv_lookup = {}
 sampler_lookup['q'] = mcsampler.q_samp_vector   # only one intrinsic parameter possible
+sampler_lookup['M'] = mcsampler.M_samp_vector
+sampler_inv_lookup['q'] = mcsampler.q_cdf_inv_vector
+sampler_inv_lookup['M'] = None # mcsampler.M_cdf_inv_vector
+
 if opts.rom_use_basis and opts.rom_integrate_intrinsic:
  for p in intrinsic_param_names:
     indx = intrinsic_param_names.index(p)
     qmin,qmax = param_ranges[indx]
     q_pdf =functools.partial(mcsampler.uniform_samp_vector, qmin, qmax)   # sample uniformly by default
+#    q_pdf =functools.partial(sampler_lookup[p], qmin, qmax)   # sample uniformly by default
     q_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, qmin,qmax) # sample uniformly by default
     q_pdf_prior = functools.partial(sampler_lookup[param], qmin, qmax)  # true prior, from lookup
     sampler.add_parameter(p, 
         pdf=q_pdf, 
         cdf_inv=q_cdf_inv, 
-        left_limit=qmin, right_limit=qmax,prior_pdf=q_pdf, 
+        left_limit=qmin, right_limit=qmax,prior_pdf=q_pdf_prior, 
         adaptive_sampling = not opts.no_adapt)
 
 
