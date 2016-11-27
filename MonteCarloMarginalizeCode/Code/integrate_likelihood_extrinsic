@@ -157,7 +157,7 @@ if intrinsic_param_names:
             sys.exit(0)
     param_ranges = []
     if len(intrinsic_param_names) == len(opts.parameter_range):
-        param_ranges = map(eval, opts.parameter_range)
+        param_ranges = numpy.array(map(eval, opts.parameter_range))
         # Rescale mass-dependent ranges to SI units
         for p in ['mc', 'm1', 'm2', 'mtot']:
           if p in intrinsic_param_names:
@@ -630,6 +630,7 @@ if opts.rom_use_basis and opts.rom_integrate_intrinsic:
     q_pdf =functools.partial(mcsampler.uniform_samp_vector, qmin, qmax)   # sample uniformly by default
 #    q_pdf =functools.partial(sampler_lookup[p], qmin, qmax)   # sample uniformly by default
     q_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, qmin,qmax) # sample uniformly by default
+#    q_cdf_inv= None
     q_pdf_prior = functools.partial(sampler_lookup[param], qmin, qmax)  # true prior, from lookup
     sampler.add_parameter(p, 
         pdf=q_pdf, 
