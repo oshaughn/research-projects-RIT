@@ -724,13 +724,22 @@ def gauss_samp_withfloor(mu, std, myfloor, x):
 gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,otypes=[numpy.float])
 
 
-# Mass ratio. Defined so mass ratio is < 1
+# Mass ratio. PDF propto 1/(1+q)^2.  Defined so mass ratio is < 1
+# expr = Integrate[1/(1 + q)^2, q]
+# scale = (expr /. q -> qmax )  - (expr /. q -> qmin)
+# (expr - (expr /. q -> qmin))/scale == x // Simplify
+# q /. Solve[%, q][[1]] // Simplify
+# % // CForm
 def q_samp_vector(qmin,qmax,x):
     scale = 1./(1+qmin) - 1./(1+qmax)
     return 1/numpy.power((1+x),2)/scale
 def q_cdf_inv_vector(qmin,qmax,x):
-    return 
+    return (qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x)
 
+# total mass. Assumed used with q.  2M/Mmax^2-Mmin^2
+def M_samp_vector(Mmin,Mmax,x):
+    scale = 2./(Mmax**2 - Mmin**2)
+    return x*scale
 
 
 def cos_samp(x):
