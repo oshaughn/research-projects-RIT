@@ -109,6 +109,8 @@ integration_params.add_option("--adapt-adapt",action='store_true',help="Adapt th
 integration_params.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
 integration_params.add_option("--interpolate-time", default=False,help="If using time marginalization, compute using a continuously-interpolated array. (Default=false)")
 integration_params.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
+integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
+integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
 optp.add_option_group(integration_params)
 
 #
@@ -162,7 +164,7 @@ if intrinsic_param_names:
         for p in ['mc', 'm1', 'm2', 'mtot']:
           if p in intrinsic_param_names:
             indx = intrinsic_param_names.index(p)
-            param_ranges[indx]= np.array(param_ranges[indx])* lal.MSUN_SI
+            param_ranges[indx]= numpy.array(param_ranges[indx])* lal.MSUN_SI
 
 
 
@@ -585,14 +587,24 @@ sampler.add_parameter("phi_orb",
 # inclination - angle of system angular momentum with line of sight
 # sampler: cos(incl) uniform in [-1, 1)
 #
-incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
-incl_sampler_cdf_inv = mcsampler.cos_samp_cdf_inv_vector
-sampler.add_parameter("inclination", 
+if not opts.inclination_cosine_sampler:
+ incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
+ incl_sampler_cdf_inv = mcsampler.cos_samp_cdf_inv_vector
+ sampler.add_parameter("inclination", 
     pdf = incl_sampler, 
     cdf_inv = incl_sampler_cdf_inv, 
     left_limit = param_limits["inclination"][0], 
     right_limit = param_limits["inclination"][1],
     prior_pdf = mcsampler.uniform_samp_theta)
+else:
+ incl_sampler = functools.partial(mcsampler.uniform_samp_vector,-1,1)
+ incl_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1) 
+ sampler.add_parameter("inclination", 
+    pdf = incl_sampler, 
+    cdf_inv = incl_sampler_cdf_inv, 
+    left_limit = -1, 
+    right_limit = 1,
+    prior_pdf = incl_sampler)
 
 #
 # Distance - luminosity distance to source in parsecs
@@ -680,16 +692,26 @@ else:
     # declination - angle in radians from the north pole piercing the celestial
     # sky sampler: cos(dec) uniform in [-1, 1), adaptive sampling
     #
-    dec_sampler = mcsampler.dec_samp_vector
-    dec_sampler_cdf_inv = mcsampler.dec_samp_cdf_inv_vector
-    sampler.add_parameter("declination", 
+    if not opts.declination_cosine_sampler:
+     dec_sampler = mcsampler.dec_samp_vector
+     dec_sampler_cdf_inv = mcsampler.dec_samp_cdf_inv_vector
+     sampler.add_parameter("declination", 
         pdf = dec_sampler, 
         cdf_inv = dec_sampler_cdf_inv, 
         left_limit = param_limits["declination"][0], 
         right_limit = param_limits["declination"][1],
         prior_pdf = mcsampler.uniform_samp_dec,
         adaptive_sampling = True or not opts.no_adapt)
-
+    else:
+     dec_sampler = functools.partial(mcsampler.uniform_samp_vector,-1,1)
+     dec_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1)
+     sampler.add_parameter("declination", 
+        pdf = dec_sampler, 
+        cdf_inv = dec_sampler_cdf_inv, 
+        left_limit = -1, 
+        right_limit = 1,
+        prior_pdf = dec_sampler,
+        adaptive_sampling = True or not opts.no_adapt)
 #
 # Determine pinned and non-pinned parameters
 #
@@ -786,10 +808,18 @@ if not opts.time_marginalization:
     #
     def likelihood_function(right_ascension, declination, t_ref, phi_orb,
             inclination, psi, distance):
+
+        dec = numpy.copy(declination).astype(numpy.float64)
+        if opts.declination_cosine_sampler:
+            dec = numpy.arccos(dec)
+        incl = numpy.copy(inclination).astype(numpy.float64)
+        if opts.inclination_cosine_sampler:
+            incl = numpy.arccos(incl)
+
         # use EXTREMELY many bits
         lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
         i = 0
-        for ph, th, tr, phr, ic, ps, di in zip(right_ascension, declination,
+        for ph, th, tr, phr, ic, ps, di in zip(right_ascension, dec,
                 t_ref, phi_orb, inclination, psi, distance):
             P.phi = ph # right ascension
             P.theta = th # declination
@@ -810,12 +840,19 @@ else: # Sum over time for every point in other extrinsic params
  if not opts.rom_integrate_intrinsic:
     def likelihood_function(right_ascension, declination, phi_orb, inclination,
             psi, distance):
+        dec = numpy.copy(declination).astype(numpy.float64)  # get rid of 'object', and allocate space
+        if opts.declination_cosine_sampler:
+            dec = numpy.arccos(dec)
+        incl = numpy.copy(inclination).astype(numpy.float64)
+        if opts.inclination_cosine_sampler:
+            incl = numpy.arccos(incl)
+
         # use EXTREMELY many bits
         lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
         i = 0
         tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
 
-        for ph, th, phr, ic, ps, di in zip(right_ascension, declination,
+        for ph, th, phr, ic, ps, di in zip(right_ascension, dec,
                 phi_orb, inclination, psi, distance):
             P.phi = ph # right ascension
             P.theta = th # declination
@@ -839,6 +876,13 @@ else: # Sum over time for every point in other extrinsic params
  else: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
     def likelihood_function(right_ascension, declination, phi_orb, inclination,
             psi, distance,q):
+        dec = numpy.copy(declination).astype(numpy.float64)
+        if opts.declination_cosine_sampler:
+            dec = numpy.arccos(dec)
+        incl = numpy.copy(inclination).astype(numpy.float64)
+        if opts.inclination_cosine_sampler:
+            incl = numpy.arccos(incl)
+
         lnL = numpy.zeros(len(right_ascension),dtype=numpy.float128)
         i = 0
         tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
@@ -849,7 +893,7 @@ else: # Sum over time for every point in other extrinsic params
 #        for qi in q:
 #         P.assign_param('q',qi)  # mass ratio
        #      print " Re-constructing U,V, rho for ", qi, " time cost ", t_end - t_start
-        for ph, th, phr, ic, ps, di,qi in zip(right_ascension, declination,
+        for ph, th, phr, ic, ps, di,qi in zip(right_ascension, dec,
                 phi_orb, inclination, psi, distance,q):
              # Reconstruct U,V using ROM fits.  PROBABLY should do this once for every q, rather than deep on the loop
             P.assign_param('q',qi)  # mass ratio
@@ -885,6 +929,13 @@ else: # Sum over time for every point in other extrinsic params
 print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
 
+
+# Convert declination, inclination  parameters in sampler if needed
+if opts.inclination_cosine_sampler:
+    sampler._rvs["inclination"] = np.arccos(sampler._rvs["inclination"])
+if opts.declination_cosine_sampler:
+    sampler._rvs["declination"] = np.arccos(sampler._rvs["declination"])
+
 # Unpack paired sky coordinates
 if ("declination", "right_ascension") in sampler.params:
     sampler._rvs["declination"], sampler._rvs["right_ascension"] = sampler._rvs[("declination", "right_ascension")]
@@ -915,7 +966,7 @@ if opts.maximize_only:
           P.dist = x[6]*dmax* 1.e6 * lalsimutils.lsu_PC # luminosity distance
     
           return -1.0* factored_likelihood.FactoredLogLikelihood(
-                    P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
+                    P, rholms,rholms_intp, cross_terms, cross_terms_V, opts.l_max)
 
     # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
     x0 =numpy.array( [ \
@@ -980,7 +1031,7 @@ if opts.maximize_only:
     P_max.m1 = lal.MSUN_SI*m1
     P_max.m2 = lal.MSUN_SI*m2
     print " Sanity check: log likelihood for this set is ", factored_likelihood.FactoredLogLikelihood(
-                    P_max, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
+                    P_max, rholms, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
     print " ---- Best extrinsic paramers after polishing   ---- "
     P_max.print_params()
     P_list = [P_max]
