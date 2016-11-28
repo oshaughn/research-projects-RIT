@@ -703,6 +703,8 @@ else:
         prior_pdf = mcsampler.uniform_samp_dec,
         adaptive_sampling = True or not opts.no_adapt)
     else:
+     # Sample uniformly in cos(polar_theta), =1 for north pole, -1 for south pole.
+     # Propagate carefully in conversions: time of flight libraries use RA,DEC
      dec_sampler = functools.partial(mcsampler.uniform_samp_vector,-1,1)
      dec_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1)
      sampler.add_parameter("declination", 
@@ -811,7 +813,7 @@ if not opts.time_marginalization:
 
         dec = numpy.copy(declination).astype(numpy.float64)
         if opts.declination_cosine_sampler:
-            dec = numpy.arccos(dec)
+            dec = numpy.pi/2 - numpy.arccos(dec)
         incl = numpy.copy(inclination).astype(numpy.float64)
         if opts.inclination_cosine_sampler:
             incl = numpy.arccos(incl)
@@ -842,7 +844,7 @@ else: # Sum over time for every point in other extrinsic params
             psi, distance):
         dec = numpy.copy(declination).astype(numpy.float64)  # get rid of 'object', and allocate space
         if opts.declination_cosine_sampler:
-            dec = numpy.arccos(dec)
+            dec = numpy.pi/2 - numpy.arccos(dec)
         incl = numpy.copy(inclination).astype(numpy.float64)
         if opts.inclination_cosine_sampler:
             incl = numpy.arccos(incl)
@@ -878,7 +880,7 @@ else: # Sum over time for every point in other extrinsic params
             psi, distance,q):
         dec = numpy.copy(declination).astype(numpy.float64)
         if opts.declination_cosine_sampler:
-            dec = numpy.arccos(dec)
+            dec = numpy.pi/2 - numpy.arccos(dec)
         incl = numpy.copy(inclination).astype(numpy.float64)
         if opts.inclination_cosine_sampler:
             incl = numpy.arccos(incl)
@@ -934,7 +936,7 @@ print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
 if opts.inclination_cosine_sampler:
     sampler._rvs["inclination"] = np.arccos(sampler._rvs["inclination"])
 if opts.declination_cosine_sampler:
-    sampler._rvs["declination"] = np.arccos(sampler._rvs["declination"])
+    sampler._rvs["declination"] = np.pi/2 - np.arccos(sampler._rvs["declination"])
 
 # Unpack paired sky coordinates
 if ("declination", "right_ascension") in sampler.params:
