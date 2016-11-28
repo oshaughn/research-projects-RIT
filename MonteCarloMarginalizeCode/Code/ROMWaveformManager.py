@@ -192,9 +192,10 @@ class WaveformModeCatalog:
                 self.sur_dict[mode_alt] = self.sur_dict[mode]
                 self.parameter_convert[mode_alt] = ConvertWPtoSurrogateParams
         # CURRENTLY ONLY LOAD THE 22 MODE and generate the 2,-2 mode by symmetr
-        t, hp, hc = self.sur_dict[(2,2)](q=1);
+        t = self.sur_dict[(2,2)].times  # end time
         self.ToverMmin = t.min()
         self.ToverMmax = t.max()
+        t, hp, hc = self.sur_dict[(2,2)](q=1);
         self.ToverM_peak = t[np.argmax(np.abs(hp**2+hc**2))]  # discrete maximum time
         if rosDebug:
             print " Peak time for ROM ", self.ToverM_peak
@@ -377,18 +378,31 @@ class WaveformModeCatalog:
         ret = {}
 
         # Taper design.  Note taper needs to be applied IN THE RIGHT PLACE.  
-        print " Tapering basis "
-        t_start_taper = -self.ToverM_peak*m_total_s
+        print " Tapering basis part 1: start "
+        vectaper = np.zeros(len(tvals))
+        t_start_taper = (self.ToverMmin - self.ToverM_peak)*m_total_s#-self.ToverM_peak*m_total_s
         t_end_taper = t_start_taper +100*m_total_s  # taper over around 100 M
+        print "  t interval (s) =  ", t_start_taper, t_end_taper
 #        print t_start_taper, t_end_taper, tvals
         def fn_taper(x):
             return np.piecewise(x,[x<t_start_taper,x>t_end_taper,np.logical_and(x>=t_start_taper, x<=t_end_taper)], [0,1,lambda z: 0.5-0.5*np.cos(np.pi* (z-t_start_taper)/(t_end_taper-t_start_taper))])
         vectaper= fn_taper(tvals)
 
+        print " Tapering basis part 2: end "  # IMPORTANT: ROMs can be discontinuous at end, which casues problems
+        vectaper2 = np.zeros(len(tvals))
+        t_start_taper = (self.ToverMmax-self.ToverM_peak-10)*m_total_s  # taper over last 5 M
+        t_end_taper = (self.ToverMmax-self.ToverM_peak)*m_total_s  
+        print "  t interval (s) =  ", t_start_taper, t_end_taper
+#        print t_start_taper, t_end_taper, tvals
+        def fn_taper2(x):
+            return np.piecewise(x,[x<t_start_taper,x>t_end_taper,np.logical_and(x>=t_start_taper, x<=t_end_taper)], [1,0,lambda z: 0.5+0.5*np.cos(np.pi* (z-t_start_taper)/(t_end_taper-t_start_taper))])
+        vectaper2= fn_taper2(tvals)
+
         for ind in basis_grid:
             wfmTS = lal.CreateCOMPLEX16TimeSeries("h", lal.LIGOTimeGPS(0.), 0., deltaT, lalsimutils.lsu_DimensionlessUnit, npts)
             wfmTS.epoch = tvals[0]
             wfmTS.data.data = vectaper*basis_grid[ind]
+            wfmTS.data.data *= vectaper2
             ret[ind] = wfmTS
 
         return ret
