@@ -934,9 +934,9 @@ print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
 
 # Convert declination, inclination  parameters in sampler if needed
 if opts.inclination_cosine_sampler:
-    sampler._rvs["inclination"] = numpy.arccos(sampler._rvs["inclination"])
+    sampler._rvs["inclination"] = numpy.arccos(sampler._rvs["inclination"].astype(numpy.float64))
 if opts.declination_cosine_sampler:
-    sampler._rvs["declination"] = numpy.pi/2 - numpy.arccos(sampler._rvs["declination"])
+    sampler._rvs["declination"] = numpy.pi/2 - numpy.arccos(sampler._rvs["declination"].astype(numpy.float64))
 
 # Unpack paired sky coordinates
 if ("declination", "right_ascension") in sampler.params:
