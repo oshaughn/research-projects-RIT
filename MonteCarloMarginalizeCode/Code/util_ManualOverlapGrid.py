@@ -312,8 +312,8 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
             Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
             P_list.append(Pgrid)
         else:
-            print "skipping"
-            Pgrid.print_params()
+#            print "skipping"
+#            Pgrid.print_params()
             True
 #            print " skipping "
 #    print "Length check", len(P_list), len(grid)
