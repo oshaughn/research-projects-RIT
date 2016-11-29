@@ -2029,7 +2029,7 @@ def hlmoft_SEOB_dict(P,Lmax=2):
     Works for any aligned-spin time-domain waveform with only (2,\pm 2) modes though.
     """
 
-    if not (P.approx == lalsim.SEOBNRv2 or P.approx==lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx=lalsim.EOBNRv2 ):
+    if not (P.approx == lalsim.SEOBNRv2 or P.approx==lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx==lalsim.EOBNRv2 ):
         return None
 
     # Remember, we have a fiducial orientation for the h22. 
