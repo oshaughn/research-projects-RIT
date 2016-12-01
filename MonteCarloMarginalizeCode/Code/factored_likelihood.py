@@ -116,6 +116,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             hlms = {}
             hlms_conj = {}
             for mode in bT:
+              if mode[0]<=Lmax:  # don't report waveforms from modes outside the target L range
                 if rosDebugMessagesDictionary["DebugMessagesLong"]:
                         print " FFT for mode ", mode, bT[mode].data.length, " note duration = ", bT[mode].data.length*bT[mode].deltaT
                 hlms[mode] = lsu.DataFourier(bT[mode])
