@@ -133,6 +133,7 @@ optp.add_option_group(intrinsic_params)
 intrinsic_int_params = OptionGroup(optp, "Intrinsic integrated parameters", "Intrinsic parameters to integrate over. ONLY currently used with ROM version")
 intrinsic_int_params.add_option("--parameter",action='append')
 intrinsic_int_params.add_option("--parameter-range",action='append',type=str)
+intrinsic_int_params.add_option("--adapt-intrinsic",action='store_true')
 optp.add_option_group(intrinsic_int_params)
 
 
@@ -648,7 +649,7 @@ if opts.rom_use_basis and opts.rom_integrate_intrinsic:
         pdf=q_pdf, 
         cdf_inv=q_cdf_inv, 
         left_limit=qmin, right_limit=qmax,prior_pdf=q_pdf_prior, 
-        adaptive_sampling = not opts.no_adapt)
+        adaptive_sampling = opts.adapt_intrinsic)
 
 
 
