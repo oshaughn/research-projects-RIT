@@ -438,13 +438,19 @@ class WaveformModeCatalog:
             if rosDebug:
                 print " passing params to mode : ", mode, params
                 print " surrogate natural parameter is ", params_surrogate
-            x0= self.sur_dict[mode]._affine_mapper(params_surrogate)
-            amp_eval = self.sur_dict[mode]._amp_eval(x0)
-            phase_eval = self.sur_dict[mode]._phase_eval(x0)
-            norm_eval = self.sur_dict[mode]._norm_eval(x0)
-            h_EIM = np.zeros(len(amp_eval))
-            if self.sur_dict[mode].surrogate_mode_type  == 'waveform_basis':
-                h_EIM = norm_eval*amp_eval*np.exp(1j*phase_eval)
+
+            # New version: gw-surrogate-0.5
+            h_EIM = self.sur_dict[mode]._eim_coeffs(params_surrogate, 'waveform_basis')
+            # OLD VERSION: gw-surrogate-0.4.2 and earlier
+            # x0= self.sur_dict[mode]._affine_mapper(params_surrogate)
+            # amp_eval = self.sur_dict[mode]._amp_eval(x0)
+            # phase_eval = self.sur_dict[mode]._phase_eval(x0)
+            # norm_eval = self.sur_dict[mode]._norm_eval(x0)
+            # h_EIM = np.zeros(len(amp_eval))
+            # if self.sur_dict[mode].surrogate_mode_type  == 'waveform_basis':
+            #     h_EIM = norm_eval*amp_eval*np.exp(1j*phase_eval)
+
+
             for indx in np.arange(self.nbasis_per_mode[mode]):  
                 how_to_store = (mode[0], mode[1], indx)
                 coefs[how_to_store]  = self.post_dict_complex_coef[mode](h_EIM[indx])   # conjugation as needed
