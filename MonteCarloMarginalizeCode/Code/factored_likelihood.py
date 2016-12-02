@@ -132,6 +132,16 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
            hlms = acatHere.hlmoff(P, use_basis=False,force_T=1./P.deltaF)  # Must force duration consistency, very annoying
            hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False)  # Must force duration consistency, very annoying
 
+           # truncate the list to l<=Lmax !
+           hlm_tmp = {}
+           hlm_tmp_conj = {}
+           for mode in hlms:
+                   if mode[0]<=Lmax:
+                           hlm_tmp[mode]=hlms[mode]
+                           hlm_tmp_conj[mode]=hlms_conj[mode]
+           hlms= hlm_tmp
+           hlms_conj=hlm_tmp_conj
+
     elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx == lalsim.EOBNRv2):
         print "  FACTORED LIKELIHOOD WITH SEOB "    
         hlmst = {}
