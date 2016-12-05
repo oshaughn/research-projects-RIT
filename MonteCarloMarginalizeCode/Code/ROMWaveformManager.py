@@ -240,7 +240,7 @@ class WaveformModeCatalog:
         Based on 'hoft' in lalsimutils.py
         """
         # Create complex timessereis
-        htC = self.complex_hoft(force_T=1./P.deltaF, deltaT= P.deltaT)  # note P.tref is NOT used in the low-level code
+        htC = self.complex_hoft(P,force_T=1./P.deltaF, deltaT= P.deltaT)  # note P.tref is NOT used in the low-level code
         TDlen  = htC.data.length
         if rosDebug:
             print  "Size sanity check ", TDlen, 1/(P.deltaF*P.deltaT)
