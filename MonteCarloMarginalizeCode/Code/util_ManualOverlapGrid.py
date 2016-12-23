@@ -41,6 +41,9 @@ import lal
 import functools
 import itertools
 
+from scipy.optimize import brentq
+
+
 import effectiveFisher  as eff   # for the mesh grid generation
 import PrecessingFisherMatrix   as pcf   # Superior tools to perform overlaps. Will need to standardize with Evans' approach in effectiveFisher.py
 
@@ -184,6 +187,7 @@ parser.add_argument("--linear-spoked", action="store_true", help="Place mass pts
 parser.add_argument("--grid-cartesian", action="store_true", help="Place mass points using a cartesian grid")
 parser.add_argument("--grid-cartesian-npts", default=100, type=int)
 parser.add_argument("--skip-overlap",action='store_true', help="If true, the grid is generated without actually performing overlaps. Very helpful for uncertain configurations or low SNR")
+parser.add_argument("--reset-grid-via-match",action='store_true',help="Reset the parameter_range results so each parameter's range is limited by  match_value.  Use this ONLY for estimating the fisher matrix quickly!")
 # Cutoff options
 parser.add_argument("--match-value", type=float, default=0.01, help="Use this as the minimum match value. Default is 0.01 (i.e., keep almost everything)")
 # Overlap options
@@ -524,6 +528,38 @@ else:
 
 template_min_freq = opts.fmin
 ip_min_freq = opts.fmin
+
+
+###
+### Auto-tune parameter range based on match threshold
+###
+if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
+    # Based on the original effective fisher code: 'find_effective_Fisher_region'
+    TOL=1e-5
+    for indx in np.arange(len(param_names)):
+        PT = P.copy()
+        param_now = param_names[indx]
+        param_peak = P.extract_param(param)
+        def ip_here(x):
+            PT.assign_param(param_now,x)
+            PT.deltaF = IP.deltaF
+            hf_now = lalsimutils.complex_hoff(PT)
+            nm_now = IP.norm(hf_now)
+            val = IP.ip(hfBase,hf_now)/nm_now
+        try:
+            param_min = brentq(ip_here,param_peak, param_ranges[indx][0],xtol=TOL)
+        except:
+            print "  Range retuning: minimum for ", param
+            param_min = param_ranges[indx][0]
+        try:
+            param_max = brentq(ip_here,param_peak, param_ranges[indx][1],xtol=TOL)
+        except:
+            print "  Range retuning: minimum for ", param
+            param_max = param_ranges[indx][1]
+                         
+        print " Revised range for parameter ", param_ranges[indx], " to ", [param_min,param_max]
+        param_ranges[indx][0] = param_min
+        param_ranges[indx][1] = param_max
 
 
 ###
