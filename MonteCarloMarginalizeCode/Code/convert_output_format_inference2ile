@@ -40,6 +40,7 @@ optp = OptionParser()
 optp.add_option("--posterior-samples",default="posterior_samples.dat")
 optp.add_option("--output-xml",default="posterior.xml.gz",type=str)
 optp.add_option("--approx",default="SEOBNRv2")
+optp.add_option("--force-aligned",action='store_true')
 optp.add_option("--fmin",default=20,type=float)
 optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
 optp.add_option("--target-size",default=1000,type=int)
@@ -88,6 +89,10 @@ for indx in np.arange(opts.target_size):
         print " Target spinz1 (should be equal)", P.s1z, samples_in["a1z"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
         print " Target spin2z ", P.s2z, samples_in["a2z"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
         print " Target chieff ", P.Xi(), samples_in["chi_eff"][fac_reduce*indx]
+    if opts.force_aligned:  
+        # assumes in L frame, not radiation frame!
+        P.s1x = P.s1y=0
+        P.s2x = P.s2y=0
     P_list.append(P)
 
 
