@@ -33,7 +33,6 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
 
     dim = len(x[0])   
     npts = len(x)
-    print x.shape, y.shape
     if verbose:
         print " Fisher : dimension, npts = " ,dim, npts
     # Constant, linear, quadratic functions. 
@@ -110,6 +109,8 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
         indx_here = indx_lookup[pair]
         my_fisher_est[k,q] += -lambdaHat[indx_here]
         my_fisher_est[q,k] += -lambdaHat[indx_here]  # this will produce a factor of 2 if the two terms are identical
+    if prior_x_gamma!=None and prior_x_gamma.shape == my_fisher_est.shape:
+        my_fisher_est += prior_x_gamma
     if verbose:
         print "  Fisher: ", my_fisher_est
         print "  Fisher: Sanity check (-0.5)*Fisher matrix vs components (diagonal only) : ", -0.5*my_fisher_est, "versus",  lambdaHat
@@ -126,7 +127,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
 
 
 
-def fit_quadratic_and_resample(x,y,npts,x0=None,gamma_x=None,prior_x_gamma=None,prior_quadratic_gamma=None,verbose=False,n_digits=None):
+def fit_quadratic_and_resample(x,y,npts,rho_fac=1,x0=None,gamma_x=None,prior_x_gamma=None,prior_quadratic_gamma=None,verbose=False,n_digits=None):
     """
     Simple least squares to a quadratic, *and* resamples from the quadratic derived from the fit.
     Critical for iterative evaluation of 
@@ -141,7 +142,7 @@ def fit_quadratic_and_resample(x,y,npts,x0=None,gamma_x=None,prior_x_gamma=None,
 
     # Use the inverse covariance mattrix
     my_fisher_est_inv = linalg.inv(my_fisher_est)   # SEE INVERSE DISCUSSION
-    x_new = np.random.multivariate_normal(best_val_est,my_fisher_est_inv,size=npts)
+    x_new = np.random.multivariate_normal(best_val_est,my_fisher_est_inv/(rho_fac*rho_fac),size=npts)
 
     return x_new
 
