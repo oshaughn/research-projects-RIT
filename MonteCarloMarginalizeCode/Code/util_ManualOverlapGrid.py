@@ -72,6 +72,8 @@ except:
 ### Linear fits. Resampling a quadratic. (Export me)
 ###
 
+import BayesianLeastSquares
+
 def fit_quadratic(x,y,x0=None):
     """
     x = array so x[0] , x[1], x[2] are points.
@@ -651,7 +653,7 @@ if opts.use_fisher:
     # Reference point for fit should NOT MATTER
     x0_val_here =grid_out[0,:len(param_names)]
 #    print grid_out[0], x0_val_here
-    the_quadratic_results = fit_quadratic( grid_out[:,:len(param_names)], grid_out[:,len(param_names)],x0=x0_val_here)#x0=None)#x0_val_here)
+    the_quadratic_results = BayesianLeastSquares.fit_quadratic( grid_out[:,:len(param_names)], grid_out[:,len(param_names)],x0=x0_val_here)#x0=None)#x0_val_here)
     print the_quadratic_results
     peak_val_est, best_val_est, my_fisher_est, linear_term_est = the_quadratic_results
     np.savetxt("fisher_reference.dat",x0_val_here) 
