@@ -1,0 +1,104 @@
+#! /usr/bin/env python
+#
+# convert_output_format_inference2ile
+#
+# GOAL
+#    - read in lalinference posterior samples (ascii, by default)
+#    - return XML properly formatted for ILE
+# ISSUES
+#    - interface change in lalsimulation / coordinate change
+#         MAY BE ROTATED SPIN CONFIGURATION ON LAPTOP (radiation frame vs others)
+#    - does not require consistency : precessing conditions can be applied to a nonprecesing approximant
+#    - no check on fref, fmin, ...
+#    - implemented for one iteration of lalinference...format constantly evolving
+#
+# CHECK COLUMNS
+# for word in `head -n 1 downloads/online_IMRP.dat `; do echo $word; done | sort -rn
+#
+#
+#  EXAMPLES
+#    convert_output_format_inference2ile --posterior-samples downloads/online_IMRP.dat --target-size 5
+
+import sys
+from optparse import OptionParser
+import numpy as np
+from glue.ligolw import utils, table, lsctables, ligolw
+
+import lal
+import lalsimutils
+import lalsimulation as lalsim
+
+ros_debug = True
+
+
+# Contenthandlers : argh
+#   - http://software.ligo.org/docs/glue/
+lsctables.use_in(ligolw.LIGOLWContentHandler)
+
+
+optp = OptionParser()
+optp.add_option("--posterior-samples",default="posterior_samples.dat")
+optp.add_option("--output-xml",default="posterior.xml.gz",type=str)
+optp.add_option("--approx",default="SEOBNRv2")
+optp.add_option("--force-aligned",action='store_true')
+optp.add_option("--fmin",default=20,type=float)
+optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
+optp.add_option("--target-size",default=1000,type=int)
+opts, args = optp.parse_args()
+
+
+###
+### Import file. Verify required columns
+###
+samples_in = np.genfromtxt(opts.posterior_samples,names=True)
+
+
+###
+### Generate P list
+###
+
+P_list =[]
+n_samples_in = len(samples_in["mc"])
+fac_reduce = int(n_samples_in/(opts.target_size+1))
+
+for indx in np.arange(opts.target_size):
+    m1 = samples_in["m1"][indx*fac_reduce]*lal.MSUN_SI
+    m2 = samples_in["m2"][fac_reduce*indx]*lal.MSUN_SI
+    d = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
+    P = lalsimutils.ChooseWaveformParams(m1=m1,m2=m2,dist=d)
+    P.time = samples_in["time"][fac_reduce*indx]
+    P.fmin = opts.fmin
+#    P.fref = opts.fref
+#    P.fref = samples_in["flow"][fac_reduce*indx]  # REFERENCE FREQUENCY IS NOT YET RELIABLE
+    P.fref = samples_in["f_ref"][fac_reduce*indx]  # a field now !  MAY NOT BE RELIABLE
+    P.phiref =samples_in["phase"][fac_reduce*indx]
+    P.approx = lalsim.GetApproximantFromString(opts.approx)
+    P.init_via_system_frame( 
+         thetaJN=samples_in["theta_jn"][fac_reduce*indx],
+         phiJL=samples_in["phi_jl"][fac_reduce*indx],
+         theta1=samples_in["tilt1"][fac_reduce*indx],
+         theta2=samples_in["tilt2"][fac_reduce*indx],
+         phi12=samples_in["phi12"][fac_reduce*indx],
+         chi1=samples_in["a1"][fac_reduce*indx],
+         chi2=samples_in["a2"][fac_reduce*indx],
+         psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
+         )
+    if ros_debug:
+        P.print_params()
+        print " Target inclination (should be equal) ", P.incl, samples_in["iota"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
+        print " Target spinz1 (should be equal)", P.s1z, samples_in["a1z"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
+        print " Target spin2z ", P.s2z, samples_in["a2z"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
+        print " Target chieff ", P.Xi(), samples_in["chi_eff"][fac_reduce*indx]
+    if opts.force_aligned:  
+        # assumes in L frame, not radiation frame!
+        P.s1x = P.s1y=0
+        P.s2x = P.s2y=0
+    P_list.append(P)
+
+
+###
+### Write XML file
+###
+print " Writing  to file ", len(P_list)
+lalsimutils.ChooseWaveformParams_array_to_xml(P_list, fname=opts.output_xml, fref=P.fref)
+

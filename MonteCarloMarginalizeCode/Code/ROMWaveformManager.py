@@ -240,7 +240,7 @@ class WaveformModeCatalog:
         Based on 'hoft' in lalsimutils.py
         """
         # Create complex timessereis
-        htC = self.complex_hoft(force_T=1./P.deltaF, deltaT= P.deltaT)  # note P.tref is NOT used in the low-level code
+        htC = self.complex_hoft(P,force_T=1./P.deltaF, deltaT= P.deltaT)  # note P.tref is NOT used in the low-level code
         TDlen  = htC.data.length
         if rosDebug:
             print  "Size sanity check ", TDlen, 1/(P.deltaF*P.deltaT)
@@ -438,20 +438,26 @@ class WaveformModeCatalog:
             if rosDebug:
                 print " passing params to mode : ", mode, params
                 print " surrogate natural parameter is ", params_surrogate
-            x0= self.sur_dict[mode]._affine_mapper(params_surrogate)
-            amp_eval = self.sur_dict[mode]._amp_eval(x0)
-            phase_eval = self.sur_dict[mode]._phase_eval(x0)
-            norm_eval = self.sur_dict[mode]._norm_eval(x0)
-            h_EIM = np.zeros(len(amp_eval))
-            if self.sur_dict[mode].surrogate_mode_type  == 'waveform_basis':
-                h_EIM = norm_eval*amp_eval*np.exp(1j*phase_eval)
+
+            # New version: gw-surrogate-0.5
+            h_EIM = self.sur_dict[mode]._eim_coeffs(params_surrogate, 'waveform_basis')
+            # OLD VERSION: gw-surrogate-0.4.2 and earlier
+            # x0= self.sur_dict[mode]._affine_mapper(params_surrogate)
+            # amp_eval = self.sur_dict[mode]._amp_eval(x0)
+            # phase_eval = self.sur_dict[mode]._phase_eval(x0)
+            # norm_eval = self.sur_dict[mode]._norm_eval(x0)
+            # h_EIM = np.zeros(len(amp_eval))
+            # if self.sur_dict[mode].surrogate_mode_type  == 'waveform_basis':
+            #     h_EIM = norm_eval*amp_eval*np.exp(1j*phase_eval)
+
+
             for indx in np.arange(self.nbasis_per_mode[mode]):  
                 how_to_store = (mode[0], mode[1], indx)
                 coefs[how_to_store]  = self.post_dict_complex_coef[mode](h_EIM[indx])   # conjugation as needed
 
         return coefs
 
-    def hlmoft(self,  P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False):
+    def hlmoft(self,  P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf):
         """
         hlmoft uses the dimensionless ROM basis functions to extract hlm(t) in physical units, in a LAL array.
         The argument 'P' is a ChooseWaveformParaams object
@@ -486,6 +492,7 @@ class WaveformModeCatalog:
             q=1./q  # this flips the objects, swapping phase, but it is a good place to start
         # Loop over all modes in the system
         for mode in self.modes_available: # loop over modes
+          if mode[0] <= Lmax:
             # Copy into a new LIGO time series object
             wfmTS = lal.CreateCOMPLEX16TimeSeries("h", lal.LIGOTimeGPS(0.), 0., deltaT, lalsimutils.lsu_DimensionlessUnit, npts)
             wfmTS.data.data *=0;  # init - a sanity check
@@ -558,13 +565,13 @@ class WaveformModeCatalog:
 
         return hlmT
 
-    def hlmoff(self, P,force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False):
+    def hlmoff(self, P,force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf):
         """
         hlmoff takes fourier transforms of LAL timeseries generated from hlmoft.
         All modes have physical units, appropriate to a physical signal.
         """
         hlmF ={}
-        hlmT = self.hlmoft(P,force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero,use_basis=use_basis)
+        hlmT = self.hlmoft(P,force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero,use_basis=use_basis,Lmax=Lmax)
         for mode in hlmT.keys():
             wfmTS=hlmT[mode]
             # Take the fourier transform
@@ -573,13 +580,13 @@ class WaveformModeCatalog:
             hlmF[mode] = wfmFD
         return hlmF
 
-    def conj_hlmoff(self, P,force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False):
+    def conj_hlmoff(self, P,force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf):
         """
         conj_hlmoff takes fourier transforms of LAL timeseries generated from hlmoft, but after complex conjugation.
         All modes have physical units, appropriate to a physical signal.
         """
         hlmF ={}
-        hlmT = self.hlmoft(P,force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero,use_basis=use_basis)
+        hlmT = self.hlmoft(P,force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero,use_basis=use_basis,Lmax=Lmax)
         for mode in hlmT.keys():
             wfmTS=hlmT[mode]
             wfmTS.data.data = np.conj(wfmTS.data.data)  # complex conjugate

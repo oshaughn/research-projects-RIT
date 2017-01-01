@@ -14,7 +14,14 @@
 #   util_ManualOverlapGrid.py --inj inj.xml.gz --parameter LambdaTilde  --parameter-range '[0,1000]' --grid-cartesian-npts 10 --use-external-EOB-source --use-external-EOB
 #   python util_ManualOverlapGrid.py --parameter s1x --parameter-range [-1,1] --parameter s1y --parameter-range [-1,1] --parameter s1z --parameter-range [-1,1] --skip-overlap  --verbose # check Kerr bound is enforced
 #  
+#  util_ManualOverlapGrid.py --parameter s1z --parameter-range '[-0.5,0.5]'  --parameter eta --parameter-range '[0.2,0.2499]' --verbose --seglen 16 --mass1 10 --mass2 6 --use-fisher --match-val 0.95 --approx SpinTaylorT4
 
+# EXAMPLES: Iterative Fisher matrix creation (converging on higher match)
+#   python util_ManualOverlapGrid.py  --parameter eta --parameter-range '[0.2,0.2499]' --verbose --seglen 32 --mass1 10 --mass2 6 --use-fisher --match-val 0.97 --reset-grid-via-match
+#  python util_ManualOverlapGrid.py --parameter s1z --parameter-range '[-0.1,0.1]'  --parameter eta --parameter-range '[0.2,0.2499]' --verbose --seglen 16 --mass1 10 --mass2 6 --use-fisher --match-val 0.90 --approx SpinTaylorT4 --grid-cartesian-npts 500 --reset-grid-via-match
+#  python util_ManualOverlapGrid.py  --parameter eta --parameter-range '[0.2,0.2499]' --verbose --seglen 32 --mass1 10 --mass2 6 --use-fisher --match-val 0.97 --reset-grid-via-match --parameter mc --parameter-range '[6.6,6.8]'
+# python util_ManualOverlapGrid.py --parameter s1z --parameter-range '[-0.3,0.3]'  --parameter eta --parameter-range '[0.2,0.2499]' --verbose --seglen 16 --mass1 10 --mass2 6 --use-fisher --match-val 0.97 --approx SpinTaylorT4 --grid-cartesian-npts 500 --reset-grid-via-match --parameter mc --parameter-range '[6.6,6.8]'
+# python util_ManualOverlapGrid.py --parameter s1z --parameter-range '[-0.3,0.3]'  --parameter eta --parameter-range '[0.2,0.2499]' --verbose --seglen 8 --mass1 35 --mass2 32 --use-fisher --match-val 0.97 --approx SEOBNRv2 --grid-cartesian-npts 100 --reset-grid-via-match --parameter mc --parameter-range '[28,32]'
 #
 # IDEA
 #    - pass a list of parameters and a list of ranges
@@ -40,6 +47,9 @@ import lalframe
 import lal
 import functools
 import itertools
+
+from scipy.optimize import brentq
+
 
 import effectiveFisher  as eff   # for the mesh grid generation
 import PrecessingFisherMatrix   as pcf   # Superior tools to perform overlaps. Will need to standardize with Evans' approach in effectiveFisher.py
@@ -69,90 +79,92 @@ except:
 ### Linear fits. Resampling a quadratic. (Export me)
 ###
 
-def fit_quadratic(x,y,x0=None):
-    """
-    x = array so x[0] , x[1], x[2] are points.
-    """
-    x0_val = np.zeros(len(x[0]))
-    if not (x0 is None):
-        if opts.verbose:
-            print " Fisher: Using reference point ", x0
-        x0_val = x0
+import BayesianLeastSquares
 
-    dim = len(x[0])   
-    npts = len(x)
-#    print x.shape, y.shape
-    if opts.verbose:
-        print " Fisher : dimension, npts = " ,dim, npts
-    # Constant, linear, quadratic functions. 
-    # Beware of lambda:  f_list = [(lambda x: k) for k in range(5)] does not  work, but this does
-    #     f_list = [(lambda x,k=k: k) for k in range(5)]
-    f0 = [lambda z: np.ones(len(z),dtype=np.float128)]
-    # indx_lookup_linear = {}   # protect against packing errors
-    # indx_here = len(f0)
-    # f_linear = []
-    # for k in np.arange(dim):
-    #     f_linear.append( (lambda z,k=k,x0V=x0_val: z.T[k] - x0V[k]))
-    #     indx_lookup_linear[k] =indx_here
-    #     indx_here+=1
-    f_linear = [(lambda z,k=k,x0V=x0_val: z.T[k] - x0V[k]) for k in np.arange(dim)]
-    f_quad = []
-    indx_lookup = {}
-    indx_here =len(f0)+len(f_linear) 
-    for k in np.arange(dim):
-        for q in range(k,dim):
-            f_quad.append( (lambda z,k=k,q=q: (z.T[k] - x0_val[k])*(z.T[q]-x0_val[q]))   )
-            indx_lookup[(k,q)] = indx_here
-            indx_here+=1
-    f_list=f0+f_linear + f_quad
-    n_params_model = len(f_list)
-    F = np.matrix(np.zeros((len(x), n_params_model),dtype=np.float128))
-    for q in np.arange(n_params_model):
-        fval = f_list[q](np.array(x,dtype=np.float128))
-#        print q, f_list[q], fval, fval.shape, len(x)
-        F[:,q] = np.reshape(fval, (len(x),1))
-    if opts.verbose:
-        print " ---- index pattern --- "
-        print indx_lookup
-    gamma = np.matrix( np.diag(np.ones(npts,dtype=np.float128)))
-    Gamma = F.T * gamma * F      # Fisher matrix for the fit
-    Sigma = scipy.linalg.inv(Gamma)  # Covariance matrix for the fit. WHICH CODE YOU USE HERE IS VERY IMPORTANT.
-    if opts.verbose:
-        print " -- should be identity (error here is measure of overall error) --- "
-        print "   Fisher: Matrix inversion/manipulation error ", np.linalg.norm(Sigma*Gamma - np.eye(len(Sigma))) , " which can be large if the fit coordinates are not centered near the peak"
-        print " --  --- "
-    lambdaHat =  np.array((Sigma* F.T*gamma* np.matrix(y).T))[:,0]  # point estimate for the fit parameters (i.e., fisher matrix and best fit point)
-    if opts.verbose:
-        print " Fisher: LambdaHat = ", lambdaHat
-    constant_term_est = lambdaHat[0]  # Constant term
-    linear_term_est = lambdaHat[1:dim+1]  # Coefficient of linear terms
-    my_fisher_est = np.zeros((dim,dim),dtype=np.float64)   #  A SIGNIFICANT LIMITATION...
-    for pair in indx_lookup:
-        k = pair[0]; q=pair[1];
-        indx_here = indx_lookup[pair]
-        my_fisher_est[k,q] += -lambdaHat[indx_here]
-        my_fisher_est[q,k] += -lambdaHat[indx_here]  # this will produce a factor of 2 if the two terms are identical
-#    peak_val_est = F*lambdaHat         # Peak value of the quadratic
-    if opts.verbose:
-        print "  Fisher: ", my_fisher_est
-        print "  Fisher: Sanity check (-0.5)*Fisher matrix vs components (diagonal only) : ", -0.5*my_fisher_est, "versus",  lambdaHat
-    my_fisher_est_inv = scipy.linalg.inv(my_fisher_est)   # SEE INVERSE DISCUSSION
-    if opts.verbose:
-        print " Fisher: Matrix inversion/manipulation error test 2", np.linalg.norm(np.dot(my_fisher_est,my_fisher_est_inv) - np.eye(len(my_fisher_est)))
-    # Peak value:   a - b cinv b/4
-#    print constant_term_est.shape, linear_term_est.shape, my_fisher_est_inv.shape
-#    print my_fisher_est_inv 
-#    print np.dot(my_fisher_est_inv,linear_term_est)
-#    print np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))
-    peak_val_est = float(constant_term_est) +np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2
-    best_val_est = x0_val +  np.dot(my_fisher_est_inv,linear_term_est)   # estimated peak location, including correction for reference point
-    if opts.verbose:
-        print " Fisher : Sanity check: peak value estimate = ", peak_val_est, " which arises as a delicate balance between ",  constant_term_est, " and ",  np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2
-        print " Fisher : Best coordinate estimate = ", best_val_est
-        print " Fisher : eigenvalues ", np.linalg.eig(my_fisher_est)
-#        print " Fisher : Sanity check: sizes and indexes ", dim*dim, -dim*dim+1, lambdaHat[-dim*dim+1:], len(lambdaHat[-dim*dim+1:])
-    print " WARNING: Constant offsets seen in recovery, tied to base point"
-    return [peak_val_est, best_val_est, my_fisher_est, linear_term_est]
+# def fit_quadratic(x,y,x0=None):
+#     """
+#     x = array so x[0] , x[1], x[2] are points.
+#     """
+#     x0_val = np.zeros(len(x[0]))
+#     if not (x0 is None):
+#         if opts.verbose:
+#             print " Fisher: Using reference point ", x0
+#         x0_val = x0
+
+#     dim = len(x[0])   
+#     npts = len(x)
+# #    print x.shape, y.shape
+#     if opts.verbose:
+#         print " Fisher : dimension, npts = " ,dim, npts
+#     # Constant, linear, quadratic functions. 
+#     # Beware of lambda:  f_list = [(lambda x: k) for k in range(5)] does not  work, but this does
+#     #     f_list = [(lambda x,k=k: k) for k in range(5)]
+#     f0 = [lambda z: np.ones(len(z),dtype=np.float128)]
+#     # indx_lookup_linear = {}   # protect against packing errors
+#     # indx_here = len(f0)
+#     # f_linear = []
+#     # for k in np.arange(dim):
+#     #     f_linear.append( (lambda z,k=k,x0V=x0_val: z.T[k] - x0V[k]))
+#     #     indx_lookup_linear[k] =indx_here
+#     #     indx_here+=1
+#     f_linear = [(lambda z,k=k,x0V=x0_val: z.T[k] - x0V[k]) for k in np.arange(dim)]
+#     f_quad = []
+#     indx_lookup = {}
+#     indx_here =len(f0)+len(f_linear) 
+#     for k in np.arange(dim):
+#         for q in range(k,dim):
+#             f_quad.append( (lambda z,k=k,q=q: (z.T[k] - x0_val[k])*(z.T[q]-x0_val[q]))   )
+#             indx_lookup[(k,q)] = indx_here
+#             indx_here+=1
+#     f_list=f0+f_linear + f_quad
+#     n_params_model = len(f_list)
+#     F = np.matrix(np.zeros((len(x), n_params_model),dtype=np.float128))
+#     for q in np.arange(n_params_model):
+#         fval = f_list[q](np.array(x,dtype=np.float128))
+# #        print q, f_list[q], fval, fval.shape, len(x)
+#         F[:,q] = np.reshape(fval, (len(x),1))
+#     if opts.verbose:
+#         print " ---- index pattern --- "
+#         print indx_lookup
+#     gamma = np.matrix( np.diag(np.ones(npts,dtype=np.float128)))
+#     Gamma = F.T * gamma * F      # Fisher matrix for the fit
+#     Sigma = scipy.linalg.inv(Gamma)  # Covariance matrix for the fit. WHICH CODE YOU USE HERE IS VERY IMPORTANT.
+#     if opts.verbose:
+#         print " -- should be identity (error here is measure of overall error) --- "
+#         print "   Fisher: Matrix inversion/manipulation error ", np.linalg.norm(Sigma*Gamma - np.eye(len(Sigma))) , " which can be large if the fit coordinates are not centered near the peak"
+#         print " --  --- "
+#     lambdaHat =  np.array((Sigma* F.T*gamma* np.matrix(y).T))[:,0]  # point estimate for the fit parameters (i.e., fisher matrix and best fit point)
+#     if opts.verbose:
+#         print " Fisher: LambdaHat = ", lambdaHat
+#     constant_term_est = lambdaHat[0]  # Constant term
+#     linear_term_est = lambdaHat[1:dim+1]  # Coefficient of linear terms
+#     my_fisher_est = np.zeros((dim,dim),dtype=np.float64)   #  A SIGNIFICANT LIMITATION...
+#     for pair in indx_lookup:
+#         k = pair[0]; q=pair[1];
+#         indx_here = indx_lookup[pair]
+#         my_fisher_est[k,q] += -lambdaHat[indx_here]
+#         my_fisher_est[q,k] += -lambdaHat[indx_here]  # this will produce a factor of 2 if the two terms are identical
+# #    peak_val_est = F*lambdaHat         # Peak value of the quadratic
+#     if opts.verbose:
+#         print "  Fisher: ", my_fisher_est
+#         print "  Fisher: Sanity check (-0.5)*Fisher matrix vs components (diagonal only) : ", -0.5*my_fisher_est, "versus",  lambdaHat
+#     my_fisher_est_inv = scipy.linalg.inv(my_fisher_est)   # SEE INVERSE DISCUSSION
+#     if opts.verbose:
+#         print " Fisher: Matrix inversion/manipulation error test 2", np.linalg.norm(np.dot(my_fisher_est,my_fisher_est_inv) - np.eye(len(my_fisher_est)))
+#     # Peak value:   a - b cinv b/4
+# #    print constant_term_est.shape, linear_term_est.shape, my_fisher_est_inv.shape
+# #    print my_fisher_est_inv 
+# #    print np.dot(my_fisher_est_inv,linear_term_est)
+# #    print np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))
+#     peak_val_est = float(constant_term_est) +np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2
+#     best_val_est = x0_val +  np.dot(my_fisher_est_inv,linear_term_est)   # estimated peak location, including correction for reference point
+#     if opts.verbose:
+#         print " Fisher : Sanity check: peak value estimate = ", peak_val_est, " which arises as a delicate balance between ",  constant_term_est, " and ",  np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2
+#         print " Fisher : Best coordinate estimate = ", best_val_est
+#         print " Fisher : eigenvalues ", np.linalg.eig(my_fisher_est)
+# #        print " Fisher : Sanity check: sizes and indexes ", dim*dim, -dim*dim+1, lambdaHat[-dim*dim+1:], len(lambdaHat[-dim*dim+1:])
+#     print " WARNING: Constant offsets seen in recovery, tied to base point"
+#     return [peak_val_est, best_val_est, my_fisher_est, linear_term_est]
 
 
 ###
@@ -184,6 +196,7 @@ parser.add_argument("--linear-spoked", action="store_true", help="Place mass pts
 parser.add_argument("--grid-cartesian", action="store_true", help="Place mass points using a cartesian grid")
 parser.add_argument("--grid-cartesian-npts", default=100, type=int)
 parser.add_argument("--skip-overlap",action='store_true', help="If true, the grid is generated without actually performing overlaps. Very helpful for uncertain configurations or low SNR")
+parser.add_argument("--reset-grid-via-match",action='store_true',help="Reset the parameter_range results so each parameter's range is limited by  match_value.  Use this ONLY for estimating the fisher matrix quickly!")
 # Cutoff options
 parser.add_argument("--match-value", type=float, default=0.01, help="Use this as the minimum match value. Default is 0.01 (i.e., keep almost everything)")
 # Overlap options
@@ -402,7 +415,7 @@ P.taper = lalsim.SIM_INSPIRAL_TAPER_START
 P.deltaF = 1./opts.seglen #lalsimutils.findDeltaF(P)
 P.fref = opts.fref
 P.print_params()
-
+Pbase = P.copy()
 
 # Define base COMPLEX signal.  ASSUME length long enough via seglen for this  to work always
 # Define base COMPLEX overlap 
@@ -527,6 +540,44 @@ ip_min_freq = opts.fmin
 
 
 ###
+### Auto-tune parameter range based on match threshold
+###
+if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
+    # Based on the original effective fisher code: 'find_effective_Fisher_region'
+    TOL=1e-5
+    for indx in np.arange(len(param_names)):
+        PT = Pbase.copy()  # same as the grid, but we will reset all its parameters
+        param_now = param_names[indx]
+        param_peak = Pbase.extract_param(param_now)
+        if opts.verbose:
+            print " Optimizing for ", param_now, " with peak expected at value = ", param_peak
+            PT.print_params()
+        def ip_here(x):
+            PT.assign_param(param_now,x)
+            PT.deltaF = IP.deltaF
+            hf_now = lalsimutils.complex_hoff(PT)
+            nm_now = IP.norm(hf_now)
+            val = IP.ip(hfBase,hf_now)/nm_now
+            if opts.verbose:
+                print param_now, x, val
+            return val - opts.match_value
+        try:
+            param_min = brentq(ip_here,param_peak, param_ranges[indx][0],xtol=TOL)
+        except:
+            print "  Range retuning: minimum for ", param_now
+            param_min = param_ranges[indx][0]
+        try:
+            param_max = brentq(ip_here,param_peak, param_ranges[indx][1],xtol=TOL)
+        except:
+            print "  Range retuning: maximum for ", param_now
+            param_max = param_ranges[indx][1]
+                         
+        print " Revised range for parameter ", param_ranges[indx], " to ", [param_min,param_max]
+        param_ranges[indx][0] = param_min
+        param_ranges[indx][1] = param_max
+
+
+###
 ### Downselect parameters
 ###
 
@@ -545,6 +596,10 @@ for indx in np.arange(len(dlist_ranges)):
 # Enforce Kerr bound
 downselect_dict['chi1'] = [0,1]
 downselect_dict['chi2'] = [0,1]
+for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
+    downselect_dict[param] = [-1,1]
+# Enforce definition of eta
+downselect_dict['eta'] = [0,0.25]
 
 print " Downselect dictionary ", downselect_dict
 
@@ -554,6 +609,14 @@ for p in ['mc', 'm1', 'm2', 'mtot']:
         downselect_dict[p] = np.array(downselect_dict[p],dtype=np.float64)
         downselect_dict[p] *= lal.MSUN_SI  # add back units
 
+
+###
+### Prior dictionary on coordinates (mainly for Fisher resampling).
+###
+prior_dict = {}
+prior_dict['s1z'] =  2  # provide std dev. Don't want to allow arbitrarily large spins
+prior_dict['s2z'] =  2  # provide std dev. Don't want to allow arbitrarily large spins
+prior_dict['eta'] = 1    # provide st dev. Don't want to allow arbitrary eta.
 
 
 ###
@@ -607,22 +670,82 @@ if len(grid_out)==0:
 
 
 if opts.use_fisher:
+    rho_fac = 8
     if opts.fake_data:
         grid_out[:,-1] = np.ones(len(grid_out))
         for k in np.arange(len(param_names)):
             grid_out[:,-1] += -1.0*np.power(grid_out[:,k] - np.mean(grid_out[:,k]),2)/np.power(np.std(grid_out[:,k]),2)   # simple quadratic sum in all data. Change to rhange
 
+    # Save data for fisher
+    headline = ' '.join(param_names + ['ip'])
+    if int(np.version.short_version.split('.')[1])>=7:  # http://docs.scipy.org/doc/numpy/reference/generated/numpy.savetxt.html
+        np.savetxt(opts.fname+"_fisher_input.dat", grid_out, header=headline)
+    else:
+        np.savetxt(opts.fname+"_fisher_input.dat", grid_out)   # 
+
+
     # Reference point for fit should NOT MATTER
     x0_val_here =grid_out[0,:len(param_names)]
 #    print grid_out[0], x0_val_here
-    the_quadratic_results = fit_quadratic( grid_out[:,:len(param_names)], grid_out[:,len(param_names)],x0=x0_val_here)#x0=None)#x0_val_here)
-    print the_quadratic_results
-    peak_val_est, best_val_est, my_fisher_est, linear_term_est = the_quadratic_results
+    print " Generating Fisher matrix using N = ", len(grid_out), " surviving points with match > ", opts.match_value
+    print " Creating nominal prior on parameters "
+    prior_x_gamma = np.zeros( (len(param_names),len(param_names)) )
+    for indx in np.arange(len(param_names)):
+        if param_names[indx] in prior_dict:
+            prior_x_gamma[indx,indx] = 1./prior_dict[param_names[indx]]**2 /(rho_fac*rho_fac) # must divide, because we work with the scaled Fisher
+    the_quadratic_results = BayesianLeastSquares.fit_quadratic( grid_out[:,:len(param_names)], grid_out[:,len(param_names)],x0=x0_val_here,prior_x_gamma=prior_x_gamma)#x0=None)#x0_val_here)
+    print "Fisher matrix results (raw) :", the_quadratic_results
+    peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
     np.savetxt("fisher_reference.dat",x0_val_here) 
     np.savetxt("fisher_peakval.dat",[peak_val_est])   # generally not very useful
     np.savetxt("fisher_bestpt.dat",best_val_est)  
     np.savetxt("fisher_gamma.dat",my_fisher_est)
     np.savetxt("fisher_linear.dat",linear_term_est)
+
+    my_eig= scipy.linalg.eig(my_fisher_est)
+    if any(np.real(my_eig[0]) < 0) : 
+        print " Negative eigenvalues preclude resampling ! Use a prior to regularize"
+        print " Eigenvalue report ", my_eig
+        sys.exit(0)
+
+    if not opts.fake_data:
+     # this grid will have mass units ! Possibly catastrophic?
+     grid_fisher = -1*np.ones((opts.grid_cartesian_npts,len(param_names)+1))
+     grid_fisher[:,:len(param_names)] = BayesianLeastSquares.fit_quadratic_and_resample(grid_out[:,:len(param_names)], grid_out[:,len(param_names)],rho_fac=8,npts=opts.grid_cartesian_npts,x0=x0_val_here)
+     grid_fisher[:,-1] = -1*np.ones(opts.grid_cartesian_npts)
+     # Convert grid to physical systems.  Drop systems which make no sense
+     P_list = []
+     grid_revised = []
+     for line in grid_fisher:
+        Pgrid = P.manual_copy()
+        include_item =True
+        # Set attributes that are being changed as necessary, leaving all others fixed
+        for indx in np.arange(len(param_names)):
+            if param_names[indx] in downselect_dict:
+                if line[indx] < downselect_dict[param_names[indx]][0] or line[indx] > downselect_dict[param_names[indx]][1]:
+                    include_item = False
+                    if opts.verbose:
+                        print " Skipping " , line
+            # do assignment of parameters anyways, as we will skip it momentarily
+            Pgrid.assign_param(param_names[indx], line[indx])
+
+        # Downselect.
+        # for param in downselect_dict:
+        #     if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
+        #         print " Skipping " , line
+        #         include_item =False
+        if include_item:
+         grid_revised.append(line)
+         if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
+            P_list.append(Pgrid)
+         else:
+            Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
+            P_list.append(Pgrid)
+        else:
+            True
+
+    grid_out=[]  # force reset of this variable..no crap inherited
+    grid_out = np.array(grid_revised)
 
 if opts.linear_spoked or opts.uniform_spoked:
     print " Effective fisher report. GRID NOT YET IMPLEMENTED "
