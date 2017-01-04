@@ -710,9 +710,10 @@ if opts.use_fisher:
 
     if not opts.fake_data:
      # this grid will have mass units ! Possibly catastrophic?
-     grid_fisher = -1*np.ones((opts.grid_cartesian_npts,len(param_names)+1))
-     grid_fisher[:,:len(param_names)] = BayesianLeastSquares.fit_quadratic_and_resample(grid_out[:,:len(param_names)], grid_out[:,len(param_names)],rho_fac=8,npts=opts.grid_cartesian_npts,x0=x0_val_here)
-     grid_fisher[:,-1] = -1*np.ones(opts.grid_cartesian_npts)
+     npts_out = opts.grid_cartesian_npts*10  # Use more points in the search grid than the small grid used for Fisher. Aim for 1k points
+     grid_fisher = -1*np.ones((npts_out,len(param_names)+1))
+     grid_fisher[:,:len(param_names)] = BayesianLeastSquares.fit_quadratic_and_resample(grid_out[:,:len(param_names)], grid_out[:,len(param_names)],rho_fac=8,npts=npts_out,x0=x0_val_here)
+     grid_fisher[:,-1] = -1*np.ones(npts_out)
      # Convert grid to physical systems.  Drop systems which make no sense
      P_list = []
      grid_revised = []
