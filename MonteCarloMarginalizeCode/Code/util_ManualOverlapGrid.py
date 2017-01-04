@@ -727,8 +727,12 @@ if opts.use_fisher:
                     include_item = False
                     if opts.verbose:
                         print " Skipping " , line
+            # if parameter involes a mass parameter, scale it to sensible units
+            fac = 1
+            if param_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
+                fac = lal.MSUN_SI
             # do assignment of parameters anyways, as we will skip it momentarily
-            Pgrid.assign_param(param_names[indx], line[indx])
+            Pgrid.assign_param(param_names[indx], line[indx]*fac)
 
         # Downselect.
         # for param in downselect_dict:
