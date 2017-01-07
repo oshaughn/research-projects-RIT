@@ -67,7 +67,7 @@ parser.add_argument("--parameter", action='append')
 parser.add_argument("--use-precessing",action='store_true')
 parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset")
 parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]")
-parser.add_argument("--lnL-peak-insane-cut",type=float,default=None,help="Throw away lnL greater than this value. Should not be necessary")
+parser.add_argument("--lnL-peak-insane-cut",type=float,default=np.inf,help="Throw away lnL greater than this value. Should not be necessary")
 parser.add_argument("--fmin",type=float,default=None)
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
@@ -173,6 +173,10 @@ print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], coord_n
 symmetry_list =[]
 P= lalsimutils.ChooseWaveformParams()
 for line in dat:
+  # Skip precessing binaries unless explicitly requested not to!
+  if not opts.use_precessing and (line[3]**2 + line[4]**2 + line[6]**2 + line[7]**2)>0.01:
+      continue
+  if line[col_lnL] < opts.lnL_peak_insane_cut:
     P.m1 = line[1]*lal.MSUN_SI
     P.m2 = line[2]*lal.MSUN_SI
     P.s1z = line[5]
@@ -516,7 +520,7 @@ dat_here[:,0] = dat[:,1]
 dat_here[:,1] = dat[:,2]
 dat_here[:,2] = (dat[:,1]*dat[:,5] + dat[:,2]*dat[:,8])/(dat[:,1]+ dat[:,2])
 dat_here = dat_here[indx_ok]
-range_here = [(np.min(dat_here[:,k]),np.max(dat_here[:,k])) for k in [0,1,2] ]  # plot range set by surviving grid points
+range_here = [(np.min(dat_mass[:,k]),np.max(dat_mass[:,k])) for k in [0,1,2] ]  # plot range set by surviving grid points. CHEAT -- I know coordinates
 print range_here
 print " Plotting overlay: ILE evaluations near the peak, with npts= ", len(dat_here)
 fig_base = corner.corner(dat_here,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base,weights = 1*np.ones(len(dat_here))/len(dat_here), data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},labels=['m1','m2','xi'])
@@ -531,7 +535,7 @@ xi_vals = dat_mass[:,2]
 labels_raw = ['M','q','xi']
 labels_tex = map(lambda x: tex_dictionary[x], labels_raw)
 fig_base=corner.corner(np.array([mtot_vals, q_vals , xi_vals]).T, weights=weights/np.sum(weights),labels=labels_tex,quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs)
-# Overlay grid points with high dupport
+# Overlay grid points with high support
 dat = dat_orig
 dat_here = np.zeros( (len(dat),3))
 indx_ok = dat[:,col_lnL] > lnLmax - 8
@@ -539,11 +543,16 @@ dat_here[:,0] = dat[:,1]+dat[:,2]
 dat_here[:,1] = dat[:,2]/dat[:,1]
 dat_here[:,2] = (dat[:,1]*dat[:,5] + dat[:,2]*dat[:,8])/(dat[:,1]+ dat[:,2])
 dat_here = dat_here[indx_ok]
-print " Plotting overlay for points ", len(dat_here)
-fig_base = corner.corner(dat_here,plot_datapoints=True,plot_density=False,plot_contours=False,fig=fig_base,data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'})
+chivals =  (dat[:,1]*dat[:,5] + dat[:,2]*dat[:,8])/(dat[:,1]+ dat[:,2])
+range_here = [
+  (np.min(dat_mass[:,0]+dat_mass[:,1]),np.max(dat_mass[:,0]+dat_mass[:,1])),
+  (np.min(dat_mass[:,1]/dat_mass[:,0]),np.max(dat_mass[:,1]/dat_mass[:,0])),
+  (np.min(chivals),np.max(chivals))  ]  # plot range set by surviving grid points
+print " Plotting overlay for points ", len(dat_here), " with range ", range_here
+fig_base = corner.corner(dat_here,plot_datapoints=True,plot_density=False,plot_contours=False,fig=fig_base,data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
 
 if opts.fname_lalinference:
-    corner.corner( np.array([samples_LI["mtotal"],samples_LI["q"],samples_LI["chi_eff"]]).T,color='r',labels=['M','q','$\\xi$'],weights=np.ones(len(samples_LI))*1.0/len(samples_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs)
+    corner.corner( np.array([samples_LI["mtotal"],samples_LI["q"],samples_LI["chi_eff"]]).T,color='r',labels=['M','q','$\\xi$'],weights=np.ones(len(samples_LI))*1.0/len(samples_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 plt.savefig("posterior_corner_Mqxi.png")
 
 
