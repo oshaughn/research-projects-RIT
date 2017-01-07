@@ -61,6 +61,8 @@ tex_dictionary  = {
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
+parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
+parser.add_argument("--n-output-samples",default=1000,type=int,help="output posterior samples (default 1000)")
 parser.add_argument("--desc-lalinference",type=str,default='',help="String to adjoin to legends for LI")
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
 parser.add_argument("--parameter", action='append')
@@ -179,7 +181,11 @@ for line in dat:
   if line[col_lnL] < opts.lnL_peak_insane_cut:
     P.m1 = line[1]*lal.MSUN_SI
     P.m2 = line[2]*lal.MSUN_SI
+    P.s1x = line[3]
+    P.s1y = line[4]
     P.s1z = line[5]
+    P.s2x = line[6]
+    P.s2y = line[7]
     P.s2z = line[8]
 #    print line,  P.extract_param('xi')
     line_out = np.zeros(len(coord_names)+1)
@@ -387,7 +393,7 @@ for indx in np.arange(len(samples[coord_names[0]])):   # this is a stupid loop, 
     dat_mass[indx][n_params+2]=samples["joint_s_prior"][indx] # sampling prior
 dat_mass = dat_mass[dat_mass[:,4]>0]
 #dat_mass = np.array(lalsimutils.m1m2(samples["mc"],np.array(samples["eta"],dtype=np.float))).T
-np.savetxt("quadratic_fit_results.dat", dat_mass)
+np.savetxt("quadratic_fit_results.dat", dat_mass)   # FULL POSTERIOR SAMPLES, in specific coordinates
 
 ###
 ### 1d posteriors in m1, m2
@@ -556,3 +562,66 @@ if opts.fname_lalinference:
 plt.savefig("posterior_corner_Mqxi.png")
 
 
+###
+### Posterior samples
+###
+
+print " --- Exporting " + str(opts.n_output_samples) + " posterior samples to " + opts.fname_output_samples  + " ---- "
+
+# pick random numbers
+p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=opts.n_output_samples)
+# find sample indexes associated with the random numbers
+#    - FIXME: first truncate the bad ones
+# idx_sorted_index = numpy.lexsort((numpy.arange(len(weights)), weights))  # Sort the array of weights, recovering index values
+# indx_list = numpy.array( [[k, weights[k]] for k in idx_sorted_index])     # pair up with the weights again
+# cum_weights = np.cumsum(indx_list[:,1)
+# cum_weights = cum_weights/cum_weights[-1]
+# indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probabilit
+cum_sum  = np.cumsum(weights)
+cum_sum = cum_sum/cum_sum[-1]
+indx_list = map(lambda x : np.sum(cum_sum < x),  p_thresholds)  # this can lead to duplicates
+P_list =[]
+P = lalsimutils.ChooseWaveformParams()
+P.approx = lalsim.SEOBNRv2  # DEFAULT
+P.fmin = 20 # DEFAULT
+for indx_here in indx_list:
+        line = [samples[p][indx_here] for p in coord_names]
+        Pgrid = P.manual_copy()
+        include_item =True
+        # Set attributes that are being changed as necessary, leaving all others fixed
+        for indx in np.arange(len(coord_names)):
+#            if param_names[indx] in downselect_dict:
+#                if line[indx] < downselect_dict[param_names[indx]][0] or line[indx] > downselect_dict[param_names[indx]][1]:
+#                    include_item = False
+#                    if opts.verbose:
+#                        print " Skipping " , line
+            # if parameter involes a mass parameter, scale it to sensible units
+            fac = 1
+            if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
+                fac = lal.MSUN_SI
+            # do assignment of parameters anyways, as we will skip it momentarily
+            coord_to_assign = coord_names[indx]
+            if coord_to_assign == 'xi':
+                coord_to_assign= 'chieff_aligned'
+            Pgrid.assign_param(coord_to_assign, line[indx]*fac)
+            
+        Pgrid.print_params()
+        # Downselect.
+        # for param in downselect_dict:
+        #     if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
+        #         print " Skipping " , line
+        #         include_item =False
+        if include_item:
+         if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
+            P_list.append(Pgrid)
+         else:
+            Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
+            P_list.append(Pgrid)
+        else:
+            True
+
+print " Writing file ", opts.fname_output_samples, " size ", len(P_list)
+lalsimutils.ChooseWaveformParams_array_to_xml(P_list, fname=opts.fname_output_samples, fref=P.fref)
+
+
+# loop over
