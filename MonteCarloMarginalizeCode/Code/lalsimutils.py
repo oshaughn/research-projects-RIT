@@ -143,7 +143,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','fmin']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chieff_aligned','fmin']
 class ChooseWaveformParams:
     """
     Class containing all the arguments needed for SimInspiralChooseTD/FDWaveform
@@ -287,21 +287,21 @@ class ChooseWaveformParams:
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=val,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
-        if p is 'theta2':
+        if p == 'theta2':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=theta1,theta2=val,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
-        if p is 'psiJ':
+        if p == 'psiJ':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=val)
             return self
-        if p is 'beta':
+        if p == 'beta':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
@@ -339,11 +339,40 @@ class ChooseWaveformParams:
             dLt = val
             self.lambda1, self.lambda2 = tidal_lambda_from_tilde(self.m1, self.m2, Lt, dLt)
             return self
+        if p == 'chieff_aligned':
+            chieff = self.extract_param('xi')
+            chieff_new  = val
+            mtot = self.extract_param('mtot')
+            m1 = self.extract_param('m1')
+            m2 = self.extract_param('m2')
+            if np.abs(m1/m2 -1) > 1e-5:
+            # only works for aligned system. Note aligned convention changes from iteration to iteration -- will eventually be aligned with z, but..
+            # This assumes chiminus is a good and useful parameter.  
+            # This parameterization was designed to be more stable for extreme mass ratio systems, where the usual chi- becomes highly degenerate
+            # Note that by construction, in the limit of large mass ratio, chi1 -> xi and chi2 -> - chiminus, so the parameterization is not degenerate
+# {(m1 c1 +     m2 c2 ) == (m1 + m2) \[Xi], (m2 c1 - m1 c2)/(m1 -      m2) == \[Chi]Diff}
+# {c1, c2} /. Solve[%, {c1, c2}][[1]] // Simplify
+# Collect[%[[2]], {\[Xi], \[Chi]Diff}]
+# % - \[Xi] // Simplify // FullSimplify
+                chi1 = self.extract_param('chi1')
+                chi2 = self.extract_param('chi2')
+                chiminus =  (m2*chi1 - m1*chi2)/(m1 - m2)
+                # Solve equations for M xi, M chiminus.  
+                chi1_new = chieff_new + (m1 - m2)*m2*(chieff_new + chiminus)/(m1**2 + m2**2)
+                chi2_new = chieff_new - (m1 - m2)*m1*(chieff_new + chiminus)/(m1**2 + m2**2)
+                self.assign_param('chi1', chi1_new)
+                self.assign_param('chi2', chi2_new)
+            else:
+                # for equal mass, require them to have the same value
+                self.assign_param('chi1', chieff_new)
+                self.assign_param('chi2', chieff_new)                
+            return self
         # assign an attribute
         if hasattr(self,p):
             setattr(self,p,val)
             return self
         print " No attribute ", p, " in ", dir(self)
+        print " Is in valid_params? ", p in valid_params
         sys.exit(0)
     def extract_param(self,p):
         """
