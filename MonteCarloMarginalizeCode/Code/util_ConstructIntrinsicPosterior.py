@@ -481,9 +481,9 @@ if True:
     dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
     x = Pref.m2/Pref.m1
     plt.axvline(x,color='k',linestyle='--')
-    plt.plot(dat_out[:,0],dat_out[:,1],label='rapid_pe',color='b')
+    plt.plot(dat_out[:,0],dat_out[:,1],label='rapid_pe:'+opts.desc_ILE,color='b')
     if opts.fname_lalinference:
-        plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label='LI',color='r')
+        plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label='LI:'+opts.desc_lalinference,color='r')
     plt.xlim(q_min,1)
     plt.xlabel('$q$'); plt.legend()
     plt.savefig("q_cdf.png"); plt.clf()
@@ -500,9 +500,9 @@ if True:
     dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
     x = Pref.m2/Pref.m1
     plt.axvline(x,color='k',linestyle='--')
-    plt.plot(dat_out[:,0],dat_out[:,1],color='b',label='rapid_pe')
+    plt.plot(dat_out[:,0],dat_out[:,1],color='b',label='rapid_pe:'+opts.desc_ILE)
     if opts.fname_lalinference:
-        plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],color='r',label='LI')
+        plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],color='r',label='LI:'+opts.desc_lalinference)
     plt.xlabel('$\\xi$'); plt.legend()
     plt.savefig("xi_cdf.png"); plt.clf()
 
