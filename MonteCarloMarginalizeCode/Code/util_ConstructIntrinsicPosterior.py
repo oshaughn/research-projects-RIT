@@ -62,6 +62,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
+parser.add_argument("--fname-rom-samples",default=None,help="*.rom_composite output. Treated identically to set of posterior samples produced by mcsampler after constructing fit.")
 parser.add_argument("--n-output-samples",default=1000,type=int,help="output posterior samples (default 1000)")
 parser.add_argument("--desc-lalinference",type=str,default='',help="String to adjoin to legends for LI")
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
@@ -85,6 +86,14 @@ parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--fit-method",default="quadratic")
 opts=  parser.parse_args()
+
+
+###
+### Comparison data (from LI)
+###
+if opts.fname_lalinference:
+    print " Loading lalinference samples for direct comparison ", opts.fname_lalinference
+    samples_LI = np.genfromtxt(opts.fname_lalinference,names=True)
 
 
 
@@ -144,22 +153,6 @@ def fit_gp(x,y,x0=None,symmetry_list=None):
     return lambda x: gp.predict(x)
 
 
-
-
-###
-### Retrieve data
-###
-#  id m1 m2  lnL sigma/L  neff
-dat_orig = dat = np.loadtxt(opts.fname)
-print " Original data size = ", len(dat)
-col_lnL = 9
-
-
-###
-### Convert data.  Use lalsimutils for flexibility
-###
-P_list = []
-dat_out =[]
 coord_names = opts.parameter
 if opts.coordinates_mc_eta:
     coord_names = ['mc', 'eta', 'xi'] 
@@ -167,14 +160,36 @@ elif opts.coordinates_M_q:
     coord_names = ['mtot', 'q', 'xi'] 
 else:
     coord_names = ['m1', 'm2', 'xi'] 
-
-
 print " Coordinate names :, ", coord_names
 print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], coord_names)
 
-symmetry_list =[]
-P= lalsimutils.ChooseWaveformParams()
-for line in dat:
+# initialize
+dat_mass  = [] 
+weights = []
+n_params = -1
+q_min = 0; mc_min =0; mc_max = 500;
+eta_min = 0; eta_max = 0.25; xi_min = -1; xi_max = 1
+if not opts.fname_rom_samples:
+
+ ###
+ ### Retrieve data
+ ###
+ #  id m1 m2  lnL sigma/L  neff
+ dat_orig = dat = np.loadtxt(opts.fname)
+ print " Original data size = ", len(dat)
+ col_lnL = 9
+
+
+ ###
+ ### Convert data.  Use lalsimutils for flexibility
+ ###
+ P_list = []
+ dat_out =[]
+ 
+
+ symmetry_list =[]
+ P= lalsimutils.ChooseWaveformParams()
+ for line in dat:
   # Skip precessing binaries unless explicitly requested not to!
   if not opts.use_precessing and (line[3]**2 + line[4]**2 + line[6]**2 + line[7]**2)>0.01:
       continue
@@ -187,33 +202,33 @@ for line in dat:
     P.s2x = line[6]
     P.s2y = line[7]
     P.s2z = line[8]
-#    print line,  P.extract_param('xi')
+ #    print line,  P.extract_param('xi')
     line_out = np.zeros(len(coord_names)+1)
     for x in np.arange(len(coord_names)):
         line_out[x] = P.extract_param(coord_names[x])
-#        line_out[x] = getattr(P, coord_names[x])
+ #        line_out[x] = getattr(P, coord_names[x])
     line_out[-1] = line[col_lnL]
     dat_out.append(line_out)
-dat_out = np.array(dat_out)
-# scale out mass units
-for p in ['mc', 'm1', 'm2', 'mtot']:
+ dat_out = np.array(dat_out)
+ # scale out mass units
+ for p in ['mc', 'm1', 'm2', 'mtot']:
     if p in coord_names:
         indx = coord_names.index(p)
         dat_out[:,indx] /= lal.MSUN_SI
 
 
-# Repack data
-X =dat_out[:,0:3]
-Y = dat_out[:,-1]
+ # Repack data
+ X =dat_out[:,0:3]
+ Y = dat_out[:,-1]
 
-# Eliminate values with Y too small
-max_lnL = np.max(Y)
-indx_ok = Y>np.max(Y)-opts.lnL_offset
-print " Points used in fit : ", sum(indx_ok), " given max lnL ", max_lnL
-if max_lnL < 10:
+ # Eliminate values with Y too small
+ max_lnL = np.max(Y)
+ indx_ok = Y>np.max(Y)-opts.lnL_offset
+ print " Points used in fit : ", sum(indx_ok), " given max lnL ", max_lnL
+ if max_lnL < 10:
     # nothing matters, we will reject it anyways
     indx_ok = np.ones(len(Y),dtype=bool)
-elif sum(indx_ok) < 10: # and max_lnL > 30:
+ elif sum(indx_ok) < 10: # and max_lnL > 30:
     # mark the top 10 elements and use them for fits
     # this may be VERY VERY DANGEROUS if the peak is high and poorly sampled
     idx_sorted_index = np.lexsort((np.arange(len(Y)), Y))  # Sort the array of Y, recovering index values
@@ -221,21 +236,21 @@ elif sum(indx_ok) < 10: # and max_lnL > 30:
     indx_list = indx_list[::-1]  # reverse, so most significant are first
     indx_ok = map(int,indx_list[:10,0])
     print " Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:10]
-X_raw = X.copy()
+ X_raw = X.copy()
 
-my_fit= None
-if opts.fit_method == "quadratic":
+ my_fit= None
+ if opts.fit_method == "quadratic":
     X=X[indx_ok]
     Y=Y[indx_ok]
     my_fit = fit_quadratic(X,Y)
-else:
+ else:
     my_fit = fit_gp(X,Y)
 
 
 
-# Make grid plots for all pairs of points, to facilitate direct validation of where posterior support lies
-import itertools
-for i, j in itertools.product( np.arange(len(coord_names)),np.arange(len(coord_names)) ):
+ # Make grid plots for all pairs of points, to facilitate direct validation of where posterior support lies
+ import itertools
+ for i, j in itertools.product( np.arange(len(coord_names)),np.arange(len(coord_names)) ):
   if i < j:
     plt.scatter( X[:,i],X[:,j],label='rapid_pe:'+opts.desc_ILE); plt.legend()
     plt.xlabel( tex_dictionary[coord_names[i]])
@@ -244,40 +259,40 @@ for i, j in itertools.product( np.arange(len(coord_names)),np.arange(len(coord_n
 
 
 
-###
-### Integrate posterior
-###
+ ###
+ ### Integrate posterior
+ ###
 
 
-sampler = mcsampler.MCSampler()
-# Chris needs variable names to do things
-#mc_prior = np.vectorize(lambda x : x)  # normalized for our limits
-#eta_prior = np.vectorize(lambda x: 1./np.power(x,6./5.)/np.sqrt(1.-4*x)/1.44)  # Normalized!  Integrate[1/x^(6/5) /Sqrt[1 - 4 x], {x, 0.19, 1/4}]
+ sampler = mcsampler.MCSampler()
+ # Chris needs variable names to do things
+ #mc_prior = np.vectorize(lambda x : x)  # normalized for our limits
+ #eta_prior = np.vectorize(lambda x: 1./np.power(x,6./5.)/np.sqrt(1.-4*x)/1.44)  # Normalized!  Integrate[1/x^(6/5) /Sqrt[1 - 4 x],  {x, 0.19, 1/4}]
 
-# should CHANGE chirp mass range based on input data
+ # should CHANGE chirp mass range based on input data
 
-# this is M min or mc min, depending on the coordinate system
-mc_min = np.min(X_raw[:,0])
-mc_max = np.max(X_raw[:,0])
-q_min = np.min(dat[:,2]/dat[:,1])
-m2_min = np.min(dat[:,2])
-m2_max = np.max(dat[:,2])
-m1_min = np.min(dat[:,1])
-m1_max = np.max(dat[:,1])
-eta_min = lalsimutils.symRatio(1,q_min)  # 10:1 mass ratio possible
-xi_min = -0.99#np.min(X[:,2])
-#xi_max = 0.9 # np.max(X[:,2])
-#xi_min = np.min(X[:,2])
-xi_max = np.max(X[:,2])
+ # this is M min or mc min, depending on the coordinate system
+ mc_min = np.min(X_raw[:,0])
+ mc_max = np.max(X_raw[:,0])
+ q_min = np.min(dat[:,2]/dat[:,1])
+ m2_min = np.min(dat[:,2])
+ m2_max = np.max(dat[:,2])
+ m1_min = np.min(dat[:,1])
+ m1_max = np.max(dat[:,1])
+ eta_min = lalsimutils.symRatio(1,q_min)  # 10:1 mass ratio possible
+ xi_min = -0.99#np.min(X[:,2])
+ #xi_max = 0.9 # np.max(X[:,2])
+ #xi_min = np.min(X[:,2])
+ xi_max = np.max(X[:,2])
 
-print " xi range ", xi_min, xi_max
+ print " xi range ", xi_min, xi_max
 
-if opts.coordinates_mc_eta:
+ if opts.coordinates_mc_eta:
     print " Chirp mass integration range ", mc_min, mc_max
-else:
+ else:
     print " Total mass integration range ", mc_min, mc_max
 
-if opts.coordinates_mc_eta:
+ if opts.coordinates_mc_eta:
     def mc_prior(x):
         return x/(mc_max-mc_min)
     def eta_prior(x):
@@ -301,7 +316,7 @@ if opts.coordinates_mc_eta:
             # print my_fit(np.array([mc,eta,xi]).T)
             return np.exp(my_fit(np.array([mc,eta,xi]).T))
     res, var, neff, dict_return = sampler.integrate(likelihood_function, 'mc', 'eta',verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=0.1)
-elif opts.coordinates_M_q:
+ elif opts.coordinates_M_q:
     def M_prior(x):
         return x/(mc_max-mc_min)
     def q_prior(x):
@@ -321,7 +336,7 @@ elif opts.coordinates_M_q:
                           )  # tricky
     # Chris requires functions have names that match the variables
     res, var, neff, dict_return = sampler.integrate(likelihood_function, 'mtot', 'q',verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True, tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged)
-else:
+ else:
     def m1_prior(x):
         return 1./200
     def m2_prior(x):
@@ -347,35 +362,28 @@ else:
     res, var, neff, dict_return = sampler.integrate(likelihood_function, 'm1', 'm2',verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True)
 
 
-###
-### Comparison data (from LI)
-###
-if opts.fname_lalinference:
-    print " Loading lalinference samples for direct comparison ", opts.fname_lalinference
-    samples_LI = np.genfromtxt(opts.fname_lalinference,names=True)
+
+ ###
+ ### Output setup (for non-ROM)
+ ###
 
 
-###
-### Output
-###
+ samples = sampler._rvs
+ print samples.keys()
+ n_params = len(coord_names)
+ dat_mass = np.zeros((len(samples[coord_names[0]]),n_params+3))
+ dat_logL = np.log(samples["integrand"])
+ print " Max lnL ", np.max(dat_logL)
 
-
-samples = sampler._rvs
-print samples.keys()
-n_params = len(coord_names)
-dat_mass = np.zeros((len(samples[coord_names[0]]),n_params+3))
-dat_logL = np.log(samples["integrand"])
-print " Max lnL ", np.max(dat_logL)
-
-# Throw away stupid points that don't impact the posterior
-indx_ok = np.logical_and(dat_logL > np.max(dat_logL)-opts.lnL_offset ,samples["joint_s_prior"]>0)
-for p in coord_names:
+ # Throw away stupid points that don't impact the posterior
+ indx_ok = np.logical_and(dat_logL > np.max(dat_logL)-opts.lnL_offset ,samples["joint_s_prior"]>0)
+ for p in coord_names:
     samples[p] = samples[p][indx_ok]
-dat_logL  = dat_logL[indx_ok]
-print samples.keys()
-samples["joint_prior"] =samples["joint_prior"][indx_ok]
-samples["joint_s_prior"] =samples["joint_s_prior"][indx_ok]
-for indx in np.arange(len(samples[coord_names[0]])):   # this is a stupid loop, but easy to debug
+ dat_logL  = dat_logL[indx_ok]
+ print samples.keys()
+ samples["joint_prior"] =samples["joint_prior"][indx_ok]
+ samples["joint_s_prior"] =samples["joint_s_prior"][indx_ok]
+ for indx in np.arange(len(samples[coord_names[0]])):   # this is a stupid loop, but easy to debug
     if opts.coordinates_mc_eta:
         m1v,m2v = lalsimutils.m1m2(samples[coord_names[0]][indx], float(samples["eta"][indx]))
         dat_mass[indx][0] = np.max([m1v,m2v])
@@ -391,9 +399,34 @@ for indx in np.arange(len(samples[coord_names[0]])):   # this is a stupid loop, 
     dat_mass[indx][n_params]=dat_logL[indx]
     dat_mass[indx][n_params+1]=samples["joint_prior"][indx]  # prior
     dat_mass[indx][n_params+2]=samples["joint_s_prior"][indx] # sampling prior
-dat_mass = dat_mass[dat_mass[:,4]>0]
-#dat_mass = np.array(lalsimutils.m1m2(samples["mc"],np.array(samples["eta"],dtype=np.float))).T
-np.savetxt("quadratic_fit_results.dat", dat_mass)   # FULL POSTERIOR SAMPLES, in specific coordinates
+ dat_mass = dat_mass[dat_mass[:,4]>0]
+ #dat_mass = np.array(lalsimutils.m1m2(samples["mc"],np.array(samples["eta"],dtype=np.float))).T
+ np.savetxt("quadratic_fit_results.dat", dat_mass)   # FULL POSTERIOR SAMPLES, in specific coordinates
+
+else:  # ROM ACTIVE
+    tmp = np.loadtxt(opts.fname_rom_samples)
+    coord_names = ['mc', 'eta','xi']
+    n_params = len(coord_names)
+    print tmp[1]
+    dat_mass = np.zeros( (len(tmp), len(coord_names)+3),dtype=np.float)
+    dat_mass[:,0] = tmp[:,0]
+    dat_mass[:,1] = tmp[:,1]
+#    dat_mass[:,0] = np.maximum(tmp[:,1],tmp[:,2])
+#    dat_mass[:,1] = np.minimum(tmp[:,1],tmp[:,2])
+    dat_mass[:,2] = 0.001*np.random.uniform(size=len(tmp[:,3])) #+ np.zeros(len(tmp[:,3]))  # no spin information provided at present
+    dat_mass[:,n_params] = tmp[:,-1]
+    dat_mass[:,n_params+1] = tmp[:,-3]
+    dat_mass[:,n_params+2] = tmp[:,-2]
+    mc_min = np.min(lalsimutils.mchirp(dat_mass[:,0],dat_mass[:,1]))
+    mc_max = np.max(lalsimutils.mchirp(dat_mass[:,0],dat_mass[:,1]))
+    chivals = dat_mass[:,2]
+    # dat_mass[2] = tmp[:,3] # s1x
+    # dat_mass[3] = tmp[:,4] # s1y
+    # dat_mass[4] = tmp[:,5] # s1z
+    # dat_mass[5] = tmp[:,6] # s2x
+    # dat_mass[6] = tmp[:,7] # s2y
+    # dat_mass[7] = tmp[:,8] # s2z
+
 
 ###
 ### 1d posteriors in m1, m2
@@ -404,11 +437,11 @@ ps =dat_mass[:,n_params+2]
 lnL = dat_mass[:,n_params]
 lnLmax = np.max(lnL)
 weights = np.exp(lnL-lnLmax)*p/ps
-
+print ps
 # Expected range
-m1min,junk = lalsimutils.m1m2(mc_min,0.25)
-m1max,junk = lalsimutils.m1m2(mc_max,eta_min)
-print " Mass 1 range ", m1min, m1max
+#m1min,junk = lalsimutils.m1m2(mc_min,0.25)
+#m1max,junk = lalsimutils.m1m2(mc_max,eta_min)
+#print " Mass 1 range ", m1min, m1max
 
 
 # Load in reference parameters
@@ -518,18 +551,19 @@ quantiles_1d = [0.05,0.95]
 labels_raw = ['m1','m2','xi']
 labels_tex = map(lambda x: tex_dictionary[x], labels_raw)
 fig_base = corner.corner(dat_mass[:,:len(coord_names)], weights=weights/np.sum(weights),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs)
-# Overlay grid points with high support
-dat = dat_orig
-dat_here = np.zeros( (len(dat),3))
-indx_ok = dat[:,col_lnL] > lnLmax - 8
-dat_here[:,0] = dat[:,1]
-dat_here[:,1] = dat[:,2]
-dat_here[:,2] = (dat[:,1]*dat[:,5] + dat[:,2]*dat[:,8])/(dat[:,1]+ dat[:,2])
-dat_here = dat_here[indx_ok]
 range_here = [(np.min(dat_mass[:,k]),np.max(dat_mass[:,k])) for k in [0,1,2] ]  # plot range set by surviving grid points. CHEAT -- I know coordinates
-print range_here
-print " Plotting overlay: ILE evaluations near the peak, with npts= ", len(dat_here)
-fig_base = corner.corner(dat_here,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base,weights = 1*np.ones(len(dat_here))/len(dat_here), data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},labels=['m1','m2','xi'])
+if not opts.fname_rom_samples:
+    # Overlay grid points with high support
+    dat = dat_orig
+    dat_here = np.zeros( (len(dat),3))
+    indx_ok = dat[:,col_lnL] > lnLmax - 8
+    dat_here[:,0] = dat[:,1]
+    dat_here[:,1] = dat[:,2]
+    dat_here[:,2] = (dat[:,1]*dat[:,5] + dat[:,2]*dat[:,8])/(dat[:,1]+ dat[:,2])
+    dat_here = dat_here[indx_ok]
+    print range_here
+    print " Plotting overlay: ILE evaluations near the peak, with npts= ", len(dat_here)
+    fig_base = corner.corner(dat_here,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base,weights = 1*np.ones(len(dat_here))/len(dat_here), data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},labels=['m1','m2','xi'])
 if opts.fname_lalinference:
     fig_base = corner.corner( np.array([samples_LI["m1"],samples_LI["m2"],samples_LI["chi_eff"]]).T,color='r',labels=labels_tex,weights=np.ones(len(samples_LI))*1.0/len(samples_LI),quantiles=quantiles_1d,fig=fig_base,plot_datapoints=False,no_fill_contours=True,fill_contours=False,plot_density=False,levels=CIs,range=range_here)
 plt.savefig("posterior_corner_m1m2.png"); plt.clf()
@@ -541,21 +575,26 @@ xi_vals = dat_mass[:,2]
 labels_raw = ['M','q','xi']
 labels_tex = map(lambda x: tex_dictionary[x], labels_raw)
 fig_base=corner.corner(np.array([mtot_vals, q_vals , xi_vals]).T, weights=weights/np.sum(weights),labels=labels_tex,quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs)
-# Overlay grid points with high support
-dat = dat_orig
-dat_here = np.zeros( (len(dat),3))
-indx_ok = dat[:,col_lnL] > lnLmax - 8
-dat_here[:,0] = dat[:,1]+dat[:,2]
-dat_here[:,1] = dat[:,2]/dat[:,1]
-dat_here[:,2] = (dat[:,1]*dat[:,5] + dat[:,2]*dat[:,8])/(dat[:,1]+ dat[:,2])
-dat_here = dat_here[indx_ok]
-chivals =  (dat[:,1]*dat[:,5] + dat[:,2]*dat[:,8])/(dat[:,1]+ dat[:,2])
 range_here = [
-  (np.min(dat_mass[:,0]+dat_mass[:,1]),np.max(dat_mass[:,0]+dat_mass[:,1])),
-  (np.min(dat_mass[:,1]/dat_mass[:,0]),np.max(dat_mass[:,1]/dat_mass[:,0])),
-  (np.min(chivals),np.max(chivals))  ]  # plot range set by surviving grid points
-print " Plotting overlay for points ", len(dat_here), " with range ", range_here
-fig_base = corner.corner(dat_here,plot_datapoints=True,plot_density=False,plot_contours=False,fig=fig_base,data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
+        (np.min(dat_mass[:,0]+dat_mass[:,1]),np.max(dat_mass[:,0]+dat_mass[:,1])),
+        (np.min(dat_mass[:,1]/dat_mass[:,0]),np.max(dat_mass[:,1]/dat_mass[:,0])),
+        (-1,1)  ]  # plot range set by surviving grid points
+if not opts.fname_rom_samples:
+    # Overlay grid points with high support
+    dat = dat_orig
+    dat_here = np.zeros( (len(dat),3))
+    indx_ok = dat[:,col_lnL] > lnLmax - 8
+    dat_here[:,0] = dat[:,1]+dat[:,2]
+    dat_here[:,1] = dat[:,2]/dat[:,1]
+    dat_here[:,2] = (dat[:,1]*dat[:,5] + dat[:,2]*dat[:,8])/(dat[:,1]+ dat[:,2])
+    dat_here = dat_here[indx_ok]
+    print " Plotting overlay for points ", len(dat_here), " with range ", range_here
+    chivals =  (dat[:,1]*dat[:,5] + dat[:,2]*dat[:,8])/(dat[:,1]+ dat[:,2])
+    range_here = [
+        (np.min(dat_mass[:,0]+dat_mass[:,1]),np.max(dat_mass[:,0]+dat_mass[:,1])),
+        (np.min(dat_mass[:,1]/dat_mass[:,0]),np.max(dat_mass[:,1]/dat_mass[:,0])),
+        (np.min(chivals),np.max(chivals))  ]  # plot range set by surviving grid points
+    fig_base = corner.corner(dat_here,plot_datapoints=True,plot_density=False,plot_contours=False,fig=fig_base,data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
 
 if opts.fname_lalinference:
     corner.corner( np.array([samples_LI["mtotal"],samples_LI["q"],samples_LI["chi_eff"]]).T,color='r',labels=['M','q','$\\xi$'],weights=np.ones(len(samples_LI))*1.0/len(samples_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
