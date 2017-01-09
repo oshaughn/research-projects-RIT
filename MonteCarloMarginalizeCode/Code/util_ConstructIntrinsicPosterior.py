@@ -70,6 +70,7 @@ parser.add_argument("--parameter", action='append')
 parser.add_argument("--use-precessing",action='store_true')
 parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset")
 parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]")
+parser.add_argument("--sigma-cut",type=float,default=0.6,help="Eliminate points with large error from the fit.")
 parser.add_argument("--lnL-peak-insane-cut",type=float,default=np.inf,help="Throw away lnL greater than this value. Should not be necessary")
 parser.add_argument("--fmin",type=float,default=None)
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
@@ -192,6 +193,9 @@ if not opts.fname_rom_samples:
  for line in dat:
   # Skip precessing binaries unless explicitly requested not to!
   if not opts.use_precessing and (line[3]**2 + line[4]**2 + line[6]**2 + line[7]**2)>0.01:
+      continue
+  if line[10] > opts.sigma_cut:
+      print " Skipping ", line
       continue
   if line[col_lnL] < opts.lnL_peak_insane_cut:
     P.m1 = line[1]*lal.MSUN_SI
