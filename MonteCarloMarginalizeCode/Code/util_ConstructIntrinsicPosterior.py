@@ -414,9 +414,9 @@ else:  # ROM ACTIVE
 #    dat_mass[:,0] = np.maximum(tmp[:,1],tmp[:,2])
 #    dat_mass[:,1] = np.minimum(tmp[:,1],tmp[:,2])
     dat_mass[:,2] = 0.001*np.random.uniform(size=len(tmp[:,3])) #+ np.zeros(len(tmp[:,3]))  # no spin information provided at present
-    dat_mass[:,n_params] = tmp[:,-1]
-    dat_mass[:,n_params+1] = tmp[:,-3]
-    dat_mass[:,n_params+2] = tmp[:,-2]
+    dat_mass[:,n_params] = tmp[:,-1]   #lnL
+    dat_mass[:,n_params+1] = tmp[:,-3] # ps
+    dat_mass[:,n_params+2] = tmp[:,-2]*(tmp[:,0]+tmp[:,1]) # p...MULTIPLY BY M because I am working at fixed mass
     mc_min = np.min(lalsimutils.mchirp(dat_mass[:,0],dat_mass[:,1]))
     mc_max = np.max(lalsimutils.mchirp(dat_mass[:,0],dat_mass[:,1]))
     chivals = dat_mass[:,2]
@@ -550,8 +550,11 @@ CIs = [0.99,0.95,0.9,0.68]
 quantiles_1d = [0.05,0.95]
 labels_raw = ['m1','m2','xi']
 labels_tex = map(lambda x: tex_dictionary[x], labels_raw)
-fig_base = corner.corner(dat_mass[:,:len(coord_names)], weights=weights/np.sum(weights),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs)
 range_here = [(np.min(dat_mass[:,k]),np.max(dat_mass[:,k])) for k in [0,1,2] ]  # plot range set by surviving grid points. CHEAT -- I know coordinates
+if range_here[2][0] ==range_here[2][1]:
+    rnage_here[2][0]=-1
+    range_here[2][1]=1
+fig_base = corner.corner(dat_mass[:,:len(coord_names)], weights=weights/np.sum(weights),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range=range_here)
 if not opts.fname_rom_samples:
     # Overlay grid points with high support
     dat = dat_orig
@@ -604,6 +607,10 @@ plt.savefig("posterior_corner_Mqxi.png")
 ###
 ### Posterior samples
 ###
+
+if opts.fname_rom_samples:
+    import sys
+    sys.exit(0)
 
 print " --- Exporting " + str(opts.n_output_samples) + " posterior samples to " + opts.fname_output_samples  + " ---- "
 
