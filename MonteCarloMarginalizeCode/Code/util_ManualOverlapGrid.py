@@ -696,10 +696,10 @@ if opts.use_fisher:
     the_quadratic_results = BayesianLeastSquares.fit_quadratic( grid_out[:,:len(param_names)], grid_out[:,len(param_names)],x0=x0_val_here,prior_x_gamma=prior_x_gamma)#x0=None)#x0_val_here)
     print "Fisher matrix results (raw) :", the_quadratic_results
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
-    np.savetxt("fisher_reference.dat",x0_val_here) 
+    np.savetxt("fisher_reference.dat",x0_val_here,header=' '.join(param_names)) 
     np.savetxt("fisher_peakval.dat",[peak_val_est])   # generally not very useful
-    np.savetxt("fisher_bestpt.dat",best_val_est)  
-    np.savetxt("fisher_gamma.dat",my_fisher_est)
+    np.savetxt("fisher_bestpt.dat",best_val_est,header=' '.join(param_names))  
+    np.savetxt("fisher_gamma.dat",my_fisher_est,header=' '.join(param_names))
     np.savetxt("fisher_linear.dat",linear_term_est)
 
     my_eig= scipy.linalg.eig(my_fisher_est)
