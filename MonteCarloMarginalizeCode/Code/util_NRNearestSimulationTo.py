@@ -1,5 +1,8 @@
 #! /usr/bin/env python
 #
+#
+# EXAMPLE
+#    python util_NRNearestSimulationTo.py --approx SEOBNRv2 --nr-group Sequence-RIT-Generic  --verbose --srate 4096 --fname overlap-grid.xml.gz  --force-aligned-interpret
 
 import argparse
 import sys
@@ -46,9 +49,9 @@ deltaT = 1./srate
 def nr_closest_to(P,distance_function_P1P2,nr_group,mass_ref=None):
 
 
-    mass_start = 70*lal.MSUN_SI
-    if mass_ref:
-        mass_start = mass_ref
+    mass_start_msun = 70
+    if not(mass_ref is None):
+        mass_start_msun = mass_ref
     result_list = []
     for param  in nrwf.internal_ParametersAvailable[nr_group]:
         acat = nrwf.WaveformModeCatalog(nr_group,param,metadata_only=True)
@@ -63,15 +66,15 @@ def nr_closest_to(P,distance_function_P1P2,nr_group,mass_ref=None):
         # print " ---> preparing for loop "
         # P.print_params()
         # P1.print_params()
-        def distance_at_mass(m):
-            print " Trying ", nr_group, param, m/lal.MSUN_SI
-            P1.assign_param('mtot', m)
+        def distance_at_mass(m_msun):
+            print " Trying ", nr_group, param, m_msun
+            P1.assign_param('mtot', m_msun*lal.MSUN_SI)
             return distance_function_P1P2(P,P1)
         
-        res = optimize.minimize(distance_at_mass, mass_start,bounds=[(20,200)],tol=1e-4,method='BFGS')
+        res = optimize.minimize(distance_at_mass, mass_start_msun,bounds=[(20,200)],tol=1e-4,method='L-BFGS-B')
         if opts.verbose:
             print " ===> search result <=== "
-            P.print_params(); print "  ", nr_group, param,  res.x/lal.MSUN_SI
+            P.print_params(); print "  ", nr_group, param,  res.x
         val = distance_at_mass(res.x)
         result_list.append( (param,res.x/lal.MSUN_SI,val))
         
@@ -106,7 +109,7 @@ if opts.fname_fisher:
     datFisher = np.genfromtxt(opts.fname_fisher,names=True)
 
     # parameter names
-    param_names = [datFisher.names]
+    param_names = list(datFisher.dtype.names)
 
     # parameter matrix
     mtx = np.zeros( (len(param_names),len(param_names)) )
@@ -152,7 +155,9 @@ elif opts.approx:
         hF2 = lalsimutils.complex_hoff(P2)
         rho1 = IP.norm(hF1)
         rho2 = IP.norm(hF2)
-        return 1- np.abs( IP.ip(hF1,hF2)/rho1/rho2)
+        dist = 1- np.abs( IP.ip(hF1,hF2)/rho1/rho2)
+        print dist
+        return dist
 
     dist_here = my_distance
 
@@ -184,8 +189,12 @@ else:
     glist = nrwf.internal_ParametersAvailable.keys()
 best_fits =[]
 for P in P_list:
+    print " Trying next point in XML"
+    P.print_params()
     P.approx = lalsim.GetApproximantFromString(opts.approx)
     P.fmin = opts.fmin
+    P.deltaT = 1./srate
+    P.deltaF = 1./T_window
     for group in glist:
         res = nr_closest_to(P, dist_here,group)
         if opts.verbose:
