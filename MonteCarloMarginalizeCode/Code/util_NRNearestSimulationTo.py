@@ -33,11 +33,12 @@ import scipy.optimize as optimize
 
 parser = argparse.ArgumentParser()
 # Parameters
-parser.add_argument("--cut",default=0.001,help="Reject points if nothing is closer than this")
+parser.add_argument("--cut",default=0.001,type=float,help="Reject points if nothing is closer than this")
 parser.add_argument('--nr-group', default=None,help="NR group to search (otherwise, will loop over all)")
 parser.add_argument("--force-aligned-interpret",default=False,action='store_true')
 parser.add_argument('--fname-fisher', default=None,help="Fisher name")
 parser.add_argument('--fname', default=None,help="Name for XML file")
+parser.add_argument('--fname-output', default="suggested_placement_from_posterior",help="Name for XML file for output")
 parser.add_argument('--npts', default=None,type=int,help="Number of elements of the XML file to use (truncation)")
 parser.add_argument("--approx",type=str,default=None,help="If supplied, the overlaps are done using this approximant, instead of a Fisher matrix")
 parser.add_argument("--fisher-psd",type=str,default="SimNoisePSDaLIGOZeroDetHighPower",help="psd name (attribute in lalsimulation).  SimNoisePSDiLIGOSRD, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, .SimNoisePSDiLIGOSRD... ")
@@ -273,10 +274,10 @@ for P in P_list:
         P_list_retain.append(P)
         dist_list_retain.append(closest_so_far_d)
     else:
-        print " Skipping point as too close to simulations because the closest has distance", closest_so_far_d
+        print " Skipping point shown below as too close to simulations because the closest has distance", closest_so_far_d, " which is less than ", opts.cut
         P.print_params()
         
 
-lalsimutils.ChooseWaveformParams_array_to_xml(P_list_retain, fname="suggested_placement_from_posterior", fref=P.fref)
-np.savetxt("distances_for_placement_from_posterior.dat", np.array([dist_list_retain]).T)
+lalsimutils.ChooseWaveformParams_array_to_xml(P_list_retain, fname=opts.fname_output, fref=P.fref)
+np.savetxt(opts.fname_output+"_distances.dat", np.array([dist_list_retain]).T)
 
