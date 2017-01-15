@@ -2037,19 +2037,18 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
     ampFac = (P.m1 + P.m2)/lal.MSUN_SI * lal.MRSUN_SI / P.dist
 
     hplus, hcross, dynHi, hlmPTS, hlmPTSHi, hIMRlmJTSHi, hLM, attachP = lalsim.SimIMRSpinEOBWaveformAll(0, P.deltaT, \
-                                            P.m1, P.m1, P.fmin, P.dist, P.incl, \
+                                            P.m1, P.m2, P.fmin, P.dist, 0, \
                                             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z)
     hlm_dict = SphHarmTimeSeries_to_dict(hLM,2)
     # for j in range(5):
     #     m = hLM.m
     #     hlm_dict[(l,m)]  = hLM.mode
     #     hLM= hLM.next
-    my_epoch = - P.deltaT*np.argmax(hlm_dict[(2,2)].data.data)  # find the event time in the data
     for key in hlm_dict:
         # Amplitude
         hlm_dict[key].data.data *= ampFac
         # epoch
-        hlm_dict[key].epoch = my_epoch  # set the event as usual : t=0 corresponds to the time of the event
+        hlm_dict[key].epoch = hplus.epoch  # set the event as usual : t=0 corresponds to the time of the event
 
 
     return hlm_dict
