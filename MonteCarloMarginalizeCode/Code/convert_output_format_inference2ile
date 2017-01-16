@@ -2,6 +2,9 @@
 #
 # convert_output_format_inference2ile
 #
+# PLEASE DEPRECATE
+#   cbcBayesPosToSimInspiral.py   # should handle all the conversions needed
+#
 # GOAL
 #    - read in lalinference posterior samples (ascii, by default)
 #    - return XML properly formatted for ILE
@@ -14,6 +17,9 @@
 #
 # CHECK COLUMNS
 # for word in `head -n 1 downloads/online_IMRP.dat `; do echo $word; done | sort -rn
+#
+# WARNINGS
+#   - Assumes input is a valid, complete posterior_samples.dat file, with all headers avaiable as of 2017-01-10
 #
 #
 #  EXAMPLES
@@ -84,15 +90,15 @@ for indx in np.arange(opts.target_size):
          psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
          )
     if ros_debug:
-        P.print_params()
         print " Target inclination (should be equal) ", P.incl, samples_in["iota"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
         print " Target spinz1 (should be equal)", P.s1z, samples_in["a1z"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
         print " Target spin2z ", P.s2z, samples_in["a2z"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
-        print " Target chieff ", P.Xi(), samples_in["chi_eff"][fac_reduce*indx]
+        print " Target chieff ", (P.s1z*P.m1+P.s2z*P.m2)/(P.m1+P.m2), samples_in["chi_eff"][fac_reduce*indx]  # uses current coordinate system/ modern one
     if opts.force_aligned:  
         # assumes in L frame, not radiation frame!
         P.s1x = P.s1y=0
         P.s2x = P.s2y=0
+#    P.print_params()
     P_list.append(P)
 
 
