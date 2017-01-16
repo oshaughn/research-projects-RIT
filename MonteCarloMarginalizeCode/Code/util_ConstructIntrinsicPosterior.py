@@ -290,11 +290,11 @@ if not opts.fname_rom_samples:
  m2_max = np.max(dat[:,2])
  m1_min = np.min(dat[:,1])
  m1_max = np.max(dat[:,1])
- eta_min = lalsimutils.symRatio(1,q_min)  # 10:1 mass ratio possible
+ eta_min = lalsimutils.symRatio(1,0.3*q_min)  # 10:1 mass ratio possible
  xi_min = -0.99#np.min(X[:,2])
  #xi_max = 0.9 # np.max(X[:,2])
  #xi_min = np.min(X[:,2])
- xi_max = np.max(X[:,2])
+ xi_max = 0.99 # np.max(X[:,2])
 
  print " xi range ", xi_min, xi_max
 
