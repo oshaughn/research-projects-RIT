@@ -326,15 +326,15 @@ if not opts.fname_rom_samples:
             # print eta
             # print my_fit(np.array([mc,eta,xi]).T)
             return np.exp(my_fit(np.array([mc,eta,xi]).T))
-    res, var, neff, dict_return = sampler.integrate(likelihood_function, 'mc', 'eta',verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=0.1)
+    res, var, neff, dict_return = sampler.integrate(likelihood_function, 'mc', 'eta', 'xi', verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=0.1)
  elif opts.coordinates_M_q:
     def M_prior(x):
         return x/(mc_max-mc_min)
     def q_prior(x):
         return x/(1+x)**2  # not normalized
-    def likelihood_function(mtot,q):  
+    def likelihood_function(mtot,q,xi):  
         if isinstance(q,float):
-            return np.exp(my_fit([mtot,q]))
+            return np.exp(my_fit([mtot,q,xi]))
         else:
             return np.exp(my_fit(np.array([mtot,q]).T))
     sampler.add_parameter('mtot',pdf=np.vectorize(lambda x:1),prior_pdf=M_prior,  left_limit=mc_min, right_limit=mc_max)   # nominal real joint priot
@@ -346,7 +346,7 @@ if not opts.fname_rom_samples:
                           right_limit=xi_max
                           )  # tricky
     # Chris requires functions have names that match the variables
-    res, var, neff, dict_return = sampler.integrate(likelihood_function, 'mtot', 'q',verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True, tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged)
+    res, var, neff, dict_return = sampler.integrate(likelihood_function, 'mtot', 'q', 'xi',verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True, tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged)
  else:
     def m1_prior(x):
         return 1./200
@@ -358,8 +358,6 @@ if not opts.fname_rom_samples:
             return np.exp(my_fit([m1,m2,xi]))
         else:
             val = my_fit(np.array([m1,m2,xi]).T)
-            print m1, m2
-            print val
             return np.exp(my_fit(np.array([m1,m2,xi]).T))
     sampler.add_parameter('m1',pdf=np.vectorize(lambda x:1),prior_pdf=m1_prior,  left_limit=m1_min, right_limit=m1_max)   # nominal real joint priot
     sampler.add_parameter('m2',pdf =np.vectorize(lambda x:1),prior_pdf=m2_prior,  left_limit=m2_min,right_limit=m2_max)  
@@ -370,7 +368,7 @@ if not opts.fname_rom_samples:
                           right_limit=xi_max
                           )  # tricky
     # Chris requires functions have names that match the variables
-    res, var, neff, dict_return = sampler.integrate(likelihood_function, 'm1', 'm2',verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True)
+    res, var, neff, dict_return = sampler.integrate(likelihood_function, 'm1', 'm2','xi', verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True)
 
 
 
