@@ -110,13 +110,13 @@ test_converged={}
 ###
 
 def fit_quadratic_alt(x,y,x0=None,symmetry_list=None):
-    the_quadratic_results = BayesianLeastSquares.fit_quadratic( grid_out[:,:len(param_names)], grid_out[:,len(param_names)],x0=x0_val_here,prior_x_gamma=prior_x_gamma)#x0=None)#x0_val_here)
+    the_quadratic_results = BayesianLeastSquares.fit_quadratic( x, y)#x0=None)#x0_val_here)
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
 
     np.savetxt("lnL_peakval.dat",[peak_val_est])   # generally not very useful
     np.savetxt("lnL_bestpt.dat",best_val_est)  
-    np.savetxt("lnL_gamma.dat",my_fisher_est)
-
+    np.savetxt("lnL_gamma.dat",my_fisher_est,header=' '.join(coord_names))
+        
     return fn_estimate
 
 def fit_quadratic(x,y,x0=None,symmetry_list=None):
@@ -176,9 +176,10 @@ if not opts.fname_rom_samples:
  ### Retrieve data
  ###
  #  id m1 m2  lnL sigma/L  neff
- dat_orig = dat = np.loadtxt(opts.fname)
- print " Original data size = ", len(dat)
  col_lnL = 9
+ dat_orig = dat = np.loadtxt(opts.fname)
+ dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
+ print " Original data size = ", len(dat), dat.shape
 
 
  ###
@@ -247,18 +248,24 @@ if not opts.fname_rom_samples:
     X=X[indx_ok]
     Y=Y[indx_ok]
     my_fit = fit_quadratic(X,Y)
+#    my_fit = fit_quadratic_alt(X,Y)
  else:
     my_fit = fit_gp(X,Y)
 
+ # Sort for later convenience (scatterplots, etc)
+ indx = Y.argsort()[::-1]
+ X=X[indx]
+ Y=Y[indx]
 
 
  # Make grid plots for all pairs of points, to facilitate direct validation of where posterior support lies
  import itertools
  for i, j in itertools.product( np.arange(len(coord_names)),np.arange(len(coord_names)) ):
   if i < j:
-    plt.scatter( X[:,i],X[:,j],label='rapid_pe:'+opts.desc_ILE); plt.legend()
+    plt.scatter( X[:,i],X[:,j],label='rapid_pe:'+opts.desc_ILE,c=Y); plt.legend(); plt.colorbar()
     plt.xlabel( tex_dictionary[coord_names[i]])
     plt.ylabel( tex_dictionary[coord_names[j]])
+    plt.title("rapid_pe evaluations (=inputs); no fits")
     plt.savefig("scatter_"+coord_names[i]+"_"+coord_names[j]+".png"); plt.clf()
 
 
@@ -544,6 +551,23 @@ if True:
     plt.savefig("xi_cdf.png"); plt.clf()
 
 
+print " --- s1z, s2z scatter (input only) --- "
+# http://stackoverflow.com/questions/17682216/scatter-plot-and-color-mapping-in-python
+lnLmax_all = np.max(dat[:,col_lnL])  # peak max
+dat_ok = dat[ np.logical_and(dat[:,col_lnL] < opts.lnL_peak_insane_cut ,dat[:,col_lnL] > lnLmax_all -4)]
+dat_ok = dat_ok[ dat_ok[:,col_lnL].argsort()]
+print np.max(dat_ok[:,col_lnL]), lnLmax, lnLmax-4, opts.lnL_peak_insane_cut # peak lnL is much higher for precessing
+print dat_ok[0],dat_ok[-1]
+plt.clf();
+dat_1p = -np.sqrt(dat_ok[:,3]**2 +dat_ok[:,4]**2 )
+dat_2p = np.sqrt(dat_ok[:,6]**2 +dat_ok[:,7]**2 )
+plt.scatter(dat_1p, dat_ok[:,5], c=dat_ok[:,col_lnL])
+plt.scatter(dat_2p, dat_ok[:,8], c=dat_ok[:,col_lnL])
+plt.xlabel('$\chi_{1,\perp},\chi_{2,\perp}$')
+plt.ylabel('$\chi_{1,z},\chi_{2,z}$')
+plt.colorbar()
+plt.savefig("chi1z_chi2z_input.png")
+
 
 print " --- corner --- "
 
@@ -655,7 +679,8 @@ for indx_here in indx_list:
                 coord_to_assign= 'chieff_aligned'
             Pgrid.assign_param(coord_to_assign, line[indx]*fac)
             
-        Pgrid.print_params()
+        if opts.verbose:
+            Pgrid.print_params()
         # Downselect.
         # for param in downselect_dict:
         #     if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
