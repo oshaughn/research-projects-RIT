@@ -253,7 +253,7 @@ if not opts.fname_rom_samples:
     my_fit = fit_gp(X,Y)
 
  # Sort for later convenience (scatterplots, etc)
- indx = Y.argsort()[::-1]
+ indx = Y.argsort()#[::-1]
  X=X[indx]
  Y=Y[indx]
 
