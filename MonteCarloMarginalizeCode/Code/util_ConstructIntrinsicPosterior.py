@@ -46,7 +46,7 @@ import mcsampler
 
 # TeX dictionary
 tex_dictionary  = {
- "M": '$M$',
+ "mtot": '$M$',
  "mc": '${\cal M}_c$',
  "m1": '$m_1$',
  "m2": '$m_2$',
@@ -103,6 +103,30 @@ test_converged={}
 #test_converged["normal_integral"] = functools.partial(mcsampler.convergence_test_NormalSubIntegrals, 25, 0.01, 0.1)   # 20 sub-integrals are gaussian distributed [weakly; mainly to rule out outliers] *and* relative error < 10%, based on sub-integrals . Should use # of intervals << neff target from above.  Note this sets our target error tolerance on  lnLmarg.  Note the specific test requires >= 20 sub-intervals, which demands *very many* samples (each subintegral needs to be converged).
 
 
+###
+### Prior functions : a dictionary
+###
+
+# mcmin, mcmax : to be defined later
+def M_prior(x):
+    return x/(mc_max-mc_min)
+def q_prior(x):
+    return x/(1+x)**2  # not normalized
+def m1_prior(x):
+    return 1./200
+def m2_prior(x):
+    return 1./200
+def s1z_prior(x):
+    return 1./2
+def s2z_prior(x):
+    return 1./2
+def mc_prior(x):
+    return x/(mc_max-mc_min)
+def eta_prior(x):
+    return 1./np.power(x,6./5.)/np.power(1-4.*x, 0.5)/1.44
+
+prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "mc":mc_prior, "eta":eta_prior}
+prior_range_map = {"mtot": [1, 200], "q":[0.01,1], "s1z":[-0.99,0.99], "s2z":[-0.99,0.99], "mc":[0.9,90], "eta":[0.01,0.2499999]}
 
 
 ###
@@ -155,12 +179,16 @@ def fit_gp(x,y,x0=None,symmetry_list=None):
 
 
 coord_names = opts.parameter
+fixed_coords = True
 if opts.coordinates_mc_eta:
     coord_names = ['mc', 'eta', 'xi'] 
 elif opts.coordinates_M_q:
     coord_names = ['mtot', 'q', 'xi'] 
-else:
+elif opts.coordinates_m1_m2:
     coord_names = ['m1', 'm2', 'xi'] 
+else:
+    coord_names = opts.parameter
+    fixed_coords = False
 print " Coordinate names :, ", coord_names
 print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], coord_names)
 
@@ -223,7 +251,7 @@ if not opts.fname_rom_samples:
 
 
  # Repack data
- X =dat_out[:,0:3]
+ X =dat_out[:,0:len(coord_names)]
  Y = dat_out[:,-1]
 
  # Eliminate values with Y too small
@@ -328,10 +356,10 @@ if not opts.fname_rom_samples:
             return np.exp(my_fit(np.array([mc,eta,xi]).T))
     res, var, neff, dict_return = sampler.integrate(likelihood_function, 'mc', 'eta', 'xi', verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=0.1)
  elif opts.coordinates_M_q:
-    def M_prior(x):
-        return x/(mc_max-mc_min)
-    def q_prior(x):
-        return x/(1+x)**2  # not normalized
+    # def M_prior(x):
+    #     return x/(mc_max-mc_min)
+    # def q_prior(x):
+    #     return x/(1+x)**2  # not normalized
     def likelihood_function(mtot,q,xi):  
         if isinstance(q,float):
             return np.exp(my_fit([mtot,q,xi]))
@@ -347,14 +375,14 @@ if not opts.fname_rom_samples:
                           )  # tricky
     # Chris requires functions have names that match the variables
     res, var, neff, dict_return = sampler.integrate(likelihood_function, 'mtot', 'q', 'xi',verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True, tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged)
- else:
-    def m1_prior(x):
-        return 1./200
-    def m2_prior(x):
-        return 1./200
+ elif opts.coordinates_m1_m2:
+    # def m1_prior(x):
+    #     return 1./200
+    # def m2_prior(x):
+    #     return 1./200
     def likelihood_function(m1,m2,xi):  
         if isinstance(m2,float):
-            print my_fit([m1,m2,xi])
+#            print my_fit([m1,m2,xi])
             return np.exp(my_fit([m1,m2,xi]))
         else:
             val = my_fit(np.array([m1,m2,xi]).T)
@@ -369,7 +397,25 @@ if not opts.fname_rom_samples:
                           )  # tricky
     # Chris requires functions have names that match the variables
     res, var, neff, dict_return = sampler.integrate(likelihood_function, 'm1', 'm2','xi', verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True)
-
+ else:
+     # http://stackoverflow.com/questions/1409295/set-function-signature-in-python
+     for indx in np.arange(len(coord_names)):
+         p = coord_names[indx]
+         p_min = prior_range_map[p][0] #np.min(dat_out[:,indx])   # NOT safe
+         p_max = prior_range_map[p][1] # np.max(dat_out[:,indx])
+         sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_map[p], left_limit=p_min,right_limit=p_max)
+     argstr = ", ".join(coord_names)
+     fakefunc_src = "def likelihood_function(%s):\n\t return np.exp(real_func([%s]).T)" % (argstr, argstr)
+     print fakefunc_src
+##     eval(fakefunc_src,{"real_func":my_fit,"np":np})
+     fakefunc_code = compile(fakefunc_src, "fakesource", "exec")
+     fakeglobals = {}
+     eval(fakefunc_code, {"real_func":my_fit, "np":np},fakeglobals)
+     likelihood_function = fakeglobals["likelihood_function"]
+     # Test that likelihood function works
+     print X[0], np.log(likelihood_function(X[0])), Y[0]
+     print X[-1], np.log(likelihood_function(X[-1])), Y[-1]
+     res, var, neff, dict_return = sampler.integrate(likelihood_function, *coord_names, verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True)
 
 
  ###
@@ -552,19 +598,23 @@ if True:
 print " --- s1z, s2z scatter (input only) --- "
 # http://stackoverflow.com/questions/17682216/scatter-plot-and-color-mapping-in-python
 lnLmax_all = np.max(dat[:,col_lnL])  # peak max
+if lnLmax_all > opts.lnL_peak_insane_cut:
+    lnLmax_all = lnLmax
 dat_ok = dat[ np.logical_and(dat[:,col_lnL] < opts.lnL_peak_insane_cut ,dat[:,col_lnL] > lnLmax_all -4)]
-dat_ok = dat_ok[ dat_ok[:,col_lnL].argsort()]
-print np.max(dat_ok[:,col_lnL]), lnLmax, lnLmax-4, opts.lnL_peak_insane_cut # peak lnL is much higher for precessing
-print dat_ok[0],dat_ok[-1]
-plt.clf();
-dat_1p = -np.sqrt(dat_ok[:,3]**2 +dat_ok[:,4]**2 )
-dat_2p = np.sqrt(dat_ok[:,6]**2 +dat_ok[:,7]**2 )
-plt.scatter(dat_1p, dat_ok[:,5], c=dat_ok[:,col_lnL])
-plt.scatter(dat_2p, dat_ok[:,8], c=dat_ok[:,col_lnL])
-plt.xlabel('$\chi_{1,\perp},\chi_{2,\perp}$')
-plt.ylabel('$\chi_{1,z},\chi_{2,z}$')
-plt.colorbar()
-plt.savefig("chi1z_chi2z_input.png")
+print " Remaining points ", len(dat_ok)
+if len(dat_ok) >0:
+    dat_ok = dat_ok[ dat_ok[:,col_lnL].argsort()]
+    print np.max(dat_ok[:,col_lnL]), lnLmax, lnLmax-4, opts.lnL_peak_insane_cut # peak lnL is much higher for precessing
+    print dat_ok[0],dat_ok[-1]
+    plt.clf();
+    dat_1p = -np.sqrt(dat_ok[:,3]**2 +dat_ok[:,4]**2 )
+    dat_2p = np.sqrt(dat_ok[:,6]**2 +dat_ok[:,7]**2 )
+    plt.scatter(dat_1p, dat_ok[:,5], c=dat_ok[:,col_lnL])
+    plt.scatter(dat_2p, dat_ok[:,8], c=dat_ok[:,col_lnL])
+    plt.xlabel('$\chi_{1,\perp},\chi_{2,\perp}$')
+    plt.ylabel('$\chi_{1,z},\chi_{2,z}$')
+    plt.colorbar()
+    plt.savefig("chi1z_chi2z_input.png")
 
 
 print " --- corner --- "
@@ -601,7 +651,7 @@ print " --- corner 2 --- "
 mtot_vals = dat_mass[:,0]+dat_mass[:,1]
 q_vals = dat_mass[:,1]/dat_mass[:,0]
 xi_vals = dat_mass[:,2]
-labels_raw = ['M','q','xi']
+labels_raw = ['mtot','q','xi']
 labels_tex = map(lambda x: tex_dictionary[x], labels_raw)
 fig_base=corner.corner(np.array([mtot_vals, q_vals , xi_vals]).T, weights=weights/np.sum(weights),labels=labels_tex,quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs)
 range_here = [
@@ -626,7 +676,7 @@ if not opts.fname_rom_samples:
     fig_base = corner.corner(dat_here,plot_datapoints=True,plot_density=False,plot_contours=False,fig=fig_base,data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
 
 if opts.fname_lalinference:
-    corner.corner( np.array([samples_LI["mtotal"],samples_LI["q"],samples_LI["chi_eff"]]).T,color='r',labels=['M','q','$\\xi$'],weights=np.ones(len(samples_LI))*1.0/len(samples_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
+    corner.corner( np.array([samples_LI["mtotal"],samples_LI["q"],samples_LI["chi_eff"]]).T,color='r',labels=labels_tex,weights=np.ones(len(samples_LI))*1.0/len(samples_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 plt.savefig("posterior_corner_Mqxi.png")
 
 
