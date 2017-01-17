@@ -72,12 +72,20 @@ for indx in np.arange(opts.target_size):
     m2 = samples_in["m2"][fac_reduce*indx]*lal.MSUN_SI
     d = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
     P = lalsimutils.ChooseWaveformParams(m1=m1,m2=m2,dist=d)
-    P.time = samples_in["time"][fac_reduce*indx]
+    if "time_maxl" in samples_in.dtype.names:
+     P.time = samples_in["time_maxl"][fac_reduce*indx]
+    else:
+     P.time = samples_in["time"][fac_reduce*indx]
     P.fmin = opts.fmin
 #    P.fref = opts.fref
 #    P.fref = samples_in["flow"][fac_reduce*indx]  # REFERENCE FREQUENCY IS NOT YET RELIABLE
     P.fref = samples_in["f_ref"][fac_reduce*indx]  # a field now !  MAY NOT BE RELIABLE
-    P.phiref =samples_in["phase"][fac_reduce*indx]
+    if "phase_maxl" in samples_in.dtype.names:
+     P.phiref =samples_in["phase_maxl"][fac_reduce*indx]
+    elif "phase" in samples_in.dtype.names:
+     P.phiref = samples_in["phase"][fac_reduce*indx]
+    else:
+     P.phiref = 0  # does not actually matter
     P.approx = lalsim.GetApproximantFromString(opts.approx)
     P.init_via_system_frame( 
          thetaJN=samples_in["theta_jn"][fac_reduce*indx],
