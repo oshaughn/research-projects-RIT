@@ -34,7 +34,7 @@ import lal
 import lalsimutils
 import lalsimulation as lalsim
 
-ros_debug = True
+ros_debug = False
 
 
 # Contenthandlers : argh
@@ -87,7 +87,8 @@ for indx in np.arange(opts.target_size):
     else:
      P.phiref = 0  # does not actually matter
     P.approx = lalsim.GetApproximantFromString(opts.approx)
-    P.init_via_system_frame( 
+    if "phi_jl" in samples_in.dtype.names:
+      P.init_via_system_frame( 
          thetaJN=samples_in["theta_jn"][fac_reduce*indx],
          phiJL=samples_in["phi_jl"][fac_reduce*indx],
          theta1=samples_in["tilt1"][fac_reduce*indx],
@@ -97,6 +98,22 @@ for indx in np.arange(opts.target_size):
          chi2=samples_in["a2"][fac_reduce*indx],
          psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
          )
+    elif P.approx == lalsim.SEOBNRv2 or  P.approx == lalsim.SEOBNRv4:
+        # Aligned spin model
+        P.s1z = samples_in["a1z"][fac_reduce*indx]
+        P.s2z = samples_in["a1z"][fac_reduce*indx]
+    else:
+      P.init_via_system_frame( 
+         thetaJN=samples_in["theta_jn"][fac_reduce*indx],
+         phiJL=0, # does not matter
+         theta1=samples_in["theta1"][fac_reduce*indx],
+         theta2=samples_in["theta2"][fac_reduce*indx],
+         phi12=samples_in["phi12"][fac_reduce*indx],
+         chi1=samples_in["a1"][fac_reduce*indx],
+         chi2=samples_in["a2"][fac_reduce*indx],
+         psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
+         )
+
     if ros_debug:
         print " Target inclination (should be equal) ", P.incl, samples_in["iota"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
         print " Target spinz1 (should be equal)", P.s1z, samples_in["a1z"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
