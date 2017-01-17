@@ -354,7 +354,7 @@ if not opts.fname_rom_samples:
             # print eta
             # print my_fit(np.array([mc,eta,xi]).T)
             return np.exp(my_fit(np.array([mc,eta,xi]).T))
-    res, var, neff, dict_return = sampler.integrate(likelihood_function, 'mc', 'eta', 'xi', verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=0.1)
+    res, var, neff, dict_return = sampler.integrate(likelihood_function, 'mc', 'eta', 'xi', verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=0.1)  # weight ecponent needs better choice
  elif opts.coordinates_M_q:
     # def M_prior(x):
     #     return x/(mc_max-mc_min)
@@ -600,7 +600,7 @@ print " --- s1z, s2z scatter (input only) --- "
 lnLmax_all = np.max(dat[:,col_lnL])  # peak max
 if lnLmax_all > opts.lnL_peak_insane_cut:
     lnLmax_all = lnLmax
-dat_ok = dat[ np.logical_and(dat[:,col_lnL] < opts.lnL_peak_insane_cut ,dat[:,col_lnL] > lnLmax_all -4)]
+dat_ok = dat[ np.logical_and(dat[:,col_lnL] < opts.lnL_peak_insane_cut ,dat[:,col_lnL] > lnLmax_all -8)]
 print " Remaining points ", len(dat_ok)
 if len(dat_ok) >0:
     dat_ok = dat_ok[ dat_ok[:,col_lnL].argsort()]
@@ -614,7 +614,15 @@ if len(dat_ok) >0:
     plt.xlabel('$\chi_{1,\perp},\chi_{2,\perp}$')
     plt.ylabel('$\chi_{1,z},\chi_{2,z}$')
     plt.colorbar()
-    plt.savefig("chi1z_chi2z_input.png")
+    plt.title("rapid_pe evaluations (=inputs); no fits")
+    plt.savefig("spin_disk_input.png")
+    plt.clf()
+    plt.scatter(dat_ok[:,5],dat_ok[:,8], c=dat_ok[:,col_lnL])
+    plt.title("rapid_pe evaluations (=inputs); no fits")
+    plt.xlabel("$\chi_{1,z}$")
+    plt.ylabel("$\chi_{2,z}$")
+    plt.colorbar()
+    plt.savefig('chi1z_chi2z_input.png')
 
 
 print " --- corner --- "
