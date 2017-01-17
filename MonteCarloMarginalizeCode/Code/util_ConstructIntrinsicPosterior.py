@@ -78,6 +78,7 @@ parser.add_argument("--save-plots",default=False,action='store_true', help="Writ
 parser.add_argument("--inj-file", help="Name of injection file")
 parser.add_argument("--event-num", type=int, default=0,help="Zero index of event in inj_file")
 parser.add_argument("--coordinates-mc-eta", action='store_true')
+parser.add_argument("--report-best-point",action='store_true')
 parser.add_argument("--coordinates-M-q", action='store_true')
 parser.add_argument("--coordinates-m1-m2", action='store_true')
 parser.add_argument("--coordinates-chi1-chi2",action='store_true')
@@ -275,8 +276,23 @@ if not opts.fname_rom_samples:
  if opts.fit_method == "quadratic":
     X=X[indx_ok]
     Y=Y[indx_ok]
+    if opts.report_best_point:
+        my_fit = fit_quadratic_alt(X,Y)
+        pt_best_X = np.loadtxt("lnL_bestpt.dat")
+        for indx in np.arange(len(coord_names)):
+            fac = 1
+            if coord_names[indx] in ['mc','m1','m2','mtot']:
+                fac = lal.MSUN_SI
+            p_to_assign = coord_names[indx]
+            if p_to_assign == 'xi':
+                p_to_assign = "chieff_aligned"
+            P.assign_param(p_to_assign,pt_best_X[indx]*fac) 
+           
+        print " ====BEST BINARY ===="
+        print " Parameters from fit ", pt_best_X
+        P.print_params()
+        sys.exit(0)
     my_fit = fit_quadratic(X,Y)
-#    my_fit = fit_quadratic_alt(X,Y)
  else:
     my_fit = fit_gp(X,Y)
 
