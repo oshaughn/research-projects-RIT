@@ -45,7 +45,9 @@ parser = argparse.ArgumentParser()
 #parser.add_argument("--group",default=None)
 parser.add_argument("--fname", default=None, help="Base output file for ascii text (.dat) and xml (.xml.gz)")
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
+parser.add_argument("--M-max-cut",type=float,default=1e5,help="Maximum mass to consider (e.g., if there is a cut on distance, this matters)")
 parser.add_argument("--lnL-cut-up",default=5,type=float,help="Maximum amount (in lnL) a fit can increase lnL, based on what is calculated. Use a tighter threshold for a denser grid, and a wide threshold if you want to live dangerously.")
+parser.add_argument("--sigma-cut",type=float,default=0.95,help="Eliminate points with large error from the fit.")
 parser.add_argument("--fit", action="store_true",default=False, help="Local quadratic fit on best points")
 parser.add_argument("--no-gp",action="store_true")
 opts=  parser.parse_args()
@@ -70,9 +72,11 @@ with open(opts.fname) as f:
 #     if opts.verbose:
 #         print "  Input ", line
      # Get NR data
+     if float(line[1])+float(line[2]) > opts.M_max_cut:
+         continue
      group = line[3]
      if not nrwf.internal_ParametersAreExpressions.has_key(group):
-         pass
+         continue
      param = None
      if nrwf.internal_ParametersAreExpressions[group]:
          param = eval(line[4])
@@ -80,7 +84,7 @@ with open(opts.fname) as f:
          param = line[4]
 
      if len(line)<6:
-         pass
+         continue
 
      key = (group,param)
 
@@ -95,10 +99,10 @@ with open(opts.fname) as f:
          sigma_here = 0.1
          npts_here = 1
          failure_mode=True
-         pass
-     if sigma_here > 0.95:
+         continue
+     if sigma_here > opts.sigma_cut:
          failure_mode=True
-         pass  # DO NOT RECORD ITEMS which are completely unconverged (one point). Insane answers likely.  (should ALSO have tunable cutoff on accuracy)
+         continue  # DO NOT RECORD ITEMS which are completely unconverged (one point). Insane answers likely.  (should ALSO have tunable cutoff on accuracy)
      if not failure_mode:
       if best_matches.has_key(key):
          if best_matches[key] < lnLhere:
