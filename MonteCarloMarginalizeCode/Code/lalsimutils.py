@@ -54,6 +54,9 @@ print >>sys.stderr,"  numpy : ", np.__version__
 TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 
 
+#spin_convention = "radiation"
+spin_convention = "L"
+
 cthdler = ligolw.LIGOLWContentHandler #defines a content handler to load xml grids
 lsctables.use_in(cthdler)
 
@@ -402,19 +405,31 @@ class ChooseWaveformParams:
         if p == 'xi':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
-            Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!   Uses OLD convention for spins!
+            Lhat = None
+            if spin_convention == "L":
+                Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
+            else:
+                Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             xi = np.dot(Lhat, (self.m1*chi1Vec + self.m2* chi2Vec))/(self.m1+self.m2)   # see also 'Xi', defined below
             return xi
         if p == 'chiMinus':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
-            Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!   Uses OLD convention for spins!
+            Lhat = None
+            if spin_convention == "L":
+                Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
+            else:
+                Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             xi = np.dot(Lhat, (self.m1*chi1Vec - self.m2* chi2Vec))/(self.m1+self.m2)   # see also 'Xi', defined below
             return xi
         if p == 'chiMinusAlt':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
-            Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!   Uses OLD convention for spins!
+            Lhat = None
+            if spin_convention == "L":
+                Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
+            else:
+                Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             xi = np.dot(Lhat, (self.m1*chi1Vec - self.m2* chi2Vec))/(self.m1- self.m2)   # see also 'Xi', defined below
             return xi
         if p == 'thetaJN':
@@ -536,7 +551,7 @@ class ChooseWaveformParams:
         P.init_via_system_frame(thetaJN=0.1, phiJL=0.1, theta1=0.1, theta2=0.1, phi12=0.1, chi1=1., chi2=1., psiJ=0.)
         """
         # Create basic parameters
-        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
+        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
         # Define psiL via the deficit angle between Jhat in the radiation frame and the psiJ we want to achieve 
         Jref = self.TotalAngularMomentumAtReferenceOverM2()
         Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
@@ -712,7 +727,11 @@ class ChooseWaveformParams:
         return v**3/(lsu_PI*(m1+m2))
     def OrbitalAngularMomentumAtReference(self):   # in units of kg in SI
         v = self.VelocityAtFrequency(max(self.fref,self.fmin));
-        Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
+        Lhat = None
+        if spin_convention == "L":
+            Lhat = np.array([0,0,1])
+        else:
+            Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
         M = (self.m1+self.m2)
         eta = symRatio(self.m1,self.m2)   # dimensionless
         return Lhat*M*M*eta/v     # in units of kg in SI
@@ -2037,19 +2056,18 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
     ampFac = (P.m1 + P.m2)/lal.MSUN_SI * lal.MRSUN_SI / P.dist
 
     hplus, hcross, dynHi, hlmPTS, hlmPTSHi, hIMRlmJTSHi, hLM, attachP = lalsim.SimIMRSpinEOBWaveformAll(0, P.deltaT, \
-                                            P.m1, P.m1, P.fmin, P.dist, P.incl, \
+                                            P.m1, P.m2, P.fmin, P.dist, 0, \
                                             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z)
     hlm_dict = SphHarmTimeSeries_to_dict(hLM,2)
     # for j in range(5):
     #     m = hLM.m
     #     hlm_dict[(l,m)]  = hLM.mode
     #     hLM= hLM.next
-    my_epoch = - P.deltaT*np.argmax(hlm_dict[(2,2)].data.data)  # find the event time in the data
     for key in hlm_dict:
         # Amplitude
         hlm_dict[key].data.data *= ampFac
         # epoch
-        hlm_dict[key].epoch = my_epoch  # set the event as usual : t=0 corresponds to the time of the event
+        hlm_dict[key].epoch = hplus.epoch  # set the event as usual : t=0 corresponds to the time of the event
 
 
     return hlm_dict
