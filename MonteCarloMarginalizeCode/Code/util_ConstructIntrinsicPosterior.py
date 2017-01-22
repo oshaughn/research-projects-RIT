@@ -70,6 +70,7 @@ parser.add_argument("--parameter", action='append')
 parser.add_argument("--use-precessing",action='store_true')
 parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset")
 parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]")
+parser.add_argument("--M-max-cut",type=float,default=1e5,help="Maximum mass to consider (e.g., if there is a cut on distance, this matters)")
 parser.add_argument("--sigma-cut",type=float,default=0.6,help="Eliminate points with large error from the fit.")
 parser.add_argument("--lnL-peak-insane-cut",type=float,default=np.inf,help="Throw away lnL greater than this value. Should not be necessary")
 parser.add_argument("--fmin",type=float,default=None)
@@ -223,6 +224,9 @@ if not opts.fname_rom_samples:
  for line in dat:
   # Skip precessing binaries unless explicitly requested not to!
   if not opts.use_precessing and (line[3]**2 + line[4]**2 + line[6]**2 + line[7]**2)>0.01:
+      continue
+  if line[1]+line[2] > opts.M_max_cut:
+      print " Skipping ", line, " as too massive, with mass ", line[1]+line[2]
       continue
   if line[10] > opts.sigma_cut:
       print " Skipping ", line
