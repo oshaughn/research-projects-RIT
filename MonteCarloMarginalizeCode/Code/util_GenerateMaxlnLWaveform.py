@@ -44,13 +44,13 @@ if opts.use_NR:
     #get name of maxpt file
     for file in os.listdir(str(opts.run_dir)):
        if str(file).startswith("maxpt") and "_"+str(indx) in str(file):
-            infile=str(opts.run_dir)+str(file)
+            infile=str(opts.run_dir)+"/"+str(file)
 
     #acquire event time
     with open(str(opts.run_dir)+"/event.log", 'r') as log:
        for line in log:
-          if line.startswith("End"):
-              event_time=line.split()[2]
+          if "Time" in line: #line.startswith("End"):
+              event_time=line.split()[-1]
 
     #get nr group and params
     with open("./"+str(opts.run_dir)+"/command-single.sh", 'r') as ile_opts:
@@ -58,7 +58,7 @@ if opts.use_NR:
          nr_group=opts_list[opts_list.index("--nr-group")+1]
          nr_params=opts_list[opts_list.index("--nr-param")+1]
 
-    cmd ="./util_NRDumpDetectorResponse.py --inj "+infile+" --event 0 --t-ref"+str(event_time)+" --group "+nr_group+" --param "+nr_params+" --use-perturbative-extraction-full"
+    cmd ="util_NRDumpDetectorResponse.py --inj "+infile+" --event 0 --t-ref "+str(event_time)+" --group "+nr_group+" --param "+nr_params+" --use-perturbative-extraction"  #-full"
     
     if opts.save_plots:
 	cmd+=" --save-plots --verbose"
