@@ -101,7 +101,7 @@ for indx in np.arange(opts.target_size):
     elif P.approx == lalsim.SEOBNRv2 or  P.approx == lalsim.SEOBNRv4:
         # Aligned spin model
         P.s1z = samples_in["a1z"][fac_reduce*indx]
-        P.s2z = samples_in["a1z"][fac_reduce*indx]
+        P.s2z = samples_in["a2z"][fac_reduce*indx]
     else:
       P.init_via_system_frame( 
          thetaJN=samples_in["theta_jn"][fac_reduce*indx],
