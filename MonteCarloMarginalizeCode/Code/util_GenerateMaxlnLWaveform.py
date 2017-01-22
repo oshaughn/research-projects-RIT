@@ -1,7 +1,12 @@
 #!/usr/bin/python
 # Monica Rizzo
 
-# ./generateMaxlnLWaveform.py --run-dir G268556-C01-SEOBNRv3-fmin20-fromPE-v0/ (name of run directory) --save-plots --use-NR (if using an NR run, otherwise uses util_LALDumpDetectorResponse.py) 
+# util_GenerateMaxlnLWaveform.py --run-dir G268556-C01-SEOBNRv3-fmin20-fromPE-v0/ (name of run directory) --save-plots --use-NR (if using an NR run, otherwise uses util_LALDumpDetectorResponse.py) 
+#
+# FIXME
+#   - SXS: Switch to use-provided-strain, if it was used
+#   - if maxpt not available, run ILE in single-point mode to find best fit parameters, adding --maximize-only
+#   - omit memory
 
 import numpy as np
 import sys
@@ -10,9 +15,12 @@ import os
 import subprocess
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--run-dir", default=None, help="directory code was run in")
+parser.add_argument("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")
+parser.add_argument("--run-dir",default=None, help="directory code was run in")
+parser.add_argument("--event-time", type=np.float128,  default=None,help="Event time. If not present, will use event.log")
 parser.add_argument("--save-plots", default=False, action='store_true',help="saves waveform plot and hoft data")
 parser.add_argument("--use-NR", default=False, action='store_true', help="generate plots using NR data")
+parser.add_argument("--no-memory",action='store_true')
 opts=parser.parse_args()
 
 #look through run directory for file containing max lnl
@@ -37,6 +45,7 @@ else:
 print "Max lnL value: "+ str(max(lnl_vals))
 indx=fnums[lnl_vals.index(max(lnl_vals))]
 
+Lmax = opts.l_max
         
 if opts.use_NR:
     print "Using NR data: "
@@ -48,14 +57,20 @@ if opts.use_NR:
             infile=str(opts.run_dir)+"/"+str(file)
 
     #acquire event time
-    with open(str(opts.run_dir)+"/event.log", 'r') as log:
+    if opts.event_time == None:
+     with open(str(opts.run_dir)+"/event.log", 'r') as log:
        for line in log:
           if "Time" in line: #line.startswith("End"):
               event_time=line.split()[-1]
-
+    else:
+        event_time = opts.event_time
     #get nr group and params
     with open(str(opts.run_dir)+"/command-single.sh", 'r') as ile_opts:
          opts_list=ile_opts.read().split()
+         if "--l-max" in opts_list:
+             Lmax_used = int(opts_list[opts_list.index("--l-max")+1])
+             if (Lmax_used != Lmax):
+                    print " ---- WARNING, YOU WILL OVERRIDE THE MAXIMUM L USED  --"
 	 if "--nr-group" in opts_list:
          	nr_group=opts_list[opts_list.index("--nr-group")+1]
          	nr_params=opts_list[opts_list.index("--nr-param")+1]
@@ -97,7 +112,9 @@ if opts.use_NR:
                 group = good_sim[0]
                 nr_params = good_sim[1]
 
-    cmd ="util_NRDumpDetectorResponse.py --inj "+infile+" --event 0 --t-ref "+str(event_time)+" --group "+nr_group+" --param "+nr_params+" --use-perturbative-extraction"  #-full"
+    cmd ="util_NRDumpDetectorResponse.py --inj "+infile+" --event 0 --t-ref "+str(event_time)+" --group "+nr_group+" --param "+nr_params+" --l " + str(opts.l_max) + " --use-perturbative-extraction"  #-full"
+    if opts.no_memory:
+        cmd = cmd+ " --no-memory "
     
     if opts.save_plots:
 	cmd+=" --save-plots --verbose"
