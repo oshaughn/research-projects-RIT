@@ -2055,14 +2055,16 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
 
     ampFac = (P.m1 + P.m2)/lal.MSUN_SI * lal.MRSUN_SI / P.dist
 
+    # inc is not consistent with the modern convention I will be reading in (spins aligned with L, hlm in the L frame)
     hplus, hcross, dynHi, hlmPTS, hlmPTSHi, hIMRlmJTSHi, hLM, attachP = lalsim.SimIMRSpinEOBWaveformAll(0, P.deltaT, \
-                                            P.m1, P.m2, P.fmin, P.dist, 0, \
+                                            P.m1, P.m1, P.fmin, P.dist, 0, \
                                             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z)
     hlm_dict = SphHarmTimeSeries_to_dict(hLM,2)
     # for j in range(5):
     #     m = hLM.m
     #     hlm_dict[(l,m)]  = hLM.mode
     #     hLM= hLM.next
+    #my_epoch = - P.deltaT*np.argmax(np.abs(hlm_dict[(2,2)].data.data)**2 + np.abs(hlm_dict[(2,1)].data.data)**2 + np.abs(hlm_dict[(2,0)].data.data)**2 )  # find the event time in the data
     for key in hlm_dict:
         # Amplitude
         hlm_dict[key].data.data *= ampFac
@@ -2747,7 +2749,7 @@ def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqReq
     return psdNew
 
 def get_psd_series_from_xmldoc(fname, inst):
-    #return read_psd_xmldoc(utils.load_filename(fname, contenthandler=series.LIGOLWContentHandler ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+   # return read_psd_xmldoc(utils.load_filename(fname, contenthandler=series.LIGOLWContentHandler ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
     return read_psd_xmldoc(utils.load_filename(fname ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
 
 def get_intp_psd_series_from_xmldoc(fname, inst):
