@@ -59,7 +59,7 @@ try:
         print " No OSX; no interactive plots "
     else:
         print " Unknown configuration "
-        fig_extension = '.jpg'
+        fig_extension = '.png'
         bNoInteractivePlots =True
     from matplotlib import pyplot as plt
     bNoPlots=False
@@ -82,7 +82,8 @@ if opts.verbose:
 ## LOAD INJECTION FILE
 #   - complete garbage as waveform entry, to make sure the code to load waveforms operates PERIOD
 print " Loading injection file ... "
-P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj),force_waveform='TaylorT4threePointFivePN',force_taper='TAPER_NONE')[opts.event]  # Load in the physical parameters of the inj
+# force_waveform='TaylorT4threePointFivePN',,force_taper='TAPER_NONE'
+P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))[opts.event]  # Load in the physical parameters of the inj
 
 ## LOAD WEIGHT REPORT (just in case)
 # from glue.ligolw import lsctables, utils, table
