@@ -90,6 +90,7 @@ if opts.use_NR:
 
 	print " Loading ", cme_file
 	param = np.loadtxt(cme_file)
+        param = np.array(map(int,param*1000))/1000.  # prevent scientific notation from appearing in arguments!
 	print param
 #        with open(cme_file, 'r') as params:
 #		param=params.read().split()
