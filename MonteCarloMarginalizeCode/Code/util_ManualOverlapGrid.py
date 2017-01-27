@@ -197,6 +197,7 @@ parser.add_argument("--grid-cartesian", action="store_true", help="Place mass po
 parser.add_argument("--grid-cartesian-npts", default=100, type=int)
 parser.add_argument("--skip-overlap",action='store_true', help="If true, the grid is generated without actually performing overlaps. Very helpful for uncertain configurations or low SNR")
 parser.add_argument("--reset-grid-via-match",action='store_true',help="Reset the parameter_range results so each parameter's range is limited by  match_value.  Use this ONLY for estimating the fisher matrix quickly!")
+parser.add_argument("--use-fisher-resampling",action='store_true',help="Resample the grid using the fisher matrix. Requires fisher matrix")
 # Cutoff options
 parser.add_argument("--match-value", type=float, default=0.01, help="Use this as the minimum match value. Default is 0.01 (i.e., keep almost everything)")
 # Overlap options
@@ -708,7 +709,7 @@ if opts.use_fisher:
         print " Eigenvalue report ", my_eig
         sys.exit(0)
 
-    if not opts.fake_data:
+    if opts.use_fisher and opts.use_fisher_resampling:  # dump real data, NOT faked data. You should ALWAYS enter this logic tree
      # this grid will have mass units ! Possibly catastrophic?
      npts_out = opts.grid_cartesian_npts*10  # Use more points in the search grid than the small grid used for Fisher. Aim for 1k points
      grid_fisher = -1*np.ones((npts_out,len(param_names)+1))
@@ -749,8 +750,10 @@ if opts.use_fisher:
         else:
             True
 
-    grid_out=[]  # force reset of this variable..no crap inherited
-    grid_out = np.array(grid_revised)
+     print " Original grid size", len(grid_out)
+     grid_out=[]  # force reset of this variable..no crap inherited
+     grid_out = np.array(grid_revised)
+     print " Revised grid size", len(grid_out)
 
 if opts.linear_spoked or opts.uniform_spoked:
     print " Effective fisher report. GRID NOT YET IMPLEMENTED "
