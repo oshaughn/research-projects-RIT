@@ -81,6 +81,8 @@ except:
 
 import BayesianLeastSquares
 
+param_priors_gamma = {'s1z':0.01, 's2z': 0.01, 'xi':0.1}  # weak constraints on s1z, s2z
+
 # def fit_quadratic(x,y,x0=None):
 #     """
 #     x = array so x[0] , x[1], x[2] are points.
@@ -705,15 +707,22 @@ if opts.use_fisher:
 
     my_eig= scipy.linalg.eig(my_fisher_est)
     if any(np.real(my_eig[0]) < 0) : 
-        print " Negative eigenvalues preclude resampling ! Use a prior to regularize"
+        print " Negative eigenvalues COULD preclude resampling ! Use a prior to regularize"
         print " Eigenvalue report ", my_eig
-        sys.exit(0)
+        print " HOPE that priors help !"
+#        sys.exit(0)
 
     if opts.use_fisher and opts.use_fisher_resampling:  # dump real data, NOT faked data. You should ALWAYS enter this logic tree
      # this grid will have mass units ! Possibly catastrophic?
      npts_out = opts.grid_cartesian_npts*10  # Use more points in the search grid than the small grid used for Fisher. Aim for 1k points
      grid_fisher = -1*np.ones((npts_out,len(param_names)+1))
-     grid_fisher[:,:len(param_names)] = BayesianLeastSquares.fit_quadratic_and_resample(grid_out[:,:len(param_names)], grid_out[:,len(param_names)],rho_fac=8,npts=npts_out,x0=x0_val_here)
+     prior_gamma= np.zeros(my_fisher_est.shape)
+     for indx in np.arange(len(param_names)):
+         if param_names[indx] in param_priors_gamma:
+             prior_gamma[indx][indx]  = param_priors_gamma[param_names[indx]]
+     print " Using prior matrix to generate candidate draws from likelihood: ", prior_gamma
+
+     grid_fisher[:,:len(param_names)] = BayesianLeastSquares.fit_quadratic_and_resample(grid_out[:,:len(param_names)], grid_out[:,len(param_names)],rho_fac=8,npts=npts_out,x0=x0_val_here,prior_quadratic_gamma=prior_gamma)
      grid_fisher[:,-1] = -1*np.ones(npts_out)
      # Convert grid to physical systems.  Drop systems which make no sense
      P_list = []
