@@ -72,6 +72,7 @@ class MCSampler(object):
         self.ntotal = 0
         # Parameter names
         self.params = set()
+        self.params_ordered = []  # keep them in order. Important to break likelihood function need for names
         # parameter -> pdf function object
         self.pdf = {}
         # If the pdfs aren't normalized, this will hold the normalization 
@@ -99,6 +100,7 @@ class MCSampler(object):
         Clear out the parameters and their settings, as well as clear the sample cache.
         """
         self.params = set()
+        self.params_ordered = []
         self.pdf = {}
         self._pdf_norm = defaultdict(lambda: 1.0)
         self._rvs = {}
@@ -113,7 +115,8 @@ class MCSampler(object):
         """
         Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.
         """
-        self.params.add(params)
+        self.params.add(params) # does NOT preserve order in which parameters are provided
+        self.params_ordered.append(params)
         if rosDebugMessages: 
             print " Adding parameter ", params, " with limits ", [left_limit, right_limit]
         if isinstance(params, tuple):
@@ -232,7 +235,7 @@ class MCSampler(object):
         else:
             rvs_tmp = dict(zip(args, rvs_tmp))
             #for p, ar in self._rvs.iteritems():
-            for p in self.params:
+            for p in self.params_ordered:
                 self._rvs[p] = numpy.hstack( (self._rvs[p], rvs_tmp[p]) )
 
         #
@@ -255,7 +258,7 @@ class MCSampler(object):
         tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
         temppdfnormdict = defaultdict(lambda: 1.0)
         for p, val in kwargs.iteritems():
-            if p in self.params:
+            if p in self.params_ordered:
                 # Store the previous pdf/cdf in case it's already defined
                 tempcdfdict[p] = self.cdf_inv[p]
                 temppdfdict[p] = self.pdf[p]
@@ -350,7 +353,7 @@ class MCSampler(object):
         tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
         temppdfnormdict = defaultdict(lambda: 1.0)
         for p, val in kwargs.iteritems():
-            if p in self.params:
+            if p in self.params_ordered:  
                 # Store the previous pdf/cdf in case it's already defined
                 tempcdfdict[p] = self.cdf_inv[p]
                 temppdfdict[p] = self.pdf[p]
@@ -370,8 +373,9 @@ class MCSampler(object):
         args = func.func_code.co_varnames[:func.func_code.co_argcount]
 
         #if set(args) & set(params) != set(args):
-        if not MCSampler.match_params_from_args(args, self.params):
-            raise ValueError("All integrand variables must be represented by integral parameters.")
+        # DISABLE THIS CHECK
+#        if not MCSampler.match_params_from_args(args, self.params):
+#            raise ValueError("All integrand variables must be represented by integral parameters.")
         
         #
         # Determine stopping conditions
@@ -438,7 +442,7 @@ class MCSampler(object):
             last_convergence_test = defaultdict(lambda: False)   # need record of tests to be returned always
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
-            p_s, p_prior, rv = self.draw(n, *self.params)
+            p_s, p_prior, rv = self.draw(n, *self.params_ordered)  # keep in order
 
 #            print "Prior ",  type(p_prior[0]), p_prior[0]
 #            print "rv ",  type(rv[0]), rv[0]    # rv generally has dtype = object, to enable joint sampling with multid variables
@@ -457,7 +461,7 @@ class MCSampler(object):
             #
             # FIXME: If we get too many of these, we should bail
             if any(joint_p_s <= 0):
-                for p in self.params:
+                for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
                 print >>sys.stderr, "Zero prior value detected, skipping."
                 continue
@@ -469,14 +473,17 @@ class MCSampler(object):
                 rv = rv[0]
 
             params = []
-            for item in self.params:
+            for item in self.params_ordered:  # USE IN ORDER
                 if isinstance(item, tuple):
                     params.extend(item)
                 else:
                     params.append(item)
-            unpacked = numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
+            unpacked = unpacked0 = numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
             unpacked = dict(zip(params, unpacked))
-            fval = func(**unpacked)
+            if kwargs.has_key('no_protect_names'):
+                fval = func(*unpacked0)  # do not protect order
+            else:
+                fval = func(**unpacked) # Chris' original plan: note this insures the function arguments are tied to the parameters, using a dictionary. 
 
             #
             # Check if there is any practical contribution to the integral
@@ -484,7 +491,7 @@ class MCSampler(object):
             # FIXME: While not technically a fatal error, this will kill the 
             # adaptive sampling
             if fval.sum() == 0:
-                for p in self.params:
+                for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
                 print >>sys.stderr, "No contribution to integral, skipping."
                 continue
@@ -558,7 +565,7 @@ class MCSampler(object):
             if convergence_tests:
                 bConvergedThisIteration = True  # start out optimistic
                 for key in convergence_tests.keys():
-                    last_convergence_test[key] =  convergence_tests[key](self._rvs, self.params)
+                    last_convergence_test[key] =  convergence_tests[key](self._rvs, self.params_ordered)
                     bConvergedThisIteration = bConvergedThisIteration  and                      last_convergence_test[key]
                 bConvergenceTests = bConvergedThisIteration
 
@@ -581,7 +588,7 @@ class MCSampler(object):
             # Iterate through each of the parameters, updating the sampling
             # prior PDF according to the 1-D marginalization
             #
-            for itr, p in enumerate(self.params):
+            for itr, p in enumerate(self.params_ordered):
                 # FIXME: The second part of this condition should be made more
                 # specific to pinned parameters
                 if p not in self.adaptive or p in kwargs.keys():
