@@ -437,7 +437,16 @@ for indx in np.arange(len(coord_names)):
     plt.plot(dat_out[:,0],dat_out[:,1],label="rapid_pe:"+opts.desc_ILE,color='b')
     if opts.fname_lalinference:
         plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label="LI:"+opts.desc_lalinference,color='r')
-#    plt.axvline(m1_val,color='k',linestyle='--')
+
+    # Add vertical line
+    here_val = Pref.extract_param(p)
+    fac = 1
+    if p in ['mc','m1','m2','mtot']:
+        fac = lal.MSUN_SI
+    here_val = here_val/fac
+    print " Vertical line ", p, " ", here_val
+    plt.axvline(here_val,color='k',linestyle='--')
+
     plt.xlabel(tex_dictionary[p]); plt.legend()
     plt.savefig(p+"_cdf.png"); plt.clf()
 
@@ -457,6 +466,10 @@ quantiles_1d = [0.05,0.95]
 labels_tex = map(lambda x: tex_dictionary[x], coord_names)
 for p in coord_names:
     range_here.append(prior_range_map[p])
+    if (range_here[1] < np.mean(samples[p])+2*np.std(samples[p])  ):
+         range_here[1] = np.mean(samples[p])+2*np.std(samples[p])
+    if (range_here[0] > np.mean(samples[p])-2*np.std(samples[p])  ):
+         range_here[0] = np.mean(samples[p])-2*np.std(samples[p])
 
 print " Corner plot range ", range_here
 
