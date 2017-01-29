@@ -442,15 +442,35 @@ for indx in np.arange(len(coord_names)):
     plt.savefig(p+"_cdf.png"); plt.clf()
 
 
-print " ---- Corner ---- "
-dat_mass = np.zeros( (len(lnL),len(coord_names)),dtype=np.float128)
+print " ---- Corner 1: Sampling coordinates ---- "
+dat_mass = np.zeros( (len(lnL),len(coord_names)),dtype=np.float64)
+dat_mass_LI = []
+if opts.fname_lalinference:
+    dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names)), dtype=np.float64)
 for indx in np.arange(len(coord_names)):
     dat_mass[:,indx] = samples[coord_names[indx]]
+    if opts.fname_lalinference:
+        dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[coord_names[indx]] ]
 
 CIs = [0.99,0.95,0.9,0.68]
 quantiles_1d = [0.05,0.95]
 labels_tex = map(lambda x: tex_dictionary[x], coord_names)
-fig_base = corner.corner(dat_mass[:,:len(coord_names)], weights=weights/np.sum(weights),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range=range_here)
+for p in coord_names:
+    range_here.append(prior_range_map[p])
+
+print " Corner plot range ", range_here
+
+# Plot contours
+fig_base = corner.corner(dat_mass[:,:len(coord_names)], weights=np.array(weights/np.sum(weights),dtype=np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range_here=range_here)
+# Plot simulation points (X array)
+fig_base = corner.corner(X,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base,weights = 1*np.ones(len(X))/len(X), data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range_here=range_here)
+
+
+if opts.fname_lalinference:
+    corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range_here=range_here)
+
+
+
 plt.savefig("posterior_corner.png"); plt.clf()
 
 
