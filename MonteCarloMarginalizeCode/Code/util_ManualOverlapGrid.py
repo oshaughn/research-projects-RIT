@@ -745,10 +745,10 @@ if opts.use_fisher:
             Pgrid.assign_param(param_names[indx], line[indx]*fac)
 
         # Downselect.
-        # for param in downselect_dict:
-        #     if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
-        #         print " Skipping " , line
-        #         include_item =False
+        for param in downselect_dict:
+             if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
+                 print " Skipping " , line
+                 include_item =False
         if include_item:
          grid_revised.append(line)
          if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
