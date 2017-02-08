@@ -49,7 +49,7 @@ optp.add_option("--approx",default="SEOBNRv2")
 optp.add_option("--force-aligned",action='store_true')
 optp.add_option("--fmin",default=20,type=float)
 optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
-optp.add_option("--target-size",default=1000,type=int)
+optp.add_option("--target-size",default=2000,type=int)
 opts, args = optp.parse_args()
 
 
@@ -58,6 +58,8 @@ opts, args = optp.parse_args()
 ###
 samples_in = np.genfromtxt(opts.posterior_samples,names=True)
 
+if opts.target_size > len(samples_in["m1"]):
+	opts.target_size = len(samples_in["m1"])
 
 ###
 ### Generate P list
@@ -65,7 +67,7 @@ samples_in = np.genfromtxt(opts.posterior_samples,names=True)
 
 P_list =[]
 n_samples_in = len(samples_in["mc"])
-fac_reduce = int(n_samples_in/(opts.target_size+1))
+fac_reduce = 1; #int(n_samples_in/(opts.target_size+1))
 
 for indx in np.arange(opts.target_size):
     m1 = samples_in["m1"][indx*fac_reduce]*lal.MSUN_SI
@@ -125,6 +127,8 @@ for indx in np.arange(opts.target_size):
         P.s2x = P.s2y=0
 #    P.print_params()
     P_list.append(P)
+
+P_list = P_list[:opts.target_size]
 
 
 ###
