@@ -20,7 +20,7 @@ dat = np.loadtxt(opts.fname_psd_ascii)
 dat_wrapper = Object()
 dat_wrapper.epoch = 0
 dat_wrapper.f0 = 0.0
-dat_wrapper.sampleUnits = 0
+dat_wrapper.sampleUnits = "s strain^2"
 dat_wrapper.deltaF = dat[1,0] - dat[0,0]
 dat_wrapper.data = dat[:,0]
 dat_wrapper.name = opts.ifo
@@ -30,6 +30,8 @@ dat_wrapper.name = opts.ifo
 psd_dict = {opts.ifo: dat_wrapper}
 
 xmldoc = pylal.series.make_psd_xmldoc(psd_dict)
+# Manually set the name
+xmldoc.childNodes[0].attributes._attrs  = {"Name": "psd"}
 
 from glue.ligolw import utils
 utils.write_filename(xmldoc, opts.ifo+"_fromascii_psd.xml.gz", gz=True)
