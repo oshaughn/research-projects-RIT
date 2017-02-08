@@ -1,0 +1,35 @@
+#! /usr/bin/env python
+#
+#
+
+import numpy as np
+#from pylal.series import make_psd_xmldoc
+import pylal.series
+import lal
+
+class Object(object):
+    pass
+
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("--fname-psd-ascii",default=None)
+parser.add_argument("--ifo",default="H1")
+opts=  parser.parse_args()
+
+dat = np.loadtxt(opts.fname_psd_ascii)
+dat_wrapper = Object()
+dat_wrapper.epoch = 0
+dat_wrapper.f0 = 0.0
+dat_wrapper.sampleUnits = 0
+dat_wrapper.deltaF = dat[1,0] - dat[0,0]
+dat_wrapper.data = dat[:,0]
+dat_wrapper.name = opts.ifo
+
+# convert structure to appropriate 
+
+psd_dict = {opts.ifo: dat_wrapper}
+
+xmldoc = pylal.series.make_psd_xmldoc(psd_dict)
+
+from glue.ligolw import utils
+utils.write_filename(xmldoc, opts.ifo+"_fromascii_psd.xml.gz", gz=True)
