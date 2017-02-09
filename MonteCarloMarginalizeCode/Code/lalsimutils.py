@@ -2242,6 +2242,50 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
 
     Returns a COMPLEX16FrequencySeries object
     """
+    if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
+        # Raise exception if unused arguments were specified
+        if fwdplan is not None:
+            raise ValueError('FFT plan fwdplan given with FD approximant.\nFD approximants cannot use this.')
+        if P.deltaT*P.deltaF >0:
+            TDlen = int(1./(P.deltaT*P.deltaF))
+        elif TDlen!=0: # Set values of P.deltaF from TDlen, P.deltaT
+            P.deltaF = 1./P.deltaT/TDlen
+        hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(P.phiref, P.deltaF,
+            P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin,
+            P.fmax, P.fref, P.dist, P.incl, P.lambda1, P.lambda2, P.waveFlags,
+            P.nonGRparams, P.ampO, P.phaseO, P.approx)
+
+        if TDlen > 0:
+            if P.approx != lalsim.IMRPhenomP:
+                assert TDlen/2+1 >= hptilde.data.length  # validates nyqist for real-valued series
+            hptilde = lal.ResizeCOMPLEX16FrequencySeries(hptilde, 0, TDlen/2+1)
+            hctilde = lal.ResizeCOMPLEX16FrequencySeries(hctilde, 0, TDlen/2+1)
+
+
+        # Pack so f=0 occurs at one side
+        hoff = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
+            hptilde.epoch, hptilde.f0, 1./P.deltaT/TDlen, lsu_HertzUnit, 
+            TDlen)
+
+        # create the 2-sided hoff
+        tmp  = hptilde.data.data + sgn*1j*hctilde.data.data
+        hoff.data.data[-TDlen/2-2:-1] = tmp
+        tmp= np.conj(hptilde.data.data) + sgn*1j*np.conj(hctilde.data.data)
+        hoff.data.data[0:TDlen/2+1] = tmp[::-1]
+
+        # Translate the wavefront to the detector, if we are not at the origin of spacetime
+        # Implement by just changing 'epoch', not by any fancy frequency-domain modulation? 
+        #   - NO, we want all timesamples to have regular timestamps in the geocenter. So we WILL modulate
+        if P.radec==False:
+            return hoff
+        else:
+            # return h(f) at the detector
+            detector = lalsim.DetectorPrefixToLALDetector(P.detector)
+            dt = lal.TimeDelayFromEarthCenter(detector.location, P.phi, P.theta, P.tref)
+#            print " Translating ", P.detector, " by ", dt
+            hoff.data.data *= np.exp(-2*np.pi*1j*evaluate_fvals(hoff)*dt)
+            return hoff
+
     ht = complex_hoft(P, sgn)
 
     if P.deltaF == None: # h(t) was not zero-padded, so do it now
