@@ -80,6 +80,7 @@ for indx in np.arange(len(samples_in["m1"])):
     m2 = samples_in["m2"][indx]*lal.MSUN_SI
     d = samples_in["distance"][indx]*lal.PC_SI*1e6
     P = lalsimutils.ChooseWaveformParams(m1=m1,m2=m2,dist=d)
+    P.radec=True
     P.theta = samples_in["dec"][indx]
     P.phi = samples_in["ra"][indx]
     if "time_maxl" in samples_in.dtype.names:
