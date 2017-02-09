@@ -95,7 +95,7 @@ for indx in np.arange(len(samples_in["m1"])):
     else:
      P.phiref = 0  # does not actually matter
     P.approx = lalsim.GetApproximantFromString(opts.approx)
-    if "phi_jl" in samples_in.dtype.names:
+    if "phi_jl" in samples_in.dtype.names and 'theta1' in samples_in.dtype.names:
       P.init_via_system_frame( 
          thetaJN=samples_in["theta_jn"][fac_reduce*indx],
          phiJL=samples_in["phi_jl"][fac_reduce*indx],
@@ -106,11 +106,11 @@ for indx in np.arange(len(samples_in["m1"])):
          chi2=samples_in["a2"][fac_reduce*indx],
          psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
          )
-    elif P.approx == lalsim.SEOBNRv2 or  P.approx == lalsim.SEOBNRv4:
+    elif P.approx == lalsim.SEOBNRv2 or  P.approx == lalsimutils.lalSEOBv4 or P.approx == lalsimutils.lalIMRPhenomD or P.approx == lalsim.IMRPhenomC:
         # Aligned spin model
         P.s1z = samples_in["a1z"][fac_reduce*indx]
         P.s2z = samples_in["a2z"][fac_reduce*indx]
-    else:
+    elif 'theta1' in 'theta1' in samples_in.dtype.names:
       P.init_via_system_frame( 
          thetaJN=samples_in["theta_jn"][fac_reduce*indx],
          phiJL=0, # does not matter
@@ -121,6 +121,8 @@ for indx in np.arange(len(samples_in["m1"])):
          chi2=samples_in["a2"][fac_reduce*indx],
          psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
          )
+    else:
+        print " Don't know how to handle this orientation for", opts.approx
 
       ###
       ### Create two approximants
