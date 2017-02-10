@@ -19,6 +19,10 @@ import lalsimulation as lalsim
 import lalframe
 import lal
 
+try:
+    from matplotlib import pyplot as plt
+except:
+    print " - no plots - "
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--approx",default="SEOBNRv2")
@@ -31,6 +35,7 @@ parser.add_argument("--psd-file",  help="File name for PSD (assumed hanford). Ov
 parser.add_argument("--srate",type=int,default=16384,help="Sampling rate")
 parser.add_argument("--seglen", type=float,default=8., help="Default window size for processing.")
 parser.add_argument("--fmax",default=1700,type=float)
+parser.add_argument("--save-plots",action='store_true')
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
@@ -80,6 +85,7 @@ for indx in np.arange(len(samples_in["m1"])):
     m2 = samples_in["m2"][indx]*lal.MSUN_SI
     d = samples_in["distance"][indx]*lal.PC_SI*1e6
     P = lalsimutils.ChooseWaveformParams(m1=m1,m2=m2,dist=d)
+    P.taper =lalsim.SIM_INSPIRAL_TAPER_START
     P.radec=True
     P.theta = samples_in["dec"][indx]
     P.phi = samples_in["ra"][indx]
@@ -149,3 +155,35 @@ for indx in np.arange(len(samples_in["m1"])):
     nm_2 = IP.norm(hF_2)
     match = IP.ip(hF_1,hF_2)/nm_1/nm_2
     print indx, match
+
+    if opts.verbose and match < 0.95:
+        P.print_params()
+
+    ###
+    ### Create time-domain plots of the two approximants
+    ### [util_NRCompareSimulations.py is similar]
+    ###
+    if opts.save_plots:
+        hT_1 = lalsimutils.DataInverseFourier(hF_1)
+        hT_2 = lalsimutils.DataInverseFourier(hF_2)
+        tvals = lalsimutils.evaluate_tvals(hT_1) - float(P.tref)
+        
+        # if I have an FD approximant, the times are not necessarily set correctly
+        # if lalsim.SimInspiralImplementedFDApproximants(lalsim.GetApproximantFromString(opts.approx))==1:
+        #     indx = np.argmax(hT_1.data.data)
+        #     indx_0 = int(-tvals[0]/P.deltaT)
+        #     print " Rolling by ", indx-indx_0, indx, indx_0
+        #     hT_1.data.data = np.roll(hT_1.data.data, -indx+indx_0)
+        # if lalsim.SimInspiralImplementedFDApproximants(lalsim.GetApproximantFromString(opts.approx2))==1:
+        #     indx = np.argmax(hT_2.data.data)
+        #     indx_0 = int(-tvals[0]/P.deltaT)
+        #     hT_2.data.data = np.roll(hT_2.data.data, -indx+indx_0)
+        #     print " Rolling by ", indx-indx_0,indx,indx_0
+
+        plt.plot(tvals, np.real(hT_1.data.data),label=opts.approx)
+        plt.plot(tvals, np.abs(hT_1.data.data),label=opts.approx)
+        plt.plot(tvals, np.real(hT_2.data.data),label=opts.approx2)
+#        plt.xlim(-1, 0.1)
+        plt.legend()
+        plt.savefig("post_compare_"+opts.approx+"_"+opts.approx2+"_"+str(indx)+".png")
+        plt.clf()
