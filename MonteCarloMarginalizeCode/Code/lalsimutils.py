@@ -117,7 +117,7 @@ try:
     lalIMRPhenomD = lalsim.IMRPhenomD
 except:
     lalSEOBv4 =-1
-    lalPD = -2
+    lalIMRPhenomD = -2
 
 MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
 
@@ -146,7 +146,32 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chieff_aligned','fmin']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
+
+tex_dictionary  = {
+ "mtot": '$M$',
+ "mc": '${\cal M}_c$',
+ "m1": '$m_1$',
+ "m2": '$m_2$',
+  "q": "$q$",
+  "delta" : "$\delta$",
+  "DeltaOverM2_perp" : "$\Delta_\perp$",
+  "DeltaOverM2_L" : "$\Delta_{||}$",
+  "SOverM2_perp" : "$S_\perp$",
+  "SOverM2_L" : "$S_{||}$",
+  "eta": "$\eta$",
+  "chi_eff": "$\chi_{eff}$",
+  "xi": "$\chi_{eff}$",
+  "s1z": "$\chi_{1,z}$",
+  "s2z": "$\chi_{2,z}$",
+  "s1x": "$\chi_{1,x}$",
+  "s2x": "$\chi_{2,x}$",
+  "s1y": "$\chi_{1,y}$",
+  "s2y": "$\chi_{2,y}$"
+
+}
+
+
 class ChooseWaveformParams:
     """
     Class containing all the arguments needed for SimInspiralChooseTD/FDWaveform
@@ -248,6 +273,12 @@ class ChooseWaveformParams:
             # change implemented at fixed chi1, chi2, mc
             mc = mchirp(self.m1,self.m2)
             self.m1,self.m2 = m1m2(mc,val)
+            return self
+        if p == 'delta':
+            # change implemented at fixed chi1, chi2, M
+            M = self.m1 + self.m2
+            self.m1 = M*(1+val)/2
+            self.m2 = M*(1-val)/2
             return self
         if p is 'chi1':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
@@ -471,6 +502,54 @@ class ChooseWaveformParams:
             Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
             Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
             return np.arccos(np.dot(Lhat,Jhat))   # holds in general
+        # Other spin parameters of use in generalised fits
+        if p == 'SoverM2':   # SCALAR
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            S = (chi1Vec*self.m1**2+chi2Vec*self.m2**2)/(self.m1+self.m2)**2
+            return np.sqrt(np.dot(S,S))
+        if p == 'SOverM2_vec':  
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            S = (chi1Vec*self.m1**2+chi2Vec*self.m2**2)/(self.m1+self.m2)**2
+            return S
+        if p == 'SOverM2_perp':  
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            S = (chi1Vec*self.m1**2+chi2Vec*self.m2**2)/(self.m1+self.m2)**2
+            if spin_convention == "L":
+                Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
+            else:
+                Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD conventi
+            return  np.sqrt(np.dot(S,S) - np.dot(S,Lhat)**2  )
+        if p == 'DeltaOverM2_vec':  
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            Delta = -1*(chi1Vec*self.m1-chi2Vec*self.m2)/(self.m1+self.m2)
+            return Delta  # VECTOR
+        if p == 'DeltaOverM2_perp':  
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            Delta = -1*(chi1Vec*self.m1-chi2Vec*self.m2)/(self.m1+self.m2)
+            if spin_convention == "L":
+                Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
+            else:
+                Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD conventi
+            return  np.sqrt(np.dot(Delta,Delta) - np.dot(Delta,Lhat)**2  )
+        if p == 'DeltaOverM2_L':  
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            Delta = -1*(chi1Vec*self.m1-chi2Vec*self.m2)/(self.m1+self.m2)
+            if spin_convention == "L":
+                Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
+            else:
+                Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD conventi
+            return  np.dot(Delta,Lhat)
+        if p == 'S0_vec':  
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            S0 = (chi1Vec*self.m1+chi2Vec*self.m2)/(self.m1+self.m2)
+            return S0  # VECTOR
         # assign an attribute
         if hasattr(self,p):
             return getattr(self,p)
@@ -2203,6 +2282,10 @@ def complex_hoft(P, sgn=-1):
     Returns a COMPLEX16TimeSeries object
     """
     assert sgn == 1 or sgn == -1
+    # hp, hc = lalsim.SimInspiralTD(P.phiref, P.deltaT, P.m1, P.m2, 
+    #         P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
+    #         P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
+    #         P.ampO, P.phaseO, P.approx)
     hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
             P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
@@ -3048,3 +3131,17 @@ def DataRollBins(ht,nL):  # ONLY FOR TIME DOMAIN.  ACTS IN PLACE.
 def DataRollTime(ht,DeltaT):  # ONLY FOR TIME DOMAIN. ACTS IN PLACE
     nL = int(DeltaT/ht.deltaT)
     return DataRollBins(ht, nL)            
+
+
+def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2']):
+    """
+    A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
+    """
+    x_out = np.zeros( (len(x_in), len(coord_names) ) )
+    for indx_out  in np.arange(len(x_in)):
+        P = ChooseWaveformParams()
+        for indx in np.arange(len(low_level_coord_names)):
+            P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
+        for indx in np.arange(len(coord_names)):
+            x_out[indx_out,indx] = P.extract_param(coord_names[indx])
+    return x_out
