@@ -3145,3 +3145,28 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         for indx in np.arange(len(coord_names)):
             x_out[indx_out,indx] = P.extract_param(coord_names[indx])
     return x_out
+
+def symmetry_sign_exchange(coord_names):
+    P=ChooseWaveformParams()
+    P.randomize()
+
+    sig_list = []
+    for indx in np.arange(len(coord_names)):
+        val1 = P.extract_param(coord_names[indx])
+
+        # LAL spin convention!  Assumes spins do not rotate with phiref
+        phiref = P.phiref
+        m1,s1x,s1y,s1z = [P.m1,P.s1x,P.s1y,P.s1z]
+        m2,s2x,s2y,s2z = [P.m2,P.s2x,P.s2y,P.s2z]
+        P.m1,P.s1x,P.s1y,P.s1z = [m2,s2x,s2y,s2z]
+        P.m2,P.s2x,P.s2y,P.s2z = [m1,s1x,s1y,s1z]
+        
+        val2 = P.extract_param(coord_names[indx])
+        if np.abs(val1-val2) < 1e-5 *np.abs(val1*2):
+            sig_list.append(1)
+        elif np.abs(val1+val2) < 1e-5 * np.abs(val1*2):
+            sig_list.append(-1)
+        else:
+            sig_list.append(0)
+
+    return sig_list
