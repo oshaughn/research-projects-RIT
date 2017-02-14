@@ -36,6 +36,7 @@ from matplotlib import pyplot as plt
 
 
 from sklearn.preprocessing import PolynomialFeatures
+import ModifiedScikitFit as msf  # altenative polynomialFeatures
 from sklearn import linear_model
 
 from glue.ligolw import lsctables, utils, ligolw
@@ -200,7 +201,7 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None):
     clf_list = []
     bic_list = []
     for indx in np.arange(opts.fit_order+1):
-        poly = PolynomialFeatures(degree=indx)
+        poly = msf.PolynomialFeatures(degree=indx,symmetry_list=symmetry_list)
         X_  = poly.fit_transform(x)
 
         if opts.verbose:
