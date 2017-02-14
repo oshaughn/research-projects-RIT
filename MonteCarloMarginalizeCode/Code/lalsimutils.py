@@ -162,6 +162,7 @@ tex_dictionary  = {
   "eta": "$\eta$",
   "chi_eff": "$\chi_{eff}$",
   "xi": "$\chi_{eff}$",
+   "chiMinus":"$\chi_{eff,-}$",
   "s1z": "$\chi_{1,z}$",
   "s2z": "$\chi_{2,z}$",
   "s1x": "$\chi_{1,x}$",
@@ -242,6 +243,7 @@ class ChooseWaveformParams:
         self.s2x,self.s2y,self.s2z  = s1x,s1y,s1z
         self.m1 = m2
         self.m2  = m1
+        self.phiref = self.phiref+np.pi
 
         
 
