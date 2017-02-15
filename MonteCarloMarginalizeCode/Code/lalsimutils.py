@@ -157,6 +157,8 @@ tex_dictionary  = {
   "delta" : "$\delta$",
   "beta" : "$\beta$",
   "cos_beta" : "$\cos(\\beta)$",
+  "sin_phiJL" : "$\sin(\\phi_{JL})$",
+  "cos_phiJL" : "$\cos(\\phi_{JL})$",
   "DeltaOverM2_perp" : "$\Delta_\perp$",
   "DeltaOverM2_L" : "$\Delta_{||}$",
   "SOverM2_perp" : "$S_\perp$",
@@ -497,18 +499,18 @@ class ChooseWaveformParams:
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return psiJ
-        if p == 'sin_psiJ':
+        if p == 'sin_phiJL':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
-            return np.sin(psiJ)
-        if p == 'cos_psiJ':
+            return np.sin(phiJL)
+        if p == 'cos_phiJL':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
-            return np.cos(psiJ)
+            return np.cos(phiJL)
         if p == 'beta':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
