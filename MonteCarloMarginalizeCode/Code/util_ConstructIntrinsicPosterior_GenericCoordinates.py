@@ -51,7 +51,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
-parser.add_argument("--fref",default=20,help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz)")
+parser.add_argument("--fref",default=20,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz)")
 parser.add_argument("--fname-rom-samples",default=None,help="*.rom_composite output. Treated identically to set of posterior samples produced by mcsampler after constructing fit.")
 parser.add_argument("--n-output-samples",default=3000,type=int,help="output posterior samples (default 3000)")
 parser.add_argument("--desc-lalinference",type=str,default='',help="String to adjoin to legends for LI")
@@ -86,8 +86,12 @@ if opts.fit_method == "quadratic":
 ###
 ### Comparison data (from LI)
 ###
-remap_ILE_2_LI = {"s1z":"a1z", "s2z":"a2z", "xi":"chi_eff", 
- "mc":"mc", "eta":"eta","m1":"m1","m2":"m2"}
+remap_ILE_2_LI = {
+ "s1z":"a1z", "s2z":"a2z", 
+  "xi":"chi_eff", 
+ "mc":"mc", "eta":"eta","m1":"m1","m2":"m2",
+  "cos_beta":"cosbeta",
+  "beta":"beta"}
 if opts.fname_lalinference:
     print " Loading lalinference samples for direct comparison ", opts.fname_lalinference
     samples_LI = np.genfromtxt(opts.fname_lalinference,names=True)
