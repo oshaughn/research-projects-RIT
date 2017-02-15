@@ -146,7 +146,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -155,6 +155,8 @@ tex_dictionary  = {
  "m2": '$m_2$',
   "q": "$q$",
   "delta" : "$\delta$",
+  "beta" : "$\beta$",
+  "cos_beta" : "$\cos(\\beta)$",
   "DeltaOverM2_perp" : "$\Delta_\perp$",
   "DeltaOverM2_L" : "$\Delta_{||}$",
   "SOverM2_perp" : "$S_\perp$",
@@ -471,31 +473,52 @@ class ChooseWaveformParams:
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return thetaJN
-        if p is 'phiJL':
+        if p == 'phiJL':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return phiJL
-        if p is 'theta1':
+        if p == 'theta1':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return theta1
-        if p is 'theta2':
+        if p == 'theta2':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return theta2
-        if p is 'psiJ':
+        if p == 'psiJ':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return psiJ
-        if p is 'beta':
+        if p == 'sin_psiJ':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            return np.sin(psiJ)
+        if p == 'cos_psiJ':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            return np.cos(psiJ)
+        if p == 'beta':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            Jref = self.TotalAngularMomentumAtReferenceOverM2()
+            Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
+            Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
+            Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
+            return np.dot(Lhat,Jhat)   # holds in general
+        if p == 'cos_beta':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
