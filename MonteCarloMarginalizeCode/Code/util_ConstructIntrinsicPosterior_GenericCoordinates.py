@@ -188,9 +188,6 @@ def fit_quadratic_alt(x,y,x0=None,symmetry_list=None,verbose=False):
 
     return fn_estimate
 
-def test_feature_symmetry(poly):
-    print poly.powers_
-
 
 # https://github.com/scikit-learn/scikit-learn/blob/14031f6/sklearn/preprocessing/data.py#L1139
 def fit_polynomial(x,y,x0=None,symmetry_list=None):
@@ -308,6 +305,7 @@ for line in dat:
       print " Skipping ", line
       continue
   if line[col_lnL] < opts.lnL_peak_insane_cut:
+    P.fref = opts.fref  # IMPORTANT if you are using a quantity that depends on J
     P.m1 = line[1]*lal.MSUN_SI
     P.m2 = line[2]*lal.MSUN_SI
     P.s1x = line[3]
@@ -531,12 +529,12 @@ for indx in np.arange(len(low_level_coord_names)):
     dat_here = samples[low_level_coord_names[indx]]
     for x in np.linspace(np.min(dat_here),np.max(dat_here),200):
          dat_out.append([x, np.sum( weights[ dat_here< x])/np.sum(weights)])
-         if opts.fname_lalinference:
+         if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()):
              dat_out_LI.append([x, (1.0*np.sum( samples_LI[ remap_ILE_2_LI[p] ]< x))/len(samples_LI) ])
     np.savetxt(p+"_cdf.dat", np.array(dat_out))
     dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
     plt.plot(dat_out[:,0],dat_out[:,1],label="rapid_pe:"+opts.desc_ILE,color='b')
-    if opts.fname_lalinference:
+    if opts.fname_lalinference and  (p in remap_ILE_2_LI.keys()):
         plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label="LI:"+opts.desc_lalinference,color='r')
 
     # Add vertical line
@@ -572,7 +570,7 @@ if opts.fname_lalinference:
     dat_mass_LI = np.zeros( (len(samples_LI), len(low_level_coord_names)), dtype=np.float64)
 for indx in np.arange(len(low_level_coord_names)):
     dat_mass[:,indx] = samples[low_level_coord_names[indx]]
-    if opts.fname_lalinference:
+    if opts.fname_lalinference and low_level_coord_names[indx] in remap_ILE_2_LI.keys():
         dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[low_level_coord_names[indx]] ]
 
 CIs = [0.95,0.9, 0.68]
@@ -626,7 +624,8 @@ indx_list = map(lambda x : np.sum(cum_sum < x),  p_thresholds)  # this can lead 
 P_list =[]
 P = lalsimutils.ChooseWaveformParams()
 P.approx = lalsim.SEOBNRv2  # DEFAULT
-P.fmin = 20 # DEFAULT
+P.fmin = opts.fref # DEFAULT
+P.fref = opts.fref
 for indx_here in indx_list:
         line = [samples[p][indx_here] for p in low_level_coord_names]
         Pgrid = P.manual_copy()
@@ -694,7 +693,8 @@ for indx in np.arange(len(coord_names)):
 if opts.fname_lalinference:
     dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names)), dtype=np.float64)
     for indx in np.arange(len(coord_names)):
-        dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[coord_names[indx]] ]
+        if coord_names[indx] in remap_ILE_2_LI.keys():
+            dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[coord_names[indx]] ]
 
         if range_here[indx][0] > np.min(dat_mass_LI[:,indx]):
             range_here[indx][0] = np.min(dat_mass_LI[:,indx])
@@ -711,12 +711,12 @@ for indx in np.arange(len(coord_names)):
     for x in np.linspace(np.min(dat_here),np.max(dat_here),200):
          dat_out.append([x, np.sum(  wt_here[dat_here< x] )/len(dat_here)])    # NO WEIGHTS for these resampled points
 #         dat_out.append([x, np.sum( weights[ dat_here< x])/np.sum(weights)])
-         if opts.fname_lalinference:
+         if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) :
              dat_out_LI.append([x, (1.0*np.sum( samples_LI[ remap_ILE_2_LI[p] ]< x))/len(samples_LI) ])
     np.savetxt(p+"_alt_cdf.dat", np.array(dat_out))
     dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
     plt.plot(dat_out[:,0],dat_out[:,1],label="rapid_pe:"+opts.desc_ILE,color='b')
-    if opts.fname_lalinference:
+    if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) :
         plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label="LI:"+opts.desc_lalinference,color='r')
 
     # Add vertical line
