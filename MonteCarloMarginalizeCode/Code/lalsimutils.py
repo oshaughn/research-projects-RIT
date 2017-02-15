@@ -519,7 +519,7 @@ class ChooseWaveformParams:
             Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
             Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
             Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
-            return np.dot(Lhat,Jhat)   # holds in general
+            return np.arccos(np.dot(Lhat,Jhat))   # holds in general
         if p == 'cos_beta':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
@@ -528,7 +528,7 @@ class ChooseWaveformParams:
             Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
             Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
             Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
-            return np.arccos(np.dot(Lhat,Jhat))   # holds in general
+            return np.dot(Lhat,Jhat)   # holds in general
         # Other spin parameters of use in generalised fits
         if p == 'SoverM2':   # SCALAR
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
@@ -664,7 +664,7 @@ class ChooseWaveformParams:
         self.psi= np.mod(psiJ  -np.arctan2(Jhat[1],Jhat[0]), 2*np.pi)   # define on [0, 2pi]
         return True
 
-    def extract_system_frame(self):
+    def extract_system_frame(self,verbose=False):
         """
         Extract system frame angles. 
         Returned in precisely the format needed for use in init_via_system_frame.
@@ -681,6 +681,7 @@ class ChooseWaveformParams:
         Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
         S1hat = S1/np.sqrt(np.dot(S1,S1))
         S2hat = S2/np.sqrt(np.dot(S2,S2))
+
 
         # extract frame vectors
         frmJ = VectorToFrame(Jhat)
@@ -3031,9 +3032,21 @@ def vecUnit(v):
 def VectorToFrame(vecRef):
     """
     Convert vector to a frame, by picking relatively arbitrary vectors perp to it.
-    Used to convert J to a frame.  Uses the radiation frame conventions to do so.
+    Used to convert J to a frame. 
+    spin_convention == radiation:
+         **Uses the radiation frame conventions to do so.**, so the 'z' direction is orthogonal to the 2nd vector and 'n' (the line of sight) defines things
+    spin_convention == L:
+         Trickier, because we will want to define angles of L relative to J !  Pick a random alternate vector
     """
-    vec1 = np.array(vecCross([0,0,1],vecRef))
+
+    if spin_convention =="radiation":
+        vecStart = [0,0,1]
+    else:
+        vecStart = [0,1,0]  # vector close to the above, but not exactly equal, so I can find the direction of L relative to J
+
+    vec1 = np.array(vecCross(vecStart,vecRef))
+    if np.dot(vecRef, np.array(vecStart)) > 1-1e-5 or vecDot(vec1,vec1) < 1e-6:  # if we are aligned, return the cartesian frame
+        return np.array([ [1,0,0], [0,1,0], [0,0,1]])
     vec1 = vec1/np.sqrt(vecDot(vec1,vec1))
     vec2 = np.array(vecCross(vecRef,vec1))
     vec2 = vec2/np.sqrt(vecDot(vec2,vec2)) 
