@@ -24,6 +24,7 @@ import BayesianLeastSquares
 import argparse
 import sys
 import numpy as np
+import numpy.lib.recfunctions
 import scipy
 import lalsimutils
 import lalsimulation as lalsim
@@ -45,6 +46,36 @@ lsctables.use_in(ligolw.LIGOLWContentHandler)
 import mcsampler
 
 
+def add_field(a, descr):
+    """Return a new array that is like "a", but has additional fields.
+
+    Arguments:
+      a     -- a structured numpy array
+      descr -- a numpy type description of the new fields
+
+    The contents of "a" are copied over to the appropriate fields in
+    the new array, whereas the new fields are uninitialized.  The
+    arguments are not modified.
+
+    >>> sa = numpy.array([(1, 'Foo'), (2, 'Bar')], \
+                         dtype=[('id', int), ('name', 'S3')])
+    >>> sa.dtype.descr == numpy.dtype([('id', int), ('name', 'S3')])
+    True
+    >>> sb = add_field(sa, [('score', float)])
+    >>> sb.dtype.descr == numpy.dtype([('id', int), ('name', 'S3'), \
+                                       ('score', float)])
+    True
+    >>> numpy.all(sa['id'] == sb['id'])
+    True
+    >>> numpy.all(sa['name'] == sb['name'])
+    True
+    """
+    if a.dtype.fields is None:
+        raise ValueError, "`A' must be a structured numpy array"
+    b = numpy.empty(a.shape, dtype=a.dtype.descr + descr)
+    for name in a.dtype.names:
+        b[name] = a[name]
+    return b
 
 
 parser = argparse.ArgumentParser()
@@ -58,6 +89,7 @@ parser.add_argument("--desc-lalinference",type=str,default='',help="String to ad
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
+parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
 parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset")
@@ -88,7 +120,15 @@ if opts.fit_method == "quadratic":
 ###
 remap_ILE_2_LI = {
  "s1z":"a1z", "s2z":"a2z", 
+ "s1x":"a1x", "s1y":"a1y",
+ "s2x":"a2x", "s2y":"a2y",
+ "chi1_perp":"chi1_perp",
+ "chi2_perp":"chi2_perp",
+ "cos_phiJL": 'cos_phiJL',
+ "sin_phiJL": 'sin_phiJL',
   "xi":"chi_eff", 
+  "chiMinus":"chi_minus", 
+  "delta":"delta", 
  "mc":"mc", "eta":"eta","m1":"m1","m2":"m2",
   "cos_beta":"cosbeta",
   "beta":"beta"}
@@ -102,6 +142,43 @@ if opts.fname_lalinference:
             print p , " -> ", remap_ILE_2_LI[p]
         else:
             print p, " NOT LISTED IN KEYS"
+
+    ###
+    ### Add important quantities easily derived from the samples but not usually provided
+    ###
+
+    chi_minus = (samples_LI["a1z"]*samples_LI["m1"] - samples_LI["a2z"]*samples_LI["m2"])/(samples_LI["m1"]+samples_LI["m2"])
+    delta_dat = (samples_LI["m1"] - samples_LI["m2"])/(samples_LI["m1"]+samples_LI["m2"])
+    samples_LI = add_field(samples_LI, [('chi_minus', float)]); samples_LI['chi_minus'] = chi_minus
+    samples_LI = add_field(samples_LI, [('delta', float)]); samples_LI['delta'] = delta_dat
+
+    if "tilt1" in samples_LI.dtype.names:
+        a1x_dat = samples_LI["a1"]*np.sin(samples_LI["tilt1"])*np.cos(samples_LI["phi1"])
+        a1y_dat = samples_LI["a1"]*np.sin(samples_LI["tilt1"])*np.sin(samples_LI["phi1"])
+        chi1_perp = samples_LI["a1"]*np.sin(samples_LI["tilt1"])
+
+        a2x_dat = samples_LI["a2"]*np.sin(samples_LI["tilt2"])*np.cos(samples_LI["phi2"])
+        a2y_dat = samples_LI["a2"]*np.sin(samples_LI["tilt2"])*np.sin(samples_LI["phi2"])
+        chi2_perp = samples_LI["a2"]*np.sin(samples_LI["tilt2"])
+
+                                      
+        samples_LI = add_field(samples_LI, [('a1x', float)]);  samples_LI['a1x'] = a1x_dat
+        samples_LI = add_field(samples_LI, [('a1y', float)]); samples_LI['a1y'] = a1y_dat
+        samples_LI = add_field(samples_LI, [('a2x', float)]);  samples_LI['a2x'] = a2x_dat
+        samples_LI = add_field(samples_LI, [('a2y', float)]);  samples_LI['a2y'] = a2y_dat
+        samples_LI = add_field(samples_LI, [('chi1_perp', float)]); samples_LI['chi1_perp'] = chi1_perp
+        samples_LI = add_field(samples_LI, [('chi2_perp', float)]); samples_LI['chi2_perp'] = chi2_perp
+
+        samples_LI = add_field(samples_LI, [('cos_phiJL',float)]); samples_LI['cos_phiJL'] = np.cos(samples_LI['phi_jl'])
+        samples_LI = add_field(samples_LI, [('sin_phiJL',float)]); samples_LI['sin_phiJL'] = np.sin(samples_LI['phi_jl'])
+
+downselect_dict = {}
+downselect_dict['chi1'] = [0,opts.chi_max]
+downselect_dict['chi2'] = [0,opts.chi_max]
+for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
+    downselect_dict[param] = [-opts.chi_max,opts.chi_max]
+# Enforce definition of eta
+downselect_dict['eta'] = [0,0.25]
 
 
 
@@ -134,7 +211,7 @@ def eta_prior(x):
 
 def xi_uniform_prior(x):
     return np.ones(x.shape)
-def s_component_uniform_prior(x):
+def s_component_uniform_prior(x):  # If all three are used, a volumetric prior
     return np.ones(x.shape)/2.
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "mc":mc_prior, "eta":eta_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
@@ -292,6 +369,11 @@ print " Original data size = ", len(dat), dat.shape
 P_list = []
 dat_out =[]
  
+extra_plot_coord_names = [  ['mtot', 'q', 'xi'], ['chi1_perp', 's1z'], ['chi2_perp','s2z']]
+dat_out_extra = []
+for item in extra_plot_coord_names:
+    dat_out_extra.append([])
+
 
 symmetry_list =lalsimutils.symmetry_sign_exchange(coord_names)  # identify symmetry due to exchange
 mc_min = 1e10
@@ -301,6 +383,7 @@ P= lalsimutils.ChooseWaveformParams()
 for line in dat:
   # Skip precessing binaries unless explicitly requested not to!
   if not opts.use_precessing and (line[3]**2 + line[4]**2 + line[6]**2 + line[7]**2)>0.01:
+      print " Skipping precessing binaries "
       continue
   if line[1]+line[2] > opts.M_max_cut:
       print " Skipping ", line, " as too massive, with mass ", line[1]+line[2]
@@ -318,13 +401,21 @@ for line in dat:
     P.s2x = line[6]
     P.s2y = line[7]
     P.s2z = line[8]
- #    print line,  P.extract_param('xi')
+
+    # INPUT GRID: Evaluate binary parameters on fitting coordinates
     line_out = np.zeros(len(coord_names)+1)
     for x in np.arange(len(coord_names)):
         line_out[x] = P.extract_param(coord_names[x])
  #        line_out[x] = getattr(P, coord_names[x])
     line_out[-1] = line[col_lnL]
     dat_out.append(line_out)
+
+    # Alternate grids: Evaluate input binary parameters on other coordinates requested, for comparison
+    for indx in np.arange(len(extra_plot_coord_names)):
+        line_out = np.zeros(len(extra_plot_coord_names[indx]))
+        for x in np.arange(len(line_out)):
+            line_out[x] = P.extract_param( extra_plot_coord_names[indx][x])
+        dat_out_extra[indx].append(line_out)
 
     # Update mc range
     mc_here = lalsimutils.mchirp(line[1],line[2])
@@ -339,6 +430,12 @@ for p in ['mc', 'm1', 'm2', 'mtot']:
     if p in coord_names:
         indx = coord_names.index(p)
         dat_out[:,indx] /= lal.MSUN_SI
+    for x in np.arange(len(extra_plot_coord_names)):
+        dat_out_extra[x] = np.array(dat_out_extra[x])  # put into np form
+        if p in extra_plot_coord_names[x]:
+            indx = extra_plot_coord_names[x].index(p)
+            dat_out_extra[x][:,indx] /= lal.MSUN_SI
+            
 
 
 # Repack data
@@ -527,6 +624,7 @@ if  opts.inj_file is not None:
 Pref.print_params()
 
 for indx in np.arange(len(low_level_coord_names)):
+   try:
     dat_out = []; dat_out_LI=[]
     p = low_level_coord_names[indx]
     print " -- 1d cumulative "+ str(indx)+ ":"+ low_level_coord_names[indx]+" ----"
@@ -553,6 +651,8 @@ for indx in np.arange(len(low_level_coord_names)):
 
     plt.xlabel(tex_dictionary[p]); plt.legend()
     plt.savefig(p+"_cdf.png"); plt.clf()
+   except:
+      print " No 1d plot for variable"
 
 
 ###
@@ -567,14 +667,15 @@ for indx in np.arange(len(low_level_coord_names)):
 ###
 
 
-print " ---- Corner 1: Sampling coordinates ---- "
+print " ---- Corner 1: Sampling coordinates (NO CONSTRAINTS APPLIED HERE) ---- "
 dat_mass = np.zeros( (len(lnL),len(low_level_coord_names)),dtype=np.float64)
 dat_mass_LI = []
 if opts.fname_lalinference:
     dat_mass_LI = np.zeros( (len(samples_LI), len(low_level_coord_names)), dtype=np.float64)
 for indx in np.arange(len(low_level_coord_names)):
     dat_mass[:,indx] = samples[low_level_coord_names[indx]]
-    if opts.fname_lalinference and low_level_coord_names[indx] in remap_ILE_2_LI.keys():
+    if opts.fname_lalinference and low_level_coord_names[indx] in remap_ILE_2_LI.keys() :
+     if remap_ILE_2_LI[low_level_coord_names[indx]] in samples_LI.dtype.names:
         dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[low_level_coord_names[indx]] ]
 
 CIs = [0.95,0.9, 0.68]
@@ -591,11 +692,11 @@ for p in low_level_coord_names:
     if (range_here[-1][0] < np.mean(samples[p])-3*np.std(samples[p])  ):
          range_here[-1][0] = np.mean(samples[p])-3*np.std(samples[p])
     # Don't let upper limit get too extreme
-    if (range_here[-1][1] < np.mean(samples[p])+5*np.std(samples[p])  ):
+    if (range_here[-1][1] > np.mean(samples[p])+5*np.std(samples[p])  ):
          range_here[-1][1] = np.mean(samples[p])+5*np.std(samples[p])
     if range_here[-1][0] < prior_range_map[p][0]:
         range_here[-1][0] = prior_range_map[p][0]
-    if range_here[-1][1] < prior_range_map[p][1]:
+    if range_here[-1][1] > prior_range_map[p][1]:
         range_here[-1][1] = prior_range_map[p][1]
     print p, range_here[-1]  # print out range to be used in plots.
 
@@ -636,11 +737,12 @@ for indx_here in indx_list:
         include_item =True
         # Set attributes that are being changed as necessary, leaving all others fixed
         for indx in np.arange(len(low_level_coord_names)):
-#            if param_names[indx] in downselect_dict:
-#                if line[indx] < downselect_dict[param_names[indx]][0] or line[indx] > downselect_dict[param_names[indx]][1]:
-#                    include_item = False
-#                    if opts.verbose:
-#                        print " Skipping " , line
+            # Skip crazy configurations (e.g., violate Kerr bound)
+            if low_level_coord_names[indx] in downselect_dict:
+                if line[indx] < downselect_dict[low_level_coord_names[indx]][0] or line[indx] > downselect_dict[low_level_coord_names[indx]][1]:
+                    include_item = False
+                    if opts.verbose:
+                        print " Skipping " , line
             # if parameter involes a mass parameter, scale it to sensible units
             fac = 1
             if low_level_coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
@@ -680,6 +782,17 @@ for indx_line  in np.arange(len(P_list)):
         dat_mass_post[indx_line,indx] = P_list[indx_line].extract_param(coord_names[indx])/fac
 
 
+dat_extra_post = []
+for x in np.arange(len(extra_plot_coord_names)):
+    feature_here = np.zeros( (len(P_list),len(extra_plot_coord_names[x])),dtype=np.float64)
+    for indx_line  in np.arange(len(P_list)):
+        for indx in np.arange(len(extra_plot_coord_names[x])):
+            fac=1
+            if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
+                fac = lal.MSUN_SI
+            feature_here[indx_line,indx] = P_list[indx_line].extract_param(extra_plot_coord_names[x][indx])/fac
+    dat_extra_post.append(feature_here)
+
 
 
 range_here=[]
@@ -691,6 +804,10 @@ for indx in np.arange(len(coord_names)):
     if coord_names[indx] in ['eta']:
         range_here[-1] = [0,0.25]
     if coord_names[indx] in ['q']:
+        range_here[-1] = [0,1]
+    if coord_names[indx] in ['s1z', 's2z']:
+        range_here[-1] = [-1,1]
+    if coord_names[indx] in ['chi1_perp', 'chi2_perp']:
         range_here[-1] = [0,1]
     print coord_names[indx], range_here[-1]
 
@@ -743,18 +860,51 @@ print " ---- Corner 2: Fitting coordinates (+ original sample point overlay) ---
 ### Corner plot.  Also overlay sample points
 ###
 
-labels_tex = map(lambda x: tex_dictionary[x], coord_names)
-fig_base = corner.corner(dat_mass_post[:,:len(coord_names)], weights=np.ones(len(dat_mass_post))*1.0/len(dat_mass_post),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs, range=range_here)
+try:
+ labels_tex = map(lambda x: tex_dictionary[x], coord_names)
+ fig_base = corner.corner(dat_mass_post[:,:len(coord_names)], weights=np.ones(len(dat_mass_post))*1.0/len(dat_mass_post),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs, range=range_here)
 
 if opts.fname_lalinference:
     fig_base=corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
 
-fig_base = corner.corner(X,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base,weights = 1*np.ones(len(X))/len(X), data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
+ fig_base = corner.corner(X,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base,weights = 1*np.ones(len(X))/len(X), data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
 
 
-plt.savefig("posterior_corner_fit_coords.png"); plt.clf()
+ plt.savefig("posterior_corner_fit_coords.png"); plt.clf()
 
+except:
+    print " No corner 2"
+
+
+###
+### Corner plot 3
+###
+print " ---- Corner 3: Bonus corner plots ---- "
+for indx in np.arange(len(extra_plot_coord_names)):
+    fig_base =None
+    coord_names_here = extra_plot_coord_names[indx]
+    dat_here = dat_extra_post[indx]
+    dat_points_here  = dat_out_extra[indx]
+    labels_tex = map(lambda x: tex_dictionary[x], extra_plot_coord_names[indx])
+    print " Generating figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), len(dat_points_here)
+    fig_base = corner.corner(dat_here,labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs)
+    if opts.fname_lalinference and  ( set(coord_names_here) < set(remap_ILE_2_LI.keys())):
+        dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names_here)), dtype=np.float64)
+        range_here =[]
+        for x in np.arange(len(coord_names_here)):
+           if remap_ILE_2_LI[coord_names_here[x]] in samples_LI:
+            dat_mass_LI[:,x] = samples_LI[ remap_ILE_2_LI[coord_names_here[x]]]
+            range_here.append( [np.min( dat_mass_LI[:,x]) ,np.max(dat_mass_LI[:,x]) ] )
+           else:
+               range_here.append([-1,1])  # just to make sure the plot renders, as the data is all zeros.  A fallback option commonly used for aligned spins.
+                
+        corner.corner( dat_mass_LI,color='r',labels=labels_tex,fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
+
+
+    fig_base = corner.corner(dat_points_here,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'})
+
+    plt.savefig("posterior_corner_extra_coords_"+str(indx)+".png"); plt.clf()
 
 
 
