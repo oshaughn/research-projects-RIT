@@ -146,7 +146,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -159,6 +159,7 @@ tex_dictionary  = {
   "cos_beta" : "$\cos(\\beta)$",
   "sin_phiJL" : "$\sin(\\phi_{JL})$",
   "cos_phiJL" : "$\cos(\\phi_{JL})$",
+  "phi12" : "$\phi_{12}$",
   "DeltaOverM2_perp" : "$\Delta_\perp$",
   "DeltaOverM2_L" : "$\Delta_{||}$",
   "SOverM2_perp" : "$S_\perp$",
@@ -172,7 +173,9 @@ tex_dictionary  = {
   "s1x": "$\chi_{1,x}$",
   "s2x": "$\chi_{2,x}$",
   "s1y": "$\chi_{1,y}$",
-  "s2y": "$\chi_{2,y}$"
+  "s2y": "$\chi_{2,y}$",
+ "chi1_perp": "$\chi_{1,\perp}$",
+ "chi2_perp": "$\chi_{2,\perp}$"
 
 }
 
@@ -439,6 +442,21 @@ class ChooseWaveformParams:
         if p == 'chi2':
             chi1Vec = np.array([self.s2x,self.s2y,self.s2z])
             return np.sqrt(np.dot(chi1Vec,chi1Vec))
+        if p == 'chi1_perp':
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            if spin_convention == "L":
+                Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
+            else:
+                Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
+            return np.sqrt( np.dot(chi1Vec,chi1Vec) -  np.dot(Lhat, chi1Vec)**2 )  # L frame !
+        if p == 'chi2_perp':
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            if spin_convention == "L":
+                Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
+            else:
+                Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
+            return np.sqrt( np.dot(chi2Vec,chi2Vec) -  np.dot(Lhat, chi2Vec)**2 )  # L frame !
+
         if p == 'xi':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
@@ -469,6 +487,12 @@ class ChooseWaveformParams:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             xi = np.dot(Lhat, (self.m1*chi1Vec - self.m2* chi2Vec))/(self.m1- self.m2)   # see also 'Xi', defined below
             return xi
+        if p == 'thetaJN':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            return phi12
         if p == 'thetaJN':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
