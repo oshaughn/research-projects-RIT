@@ -14,15 +14,37 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname-psd-ascii",default=None)
 parser.add_argument("--ifo",default="H1")
+parser.add_argument("--asd",action='store_true', help="If specified, the input is an ASD. Square it.")
 opts=  parser.parse_args()
 
 dat = np.loadtxt(opts.fname_psd_ascii)
+if opts.asd:
+    dat[:,1] = dat[:,1]**2
+
+
+##
+## Zero pad as needed
+##
+if dat[0,0] > 0:
+    f0 = dat[0,0]
+    n_now = len(dat)
+    df = dat[1,0] - dat[0,0]
+    n_to_add = int(f0/df)
+    print f0, df, n_to_add
+    dat_new = np.zeros( (len(dat)+n_to_add,2))
+    dat_new[n_to_add:,0] = dat[:,0]
+    dat_new[n_to_add:,1] = dat[:,1]
+    dat_new[0:n_to_add,0] = np.arange(n_to_add)*df
+    dat_new[0:n_to_add,1] = dat[0,1]  # Fill it with a LARGE value
+    dat = dat_new 
+
+
 dat_wrapper = Object()
 dat_wrapper.epoch = 0
 dat_wrapper.f0 = 0.0
 dat_wrapper.sampleUnits = "s strain^2"
 dat_wrapper.deltaF = dat[1,0] - dat[0,0]
-dat_wrapper.data = dat[:,0]
+dat_wrapper.data = dat[:,1]
 dat_wrapper.name = opts.ifo
 
 # convert structure to appropriate 
