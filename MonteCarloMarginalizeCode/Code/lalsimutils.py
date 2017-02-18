@@ -175,7 +175,9 @@ tex_dictionary  = {
   "s1y": "$\chi_{1,y}$",
   "s2y": "$\chi_{2,y}$",
  "chi1_perp": "$\chi_{1,\perp}$",
- "chi2_perp": "$\chi_{2,\perp}$"
+ "chi2_perp": "$\chi_{2,\perp}$",
+  'chi1':'$|\chi_1|$',
+  'chi2':'$|\chi_2|$',
 
 }
 
