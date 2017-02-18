@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#! /usr/bin/env python
 #
 # GOAL
 #   - load in lnL data
@@ -89,6 +89,7 @@ parser.add_argument("--desc-lalinference",type=str,default='',help="String to ad
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
+parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
@@ -132,9 +133,13 @@ remap_ILE_2_LI = {
  "mc":"mc", "eta":"eta","m1":"m1","m2":"m2",
   "cos_beta":"cosbeta",
   "beta":"beta"}
+
 if opts.fname_lalinference:
     print " Loading lalinference samples for direct comparison ", opts.fname_lalinference
     samples_LI = np.genfromtxt(opts.fname_lalinference,names=True)
+
+    print " Checking consistency between fref in samples and fref assumed here "
+    print set(samples_LI['f_ref']), opts.fref
 
     print " Checking LI samples have desired parameters "
     for p in opts.parameter:
@@ -271,7 +276,7 @@ def fit_quadratic_alt(x,y,x0=None,symmetry_list=None,verbose=False):
 
 
 # https://github.com/scikit-learn/scikit-learn/blob/14031f6/sklearn/preprocessing/data.py#L1139
-def fit_polynomial(x,y,x0=None,symmetry_list=None):
+def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
     """
     x = array so x[0] , x[1], x[2] are points.
     """
@@ -302,12 +307,18 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None):
 
 
         clf = linear_model.LinearRegression()
-        clf.fit(X_,y)
+        if y_errors is None:
+            clf.fit(X_,y)
+        else:
+            assert len(y_errors) == len(y)
+            clf.fit(X_,y,sample_weight=1./y_errors**2)  # fit with usual weights
 
         clf_list.append(clf)
 
         print  " Fit: Testing order ", indx
         print  " Fit: std: ", np.std(y - clf.predict(X_)),  "using number of features ", len(y)  # should NOT be perfect
+        if not (y_errors is None):
+            print " Fit: weighted error ", np.std( (y - clf.predict(X_))/y_errors)
         bic = -2*( -0.5*np.sum(np.power(y - clf.predict(X_),2))  - 0.5*len(y)*np.log(len(x[0])))
         print  " Fit: BIC:", bic
         bic_list.append(bic)
@@ -403,11 +414,12 @@ for line in dat:
     P.s2z = line[8]
 
     # INPUT GRID: Evaluate binary parameters on fitting coordinates
-    line_out = np.zeros(len(coord_names)+1)
+    line_out = np.zeros(len(coord_names)+2)
     for x in np.arange(len(coord_names)):
         line_out[x] = P.extract_param(coord_names[x])
  #        line_out[x] = getattr(P, coord_names[x])
-    line_out[-1] = line[col_lnL]
+    line_out[-2] = line[col_lnL]
+    line_out[-1] = line[col_lnL+1]  # adjoin error estimate
     dat_out.append(line_out)
 
     # Alternate grids: Evaluate input binary parameters on other coordinates requested, for comparison
@@ -440,7 +452,8 @@ for p in ['mc', 'm1', 'm2', 'mtot']:
 
 # Repack data
 X =dat_out[:,0:len(coord_names)]
-Y = dat_out[:,-1]
+Y = dat_out[:,-2]
+Y_err = dat_out[:,-1]
 
 # Eliminate values with Y too small
 max_lnL = np.max(Y)
@@ -463,6 +476,7 @@ my_fit= None
 if opts.fit_method == "quadratic":
     X=X[indx_ok]
     Y=Y[indx_ok]
+    Y_err = Y_err[indx_ok]
     if opts.report_best_point:
         my_fit = fit_quadratic_alt(X,Y,symmetry_list=symmetry_list)
         pt_best_X = np.loadtxt("lnL_bestpt.dat")
@@ -483,7 +497,8 @@ if opts.fit_method == "quadratic":
 elif opts.fit_method == "polynomial":
     X=X[indx_ok]
     Y=Y[indx_ok]
-    my_fit = fit_polynomial(X,Y,symmetry_list=symmetry_list)
+    Y_err = Y_err[indx_ok]
+    my_fit = fit_polynomial(X,Y,symmetry_list=symmetry_list,y_errors=Y_err)
 else:
     my_fit = fit_gp(X,Y)
 
@@ -531,6 +546,11 @@ for p in low_level_coord_names:
         continue
     prior_here = prior_map[p]
     range_here = prior_range_map[p]
+
+    ## Special case: mc : provide ability to override range
+    if p == 'mc' and opts.mc_range:
+        range_here = eval(opts.mc_range)
+
 
     sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=True)
 
@@ -585,7 +605,9 @@ if len(low_level_coord_names) ==8:
             return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e]).T)))
 
 
-res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=0.1,no_protect_names=True)  # weight ecponent needs better choice. We are using arbitrary-name functions
+my_exp = 3./np.max(Y)
+
+res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=1e5,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 
 
@@ -864,7 +886,7 @@ try:
  labels_tex = map(lambda x: tex_dictionary[x], coord_names)
  fig_base = corner.corner(dat_mass_post[:,:len(coord_names)], weights=np.ones(len(dat_mass_post))*1.0/len(dat_mass_post),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs, range=range_here)
 
-if opts.fname_lalinference:
+ if opts.fname_lalinference:
     fig_base=corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
 
@@ -886,8 +908,23 @@ for indx in np.arange(len(extra_plot_coord_names)):
     coord_names_here = extra_plot_coord_names[indx]
     dat_here = dat_extra_post[indx]
     dat_points_here  = dat_out_extra[indx]
-    labels_tex = map(lambda x: tex_dictionary[x], extra_plot_coord_names[indx])
-    print " Generating figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), len(dat_points_here)
+    labels_tex = map(lambda x: tex_dictionary[x], coord_names_here)
+    for indx in np.arange(len(coord_names_here)):    
+        range_here.append( [np.min(dat_points_here[:, indx]),np.max(dat_points_here[:, indx])])
+    # Manually reset some ranges to be more useful for plotting
+        if coord_names[indx] in ['xi', 'chi_eff']:
+            range_here[-1] = [-1,1]
+        if coord_names[indx] in ['eta']:
+            range_here[-1] = [0,0.25]
+        if coord_names[indx] in ['q']:
+            range_here[-1] = [0,1]
+        if coord_names[indx] in ['s1z', 's2z']:
+            range_here[-1] = [-1,1]
+        if coord_names[indx] in ['chi1_perp', 'chi2_perp']:
+            range_here[-1] = [0,1]
+        print coord_names[indx], range_here[-1]
+
+    print " Generatting figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), len(dat_points_here)
     fig_base = corner.corner(dat_here,labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs)
     if opts.fname_lalinference and  ( set(coord_names_here) < set(remap_ILE_2_LI.keys())):
         dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names_here)), dtype=np.float64)
