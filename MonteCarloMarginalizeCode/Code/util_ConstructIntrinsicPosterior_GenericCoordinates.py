@@ -331,7 +331,7 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as C
 
-def fit_gp(x,y,x0=None,symmetry_list=None):
+def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None):
     """
     x = array so x[0] , x[1], x[2] are points.
     """
@@ -396,6 +396,7 @@ P_list = []
 dat_out =[]
  
 extra_plot_coord_names = [  ['mtot', 'q', 'xi'], ['chi1_perp', 's1z'], ['chi2_perp','s2z']]
+dat_out_low_level_coord_names = []
 dat_out_extra = []
 for item in extra_plot_coord_names:
     dat_out_extra.append([])
@@ -444,6 +445,16 @@ for line in dat:
             line_out[x] = P.extract_param( extra_plot_coord_names[indx][x])
         dat_out_extra[indx].append(line_out)
 
+    # results using sampling coordinates (low_level_coord_names) 
+    line_out = np.zeros(len(low_level_coord_names))
+    for x in np.arange(len(line_out)):
+        fac = 1
+        if low_level_coord_names[x] in ['mc','m1','m2','mtot']:
+            fac = lal.MSUN_SI
+        line_out[x] = P.extract_param(low_level_coord_names[x])/fac
+    dat_out_low_level_coord_names.append(line_out)
+
+
     # Update mc range
     mc_here = lalsimutils.mchirp(line[1],line[2])
     if mc_here < mc_min:
@@ -452,6 +463,7 @@ for line in dat:
         mc_max = mc_here
 
 dat_out = np.array(dat_out)
+dat_out_low_level_coord_names = np.array(dat_out_low_level_coord_names)
  # scale out mass units
 for p in ['mc', 'm1', 'm2', 'mtot']:
     if p in coord_names:
@@ -492,6 +504,7 @@ if opts.fit_method == "quadratic":
     X=X[indx_ok]
     Y=Y[indx_ok]
     Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     if opts.report_best_point:
         my_fit = fit_quadratic_alt(X,Y,symmetry_list=symmetry_list)
         pt_best_X = np.loadtxt("lnL_bestpt.dat")
@@ -513,9 +526,10 @@ elif opts.fit_method == "polynomial":
     X=X[indx_ok]
     Y=Y[indx_ok]
     Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     my_fit = fit_polynomial(X,Y,symmetry_list=symmetry_list,y_errors=Y_err)
 else:
-    my_fit = fit_gp(X,Y)
+    my_fit = fit_gp(X,Y,y_errors=Y_err)
 
 # Sort for later convenience (scatterplots, etc)
 indx = Y.argsort()#[::-1]
@@ -744,13 +758,20 @@ for p in low_level_coord_names:
         range_here[-1][0] = prior_range_map[p][0]
     if range_here[-1][1] > prior_range_map[p][1]:
         range_here[-1][1] = prior_range_map[p][1]
+    if opts.fname_lalinference:
+        # If LI samples are shown, make sure their full posterior range is plotted.
+        p_LI  = remap_ILE_2_LI[p]
+        if range_here[-1][0] > np.min(samples_LI[p_LI]):
+            range_here[-1][0] = np.min(samples_LI[p_LI])
+        if range_here[-1][1] < np.max(samples_LI[p_LI]):
+            range_here[-1][1] = np.max(samples_LI[p_LI])
     print p, range_here[-1]  # print out range to be used in plots.
 
 labels_tex = map(lambda x: tex_dictionary[x], low_level_coord_names)
 fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,truths=truth_here) #,range=range_here)
 
 # Plot simulation points (X array): MAY NOT BE POSSIBLE if dimensionality is inconsistent
-#fig_base = corner.corner(X,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base,weights = 1*np.ones(len(X))/len(X), data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range_here=range_here)
+fig_base = corner.corner(dat_out_low_level_coord_names,weights=np.ones(len(X))/len(X), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range_here=range_here)
 
 if opts.fname_lalinference:
     corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs) #,range=range_here)
@@ -915,19 +936,21 @@ for indx in np.arange(len(coord_names)):
 
 
 try:
+#if True:
  labels_tex = map(lambda x: tex_dictionary[x], coord_names)
- fig_base = corner.corner(dat_mass_post[:,:len(coord_names)], weights=np.ones(len(dat_mass_post))*1.0/len(dat_mass_post),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs, range=range_here,truths=truth)
+ fig_base = corner.corner(dat_mass_post[:,:len(coord_names)], weights=np.ones(len(dat_mass_post))*1.0/len(dat_mass_post),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs, range=range_here,truths=truth_here)
 
  if opts.fname_lalinference:
     fig_base=corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
 
- fig_base = corner.corner(X,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base,weights = 1*np.ones(len(X))/len(X), data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
+ fig_base = corner.corner(X,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
 
 
  plt.savefig("posterior_corner_fit_coords.png"); plt.clf()
 
 except:
+#else
     print " No corner 2"
 
 
@@ -945,23 +968,28 @@ for indx in np.arange(len(extra_plot_coord_names)):
     for indx in np.arange(len(coord_names_here)):    
         range_here.append( [np.min(dat_points_here[:, indx]),np.max(dat_points_here[:, indx])])
     # Manually reset some ranges to be more useful for plotting
-        if coord_names[indx] in ['xi', 'chi_eff']:
+        if coord_names_here[indx] in ['xi', 'chi_eff']:
             range_here[-1] = [-1,1]
-        if coord_names[indx] in ['eta']:
+        if coord_names_here[indx] in ['eta']:
             range_here[-1] = [0,0.25]
-        if coord_names[indx] in ['q']:
+        if coord_names_here[indx] in ['q']:
             range_here[-1] = [0,1]
-        if coord_names[indx] in ['s1z', 's2z']:
+        if coord_names_here[indx] in ['s1z', 's2z']:
             range_here[-1] = [-1,1]
-        if coord_names[indx] in ['chi1_perp', 'chi2_perp']:
+        if coord_names_here[indx] in ['chi1_perp', 'chi2_perp']:
             range_here[-1] = [0,1]
-        print coord_names[indx], range_here[-1]
+        print coord_names_here[indx], range_here[-1]
 
     truth_here = []
     for indx in np.arange(len(coord_names_here)):
+        fac=1
         if coord_names_here[indx] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
         truth_here.append(Pref.extract_param(coord_names_here[indx])/fac)
+
+    print  " Truth here for ", coord_names_here, truth_here
+    print " Based on "
+    Pref.print_params()
 
     print " Generatting figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), len(dat_points_here)
     fig_base = corner.corner(dat_here,labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range=range_here,truths=truth_here)
