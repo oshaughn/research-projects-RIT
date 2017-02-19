@@ -329,16 +329,31 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
 
 
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
+from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as C
 
 def fit_gp(x,y,x0=None,symmetry_list=None):
     """
     x = array so x[0] , x[1], x[2] are points.
     """
 
-#    kernel = C([1.0,0.05],[ (1e-3, 1e2), (1e-3, 1)]) * RBF([1,0.05], [ (1e-3, 1e2), (1e-3, 1)])
-    kernel = C(1, (1e-3,1e1))*RBF(1, (1e-3,1e1))
-    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=9)
+    # Amplitude: 
+    #   - We are fitting lnL.  
+    #   - We know the scale more or less: more than 2 in the log is bad
+    # Scale
+    #   - because of strong correlations with chirp mass, the length scales can be very short
+    #   - they are rarely very long, but at high mass can be long
+    #   - I need to allow for a RANGE
+
+    length_scale_est = []
+    length_scale_bounds_est = []
+    for indx in np.arange(len(x[0])):
+        length_scale_est.append( np.std(x[:,indx])  )  # auto-select range based on sampling retained
+        length_scale_bounds_est.append( (3e-2 *np.std(x[:,indx]), 2*np.std(x[:,indx])) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut)
+
+    print length_scale_est, length_scale_bounds_est
+
+    kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,2))+C(0.1, (1e-2,2))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
+    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=2)
 
     gp.fit(x,y)
 
@@ -605,9 +620,14 @@ if len(low_level_coord_names) ==8:
             return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e]).T)))
 
 
-my_exp = 3./np.max(Y)
+my_exp = np.min([1,10./np.max(Y)])   # target value 0.1 for Ymax = 200
 
 res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=1e5,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True)  # weight ecponent needs better choice. We are using arbitrary-name functions
+
+if neff < len(low_level_coord_names):
+    print " PLOTS WILL FAIL "
+    print " Not enough independent Monte Carlo points to generate useful contours"
+
 
 
 
@@ -677,10 +697,6 @@ for indx in np.arange(len(low_level_coord_names)):
       print " No 1d plot for variable"
 
 
-###
-### 1d posteriors of the coordinates used for sampling
-###
-
 
 
 
@@ -699,6 +715,14 @@ for indx in np.arange(len(low_level_coord_names)):
     if opts.fname_lalinference and low_level_coord_names[indx] in remap_ILE_2_LI.keys() :
      if remap_ILE_2_LI[low_level_coord_names[indx]] in samples_LI.dtype.names:
         dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[low_level_coord_names[indx]] ]
+
+truth_here = []
+for indx in np.arange(len(low_level_coord_names)):
+    fac = 1
+    if low_level_coord_names[indx] in ['mc','m1','m2','mtot']:
+        fac = lal.MSUN_SI
+    truth_here.append(Pref.extract_param(low_level_coord_names[indx])/fac)
+
 
 CIs = [0.95,0.9, 0.68]
 quantiles_1d = [0.05,0.95]
@@ -723,13 +747,13 @@ for p in low_level_coord_names:
     print p, range_here[-1]  # print out range to be used in plots.
 
 labels_tex = map(lambda x: tex_dictionary[x], low_level_coord_names)
-fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range=range_here)
+fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,truths=truth_here) #,range=range_here)
 
 # Plot simulation points (X array): MAY NOT BE POSSIBLE if dimensionality is inconsistent
 #fig_base = corner.corner(X,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base,weights = 1*np.ones(len(X))/len(X), data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range_here=range_here)
 
 if opts.fname_lalinference:
-    corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
+    corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs) #,range=range_here)
 
 
 plt.savefig("posterior_corner.png"); plt.clf()
@@ -882,9 +906,17 @@ print " ---- Corner 2: Fitting coordinates (+ original sample point overlay) ---
 ### Corner plot.  Also overlay sample points
 ###
 
+truth_here = []
+for indx in np.arange(len(coord_names)):
+    fac = 1
+    if coord_names[indx] in ['mc','m1','m2','mtot']:
+        fac = lal.MSUN_SI
+    truth_here.append(Pref.extract_param(coord_names[indx])/fac)
+
+
 try:
  labels_tex = map(lambda x: tex_dictionary[x], coord_names)
- fig_base = corner.corner(dat_mass_post[:,:len(coord_names)], weights=np.ones(len(dat_mass_post))*1.0/len(dat_mass_post),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs, range=range_here)
+ fig_base = corner.corner(dat_mass_post[:,:len(coord_names)], weights=np.ones(len(dat_mass_post))*1.0/len(dat_mass_post),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs, range=range_here,truths=truth)
 
  if opts.fname_lalinference:
     fig_base=corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
@@ -909,6 +941,7 @@ for indx in np.arange(len(extra_plot_coord_names)):
     dat_here = dat_extra_post[indx]
     dat_points_here  = dat_out_extra[indx]
     labels_tex = map(lambda x: tex_dictionary[x], coord_names_here)
+    range_here=[]
     for indx in np.arange(len(coord_names_here)):    
         range_here.append( [np.min(dat_points_here[:, indx]),np.max(dat_points_here[:, indx])])
     # Manually reset some ranges to be more useful for plotting
@@ -924,8 +957,14 @@ for indx in np.arange(len(extra_plot_coord_names)):
             range_here[-1] = [0,1]
         print coord_names[indx], range_here[-1]
 
+    truth_here = []
+    for indx in np.arange(len(coord_names_here)):
+        if coord_names_here[indx] in ['mc','m1','m2','mtot']:
+            fac = lal.MSUN_SI
+        truth_here.append(Pref.extract_param(coord_names_here[indx])/fac)
+
     print " Generatting figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), len(dat_points_here)
-    fig_base = corner.corner(dat_here,labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs)
+    fig_base = corner.corner(dat_here,labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range=range_here,truths=truth_here)
     if opts.fname_lalinference and  ( set(coord_names_here) < set(remap_ILE_2_LI.keys())):
         dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names_here)), dtype=np.float64)
         range_here =[]
@@ -939,7 +978,7 @@ for indx in np.arange(len(extra_plot_coord_names)):
         corner.corner( dat_mass_LI,color='r',labels=labels_tex,fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
 
-    fig_base = corner.corner(dat_points_here,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'})
+    fig_base = corner.corner(dat_points_here,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
 
     plt.savefig("posterior_corner_extra_coords_"+str(indx)+".png"); plt.clf()
 
