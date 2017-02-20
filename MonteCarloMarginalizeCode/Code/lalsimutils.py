@@ -603,6 +603,14 @@ class ChooseWaveformParams:
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             S0 = (chi1Vec*self.m1+chi2Vec*self.m2)/(self.m1+self.m2)
             return S0  # VECTOR
+        if 'product(' in p:
+            # Drop first and last characters
+            a=p.replace(' ', '') # drop spaces
+            a = a[:len(a)-1] # drop last
+            a = a[8:]
+            terms = a.split(',')
+            vals = map(self.extract_param, terms) # recurse to parse lower-level quantities
+            return np.prod(vals)
         # assign an attribute
         if hasattr(self,p):
             return getattr(self,p)
@@ -786,8 +794,12 @@ class ChooseWaveformParams:
         print   " : Vector spin products"
         print   " : |s1|, |s2| = ", np.sqrt(vecDot([self.s1x,self.s1y,self.s1z],[self.s1x,self.s1y,self.s1z])), np.sqrt(vecDot([self.s2x,self.s2y,self.s2z],[self.s2x,self.s2y,self.s2z]))
         print   " : s1.s2 = ",  vecDot([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z])
-        print   " : hat(L). s1 x s2 =  ",  vecDot( [np.sin(self.incl),0,np.cos(self.incl)] , vecCross([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z]))
-        print   " : hat(L).(S1(1+q)+S2(1+1/q)) = ", vecDot( [np.sin(self.incl),0,np.cos(self.incl)], S1vec*(1+qval)  + S2vec*(1+1./qval) )/(self.m1+self.m2)/(self.m1+self.m2)
+        if spin_convention == "L":
+            Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
+        else:
+            Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
+        print   " : hat(L). s1 x s2 =  ",  vecDot( Lhat, vecCross([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z]))
+        print   " : hat(L).(S1(1+q)+S2(1+1/q)) = ", vecDot( Lhat, S1vec*(1+qval)  + S2vec*(1+1./qval) )/(self.m1+self.m2)/(self.m1+self.m2)
         if show_system_frame:
             thePrefix = ""
             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = self.extract_system_frame()
