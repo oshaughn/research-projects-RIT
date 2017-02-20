@@ -157,6 +157,7 @@ tex_dictionary  = {
   "delta" : "$\delta$",
   "beta" : "$\beta$",
   "cos_beta" : "$\cos(\\beta)$",
+  "sin_beta" : "$\sin(\\beta)$",
   "sin_phiJL" : "$\sin(\\phi_{JL})$",
   "cos_phiJL" : "$\cos(\\phi_{JL})$",
   "phi12" : "$\phi_{12}$",
@@ -555,6 +556,15 @@ class ChooseWaveformParams:
             Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
             Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
             return np.dot(Lhat,Jhat)   # holds in general
+        if p == 'sin_beta':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            Jref = self.TotalAngularMomentumAtReferenceOverM2()
+            Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
+            Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
+            Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
+            return np.sqrt(1- np.dot(Lhat,Jhat)**2)   # holds in general
         # Other spin parameters of use in generalised fits
         if p == 'SoverM2':   # SCALAR
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
