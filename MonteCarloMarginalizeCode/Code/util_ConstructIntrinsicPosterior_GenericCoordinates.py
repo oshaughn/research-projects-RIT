@@ -46,6 +46,24 @@ lsctables.use_in(ligolw.LIGOLWContentHandler)
 import mcsampler
 
 
+def render_coord(x):
+    if x in lalsimutils.tex_dictionary.keys():
+        return tex_dictionary[x]
+    if 'product(' in x:
+        a=x.replace(' ', '') # drop spaces
+        a = a[:len(a)-1] # drop last
+        a = a[8:]
+        terms = a.split(',')
+        exprs =map(render_coord, terms)
+        exprs = map( lambda x: x.replace('$', ''), exprs)
+        my_label = ' '.join(exprs)
+        return '$'+my_label+'$'
+    else:
+        return x
+
+def render_coordinates(coord_names):
+    return map(render_coord, coord_names)
+
 def add_field(a, descr):
     """Return a new array that is like "a", but has additional fields.
 
@@ -369,7 +387,7 @@ low_level_coord_names = opts.parameter # Used for Monte Carlo
 if opts.parameter_nofit:
     low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
 print " Coordinate names for fit :, ", coord_names
-print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], coord_names)
+print " Rendering coordinate names : ",  render_coordinates(coord_names)  # map(lambda x: tex_dictionary[x], coord_names)
 print " Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names)
 print " Coordinate names for Monte Carlo :, ", low_level_coord_names
 print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_level_coord_names)
@@ -542,8 +560,10 @@ import itertools
 for i, j in itertools.product( np.arange(len(coord_names)),np.arange(len(coord_names)) ):
   if i < j:
     plt.scatter( X[:,i],X[:,j],label='rapid_pe:'+opts.desc_ILE,c=Y); plt.legend(); plt.colorbar()
-    plt.xlabel( tex_dictionary[coord_names[i]])
-    plt.ylabel( tex_dictionary[coord_names[j]])
+    x_name = render_coord(coord_names[i])
+    y_name = render_coord(coord_names[j])
+    plt.xlabel( x_name)
+    plt.ylabel( y_name )
     plt.title("rapid_pe evaluations (=inputs); no fits")
     plt.savefig("scatter_"+coord_names[i]+"_"+coord_names[j]+".png"); plt.clf()
 
@@ -937,7 +957,7 @@ for indx in np.arange(len(coord_names)):
 
 try:
 #if True:
- labels_tex = map(lambda x: tex_dictionary[x], coord_names)
+ labels_tex = render_coordinates(coord_names)#map(lambda x: tex_dictionary[x], coord_names)
  fig_base = corner.corner(dat_mass_post[:,:len(coord_names)], weights=np.ones(len(dat_mass_post))*1.0/len(dat_mass_post),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs, range=range_here,truths=truth_here)
 
  if opts.fname_lalinference:
