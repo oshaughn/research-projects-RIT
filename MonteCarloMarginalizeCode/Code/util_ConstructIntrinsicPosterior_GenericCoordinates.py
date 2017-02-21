@@ -66,27 +66,39 @@ def render_coordinates(coord_names):
 
 
 def extract_combination_from_LI(samples_LI, p):
+    """
+    extract_combination_from_LI
+      - reads in known columns from posterior samples
+      - for selected known combinations not always available, it will compute them from standard quantities
+    """
+    if p in samples_LI.dtype.names:  # e.g., we have precomputed it
+        return samples_LI[p]
     if p in remap_ILE_2_LI.keys():
        if remap_ILE_2_LI[p] in samples_LI.dtype.names:
          return samples_LI[ remap_ILE_2_LI[p] ]
-    # Return cartesian components of spin1, spin2
-    if p == 's1x':
-        return np.sin(samples_LI[ 'tilt1']) * np.cos( samples_LI['phi1'])
-    if p == 's1y':
-        return np.sin(samples_LI[ 'tilt1']) * np.sin( samples_LI['phi1'])
-    if p == 's2x':
-        return np.sin(samples_LI[ 'tilt2']) * np.cos( samples_LI['phi2'])
-    if p == 's2y':
-        return np.sin(samples_LI[ 'tilt2']) * np.sin( samples_LI['phi2'])
-    if p == 'chi1_perp':
-        return np.sin(samples_LI[ 'tilt1']) 
-    if p == 'chi2_perp':
-        return np.sin(samples_LI[ 'tilt2']) 
+    # Return cartesian components of spin1, spin2.  NOTE: I may already populate these quantities in 'Add important quantities'
+    if  'theta1' in samples_LI.dtype.names:
+        if p == 's1x':
+            return samples_LI["a1"]*np.sin(samples_LI[ 'theta1']) * np.cos( samples_LI['phi1'])
+        if p == 's1y' :
+            return samples_LI["a1"]*np.sin(samples_LI[ 'theta1']) * np.sin( samples_LI['phi1'])
+        if p == 's2x':
+            return samples_LI["a2"]*np.sin(samples_LI[ 'theta2']) * np.cos( samples_LI['phi2'])
+        if p == 's2y':
+            return samples_LI["a2"]*np.sin(samples_LI[ 'theta2']) * np.sin( samples_LI['phi2'])
+        if p == 'chi1_perp' :
+            return samples_LI["a1"]*np.sin(samples_LI[ 'theta1']) 
+        if p == 'chi2_perp':
+            return samples_LI["a2"]*np.sin(samples_LI[ 'theta2']) 
+    if p == 'delta':
+        return (samples_LI['m1']  - samples_LI['m2'])/((samples_LI['m1']  + samples_LI['m2']))
     # Return cartesian components of Lhat
     if p == 'product(sin_beta,sin_phiJL)':
-        return np.sin(samples_LI[ remap_ILE_2_LI['cos_beta'] ]) * np.sin(  samples_LI['phi_jl'])
+        return np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.sin(  samples_LI['phi_jl'])
     if p == 'product(sin_beta,cos_phiJL)':
-        return np.sin(samples_LI[ remap_ILE_2_LI['cos_beta'] ]) * np.cos(  samples_LI['phi_jl'])
+        return np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.cos(  samples_LI['phi_jl'])
+
+    print " No access for parameter ", p
     return None
 
 def add_field(a, descr):
@@ -126,6 +138,7 @@ parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
 parser.add_argument("--fref",default=20,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz)")
+parser.add_argument("--fmin",type=float,default=20)
 parser.add_argument("--fname-rom-samples",default=None,help="*.rom_composite output. Treated identically to set of posterior samples produced by mcsampler after constructing fit.")
 parser.add_argument("--n-output-samples",default=3000,type=int,help="output posterior samples (default 3000)")
 parser.add_argument("--desc-lalinference",type=str,default='',help="String to adjoin to legends for LI")
@@ -141,7 +154,6 @@ parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]")
 parser.add_argument("--M-max-cut",type=float,default=1e5,help="Maximum mass to consider (e.g., if there is a cut on distance, this matters)")
 parser.add_argument("--sigma-cut",type=float,default=0.6,help="Eliminate points with large error from the fit.")
 parser.add_argument("--lnL-peak-insane-cut",type=float,default=np.inf,help="Throw away lnL greater than this value. Should not be necessary")
-parser.add_argument("--fmin",type=float,default=None)
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
 parser.add_argument("--inj-file", help="Name of injection file")
@@ -175,7 +187,7 @@ remap_ILE_2_LI = {
   "xi":"chi_eff", 
   "chiMinus":"chi_minus", 
   "delta":"delta", 
- "mc":"mc", "eta":"eta","m1":"m1","m2":"m2",
+ "mtot":'mtotal', "mc":"mc", "eta":"eta","m1":"m1","m2":"m2",
   "cos_beta":"cosbeta",
   "beta":"beta"}
 
@@ -203,13 +215,13 @@ if opts.fname_lalinference:
     samples_LI = add_field(samples_LI, [('delta', float)]); samples_LI['delta'] = delta_dat
 
     if "tilt1" in samples_LI.dtype.names:
-        a1x_dat = samples_LI["a1"]*np.sin(samples_LI["tilt1"])*np.cos(samples_LI["phi1"])
-        a1y_dat = samples_LI["a1"]*np.sin(samples_LI["tilt1"])*np.sin(samples_LI["phi1"])
-        chi1_perp = samples_LI["a1"]*np.sin(samples_LI["tilt1"])
+        a1x_dat = samples_LI["a1"]*np.sin(samples_LI["theta1"])*np.cos(samples_LI["phi1"])
+        a1y_dat = samples_LI["a1"]*np.sin(samples_LI["theta1"])*np.sin(samples_LI["phi1"])
+        chi1_perp = samples_LI["a1"]*np.sin(samples_LI["theta1"])
 
-        a2x_dat = samples_LI["a2"]*np.sin(samples_LI["tilt2"])*np.cos(samples_LI["phi2"])
-        a2y_dat = samples_LI["a2"]*np.sin(samples_LI["tilt2"])*np.sin(samples_LI["phi2"])
-        chi2_perp = samples_LI["a2"]*np.sin(samples_LI["tilt2"])
+        a2x_dat = samples_LI["a2"]*np.sin(samples_LI["theta2"])*np.cos(samples_LI["phi2"])
+        a2y_dat = samples_LI["a2"]*np.sin(samples_LI["theta2"])*np.sin(samples_LI["phi2"])
+        chi2_perp = samples_LI["a2"]*np.sin(samples_LI["theta2"])
 
                                       
         samples_LI = add_field(samples_LI, [('a1x', float)]);  samples_LI['a1x'] = a1x_dat
@@ -221,6 +233,18 @@ if opts.fname_lalinference:
 
         samples_LI = add_field(samples_LI, [('cos_phiJL',float)]); samples_LI['cos_phiJL'] = np.cos(samples_LI['phi_jl'])
         samples_LI = add_field(samples_LI, [('sin_phiJL',float)]); samples_LI['sin_phiJL'] = np.sin(samples_LI['phi_jl'])
+        
+        samples_LI = add_field(samples_LI, [('product(sin_beta,sin_phiJL)', float)])
+        samples_LI['product(sin_beta,sin_phiJL)'] =np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.sin(  samples_LI['phi_jl'])
+
+
+        samples_LI = add_field(samples_LI, [('product(sin_beta,cos_phiJL)', float)])
+        samples_LI['product(sin_beta,cos_phiJL)'] =np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.cos(  samples_LI['phi_jl'])
+
+    # Add all keys in samples_LI to the remapper
+    for key in samples_LI.dtype.names:
+        if not (key in remap_ILE_2_LI.keys()):
+            remap_ILE_2_LI[key] = key  # trivial remapping
 
 downselect_dict = {}
 downselect_dict['chi1'] = [0,opts.chi_max]
@@ -465,6 +489,7 @@ for line in dat:
       continue
   if line[col_lnL] < opts.lnL_peak_insane_cut:
     P.fref = opts.fref  # IMPORTANT if you are using a quantity that depends on J
+    P.fmin = opts.fmin
     P.m1 = line[1]*lal.MSUN_SI
     P.m2 = line[2]*lal.MSUN_SI
     P.s1x = line[3]
@@ -724,6 +749,7 @@ weights = np.exp(lnL-lnLmax)*p/ps
 Pref = lalsimutils.ChooseWaveformParams()
 if  opts.inj_file is not None:
     Pref = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)[opts.event_num]
+Pref.fref = opts.fref  # not encoded in the XML!
 Pref.print_params()
 
 for indx in np.arange(len(low_level_coord_names)):
@@ -732,7 +758,13 @@ for indx in np.arange(len(low_level_coord_names)):
     p = low_level_coord_names[indx]
     print " -- 1d cumulative "+ str(indx)+ ":"+ low_level_coord_names[indx]+" ----"
     dat_here = samples[low_level_coord_names[indx]]
-    for x in np.linspace(np.min(dat_here),np.max(dat_here),200):
+    range_x = [np.min(dat_here), np.max(dat_here)]
+    if opts.fname_lalinference:
+        dat_LI =  extract_combination_from_LI( samples_LI, low_level_coord_names[indx])
+        if not(dat_LI==None):
+            range_x[0] = np.min([range_x[0], np.min(dat_LI)])
+            range_x[1] = np.max([range_x[1], np.max(dat_LI)])
+    for x in np.linspace(range_x[0],range_x[1],200):
          dat_out.append([x, np.sum( weights[ dat_here< x])/np.sum(weights)])
          # if opts.fname_lalinference:
          #     tmp = extract_combination_from_LI(p)
@@ -740,7 +772,8 @@ for indx in np.arange(len(low_level_coord_names)):
          #        dat_out_LI.append([x, 1.0*sum( tmp<x)/len(tmp) ]) 
          if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()): 
              dat_out_LI.append([x, (1.0*np.sum( samples_LI[ remap_ILE_2_LI[p] ]< x))/len(samples_LI) ])
-    np.savetxt(p+"_cdf.dat", np.array(dat_out))
+    
+    np.savetxt(p+"_cdf_nocut_beware.dat", np.array(dat_out))
     dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
     plt.plot(dat_out[:,0],dat_out[:,1],label="rapid_pe:"+opts.desc_ILE,color='b')
     if opts.fname_lalinference and  (p in remap_ILE_2_LI.keys()):
@@ -778,6 +811,9 @@ if opts.fname_lalinference:
 for indx in np.arange(len(low_level_coord_names)):
     dat_mass[:,indx] = samples[low_level_coord_names[indx]]
     if opts.fname_lalinference and low_level_coord_names[indx] in remap_ILE_2_LI.keys() :
+#        tmp = extract_combination_from_LI[samples_LI, low_level_coord_names[indx]]
+#        if not (tmp==None):
+#            dat_mass_LI[:,indx]
      if remap_ILE_2_LI[low_level_coord_names[indx]] in samples_LI.dtype.names:
         dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[low_level_coord_names[indx]] ]
 
@@ -828,7 +864,7 @@ if opts.fname_lalinference:
     corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs) #,range=range_here)
 
 
-plt.savefig("posterior_corner.png"); plt.clf()
+plt.savefig("posterior_corner_nocut_beware.png"); plt.clf()
 
 print " ---- Subset for posterior samples (and further corner work) --- " 
 
@@ -847,20 +883,16 @@ indx_list = map(lambda x : np.sum(cum_sum < x),  p_thresholds)  # this can lead 
 P_list =[]
 P = lalsimutils.ChooseWaveformParams()
 P.approx = lalsim.SEOBNRv2  # DEFAULT
-P.fmin = opts.fref # DEFAULT
+P.fmin = opts.fmin # DEFAULT
 P.fref = opts.fref
 for indx_here in indx_list:
         line = [samples[p][indx_here] for p in low_level_coord_names]
         Pgrid = P.manual_copy()
+        Pgrid.fref = opts.fref  # Just to make SURE
         include_item =True
         # Set attributes that are being changed as necessary, leaving all others fixed
         for indx in np.arange(len(low_level_coord_names)):
             # Skip crazy configurations (e.g., violate Kerr bound)
-            if low_level_coord_names[indx] in downselect_dict:
-                if line[indx] < downselect_dict[low_level_coord_names[indx]][0] or line[indx] > downselect_dict[low_level_coord_names[indx]][1]:
-                    include_item = False
-                    if opts.verbose:
-                        print " Skipping " , line
             # if parameter involes a mass parameter, scale it to sensible units
             fac = 1
             if low_level_coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
@@ -871,9 +903,19 @@ for indx_here in indx_list:
                 coord_to_assign= 'chieff_aligned'
             Pgrid.assign_param(coord_to_assign, line[indx]*fac)
 #            print indx_here, coord_to_assign, line[indx]
+
+        # Test for downselect
+        for p in downselect_dict.keys():
+            val = Pgrid.extract_param(p) 
+            if val < downselect_dict[low_level_coord_names[indx]][0] or val > downselect_dict[low_level_coord_names[indx]][1]:
+                    include_item = False
+#                    if opts.verbose:
+#                        print " Sample: Skipping " , line
+
             
-        if opts.verbose:
-            Pgrid.print_params()
+#        if opts.verbose:
+#            Pgrid.print_params()
+
         # Downselect.
         # for param in downselect_dict:
         #     if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
@@ -889,7 +931,7 @@ for indx_here in indx_list:
             True
 
 ###
-### Extract data from samples, in array form
+### Extract data from samples, in array form. INCLUDES any cuts (e.g., kerr limit)
 ###
 dat_mass_post = np.zeros( (len(P_list),len(coord_names)),dtype=np.float64)
 for indx_line  in np.arange(len(P_list)):
@@ -902,13 +944,14 @@ for indx_line  in np.arange(len(P_list)):
 
 dat_extra_post = []
 for x in np.arange(len(extra_plot_coord_names)):
-    feature_here = np.zeros( (len(P_list),len(extra_plot_coord_names[x])),dtype=np.float64)
+    coord_names_here = extra_plot_coord_names[x]
+    feature_here = np.zeros( (len(P_list),len(coord_names_here)),dtype=np.float64)
     for indx_line  in np.arange(len(P_list)):
-        for indx in np.arange(len(extra_plot_coord_names[x])):
+        for indx in np.arange(len(coord_names_here)):
             fac=1
-            if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
+            if coord_names_here[indx] in ['mc', 'mtot', 'm1', 'm2']:
                 fac = lal.MSUN_SI
-            feature_here[indx_line,indx] = P_list[indx_line].extract_param(extra_plot_coord_names[x][indx])/fac
+            feature_here[indx_line,indx] = P_list[indx_line].extract_param(coord_names_here[indx])/fac
     dat_extra_post.append(feature_here)
 
 
@@ -933,7 +976,9 @@ if opts.fname_lalinference:
     dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names)), dtype=np.float64)
     for indx in np.arange(len(coord_names)):
         if coord_names[indx] in remap_ILE_2_LI.keys():
-            dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[coord_names[indx]] ]
+            tmp = extract_combination_from_LI(samples_LI, coord_names[indx])
+            if not (tmp==None):
+                dat_mass_LI[:,indx] = tmp
 
         if range_here[indx][0] > np.min(dat_mass_LI[:,indx]):
             range_here[indx][0] = np.min(dat_mass_LI[:,indx])
@@ -947,16 +992,21 @@ for indx in np.arange(len(coord_names)):
     print " -- 1d cumulative "+ str(indx)+ ":"+ coord_names[indx]+" ----"
     dat_here = dat_mass_post[:,indx]
     wt_here = np.ones(len(dat_here))
-    for x in np.linspace(np.min(dat_here),np.max(dat_here),200):
+    range_x = [np.min(dat_here), np.max(dat_here)]
+    if opts.fname_lalinference:
+        dat_LI = extract_combination_from_LI(samples_LI,p)
+        if not(dat_LI==None):
+            range_x[0] = np.min([range_x[0], np.min(dat_LI)])
+            range_x[1] = np.max([range_x[1], np.max(dat_LI)])
+
+    for x in np.linspace(range_x[0],range_x[1],200):
          dat_out.append([x, np.sum(  wt_here[dat_here< x] )/len(dat_here)])    # NO WEIGHTS for these resampled points
 #         dat_out.append([x, np.sum( weights[ dat_here< x])/np.sum(weights)])
-         if opts.fname_lalinference:
-             tmp = extract_combination_from_LI(samples_LI,p)
-             if not (tmp == None) :
-                dat_out_LI.append([x, 1.0*sum( tmp<x)/len(tmp) ]) 
+         if opts.fname_lalinference and not (dat_LI == None) :
+                dat_out_LI.append([x, 1.0*sum( dat_LI<x)/len(dat_LI) ]) 
 #         if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) :
 #             dat_out_LI.append([x, (1.0*np.sum( samples_LI[ remap_ILE_2_LI[p] ]< x))/len(samples_LI) ])
-    np.savetxt(p+"_alt_cdf.dat", np.array(dat_out))
+    np.savetxt(p+"_cdf.dat", np.array(dat_out))
     dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
     plt.plot(dat_out[:,0],dat_out[:,1],label="rapid_pe:"+opts.desc_ILE,color='b')
     if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) :
@@ -1021,48 +1071,50 @@ for indx in np.arange(len(extra_plot_coord_names)):
     dat_points_here  = dat_out_extra[indx]
     labels_tex = render_coordinates(coord_names_here)#map(lambda x: tex_dictionary[x], coord_names_here)
     range_here=[]
-    for indx in np.arange(len(coord_names_here)):    
-        range_here.append( [np.min(dat_points_here[:, indx]),np.max(dat_points_here[:, indx])])
+    dat_mass_LI = None
+    if opts.fname_lalinference and  ( set(coord_names_here) < set(remap_ILE_2_LI.keys())):
+        dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names_here)), dtype=np.float64)
+        for x in np.arange(len(coord_names_here)):
+            tmp = extract_combination_from_LI(samples_LI, coord_names_here[x])
+            if not (tmp==None):
+                dat_mass_LI[:,x] = tmp
+    for z in np.arange(len(coord_names_here)):    
+        range_here.append( [np.min(dat_points_here[:, z]),np.max(dat_points_here[:, z])])
     # Manually reset some ranges to be more useful for plotting
-        if coord_names_here[indx] in ['xi', 'chi_eff']:
+        if coord_names_here[z] in ['xi', 'chi_eff']:
             range_here[-1] = [-1,1]
-        if coord_names_here[indx] in ['eta']:
+        if coord_names_here[z] in ['eta']:
             range_here[-1] = [0,0.25]
-        if coord_names_here[indx] in ['q']:
+        if coord_names_here[z] in ['q']:
             range_here[-1] = [0,1]
-        if coord_names_here[indx] in ['s1z', 's2z']:
+        if coord_names_here[z] in ['s1z', 's2z']:
             range_here[-1] = [-1,1]
-        if coord_names_here[indx] in ['chi1_perp', 'chi2_perp']:
+        if coord_names_here[z] in ['chi1_perp', 'chi2_perp']:
             range_here[-1] = [0,1]
-        print coord_names_here[indx], range_here[-1]
-
+        if opts.fname_lalinference and  ( set(coord_names_here) < set(remap_ILE_2_LI.keys())):
+                range_here[-1][0] =  np.min( [np.min( dat_mass_LI[:,z]), range_here[-1][0]  ])
+                range_here[-1][1] =  np.max( [np.max( dat_mass_LI[:,z]), range_here[-1][1]  ])
+        print ' Range ', coord_names_here[z], range_here[-1]
+      
     truth_here = []
-    for indx in np.arange(len(coord_names_here)):
+    for z in np.arange(len(coord_names_here)):
         fac=1
-        if coord_names_here[indx] in ['mc','m1','m2','mtot']:
+        if coord_names_here[z] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
-        truth_here.append(Pref.extract_param(coord_names_here[indx])/fac)
+        truth_here.append(Pref.extract_param(coord_names_here[z])/fac)
 
     print  " Truth here for ", coord_names_here, truth_here
     print " Based on "
     Pref.print_params()
 
-    print " Generatting figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), len(dat_points_here)
-    fig_base = corner.corner(dat_here,labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range=range_here,truths=truth_here)
-    if opts.fname_lalinference and  ( set(coord_names_here) < set(remap_ILE_2_LI.keys())):
-        dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names_here)), dtype=np.float64)
-        range_here =[]
-        for x in np.arange(len(coord_names_here)):
-           if remap_ILE_2_LI[coord_names_here[x]] in samples_LI:
-            dat_mass_LI[:,x] = samples_LI[ remap_ILE_2_LI[coord_names_here[x]]]
-            range_here.append( [np.min( dat_mass_LI[:,x]) ,np.max(dat_mass_LI[:,x]) ] )
-           else:
-               range_here.append([-1,1])  # just to make sure the plot renders, as the data is all zeros.  A fallback option commonly used for aligned spins.
+    print " Generating figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), len(dat_points_here)
+    fig_base = corner.corner(dat_here, weights=np.ones(len(dat_here))*1.0/len(dat_here), labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range=range_here,truths=truth_here)
                 
-        corner.corner( dat_mass_LI,color='r',labels=labels_tex,fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
+    if opts.fname_lalinference and  ( set(coord_names_here) < set(remap_ILE_2_LI.keys())):
+        corner.corner( dat_mass_LI, weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI), color='r',labels=labels_tex,fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
 
-    fig_base = corner.corner(dat_points_here,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
+    fig_base = corner.corner(dat_points_here,weights=np.ones(len(dat_points_here))*1.0/len(dat_points_here), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
 
     plt.savefig("posterior_corner_extra_coords_"+str(indx)+".png"); plt.clf()
 
