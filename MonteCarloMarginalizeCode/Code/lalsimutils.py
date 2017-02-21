@@ -889,7 +889,7 @@ class ChooseWaveformParams:
             Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
         M = (self.m1+self.m2)
         eta = symRatio(self.m1,self.m2)   # dimensionless
-        return Lhat*M*M*eta/v     # in units of kg in SI
+        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v + (27./8 - 19*eta/8 +eta*eta/24.)*(v**3) )   # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or Blanchet 1310.1528 Eq. 234 (zero spin)
     def OrbitalAngularMomentumAtReferenceOverM2(self):
         L = self.OrbitalAngularMomentumAtReference()
         return L/(self.m1+self.m2)/(self.m1+self.m2)
@@ -3221,7 +3221,7 @@ def DataRollTime(ht,DeltaT):  # ONLY FOR TIME DOMAIN. ACTS IN PLACE
     return DataRollBins(ht, nL)            
 
 
-def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2']):
+def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False):
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
@@ -3232,6 +3232,8 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
         for indx in np.arange(len(coord_names)):
             x_out[indx_out,indx] = P.extract_param(coord_names[indx])
+        if enforce_kerr and (P.extract_param('chi1') > 1 or P.extract_param('chi2') >1):  # insure Kerr bound satisfied
+            x_out[indx_out] = -np.inf*np.ones( len(coord_names) ) # return negative infinity for all coordinates, if Kerr bound violated
     return x_out
 
 def symmetry_sign_exchange(coord_names):
