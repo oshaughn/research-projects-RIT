@@ -880,6 +880,7 @@ p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=opts.n_output_samples)
 cum_sum  = np.cumsum(weights)
 cum_sum = cum_sum/cum_sum[-1]
 indx_list = map(lambda x : np.sum(cum_sum < x),  p_thresholds)  # this can lead to duplicates
+lnL_list = []
 P_list =[]
 P = lalsimutils.ChooseWaveformParams()
 P.approx = lalsim.SEOBNRv2  # DEFAULT
@@ -903,7 +904,6 @@ for indx_here in indx_list:
                 coord_to_assign= 'chieff_aligned'
             Pgrid.assign_param(coord_to_assign, line[indx]*fac)
 #            print indx_here, coord_to_assign, line[indx]
-
         # Test for downselect
         for p in downselect_dict.keys():
             val = Pgrid.extract_param(p) 
@@ -924,11 +924,22 @@ for indx_here in indx_list:
         if include_item:
          if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
             P_list.append(Pgrid)
+            lnL_list.append(np.log(samples["integrand"][indx_here]))
          else:
             Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
             P_list.append(Pgrid)
+            lnL_list.append(np.log(samples["integrand"][indx_here]))
         else:
             True
+
+
+###
+### Identify, save best point
+###
+
+P_best = P_list[ np.argmax(lnL_list)  ]
+lalsimutils.ChooseWaveformParams_array_to_xml([P_best], "best_point_by_lnL")
+
 
 ###
 ### Extract data from samples, in array form. INCLUDES any cuts (e.g., kerr limit)
