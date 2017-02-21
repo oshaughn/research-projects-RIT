@@ -64,6 +64,31 @@ def render_coord(x):
 def render_coordinates(coord_names):
     return map(render_coord, coord_names)
 
+
+def extract_combination_from_LI(samples_LI, p):
+    if p in remap_ILE_2_LI.keys():
+       if remap_ILE_2_LI[p] in samples_LI.dtype.names:
+         return samples_LI[ remap_ILE_2_LI[p] ]
+    # Return cartesian components of spin1, spin2
+    if p == 's1x':
+        return np.sin(samples_LI[ 'tilt1']) * np.cos( samples_LI['phi1'])
+    if p == 's1y':
+        return np.sin(samples_LI[ 'tilt1']) * np.sin( samples_LI['phi1'])
+    if p == 's2x':
+        return np.sin(samples_LI[ 'tilt2']) * np.cos( samples_LI['phi2'])
+    if p == 's2y':
+        return np.sin(samples_LI[ 'tilt2']) * np.sin( samples_LI['phi2'])
+    if p == 'chi1_perp':
+        return np.sin(samples_LI[ 'tilt1']) 
+    if p == 'chi2_perp':
+        return np.sin(samples_LI[ 'tilt2']) 
+    # Return cartesian components of Lhat
+    if p == 'product(sin_beta,sin_phiJL)':
+        return np.sin(samples_LI[ remap_ILE_2_LI['cos_beta'] ]) * np.sin(  samples_LI['phi_jl'])
+    if p == 'product(sin_beta,cos_phiJL)':
+        return np.sin(samples_LI[ remap_ILE_2_LI['cos_beta'] ]) * np.cos(  samples_LI['phi_jl'])
+    return None
+
 def add_field(a, descr):
     """Return a new array that is like "a", but has additional fields.
 
@@ -143,6 +168,8 @@ remap_ILE_2_LI = {
  "s2x":"a2x", "s2y":"a2y",
  "chi1_perp":"chi1_perp",
  "chi2_perp":"chi2_perp",
+ "chi1":'a1',
+ "chi2":'a2',
  "cos_phiJL": 'cos_phiJL',
  "sin_phiJL": 'sin_phiJL',
   "xi":"chi_eff", 
@@ -413,7 +440,7 @@ print " Original data size = ", len(dat), dat.shape
 P_list = []
 dat_out =[]
  
-extra_plot_coord_names = [  ['mtot', 'q', 'xi'], ['chi1_perp', 's1z'], ['chi2_perp','s2z']]
+extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['chi1_perp', 's1z'], ['chi2_perp','s2z']] # replot
 dat_out_low_level_coord_names = []
 dat_out_extra = []
 for item in extra_plot_coord_names:
@@ -609,7 +636,7 @@ if len(low_level_coord_names) ==1:
         if isinstance(x,float):
             return np.exp(my_fit([x]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x]).T)))
+            return np.exp(my_fit(convert_coords(np.array([x]).T)  ))
 if len(low_level_coord_names) ==2:
     def likelihood_function(x,y):  
         if isinstance(x,float):
@@ -684,7 +711,7 @@ samples["joint_s_prior"] =samples["joint_s_prior"][indx_ok]
 
 
 ###
-### 1d posteriors of the coordinates used for sampling  [EQUALLY WEIGHTED]
+### 1d posteriors of the coordinates used for sampling  [EQUALLY WEIGHTED, BIASED because physics cuts aren't applied]
 ###
 
 p = samples["joint_prior"]
@@ -707,7 +734,11 @@ for indx in np.arange(len(low_level_coord_names)):
     dat_here = samples[low_level_coord_names[indx]]
     for x in np.linspace(np.min(dat_here),np.max(dat_here),200):
          dat_out.append([x, np.sum( weights[ dat_here< x])/np.sum(weights)])
-         if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()):
+         # if opts.fname_lalinference:
+         #     tmp = extract_combination_from_LI(p)
+         #     if not (tmp == None) :
+         #        dat_out_LI.append([x, 1.0*sum( tmp<x)/len(tmp) ]) 
+         if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()): 
              dat_out_LI.append([x, (1.0*np.sum( samples_LI[ remap_ILE_2_LI[p] ]< x))/len(samples_LI) ])
     np.savetxt(p+"_cdf.dat", np.array(dat_out))
     dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
@@ -724,8 +755,8 @@ for indx in np.arange(len(low_level_coord_names)):
     print " Vertical line ", p, " ", here_val
     plt.axvline(here_val,color='k',linestyle='--')
 
-
-    plt.xlabel(tex_dictionary[p]); plt.legend()
+    x_name = render_coord(p)
+    plt.xlabel(x_name); plt.legend()
     plt.savefig(p+"_cdf.png"); plt.clf()
    except:
       print " No 1d plot for variable"
@@ -735,11 +766,11 @@ for indx in np.arange(len(low_level_coord_names)):
 
 
 ###
-### Corner
+### Corner 1 [BIASED, does not account for sanity cuts on physical variables]
 ###
 
 
-print " ---- Corner 1: Sampling coordinates (NO CONSTRAINTS APPLIED HERE) ---- "
+print " ---- Corner 1: Sampling coordinates (NO CONSTRAINTS APPLIED HERE: BIASED) ---- "
 dat_mass = np.zeros( (len(lnL),len(low_level_coord_names)),dtype=np.float64)
 dat_mass_LI = []
 if opts.fname_lalinference:
@@ -909,7 +940,7 @@ if opts.fname_lalinference:
         if range_here[indx][1] < np.max(dat_mass_LI[:,indx]):
             range_here[indx][1] = np.max(dat_mass_LI[:,indx])
 
-print " ---- 1d cumulative on fitting coordinates --- " 
+print " ---- 1d cumulative on fitting coordinates (NOT biased: FROM SAMPLES, including downselect) --- " 
 for indx in np.arange(len(coord_names)):
     p = coord_names[indx]
     dat_out = []; dat_out_LI=[]
@@ -919,8 +950,12 @@ for indx in np.arange(len(coord_names)):
     for x in np.linspace(np.min(dat_here),np.max(dat_here),200):
          dat_out.append([x, np.sum(  wt_here[dat_here< x] )/len(dat_here)])    # NO WEIGHTS for these resampled points
 #         dat_out.append([x, np.sum( weights[ dat_here< x])/np.sum(weights)])
-         if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) :
-             dat_out_LI.append([x, (1.0*np.sum( samples_LI[ remap_ILE_2_LI[p] ]< x))/len(samples_LI) ])
+         if opts.fname_lalinference:
+             tmp = extract_combination_from_LI(samples_LI,p)
+             if not (tmp == None) :
+                dat_out_LI.append([x, 1.0*sum( tmp<x)/len(tmp) ]) 
+#         if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) :
+#             dat_out_LI.append([x, (1.0*np.sum( samples_LI[ remap_ILE_2_LI[p] ]< x))/len(samples_LI) ])
     np.savetxt(p+"_alt_cdf.dat", np.array(dat_out))
     dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
     plt.plot(dat_out[:,0],dat_out[:,1],label="rapid_pe:"+opts.desc_ILE,color='b')
@@ -937,7 +972,8 @@ for indx in np.arange(len(coord_names)):
     plt.axvline(here_val,color='k',linestyle='--')
 
 
-    plt.xlabel(tex_dictionary[p]); plt.legend()
+    x_name = render_coord(p)
+    plt.xlabel(x_name); plt.legend()
     plt.savefig(p+"_alt_cdf.png"); plt.clf()
 
 
@@ -983,7 +1019,7 @@ for indx in np.arange(len(extra_plot_coord_names)):
     coord_names_here = extra_plot_coord_names[indx]
     dat_here = dat_extra_post[indx]
     dat_points_here  = dat_out_extra[indx]
-    labels_tex = map(lambda x: tex_dictionary[x], coord_names_here)
+    labels_tex = render_coordinates(coord_names_here)#map(lambda x: tex_dictionary[x], coord_names_here)
     range_here=[]
     for indx in np.arange(len(coord_names_here)):    
         range_here.append( [np.min(dat_points_here[:, indx]),np.max(dat_points_here[:, indx])])
