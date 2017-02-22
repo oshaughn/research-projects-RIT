@@ -137,6 +137,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
+parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
 parser.add_argument("--fref",default=20,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz)")
 parser.add_argument("--fmin",type=float,default=20)
 parser.add_argument("--fname-rom-samples",default=None,help="*.rom_composite output. Treated identically to set of posterior samples produced by mcsampler after constructing fit.")
@@ -795,9 +796,6 @@ for indx in np.arange(len(low_level_coord_names)):
       print " No 1d plot for variable"
 
 
-
-
-
 ###
 ### Corner 1 [BIASED, does not account for sanity cuts on physical variables]
 ###
@@ -883,7 +881,8 @@ indx_list = map(lambda x : np.sum(cum_sum < x),  p_thresholds)  # this can lead 
 lnL_list = []
 P_list =[]
 P = lalsimutils.ChooseWaveformParams()
-P.approx = lalsim.SEOBNRv2  # DEFAULT
+P.approx = lalsim.GetApproximantFromString(opts.approx_output)
+#P.approx = lalsim.SEOBNRv2  # DEFAULT
 P.fmin = opts.fmin # DEFAULT
 P.fref = opts.fref
 for indx_here in indx_list:
@@ -931,6 +930,14 @@ for indx_here in indx_list:
             lnL_list.append(np.log(samples["integrand"][indx_here]))
         else:
             True
+
+
+
+ ###
+ ### Export data
+ ###
+lalsimutils.ChooseWaveformParams_array_to_xml(P_list,fname=opts.fname_output_samples,fref=P.fref)
+
 
 
 ###
