@@ -178,7 +178,7 @@ if opts.use_NR:
                 group = good_sim[0]
                 nr_params = good_sim[1]
 
-    cmd ="util_NRDumpDetectorResponse.py --inj "+infile+" --event 0 --t-ref "+str(event_time)+" --group "+nr_group+" --param  '"+str(nr_params).replace(' ', '')+"' --l " + str(opts.l_max) + " --use-perturbative-extraction"  #-full"
+    cmd ="util_NRDumpDetectorResponse.py --inj "+infile+" --event 0 --t-ref "+str(event_time)+" --group "+nr_group+' --param  "'+str(nr_params).replace(' ', '')+'" --l " + str(opts.l_max) + " --use-perturbative-extraction"  #-full"
     if opts.no_memory:
         cmd = cmd+ " --no-memory "
     
