@@ -417,12 +417,16 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None):
     length_scale_est = []
     length_scale_bounds_est = []
     for indx in np.arange(len(x[0])):
-        length_scale_est.append( np.std(x[:,indx])  )  # auto-select range based on sampling retained
-        length_scale_bounds_est.append( (3e-2 *np.std(x[:,indx]), 2*np.std(x[:,indx])) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut)
+        # These length scales have been tuned by expereience
+        length_scale_est.append( 2*np.std(x[:,indx])  )  # auto-select range based on sampling retained
+        length_scale_bounds_est.append( ( 5*np.std(x[:,indx]/np.sqrt(len(x))), 5*np.std(x[:,indx])) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut)
 
-    print length_scale_est, length_scale_bounds_est
+    print " GP: Estimated length scales "
+    print length_scale_est
+    print length_scale_bounds_est
 
-    kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,2))+C(0.1, (1e-2,2))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
+    # These parameters have been hand-tuned by experience to try to set to levels comparable to typical lnL Monte Carlo error
+    kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,0.3))+C(0.1, (1e-2,0.5))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
     gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=2)
 
     gp.fit(x,y)
@@ -465,7 +469,7 @@ print " Original data size = ", len(dat), dat.shape
 P_list = []
 dat_out =[]
  
-extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['chi1_perp', 's1z'], ['chi2_perp','s2z']] # replot
+extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['chi1_perp', 's1z'], ['chi2_perp','s2z'], ['s1z','s2z'],['chi1','chi2']] # replot
 dat_out_low_level_coord_names = []
 dat_out_extra = []
 for item in extra_plot_coord_names:
@@ -705,6 +709,18 @@ if len(low_level_coord_names) ==8:
             return np.exp(my_fit([x,y,z,a,b,c,d,e]))
         else:
             return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e]).T)))
+if len(low_level_coord_names) ==9:
+    def likelihood_function(x,y,z,a,b,c,d,e,f):  
+        if isinstance(x,float):
+            return np.exp(my_fit([x,y,z,a,b,c,d,e,f]))
+        else:
+            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e,f]).T)))
+if len(low_level_coord_names) ==10:
+    def likelihood_function(x,y,z,a,b,c,d,e,f,g):  
+        if isinstance(x,float):
+            return np.exp(my_fit([x,y,z,a,b,c,d,e,f,g]))
+        else:
+            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e,f,g]).T)))
 
 
 n_step = 1e5
@@ -765,7 +781,7 @@ for indx in np.arange(len(low_level_coord_names)):
     range_x = [np.min(dat_here), np.max(dat_here)]
     if opts.fname_lalinference:
         dat_LI =  extract_combination_from_LI( samples_LI, low_level_coord_names[indx])
-        if not(dat_LI==None):
+        if not(dat_LI is None):
             range_x[0] = np.min([range_x[0], np.min(dat_LI)])
             range_x[1] = np.max([range_x[1], np.max(dat_LI)])
     for x in np.linspace(range_x[0],range_x[1],200):
@@ -998,7 +1014,7 @@ if opts.fname_lalinference:
     for indx in np.arange(len(coord_names)):
         if coord_names[indx] in remap_ILE_2_LI.keys():
             tmp = extract_combination_from_LI(samples_LI, coord_names[indx])
-            if not (tmp==None):
+            if not (tmp is None):
                 dat_mass_LI[:,indx] = tmp
 
         if range_here[indx][0] > np.min(dat_mass_LI[:,indx]):
@@ -1016,14 +1032,14 @@ for indx in np.arange(len(coord_names)):
     range_x = [np.min(dat_here), np.max(dat_here)]
     if opts.fname_lalinference:
         dat_LI = extract_combination_from_LI(samples_LI,p)
-        if not(dat_LI==None):
+        if not(dat_LI is None):
             range_x[0] = np.min([range_x[0], np.min(dat_LI)])
             range_x[1] = np.max([range_x[1], np.max(dat_LI)])
 
     for x in np.linspace(range_x[0],range_x[1],200):
          dat_out.append([x, np.sum(  wt_here[dat_here< x] )/len(dat_here)])    # NO WEIGHTS for these resampled points
 #         dat_out.append([x, np.sum( weights[ dat_here< x])/np.sum(weights)])
-         if opts.fname_lalinference and not (dat_LI == None) :
+         if opts.fname_lalinference and not (dat_LI is None) :
                 dat_out_LI.append([x, 1.0*sum( dat_LI<x)/len(dat_LI) ]) 
 #         if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) :
 #             dat_out_LI.append([x, (1.0*np.sum( samples_LI[ remap_ILE_2_LI[p] ]< x))/len(samples_LI) ])
@@ -1086,6 +1102,7 @@ except:
 ###
 print " ---- Corner 3: Bonus corner plots ---- "
 for indx in np.arange(len(extra_plot_coord_names)):
+ try:
     fig_base =None
     coord_names_here = extra_plot_coord_names[indx]
     dat_here = dat_extra_post[indx]
@@ -1097,7 +1114,7 @@ for indx in np.arange(len(extra_plot_coord_names)):
         dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names_here)), dtype=np.float64)
         for x in np.arange(len(coord_names_here)):
             tmp = extract_combination_from_LI(samples_LI, coord_names_here[x])
-            if not (tmp==None):
+            if not (tmp is None):
                 dat_mass_LI[:,x] = tmp
     for z in np.arange(len(coord_names_here)):    
         range_here.append( [np.min(dat_points_here[:, z]),np.max(dat_points_here[:, z])])
@@ -1139,7 +1156,8 @@ for indx in np.arange(len(extra_plot_coord_names)):
 
     plt.savefig("posterior_corner_extra_coords_"+str(indx)+".png"); plt.clf()
 
-
+ except:
+     print " Failed to generate corner for ", extra_plot_coord_names[indx]
 
 sys.exit(0)
 
