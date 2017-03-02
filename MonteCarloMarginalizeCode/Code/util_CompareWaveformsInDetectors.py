@@ -31,6 +31,7 @@ import NRWaveformCatalogManager as nrwf
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--maximize",action='store_true',help="Perform overlap instead of faithfulness test. Important if inconsistent times")
 parser.add_argument("--inj",default=None,type=str,help="Required. Arguments for 1. If used, NR will override intrinsic parameters")
 parser.add_argument("--inj2",default=None,type=str,help="Required. Arguments for 2. If used, NR will override intrinsic parameters")
 parser.add_argument("--group", default=None,help="inspiral XML file containing injection information.")
@@ -54,7 +55,7 @@ parser.add_argument("--lmax",default=2,type=int)
 parser.add_argument("--srate",type=int,default=16384,help="Sampling rate")
 parser.add_argument("--fmin",default=10,type=float)
 parser.add_argument("--fmax",default=2000,type=float,help="Maximum frequency in Hz, used for PSD integral.")
-parser.add_argument("--psd-file",default=None,help="PSD file (assumed for hanford)")
+parser.add_argument("--psd-file",default=None,action='append',help="PSD file")
 parser.add_argument("--psd",type=str,default="SimNoisePSDaLIGOZeroDetHighPower",help="psd name (attribute in lalsimulation).  SimNoisePSDiLIGOSRD, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, .SimNoisePSDiLIGOSRD... ")
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
 
@@ -73,16 +74,34 @@ df = 1./T_window
 fmin =opts.fmin
 fmaxSNR=1700
 analyticPSD_Q=True
+
+psd_dict = {}
+ifo_list = []
+
 psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower
 if opts.psd_file:
     analyticPSD_Q=False
-    print "Reading PSD for instrument %s from %s" % ("H1", opts.psd_file)
-    psd = lalsimutils.load_resample_and_clean_psd(opts.psd_file, "H1", df)
+
+    for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
+        print "Reading PSD for instrument %s from %s" % (inst, psdf)
+        psd_dict[inst] = lalsimutils.load_resample_and_clean_psd(psdf, inst, df)
+
+    ifo_list = psd_dict.keys()
+
 elif opts.psd and hasattr(lalsim, opts.psd):
+    ifo_list = ['H1','L1']
     psd = getattr(lalsim, opts.psd)
 
+
 fNyq = opts.srate/2.
-IP = lalsimutils.ComplexIP(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=psd,fMax=opts.fmax)
+IP=None
+IP_list = {}
+if opts.maximize:
+    for ifo in ifo_list:
+        IP_list[ifo]= lalsimutils.ComplexOverlap(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=psd_dict[ifo],fMax=opts.fmax)
+else:
+    for ifo in ifo_list:
+        IP_list[ifo] = lalsimutils.ComplexIP(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=psd_dict[ifo],fMax=opts.fmax)
 
 
 
@@ -93,8 +112,17 @@ IP = lalsimutils.ComplexIP(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=p
 P1_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj)
 nlines1  = len(P1_list)
 
+if nlines1 < 1:
+    print " No data in ", opts.inj
+
 P2_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj2)
 nlines2  = len(P2_list)
+
+if nlines2 < 1:
+    print " No data in ", opts.inj2
+
+
+
 
 ###
 ### Define functions to generate waveforms
@@ -118,7 +146,7 @@ def get_hF2(indx,ifo):
     P = P2_list[indx % nlines2].manual_copy() # looping
     P.fmin = opts.fmin
     P.radec =True
-    P.tref = P1_list[indx%nlines1].tref # copy, this is an allocated object
+    P.tref = P2_list[indx%nlines2].tref # copy, this is an allocated object
     P.deltaF = df
 #    P.fmin  = opts.fmin
     P.deltaT = 1./opts.srate
@@ -149,7 +177,7 @@ if group in nrwf.internal_ParametersAreExpressions.keys():
             if group == "Sequence-SXS-All":
                 nrwf.internal_FilenamesForParameters[group][param] =nrwf.internal_FilenamesForParameters[group][param].replace("Lev5", "Lev" +str(opts.use_spec_lev))
                 print " OVERRIDE OF SXS LEVEL : ", nrwf.internal_FilenamesForParameters[group][param]
-    wfP = nrwf.WaveformModeCatalog(opts.group, param, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, lmax=lmax,align_at_peak_l2_m2_emission=True,perturbative_extraction=opts.use_perturbative_extraction,perturbative_extraction_full=opts.use_perturbative_extraction_full,use_provided_strain=opts.use_provided_strain,reference_phase_at_peak=True)
+    wfP = nrwf.WaveformModeCatalog(opts.group, param, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, lmax=lmax,align_at_peak_l2_m2_emission=True,perturbative_extraction=opts.use_perturbative_extraction,perturbative_extraction_full=opts.use_perturbative_extraction_full,use_provided_strain=opts.use_provided_strain,reference_phase_at_peak=True,quiet=True)
     wfP.P.fmin  = opts.fmin
 
     def get_hF1_NR(indx,ifo):
@@ -194,11 +222,11 @@ if group2 in nrwf.internal_ParametersAreExpressions.keys():
         print " OVERRIDE OF SXS LEVEL : ", nrwf.internal_FilenamesForParameters[group2][param2]
     if opts.verbose:
         print "Importing ", group, param , " and ", group2, param2
-    wfP2 = nrwf.WaveformModeCatalog(opts.group2, param2, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, lmax=lmax,align_at_peak_l2_m2_emission=True,perturbative_extraction=opts.use_perturbative_extraction,use_provided_strain=opts.use_provided_strain2,reference_phase_at_peak=True)
+    wfP2 = nrwf.WaveformModeCatalog(opts.group2, param2, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, lmax=lmax,align_at_peak_l2_m2_emission=True,perturbative_extraction=opts.use_perturbative_extraction,use_provided_strain=opts.use_provided_strain2,reference_phase_at_peak=True,quiet=True)
     wfP2.P.fmin  = opts.fmin
 
     def get_hF2_NR(indx,ifo):
-        P_here = P2_list[indx % nlines1]
+        P_here = P2_list[indx % nlines2]
 
         wfP2.P.radec=True
         wfP2.P.m1 = P_here.m1
@@ -240,12 +268,26 @@ if group2 in nrwf.internal_ParametersAreExpressions.keys():
 
 n_evals = np.max([nlines1,nlines2])
 
+dat_out =[]
+
 for indx in np.arange(n_evals):
-    for ifo in ['H1','L1','V1']:
+  if True:
+#  try:
+    line = []
+    for ifo in ['H1','L1']: #,'V1']:
+        IP = IP_list[ifo]
         hF1 = return_hF1(indx,ifo)
         nm1 = IP.norm(hF1)
         hF2 = return_hF2(indx,ifo)
         nm2 = IP.norm(hF2)
+        val = np.abs(IP.ip(hF1,hF2)/nm1/nm2)
+        line.append(val)
 #        print ifo, IP.ip(hF1,hF2)/nm1/nm2, IP.ip(hF1,hF2),nm1, nm2
-        print  np.abs(IP.ip(hF1,hF2)/nm1/nm2),  
+        print  val,
     print
+    dat_out.append(line)
+#  except:
+  else:
+      print " Skipping ", indx
+
+np.savetxt("comparison_output.dat", np.array(dat_out))
