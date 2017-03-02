@@ -175,6 +175,8 @@ tex_dictionary  = {
   "s2x": "$\chi_{2,x}$",
   "s1y": "$\chi_{1,y}$",
   "s2y": "$\chi_{2,y}$",
+ "cos_theta1":"$\cos \\theta_1$",
+ "cos_theta2":"$\cos \\theta_2$",
  "chi1_perp": "$\chi_{1,\perp}$",
  "chi2_perp": "$\chi_{2,\perp}$",
   'chi1':'$|\chi_1|$',
@@ -520,6 +522,18 @@ class ChooseWaveformParams:
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return theta2
+        if p == 'cos_theta1':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            return np.cos(theta1)
+        if p == 'cos_theta2':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
+            return np.cos(theta2)
         if p == 'psiJ':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
@@ -701,6 +715,7 @@ class ChooseWaveformParams:
         P.init_via_system_frame(thetaJN=0.1, phiJL=0.1, theta1=0.1, theta2=0.1, phi12=0.1, chi1=1., chi2=1., psiJ=0.)
         """
         # Create basic parameters
+#        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
         self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
         # Define psiL via the deficit angle between Jhat in the radiation frame and the psiJ we want to achieve 
         Jref = self.TotalAngularMomentumAtReferenceOverM2()
