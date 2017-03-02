@@ -50,6 +50,7 @@ optp.add_option("--force-aligned",action='store_true')
 optp.add_option("--fmin",default=20,type=float)
 optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
 optp.add_option("--target-size",default=2000,type=int)
+optp.add_option("--use-extrinsic",action='store_true')
 opts, args = optp.parse_args()
 
 
@@ -75,9 +76,9 @@ for indx in np.arange(opts.target_size):
     d = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
     P = lalsimutils.ChooseWaveformParams(m1=m1,m2=m2,dist=d)
     if "time_maxl" in samples_in.dtype.names:
-     P.time = samples_in["time_maxl"][fac_reduce*indx]
+     P.tref = samples_in["time_maxl"][fac_reduce*indx]
     else:
-     P.time = samples_in["time"][fac_reduce*indx]
+     P.tref = samples_in["time"][fac_reduce*indx]
     P.fmin = opts.fmin
 #    P.fref = opts.fref
 #    P.fref = samples_in["flow"][fac_reduce*indx]  # REFERENCE FREQUENCY IS NOT YET RELIABLE
@@ -115,6 +116,13 @@ for indx in np.arange(opts.target_size):
          chi2=samples_in["a2"][fac_reduce*indx],
          psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
          )
+
+    # Add extrinsic parameters...NEED TO DOUBLE CHECK
+    if opts.use_extrinsic:  # note the Euler angles are already set
+            P.radec=True
+            P.theta = samples_in["dec"][fac_reduce*indx]
+            P.phi = samples_in["ra"][fac_reduce*indx]
+            P.dist = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
 
     if ros_debug:
         print " Target inclination (should be equal) ", P.incl, samples_in["iota"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
