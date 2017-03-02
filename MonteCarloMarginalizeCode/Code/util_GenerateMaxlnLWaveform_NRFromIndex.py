@@ -25,6 +25,7 @@ parser.add_argument("--run-dir",default=None, help="directory code was run in")
 parser.add_argument("--nr-group",default=None,help="group")
 parser.add_argument("--nr-param",default=None,help="param")
 parser.add_argument("--fname-indexed",default=None,help="File name of *.indexed file")
+parser.add_argument("--n-max",default=1e4,type=int,help="Override settings in command-single.sh")
 parser.add_argument("--event-time", type=np.float128,  default=None,help="Event time. If not present, will use event.log")
 parser.add_argument("--save-plots", default=False, action='store_true',help="saves waveform plot and hoft data")
 parser.add_argument("--use-NR", default=False, action='store_true', help="generate plots using NR data")
@@ -66,7 +67,8 @@ with open(opts.fname_indexed) as f:
          continue
      group = line[3]
      if not (group == opts.nr_group):
-         print " Bad group ", group
+         if opts.verbose:
+             print " Bad group ", group
          continue
      if not nrwf.internal_ParametersAreExpressions.has_key(group):
          continue
@@ -77,7 +79,8 @@ with open(opts.fname_indexed) as f:
          param = line[4]
 
      if not (param == opts.nr_param):
-         print " Bad param", param    # Problem: this can happen because of the lookup code! Equivalent physical parameters
+         if opts.verbose:
+             print " Bad param", param    # Problem: this can happen because of the lookup code! Equivalent physical parameters
          continue
 
      if len(line)<6:
@@ -145,12 +148,14 @@ with open(str(opts.run_dir)+"/command-single.sh",'r') as runfile:
     rf[rf.index("--output-file")+1]="ILE-single.xml.gz"  
     if "--n-copies" in rf:
         rf[rf.index("--n-copies")+1]=""
-        rf_submit = ' '.join(rf)
+    if "--n-max" in rf:
+        rf[rf.index("--n-max")+1]=" 1e5 "
+    rf_submit = ' '.join(rf)
     if "--n-copies" in rf:
         rf_submit=rf_submit.replace("--n-copies","")
         
-        print rf_submit
-        os.system(rf_submit)
+    print rf_submit
+    os.system(rf_submit)
        
 
 
@@ -163,7 +168,9 @@ with open(str(opts.run_dir)+"/command-single.sh",'r') as runfile:
     else:
         event_time = opts.event_time
     
-    cmd ="util_NRDumpDetectorResponse.py --inj "+infile+" --event 0 --t-ref "+str(event_time)+" --group "+opts.nr_group+' --param  '+str(opts.nr_params).replace(' ', '')+' --l ' + str(opts.l_max) + " --use-perturbative-extraction" 
+    infile = 'maxpt_ILE-single.xml.gz.xml.gz'
+
+    cmd ="util_NRDumpDetectorResponse.py --inj "+infile+" --event 0 --t-ref "+str(event_time)+" --group "+opts.nr_group+' --param  '+str(opts.nr_param).replace(' ', '')+' --l ' + str(opts.l_max) + " --use-perturbative-extraction" 
     if opts.no_memory:
         cmd = cmd+ " --no-memory "
     
