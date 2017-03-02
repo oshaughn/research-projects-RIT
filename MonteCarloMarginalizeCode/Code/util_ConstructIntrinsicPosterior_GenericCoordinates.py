@@ -147,6 +147,7 @@ parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to l
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
+parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
@@ -185,6 +186,10 @@ remap_ILE_2_LI = {
  "chi2":'a2',
  "cos_phiJL": 'cos_phiJL',
  "sin_phiJL": 'sin_phiJL',
+ "cos_theta1":'costilt1',
+ "cos_theta2":'costilt2',
+ "theta1":"tilt1",
+ "theta2":"tilt2",
   "xi":"chi_eff", 
   "chiMinus":"chi_minus", 
   "delta":"delta", 
@@ -469,7 +474,7 @@ print " Original data size = ", len(dat), dat.shape
 P_list = []
 dat_out =[]
  
-extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['chi1_perp', 's1z'], ['chi2_perp','s2z'], ['s1z','s2z'],['chi1','chi2']] # replot
+extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['chi1_perp', 's1z'], ['chi2_perp','s2z'], ['s1z','s2z'],['chi1','chi2'],['cos_theta1','cos_theta2']] # replot
 dat_out_low_level_coord_names = []
 dat_out_extra = []
 for item in extra_plot_coord_names:
@@ -656,6 +661,8 @@ for p in low_level_coord_names:
     ## Special case: mc : provide ability to override range
     if p == 'mc' and opts.mc_range:
         range_here = eval(opts.mc_range)
+    if p =='mtot' and opts.mtot_range:
+        range_here = eval(opts.mtot_range)
 
 
     sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=True)
@@ -1152,6 +1159,7 @@ for indx in np.arange(len(extra_plot_coord_names)):
         corner.corner( dat_mass_LI, weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI), color='r',labels=labels_tex,fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
 
+    print len(dat_points_here),len(Y)
     fig_base = corner.corner(dat_points_here,weights=np.ones(len(dat_points_here))*1.0/len(dat_points_here), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
 
     plt.savefig("posterior_corner_extra_coords_"+str(indx)+".png"); plt.clf()
