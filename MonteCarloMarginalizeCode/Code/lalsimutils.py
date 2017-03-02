@@ -843,7 +843,7 @@ class ChooseWaveformParams:
         print "distance =", self.dist / 1.e+6 / lsu_PC, "(Mpc)"
         print "reference orbital phase =", self.phiref
         print "polarization angle =", self.psi
-        print "time of coalescence =", float(self.tref)
+        print "time of coalescence =", float(self.tref),  " [GPS sec: ",  int(self.tref), ",  GPS ns ", (self.tref - int(self.tref))*1e9, "]"
         print "detector is:", self.detector
         if self.radec==False:
             print "Sky position relative to overhead detector is:"
