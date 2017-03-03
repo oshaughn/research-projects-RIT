@@ -148,6 +148,8 @@ parser.add_argument("--parameter", action='append', help="Parameters used as fit
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
+parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
+parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
@@ -253,6 +255,20 @@ if opts.fname_lalinference:
             remap_ILE_2_LI[key] = key  # trivial remapping
 
 downselect_dict = {}
+dlist = []
+dlist_ranges=[]
+if opts.downselect_parameter:
+    dlist = opts.downselect_parameter
+    dlist_ranges  = map(eval,opts.downselect_parameter_range)
+else:
+    dlist = []
+    dlist_ranges = []
+if len(dlist) != len(dlist_ranges):
+    print " downselect parameters inconsistent", dlist, dlist_ranges
+for indx in np.arange(len(dlist_ranges)):
+    downselect_dict[dlist[indx]] = dlist_ranges[indx]
+
+
 downselect_dict['chi1'] = [0,opts.chi_max]
 downselect_dict['chi2'] = [0,opts.chi_max]
 for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
@@ -542,6 +558,8 @@ for line in dat:
     if mc_here > mc_max:
         mc_max = mc_here
 
+Pref_default = P.copy()  # keep this around to fix the masses, if we don't have an inj
+
 dat_out = np.array(dat_out)
 dat_out_low_level_coord_names = np.array(dat_out_low_level_coord_names)
  # scale out mass units
@@ -776,6 +794,9 @@ weights = np.exp(lnL-lnLmax)*p/ps
 Pref = lalsimutils.ChooseWaveformParams()
 if  opts.inj_file is not None:
     Pref = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)[opts.event_num]
+else:
+    Pref.m1 = Pref_default.m1
+    Pref.m2 = Pref_default.m2
 Pref.fref = opts.fref  # not encoded in the XML!
 Pref.print_params()
 
@@ -881,8 +902,11 @@ for p in low_level_coord_names:
 labels_tex = map(lambda x: tex_dictionary[x], low_level_coord_names)
 fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,truths=truth_here) #,range=range_here)
 
+try:
 # Plot simulation points (X array): MAY NOT BE POSSIBLE if dimensionality is inconsistent
-fig_base = corner.corner(dat_out_low_level_coord_names,weights=np.ones(len(X))/len(X), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range_here=range_here)
+    fig_base = corner.corner(dat_out_low_level_coord_names,weights=np.ones(len(X))/len(X), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range_here=range_here)
+except:
+    print " Some ridiculous range error with the corner plots, again"
 
 if opts.fname_lalinference:
     corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs) #,range=range_here)
@@ -932,10 +956,12 @@ for indx_here in indx_list:
         # Test for downselect
         for p in downselect_dict.keys():
             val = Pgrid.extract_param(p) 
-            if val < downselect_dict[low_level_coord_names[indx]][0] or val > downselect_dict[low_level_coord_names[indx]][1]:
+            if p in ['mc','m1','m2','mtot']:
+                val = val/lal.MSUN_SI
+            if val < downselect_dict[p][0] or val > downselect_dict[p][1]:
                     include_item = False
-#                    if opts.verbose:
-#                        print " Sample: Skipping " , line
+                    if opts.verbose:
+                        print " Sample: Skipping " , line, ' due to ', p, val, downselect_dict[p]
 
             
 #        if opts.verbose:
