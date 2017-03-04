@@ -57,6 +57,7 @@ parser.add_argument("--fmin",default=10,type=float)
 parser.add_argument("--fmax",default=2000,type=float,help="Maximum frequency in Hz, used for PSD integral.")
 parser.add_argument("--psd-file",default=None,action='append',help="PSD file")
 parser.add_argument("--psd",type=str,default="SimNoisePSDaLIGOZeroDetHighPower",help="psd name (attribute in lalsimulation).  SimNoisePSDiLIGOSRD, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, .SimNoisePSDiLIGOSRD... ")
+parser.add_argument("--fname-output", default="comparison_output.dat",type=str)
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
 
 
@@ -83,7 +84,8 @@ if opts.psd_file:
     analyticPSD_Q=False
 
     for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
-        print "Reading PSD for instrument %s from %s" % (inst, psdf)
+        if opts.verbose: 
+            print "Reading PSD for instrument %s from %s" % (inst, psdf)
         psd_dict[inst] = lalsimutils.load_resample_and_clean_psd(psdf, inst, df)
 
     ifo_list = psd_dict.keys()
@@ -98,10 +100,10 @@ IP=None
 IP_list = {}
 if opts.maximize:
     for ifo in ifo_list:
-        IP_list[ifo]= lalsimutils.ComplexOverlap(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=psd_dict[ifo],fMax=opts.fmax)
+        IP_list[ifo]= lalsimutils.ComplexOverlap(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=psd_dict[ifo],fMax=opts.fmax,fLow=opts.fmin)
 else:
     for ifo in ifo_list:
-        IP_list[ifo] = lalsimutils.ComplexIP(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=psd_dict[ifo],fMax=opts.fmax)
+        IP_list[ifo] = lalsimutils.ComplexIP(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=psd_dict[ifo],fMax=opts.fmax,fLow=opts.fmin)
 
 
 
@@ -129,6 +131,7 @@ if nlines2 < 1:
 ###
 
 def get_hF1(indx,ifo):
+    global opts
     P = P1_list[indx % nlines1].manual_copy() # looping
     P.fmin = opts.fmin
     P.radec =True
@@ -138,11 +141,13 @@ def get_hF1(indx,ifo):
     P.deltaT = 1./opts.srate
     P.detector = ifo
     P.approx = lalsim.GetApproximantFromString(opts.approx)  # override the XML. Can screw you up (ref spins)
-#    P.print_params()
+    if opts.verbose:
+        P.print_params()
     hF = lalsimutils.non_herm_hoff(P)
     return hF
 
 def get_hF2(indx,ifo):
+    global opts
     P = P2_list[indx % nlines2].manual_copy() # looping
     P.fmin = opts.fmin
     P.radec =True
@@ -152,7 +157,8 @@ def get_hF2(indx,ifo):
     P.deltaT = 1./opts.srate
     P.detector = ifo
     P.approx = lalsim.GetApproximantFromString(opts.approx2)  # override the XML. Can screw you up
-#    P.print_params()
+    if opts.verbose:
+        P.print_params()
     hF = lalsimutils.non_herm_hoff(P)
     return hF
 
@@ -202,7 +208,8 @@ if group in nrwf.internal_ParametersAreExpressions.keys():
         wfP.P.detector = ifo
         wfP.P.approx = lalsim.GetApproximantFromString(opts.approx)  # override the XML. Can screw you up (ref spins)
 
-#        wfP.P.print_params()
+        if opts.verbose:
+            wfP.P.print_params()
 
         hF = wfP.non_herm_hoff()
         return hF
@@ -246,7 +253,8 @@ if group2 in nrwf.internal_ParametersAreExpressions.keys():
         wfP2.P.deltaT = 1./opts.srate
         wfP2.P.detector = ifo
         wfP2.P.approx = lalsim.GetApproximantFromString(opts.approx2)  # override the XML. Can screw you up (ref spins)
-#        wfP2.P.print_params()
+        if opts.verbose:
+            wfP2.P.print_params()
 
         hF = wfP2.non_herm_hoff()
 
@@ -290,4 +298,4 @@ for indx in np.arange(n_evals):
   else:
       print " Skipping ", indx
 
-np.savetxt("comparison_output.dat", np.array(dat_out))
+np.savetxt(opts.fname_output, np.array(dat_out))
