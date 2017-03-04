@@ -28,6 +28,7 @@ import lal
 import sys
 
 import NRWaveformCatalogManager as nrwf
+from matplotlib import pyplot as plt
 
 
 parser = argparse.ArgumentParser()
