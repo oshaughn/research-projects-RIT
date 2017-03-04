@@ -3016,20 +3016,24 @@ def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     new_psd.data.data = psd_intp
     return new_psd
 
-def load_resample_and_clean_psd(psd_fname, det, deltaF):
+def load_resample_and_clean_psd(psd_fname, det, deltaF,verbose=False):
     psd_here = get_psd_series_from_xmldoc(psd_fname, det)  # pylal type!
     tmp = psd_here.data
-    print "Sanity check reporting : pre-extension, min is ", np.min(tmp), " and maximum is ", np.max(tmp)
+    if verbose:
+        print "Sanity check reporting : pre-extension, min is ", np.min(tmp), " and maximum is ", np.max(tmp)
     fmin = psd_here.f0
     fmax = fmin + psd_here.deltaF*len(psd_here.data)-deltaF
-    print "PSD deltaF before interpolation %f" % psd_here.deltaF
+    if verbose:
+        print "PSD deltaF before interpolation %f" % psd_here.deltaF
     psd_here = resample_psd_series(psd_here, deltaF)
-    print "PSD deltaF after interpolation %f" % psd_here.deltaF
-    print "Post-extension the new PSD has 1/df = ", 1./psd_here.deltaF, " (data 1/df = ", 1./deltaF, ") and length ", len(psd_here.data.data)
+    if verbose:
+        print "PSD deltaF after interpolation %f" % psd_here.deltaF
+        print "Post-extension the new PSD has 1/df = ", 1./psd_here.deltaF, " (data 1/df = ", 1./deltaF, ") and length ", len(psd_here.data.data)
     tmp = psd_here.data.data
     nBad = np.argmin(tmp[np.nonzero(tmp)])
     fBad = nBad*deltaF
-    print "Post-extension sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), "(at n=", np.argmin(tmp[np.nonzero(tmp)])," or f=", fBad, ")  and maximum is ", np.max(psd_here.data.data)
+    if verbose:
+        print "Post-extension sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), "(at n=", np.argmin(tmp[np.nonzero(tmp)])," or f=", fBad, ")  and maximum is ", np.max(psd_here.data.data)
     return psd_here
 
 
