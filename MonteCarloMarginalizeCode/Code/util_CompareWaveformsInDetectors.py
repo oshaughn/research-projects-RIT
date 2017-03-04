@@ -59,7 +59,7 @@ parser.add_argument("--psd-file",default=None,action='append',help="PSD file")
 parser.add_argument("--psd",type=str,default="SimNoisePSDaLIGOZeroDetHighPower",help="psd name (attribute in lalsimulation).  SimNoisePSDiLIGOSRD, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, .SimNoisePSDiLIGOSRD... ")
 parser.add_argument("--fname-output", default="comparison_output.dat",type=str)
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
-
+parser.add_argument("--save-plots",action="store_true")
 
 opts = parser.parse_args()
 
@@ -292,8 +292,17 @@ for indx in np.arange(n_evals):
         line.append(val)
 #        print ifo, IP.ip(hF1,hF2)/nm1/nm2, IP.ip(hF1,hF2),nm1, nm2
         print  val,
+        if opts.save_plots:
+            print " --- Saving plot for ", ifo, " ----"
+            hT1 = lalsimutils.DataInverseFourier(hF1)
+            hT2 = lalsimutils.DataInverseFourier(hF2)
+            tvals = lalsimutils.evaluate_tvals(hT1) 
+            plt.plot(tvals,np.real(hT1.data.data),'r')
+            plt.plot(tvals,np.real(hT2.data.data),'g')
+            plt.savefig(opts.fname_output+"_fig_"+str(indx)+"_"+ifo+".png"); plt.clf()
     print
     dat_out.append(line)
+
 #  except:
   else:
       print " Skipping ", indx
