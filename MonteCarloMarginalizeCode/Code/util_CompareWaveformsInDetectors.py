@@ -61,6 +61,7 @@ parser.add_argument("--psd",type=str,default="SimNoisePSDaLIGOZeroDetHighPower",
 parser.add_argument("--fname-output", default="comparison_output.dat",type=str)
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
 parser.add_argument("--save-plots",action="store_true")
+parser.add_argument("--tref",default=None,type=float)
 
 opts = parser.parse_args()
 
@@ -117,6 +118,10 @@ nlines1  = len(P1_list)
 
 if nlines1 < 1:
     print " No data in ", opts.inj
+
+tref = P1_list[0].tref # default
+if not(opts.tref is None):
+    tref = opts.tref
 
 P2_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj2)
 nlines2  = len(P2_list)
@@ -187,6 +192,8 @@ if group in nrwf.internal_ParametersAreExpressions.keys():
     wfP = nrwf.WaveformModeCatalog(opts.group, param, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, lmax=lmax,align_at_peak_l2_m2_emission=True,perturbative_extraction=opts.use_perturbative_extraction,perturbative_extraction_full=opts.use_perturbative_extraction_full,use_provided_strain=opts.use_provided_strain,reference_phase_at_peak=True,quiet=True)
     wfP.P.fmin  = opts.fmin
 
+    print " WARNING: NR orientation parameters differ, so the waveform CANNOT be identical and will generally differ in at least orbital phase "
+
     def get_hF1_NR(indx,ifo):
         P_here = P1_list[indx % nlines1]
 
@@ -233,6 +240,7 @@ if group2 in nrwf.internal_ParametersAreExpressions.keys():
     wfP2 = nrwf.WaveformModeCatalog(opts.group2, param2, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, lmax=lmax,align_at_peak_l2_m2_emission=True,perturbative_extraction=opts.use_perturbative_extraction,use_provided_strain=opts.use_provided_strain2,reference_phase_at_peak=True,quiet=True)
     wfP2.P.fmin  = opts.fmin
 
+    print " WARNING: NR orientation parameters differ, so the waveform CANNOT be identical and will generally differ in at least orbital phase "
     def get_hF2_NR(indx,ifo):
         P_here = P2_list[indx % nlines2]
 
@@ -295,12 +303,39 @@ for indx in np.arange(n_evals):
         print  val,
         if opts.save_plots:
             print " --- Saving plot for ", ifo, " ----"
+            label1 = opts.approx
+            label2 = opts.approx2
             hT1 = lalsimutils.DataInverseFourier(hF1)
             hT2 = lalsimutils.DataInverseFourier(hF2)
+            if not (opts.group is None):
+                npts = hT1.data.length
+                T_wave =npts*hT1.deltaT
+                hT1 = lalsimutils.DataRollTime(hT1,-0.5*T_wave/2)
+                print " Epoch1 ", float(hT1.epoch)
+                label1 = group1+":"+param1
+            if not (opts.group2 is None):
+                print " ---> Rolling to fix FT centering <-- "
+                npts = hT2.data.length
+                T_wave =npts*hT2.deltaT
+                hT2 = lalsimutils.DataRollTime(hT2,-0.5*T_wave/2)
+                print " Epoch2 ", hT2.epoch
+                label2 = group2+":"+param2
             tvals = lalsimutils.evaluate_tvals(hT1) 
-            plt.plot(tvals,np.real(hT1.data.data),'r')
-            plt.plot(tvals,np.real(hT2.data.data),'g')
-            plt.savefig(opts.fname_output+"_fig_"+str(indx)+"_"+ifo+".png"); plt.clf()
+            tvals2 = lalsimutils.evaluate_tvals(hT2) 
+            print tvals
+            print tvals2
+#            tref = float(hT1.epoch)
+            plt.plot(tvals -tref,np.real(hT1.data.data),'r',label=label1)
+            plt.plot(tvals2 -tref,np.real(hT2.data.data),'g',label=label2)
+            plt.legend()
+            plt.savefig(opts.fname_output+"_fig_"+str(indx)+"_"+ifo+".png"); 
+            
+            # Estimate peak location, so plot can be focused on detail
+            tmax_offset =(tvals- tref)[ np.argmax( np.abs(hT1.data.data))]  
+                
+            plt.xlim(tmax_offset-0.15, tmax_offset+0.05)  # NR scale, focus on merger
+            plt.savefig(opts.fname_output+"_fig_"+str(indx)+"_"+ifo+"_detail.png"); 
+            plt.clf()
     print
     dat_out.append(line)
 
