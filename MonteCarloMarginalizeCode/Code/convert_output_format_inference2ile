@@ -106,6 +106,9 @@ for indx in np.arange(opts.target_size):
         # Aligned spin model
         P.s1z = samples_in["a1z"][fac_reduce*indx]
         P.s2z = samples_in["a2z"][fac_reduce*indx]
+        P.psi = samples_in["psi"][fac_reduce*indx]
+        if "theta_jn" in samples_in.dtype.names:
+                P.incl = samples_in["theta_jn"][fac_reduce*indx]
     else:
       P.init_via_system_frame( 
          thetaJN=samples_in["theta_jn"][fac_reduce*indx],
