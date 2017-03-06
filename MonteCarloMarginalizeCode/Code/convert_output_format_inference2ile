@@ -80,15 +80,18 @@ for indx in np.arange(opts.target_size):
      P.tref = samples_in["time_maxl"][fac_reduce*indx]
     else:
      P.tref = samples_in["time"][fac_reduce*indx]
-    P.fmin = opts.fmin
+#    P.fmin = opts.fmin
 #    P.fref = opts.fref
-#    P.fref = samples_in["flow"][fac_reduce*indx]  # REFERENCE FREQUENCY IS NOT YET RELIABLE
+    P.fmin =  samples_in["flow"][fac_reduce*indx]  # REFERENCE FREQUENCY IS NOT YET RELIABLE
     P.fref = samples_in["f_ref"][fac_reduce*indx]  # a field now !  MAY NOT BE RELIABLE
-    if "phase_maxl" in samples_in.dtype.names:
+    if "phi_orb" in samples_in.dtype.names:
+     P.phiref = samples_in["phi_orb"][fac_reduce*indx]
+    elif "phase_maxl" in samples_in.dtype.names:
      P.phiref =samples_in["phase_maxl"][fac_reduce*indx]
     elif "phase" in samples_in.dtype.names:
      P.phiref = samples_in["phase"][fac_reduce*indx]
     else:
+     print samples_in.dtype.names
      P.phiref = 0  # does not actually matter
     P.approx = lalsim.GetApproximantFromString(opts.approx)
     if "phi_jl" in samples_in.dtype.names:
@@ -123,16 +126,20 @@ for indx in np.arange(opts.target_size):
 
     # Add extrinsic parameters...NEED TO DOUBLE CHECK
     if opts.use_extrinsic:  # note the Euler angles are already set
-            P.radec=True
+            P.radec = True
             P.theta = samples_in["dec"][fac_reduce*indx]
-            P.phi = samples_in["ra"][fac_reduce*indx]
-            P.dist = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
+            P.phi   = samples_in["ra"][fac_reduce*indx]
+            P.dist  = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
 
     if ros_debug:
-        print " Target inclination (should be equal) ", P.incl, samples_in["iota"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
+        if 'iota' in samples_in.dtype.names:
+                print " Target inclination (should be equal) ", P.incl, samples_in["iota"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
+        elif 'theta_jn' in samples_in.dtype.names and P.approx == 'SEOBNRv2':
+                print " Target inclination (should be equal) ", P.incl, samples_in["theta_jn"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
         print " Target spinz1 (should be equal)", P.s1z, samples_in["a1z"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
         print " Target spin2z ", P.s2z, samples_in["a2z"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
         print " Target chieff ", (P.s1z*P.m1+P.s2z*P.m2)/(P.m1+P.m2), samples_in["chi_eff"][fac_reduce*indx]  # uses current coordinate system/ modern one
+        print " Target ra, dec ", [P.theta, samples_in["dec"][fac_reduce*indx]], [P.phi, samples_in["ra"][fac_reduce*indx]]
     if opts.force_aligned:  
         # assumes in L frame, not radiation frame!
         P.s1x = P.s1y=0
