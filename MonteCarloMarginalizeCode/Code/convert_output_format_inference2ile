@@ -102,7 +102,7 @@ for indx in np.arange(opts.target_size):
          chi2=samples_in["a2"][fac_reduce*indx],
          psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
          )
-    elif P.approx == lalsim.SEOBNRv2 or  P.approx == lalsimutils.lalSEOBv4: # .SEOBNRv4:
+    elif opts.approx == "SEOBNRv2" or opts.approx == "SEOBNRv4" or  P.approx == lalsim.SEOBNRv2 or  P.approx == lalsimutils.lalSEOBv4: # .SEOBNRv4:
         # Aligned spin model
         P.s1z = samples_in["a1z"][fac_reduce*indx]
         P.s2z = samples_in["a2z"][fac_reduce*indx]
