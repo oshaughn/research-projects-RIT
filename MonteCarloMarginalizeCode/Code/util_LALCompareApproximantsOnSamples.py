@@ -95,11 +95,14 @@ for indx in np.arange(len(samples_in["m1"])):
      P.time = samples_in["time"][indx]
     P.fmin = samples_in["flow"][indx]
     P.fref = samples_in["f_ref"][indx]  # a field now !  MAY NOT BE RELIABLE
-    if "phase_maxl" in samples_in.dtype.names:
+    if "phi_orb" in samples_in.dtype.names:
+     P.phiref = samples_in["phi_orb"][fac_reduce*indx]
+    elif "phase_maxl" in samples_in.dtype.names:
      P.phiref =samples_in["phase_maxl"][fac_reduce*indx]
     elif "phase" in samples_in.dtype.names:
      P.phiref = samples_in["phase"][fac_reduce*indx]
     else:
+     print samples_in.dtype.names
      P.phiref = 0  # does not actually matter
     P.approx = lalsim.GetApproximantFromString(opts.approx)
     if "phi_jl" in samples_in.dtype.names and 'theta1' in samples_in.dtype.names:
@@ -117,6 +120,10 @@ for indx in np.arange(len(samples_in["m1"])):
         # Aligned spin model
         P.s1z = samples_in["a1z"][fac_reduce*indx]
         P.s2z = samples_in["a2z"][fac_reduce*indx]
+        P.psi = samples_in["psi"][fac_reduce*indx]
+        if "theta_jn" in samples_in.dtype.names:
+                P.incl = samples_in["theta_jn"][fac_reduce*indx]
+
     elif 'theta1' in 'theta1' in samples_in.dtype.names:
       P.init_via_system_frame( 
          thetaJN=samples_in["theta_jn"][fac_reduce*indx],
