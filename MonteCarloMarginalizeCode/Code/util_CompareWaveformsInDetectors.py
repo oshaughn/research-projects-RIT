@@ -54,7 +54,9 @@ parser.add_argument("--approx", default="EOBNRv2HM", help="approximant to use fo
 parser.add_argument("--approx2", default="EOBNRv2HM", help="approximant to use for comparison")
 parser.add_argument("--lmax",default=2,type=int)
 parser.add_argument("--srate",type=int,default=16384,help="Sampling rate")
-parser.add_argument("--fmin",default=10,type=float)
+parser.add_argument("--fmin",default=10,type=float,help="fmin for overlap integral")
+parser.add_argument("--fmin-template1",default=None,type=float,help="Override template frequency 1 (e.g., for NR XML files)")
+parser.add_argument("--fmin-template2",default=None,type=float,help="Override template frequency 1 (e.g., for NR XML files)")
 parser.add_argument("--fmax",default=2000,type=float,help="Maximum frequency in Hz, used for PSD integral.")
 parser.add_argument("--psd-file",default=None,action='append',help="PSD file")
 parser.add_argument("--psd",type=str,default="SimNoisePSDaLIGOZeroDetHighPower",help="psd name (attribute in lalsimulation).  SimNoisePSDiLIGOSRD, lalsim.SimNoisePSDaLIGOZeroDetHighPower, lalsimutils.Wrapper_AdvLIGOPsd, .SimNoisePSDiLIGOSRD... ")
@@ -119,7 +121,7 @@ nlines1  = len(P1_list)
 if nlines1 < 1:
     print " No data in ", opts.inj
 
-tref = P1_list[0].tref # default
+tref = float( (P1_list[0]).tref ) # default
 if not(opts.tref is None):
     tref = opts.tref
 
@@ -139,7 +141,9 @@ if nlines2 < 1:
 def get_hF1(indx,ifo):
     global opts
     P = P1_list[indx % nlines1].manual_copy() # looping
-    P.fmin = opts.fmin
+    if not (opts.fmin_template1 is None):
+        P.fmin = opts.fmin_template1
+#    P.fmin = opts.fmin
     P.radec =True
     P.tref = P1_list[indx%nlines1].tref # copy, this is an allocated object
     P.deltaF = df
@@ -155,7 +159,9 @@ def get_hF1(indx,ifo):
 def get_hF2(indx,ifo):
     global opts
     P = P2_list[indx % nlines2].manual_copy() # looping
-    P.fmin = opts.fmin
+    if not (opts.fmin_template2 is None):
+        P.fmin = opts.fmin_template2
+#    P.fmin = opts.fmin
     P.radec =True
     P.tref = P2_list[indx%nlines2].tref # copy, this is an allocated object
     P.deltaF = df
@@ -322,8 +328,6 @@ for indx in np.arange(n_evals):
                 label2 = group2+":"+param2
             tvals = lalsimutils.evaluate_tvals(hT1) 
             tvals2 = lalsimutils.evaluate_tvals(hT2) 
-            print tvals
-            print tvals2
 #            tref = float(hT1.epoch)
             plt.plot(tvals -tref,np.real(hT1.data.data),'r',label=label1)
             plt.plot(tvals2 -tref,np.real(hT2.data.data),'g',label=label2)
