@@ -109,6 +109,7 @@ optp.add_option("--nr-hybrid-method",default="taper_add",help="Hybridization met
 optp.add_option("--rom-group",default=None)
 optp.add_option("--rom-param",default=None)
 optp.add_option("--rom-use-basis",default=False,action='store_true')
+optp.add_option("--rom-limit-basis-size-to",default=None,type=int)
 optp.add_option("--rom-integrate-intrinsic",default=False,action='store_true',help='Integrate over intrinsic variables. REQUIRES rom_use_basis at present. ONLY integrates in mass ratio as present')
 optp.add_option("--parameter",action='append')
 optp.add_option("--parameter-range",action='append',type=str)
@@ -200,6 +201,7 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid
         rom_group=opts.rom_group,
         rom_param=opts.rom_param,
         rom_use_basis=opts.rom_use_basis,
+        rom_limit_basis_size_to=opts.rom_limit_basis_size_to,
         rom_integrate_intrinsic=opts.rom_integrate_intrinsic,
         parameter=opts.parameter,
         parameter_range=opts.parameter_range,
