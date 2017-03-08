@@ -84,6 +84,8 @@ for indx in np.arange(opts.target_size):
 #    P.fref = opts.fref
     P.fmin =  samples_in["flow"][fac_reduce*indx]  # REFERENCE FREQUENCY IS NOT YET RELIABLE
     P.fref = samples_in["f_ref"][fac_reduce*indx]  # a field now !  MAY NOT BE RELIABLE
+    if P.approx == lalsim.SEOBNRv3:
+            P.fref = P.fmin
     if "phi_orb" in samples_in.dtype.names:
      P.phiref = samples_in["phi_orb"][fac_reduce*indx]
     elif "phase_maxl" in samples_in.dtype.names:
@@ -105,6 +107,7 @@ for indx in np.arange(opts.target_size):
          chi2=samples_in["a2"][fac_reduce*indx],
          psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
          )
+      P.psi = samples_in["psi"][fac_reduce*indx]  # OVERRIDE the low-level choices I make in 'init_via_system_frame
     elif opts.approx == "SEOBNRv2" or opts.approx == "SEOBNRv4" or  P.approx == lalsim.SEOBNRv2 or  P.approx == lalsimutils.lalSEOBv4: # .SEOBNRv4:
         # Aligned spin model
         P.s1z = samples_in["a1z"][fac_reduce*indx]
@@ -123,6 +126,7 @@ for indx in np.arange(opts.target_size):
          chi2=samples_in["a2"][fac_reduce*indx],
          psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
          )
+      P.psi = samples_in["psi"][fac_reduce*indx]  # OVERRIDE the low-level choices I make in 'init_via_system_frame
 
     # Add extrinsic parameters...NEED TO DOUBLE CHECK
     if opts.use_extrinsic:  # note the Euler angles are already set
