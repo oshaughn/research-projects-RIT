@@ -134,6 +134,7 @@ class WaveformModeCatalog:
         self.group  = group
         self.param = param 
         self.deltaToverM =0
+        self.lmax =lmax
         self.fOrbitLower =0.    #  Used to clean results.  Based on the phase of the 22 mode
         self.fMinMode ={}
         self.sur_dict = {}
@@ -148,6 +149,7 @@ class WaveformModeCatalog:
         self.modes_available = []
         # Load surrogates from a mode-by-mode basis, and their conjugates
         for mode in raw_modes:
+          if mode[0]<=self.lmax:
             print " Loading mode ", mode
             self.modes_available.append(mode)
             self.sur_dict[mode] = self.sur.single_mode(mode)
