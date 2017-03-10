@@ -1094,11 +1094,24 @@ if opts.output_file:
         if not opts.rom_integrate_intrinsic:
             samples["mass1"] = numpy.ones(samples["psi"].shape)*m1 # opts.mass1
             samples["mass2"] = numpy.ones(samples["psi"].shape)*m2 # opts.mass2
+            samples["spin1x"] =numpy.ones(samples["psi"].shape)*P.s1x
+            samples["spin1y"] =numpy.ones(samples["psi"].shape)*P.s1y
+            samples["spin1z"] =numpy.ones(samples["psi"].shape)*P.s1z
+            samples["spin2x"] =numpy.ones(samples["psi"].shape)*P.s2x
+            samples["spin2y"] =numpy.ones(samples["psi"].shape)*P.s2y
+            samples["spin2z"] =numpy.ones(samples["psi"].shape)*P.s2z
         else:
             mtot = m1+m2
             # convention: q =m2/m1 < 1
             samples["mass1"] = mtot/(1+samples['q'])
             samples["mass2"] = mtot*samples['q']/(1+samples['q'])
+            # presently, ROM is zero spin
+            samples["spin1x"] =numpy.ones(samples["psi"].shape)*0
+            samples["spin1y"] =numpy.ones(samples["psi"].shape)*0
+            samples["spin1z"] =numpy.ones(samples["psi"].shape)*0
+            samples["spin2x"] =numpy.ones(samples["psi"].shape)*0
+            samples["spin2y"] =numpy.ones(samples["psi"].shape)*0
+            samples["spin2z"] =numpy.ones(samples["psi"].shape)*0
         xmlutils.append_samples_to_xmldoc(xmldoc, samples)
     # FIXME: likelihood or loglikehood
     # FIXME: How to encode variance?
