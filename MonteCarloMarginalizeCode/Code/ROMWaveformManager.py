@@ -144,7 +144,7 @@ class WaveformModeCatalog:
         self.parameter_convert = {}
         self.nbasis_per_mode ={}   # number of basis functions
 
-        self.sur =  gws.EvaluateSurrogate(dirBaseFiles +'/'+group+param) # straight up filename.  MODIFY to change to use negative modes
+        self.sur =  gws.EvaluateSurrogate(dirBaseFiles +'/'+group+param,use_orbital_plane_symmetry=reflection_symmetric) # straight up filename.  MODIFY to change to use negative modes
         raw_modes = self.sur.all_model_modes()
         self.modes_available = []
         # Load surrogates from a mode-by-mode basis, and their conjugates
