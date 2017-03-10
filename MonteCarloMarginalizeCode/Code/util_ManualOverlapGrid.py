@@ -425,6 +425,7 @@ Pbase = P.copy()
 
 hfBase = None
 if opts.skip_overlap:
+    print " ---- NO WAVEFORM GENERATION ---- "
     hfBase = None
     IP=lalsimutils.InnerProduct()  # Default, so IP.deltaF code etc does not need to be wrapped
 else:
