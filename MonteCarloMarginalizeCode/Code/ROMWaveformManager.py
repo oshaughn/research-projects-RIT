@@ -341,7 +341,9 @@ class WaveformModeCatalog:
     def basis_oft(self,  P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,return_numpy=False):
         m_total_s = MsunInSec*(P.m1+P.m2)/lal.MSUN_SI
         # Create a suitable set of time samples.  Zero pad to 2^n samples.
-        T_estimated =  20 # FIXME. Time in seconds
+        T_estimated = np.abs(self.sur_dict[(2,2)].tmin)*m_total_s
+        print " Estimated duration ", T_estimated
+#        T_estimated =  20 # FIXME. Time in seconds
         npts=0
         if not force_T:
             npts_estimated = int(T_estimated/deltaT)
