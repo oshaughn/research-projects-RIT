@@ -109,7 +109,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     P.deltaF = data_dict[detectors[0]].deltaF
     if not( ROM_group is None) and not (ROM_param is None):
        # For ROM, use the ROM basis. Note that hlmoff -> basis_off henceforth
-       acatHere= romwf.WaveformModeCatalog(ROM_group,ROM_param,max_nbasis_per_mode=ROM_limit_basis_size)
+       acatHere= romwf.WaveformModeCatalog(ROM_group,ROM_param,max_nbasis_per_mode=ROM_limit_basis_size,lmax=Lmax)
        if ROM_use_basis:
             bT = acatHere.basis_oft(P,return_numpy=False,force_T=1./P.deltaF)
             # Fake names, to re-use the code below.  
