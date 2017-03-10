@@ -41,6 +41,9 @@ for fname in args:
 
     for indx in np.arange(len(points)):
         pt = points[indx]
+        if not(hasattr(pt,'spin1x')):  # no spins were provided. That means zero spin. Initialize to avoid an error
+            pt.spin1x = pt.spin1y=pt.spin1z = 0
+            pt.spin2x = pt.spin2y=pt.spin2z = 0
         print pt.mass1, pt.mass2, pt.spin1x, pt.spin1y, pt.spin1z, pt.spin2x, pt.spin2y, pt.spin2z, mc(pt.mass1,pt.mass2), eta(pt.mass1,pt.mass2), \
             sim_id[indx], \
             Nmax, \
