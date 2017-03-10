@@ -63,6 +63,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
     f_list=f0+f_linear + f_quad
     n_params_model = len(f_list)
     if verbose:
+        print " ---- Dimension:  --- ", n_params_model
         print " ---- index pattern (paired only; for manual identification of quadratic terms) --- "
         print indx_lookup
     # if verbose:
