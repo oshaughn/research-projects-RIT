@@ -149,7 +149,7 @@ with open(str(opts.run_dir)+"/command-single.sh",'r') as runfile:
     if "--n-copies" in rf:
         rf[rf.index("--n-copies")+1]=""
     if "--n-max" in rf:
-        rf[rf.index("--n-max")+1]=" 1e5 "
+        rf[rf.index("--n-max")+1]=" 10000 "
     rf_submit = ' '.join(rf)
     if "--n-copies" in rf:
         rf_submit=rf_submit.replace("--n-copies","")
