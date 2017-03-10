@@ -41,7 +41,7 @@ T_window = opts.seglen
 deltaT = 1./4096
 
 bNoInteractivePlots=True # default
-fig_extension = '.jpg'
+fig_extension = '.png'
 try:
     import matplotlib
     print " Matplotlib backend ", matplotlib.get_backend()
@@ -49,7 +49,7 @@ try:
         if opts.save_plots:
             print "  OSX without interactive plots"
             bNoInteractivePlots=True
-            fig_extension='.jpg'
+            fig_extension='.png'
         else:  #  Interactive plots
             print "  OSX with interactive plots"
             bNoInteractivePlots=False
