@@ -117,7 +117,25 @@ def ConvertWPtoSurrogateParams(P,**kwargs):
     """
 
     q = P.m2/P.m1
+#    return {"q":1./q}
     return 1./q
+
+def ConvertWPtoSurrogateParamsPrecessing(P,**kwargs):
+    """
+    Takes P, returns arguments of the form usually used in gwsurrogate.
+    (currently, just returns 1/q = P.m1/P.m1, the mass ratio parameter usually accepted)
+    """
+
+    q = P.m2/P.m1
+    chi1 = P.extract_param('chi1')
+    theta1=phi1 =0
+    if np.abs(chi1)>1e-5:
+        theta1 = np.arccos( P.s1z/chi1)
+        phi1 = np.arctan2(P.s1x,P.s1y)
+#    return {"q":1./q, "chi1": chi1,"theta1":theta1,"phi1":phi1,"chi2z":P.s2z}
+    val =np.array([1./q, chi1,theta1,phi1,P.s2z])
+    return val
+
 
 
 class WaveformModeCatalog:
@@ -125,16 +143,26 @@ class WaveformModeCatalog:
     Class containing ROM model.
     API is currently **unsafe** for precessing binaries (=ambiguous reference time)
     Reference for underlying notation:   Eq. (30) in http://arxiv.org/pdf/1308.3565v2
+       group
+       param
+       lmax                          # specifies modes to attempt to load. Not guaranteed to/required to find all.
+       strain_basis_functions_dimensionless   # don't recall
+       mode_list_to_load        # ability to constrain the mode list.  Passed directly to low-level code
+       build_fourier_time_window  # window for FT. NOT USED
+       reflection_symmetric     # reflection symmetry used
+       max_nbasis_per_mode   # constrain basis size
+       coord_names_internal    # coordinate names used by the basis.  FUTURE
     """
 
 
     def __init__(self, group ,param, lmax=2, 
                  strain_basis_functions_dimensionless=None,
-                 mode_list_to_load=[(2,2)],build_fourier_time_window=1000,reflection_symmetric=True,max_nbasis_per_mode=None):
+                 mode_list_to_load=None,build_fourier_time_window=1000,reflection_symmetric=True,max_nbasis_per_mode=None,coord_names_internal=['q']):
         self.group  = group
         self.param = param 
         self.deltaToverM =0
         self.lmax =lmax
+        self.coord_names=coord_names_internal
         self.fOrbitLower =0.    #  Used to clean results.  Based on the phase of the 22 mode
         self.fMinMode ={}
         self.sur_dict = {}
@@ -144,7 +172,36 @@ class WaveformModeCatalog:
         self.parameter_convert = {}
         self.nbasis_per_mode ={}   # number of basis functions
 
-        self.sur =  gws.EvaluateSurrogate(dirBaseFiles +'/'+group+param,use_orbital_plane_symmetry=reflection_symmetric) # straight up filename.  MODIFY to change to use negative modes
+        lm_list=None
+        lm_list = []
+        if rosDebug:
+            print " WARNING: Using a restricted mode set requires a custom modification to gwsurrogate "
+        Lmax =lmax
+        for l in np.arange(2,Lmax+1):
+            for m in np.arange(-l,l+1):
+                if m<0 and reflection_symmetric:
+                    continue
+                lm_list.append( (l,m))
+        if not(mode_list_to_load is None):
+            lm_list = mode_list_to_load  # overrride
+        if rosDebug:
+            print " ROMWaveformManager: Loading restricted mode set ", lm_list
+
+        my_converter = ConvertWPtoSurrogateParams
+        if 'NRSur4d' in param:
+            my_converter = ConvertWPtoSurrogateParamsPrecessing
+        # PENDING: General-purpose interface, based on the coordinate string specified. SHOULD look up these names from the surrogate!
+        def convert_coords(P):
+            vals_out = np.zeros(len(coord_names_internal))
+            for indx in np.arange(len(coord_names_internal)):
+                vals_out[indx] = P.extract_param( coord_names_internal[indx])
+                if coord_names_internal[indx] == 'q':
+                    vals_out[indx] = 1./vals_out[indx]
+                return vals_out
+
+
+        self.sur =  gws.EvaluateSurrogate(dirBaseFiles +'/'+group+param,use_orbital_plane_symmetry=reflection_symmetric, ell_m=lm_list) # straight up filename.  MODIFY to change to use negative modes
+
         raw_modes = self.sur.all_model_modes()
         self.modes_available = []
         # Load surrogates from a mode-by-mode basis, and their conjugates
@@ -156,7 +213,7 @@ class WaveformModeCatalog:
             self.post_dict[mode] = sur_identity
             self.post_dict_complex[mode]  = lambda x: x   # to mode
             self.post_dict_complex_coef[mode] = lambda x:x  #  to coefficients.
-            self.parameter_convert[mode] = ConvertWPtoSurrogateParams   # default conversion routine
+            self.parameter_convert[mode] =  my_converter #  ConvertWPtoSurrogateParams   # default conversion routine
             print ' mode ', mode, self.sur_dict[mode].B.shape
             self.nbasis_per_mode[mode] = (self.sur_dict[mode].B.shape)[1]
             if max_nbasis_per_mode != None  and self.sur_dict[mode].surrogate_mode_type == 'waveform_basis':
@@ -197,8 +254,17 @@ class WaveformModeCatalog:
         t = self.sur_dict[(2,2)].times  # end time
         self.ToverMmin = t.min()
         self.ToverMmax = t.max()
-        t, hp, hc = self.sur_dict[(2,2)](q=1);
-        self.ToverM_peak = t[np.argmax(np.abs(hp**2+hc**2))]  # discrete maximum time
+        P=lalsimutils.ChooseWaveformParams() # default is q=1 object
+        params_tmp = self.parameter_convert[(2,2)](P)
+        if rosDebug:
+            print " Passing temporary parameters ", params_tmp, " to find the peak time default "
+        # print dir(self.sur_dict[(2,2)])
+        # print self.sur_dict[(2,2)].__dict__.keys()
+        # print self.sur_dict[(2,2)].parameterization
+
+#        t, hp, hc = self.sur_dict[(2,2)]( **params_tmp  );   # calculate merger time -- addresses conventions on peak time location, and uses named arguments
+        t, hp, hc = self.sur_dict[(2,2)]( params_tmp  );   # calculate merger time -- addresses conventions on peak time location, and uses named arguments
+        self.ToverM_peak = t[np.argmax(np.abs(hp**2+hc**2))]  # discrete maximum time. Sanity check
         if rosDebug:
             print " Peak time for ROM ", self.ToverM_peak
 
@@ -444,7 +510,7 @@ class WaveformModeCatalog:
                 print " surrogate natural parameter is ", params_surrogate
 
             # New version: gw-surrogate-0.5
-            h_EIM = self.sur_dict[mode]._eim_coeffs(params_surrogate, 'waveform_basis')
+            h_EIM = self.sur_dict[mode].eim_coeffs(params_surrogate, 'waveform_basis')
             # OLD VERSION: gw-surrogate-0.4.2 and earlier
             # x0= self.sur_dict[mode]._affine_mapper(params_surrogate)
             # amp_eval = self.sur_dict[mode]._amp_eval(x0)
@@ -503,7 +569,8 @@ class WaveformModeCatalog:
 
             # Option 1: Use the surrogate functions themselves
             if not use_basis:
-                t_phys, hp_dim, hc_dim = self.post_dict[mode](*self.sur_dict[mode](q=q,samples=tvals/m_total_s + self.ToverM_peak))  # center time values AT PEAK
+                params_here = self.parameter_convert[mode](P)
+                t_phys, hp_dim, hc_dim = self.post_dict[mode](*self.sur_dict[mode](q=params_here,samples=tvals/m_total_s + self.ToverM_peak))  # center time values AT PEAK
                 wfmTS.data.data =  m_total_s/distance_s * (hp_dim - 1j*hc_dim)
                 # Zero out data after tmax and before tmin
                 wfmTS.data.data[tvals/m_total_s<self.ToverMmin-self.ToverM_peak] = 0
@@ -515,7 +582,8 @@ class WaveformModeCatalog:
                     nstart = n0+int((self.ToverMmin-self.ToverM_peak)*m_total_s/deltaT)        # note offset for tapering
                     ntaper = int( (self.ToverM_peak-self.ToverMmin)*m_total_s/deltaT*0.1)  # SHOULD BE set by a few Hz in time fixed 1% of waveform length
                     vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
-                    print " Tapering ROM hlm(t) for ", mode, " over range ", nstart, nstart+ntaper, " or time offset ", nstart*deltaT, " and window ", ntaper*deltaT
+                    if rosDebug:
+                        print " Tapering ROM hlm(t) for ", mode, " over range ", nstart, nstart+ntaper, " or time offset ", nstart*deltaT, " and window ", ntaper*deltaT
                     wfmTS.data.data[nstart:nstart+ntaper]*=vectaper
 
                     # end taper
@@ -523,7 +591,8 @@ class WaveformModeCatalog:
                     nend = n0 + int((self.ToverMmax-self.ToverM_peak)*m_total_s/deltaT)
                     vectaper= 0.5 - 0.5*np.cos(np.pi* (1-np.arange(ntaper)/(1.*ntaper)))
                     wfmTS.data.data[-ntaper+nend:nend]*=vectaper
-                    print " Tapering ROM hlm(t) end for ", mode, " over range ", nend-ntaper, nend, " or time offset ", nend*deltaT, ntaper*deltaT
+                    if rosDebug:
+                        print " Tapering ROM hlm(t) end for ", mode, " over range ", nend-ntaper, nend, " or time offset ", nend*deltaT, ntaper*deltaT
 
 
             else:
