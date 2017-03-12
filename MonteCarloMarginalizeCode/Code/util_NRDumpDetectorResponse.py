@@ -99,7 +99,7 @@ P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))[opts.event]  # 
 ## LOAD NR SIMULATION
 print " Loading NR simulation ... "
 no_memory = False
-wfP = nrwf.WaveformModeCatalog(opts.group, param, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, extraction_radius=opts.rextr,lmax=opts.l,align_at_peak_l2_m2_emission=True,perturbative_extraction=opts.use_perturbative_extraction)
+wfP = nrwf.WaveformModeCatalog(opts.group, param, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, extraction_radius=opts.rextr,lmax=opts.l,align_at_peak_l2_m2_emission=True,perturbative_extraction=opts.use_perturbative_extraction,use_provided_strain=opts.use_provided_strain)
 if opts.no_memory and wfP.P.SoftAlignedQ():
     print " STRIPPING MEMORY"
     no_memory = True
