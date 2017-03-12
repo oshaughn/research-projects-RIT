@@ -146,7 +146,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -328,6 +328,14 @@ class ChooseWaveformParams:
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=val,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
+        if p == 'chi1':
+            chi1_vec_now = np.array([self.s1x,self.s1y,self.s1z])
+            chi1_now = np.sqrt(np.dot(chi1_vec_now,chi1_vec_now))
+            if chi1_now < 1e-5:
+                self.s1z = val  # assume aligned
+                return self
+            self.s1x,self.s1y,self.s1z = chi1_vec_now * val/chi1_now
+            return self
         if p == 'theta1':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
@@ -335,12 +343,32 @@ class ChooseWaveformParams:
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=val,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
+        if p == 'phi1':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            # Do it MANUALLY, assuming the L frame! 
+            chiperp_vec_now = np.array([self.s1x,self.s1y])
+            chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
+            self.s1x = chiperp_now*np.cos(val)
+            self.s1y = chiperp_now*np.sin(val)
+            return self
         if p == 'theta2':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=theta1,theta2=val,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
+            return self
+        if p == 'phi2':
+            if self.fref is 0:
+                print " Changing geometry requires a reference frequency "
+                sys.exit(0)
+            # Do it MANUALLY, assuming the L frame! 
+            chiperp_vec_now = np.array([self.s2x,self.s2y])
+            chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
+            self.s2x = chiperp_now*np.cos(val)
+            self.s2y = chiperp_now*np.sin(val)
             return self
         if p == 'psiJ':
             if self.fref is 0:
