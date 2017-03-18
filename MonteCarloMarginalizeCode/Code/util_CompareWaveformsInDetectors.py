@@ -54,6 +54,7 @@ parser.add_argument("--approx", default="EOBNRv2HM", help="approximant to use fo
 parser.add_argument("--approx2", default="EOBNRv2HM", help="approximant to use for comparison")
 parser.add_argument("--lmax",default=2,type=int)
 parser.add_argument("--srate",type=int,default=16384,help="Sampling rate")
+parser.add_argument("--seglen",type=int,default=16,help="Window time")
 parser.add_argument("--fmin",default=10,type=float,help="fmin for overlap integral")
 parser.add_argument("--fmin-template1",default=None,type=float,help="Override template frequency 1 (e.g., for NR XML files)")
 parser.add_argument("--fmin-template2",default=None,type=float,help="Override template frequency 1 (e.g., for NR XML files)")
@@ -74,7 +75,7 @@ opts = parser.parse_args()
 
 
 lmax = opts.lmax
-T_window = 64.
+T_window = opts.seglen
 df = 1./T_window
 fmin =opts.fmin
 fmaxSNR=1700
@@ -108,8 +109,6 @@ if opts.maximize:
 else:
     for ifo in ifo_list:
         IP_list[ifo] = lalsimutils.ComplexIP(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=psd_dict[ifo],fMax=opts.fmax,fLow=opts.fmin)
-
-
 
 ###
 ### Load injection XML
@@ -294,6 +293,8 @@ n_evals = np.max([nlines1,nlines2])
 dat_out =[]
 
 for indx in np.arange(n_evals):
+  if opts.verbose:
+      print indx
   if True:
 #  try:
     line = []
