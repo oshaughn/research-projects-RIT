@@ -249,7 +249,7 @@ class WaveformModeCatalog:
                 self.post_dict_complex_coef[mode_alt] = lambda x,l=mode[0]: np.power(-1,l)*np.conj(x)  # beware, do not apply this twice.
                 self.post_dict_complex[mode_alt] = np.conj  # beware, do not apply this twice.
                 self.sur_dict[mode_alt] = self.sur_dict[mode]
-                self.parameter_convert[mode_alt] = ConvertWPtoSurrogateParams
+                self.parameter_convert[mode_alt] = my_converter
         # CURRENTLY ONLY LOAD THE 22 MODE and generate the 2,-2 mode by symmetr
         t = self.sur_dict[(2,2)].times  # end time
         self.ToverMmin = t.min()
