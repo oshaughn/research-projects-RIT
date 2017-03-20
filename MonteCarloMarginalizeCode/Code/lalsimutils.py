@@ -525,12 +525,6 @@ class ChooseWaveformParams:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
-            return phi12
-        if p == 'thetaJN':
-            if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
-                sys.exit(0)
-            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return thetaJN
         if p == 'phiJL':
             if self.fref is 0:
@@ -678,7 +672,8 @@ class ChooseWaveformParams:
         dMin = 20.   # min distance (Mpc)
         dMax = 500. # max distance (Mpc)
         self.m1 = np.random.uniform(mMin,mMax)
-        self.m2 = np.random.uniform(mMin,mMax)
+        self.m2 = np.random.uniform(mMin,mMax)  # 
+        self.m1, self.m2 = [np.max([self.m1,self.m2]), np.min([self.m1,self.m2])]
         self.m1 *= lsu_MSUN
         self.m2 *= lsu_MSUN
 #        self.approx = lalsim.SpinTaylorT4  # need a 2-spin approximant by default!
@@ -783,7 +778,16 @@ class ChooseWaveformParams:
 
         # Extract angles relative to line of sight, assumed z axis in the radiation frame in which S1, S2 are stored
         # But theta1,theta2 (system frame angles) are relative to *Lhat*
-        thetaJN = np.arccos(Jhat[2])
+        thetaJN= 0
+        # If aligned, trivial
+        if np.dot(Lhat, Jhat) > 1-1e-5:
+            thetaJN = self.incl
+        else:
+            if spin_convention == 'radiation':
+                thetaJN = np.arccos(Jhat[2])
+            else:
+                nhat_obs = np.array([ np.sin(self.incl)*np.cos(-self.phiref), np.sin(self.incl)*np.sin(-self.phiref), np.cos(self.incl)])  # not confirmed
+                thetaJN = np.arccos(np.dot(Jhat, nhat_obs))
         if any(S1):
             theta1 = np.arccos( np.dot(S1hat,Lhat))
             if np.isnan(theta1):
@@ -804,7 +808,7 @@ class ChooseWaveformParams:
         beta = np.arccos(np.dot(Jhat, Lhat))  # not used here, but we can compute it
         expIalpha = np.dot((hatX+1j*hatY), Lhat)
         phiJL =alpha = np.real(np.log(expIalpha)/1j)
-        phiJL = phiJL +  np.pi  # phase convention, to be consistent with Evan's code used above in init_via_system_frame
+#        phiJL = phiJL +  np.pi  # phase convention, to be consistent with Evan's code used above in init_via_system_frame
         if np.isnan(phiJL):
             phiJL=0
 
@@ -932,7 +936,7 @@ class ChooseWaveformParams:
             Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
         M = (self.m1+self.m2)
         eta = symRatio(self.m1,self.m2)   # dimensionless
-        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v + (27./8 - 19*eta/8 +eta*eta/24.)*(v**3) )   # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or Blanchet 1310.1528 Eq. 234 (zero spin)
+        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v +  (27./8 - 19*eta/8 +eta*eta/24.)*(v**3) )   # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or Blanchet 1310.1528 Eq. 234 (zero spin)
     def OrbitalAngularMomentumAtReferenceOverM2(self):
         L = self.OrbitalAngularMomentumAtReference()
         return L/(self.m1+self.m2)/(self.m1+self.m2)
@@ -3145,7 +3149,8 @@ def VectorToFrame(vecRef):
     vec1 = vec1/np.sqrt(vecDot(vec1,vec1))
     vec2 = np.array(vecCross(vecRef,vec1))
     vec2 = vec2/np.sqrt(vecDot(vec2,vec2)) 
-    frame = np.array([-vec2,vec1,vecRef])  # oops,backwards order
+#    frame = np.array([-vec2,vec1,vecRef])  # oops,backwards order
+    frame = np.array([vec1,vec2,vecRef])  # oops,backwards order
     return frame
 
 
