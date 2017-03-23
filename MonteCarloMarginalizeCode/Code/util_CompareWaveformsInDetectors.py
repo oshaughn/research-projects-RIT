@@ -55,7 +55,8 @@ parser.add_argument("--approx2", default="EOBNRv2HM", help="approximant to use f
 parser.add_argument("--lmax",default=2,type=int)
 parser.add_argument("--srate",type=int,default=16384,help="Sampling rate")
 parser.add_argument("--seglen",type=int,default=16,help="Window time")
-parser.add_argument("--fmin",default=10,type=float,help="fmin for overlap integral")
+parser.add_argument("--fref",default=None,type=float,help="Reference frqeuency (assumed equal to fmin)")
+parser.add_argument("--fmin",default=20,type=float,help="Minimum frequency for overlap integral -- NOT necessarily tied to tempalte starting frequencies!")
 parser.add_argument("--fmin-template1",default=None,type=float,help="Override template frequency 1 (e.g., for NR XML files)")
 parser.add_argument("--fmin-template2",default=None,type=float,help="Override template frequency 1 (e.g., for NR XML files)")
 parser.add_argument("--fmax",default=2000,type=float,help="Maximum frequency in Hz, used for PSD integral.")
@@ -77,7 +78,11 @@ opts = parser.parse_args()
 lmax = opts.lmax
 T_window = opts.seglen
 df = 1./T_window
-fmin =opts.fmin
+fmin =opts.fmin  # default for now
+# if opts.fmin_template1:
+#     fmin = np.min([fmin, opts.fmin_template1])
+# if opts.fmin_template2:
+#     fmin = np.min([fmin, opts.fmin_template2])
 fmaxSNR=1700
 analyticPSD_Q=True
 
@@ -105,17 +110,22 @@ IP=None
 IP_list = {}
 if opts.maximize:
     for ifo in ifo_list:
-        IP_list[ifo]= lalsimutils.ComplexOverlap(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=psd_dict[ifo],fMax=opts.fmax,fLow=opts.fmin)
+        IP_list[ifo]= lalsimutils.ComplexOverlap(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=psd_dict[ifo],fMax=opts.fmax,fLow=fmin)
 else:
     for ifo in ifo_list:
-        IP_list[ifo] = lalsimutils.ComplexIP(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=psd_dict[ifo],fMax=opts.fmax,fLow=opts.fmin)
+        IP_list[ifo] = lalsimutils.ComplexIP(fNyq=fNyq,deltaF=df,analyticPSD_Q=analyticPSD_Q,psd=psd_dict[ifo],fMax=opts.fmax,fLow=fmin)
 
 ###
 ### Load injection XML
 ###
 
+if opts.inj is None:
+    print " --inj required"
+    sys.exit(0)
+print " Reading injection file 1 for comparison ", opts.inj
 P1_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj)
 nlines1  = len(P1_list)
+print " Read  ", nlines1, " injections"
 
 if nlines1 < 1:
     print " No data in ", opts.inj
@@ -124,6 +134,10 @@ tref = float( (P1_list[0]).tref ) # default
 if not(opts.tref is None):
     tref = opts.tref
 
+if opts.inj2 is None:
+    print " --inj2 required"
+    sys.exit(0)
+print " Reading injection file 1 for comparison ", opts.inj2
 P2_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj2)
 nlines2  = len(P2_list)
 
@@ -142,14 +156,20 @@ def get_hF1(indx,ifo):
     P = P1_list[indx % nlines1].manual_copy() # looping
     if not (opts.fmin_template1 is None):
         P.fmin = opts.fmin_template1
-#    P.fmin = opts.fmin
+    if not (opts.fref is None):
+        P.fref = opts.fref
+    else:
+        P.ref = P.fmin
     P.radec =True
     P.tref = P1_list[indx%nlines1].tref # copy, this is an allocated object
     P.deltaF = df
-#    P.fmin  = opts.fmin
     P.deltaT = 1./opts.srate
     P.detector = ifo
     P.approx = lalsim.GetApproximantFromString(opts.approx)  # override the XML. Can screw you up (ref spins)
+    # if P.approx == lalsim.IMRPhenomPv2:
+    #     phiJL_now = P.extract_param('phiJL')
+    #     P.assign_param('phiJL', phiJL_now-np.pi/2)  # Estimate
+#        P.fref = 100
     if opts.verbose:
         P.print_params()
     hF = lalsimutils.non_herm_hoff(P)
@@ -160,14 +180,27 @@ def get_hF2(indx,ifo):
     P = P2_list[indx % nlines2].manual_copy() # looping
     if not (opts.fmin_template2 is None):
         P.fmin = opts.fmin_template2
-#    P.fmin = opts.fmin
+    if not (opts.fref is None):
+        P.fref = opts.fref
+    else:
+        P.ref = P.fmin
     P.radec =True
     P.tref = P2_list[indx%nlines2].tref # copy, this is an allocated object
     P.deltaF = df
-#    P.fmin  = opts.fmin
     P.deltaT = 1./opts.srate
     P.detector = ifo
     P.approx = lalsim.GetApproximantFromString(opts.approx2)  # override the XML. Can screw you up
+    if P.approx == lalsim.IMRPhenomPv2:
+        cosbeta =np.cos(P.extract_param('beta'))
+        my_phase = np.pi -np.pi/2
+        dt = 20*(P.m1+P.m2)/lal.MSUN_SI * lalsimutils.MsunInSec  # ad hoc factor .. there is apparently a timeshift of Pv2 relative to PD of about 20 M
+        P.tref += dt
+        phiJL_now = P.extract_param('phiJL')
+        psi_now = P.psi
+        P.assign_param('phiJL', phiJL_now-my_phase)  # Estimate
+        P.psi  = psi_now   # fix L alignment, not J
+        P.phiref += my_phase 
+        P.phiref += np.pi/2 
     if opts.verbose:
         P.print_params()
     hF = lalsimutils.non_herm_hoff(P)
@@ -298,6 +331,7 @@ for indx in np.arange(n_evals):
   if True:
 #  try:
     line = []
+    print P1_list[indx].extract_param('thetaJN'), P1_list[indx].phiref, P1_list[indx].extract_param('beta'),
     for ifo in ['H1','L1']: #,'V1']:
         IP = IP_list[ifo]
         hF1 = return_hF1(indx,ifo)
@@ -309,7 +343,8 @@ for indx in np.arange(n_evals):
 #        print ifo, IP.ip(hF1,hF2)/nm1/nm2, IP.ip(hF1,hF2),nm1, nm2
         print  val,
         if opts.save_plots:
-            print " --- Saving plot for ", ifo, " ----"
+            if opts.verbose:
+                print " --- Saving plot for ", ifo, " ----"
             label1 = opts.approx
             label2 = opts.approx2
             hT1 = lalsimutils.DataInverseFourier(hF1)
@@ -321,7 +356,8 @@ for indx in np.arange(n_evals):
                 print " Epoch1 ", float(hT1.epoch)
                 label1 = group1+":"+param1
             if not (opts.group2 is None):
-                print " ---> Rolling to fix FT centering <-- "
+                if opts.verbose:
+                    print " ---> Rolling to fix FT centering <-- "
                 npts = hT2.data.length
                 T_wave =npts*hT2.deltaT
                 hT2 = lalsimutils.DataRollTime(hT2,-0.5*T_wave/2)
