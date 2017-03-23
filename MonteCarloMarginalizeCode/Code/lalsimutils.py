@@ -817,9 +817,9 @@ class ChooseWaveformParams:
         expIphi1 = np.dot((hatX+1j*hatY), S1hat)
         expIphi2 = np.dot((hatX+1j*hatY), S2hat)
         if np.abs(expIphi2)< 1e-5:
-            phi12 = np.angle(expIphi1)
+            phi12 = -np.angle(expIphi1)
         else:
-            phi12 = np.angle(expIphi1)- np.angle(expIphi2) # np.float(np.real(np.log(expIphi2/expIphi1)/1j))   # convert from 1-elemetn array
+            phi12 = np.angle(expIphi2)- np.angle(expIphi1) # np.float(np.real(np.log(expIphi2/expIphi1)/1j))   # convert from 1-elemetn array
         if np.isnan(phi12):
             phi12 = 0
 
