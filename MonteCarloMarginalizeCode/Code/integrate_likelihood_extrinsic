@@ -1092,6 +1092,7 @@ if opts.output_file:
             samples["longitude"] = samples["right_ascension"]
         samples["loglikelihood"] = numpy.log(samples["integrand"])
         if not opts.rom_integrate_intrinsic:
+            # ILE mode: insert fixed model parameters
             samples["mass1"] = numpy.ones(samples["psi"].shape)*m1 # opts.mass1
             samples["mass2"] = numpy.ones(samples["psi"].shape)*m2 # opts.mass2
             samples["spin1x"] =numpy.ones(samples["psi"].shape)*P.s1x
@@ -1101,17 +1102,21 @@ if opts.output_file:
             samples["spin2y"] =numpy.ones(samples["psi"].shape)*P.s2y
             samples["spin2z"] =numpy.ones(samples["psi"].shape)*P.s2z
         else:
+            # Intrinsic integration mode.  mtot is fixed but all others varying. Populate it.
             mtot = m1+m2
             # convention: q =m2/m1 < 1
             samples["mass1"] = mtot/(1+samples['q'])
             samples["mass2"] = mtot*samples['q']/(1+samples['q'])
-            # presently, ROM is zero spin
             samples["spin1x"] =numpy.ones(samples["psi"].shape)*0
             samples["spin1y"] =numpy.ones(samples["psi"].shape)*0
             samples["spin1z"] =numpy.ones(samples["psi"].shape)*0
             samples["spin2x"] =numpy.ones(samples["psi"].shape)*0
             samples["spin2y"] =numpy.ones(samples["psi"].shape)*0
             samples["spin2z"] =numpy.ones(samples["psi"].shape)*0
+            for spin_param in ["spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"]:
+                spin_param_short =spin_param.replace('pin','')
+                if spin_param.replace('pin','') in intrinsic_parameter_names:
+                    samples[spin_param] = samples[spin_param_short]
         xmlutils.append_samples_to_xmldoc(xmldoc, samples)
     # FIXME: likelihood or loglikehood
     # FIXME: How to encode variance?
