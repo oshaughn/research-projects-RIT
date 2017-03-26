@@ -29,7 +29,13 @@ CMAP = { "right_ascension": "longitude",
     "alpha3":"alpha3",
     "loglikelihood": "alpha1",
     "joint_prior": "alpha2",
-    "joint_s_prior": "alpha3"
+    "joint_s_prior": "alpha3",
+    "spin1x":"spin1x",
+    "spin1y":"spin1y",
+    "spin1z":"spin1z",
+    "spin2x":"spin2x",
+    "spin2y":"spin2y",
+    "spin2z":"spin2z"
 }
 
 # FIXME: Find way to intersect given cols with valid cols when making table.
