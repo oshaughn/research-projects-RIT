@@ -1115,7 +1115,7 @@ if opts.output_file:
             samples["spin2z"] =numpy.ones(samples["psi"].shape)*0
             for spin_param in ["spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"]:
                 spin_param_short =spin_param.replace('pin','')
-                if spin_param.replace('pin','') in intrinsic_param_names:
+                if (spin_param.replace('pin','') in intrinsic_param_names) and (spin_param_short in samples):
                     samples[spin_param] = samples[spin_param_short]
         xmlutils.append_samples_to_xmldoc(xmldoc, samples)
     # FIXME: likelihood or loglikehood
