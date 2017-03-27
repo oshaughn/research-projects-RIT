@@ -1369,15 +1369,20 @@ class ComplexIP(InnerProduct):
     [ -N/2 * df, ..., -df, 0, df, ..., (N/2-1) * df ]
     DOES NOT maximize over time or phase
     """
-    def ip(self, h1, h2):
+    def ip(self, h1, h2,include_epoch_differences=False):
         """
         Compute inner product between two COMPLEX16Frequency Series
+        Accounts for time shfit
         """
         assert h1.data.length==h2.data.length==self.len2side
         assert abs(h1.deltaF-h2.deltaF) <= TOL_DF\
                 and abs(h1.deltaF-self.deltaF) <= TOL_DF
         val = 0.
-        val = np.sum( np.conj(h1.data.data)*h2.data.data*self.weights2side )
+        factor_shift = np.ones( len(h1.data.data))
+        if include_epoch_differences:
+            fvals = evaluate_fvals(h1)
+            factor_shift = np.exp(-1j* (float(h1.epoch) - float(h2.epoch))*fvals*2*np.pi)  # exp( i omega( t_2 - t_1) )
+        val = np.sum( np.conj(h1.data.data)*h2.data.data*factor_shift*self.weights2side )
         val *= 2. * self.deltaF
         return val
 
@@ -1529,7 +1534,7 @@ class ComplexOverlap(InnerProduct):
                 lal.LIGOTimeGPS(0.), 0., self.deltaT, lsu_DimensionlessUnit,
                 self.len2side)
 
-    def ip(self, h1, h2):
+    def ip(self, h1, h2, **kwargs):
         """
         Compute inner product between two non-Hermitian COMPLEX16FrequencySeries
         """

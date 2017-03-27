@@ -338,7 +338,8 @@ for indx in np.arange(n_evals):
         nm1 = IP.norm(hF1)
         hF2 = return_hF2(indx,ifo)
         nm2 = IP.norm(hF2)
-        val = np.abs(IP.ip(hF1,hF2)/nm1/nm2)
+        val = np.abs(IP.ip(hF1,hF2,include_epoch_differences=True)/nm1/nm2)  # correct for timeshift issues, if any
+        print " Epoch test ", hF1.epoch, hF2.epoch
         line.append(val)
 #        print ifo, IP.ip(hF1,hF2)/nm1/nm2, IP.ip(hF1,hF2),nm1, nm2
         print  val,
@@ -353,15 +354,17 @@ for indx in np.arange(n_evals):
                 npts = hT1.data.length
                 T_wave =npts*hT1.deltaT
                 hT1 = lalsimutils.DataRollTime(hT1,-0.5*T_wave/2)
-                print " Epoch1 ", float(hT1.epoch)
-                label1 = group1+":"+param1
+                if opts.verbose:
+                    print " Epoch1 ", float(hT1.epoch)
+                label1 = group+":"+param
             if not (opts.group2 is None):
                 if opts.verbose:
                     print " ---> Rolling to fix FT centering <-- "
                 npts = hT2.data.length
                 T_wave =npts*hT2.deltaT
                 hT2 = lalsimutils.DataRollTime(hT2,-0.5*T_wave/2)
-                print " Epoch2 ", hT2.epoch
+                if opts.verbose:
+                    print " Epoch2 ", hT2.epoch
                 label2 = group2+":"+param2
             tvals = lalsimutils.evaluate_tvals(hT1) 
             tvals2 = lalsimutils.evaluate_tvals(hT2) 
