@@ -755,6 +755,10 @@ print " Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.
 
 res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
+
+# Save result -- needed for odds ratios, etc.
+np.savetxt("integral_result.dat", [np.log(res)])
+
 if neff < len(low_level_coord_names):
     print " PLOTS WILL FAIL "
     print " Not enough independent Monte Carlo points to generate useful contours"
