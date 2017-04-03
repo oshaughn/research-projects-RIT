@@ -140,7 +140,7 @@ if  opts.fit:
 #      print " Fitting ", key, reduced_spoke
       z=[]; mBestGuess = 0; lnLBestGuess = 0;
       try:
-          z = np.polyfit(reduced_spoke[:,0], reduced_spoke[:,1],2,w=(reduced_spoke[:,2]**2))
+          z = np.polyfit(reduced_spoke[:,0], reduced_spoke[:,1],2,w=1./(reduced_spoke[:,2])) # Note TERRIBLE documentation/convention in numpy https://docs.scipy.org/doc/numpy/reference/generated/numpy.polyfit.html
           mBestGuess = -0.5*z[1]/z[0]
           lnLBestGuess = z[2] -0.25*z[1]**2/z[0] 
       except:
