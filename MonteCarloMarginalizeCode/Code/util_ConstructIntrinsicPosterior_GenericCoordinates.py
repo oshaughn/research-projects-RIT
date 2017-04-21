@@ -150,6 +150,7 @@ parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. 
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
+parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
@@ -310,6 +311,10 @@ def xi_uniform_prior(x):
 def s_component_uniform_prior(x):  # If all three are used, a volumetric prior
     return np.ones(x.shape)/2.
 
+def s_component_zprior(x,R=1.):
+    # assume maximum spin =1. Should get from appropriate prior range
+    return (0.5/R  ) * np.log( np.abs(x)/R)
+
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "mc":mc_prior, "eta":eta_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
     's2x':s_component_uniform_prior,
@@ -322,6 +327,22 @@ prior_range_map = {"mtot": [1, 200], "q":[0.01,1], "s1z":[-0.99,0.99], "s2z":[-0
    's1y':[-1,1],
    's2y':[-1,1]
 }
+
+###
+### Modify priors, as needed
+###
+#  https://bugs.ligo.org/redmine/issues/5020
+#  https://github.com/lscsoft/lalsuite/blob/master/lalinference/src/LALInferencePrior.c
+if opts.aligned_prior == 'alignedspin-zprior':
+    # prior on s1z constructed to produce the standard distribution
+    prior_map["s1z"] = s_component_zprior
+    prior_map["s2z"] = s_component_zprior
+
+
+if opts.aligned_prior == 'volumetric':
+    print "Prior: NOT IMPLEMENTED"
+    sys.exit(0)
+
 
 
 # TeX dictionary
