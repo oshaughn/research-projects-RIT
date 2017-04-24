@@ -315,6 +315,12 @@ def s_component_zprior(x,R=1.):
     # assume maximum spin =1. Should get from appropriate prior range
     return (0.5/R  ) * np.log( np.abs(x)/R)
 
+def s_component_volumetricprior(x,R=1.):
+    # assume maximum spin =1. Should get from appropriate prior range
+    # Assume spins range from -R to R
+    return (1./3.* np.power(x/R,2)/2.)
+
+
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "mc":mc_prior, "eta":eta_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
     's2x':s_component_uniform_prior,
@@ -340,8 +346,8 @@ if opts.aligned_prior == 'alignedspin-zprior':
 
 
 if opts.aligned_prior == 'volumetric':
-    print "Prior: NOT IMPLEMENTED"
-    sys.exit(0)
+    prior_map["s1z"] = s_component_volumetricprior
+    prior_map["s2z"] = s_component_volumetricprior
 
 
 
