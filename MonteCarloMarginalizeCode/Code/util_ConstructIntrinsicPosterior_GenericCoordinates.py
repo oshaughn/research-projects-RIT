@@ -313,12 +313,19 @@ def s_component_uniform_prior(x):  # If all three are used, a volumetric prior
 
 def s_component_zprior(x,R=1.):
     # assume maximum spin =1. Should get from appropriate prior range
-    return (0.5/R  ) * np.log( np.abs(x)/R)
+    # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
+    val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
+    return val
 
 def s_component_volumetricprior(x,R=1.):
     # assume maximum spin =1. Should get from appropriate prior range
-    # Assume spins range from -R to R
-    return (1./3.* np.power(x/R,2)/2.)
+    # for SPIN MAGNITUDE OF PRECESSING SPINS only
+    return (1./3.* np.power(x/R,2))
+
+def s_component_aligned_volumetricprior(x,R=1.):
+    # assume maximum spin =1. Should get from appropriate prior range
+    # for SPIN COMPONENT ALIGNED (s1z,s2z) for aligned spins only
+    return (3./4.*(1- np.power(x/R,2)))
 
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "mc":mc_prior, "eta":eta_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
@@ -346,8 +353,8 @@ if opts.aligned_prior == 'alignedspin-zprior':
 
 
 if opts.aligned_prior == 'volumetric':
-    prior_map["s1z"] = s_component_volumetricprior
-    prior_map["s2z"] = s_component_volumetricprior
+    prior_map["s1z"] = s_component_aligned_volumetricprior
+    prior_map["s2z"] = s_component_aligned_volumetricprior
 
 
 
