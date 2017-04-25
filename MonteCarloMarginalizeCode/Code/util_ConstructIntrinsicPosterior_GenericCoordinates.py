@@ -661,6 +661,12 @@ elif opts.fit_method == "polynomial":
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     my_fit = fit_polynomial(X,Y,symmetry_list=symmetry_list,y_errors=Y_err)
 else:
+    # some data truncation IS used for the GP, but beware
+    print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
+    X=X[indx_ok]
+    Y=Y[indx_ok]
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     my_fit = fit_gp(X,Y,y_errors=Y_err)
 
 # Sort for later convenience (scatterplots, etc)
