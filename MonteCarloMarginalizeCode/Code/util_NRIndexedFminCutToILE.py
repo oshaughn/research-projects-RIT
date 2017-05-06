@@ -109,20 +109,32 @@ with open(opts.fname) as f:
              if 'OrbitalPhaseAtReference' in nrwf.internal_WaveformMetadata[group][param]:
                  Phi_ref = nrwf.internal_WaveformMetadata[group][param]['OrbitalPhaseAtReference']
                  hatXp = hatX * np.cos(Phi_ref) + hatY*np.sin(Phi_ref)
-                 hatYp = -hatX*np.sin(Phi_ref) + hatX*np.cos(Phi_ref)
+                 hatYp = -hatX*np.sin(Phi_ref) + hatY*np.cos(Phi_ref)
                  hatX = hatXp
                  hatY = hatYp
+                 # if np.dot(hatX,hatX)>1+1e-5:
+                 #     print " Argh, units ", hatX, np.sqrt(np.dot(hatX,hatX)), Phi_ref
+                 # if np.dot(hatY,hatY)>1+1e-5:
+                 #     print " Argh, units ", hatY, np.sqrt(np.dot(hatY,hatY)), Phi_ref
 
              if 'Chi1AtReference' in nrwf.internal_WaveformMetadata[group][param]:
                  chi1 = nrwf.internal_WaveformMetadata[group][param]['Chi1AtReference']
+                 if np.dot(chi1,chi1) > 1:
+                     print " ARRGH ", group,param
                  s1x = np.dot(hatX,chi1)
                  s1y = np.dot(hatY,chi1)
                  s1z = np.dot(hatZ,chi1)
+                 if s1x**2 + s1y**2+s1z**2>1:
+                     print " ARRGH ", group,param, np.sqrt(s1x**2 + s1y**2+s1z**2), np.sqrt(np.dot(chi1,chi1))
              if 'Chi2AtReference' in nrwf.internal_WaveformMetadata[group][param]:
                  chi2 = nrwf.internal_WaveformMetadata[group][param]['Chi2AtReference']
+                 if np.dot(chi2,chi2) > 1:
+                     print " ARRGH 2", group,param
                  s2x = np.dot(hatX,chi2)
                  s2y = np.dot(hatY,chi2)
                  s2z = np.dot(hatZ,chi2)
+                 if s2x**2 + s2y**2+s2z**2>1:
+                     print " ARRGH 2", group,param, np.sqrt(s2x**2 + s2y**2+s2z**2), np.sqrt(np.dot(chi2,chi2))
 
          if f0 < opts.flow:
              line_out = [ -1, m1, m2, s1x,s1y,s1z, s2x,s2y,s2z, lnLhere, sigma_here,npts_here, float(line[-2])]
