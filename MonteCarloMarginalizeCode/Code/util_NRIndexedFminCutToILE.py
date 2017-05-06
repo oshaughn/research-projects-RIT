@@ -119,7 +119,7 @@ with open(opts.fname) as f:
                  s1y = np.dot(hatY,chi1)
                  s1z = np.dot(hatZ,chi1)
              if 'Chi2AtReference' in nrwf.internal_WaveformMetadata[group][param]:
-                 chi2 = nrwf.internal_WaveformMetadata[group][param]['Chi1AtReference']
+                 chi2 = nrwf.internal_WaveformMetadata[group][param]['Chi2AtReference']
                  s2x = np.dot(hatX,chi2)
                  s2y = np.dot(hatY,chi2)
                  s2z = np.dot(hatZ,chi2)
