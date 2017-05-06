@@ -12,6 +12,7 @@
 
 import argparse
 import numpy as np
+import lalsimutils
 import NRWaveformCatalogManager as nrwf
 
 import lal
@@ -98,25 +99,35 @@ with open(opts.fname) as f:
          s2x,s2y,s2z = [wfP.P.s2x,wfP.P.s2y,wfP.P.s2z]
 
          if opts.reference_spins:
+             if not 'LAtReference' in nrwf.internal_WaveformMetadata[group][param]:
+                 continue
              L = nrwf.internal_WaveformMetadata[group][param]['LAtReference']
              Lhat = L/np.sqrt(np.dot(L,L))
              frmL = lalsimutils.VectorToFrame(Lhat)
              hatX, hatY, hatZ = frmL
 
+             if 'OrbitalPhaseAtReference' in nrwf.internal_WaveformMetadata[group][param]:
+                 Phi_ref = nrwf.internal_WaveformMetadata[group][param]['OrbitalPhaseAtReference']
+                 hatXp = hatX * np.cos(Phi_ref) + hatY*np.sin(Phi_ref)
+                 hatYp = -hatX*np.sin(Phi_ref) + hatX*np.cos(Phi_ref)
+                 hatX = hatXp
+                 hatY = hatYp
+
              if 'Chi1AtReference' in nrwf.internal_WaveformMetadata[group][param]:
-                 chi1 = internal_WaveformMetadata[group][param]['Chi1AtReference']
+                 chi1 = nrwf.internal_WaveformMetadata[group][param]['Chi1AtReference']
                  s1x = np.dot(hatX,chi1)
                  s1y = np.dot(hatY,chi1)
                  s1z = np.dot(hatZ,chi1)
-             if 'Chi2AtReference' in internal_WaveformMetadata[group][param]:
-                 chi2 = internal_WaveformMetadata[group][param]['Chi1AtReference']
+             if 'Chi2AtReference' in nrwf.internal_WaveformMetadata[group][param]:
+                 chi2 = nrwf.internal_WaveformMetadata[group][param]['Chi1AtReference']
                  s2x = np.dot(hatX,chi2)
                  s2y = np.dot(hatY,chi2)
                  s2z = np.dot(hatZ,chi2)
 
          if f0 < opts.flow:
              line_out = [ -1, m1, m2, s1x,s1y,s1z, s2x,s2y,s2z, lnLhere, sigma_here,npts_here, float(line[-2])]
-             print ' '.join(map(str,line_out))
+             if opts.verbose:
+                 print ' '.join(map(str,line_out))
              dat_out.append(line_out)
          else:
              if opts.verbose:
@@ -127,4 +138,4 @@ with open(opts.fname) as f:
          continue
 
 
-np.savetxt(opts.fname.replace('.indexed', '.composite_cleaned'), np.array(dat_out))
+np.savetxt(opts.fname.replace('indexed', 'composite_cleaned'), np.array(dat_out))
