@@ -332,7 +332,7 @@ for indx in np.arange(n_evals):
 #  try:
     line = []
     print P1_list[indx].extract_param('thetaJN'), P1_list[indx].phiref, P1_list[indx].extract_param('beta'),
-    for ifo in ['H1','L1']: #,'V1']:
+    for ifo in ifo_list: #,'V1']:
         IP = IP_list[ifo]
         hF1 = return_hF1(indx,ifo)
         nm1 = IP.norm(hF1)
