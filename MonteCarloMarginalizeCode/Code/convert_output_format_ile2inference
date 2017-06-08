@@ -33,7 +33,7 @@ if opts.export_extra_spins:
     import lalsimutils
 
 
-print "# m1 m2 a1x a1y a1z a2x a2y a2z mc eta indx  Npts ra dec tref phiorb incl psi  dist p ps lnL ",
+print "# m1 m2 a1x a1y a1z a2x a2y a2z mc eta indx  Npts ra dec tref phiorb incl psi  dist p ps lnL mtotal q ",
 if opts.export_extra_spins:
     print 'thetaJN phi_jl tilt1 tilt2 phi12 a1 a2 psiJ',
 print
@@ -61,7 +61,7 @@ for fname in args:
             pt.inclination, \
             pt.polarization, \
             pt.distance, \
-            p[indx],ps[indx],like[indx],
+            p[indx],ps[indx],like[indx], pt.mass1+pt.mass2, pt.mass2/pt.mass1,
         if opts.export_extra_spins:
             P = lalsimutils.ChooseWaveformParams(m1=pt.mass1,m2=pt.mass2, s1x=pt.spin1x, s1y=pt.spin1y, s1z=pt.spin1z, s2x=pt.spin2x, s2y=pt.spin2y,s2z=pt.spin2z)
             P.fmin = pt.f_lower  # should use this first
