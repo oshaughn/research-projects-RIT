@@ -560,7 +560,7 @@ print " Original data size = ", len(dat), dat.shape
 P_list = []
 dat_out =[]
  
-extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['chi1_perp', 's1z'], ['chi2_perp','s2z'], ['s1z','s2z'],['chi1','chi2'],['cos_theta1','cos_theta2']] # replot
+extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['m1', 'm2'], ['chi1_perp', 's1z'], ['chi2_perp','s2z'], ['s1z','s2z'],['chi1','chi2'],['cos_theta1','cos_theta2']] # replot
 dat_out_low_level_coord_names = []
 dat_out_extra = []
 for item in extra_plot_coord_names:
@@ -1281,6 +1281,7 @@ for indx in np.arange(len(extra_plot_coord_names)):
 
     print len(dat_points_here),len(Y)
     fig_base = corner.corner(dat_points_here,weights=np.ones(len(dat_points_here))*1.0/len(dat_points_here), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
+    
 
     plt.savefig("posterior_corner_extra_coords_"+str(indx)+".png"); plt.clf()
 
