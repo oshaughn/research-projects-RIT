@@ -205,7 +205,10 @@ if opts.fname_lalinference:
     samples_LI = np.genfromtxt(opts.fname_lalinference,names=True)
 
     print " Checking consistency between fref in samples and fref assumed here "
-    print set(samples_LI['f_ref']), opts.fref
+    try:
+        print set(samples_LI['f_ref']), opts.fref
+    except:
+        print " No fref"
 
     print " Checking LI samples have desired parameters "
     for p in opts.parameter:
@@ -306,6 +309,9 @@ def mc_prior(x):
 def eta_prior(x):
     return 1./np.power(x,6./5.)/np.power(1-4.*x, 0.5)/1.44
 
+def m_prior(x):
+    return 1/(1e3-1.)  # uniform in mass, use a square.  Should always be used as m1,m2 in pairs. Note this does NOT restrict m1>m2.
+
 def xi_uniform_prior(x):
     return np.ones(x.shape)
 def s_component_uniform_prior(x):  # If all three are used, a volumetric prior
@@ -333,12 +339,16 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "
     's2x':s_component_uniform_prior,
     's1y':s_component_uniform_prior,
     's2y':s_component_uniform_prior,
+    'm1':m_prior,
+    'm2':m_prior,
 }
 prior_range_map = {"mtot": [1, 200], "q":[0.01,1], "s1z":[-0.99,0.99], "s2z":[-0.99,0.99], "mc":[0.9,90], "eta":[0.01,0.2499999], 'xi':[-1,1],'chi_eff':[-1,1],'delta':[-1,1],
    's1x':[-1,1],
    's2x':[-1,1],
    's1y':[-1,1],
-   's2y':[-1,1]
+   's2y':[-1,1],
+  'm1':[0.9,1e3],
+  'm2':[0.9,1e3]
 }
 
 ###
@@ -383,8 +393,11 @@ tex_dictionary = lalsimutils.tex_dictionary
 ### Linear fits. Resampling a quadratic. (Export me)
 ###
 
-def fit_quadratic_alt(x,y,x0=None,symmetry_list=None,verbose=False):
-    the_quadratic_results = BayesianLeastSquares.fit_quadratic( x, y,verbose=verbose)#x0=None)#x0_val_here)
+def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False):
+    gamma_x = None
+    if not (y_err is None):
+        gamma_x =1./np.power(y_err,2)
+    the_quadratic_results = BayesianLeastSquares.fit_quadratic( x, y,gamma_x=gamma_x,verbose=verbose)#x0=None)#x0_val_here)
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
 
     np.savetxt("lnL_peakval.dat",[peak_val_est])   # generally not very useful
@@ -474,15 +487,15 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None):
     for indx in np.arange(len(x[0])):
         # These length scales have been tuned by expereience
         length_scale_est.append( 2*np.std(x[:,indx])  )  # auto-select range based on sampling retained
-        length_scale_bounds_est.append( ( 5*np.std(x[:,indx]/np.sqrt(len(x))), 5*np.std(x[:,indx])) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut)
+        length_scale_bounds_est.append( ( np.max([1e-3,0.2*np.std(x[:,indx]/np.sqrt(len(x)))]), 5*np.std(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
 
     print " GP: Estimated length scales "
     print length_scale_est
     print length_scale_bounds_est
 
     # These parameters have been hand-tuned by experience to try to set to levels comparable to typical lnL Monte Carlo error
-    kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,0.3))+C(0.1, (1e-2,0.5))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
-    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=2)
+    kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
+    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=8)
 
     gp.fit(x,y)
 
@@ -542,10 +555,12 @@ for line in dat:
       print " Skipping precessing binaries "
       continue
   if line[1]+line[2] > opts.M_max_cut:
-      print " Skipping ", line, " as too massive, with mass ", line[1]+line[2]
+      if opts.verbose:
+          print " Skipping ", line, " as too massive, with mass ", line[1]+line[2]
       continue
   if line[10] > opts.sigma_cut:
-      print " Skipping ", line
+      if opts.verbose:
+          print " Skipping ", line
       continue
   if line[col_lnL] < opts.lnL_peak_insane_cut:
     P.fref = opts.fref  # IMPORTANT if you are using a quantity that depends on J
@@ -633,12 +648,13 @@ X_raw = X.copy()
 
 my_fit= None
 if opts.fit_method == "quadratic":
+    print " FIT METHOD ", opts.fit_method, " IS QUADRATIC"
     X=X[indx_ok]
     Y=Y[indx_ok]
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     if opts.report_best_point:
-        my_fit = fit_quadratic_alt(X,Y,symmetry_list=symmetry_list)
+        my_fit = fit_quadratic_alt(X,Y,symmetry_list=symmetry_list,verbose=opts.verbose)
         pt_best_X = np.loadtxt("lnL_bestpt.dat")
         for indx in np.arange(len(coord_names)):
             fac = 1
@@ -655,12 +671,14 @@ if opts.fit_method == "quadratic":
         sys.exit(0)
     my_fit = fit_quadratic_alt(X,Y,symmetry_list=symmetry_list,verbose=opts.verbose)
 elif opts.fit_method == "polynomial":
+    print " FIT METHOD ", opts.fit_method, " IS POLYNOMIAL"
     X=X[indx_ok]
     Y=Y[indx_ok]
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     my_fit = fit_polynomial(X,Y,symmetry_list=symmetry_list,y_errors=Y_err)
 else:
+    print " FIT METHOD ", opts.fit_method, " IS GP"
     # some data truncation IS used for the GP, but beware
     print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
     X=X[indx_ok]
@@ -1219,8 +1237,9 @@ for indx in np.arange(len(extra_plot_coord_names)):
         truth_here.append(Pref.extract_param(coord_names_here[z])/fac)
 
     print  " Truth here for ", coord_names_here, truth_here
-    print " Based on "
-    Pref.print_params()
+#    if opts.verbose:
+#        print " Based on "
+#        Pref.print_params()
 
     print " Generating figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), len(dat_points_here)
     fig_base = corner.corner(dat_here, weights=np.ones(len(dat_here))*1.0/len(dat_here), labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range=range_here,truths=truth_here)
