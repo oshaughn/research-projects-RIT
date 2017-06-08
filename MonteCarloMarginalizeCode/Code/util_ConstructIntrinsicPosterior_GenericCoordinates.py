@@ -995,10 +995,19 @@ for p in low_level_coord_names:
 labels_tex = map(lambda x: tex_dictionary[x], low_level_coord_names)
 fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,truths=truth_here) #,range=range_here)
 
+my_cmap_values = 'g' # default color
 try:
 # Plot simulation points (X array): MAY NOT BE POSSIBLE if dimensionality is inconsistent
-    fig_base = corner.corner(dat_out_low_level_coord_names,weights=np.ones(len(X))/len(X), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range_here=range_here)
+    cm = plt.cm.get_cmap('RdYlBu_r')
+    y_span = Y.max() - Y.min()
+    y_min = Y.min()
+#    print y_span, y_min
+    my_cmap_values = map(tuple,cm( (Y-y_min)/y_span) )
+    my_cmap_values ='g'
+
+    fig_base = corner.corner(dat_out_low_level_coord_names,weights=np.ones(len(X))/len(X), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':my_cmap_values},hist_kwargs={'color':'g', 'linestyle':'--'},range_here=range_here)
 except:
+#else:
     print " Some ridiculous range error with the corner plots, again"
 
 if opts.fname_lalinference:
