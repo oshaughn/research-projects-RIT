@@ -168,7 +168,7 @@ parser.add_argument("--adapt",action='store_true')
 parser.add_argument("--fit-uses-reported-error",action='store_true')
 parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
-parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp")
+parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 opts=  parser.parse_args()
 
@@ -211,11 +211,14 @@ if opts.fname_lalinference:
         print " No fref"
 
     print " Checking LI samples have desired parameters "
-    for p in opts.parameter:
+    try:
+      for p in opts.parameter:
         if p in remap_ILE_2_LI:
             print p , " -> ", remap_ILE_2_LI[p]
         else:
             print p, " NOT LISTED IN KEYS"
+    except:
+        print "remap check failed"
 
     ###
     ### Add important quantities easily derived from the samples but not usually provided
@@ -342,7 +345,7 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "
     'm1':m_prior,
     'm2':m_prior,
 }
-prior_range_map = {"mtot": [1, 200], "q":[0.01,1], "s1z":[-0.99,0.99], "s2z":[-0.99,0.99], "mc":[0.9,90], "eta":[0.01,0.2499999], 'xi':[-1,1],'chi_eff':[-1,1],'delta':[-1,1],
+prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.99,0.99], "s2z":[-0.99,0.99], "mc":[0.9,250], "eta":[0.01,0.2499999], 'xi':[-1,1],'chi_eff':[-1,1],'delta':[-1,1],
    's1x':[-1,1],
    's2x':[-1,1],
    's1y':[-1,1],
@@ -469,7 +472,7 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as C
 
-def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None):
+def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False):
     """
     x = array so x[0] , x[1], x[2] are points.
     """
@@ -493,23 +496,43 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None):
     print length_scale_est
     print length_scale_bounds_est
 
-    # These parameters have been hand-tuned by experience to try to set to levels comparable to typical lnL Monte Carlo error
-    kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
-    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=8)
+    if not (hypercube_rescale):
+        # These parameters have been hand-tuned by experience to try to set to levels comparable to typical lnL Monte Carlo error
+        kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
+        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=8)
 
-    gp.fit(x,y)
+        gp.fit(x,y)
 
-    print  " Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y)  # should NOT be perfect
+        print  " Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y)  # should NOT be perfect
 
-    return lambda x: gp.predict(x)
+        return lambda x: gp.predict(x)
+    else:
+        x_scaled = np.zeros(x.shape)
+        x_center = np.zeros(len(length_scale_est))
+        x_center = np.mean(x)
+        print " Scaling data to central point ", x_center
+        for indx in np.arange(len(x)):
+            x_scaled[indx] = (x[indx] - x_center)/length_scale_est # resize
 
+        kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*RBF( len(x_center), (1e-3,1e1))
+        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=8)
+        
+        gp.fit(x_scaled,y)
+        print  " Fit: std: ", np.std(y - gp.predict(x_scaled)),  "using number of features ", len(y)  # should NOT be perfect
+
+        return lambda x,x0=x_center,scl=length_scale_est: gp.predict( (x-x0 )/scl)
 
 coord_names = opts.parameter # Used  in fit
+if coord_names is None:
+    coord_names = []
+low_level_coord_names = coord_names # Used for Monte Carlo
 if opts.parameter_implied:
     coord_names = coord_names+opts.parameter_implied
-low_level_coord_names = opts.parameter # Used for Monte Carlo
 if opts.parameter_nofit:
-    low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
+    if opts.parameter is None:
+        low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
+    else:
+        low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
 print " Coordinate names for fit :, ", coord_names
 print " Rendering coordinate names : ",  render_coordinates(coord_names)  # map(lambda x: tex_dictionary[x], coord_names)
 print " Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names)
@@ -677,7 +700,16 @@ elif opts.fit_method == "polynomial":
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     my_fit = fit_polynomial(X,Y,symmetry_list=symmetry_list,y_errors=Y_err)
-else:
+elif opts.fit_method == 'gp_hyper':
+    print " FIT METHOD ", opts.fit_method, " IS GP with hypercube rescaling"
+    # some data truncation IS used for the GP, but beware
+    print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
+    X=X[indx_ok]
+    Y=Y[indx_ok]
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    my_fit = fit_gp(X,Y,y_errors=Y_err,hypercube_rescale=True)
+elif opts.fit_method == 'gp':
     print " FIT METHOD ", opts.fit_method, " IS GP"
     # some data truncation IS used for the GP, but beware
     print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
@@ -739,7 +771,6 @@ for p in low_level_coord_names:
         range_here = eval(opts.mc_range)
     if p =='mtot' and opts.mtot_range:
         range_here = eval(opts.mtot_range)
-
 
     sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=True)
 
@@ -827,7 +858,7 @@ if neff < len(low_level_coord_names):
 samples = sampler._rvs
 print samples.keys()
 n_params = len(coord_names)
-dat_mass = np.zeros((len(samples[coord_names[0]]),n_params+3))
+dat_mass = np.zeros((len(samples[low_level_coord_names[0]]),n_params+3))
 dat_logL = np.log(samples["integrand"])
 print " Max lnL ", np.max(dat_logL)
 
