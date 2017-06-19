@@ -74,8 +74,11 @@ fi
 
 
 
-EVENT_TIME=`${PI} --inj ${INJ_XML}  --event ${EVENT} --verbose | grep coal` # | awk '{print $6}'`
-EVENT_TIME=${EVENT_TIME##* }   #  http://stackoverflow.com/questions/3162385/how-to-split-a-string-in-shell-and-get-the-last-field
+# event_time: only used to grab the data. 
+#  Beware the number of fields in the 'time of coalescence' may change in the future. Not safe, should read from XML directtly
+#EVENT_TIME=`${PI} --inj ${INJ_XML}  --event ${EVENT} --verbose | grep coal` # | awk '{print $6}'`
+#EVENT_TIME=${EVENT_TIME##* }   #  http://stackoverflow.com/questions/3162385/how-to-split-a-string-in-shell-and-get-the-last-field
+EVENT_TIME=`ligolw_print -c geocent_end_time ${INJ_XML}`
 # Modified so the buffer has a power-of-2 length
 START=`python -c "print int(${EVENT_TIME}-${DUR})"`
 STOP=`python -c "print int(${EVENT_TIME}+${DUR})"`
