@@ -927,7 +927,7 @@ for indx in np.arange(len(low_level_coord_names)):
         fac = lal.MSUN_SI
     here_val = here_val/fac
     print " Vertical line ", p, " ", here_val
-    plt.axvline(here_val,color='k',linestyle='--')
+    plt.axvline(here_val,color='k',linestyle='dashed')
 
     x_name = render_coord(p)
     plt.xlabel(x_name); plt.legend()
@@ -1005,7 +1005,7 @@ try:
     my_cmap_values = map(tuple,cm( (Y-y_min)/y_span) )
     my_cmap_values ='g'
 
-    fig_base = corner.corner(dat_out_low_level_coord_names,weights=np.ones(len(X))/len(X), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':my_cmap_values},hist_kwargs={'color':'g', 'linestyle':'--'},range_here=range_here)
+    fig_base = corner.corner(dat_out_low_level_coord_names,weights=np.ones(len(X))/len(X), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':my_cmap_values},hist_kwargs={'color':'g', 'linestyle':'dashed'},range_here=range_here)
 except:
 #else:
     print " Some ridiculous range error with the corner plots, again"
@@ -1191,7 +1191,7 @@ for indx in np.arange(len(coord_names)):
         fac = lal.MSUN_SI
     here_val = here_val/fac
     print " Vertical line ", p, " ", here_val
-    plt.axvline(here_val,color='k',linestyle='--')
+    plt.axvline(here_val,color='k',linestyle='dashed')
 
 
     x_name = render_coord(p)
@@ -1222,7 +1222,7 @@ try:
     fig_base=corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
 
- fig_base = corner.corner(X,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
+ fig_base = corner.corner(X,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
 
 
  plt.savefig("posterior_corner_fit_coords.png"); plt.clf()
@@ -1289,7 +1289,7 @@ for indx in np.arange(len(extra_plot_coord_names)):
 
 
     print len(dat_points_here),len(Y)
-    fig_base = corner.corner(dat_points_here,weights=np.ones(len(dat_points_here))*1.0/len(dat_points_here), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},range=range_here)
+    fig_base = corner.corner(dat_points_here,weights=np.ones(len(dat_points_here))*1.0/len(dat_points_here), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
     
 
     plt.savefig("posterior_corner_extra_coords_"+str(indx)+".png"); plt.clf()
