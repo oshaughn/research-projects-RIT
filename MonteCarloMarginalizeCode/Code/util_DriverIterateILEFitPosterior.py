@@ -82,10 +82,10 @@ if opts.run_dir:
       if opts.approx!="SEOBNRv2":
          approx=opts.approx
 
-      post_proc="python /home/monica.rizzo/PE/util_ConstructIntrinsicPosterior_GenericCoordinates.py --fname "+comp_file_full+" "+opts.postproc_opts+" --approx-output "+approx
+      post_proc="util_ConstructIntrinsicPosterior_GenericCoordinates.py --fname "+comp_file_full+" "+opts.postproc_opts+" --approx-output "+approx
       os.system(post_proc)
      
-      if it>1:
+      if it>2:  # 
           prev_iter="iteration"+str(it-1)
           #load gamma matrices
           gamma1=np.loadtxt(run_dir_full+"/"+prev_iter+"/lnL_gamma.dat", delimiter=" ")
@@ -140,7 +140,7 @@ if opts.run_dir:
          with open("integrate.sub", 'r+') as f:
             content = f.read()
             f.seek(0, 0)
-            f.write("accounting_group = ligo.prod.o2.cbc.pe.lalinferencerapid" + '\n' + "accounting_group_user = monica.rizzo" + '\n' + content)
+            f.write("accounting_group = " +os.environ["LIGO_ACCOUNTING"] + '\n' + "accounting_group_user = "+os.environ["LIGO_USER_NAME"] + '\n' + content)
          
          os.system("condor_submit_dag -maxpre 50 -maxidle 50 -maxjobs 1000 marginalize_extrinsic_parameters_grid.dag")
 
