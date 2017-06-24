@@ -17,6 +17,7 @@ import time
 parser = argparse.ArgumentParser()
 parser.add_argument("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")
 parser.add_argument("--no-cumulative-info",action='store_true')
+parser.add_argument("--no-test-convergence",action='store_true')
 parser.add_argument("--run-dir",type=str, default=None, help="directory code was run in")
 parser.add_argument("--max-iter",type=int,default=10,help="maximum iteration")
 parser.add_argument("--approx",default="SEOBNRv4",help="approximant for output samples")
@@ -103,7 +104,7 @@ if opts.run_dir:
           print " POSTPROCESSING FAIL; HALT"
           sys.exit(0)
      
-      if it>2:  # 
+      if (not opts.no_test_convergence) and it>2:  # 
           prev_iter="iteration"+str(it-1)
           #load gamma matrices
           gamma1=np.loadtxt(run_dir_full+"/"+prev_iter+"/lnL_gamma.dat", delimiter=" ")
