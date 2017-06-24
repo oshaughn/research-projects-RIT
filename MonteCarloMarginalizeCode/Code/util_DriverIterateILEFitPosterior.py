@@ -16,7 +16,7 @@ import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")
-parser.add_argument("--run-dir",default=None, help="directory code was run in")
+parser.add_argument("--run-dir",type=str, default=None, help="directory code was run in")
 parser.add_argument("--max-iter",type=int,default=10,help="maximum iteration")
 parser.add_argument("--approx",default="SEOBNRv2",help="approximant for output samples")
 #parser.add_argument("--composite",default=None, help="takes one or multiple composite files")
@@ -31,17 +31,25 @@ def calc_kl(mu_1, mu_2, sigma_1, sigma_2, sigma_1_inv, sigma_2_inv):
 
 #if ile directory is specified
 if opts.run_dir:
-   os.chdir(str(opts.run_dir))
+   os.chdir(str(opts.run_dir))   # should change into that directory!
 
    run_dir_full=os.getcwd()
    run_dir=run_dir_full.split('/')[-1]
+   print " Run directory ", run_dir
+   print os.listdir(os.getcwd())
  
    comp_file=None
    #find composite file 
-   os.chdir(run_dir_full+"/../")
-   for f in os.listdir(os.getcwd()):
-       if str(f).endswith("composite") and str(run_dir) in str(f):
+   #os.chdir(run_dir_full+"/../")   # SHOULD NOT CHANGE DIRECTORIES HERE. Keep in subdirectory.
+   print " Composite file ... ", os.listdir(run_dir_full+"/../") # not happy about looking up for it.
+   for f in os.listdir(run_dir_full+"/../"): #os.listdir(os.getcwd()):
+       if str(f).endswith("composite"): # and str(run_dir) in str(f):
            comp_file=f
+   print " Identified composite file ", comp_file
+   if not(comp_file ==None):
+       cmd = "cp  ../" + comp_file + " . "
+       print cmd
+       os.system(cmd)
   
    #create composite file if not already exisitng
    if comp_file==None:
@@ -55,10 +63,13 @@ if opts.run_dir:
    it_count=np.array([0])
    for f in os.listdir(run_dir_full):
       if str(f).startswith("iteration"):
+          print " Match iteration ", f
           it_count=np.append(it_count,int(f[-1]))
    if max(it_count)>0:
+      print " --- continuing run ---- "
       it=max(it_count)
       comp_file_full=run_dir_full+"/iteration"+str(it)+"/iterate.composite"
+      print " Iteration ", it
       it+=1
    else:
       it=1
@@ -82,8 +93,14 @@ if opts.run_dir:
       if opts.approx!="SEOBNRv2":
          approx=opts.approx
 
-      post_proc="util_ConstructIntrinsicPosterior_GenericCoordinates.py --fname "+comp_file_full+" "+opts.postproc_opts+" --approx-output "+approx
+      post_proc=" util_ConstructIntrinsicPosterior_GenericCoordinates.py --fname "+comp_file_full+" "+opts.postproc_opts+" --approx-output "+approx
+      print " --- postproc ---- "
+      print post_proc
       os.system(post_proc)
+      # Confirm the necessary output files are created!
+      if not ("output-ILE-samples.xml.gz" in os.listdir('.')):
+          print " POSTPROCESSING FAIL; HALT"
+          sys.exit(0)
      
       if it>2:  # 
           prev_iter="iteration"+str(it-1)
