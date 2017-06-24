@@ -16,9 +16,10 @@ import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")
+parser.add_argument("--no-cumulative-info",action='store_true')
 parser.add_argument("--run-dir",type=str, default=None, help="directory code was run in")
 parser.add_argument("--max-iter",type=int,default=10,help="maximum iteration")
-parser.add_argument("--approx",default="SEOBNRv2",help="approximant for output samples")
+parser.add_argument("--approx",default="SEOBNRv4",help="approximant for output samples")
 #parser.add_argument("--composite",default=None, help="takes one or multiple composite files")
 #parser.add_argument("--save-plots", default=False, action='store_true',help="saves waveform plot and hoft data")
 parser.add_argument("--postproc-opts",type=str,default=None, help="string containing postprocessing options")
@@ -170,11 +171,17 @@ if opts.run_dir:
               if dag_complete==False:
                  time.sleep(60)
 
+         # Create .composite file IN THE DIRECTORY
          compile1="find ./ -name 'CME*.dat' -exec cat {} \; > iterate_tmp.dat"
          os.system(compile1)
-
-         compile2="util_CleanILE.py iterate_tmp.dat | sort -rg -k10 > iterate.composite"
+         compile2="util_CleanILE.py iterate_tmp.dat | sort -rg -k10 > iterate_tmp.composite"
          os.system(compile2)
+         # Append result from PREVIOUS ITERATIONS
+         addme = ""
+         if not (opts.no_cumulative_info):
+             addme = comp_file_full
+         compile3 = 'cat iterate_tmp.composite ' + addme + ' > iterate.composite'
+         os.system(compile3)
          comp_file_full=run_dir_full+"/"+iteration_dir+"/iterate.composite"
          it+=1
 
