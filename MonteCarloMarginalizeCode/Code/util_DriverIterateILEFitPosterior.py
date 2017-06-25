@@ -3,6 +3,11 @@
 # iterate.py --composite ../OfficialResultDatabase/*SEOBNRv3*.composite
 #will create directory in location the code is run in 
 #
+# REQUIREMENTS
+#   + Environment variables
+#        ILE_CODE_PATH
+#        LIGO_USER_NAME
+#        LIGO_ACCOUNTING      # what tag will be applied for LVC accounting
 
 import numpy as np
 import numpy.linalg as la
@@ -12,6 +17,12 @@ import os
 import subprocess
 from shutil import copyfile
 import time
+
+ILE_CODE_PATH='';
+try:
+    ILE_CODE_PATH=os.environ['ILE_CODE_PATH'] + "/"
+except:
+    print " ILE code path not set, relying on your PATH"
 
 
 parser = argparse.ArgumentParser()
@@ -55,7 +66,7 @@ if opts.run_dir:
   
    #create composite file if not already exisitng
    if comp_file==None:
-      wrapup="util_ILEdagPostprocess.sh "+run_dir+" "+run_dir+"_wrapup"
+      wrapup=ILE_CODE_PATH+"util_ILEdagPostprocess.sh "+run_dir+" "+run_dir+"_wrapup"
       comp_file=run_dir+"_wrapup.composite"
       os.system(wrapup)
 
@@ -95,7 +106,7 @@ if opts.run_dir:
       if opts.approx!="SEOBNRv2":
          approx=opts.approx
 
-      post_proc=" util_ConstructIntrinsicPosterior_GenericCoordinates.py --fname "+comp_file_full+" "+opts.postproc_opts+" --approx-output "+approx
+      post_proc= ILE_CODE_PATH+"util_ConstructIntrinsicPosterior_GenericCoordinates.py --fname "+comp_file_full+" "+opts.postproc_opts+" --approx-output "+approx
       print " --- postproc ---- "
       print post_proc
       os.system(post_proc)
@@ -174,14 +185,22 @@ if opts.run_dir:
 
          # Create .composite file IN THE DIRECTORY
          compile1="find ./ -name 'CME*.dat' -exec cat {} \; > iterate_tmp.dat"
+         print compile1;
          os.system(compile1)
-         compile2="util_CleanILE.py iterate_tmp.dat | sort -rg -k10 > iterate_tmp.composite"
+         compile2=ILE_CODE_PATH+"util_CleanILE.py iterate_tmp.dat | sort -rg -k10 > iterate_tmp.composite"
+         print compile2;
          os.system(compile2)
+         time.sleep(5)  # give time for filesystem to respond.
+         if not ("iterate_tmp.composite" in os.listdir('.')):
+             print " POSTPROCESSING FAIL (iterate_tmp.composite)"
+             sys.exit(0)
          # Append result from PREVIOUS ITERATIONS
          addme = ""
          if not (opts.no_cumulative_info):
              addme = comp_file_full
+#         compile3 = 'cat ' +run_dir_full + "/"+iteration_dir + '/iterate_tmp.composite ' + addme + ' > iterate.composite'
          compile3 = 'cat iterate_tmp.composite ' + addme + ' > iterate.composite'
+         print compile3
          os.system(compile3)
          comp_file_full=run_dir_full+"/"+iteration_dir+"/iterate.composite"
          it+=1
