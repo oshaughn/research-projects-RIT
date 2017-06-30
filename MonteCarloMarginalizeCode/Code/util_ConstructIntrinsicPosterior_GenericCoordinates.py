@@ -1100,6 +1100,8 @@ lalsimutils.ChooseWaveformParams_array_to_xml(P_list,fname=opts.fname_output_sam
 
 P_best = P_list[ np.argmax(lnL_list)  ]
 lalsimutils.ChooseWaveformParams_array_to_xml([P_best], "best_point_by_lnL")
+lnL_best = lnL_list[np.argmax(lnL_list)]
+np.savetxt("best_point_by_lnL_value.dat", np.array([lnL_best]));
 
 
 ###
