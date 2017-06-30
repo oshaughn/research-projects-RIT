@@ -170,6 +170,7 @@ parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
+parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 opts=  parser.parse_args()
 
 
@@ -472,6 +473,10 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as C
 
+def adderr(y):
+    val,err = y
+    return val+err
+
 def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False):
     """
     x = array so x[0] , x[1], x[2] are points.
@@ -503,9 +508,12 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False)
 
         gp.fit(x,y)
 
-        print  " Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y)  # should NOT be perfect
+        print  " Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y) 
 
-        return lambda x: gp.predict(x)
+        if not (opts.fit_uncertainty_added):
+            return lambda x: gp.predict(x)
+        else:
+            return lambda x: adderr(gp.predict(x,return_std=True))
     else:
         x_scaled = np.zeros(x.shape)
         x_center = np.zeros(len(length_scale_est))
