@@ -495,7 +495,11 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False)
     for indx in np.arange(len(x[0])):
         # These length scales have been tuned by expereience
         length_scale_est.append( 2*np.std(x[:,indx])  )  # auto-select range based on sampling retained
-        length_scale_bounds_est.append( ( np.max([1e-3,0.2*np.std(x[:,indx]/np.sqrt(len(x)))]), 5*np.std(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
+        length_scale_min_here= np.max([1e-3,0.2*np.std(x[:,indx]/np.sqrt(len(x)))])
+        if indx == mc_index:
+            length_scale_min_here= 0.2*np.std(x[:,indx]/np.sqrt(len(x)))
+            print " Setting mc range: retained point range is ", np.std(x[:,indx]), " and target min is ", length_scale_min_here
+        length_scale_bounds_est.append( (length_scale_min_here , 5*np.std(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
 
     print " GP: Estimated length scales "
     print length_scale_est
@@ -579,6 +583,9 @@ symmetry_list =lalsimutils.symmetry_sign_exchange(coord_names)  # identify symme
 mc_min = 1e10
 mc_max = -1
 
+mc_index = -1 # index of mchirp in parameter index. To help with nonstandard GP
+mc_cut_range = eval(opts.mc_range)  # throw out samples outside this range
+print " Stripping samples outside of ", mc_cut_range, " in mc"
 P= lalsimutils.ChooseWaveformParams()
 for line in dat:
   # Skip precessing binaries unless explicitly requested not to!
@@ -590,8 +597,15 @@ for line in dat:
           print " Skipping ", line, " as too massive, with mass ", line[1]+line[2]
       continue
   if line[10] > opts.sigma_cut:
+#      if opts.verbose:
+#          print " Skipping ", line
+      continue
+  if line[col_lnL] < opts.lnL_cut:
+      continue  # strip worthless points.  DANGEROUS
+  mc_here = lalsimutils.mchirp(line[1],line[2])
+  if mc_here < mc_cut_range[0] or mc_here > mc_cut_range[1]:
       if opts.verbose:
-          print " Skipping ", line
+          print "Stripping because sample outside of target  mc range ", line
       continue
   if line[col_lnL] < opts.lnL_peak_insane_cut:
     P.fref = opts.fref  # IMPORTANT if you are using a quantity that depends on J
@@ -628,6 +642,8 @@ for line in dat:
         if low_level_coord_names[x] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
         line_out[x] = P.extract_param(low_level_coord_names[x])/fac
+        if low_level_coord_names[x] in ['mc']:
+            mc_index = x
     dat_out_low_level_coord_names.append(line_out)
 
 
@@ -1099,6 +1115,7 @@ for indx_here in indx_list:
  ### Export data
  ###
 lalsimutils.ChooseWaveformParams_array_to_xml(P_list,fname=opts.fname_output_samples,fref=P.fref)
+np.savetxt(opts.fname_output_samples+"_lnL.dat", lnL_list)
 
 
 
