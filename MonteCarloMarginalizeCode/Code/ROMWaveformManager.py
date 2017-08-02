@@ -11,6 +11,11 @@ import lalsimutils
 import lalsimulation as lalsim
 import lal
 
+try:
+    import LALHybrid
+except:
+    print " - no hybridization - "
+
 from scipy.interpolate import interp1d
 from scipy.linalg import inv
 from scipy.interpolate import splrep as _splrep
@@ -279,6 +284,7 @@ class WaveformModeCatalog:
         for mode in self.sur_dict:
             print  "    " , mode, " nbasis = ", self.nbasis_per_mode[mode]
 
+    # same arguments as hlm
     def complex_hoft(self, P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,sgn=-1):
         hlmT = self.hlmoft(P, force_T, deltaT,time_over_M_zero)
         npts = hlmT[(2,2)].data.length
@@ -527,12 +533,14 @@ class WaveformModeCatalog:
 
         return coefs
 
-    def hlmoft(self,  P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf):
+    # See NR code 
+    def hlmoft(self,  P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf,hybrid_time=None,hybrid_use=False,hybrid_method='taper_add',hybrid_frequency=None,verbose=False):
         """
         hlmoft uses the dimensionless ROM basis functions to extract hlm(t) in physical units, in a LAL array.
         The argument 'P' is a ChooseWaveformParaams object
         FIXME: Add tapering option!
         """
+        hybrid_time_viaf = hybrid_time
         hlmT ={}
         # Define units
         m_total_s = MsunInSec*(P.m1+P.m2)/lal.MSUN_SI
@@ -571,7 +579,7 @@ class WaveformModeCatalog:
             if not use_basis:
                 params_here = self.parameter_convert[mode](P)
                 t_phys, hp_dim, hc_dim = self.post_dict[mode](*self.sur_dict[mode](q=params_here,samples=tvals/m_total_s + self.ToverM_peak))  # center time values AT PEAK
-                wfmTS.data.data =  m_total_s/distance_s * (hp_dim - 1j*hc_dim)
+                wfmTS.data.data =  m_total_s/distance_s * (hp_dim + 1j*hc_dim)  # ARGH! Is this consistent across surrogates?
                 # Zero out data after tmax and before tmin
                 wfmTS.data.data[tvals/m_total_s<self.ToverMmin-self.ToverM_peak] = 0
                 wfmTS.data.data[tvals/m_total_s>self.ToverMmax-self.ToverM_peak] = 0
@@ -636,15 +644,45 @@ class WaveformModeCatalog:
             # Store the resulting mode
             hlmT[mode] = wfmTS
 
+            # if the 22 mode, use to identify the natural frequency.  Can afford to be a bit sloppy, since only used for hybridization
+            if hybrid_use and hybrid_time == None and mode[0]==2 and mode[1]==2 :
+                if hybrid_frequency:
+                    phase_vals = np.angle(wfmTS.data.data)
+                    phase_vals = lalsimutils.unwind_phase(phase_vals)
+                    datFreqReduced = (-1)* (np.roll(phase_vals,-1) - phase_vals)/deltaT/(2*np.pi)   # Hopefully this is smooth and monotonic
+                    indx_max = np.argmax(np.abs(wfmTS.data.data))
+                    t_max_location = tvals[indx_max]
+                    indx_ok =  np.logical_and(np.abs(datFreqReduced) < hybrid_frequency*1.001, tvals < t_max_location)  # Use peak time to insure matching occurs early on
+                    tvals_ok = tvals[indx_ok]
+                    f_ok = datFreqReduced[indx_ok]
+                    hybrid_time_viaf = tvals_ok[np.argmax(f_ok)]   # rely on high sampling rate. No interpolation!
+#                    if verbose:
+#                        print " NR catalog: revising hybridization time from 22 mode  to ", hybrid_time_viaf, " given frequency ", hybrid_frequency
+
+        # hybridize
+        if hybrid_use:
+            my_hybrid_time = hybrid_time_viaf
+#            HackRoundTransverseSpin(self.P) # Hack, sub-optimal
+            if my_hybrid_time == None:
+                my_hybrid_time = -0.5*self.estimateDurationSec()  # note fmin is not used. Note this is VERY conservative
+            if verbose:
+                print "  hybridization performed for ", self.group, self.param, " at time ", my_hybrid_time
+            P.deltaT = deltaT # sanity
+            # HACK: round digits, so I can get a spin-aligned approximant if I need it
+            hlmT_hybrid = LALHybrid.hybridize_modes(hlmT,P,hybrid_time_start=my_hybrid_time,hybrid_method=hybrid_method)
+            return hlmT_hybrid
+        else:
+            if rosDebug:
+                print " ------ NO HYBRIDIZATION PERFORMED AT LOW LEVEL (=automatic) for ", self.group, self.param, "----- "
         return hlmT
 
-    def hlmoff(self, P,force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf):
+    def hlmoff(self, P,force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf,**kwargs):
         """
         hlmoff takes fourier transforms of LAL timeseries generated from hlmoft.
         All modes have physical units, appropriate to a physical signal.
         """
         hlmF ={}
-        hlmT = self.hlmoft(P,force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero,use_basis=use_basis,Lmax=Lmax)
+        hlmT = self.hlmoft(P,force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero,use_basis=use_basis,Lmax=Lmax,**kwargs)
         for mode in hlmT.keys():
             wfmTS=hlmT[mode]
             # Take the fourier transform
