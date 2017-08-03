@@ -148,6 +148,7 @@ parser.add_argument("--parameter", action='append', help="Parameters used as fit
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
+parser.add_argument("--trust-sample-parameter-box",action='store_true', help="If used, sets the prior range to the SAMPLE range for any parameters. NOT IMPLEMENTED. This should be automatically done for mc!")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
@@ -584,7 +585,9 @@ mc_min = 1e10
 mc_max = -1
 
 mc_index = -1 # index of mchirp in parameter index. To help with nonstandard GP
-mc_cut_range = eval(opts.mc_range)  # throw out samples outside this range
+mc_cut_range = [-np.inf, np.inf] 
+if opts.mc_range:
+    mc_cut_range = eval(opts.mc_range)  # throw out samples outside this range
 print " Stripping samples outside of ", mc_cut_range, " in mc"
 P= lalsimutils.ChooseWaveformParams()
 for line in dat:
@@ -793,6 +796,8 @@ for p in low_level_coord_names:
     ## Special case: mc : provide ability to override range
     if p == 'mc' and opts.mc_range:
         range_here = eval(opts.mc_range)
+    elif p=='mc' and opts.trust_sample_parameter_box:
+        range_here = [np.max([range_here[0],mc_min]), np.min([range_here[1],mc_max])]
     if p =='mtot' and opts.mtot_range:
         range_here = eval(opts.mtot_range)
 
