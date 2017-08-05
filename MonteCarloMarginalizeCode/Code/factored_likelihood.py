@@ -111,6 +111,10 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
        # For ROM, use the ROM basis. Note that hlmoff -> basis_off henceforth
        acatHere= romwf.WaveformModeCatalog(ROM_group,ROM_param,max_nbasis_per_mode=ROM_limit_basis_size,lmax=Lmax)
        if ROM_use_basis:
+            if hybrid_use:
+               # WARNING
+               #    - Hybridization is NOT enabled 
+                    print " WARNING: Hybridization will not be applied (obviously) if you are using a ROM basis. "
             bT = acatHere.basis_oft(P,return_numpy=False,force_T=1./P.deltaF)
             # Fake names, to re-use the code below.  
             hlms = {}
@@ -129,8 +133,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 hlms_conj[mode].data.data *=rom_basis_scale
        else:
            # this code is modular but inefficient: the waveform is regenerated twice
-           hlms = acatHere.hlmoff(P, use_basis=False,force_T=1./P.deltaF,Lmax=Lmax)  # Must force duration consistency, very annoying
-           hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False,Lmax=Lmax)  # Must force duration consistency, very annoying
+           hlms = acatHere.hlmoff(P, use_basis=False,force_T=1./P.deltaF,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
+           hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
 
     elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx == lalsim.EOBNRv2):
         print "  FACTORED LIKELIHOOD WITH SEOB "    
