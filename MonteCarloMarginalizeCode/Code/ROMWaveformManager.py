@@ -400,7 +400,8 @@ class WaveformModeCatalog:
 
 
     def estimateFminHz(self,P,fmin=10.):
-        return 2*self.fOrbitLower/(MsunInSec*(P.m1+P.m2)/lal.MSUN_SI)
+        # This SHOULD use information from the ROM
+        return 2*self.fMin/(MsunInSec*(P.m1+P.m2)/lal.MSUN_SI)
 
     def estimateDurationSec(self,P,fmin=10.):
         """
@@ -408,6 +409,7 @@ class WaveformModeCatalog:
         part.  By default it uses the *entire* waveform duration.
         CURRENTLY DOES NOT IMPLEMENT frequency-dependent duration
         """
+        return (self.ToverMmax - self.ToverMmin)*MsunInSec*(P.m1+P.m2)/lal.MSUN_SI
         return None
 
     def basis_oft(self,  P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,return_numpy=False):
@@ -664,7 +666,7 @@ class WaveformModeCatalog:
             my_hybrid_time = hybrid_time_viaf
 #            HackRoundTransverseSpin(self.P) # Hack, sub-optimal
             if my_hybrid_time == None:
-                my_hybrid_time = -0.5*self.estimateDurationSec()  # note fmin is not used. Note this is VERY conservative
+                my_hybrid_time = -0.5*self.estimateDurationSec(P)  # note fmin is not used. Note this is VERY conservative
             if verbose:
                 print "  hybridization performed for ", self.group, self.param, " at time ", my_hybrid_time
             P.deltaT = deltaT # sanity
@@ -691,13 +693,13 @@ class WaveformModeCatalog:
             hlmF[mode] = wfmFD
         return hlmF
 
-    def conj_hlmoff(self, P,force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf):
+    def conj_hlmoff(self, P,force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf,**kwargs):
         """
         conj_hlmoff takes fourier transforms of LAL timeseries generated from hlmoft, but after complex conjugation.
         All modes have physical units, appropriate to a physical signal.
         """
         hlmF ={}
-        hlmT = self.hlmoft(P,force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero,use_basis=use_basis,Lmax=Lmax)
+        hlmT = self.hlmoft(P,force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero,use_basis=use_basis,Lmax=Lmax,**kwargs)
         for mode in hlmT.keys():
             wfmTS=hlmT[mode]
             wfmTS.data.data = np.conj(wfmTS.data.data)  # complex conjugate
