@@ -36,7 +36,7 @@ try:
 	import NRWaveformCatalogManager as nrwf
 	useNR =True
         print " factored_likelihood.py : NRWaveformCatalogManager available "
-except:
+except ImportError:
 	useNR=False
 
 try:
@@ -44,7 +44,7 @@ try:
         print " factored_likelihood.py: ROMWaveformManager as romwf"
         useROM=True
         rom_basis_scale = 1.0*1e-21   # Fundamental problem: Inner products with ROM basis vectors/Sh are tiny. Need to rescale to avoid overflow/underflow and simplify comparisons
-except:
+except ImportError:
         useROM=False
         print " factored_likelihood.py: - no ROM - "
         rom_basis_scale =1
