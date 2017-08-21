@@ -19,22 +19,32 @@ import StringIO
 
 data_at_intrinsic = {}
 
-my_digits=4
+my_digits=5  # safety for high-SNR BNS
+
+tides_on = False
+col_intrinsic = 9
+
 
 for fname in sys.argv[1:]:
-
-    data = np.loadtxt(fname)
+    sys.stderr.write(fname)
+    data = np.loadtxt(fname)  # this will FAIL if we have a heterogeneous data source!  BE CAREFUL
     for line in data:
         line = np.around(line, decimals=my_digits)
-        indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,lnL, sigmaOverL, ntot, neff = line
+        lambda1=lambda2=0
+        if len(line) == 13 and not tides_on:  # strip lines with the wrong length
+            indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,lnL, sigmaOverL, ntot, neff = line
+        elif len(line)==15:
+            tides_on  = True
+            col_intrinsic =11
+            indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z, lambda1,lambda2,lnL, sigmaOverL, ntot, neff = line
 	if sigmaOverL>0.9:
 	    continue    # do not allow poorly-resolved cases (e.g., dominated by one point). These are often useless
-        if data_at_intrinsic.has_key(tuple(line[1:9])):
+        if data_at_intrinsic.has_key(tuple(line[1:col_intrinsic])):
 #            print " repeated occurrence ", line[1:9]
-            data_at_intrinsic[tuple(line[1:9])].append(line[9:])
+            data_at_intrinsic[tuple(line[1:col_intrinsic])].append(line[col_intrinsic:])
         else:
 #            print " new key ", line[1:9]
-            data_at_intrinsic[tuple(line[1:9])] = [line[9:]]
+            data_at_intrinsic[tuple(line[1:col_intrinsic])] = [line[col_intrinsic:]]
 
 for key in data_at_intrinsic:
     lnL, sigmaOverL, ntot,neff =   np.transpose(data_at_intrinsic[key])
@@ -45,5 +55,7 @@ for key in data_at_intrinsic:
     sigmaNetOverL = (np.sqrt(1./np.sum(1./sigma/sigma)))/np.exp(lnLmeanMinusLmax)
 
 
-                                                    
-    print -1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1
+    if tides_on:
+        print -1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1
+    else:
+        print -1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1
