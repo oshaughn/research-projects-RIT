@@ -181,7 +181,10 @@ tex_dictionary  = {
  "chi2_perp": "$\chi_{2,\perp}$",
   'chi1':'$|\chi_1|$',
   'chi2':'$|\chi_2|$',
-
+  'lambda1':r'$\lambda_1$',
+  'lambda2':r'$\lambda_2$',
+  'LambdaTilde': r'$\tilde{\Lambda}$',
+  'DeltaLambdaTilde': r'$\Delta\tilde{\Lambda}$'
 }
 
 
@@ -649,6 +652,12 @@ class ChooseWaveformParams:
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             S0 = (chi1Vec*self.m1+chi2Vec*self.m2)/(self.m1+self.m2)
             return S0  # VECTOR
+        if p == 'LambdaTilde':
+            Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
+            return Lt
+        if p == 'DeltaLambdaTilde':
+            Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
+            return dLt
         if 'product(' in p:
             # Drop first and last characters
             a=p.replace(' ', '') # drop spaces
@@ -3308,6 +3317,9 @@ def symmetry_sign_exchange(coord_names):
         P.m1,P.s1x,P.s1y,P.s1z = [m2,s2x,s2y,s2z]
         P.m2,P.s2x,P.s2y,P.s2z = [m1,s1x,s1y,s1z]
         
+        lambda1,lambda2 = [P.lambda1,P.lambda2]
+        P.lambda1,P.lambda2= [lambda2,lambda1]
+
         val2 = P.extract_param(coord_names[indx])
         if np.abs(val1-val2) < 1e-5 *np.abs(val1*2):
             sig_list.append(1)

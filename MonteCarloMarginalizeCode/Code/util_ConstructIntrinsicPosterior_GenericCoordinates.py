@@ -135,6 +135,7 @@ def add_field(a, descr):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
+parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
 parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
@@ -147,6 +148,7 @@ parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to l
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
+parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--trust-sample-parameter-box",action='store_true', help="If used, sets the prior range to the SAMPLE range for any parameters. NOT IMPLEMENTED. This should be automatically done for mc!")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
@@ -174,6 +176,9 @@ parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 opts=  parser.parse_args()
 
+with open('args.txt','w') as fp:
+    import sys
+    fp.write(' '.join(sys.argv))
 
 if opts.fit_method == "quadratic":
     opts.fit_order = 2  # overrride
@@ -338,6 +343,9 @@ def s_component_aligned_volumetricprior(x,R=1.):
     # for SPIN COMPONENT ALIGNED (s1z,s2z) for aligned spins only
     return (3./4.*(1- np.power(x/R,2)))
 
+def lambda_prior(x):
+    return np.ones(x.shape)/4000.   # assume arbitrary
+
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "mc":mc_prior, "eta":eta_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
@@ -346,6 +354,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "
     's2y':s_component_uniform_prior,
     'm1':m_prior,
     'm2':m_prior,
+    'lambda1':lambda_prior,
+    'lambda2':lambda_prior,
 }
 prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.99,0.99], "s2z":[-0.99,0.99], "mc":[0.9,250], "eta":[0.01,0.2499999], 'xi':[-1,1],'chi_eff':[-1,1],'delta':[-1,1],
    's1x':[-1,1],
@@ -353,8 +363,14 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.99,0.99], "s2z":[-0
    's1y':[-1,1],
    's2y':[-1,1],
   'm1':[0.9,1e3],
-  'm2':[0.9,1e3]
+  'm2':[0.9,1e3],
+  'lambda1':[0.01,4000],
+  'lambda2':[0.01,4000],
 }
+
+if not (opts.eta_range is None):
+    print " Warning: Overriding default eta range. USE WITH CARE"
+    prior_range_map['eta'] = eval(opts.eta_range)  # really only useful if eta is a coordinate.  USE WITH CARE
 
 ###
 ### Modify priors, as needed
@@ -562,10 +578,12 @@ n_params = -1
 ###
 #  id m1 m2  lnL sigma/L  neff
 col_lnL = 9
+if opts.input_tides:
+    print " Tides input"
+    col_lnL +=2
 dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
 print " Original data size = ", len(dat), dat.shape
-
 
  ###
  ### Convert data.  Use lalsimutils for flexibility
@@ -599,7 +617,7 @@ for line in dat:
       if opts.verbose:
           print " Skipping ", line, " as too massive, with mass ", line[1]+line[2]
       continue
-  if line[10] > opts.sigma_cut:
+  if line[col_lnL+1] > opts.sigma_cut:
 #      if opts.verbose:
 #          print " Skipping ", line
       continue
@@ -621,6 +639,10 @@ for line in dat:
     P.s2x = line[6]
     P.s2y = line[7]
     P.s2z = line[8]
+
+    if opts.input_tides:
+        P.lambda1 = line[9]
+        P.lambda2 = line[10]
 
     # INPUT GRID: Evaluate binary parameters on fitting coordinates
     line_out = np.zeros(len(coord_names)+2)
@@ -660,6 +682,7 @@ for line in dat:
 Pref_default = P.copy()  # keep this around to fix the masses, if we don't have an inj
 
 dat_out = np.array(dat_out)
+print " Stripped size  = ", dat_out.shape
 dat_out_low_level_coord_names = np.array(dat_out_low_level_coord_names)
  # scale out mass units
 for p in ['mc', 'm1', 'm2', 'mtot']:
