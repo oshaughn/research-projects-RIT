@@ -90,6 +90,12 @@ def extract_combination_from_LI(samples_LI, p):
             return samples_LI["a1"]*np.sin(samples_LI[ 'theta1']) 
         if p == 'chi2_perp':
             return samples_LI["a2"]*np.sin(samples_LI[ 'theta2']) 
+    if 'lambdat' in samples_LI.dtype.names:  # LI does sampling in these tidal coordinates
+        lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(samples_LI["m1"], samples_LI["m2"], samples_LI["lambdat"], samples_LI["dlambdat"])
+        if p == "lambda1":
+            return lambda1
+        if p == "lambda2":
+            return lambda2
     if p == 'delta':
         return (samples_LI['m1']  - samples_LI['m2'])/((samples_LI['m1']  + samples_LI['m2']))
     # Return cartesian components of Lhat
@@ -205,7 +211,9 @@ remap_ILE_2_LI = {
   "delta":"delta", 
  "mtot":'mtotal', "mc":"mc", "eta":"eta","m1":"m1","m2":"m2",
   "cos_beta":"cosbeta",
-  "beta":"beta"}
+  "beta":"beta",
+  "LambdaTilde":"lambdat",
+  "DeltaLambdaTilde": "dlambdat"}
 
 if opts.fname_lalinference:
     print " Loading lalinference samples for direct comparison ", opts.fname_lalinference
@@ -231,10 +239,11 @@ if opts.fname_lalinference:
     ### Add important quantities easily derived from the samples but not usually provided
     ###
 
-    chi_minus = (samples_LI["a1z"]*samples_LI["m1"] - samples_LI["a2z"]*samples_LI["m2"])/(samples_LI["m1"]+samples_LI["m2"])
     delta_dat = (samples_LI["m1"] - samples_LI["m2"])/(samples_LI["m1"]+samples_LI["m2"])
-    samples_LI = add_field(samples_LI, [('chi_minus', float)]); samples_LI['chi_minus'] = chi_minus
     samples_LI = add_field(samples_LI, [('delta', float)]); samples_LI['delta'] = delta_dat
+    if "a1z" in samples_LI.dtype.names:
+        chi_minus = (samples_LI["a1z"]*samples_LI["m1"] - samples_LI["a2z"]*samples_LI["m2"])/(samples_LI["m1"]+samples_LI["m2"])
+        samples_LI = add_field(samples_LI, [('chi_minus', float)]); samples_LI['chi_minus'] = chi_minus
 
     if "tilt1" in samples_LI.dtype.names:
         a1x_dat = samples_LI["a1"]*np.sin(samples_LI["theta1"])*np.cos(samples_LI["phi1"])
@@ -969,9 +978,9 @@ for indx in np.arange(len(low_level_coord_names)):
     np.savetxt(p+"_cdf_nocut_beware.dat", np.array(dat_out))
     dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
     plt.plot(dat_out[:,0],dat_out[:,1],label="rapid_pe:"+opts.desc_ILE,color='b')
-    if opts.fname_lalinference and  (p in remap_ILE_2_LI.keys()):
+    if opts.fname_lalinference: # and  (p in remap_ILE_2_LI.keys()):
         plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label="LI:"+opts.desc_lalinference,color='r')
-
+   
     # Add vertical line
     here_val = Pref.extract_param(p)
     fac = 1
@@ -1006,6 +1015,10 @@ for indx in np.arange(len(low_level_coord_names)):
 #            dat_mass_LI[:,indx]
      if remap_ILE_2_LI[low_level_coord_names[indx]] in samples_LI.dtype.names:
         dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[low_level_coord_names[indx]] ]
+    if low_level_coord_names[indx] in ["lambda1", "lambda2"]:
+        print " populating ", low_level_coord_names[indx], " via _extract "
+        dat_mass_LI[:,indx] = extract_combination_from_LI(samples_LI, low_level_coord_names[indx])  # requires special extraction technique, since it needs to be converted
+        print dat_mass_LI[:5,indx]
 
 truth_here = []
 for indx in np.arange(len(low_level_coord_names)):
@@ -1037,11 +1050,20 @@ for p in low_level_coord_names:
         range_here[-1][1] = prior_range_map[p][1]
     if opts.fname_lalinference:
         # If LI samples are shown, make sure their full posterior range is plotted.
+      try:
+        print p
         p_LI  = remap_ILE_2_LI[p]
         if range_here[-1][0] > np.min(samples_LI[p_LI]):
             range_here[-1][0] = np.min(samples_LI[p_LI])
         if range_here[-1][1] < np.max(samples_LI[p_LI]):
             range_here[-1][1] = np.max(samples_LI[p_LI])
+      except:
+          print " Parameter failure with LI, trying extract_combination_... "
+          tmp = extract_combination_from_LI(samples_LI, p)
+          if range_here[-1][0] > np.min(tmp):
+            range_here[-1][0] = np.min(tmp)
+          if range_here[-1][1] < np.max(tmp):
+            range_here[-1][1] = np.max(tmp)
     print p, range_here[-1]  # print out range to be used in plots.
 
 labels_tex = map(lambda x: tex_dictionary[x], low_level_coord_names)
@@ -1117,6 +1139,9 @@ for indx_here in indx_list:
                     if opts.verbose:
                         print " Sample: Skipping " , line, ' due to ', p, val, downselect_dict[p]
 
+        # Set some superfluous quantities, needed only for PN approximants, so the result is generated sensibly
+        Pgrid.phaseO =-1
+                        
             
 #        if opts.verbose:
 #            Pgrid.print_params()
