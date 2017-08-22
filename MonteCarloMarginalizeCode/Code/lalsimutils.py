@@ -140,8 +140,10 @@ def lsu_StringFromPNOrder(order):
         return "threePN"
     elif (order == lsu_PNORDER_THREE_POINT_FIVE):
         return "threePointFivePN"
+    elif (order == -1):  # highest available
+        return "threePointFivePN"
     else:
-        raise "Unknown PN order "
+        raise "Unknown PN order ", order
 
 #
 # Class to hold arguments of ChooseWaveform functions
@@ -1015,7 +1017,7 @@ class ChooseWaveformParams:
         if not (str(row.waveform).find("Taylor") == -1 ):  # Not meaningful to have an order for EOB, etc
             self.phaseO = lalsim.GetOrderFromString(str(row.waveform))
         else:
-            self.phaseO = 01
+            self.phaseO = -1
         self.approx = lalsim.GetApproximantFromString(str(row.waveform))
         if rosDebugMessagesContainer[0]:
             print " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform
