@@ -992,6 +992,7 @@ for indx in np.arange(len(low_level_coord_names)):
 
     x_name = render_coord(p)
     plt.xlabel(x_name); plt.legend()
+    plt.title("CDF: "+x_name)
     plt.savefig(p+"_cdf.png"); plt.clf()
    except:
       print " No 1d plot for variable"
@@ -1016,9 +1017,8 @@ for indx in np.arange(len(low_level_coord_names)):
      if remap_ILE_2_LI[low_level_coord_names[indx]] in samples_LI.dtype.names:
         dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[low_level_coord_names[indx]] ]
     if low_level_coord_names[indx] in ["lambda1", "lambda2"]:
-        print " populating ", low_level_coord_names[indx], " via _extract "
+#        print " populating ", low_level_coord_names[indx], " via _extract "
         dat_mass_LI[:,indx] = extract_combination_from_LI(samples_LI, low_level_coord_names[indx])  # requires special extraction technique, since it needs to be converted
-        print dat_mass_LI[:5,indx]
 
 truth_here = []
 for indx in np.arange(len(low_level_coord_names)):
@@ -1067,7 +1067,7 @@ for p in low_level_coord_names:
     print p, range_here[-1]  # print out range to be used in plots.
 
 labels_tex = map(lambda x: tex_dictionary[x], low_level_coord_names)
-fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,truths=truth_here) #,range=range_here)
+fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,truths=truth_here,range=range_here)
 
 my_cmap_values = 'g' # default color
 try:
@@ -1216,6 +1216,8 @@ for indx in np.arange(len(coord_names)):
         range_here[-1] = [-1,1]
     if coord_names[indx] in ['eta']:
         range_here[-1] = [0,0.25]
+        if opts.eta_range:
+            range_here[-1] = eval(opts.eta_range)
     if coord_names[indx] in ['q']:
         range_here[-1] = [0,1]
     if coord_names[indx] in ['s1z', 's2z']:
@@ -1302,7 +1304,7 @@ try:
     fig_base=corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
 
- fig_base = corner.corner(X,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
+ fig_base = corner.corner(X, weights=np.ones(len(X))/len(X),plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
 
 
  plt.savefig("posterior_corner_fit_coords.png"); plt.clf()
