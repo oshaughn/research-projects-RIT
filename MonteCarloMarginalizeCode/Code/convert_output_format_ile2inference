@@ -28,6 +28,7 @@ def eta(m1,m2):
 optp = OptionParser()
 optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
 optp.add_option("--export-extra-spins",action='store_true',help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
+optp.add_option("--export-tides",action='store_true',help="Include tidal parameters")
 opts, args = optp.parse_args()
 if opts.export_extra_spins:
     import lalsimutils
@@ -36,6 +37,8 @@ if opts.export_extra_spins:
 print "# m1 m2 a1x a1y a1z a2x a2y a2z mc eta indx  Npts ra dec tref phiorb incl psi  dist p ps lnL mtotal q ",
 if opts.export_extra_spins:
     print 'thetaJN phi_jl tilt1 tilt2 phi12 a1 a2 psiJ',
+if opts.export_tides:
+    print "lambda1 lambda2",
 print
 for fname in args:
     points = table.get_table(utils.load_filename(fname,contenthandler=ligolw.LIGOLWContentHandler), lsctables.SimInspiralTable.tableName)
@@ -67,5 +70,7 @@ for fname in args:
             P.fmin = pt.f_lower  # should use this first
             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = P.extract_system_frame()
             print thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ,
+        if opts.export_tides:
+            print pt.alpha5, pt.alpha6,
         print
 #    print pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, ind like[indx]
