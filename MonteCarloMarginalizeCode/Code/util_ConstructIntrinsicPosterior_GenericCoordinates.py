@@ -1002,6 +1002,21 @@ for indx in np.arange(len(low_level_coord_names)):
 ### Corner 1 [BIASED, does not account for sanity cuts on physical variables]
 ###
 
+# Labels for corner plots
+import matplotlib.lines as mlines
+black_line = mlines.Line2D([], [], color='black', label='LI:'+opts.desc_ILE)
+red_line =mlines.Line2D([], [], color='red', label='rapid_pe:'+opts.desc_lalinference)
+green_line =mlines.Line2D([], [], color='green', label='rapid_pe (evaluation points)' )
+line_handles = [black_line,green_line]
+#corner_legend_location=(0., 1.0, 1., .7)
+corner_legend_location=(0.7, 1.0)
+corner_legend_prop = {'size':6}
+# https://stackoverflow.com/questions/7125009/how-to-change-legend-size-with-matplotlib-pyplot
+#params = {'legend.fontsize': 20, 'legend.linewidth': 2}
+#plt.rcParams.update(params)
+if opts.fname_lalinference:
+    line_handles = [black_line,red_line]
+
 
 print " ---- Corner 1: Sampling coordinates (NO CONSTRAINTS APPLIED HERE: BIASED) ---- "
 dat_mass = np.zeros( (len(lnL),len(low_level_coord_names)),dtype=np.float64)
@@ -1087,7 +1102,7 @@ except:
 if opts.fname_lalinference:
     corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs) #,range=range_here)
 
-
+plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
 plt.savefig("posterior_corner_nocut_beware.png"); plt.clf()
 
 print " ---- Subset for posterior samples (and further corner work) --- " 
@@ -1306,7 +1321,7 @@ try:
 
  fig_base = corner.corner(X, weights=np.ones(len(X))/len(X),plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
 
-
+ plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
  plt.savefig("posterior_corner_fit_coords.png"); plt.clf()
 
 except:
@@ -1374,6 +1389,7 @@ for indx in np.arange(len(extra_plot_coord_names)):
     fig_base = corner.corner(dat_points_here,weights=np.ones(len(dat_points_here))*1.0/len(dat_points_here), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
     
 
+    plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
     plt.savefig("posterior_corner_extra_coords_"+str(indx)+".png"); plt.clf()
 
  except:
