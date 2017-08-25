@@ -601,6 +601,8 @@ P_list = []
 dat_out =[]
  
 extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['m1', 'm2'], ['chi1_perp', 's1z'], ['chi2_perp','s2z'], ['s1z','s2z'],['chi1','chi2'],['cos_theta1','cos_theta2']] # replot
+if 'lambda1' in opts.parameter or 'LambdaTilde' in opts.parameter:
+    extra_plot_coord_names += [['mc', 'eta', 'LambdaTilde'],['lambda1', 'lambda2']]
 dat_out_low_level_coord_names = []
 dat_out_extra = []
 for item in extra_plot_coord_names:
@@ -1004,8 +1006,8 @@ for indx in np.arange(len(low_level_coord_names)):
 
 # Labels for corner plots
 import matplotlib.lines as mlines
-black_line = mlines.Line2D([], [], color='black', label='LI:'+opts.desc_ILE)
-red_line =mlines.Line2D([], [], color='red', label='rapid_pe:'+opts.desc_lalinference)
+black_line = mlines.Line2D([], [], color='black', label='rapid_pe:'+opts.desc_ILE)
+red_line =mlines.Line2D([], [], color='red', label='LI:'+opts.desc_lalinference)
 green_line =mlines.Line2D([], [], color='green', label='rapid_pe (evaluation points)' )
 line_handles = [black_line,green_line]
 #corner_legend_location=(0., 1.0, 1., .7)
@@ -1032,7 +1034,7 @@ for indx in np.arange(len(low_level_coord_names)):
      if remap_ILE_2_LI[low_level_coord_names[indx]] in samples_LI.dtype.names:
         dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[low_level_coord_names[indx]] ]
     if low_level_coord_names[indx] in ["lambda1", "lambda2"]:
-#        print " populating ", low_level_coord_names[indx], " via _extract "
+        print " populating ", low_level_coord_names[indx], " via _extract "
         dat_mass_LI[:,indx] = extract_combination_from_LI(samples_LI, low_level_coord_names[indx])  # requires special extraction technique, since it needs to be converted
 
 truth_here = []
@@ -1248,6 +1250,9 @@ if opts.fname_lalinference:
             tmp = extract_combination_from_LI(samples_LI, coord_names[indx])
             if not (tmp is None):
                 dat_mass_LI[:,indx] = tmp
+        if coord_names[indx] in ["lambda1", "lambda2"]:
+            print " populating ", coord_names[indx], " via _extract "
+            dat_mass_LI[:,indx] = extract_combination_from_LI(samples_LI, coord_names[indx])  # requires special extraction technique, since it needs to be converted
 
         if range_here[indx][0] > np.min(dat_mass_LI[:,indx]):
             range_here[indx][0] = np.min(dat_mass_LI[:,indx])
