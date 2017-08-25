@@ -51,7 +51,8 @@ except ImportError:
 
 try:
     hasEOB=True
-    import EOBTidalExternal as eobwf
+    import EOBTidalExternalC as eobwf
+#    import EOBTidalExternal as eobwf
 except:
     hasEOB=False
     print " factored_likelihood: no EOB "
@@ -256,6 +257,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                     print " Bad idea to use such a low sampling rate for EOB tidal "
             wfP = eobwf.WaveformModeCatalog(P,lmax=Lmax)
             hlms = wfP.hlmoff(force_T=1./P.deltaF,deltaT=P.deltaT)
+            # Reflection symmetric
+            hlms_conj = wfP.conj_hlmoff(force_T=1./P.deltaF,deltaT=P.deltaT)
 
             # Code will not make the EOB waveform shorter, so the code can fail if you have insufficient data, later
             print " External EOB length check ", hlms[(2,2)].data.length, data_dict[detectors[0]].data.length, data_dict[detectors[0]].data.length*P.deltaT
