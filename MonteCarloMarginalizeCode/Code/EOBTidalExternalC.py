@@ -475,7 +475,7 @@ class WaveformModeCatalog:
         """
         hlmF ={}
         hlmT = self.hlmoft(force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero)
-        for mode in self.waveform_modes.keys():
+        for mode in hlmT.keys():
             wfmTS=hlmT[mode]
             # Take the fourier transform
             wfmFD = lalsimutils.DataFourier(wfmTS)  # this creates a new f series for *each* call.
@@ -490,7 +490,7 @@ class WaveformModeCatalog:
         """
         hlmF ={}
         hlmT = self.hlmoft(force_T=force_T,deltaT=deltaT,time_over_M_zero=time_over_M_zero)
-        for mode in self.waveform_modes.keys():
+        for mode in hlmT.keys():
             wfmTS=hlmT[mode]
             wfmTS.data.data = np.conj(wfmTS.data.data)  # complex conjugate
             # Take the fourier transform
