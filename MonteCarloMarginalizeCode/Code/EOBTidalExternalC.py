@@ -68,7 +68,7 @@ def write_par_file(basedir, q,chi1, chi2,lambda1,lambda2, r0,dt):
         f.write("tidal 1\n")
         f.write("RWZ 0\n")
         f.write("speedy 1\n")
-        f.write("dynamics 1\n")
+        f.write("dynamics 0\n")
         f.write("waveform 1\n")
         f.write("lm 1\n")
         f.write("dt "+ str(dt)+ " \n")
