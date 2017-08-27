@@ -51,6 +51,7 @@ optp.add_option("--fmin",default=20,type=float)
 optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
 optp.add_option("--target-size",default=2000,type=int)
 optp.add_option("--use-extrinsic",action='store_true')
+optp.add_option("--use-no-spin",action='store_true')
 opts, args = optp.parse_args()
 opts.output_xml = opts.output_xml.replace('.xml.gz', '') # Strip trailing xml, as it will be added later
 
@@ -96,7 +97,9 @@ for indx in np.arange(opts.target_size):
      print samples_in.dtype.names
      P.phiref = 0  # does not actually matter
     P.approx = lalsim.GetApproximantFromString(opts.approx)
-    if "phi_jl" in samples_in.dtype.names:
+    if opts.use_no_spin:
+           True; 
+    elif "phi_jl" in samples_in.dtype.names:
       P.init_via_system_frame( 
          thetaJN=samples_in["theta_jn"][fac_reduce*indx],
          phiJL=samples_in["phi_jl"][fac_reduce*indx],
@@ -127,6 +130,17 @@ for indx in np.arange(opts.target_size):
          psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
          )
       P.psi = samples_in["psi"][fac_reduce*indx]  # OVERRIDE the low-level choices I make in 'init_via_system_frame
+
+    # Tides
+    if "lambda1" in samples_in.dtype.names:
+            P.lambda1 = samples_in["lambda1"][fac_reduce*indx]
+            P.lambda2 = samples_in["lambda2"][fac_reduce*indx]
+    elif "lambdat" in samples_in.dtype.names:
+            lambdat_here = samples_in["lambdat"][fac_reduce*indx]
+            dlambdat_here = samples_in["dlambdat"][fac_reduce*indx]
+            lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1,m2,lambdat_here, dlambdat_here)
+            P.lambda1 = lambda1
+            P.lambda2 =lambda2
 
     # Add extrinsic parameters...NEED TO DOUBLE CHECK
     if opts.use_extrinsic:  # note the Euler angles are already set
