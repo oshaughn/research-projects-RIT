@@ -52,7 +52,7 @@ def RangeWrap1d(bound, val,fn):
 def ModeToString(pair):
     return str(pair[0])+str(pair[1])   # this is only used for POSITIVE l,m (single digit)
 
-def write_par_file(basedir, q,chi1, chi2,lambda1,lambda2, r0):
+def write_par_file(basedir, q,chi1, chi2,lambda1,lambda2, r0,dt):
     lambda1_3 = lalsimutils.Yagi13_fit_barlamdel(lambda1,3)
     lambda1_4 = lalsimutils.Yagi13_fit_barlamdel(lambda1,4)
     lambda2_3 = lalsimutils.Yagi13_fit_barlamdel(lambda2,3)
@@ -71,7 +71,7 @@ def write_par_file(basedir, q,chi1, chi2,lambda1,lambda2, r0):
         f.write("dynamics 1\n")
         f.write("waveform 1\n")
         f.write("lm 1\n")
-        f.write("dt 1\n")
+        f.write("dt "+ str(dt)+ " \n")
         f.write("solver_scheme 0\n")
         f.write("LambdaAl2 "+str(lambda1) + "\n")
         f.write("LambdaAl3 "+str(lambda1_3) + "\n")
@@ -140,6 +140,9 @@ class WaveformModeCatalog:
             retrieve_directory = dirBaseFilesArchive+"/"+fname_base + "/"
             Momega0 = P.fmin*np.pi*(m1InMsun+m2InMsun)*MsunInSec # fmin is the GW frequency
             r0 = np.power(Momega0, -2./3.)
+
+            M_sec = (P.m1+P.m2)/lal.MSUN_SI * MsunInSec
+            dt_over_M = P.deltaT/M_sec
             if rosDebug:
                 print " m1,m2 = ", m1InMsun, m2InMsun
                 print " Momega0 = ", Momega0
@@ -149,7 +152,7 @@ class WaveformModeCatalog:
             if not os.path.exists(retrieve_directory):
                 print " Making directory to archive this run ... ", retrieve_directory
                 os.makedirs(retrieve_directory)  
-            write_par_file(retrieve_directory, m1InMsun/m2InMsun, P.s1z, P.s2z, P.lambda1,P.lambda2,r0)
+            write_par_file(retrieve_directory, m1InMsun/m2InMsun, P.s1z, P.s2z, P.lambda1,P.lambda2,r0,dt_over_M)
             cmd = dirBaseFiles+"/EOB_ihes.out my.par"
             print " Generating tidal EOB with ", cmd
             os.chdir(retrieve_directory); os.system(cmd); 
