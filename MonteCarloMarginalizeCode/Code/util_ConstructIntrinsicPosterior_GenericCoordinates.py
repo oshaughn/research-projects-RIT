@@ -601,8 +601,9 @@ P_list = []
 dat_out =[]
  
 extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['m1', 'm2'], ['chi1_perp', 's1z'], ['chi2_perp','s2z'], ['s1z','s2z'],['chi1','chi2'],['cos_theta1','cos_theta2']] # replot
-if 'lambda1' in opts.parameter or 'LambdaTilde' in opts.parameter:
-    extra_plot_coord_names += [['mc', 'eta', 'LambdaTilde'],['lambda1', 'lambda2']]
+if 'lambda1' in opts.parameter or 'LambdaTilde' in opts.parameter or 'LambdaTilde' in opts.parameter_implied:
+    print " Plotting coordinates include tides"
+    extra_plot_coord_names += [['mc', 'eta', 'LambdaTilde'],['lambda1', 'lambda2'], ['LambdaTilde', 'DeltaLambdaTilde']]
 dat_out_low_level_coord_names = []
 dat_out_extra = []
 for item in extra_plot_coord_names:
@@ -997,6 +998,7 @@ for indx in np.arange(len(low_level_coord_names)):
     plt.title("CDF: "+x_name)
     plt.savefig(p+"_cdf.png"); plt.clf()
    except:
+      plt.clf()  # clear plot, just in case
       print " No 1d plot for variable"
 
 
@@ -1390,12 +1392,15 @@ for indx in np.arange(len(extra_plot_coord_names)):
         corner.corner( dat_mass_LI, weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI), color='r',labels=labels_tex,fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
 
-    print len(dat_points_here),len(Y)
+#    print len(dat_points_here),len(Y)
     fig_base = corner.corner(dat_points_here,weights=np.ones(len(dat_points_here))*1.0/len(dat_points_here), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
     
 
     plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
-    plt.savefig("posterior_corner_extra_coords_"+str(indx)+".png"); plt.clf()
+    str_name = '_'.join(extra_plot_coord_names)
+    print " Writing coord ", str_name
+#    plt.savefig("posterior_corner_extra_coords_"+str(indx)+".png"); plt.clf()
+    plt.savefig("posterior_corner_extra_coords_"+str_name+".png"); plt.clf()
 
  except:
      print " Failed to generate corner for ", extra_plot_coord_names[indx]
