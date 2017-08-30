@@ -1344,6 +1344,8 @@ for indx in np.arange(len(extra_plot_coord_names)):
  try:
     fig_base =None
     coord_names_here = extra_plot_coord_names[indx]
+    str_name = '_'.join(coord_names_here)
+    print " Generating corner for ", str_name
     dat_here = dat_extra_post[indx]
     dat_points_here  = dat_out_extra[indx]
     labels_tex = render_coordinates(coord_names_here)#map(lambda x: tex_dictionary[x], coord_names_here)
@@ -1397,7 +1399,6 @@ for indx in np.arange(len(extra_plot_coord_names)):
     
 
     plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
-    str_name = '_'.join(extra_plot_coord_names)
     print " Writing coord ", str_name
 #    plt.savefig("posterior_corner_extra_coords_"+str(indx)+".png"); plt.clf()
     plt.savefig("posterior_corner_extra_coords_"+str_name+".png"); plt.clf()
