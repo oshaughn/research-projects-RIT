@@ -603,7 +603,7 @@ dat_out =[]
 extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['m1', 'm2'], ['chi1_perp', 's1z'], ['chi2_perp','s2z'], ['s1z','s2z'],['chi1','chi2'],['cos_theta1','cos_theta2']] # replot
 if 'lambda1' in opts.parameter or 'LambdaTilde' in opts.parameter or 'LambdaTilde' in opts.parameter_implied:
     print " Plotting coordinates include tides"
-    extra_plot_coord_names += [['mc', 'eta', 'LambdaTilde'],['lambda1', 'lambda2'], ['LambdaTilde', 'DeltaLambdaTilde']]
+    extra_plot_coord_names += [['mc', 'eta', 'LambdaTilde'],['lambda1', 'lambda2'], ['LambdaTilde', 'DeltaLambdaTilde'], ['m1','lambda1'], ['m2','lambda2']]
 dat_out_low_level_coord_names = []
 dat_out_extra = []
 for item in extra_plot_coord_names:
