@@ -157,6 +157,7 @@ parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. 
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--trust-sample-parameter-box",action='store_true', help="If used, sets the prior range to the SAMPLE range for any parameters. NOT IMPLEMENTED. This should be automatically done for mc!")
+parser.add_argument("--plots-do-not-force-large-range",action='store_true', help = "If used, the plots do NOT automatically set the chieff range to [-1,1], the eta range to [0,1/4], etc")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
@@ -1341,7 +1342,8 @@ except:
 ###
 print " ---- Corner 3: Bonus corner plots ---- "
 for indx in np.arange(len(extra_plot_coord_names)):
- try:
+ if True:
+# try:
     fig_base =None
     coord_names_here = extra_plot_coord_names[indx]
     str_name = '_'.join(coord_names_here)
@@ -1351,29 +1353,41 @@ for indx in np.arange(len(extra_plot_coord_names)):
     labels_tex = render_coordinates(coord_names_here)#map(lambda x: tex_dictionary[x], coord_names_here)
     range_here=[]
     dat_mass_LI = None
-    if opts.fname_lalinference and  ( set(coord_names_here) < set(remap_ILE_2_LI.keys())):
+
+    can_render_LI = opts.fname_lalinference and  ( set(coord_names_here) < (set(samples_LI.dtype.names) | set(remap_ILE_2_LI.keys()) | set(['lambda1','lambda2','LambdaTilde','DeltaLambdaTilde'])) )
+
+    if  can_render_LI:
+        print "   - LI parameters available for ", coord_names_here
         dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names_here)), dtype=np.float64)
         for x in np.arange(len(coord_names_here)):
+            print "    ... extracting ", coord_names_here[x]
             tmp = extract_combination_from_LI(samples_LI, coord_names_here[x])
             if not (tmp is None):
                 dat_mass_LI[:,x] = tmp
+#                print "   .....   ", tmp[:3]
+            else:
+                print "   ... warning, extraction failed for ", coord_names_here[x]
     for z in np.arange(len(coord_names_here)):    
         range_here.append( [np.min(dat_points_here[:, z]),np.max(dat_points_here[:, z])])
-    # Manually reset some ranges to be more useful for plotting
-        if coord_names_here[z] in ['xi', 'chi_eff']:
-            range_here[-1] = [-1,1]
-        if coord_names_here[z] in ['eta']:
-            range_here[-1] = [0,0.25]
-        if coord_names_here[z] in ['q']:
+        if not (opts.plots_do_not_force_large_range):
+         # Manually reset some ranges to be more useful for plotting
+         if coord_names_here[z] in ['xi', 'chi_eff']:
+            range_here[-1] = [-1,1]             # can be horrible if we are very informative
+         if coord_names_here[z] in ['eta']:
+            range_here[-1] = [0,0.25]         # can be horrible if we are very informative
+         if coord_names_here[z] in ['q']:
             range_here[-1] = [0,1]
-        if coord_names_here[z] in ['s1z', 's2z']:
+         if coord_names_here[z] in ['s1z', 's2z']:
             range_here[-1] = [-1,1]
-        if coord_names_here[z] in ['chi1_perp', 'chi2_perp']:
+         if coord_names_here[z] in ['chi1_perp', 'chi2_perp']:
             range_here[-1] = [0,1]
         if opts.fname_lalinference and  ( set(coord_names_here) < set(remap_ILE_2_LI.keys())):
                 range_here[-1][0] =  np.min( [np.min( dat_mass_LI[:,z]), range_here[-1][0]  ])
                 range_here[-1][1] =  np.max( [np.max( dat_mass_LI[:,z]), range_here[-1][1]  ])
-        print ' Range ', coord_names_here[z], range_here[-1]
+        if coord_names_here[z] in prior_range_map.keys():
+            range_here[-1][1] = np.min( [range_here[-1][1], prior_range_map[coord_names_here[z]][1]])  # override the limits, if I have a prior.
+
+        print '   - Range ', coord_names_here[z], range_here[-1]
       
     truth_here = []
     for z in np.arange(len(coord_names_here)):
@@ -1383,27 +1397,23 @@ for indx in np.arange(len(extra_plot_coord_names)):
         truth_here.append(Pref.extract_param(coord_names_here[z])/fac)
 
     print  " Truth here for ", coord_names_here, truth_here
-#    if opts.verbose:
-#        print " Based on "
-#        Pref.print_params()
 
     print " Generating figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), len(dat_points_here)
     fig_base = corner.corner(dat_here, weights=np.ones(len(dat_here))*1.0/len(dat_here), labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range=range_here,truths=truth_here)
                 
-    if opts.fname_lalinference and  ( set(coord_names_here) < set(remap_ILE_2_LI.keys())):
+    if can_render_LI:
         corner.corner( dat_mass_LI, weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI), color='r',labels=labels_tex,fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
 
-#    print len(dat_points_here),len(Y)
     fig_base = corner.corner(dat_points_here,weights=np.ones(len(dat_points_here))*1.0/len(dat_points_here), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
     
 
     plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
     print " Writing coord ", str_name
-#    plt.savefig("posterior_corner_extra_coords_"+str(indx)+".png"); plt.clf()
     plt.savefig("posterior_corner_extra_coords_"+str_name+".png"); plt.clf()
 
- except:
+# except:
+ else:
      print " Failed to generate corner for ", extra_plot_coord_names[indx]
 
 sys.exit(0)
