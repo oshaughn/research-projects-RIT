@@ -111,7 +111,7 @@ for indx in np.arange(opts.target_size):
          psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
          )
       P.psi = samples_in["psi"][fac_reduce*indx]  # OVERRIDE the low-level choices I make in 'init_via_system_frame
-    elif opts.approx == "SEOBNRv2" or opts.approx == "SEOBNRv4" or  P.approx == lalsim.SEOBNRv2 or  P.approx == lalsimutils.lalSEOBv4: # .SEOBNRv4:
+    elif opts.approx == "SEOBNRv2" or opts.approx == "SEOBNRv4" or  P.approx == lalsim.SEOBNRv2 or  P.approx == lalsimutils.lalSEOBv4 or opts.approx =="TaylorT4": # .SEOBNRv4:
         # Aligned spin model
         P.s1z = samples_in["a1z"][fac_reduce*indx]
         P.s2z = samples_in["a2z"][fac_reduce*indx]
