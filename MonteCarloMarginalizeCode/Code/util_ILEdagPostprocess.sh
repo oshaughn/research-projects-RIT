@@ -15,18 +15,19 @@ rm -f tmp.dat tmp2.dat
 # CAT can be ineffective
 FNAME=`pwd`/tmp.dat
 #cat ${DIR_PROCESS}/CME*.dat > tmp.dat
-find ${DIR_PROCESS} -name 'CME*.dat' -exec cat {} \; > ${DIR_PROCESS}_tmp.dat
+export RND=`echo ${RANDOM}`
+find ${DIR_PROCESS} -name 'CME*.dat' -exec cat {} \; > ${RND}_tmp.dat
 
 # clean them (=join duplicate lines)
 echo " Consolidating multiple instances of the monte carlo  .... "
-util_CleanILE.py ${DIR_PROCESS}_tmp.dat | sort -rg -k10 > $BASE_OUT.composite
+util_CleanILE.py ${RND}_tmp.dat | sort -rg -k10 > $BASE_OUT.composite
 
 
 # Manifest
 rm -f ${BASE_OUT}.manifest
 echo '#User:' `whoami` >>  ${BASE_OUT}.manifest
 echo '#Date:' `date` >>  ${BASE_OUT}.manifest
-echo '#Host:' `hostname` >>  ${BASE_OUT}.manifest
+echo '#Host:' `hostname -f` >>  ${BASE_OUT}.manifest
 echo '#Directory:' `pwd`/${DIR_PROCESS} >>  ${BASE_OUT}.manifest
 cat ${DIR_PROCESS}/command-single.sh >>  ${BASE_OUT}.manifest  
 env >> ${BASE_OUT}.environment  
