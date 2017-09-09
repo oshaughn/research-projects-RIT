@@ -357,6 +357,13 @@ def lambda_prior(x):
     return np.ones(x.shape)/4000.   # assume arbitrary
 
 
+# DO NOT USE UNLESS REQUIRED FOR COMPATIBILITY
+def lambda_tilde_prior(x):
+    return np.ones(x.shape)/5000.   # 0,4000
+def delta_lambda_tilde_prior(x):
+    return np.ones(x.shape)/1000.   # -500,500
+
+
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "mc":mc_prior, "eta":eta_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
     's2x':s_component_uniform_prior,
@@ -366,6 +373,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "
     'm2':m_prior,
     'lambda1':lambda_prior,
     'lambda2':lambda_prior,
+    'LambdaTilde':lambda_tilde_prior,
+    'DeltaLambdaTilde':delta_lambda_tilde_prior,
 }
 prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.99,0.99], "s2z":[-0.99,0.99], "mc":[0.9,250], "eta":[0.01,0.2499999], 'xi':[-1,1],'chi_eff':[-1,1],'delta':[-1,1],
    's1x':[-1,1],
@@ -376,6 +385,9 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.99,0.99], "s2z":[-0
   'm2':[0.9,1e3],
   'lambda1':[0.01,4000],
   'lambda2':[0.01,4000],
+  # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
+  'LambdaTilde':[0.01,5000],
+  'DeltaLambdaTilde':[-500,500],
 }
 
 if not (opts.eta_range is None):
