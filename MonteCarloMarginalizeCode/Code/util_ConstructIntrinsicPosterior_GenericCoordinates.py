@@ -1012,7 +1012,7 @@ for indx in np.arange(len(low_level_coord_names)):
     y_name = "$P(<"+y_name + ")$"
     plt.ylabel(y_name)
     plt.title("CDF: "+x_name)
-    plt.savefig(p+"_cdf.png"); plt.clf()
+    plt.savefig(p+"_cdf_nocut_beware.png"); plt.clf()
    except:
       plt.clf()  # clear plot, just in case
       print " No 1d plot for variable"
@@ -1298,7 +1298,7 @@ for indx in np.arange(len(coord_names)):
                 dat_out_LI.append([x, 1.0*sum( dat_LI<x)/len(dat_LI) ]) 
 #         if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) :
 #             dat_out_LI.append([x, (1.0*np.sum( samples_LI[ remap_ILE_2_LI[p] ]< x))/len(samples_LI) ])
-    np.savetxt(p+"_cdf.dat", np.array(dat_out))
+    np.savetxt(p+"_alt_cdf.dat", np.array(dat_out))
     dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
     plt.plot(dat_out[:,0],dat_out[:,1],label="rapid_pe:"+opts.desc_ILE,color='b')
     if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) :
@@ -1316,6 +1316,9 @@ for indx in np.arange(len(coord_names)):
 
     x_name = render_coord(p)
     plt.xlabel(x_name); plt.legend()
+    y_name  = x_name.replace('$','')
+    y_name = "$P(<"+y_name + ")$"
+    plt.ylabel(y_name)
     plt.savefig(p+"_alt_cdf.png"); plt.clf()
 
 
