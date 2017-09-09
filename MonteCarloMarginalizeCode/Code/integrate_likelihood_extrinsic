@@ -353,8 +353,8 @@ else:
 #         print " Using estimate for waveform length in a high mass regime: beware!"
 #         T_tmplt = lalsimutils.estimateWaveformDuration(P) + 4
     T_seg = T_tmplt + T_spec + T_safety # Amount before and after event time
-    if opts.use_external_EOB:
-        T_seg *=2   # extra safety factor
+#    if opts.use_external_EOB:
+#        T_seg *=2   # extra safety factor
     start_time = float(event_time) - T_seg
     end_time = float(event_time) + T_seg
     print "Fetching data segment with start=", start_time
