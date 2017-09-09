@@ -34,6 +34,7 @@ rosDebug = True
 #dirBaseFiles =os.environ["HOME"] + "/unixhome/Projects/LIGO-ILE-Applications/ILE-Tides/MatlabCodePolished"
 dirBaseFiles =os.environ["EOB_C_BASE"]
 dirBaseFilesArchive =os.environ["EOB_C_ARCHIVE"]
+n_max_dirs = 1+ int(os.environ["EOB_C_ARCHIVE_NMAX"])
 
 default_interpolation_kind = 'linear'  # spline interpolation   # very slow! 
 
@@ -125,7 +126,7 @@ class WaveformModeCatalog:
         #  - Generate lambdatilde
         #  - generate lambda2
 
-        fname_base = "working.dir";
+        fname_base = "working.dir"+str(np.random.randint(0,n_max_dirs))
         print "  Saving to file (beware collisions!) ", fname_base
 
         retrieve_directory = ''
