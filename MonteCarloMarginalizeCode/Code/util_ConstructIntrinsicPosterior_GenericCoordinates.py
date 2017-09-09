@@ -996,6 +996,9 @@ for indx in np.arange(len(low_level_coord_names)):
 
     x_name = render_coord(p)
     plt.xlabel(x_name); plt.legend()
+    y_name  = x_name.replace('$','')
+    y_name = "$P(<"+y_name + ")$"
+    plt.ylabel(y_name)
     plt.title("CDF: "+x_name)
     plt.savefig(p+"_cdf.png"); plt.clf()
    except:
