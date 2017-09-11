@@ -33,7 +33,14 @@ import lal
 import functools
 import itertools
 
-from matplotlib import pyplot as plt
+no_plots = True
+try:
+    from matplotlib import pyplot as plt
+    import matplotlib.lines as mlines
+
+    no_plots=False
+except ImportError:
+    print " - no matplotlib - "
 
 
 from sklearn.preprocessing import PolynomialFeatures
@@ -181,7 +188,9 @@ parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
+parser.add_argument("--no-plots",action='store_true')
 opts=  parser.parse_args()
+no_plots = no_plots |  opts.no_plots
 
 with open('args.txt','w') as fp:
     import sys
@@ -802,8 +811,9 @@ Y=Y[indx]
 
 
 # Make grid plots for all pairs of points, to facilitate direct validation of where posterior support lies
-import itertools
-for i, j in itertools.product( np.arange(len(coord_names)),np.arange(len(coord_names)) ):
+if not no_plots:
+ import itertools
+ for i, j in itertools.product( np.arange(len(coord_names)),np.arange(len(coord_names)) ):
   if i < j:
     plt.scatter( X[:,i],X[:,j],label='rapid_pe:'+opts.desc_ILE,c=Y); plt.legend(); plt.colorbar()
     x_name = render_coord(coord_names[i])
@@ -971,7 +981,8 @@ else:
 Pref.fref = opts.fref  # not encoded in the XML!
 Pref.print_params()
 
-for indx in np.arange(len(low_level_coord_names)):
+if not no_plots:
+ for indx in np.arange(len(low_level_coord_names)):
    try:
     dat_out = []; dat_out_LI=[]
     p = low_level_coord_names[indx]
@@ -1024,19 +1035,19 @@ for indx in np.arange(len(low_level_coord_names)):
 ###
 
 # Labels for corner plots
-import matplotlib.lines as mlines
-black_line = mlines.Line2D([], [], color='black', label='rapid_pe:'+opts.desc_ILE)
-red_line =mlines.Line2D([], [], color='red', label='LI:'+opts.desc_lalinference)
-green_line =mlines.Line2D([], [], color='green', label='rapid_pe (evaluation points)' )
-line_handles = [black_line,green_line]
+if not no_plots:
+    black_line = mlines.Line2D([], [], color='black', label='rapid_pe:'+opts.desc_ILE)
+    red_line =mlines.Line2D([], [], color='red', label='LI:'+opts.desc_lalinference)
+    green_line =mlines.Line2D([], [], color='green', label='rapid_pe (evaluation points)' )
+    line_handles = [black_line,green_line]
 #corner_legend_location=(0., 1.0, 1., .7)
-corner_legend_location=(0.7, 1.0)
-corner_legend_prop = {'size':6}
+    corner_legend_location=(0.7, 1.0)
+    corner_legend_prop = {'size':6}
 # https://stackoverflow.com/questions/7125009/how-to-change-legend-size-with-matplotlib-pyplot
 #params = {'legend.fontsize': 20, 'legend.linewidth': 2}
 #plt.rcParams.update(params)
-if opts.fname_lalinference:
-    line_handles = [black_line,red_line]
+    if opts.fname_lalinference:
+        line_handles = [black_line,red_line]
 
 
 print " ---- Corner 1: Sampling coordinates (NO CONSTRAINTS APPLIED HERE: BIASED) ---- "
@@ -1102,29 +1113,30 @@ for p in low_level_coord_names:
             range_here[-1][1] = np.max(tmp)
     print p, range_here[-1]  # print out range to be used in plots.
 
-labels_tex = map(lambda x: tex_dictionary[x], low_level_coord_names)
-fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,truths=truth_here,range=range_here)
+if not no_plots:
+    labels_tex = map(lambda x: tex_dictionary[x], low_level_coord_names)
+    fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,truths=truth_here,range=range_here)
 
-my_cmap_values = 'g' # default color
-try:
+    my_cmap_values = 'g' # default color
+    try:
 # Plot simulation points (X array): MAY NOT BE POSSIBLE if dimensionality is inconsistent
-    cm = plt.cm.get_cmap('RdYlBu_r')
-    y_span = Y.max() - Y.min()
-    y_min = Y.min()
-#    print y_span, y_min
-    my_cmap_values = map(tuple,cm( (Y-y_min)/y_span) )
-    my_cmap_values ='g'
+        cm = plt.cm.get_cmap('RdYlBu_r')
+        y_span = Y.max() - Y.min()
+        y_min = Y.min()
+    #    print y_span, y_min
+        my_cmap_values = map(tuple,cm( (Y-y_min)/y_span) )
+        my_cmap_values ='g'
 
-    fig_base = corner.corner(dat_out_low_level_coord_names,weights=np.ones(len(X))/len(X), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':my_cmap_values},hist_kwargs={'color':'g', 'linestyle':'dashed'},range_here=range_here)
-except:
+        fig_base = corner.corner(dat_out_low_level_coord_names,weights=np.ones(len(X))/len(X), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':my_cmap_values},hist_kwargs={'color':'g', 'linestyle':'dashed'},range_here=range_here)
+    except:
 #else:
-    print " Some ridiculous range error with the corner plots, again"
+        print " Some ridiculous range error with the corner plots, again"
 
-if opts.fname_lalinference:
-    corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs) #,range=range_here)
+    if opts.fname_lalinference:
+        corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs) #,range=range_here)
 
-plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
-plt.savefig("posterior_corner_nocut_beware.png"); plt.clf()
+    plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
+    plt.savefig("posterior_corner_nocut_beware.png"); plt.clf()
 
 print " ---- Subset for posterior samples (and further corner work) --- " 
 
@@ -1217,6 +1229,12 @@ lalsimutils.ChooseWaveformParams_array_to_xml([P_best], "best_point_by_lnL")
 lnL_best = lnL_list[np.argmax(lnL_list)]
 np.savetxt("best_point_by_lnL_value.dat", np.array([lnL_best]));
 
+
+###
+### STOP IF NO MORE PLOTS
+###
+if no_plots:
+    sys.exit(0)
 
 ###
 ### Extract data from samples, in array form. INCLUDES any cuts (e.g., kerr limit)
