@@ -293,10 +293,11 @@ for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
 
-downselect_dict['chi1'] = [0,opts.chi_max]
-downselect_dict['chi2'] = [0,opts.chi_max]
+chi_max = opts.chi_max
+downselect_dict['chi1'] = [0,chi_max]
+downselect_dict['chi2'] = [0,chi_max]
 for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
-    downselect_dict[param] = [-opts.chi_max,opts.chi_max]
+    downselect_dict[param] = [-chi_max,chi_max]
 # Enforce definition of eta
 downselect_dict['eta'] = [0,0.25]
 
@@ -376,11 +377,11 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "
     'LambdaTilde':lambda_tilde_prior,
     'DeltaLambdaTilde':delta_lambda_tilde_prior,
 }
-prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.99,0.99], "s2z":[-0.99,0.99], "mc":[0.9,250], "eta":[0.01,0.2499999], 'xi':[-1,1],'chi_eff':[-1,1],'delta':[-1,1],
-   's1x':[-1,1],
-   's2x':[-1,1],
-   's1y':[-1,1],
-   's2y':[-1,1],
+prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_max,0.999*chi_max], "mc":[0.9,250], "eta":[0.01,0.2499999], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
+   's1x':[-chi_max,chi_max],
+   's2x':[-chi_max,chi_max],
+   's1y':[-chi_max,chi_max],
+   's2y':[-chi_max,chi_max],
   'm1':[0.9,1e3],
   'm2':[0.9,1e3],
   'lambda1':[0.01,4000],
