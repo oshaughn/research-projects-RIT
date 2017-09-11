@@ -14,10 +14,6 @@
 #   util_QuadraticMassPosterior.py
 #
 
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-
-import corner
 
 import BayesianLeastSquares
 
@@ -34,9 +30,13 @@ import functools
 import itertools
 
 no_plots = True
+
+
 try:
-    from matplotlib import pyplot as plt
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D
     import matplotlib.lines as mlines
+    import corner
 
     no_plots=False
 except ImportError:
