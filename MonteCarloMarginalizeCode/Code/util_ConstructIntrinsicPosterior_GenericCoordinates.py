@@ -183,6 +183,7 @@ parser.add_argument("--event-num", type=int, default=0,help="Zero index of event
 parser.add_argument("--report-best-point",action='store_true')
 parser.add_argument("--adapt",action='store_true')
 parser.add_argument("--fit-uses-reported-error",action='store_true')
+parser.add_argument("--fit-uses-reported-error-factor",type=float,default=1,help="Factor to add to standard deviation of fit, before adding to lnL. Multiplies number fitting dimensions")
 parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
@@ -524,7 +525,7 @@ from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as
 
 def adderr(y):
     val,err = y
-    return val+err
+    return val+error_factor*err
 
 def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False):
     """
@@ -594,6 +595,9 @@ if opts.parameter_nofit:
         low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
+error_factor = len(coord_names)
+if opts.fit_uses_reported_error:
+    error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
 print " Coordinate names for fit :, ", coord_names
 print " Rendering coordinate names : ",  render_coordinates(coord_names)  # map(lambda x: tex_dictionary[x], coord_names)
 print " Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names)
