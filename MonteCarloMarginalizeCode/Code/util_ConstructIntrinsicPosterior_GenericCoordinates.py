@@ -1067,7 +1067,7 @@ for indx in np.arange(len(low_level_coord_names)):
 #            dat_mass_LI[:,indx]
      if remap_ILE_2_LI[low_level_coord_names[indx]] in samples_LI.dtype.names:
         dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[low_level_coord_names[indx]] ]
-    if low_level_coord_names[indx] in ["lambda1", "lambda2"]:
+    if opts.fname_lalinference and low_level_coord_names[indx] in ["lambda1", "lambda2"]:
         print " populating ", low_level_coord_names[indx], " via _extract "
         dat_mass_LI[:,indx] = extract_combination_from_LI(samples_LI, low_level_coord_names[indx])  # requires special extraction technique, since it needs to be converted
 
@@ -1324,9 +1324,12 @@ for indx in np.arange(len(coord_names)):
     np.savetxt(p+"_alt_cdf.dat", np.array(dat_out))
     dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
     plt.plot(dat_out[:,0],dat_out[:,1],label="rapid_pe:"+opts.desc_ILE,color='b')
-    if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) :
-        plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label="LI:"+opts.desc_lalinference,color='r')
-
+    if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) and not (dat_out_LI is None):
+        dat_out_LI = np.array(dat_out_LI)
+        try:
+            plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label="LI:"+opts.desc_lalinference,color='r')
+        except:
+            print "  - plot failure - "
     # Add vertical line
     here_val = Pref.extract_param(p)
     fac = 1
