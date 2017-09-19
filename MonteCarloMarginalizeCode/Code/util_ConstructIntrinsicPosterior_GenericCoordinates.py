@@ -323,10 +323,10 @@ test_converged={}
 ###
 
 # mcmin, mcmax : to be defined later
-def M_prior(x):
+def M_prior(x):  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
     return x/(mc_max-mc_min)
 def q_prior(x):
-    return x/(1+x)**2  # not normalized
+    return 1./(1+x)**2  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
 def m1_prior(x):
     return 1./200
 def m2_prior(x):
