@@ -1801,9 +1801,9 @@ def lam1_lam2_of_pe_params(eta, lamt, dlamt):
     lam2 = (-(c+d)*lamt + (a+b)*dlamt )/den
     # Adjust lam1 and lam2 if lam1 becomes negative
     # lam2 should be adjusted such that lamt is held fixed
-    if lam1<0:
-        lam1 = 0
-        lam2 = lamt / (a-b)
+#    if lam1<0:
+#        lam1 = 0
+#        lam2 = lamt / (a-b)
     return lam1, lam2
 
 def Yagi13_fitcoefs(ell):
