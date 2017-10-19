@@ -306,7 +306,7 @@ class ChooseWaveformParams:
             self.m1 = M*(1+val)/2
             self.m2 = M*(1-val)/2
             return self
-        if p is 'chi1':
+        if p == 'chi1':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi1VecMag = np.sqrt(np.dot(chi1Vec,chi1Vec))
             if chi1VecMag < 1e-5:
@@ -340,14 +340,14 @@ class ChooseWaveformParams:
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=val,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
-        if p == 'chi1':
-            chi1_vec_now = np.array([self.s1x,self.s1y,self.s1z])
-            chi1_now = np.sqrt(np.dot(chi1_vec_now,chi1_vec_now))
-            if chi1_now < 1e-5:
-                self.s1z = val  # assume aligned
-                return self
-            self.s1x,self.s1y,self.s1z = chi1_vec_now * val/chi1_now
-            return self
+        # if p == 'chi1':
+        #     chi1_vec_now = np.array([self.s1x,self.s1y,self.s1z])
+        #     chi1_now = np.sqrt(np.dot(chi1_vec_now,chi1_vec_now))
+        #     if chi1_now < 1e-5:
+        #         self.s1z = val  # assume aligned
+        #         return self
+        #     self.s1x,self.s1y,self.s1z = chi1_vec_now * val/chi1_now
+        #     return self
         if p == 'theta1':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
