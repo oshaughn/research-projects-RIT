@@ -175,6 +175,7 @@ parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset")
 parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]")
 parser.add_argument("--M-max-cut",type=float,default=1e5,help="Maximum mass to consider (e.g., if there is a cut on distance, this matters)")
 parser.add_argument("--sigma-cut",type=float,default=0.6,help="Eliminate points with large error from the fit.")
+parser.add_argument("--ignore-errors-in-data",action='store_true',help='Ignore reported error in lnL. Helpful for testing purposes (i.e., if the error is zero)')
 parser.add_argument("--lnL-peak-insane-cut",type=float,default=np.inf,help="Throw away lnL greater than this value. Should not be necessary")
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
@@ -362,7 +363,9 @@ def s_component_volumetricprior(x,R=1.):
 def s_component_aligned_volumetricprior(x,R=1.):
     # assume maximum spin =1. Should get from appropriate prior range
     # for SPIN COMPONENT ALIGNED (s1z,s2z) for aligned spins only
-    return (3./4.*(1- np.power(x/R,2)))
+    #This is a probability that is defined on x\in[-R,R], such that \int_a^b dx p(x)  is the volume of a sphere between horizontal slices at height a,b:
+    #p(x)dx =  pi R^2 (1- (x/R)^2)/ (4 pi R^3 /3) = 3/4 * (1 - (x/R)^2) /R
+    return (3./4.*(1- np.power(x/R,2))/R)
 
 def lambda_prior(x):
     return np.ones(x.shape)/4000.   # assume arbitrary
@@ -499,7 +502,7 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
 
 
         clf = linear_model.LinearRegression()
-        if y_errors is None:
+        if y_errors is None or opts.ignore_errors_in_data:
             clf.fit(X_,y)
         else:
             assert len(y_errors) == len(y)
