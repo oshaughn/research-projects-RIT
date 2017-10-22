@@ -209,6 +209,7 @@ parser.add_argument("--srate",type=int,default=16384,help="Sampling rate")
 parser.add_argument("--seglen", type=float,default=256*2., help="Default window size for processing.")
 parser.add_argument("--fref",type=float,default=0.);
 # External grid
+parser.add_argument("--use-eos", default=None, help="Equation of state to determine lambdas for given mass ranges")
 parser.add_argument("--external-grid-xml", default=None,help="Inspiral XML file (injection form) for alternate grid")
 parser.add_argument("--external-grid-txt", default=None, help="Cartesian grid. Must provide parameter names in header. Exactly like output of code. Last column not used.")
 # Base point
@@ -302,6 +303,23 @@ def eval_overlap(grid,P_list, IP,indx):
     if opts.verbose:
         print " Answer ", indx, line_out
     return line_out
+
+def calc_lambda_from_m(m, eos_fam):
+    if m<10**15:
+       m=m*lal.MSUN_SI
+
+    #eos=et.read_eos(eos)
+    #eos_fam=lalsim.CreateSimNeutronStarFamily(eos)
+
+    k2=lalsim.SimNeutronStarLoveNumberK2(m, eos_fam)
+    r=lalsim.SimNeutronStarRadius(m, eos_fam)
+
+    m=m*lal.G_SI/lal.C_SI**2
+    lam=2./(3*lal.G_SI)*k2*r**5
+    dimensionless_lam=lal.G_SI*lam*(1/m)**5
+
+    return dimensionless_lam
+
 
 def evaluate_overlap_on_grid(hfbase,param_names, grid):
     global downselect_dict
@@ -661,6 +679,36 @@ if opts.external_grid_txt:
 
 #    print grid, grid[1][0]
 #    sys.exit(0)
+
+
+#if using an external EOS add lambda to grid (Richard, you may want to fix this to be more general)
+elif opts.use_eos!=None:
+   from gwemlightcurves.KNModels import table 
+ 
+   grid_tmp=np.zeros((len(grid[:,0]), len(grid[0,:])+2))
+   print grid_tmp   
+
+   eos,eos_fam=table.get_lalsim_eos(opts.use_eos)
+   
+   for i in range(0,len(grid[0,:])):
+       grid_tmp[:,i]=grid[:,i]
+
+   param_names.append('lambda1')
+   param_names.append('lambda2')
+
+   mc_indx=param_names.index('mc')
+   eta_indx=param_names.index('eta')
+   lam1_indx=param_names.index('lambda1')
+   lam2_indx=param_names.index('lambda2')
+
+   for i in range(0,len(grid[:,mc_indx])):
+       m1=lalsimutils.mass1(grid[i,mc_indx],grid[i,eta_indx])
+       m2=lalsimutils.mass2(grid[i,mc_indx],grid[i,eta_indx])
+       grid_tmp[i,lam1_indx]=calc_lambda_from_m(m1,eos_fam)
+       grid_tmp[i,lam2_indx]=calc_lambda_from_m(m2,eos_fam)
+
+   grid=grid_tmp
+
 
 grid_out, P_list = evaluate_overlap_on_grid(hfBase, param_names, grid)
 if len(grid_out)==0:
