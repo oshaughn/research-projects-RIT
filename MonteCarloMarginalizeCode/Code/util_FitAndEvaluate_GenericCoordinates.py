@@ -73,10 +73,12 @@ def render_coordinates(coord_names):
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--maximize-mass",action='store_true', help="If true, maximize the likelihood for each value of the total mass. Ignore any grid placement in total mass")
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
 parser.add_argument("--fname-xml-base",help="filename of xml file to use as base (e.g., to specify m1,m2, chi1, chi2, ... to minimize burden on ascii file")
 parser.add_argument("--fname-parameter-grid",help="filename of ascii parameters to use to evaluate the fit")
+parser.add_argument("--fname-out",default="eval.dat")
 parser.add_argument("--fref",default=20,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz)")
 parser.add_argument("--fmin",type=float,default=20)
 parser.add_argument("--fname-rom-samples",default=None,help="*.rom_composite output. Treated identically to set of posterior samples produced by mcsampler after constructing fit.")
@@ -451,7 +453,7 @@ for line in dat:
         if low_level_coord_names[x] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
         line_out[x] = P.extract_param(low_level_coord_names[x])/fac
-        if low_level_coord_names[x] in ['mc']:
+        if low_level_coord_names[x] in ['mc','mtot']:  # only use one overall mass index
             mc_index = x
 
 
@@ -628,26 +630,40 @@ for indx in np.arange(len(samples_rec[params_rec[0]])):
     P = P_base.manual_copy()
     for param in params_rec:
         val = samples_rec[param][indx]
+	fac=1
         if param in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
         P.assign_param(param,fac*val)
 
-    line_out = np.zeros(len(low_level_coord_names))
+    if opts.verbose:
+        P.print_params()
+    line_out = np.zeros(len(coord_names))
     for x in np.arange(len(line_out)):
         fac = 1
-        if low_level_coord_names[x] in ['mc','m1','m2','mtot']:
+        if coord_names[x] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
-        line_out[x] = P.extract_param(low_level_coord_names[x])/fac
+        line_out[x] = P.extract_param(coord_names[x])/fac
 
-
-    # Yet another conversion
-    arg = my_fit(convert_coords(np.array([line_out]).T))
+    # If opts.maximize_mass, we are reporting the likelihood maximized in total mass (all other parameters held fixed)
+    # Remember, mc_index tells us the variable we need to scale
+    arg=-1
+    if (not opts.maximize_mass) or mc_index <0:
+        arg = my_fit(line_out)[0]
+    else:
+        scalevec = np.ones(len(coord_names));
+        def scaledfunc(x):
+            scalevec[mc_index] = x
+            val = -my_fit(line_out*scalevec)
+            return -my_fit(line_out*scalevec)[0]
+        res= scipy.optimize.minimize(scaledfunc,1,bounds=[(0.01,100)],options={'maxiter':50})  # unlikely to have mass range scale of a factor of 10^4
+        arg = -scaledfunc(res.x)
     grid_list.append(line_out)
     lnL_list.append(arg)
+    print line_out, arg
 
 
 n_params = len(grid_list[0])
 dat_out = np.zeros( (len(grid_list), n_params+1))
 dat_out[:,:n_params] = np.array(grid_list)
-dat_out[:,-1] = lnL_list
-np.savetxt("eval.dat", dat_out)
+dat_out[:,-1] = np.array(lnL_list)
+np.savetxt(opts.fname_out, dat_out)
