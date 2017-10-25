@@ -36,6 +36,7 @@ parser.add_argument("--approx",default="SEOBNRv4",help="approximant for output s
 #parser.add_argument("--save-plots", default=False, action='store_true',help="saves waveform plot and hoft data")
 parser.add_argument("--postproc-opts",type=str,default=None, help="string containing postprocessing options")
 parser.add_argument("--event-time",default=None)
+parser.add_argumetn("--use-eos", default=None, help="if specified, will use lambda(m) relationship from EOS to make grid")
 opts=parser.parse_args()
 
 def calc_kl(mu_1, mu_2, sigma_1, sigma_2, sigma_1_inv, sigma_2_inv):
@@ -106,7 +107,7 @@ if opts.run_dir:
       if opts.approx!="SEOBNRv2":
          approx=opts.approx
 
-      post_proc= ILE_CODE_PATH+"util_ConstructIntrinsicPosterior_GenericCoordinates.py --fname "+comp_file_full+" "+opts.postproc_opts+" --approx-output "+approx
+      post_proc= "python " + ILE_CODE_PATH+"util_ConstructIntrinsicPosterior_GenericCoordinates.py --fname "+comp_file_full+" "+opts.postproc_opts+" --approx-output "+approx
       print " --- postproc ---- "
       print post_proc
       os.system(post_proc)
@@ -156,12 +157,19 @@ if opts.run_dir:
            copyfile("../event.log","event.log")
          except:
            pass
+   
+         if opts.use_eos!=None:
+            import util_WriteXMLWithEOS as eosxml
+            eosxml.append_lambda_to_xml("output-ILE-samples.xml.gz", str(opts.use_eos),file_name_out="output-ILE-samples_EOS.xml.gz")
 
          with open(str(run_dir_full)+"/command-single.sh",'r') as runfile:
             rf=str(runfile.readlines()[1])
             rf=rf.replace('integrate_likelihood_extrinsic', 'create_event_dag_via_grid')
             rf=rf.split()
-            rf[rf.index("--sim-xml")+1]="output-ILE-samples.xml.gz"
+            if opts.use_eos!=None:
+                rf[rf.index("--sim-xml")+1]="output-ILE-samples_EOS.xml.gz"
+            else:
+                rf[rf.index("--sim-xml")+1]="output-ILE-samples.xml.gz"
             rf_submit = ' '.join(rf)
             rf_submit+=" --n-copies 2"
 
@@ -187,7 +195,7 @@ if opts.run_dir:
          compile1="find ./ -name 'CME*.dat' -exec cat {} \; > iterate_tmp.dat"
          print compile1;
          os.system(compile1)
-         compile2=ILE_CODE_PATH+"util_CleanILE.py iterate_tmp.dat | sort -rg -k10 > iterate_tmp.composite"
+         compile2="python " + ILE_CODE_PATH+"util_CleanILE.py iterate_tmp.dat | sort -rg -k10 > iterate_tmp.composite"
          print compile2;
          os.system(compile2)
          time.sleep(5)  # give time for filesystem to respond.
