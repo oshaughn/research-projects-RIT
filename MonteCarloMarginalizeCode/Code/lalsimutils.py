@@ -390,6 +390,9 @@ class ChooseWaveformParams:
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=val)
             return self
         if p == 'beta':
+            # Documentation: *changing* beta is designed for a single-spin binary at present
+            # Based on expressions in this paper
+            #    http://adsabs.harvard.edu/abs/2012PhRvD..86f4020B
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
@@ -413,8 +416,13 @@ class ChooseWaveformParams:
             # def solveme(x):
             #     return (1+ x *SoverL)/np.sqrt(1+2*x*SoverL+SoverL**2) -val # using a root find instead of algebraic for readability
             # kappa = optimize.newton(solveme,0.01)
-            theta1 = np.arccos(kappa)
-            self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
+            # PROBLEM: Only implemented for radiation gauge, disable if in non-radiation gauge
+            if spin_convenion == "radiation":
+                theta1 = np.arccos(kappa)
+                self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
+            else:
+                print " beta assignment not implemented in non-radiation gauge "
+                sys.exit(0)
             return self
         # tidal parameters
         if p == 'LambdaTilde':
