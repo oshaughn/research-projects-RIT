@@ -31,6 +31,7 @@ echo '#User:' `whoami` >>  ${BASE_OUT}.manifest
 echo '#Date:' `date` >>  ${BASE_OUT}.manifest
 echo '#Host:' `hostname -f` >>  ${BASE_OUT}.manifest
 echo '#Directory:' `pwd`/${DIR_PROCESS} >>  ${BASE_OUT}.manifest
+md5sum ${DIR_PROCESS}/*psd.xml.gz >> ${BASE_OUT}.manifest
 cat ${DIR_PROCESS}/command-single.sh >>  ${BASE_OUT}.manifest  
 cat ${DIR_PROCESS}/integrate.sub >>  ${BASE_OUT}.submit
 
