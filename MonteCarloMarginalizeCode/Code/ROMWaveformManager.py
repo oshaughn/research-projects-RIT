@@ -7,6 +7,11 @@ rosDebug = False
 import numpy as np
 import os, sys
 import gwsurrogate as gws
+try:
+    import NRSur7dq2
+except:
+    print " - no NRSur7dq2 - "
+
 import lalsimutils
 import lalsimulation as lalsim
 import lal
@@ -141,6 +146,16 @@ def ConvertWPtoSurrogateParamsPrecessing(P,**kwargs):
     val =np.array([1./q, chi1,theta1,phi1,P.s2z])
     return val
 
+def ConvertWPtoSurrogateParamsPrecessingFull(P,**kwargs):
+    """
+    Takes P, returns arguments of the form usually used in gwsurrogate.
+    (currently, just returns 1/q = P.m1/P.m1, the mass ratio parameter usually accepted)
+    """
+
+    q = P.m2/P.m1
+    val =[1./q, np.array([P.s1x,P.s1y,P.s1z]), np.array([P.s2x,P.s2y,P.s2z]) ]
+    return val
+
 
 
 class WaveformModeCatalog:
@@ -194,7 +209,11 @@ class WaveformModeCatalog:
 
         my_converter = ConvertWPtoSurrogateParams
         if 'NRSur4d' in param:
+            print " GENERATING ROM WAVEFORM WITH SPIN PARAMETERS "
             my_converter = ConvertWPtoSurrogateParamsPrecessing
+        if 'NRSur7d' in param:
+            print " GENERATING ROM WAVEFORM WITH ALL SPIN PARAMETERS "
+            my_converter = ConvertWPtoSurrogateParamsPrecessingFull
         # PENDING: General-purpose interface, based on the coordinate string specified. SHOULD look up these names from the surrogate!
         def convert_coords(P):
             vals_out = np.zeros(len(coord_names_internal))
@@ -204,14 +223,28 @@ class WaveformModeCatalog:
                     vals_out[indx] = 1./vals_out[indx]
                 return vals_out
 
-
-        self.sur =  gws.EvaluateSurrogate(dirBaseFiles +'/'+group+param,use_orbital_plane_symmetry=reflection_symmetric, ell_m=lm_list) # straight up filename.  MODIFY to change to use negative modes
-
-        raw_modes = self.sur.all_model_modes()
-        self.modes_available = []
+        raw_modes =[]
+        if not 'NRSur7d' in param:
+            self.sur =  gws.EvaluateSurrogate(dirBaseFiles +'/'+group+param,use_orbital_plane_symmetry=reflection_symmetric, ell_m=lm_list) # straight up filename.  MODIFY to change to use negative modes
+            raw_modes = self.sur.all_model_modes()
+        else:
+            self.sur = NRSur7dq2.NRSurrogate7dq2()
+            reflection_symmetric = False
+            self.modes_available = [(2, -2), (2, -1), (2, 0), (2, 1), (2, 2), (3, -3), (3, -2), (3, -1), (3, 0), (3, 1), (3, 2), (3, 3), (4, -4), (4, -3), (4, -2), (4, -1), (4, 0), (4, 1), (4, 2), (4, 3), (4, 4)];    
+            t = self.sur.t_coorb
+            self.ToverMmin = t.min()
+            self.ToverMmax = t.max()
+            self.ToverM_peak=0
+            for mode in self.modes_available:
+                # Not used, bt populate anyways
+                self.post_dict[mode] = sur_identity
+                self.post_dict_complex[mode]  = lambda x: x   # to mode
+                self.post_dict_complex_coef[mode] = lambda x:x  #  to coefficients.
+                self.parameter_convert[mode] =  my_converter #  ConvertWPtoSurrogateParams   # default conversion routine
+            return
         # Load surrogates from a mode-by-mode basis, and their conjugates
         for mode in raw_modes:
-          if mode[0]<=self.lmax:
+          if mode[0]<=self.lmax and mode in lm_list:  # latter SHOULD be redundant (because of ell_m=lm_list)
             print " Loading mode ", mode
             self.modes_available.append(mode)
             self.sur_dict[mode] = self.sur.single_mode(mode)
@@ -566,10 +599,25 @@ class WaveformModeCatalog:
             bT = self.basis_oft(P, force_T=force_T, deltaT=deltaT, time_over_M_zero=time_over_M_zero)
             coefs = self.coefficients(P)
 
+
         # extract arguments
         q = P.m1/P.m2  # NOTE OPPOSITE CONVENTION ADOPTED BY SURROGATE GROUP. Code WILL FAIL if q<1
         if q<1:
             q=1./q  # this flips the objects, swapping phase, but it is a good place to start
+
+        # Option 0: Use NRSur7dsq approach (i.e., generate an hlmoft dictionary)
+        hlmT_dimensionless={}
+        if 'NRSur7d' in self.param:
+            params_here = self.parameter_convert[(2,2)](P)
+            tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
+            indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
+            hlmT ={}
+            hlmT_dimensionless_narrow = self.sur(params_here[0], params_here[1],params_here[2],t=tvals_dimensionless[indx_ok])
+            for mode in self.modes_available:
+                hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
+                hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
+            
+
         # Loop over all modes in the system
         for mode in self.modes_available: # loop over modes
           if mode[0] <= Lmax:
@@ -577,11 +625,16 @@ class WaveformModeCatalog:
             wfmTS = lal.CreateCOMPLEX16TimeSeries("h", lal.LIGOTimeGPS(0.), 0., deltaT, lalsimutils.lsu_DimensionlessUnit, npts)
             wfmTS.data.data *=0;  # init - a sanity check
 
+
             # Option 1: Use the surrogate functions themselves
             if not use_basis:
                 params_here = self.parameter_convert[mode](P)
-                t_phys, hp_dim, hc_dim = self.post_dict[mode](*self.sur_dict[mode](q=params_here,samples=tvals/m_total_s + self.ToverM_peak))  # center time values AT PEAK
-                wfmTS.data.data =  m_total_s/distance_s * (hp_dim + 1j*hc_dim)  # ARGH! Is this consistent across surrogates?
+                # Option 0: Use NRSur7dsq approach (i.e., use the stored hlmT data )
+                if 'NRSur7d' in self.param:
+                    wfmTS.data.data = m_total_s/distance_s * hlmT_dimensionless[mode]
+                else:
+                    t_phys, hp_dim, hc_dim = self.post_dict[mode](*self.sur_dict[mode](q=params_here,samples=tvals/m_total_s + self.ToverM_peak))  # center time values AT PEAK
+                    wfmTS.data.data =  m_total_s/distance_s * (hp_dim + 1j*hc_dim)  # ARGH! Is this consistent across surrogates?
                 # Zero out data after tmax and before tmin
                 wfmTS.data.data[tvals/m_total_s<self.ToverMmin-self.ToverM_peak] = 0
                 wfmTS.data.data[tvals/m_total_s>self.ToverMmax-self.ToverM_peak] = 0
