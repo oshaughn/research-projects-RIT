@@ -554,6 +554,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False)
             print " Setting mc range: retained point range is ", np.std(x[:,indx]), " and target min is ", length_scale_min_here
         length_scale_bounds_est.append( (length_scale_min_here , 5*np.std(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
 
+    print " GP: Input sample size ", len(x), len(y)
     print " GP: Estimated length scales "
     print length_scale_est
     print length_scale_bounds_est
@@ -667,7 +668,7 @@ for line in dat:
       continue  # strip worthless points.  DANGEROUS
   mc_here = lalsimutils.mchirp(line[1],line[2])
   if mc_here < mc_cut_range[0] or mc_here > mc_cut_range[1]:
-      if opts.verbose:
+      if False and opts.verbose:
           print "Stripping because sample outside of target  mc range ", line
       continue
   if line[col_lnL] < opts.lnL_peak_insane_cut:
@@ -748,7 +749,8 @@ Y_err = dat_out[:,-1]
 max_lnL = np.max(Y)
 indx_ok = Y>np.max(Y)-opts.lnL_offset
 print " Points used in fit : ", sum(indx_ok), " given max lnL ", max_lnL
-if max_lnL < 10:
+if max_lnL < 10 and np.mean(Y) > -10: # second condition to allow synthetic tests not to fail, as these often have maxlnL not large
+    print " Resetting to use ALL input data -- beware ! "
     # nothing matters, we will reject it anyways
     indx_ok = np.ones(len(Y),dtype=bool)
 elif sum(indx_ok) < 10: # and max_lnL > 30:
