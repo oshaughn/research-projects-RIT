@@ -167,6 +167,7 @@ parser.add_argument("--trust-sample-parameter-box",action='store_true', help="If
 parser.add_argument("--plots-do-not-force-large-range",action='store_true', help = "If used, the plots do NOT automatically set the chieff range to [-1,1], the eta range to [0,1/4], etc")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
+parser.add_argument("--no-downselect",action='store_true')
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
@@ -312,6 +313,8 @@ for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
 # Enforce definition of eta
 downselect_dict['eta'] = [0,0.25]
 
+if opts.no_downselect:
+    downselect_dict={}
 
 
 test_converged={}
@@ -1151,6 +1154,8 @@ print " ---- Subset for posterior samples (and further corner work) --- "
 
 # pick random numbers
 p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=opts.n_output_samples)
+if opts.verbose:
+    print " output size: selected thresholds N=", len(p_thresholds)
 # find sample indexes associated with the random numbers
 #    - FIXME: first truncate the bad ones
 # idx_sorted_index = numpy.lexsort((numpy.arange(len(weights)), weights))  # Sort the array of weights, recovering index values
@@ -1161,6 +1166,8 @@ p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=opts.n_output_samples)
 cum_sum  = np.cumsum(weights)
 cum_sum = cum_sum/cum_sum[-1]
 indx_list = map(lambda x : np.sum(cum_sum < x),  p_thresholds)  # this can lead to duplicates
+if opts.verbose:
+    print " output size: selected random indices N=", len(indx_list)
 lnL_list = []
 P_list =[]
 P = lalsimutils.ChooseWaveformParams()
