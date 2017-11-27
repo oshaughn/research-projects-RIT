@@ -538,7 +538,7 @@ class MCSampler(object):
                 maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
             # running variance
-            var = cumvar(int_val, mean, var, self.ntotal)[-1]
+            var = cumvar(int_val, mean, var, int(self.ntotal))[-1]
             # running integral
             int_val1 += int_val.sum()
             # running number of evaluations
@@ -661,10 +661,10 @@ class MCSampler(object):
             # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
             wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
             idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
-            indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again
+            indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again. NOTE NOT INTEGER TYPE ANY MORE
             cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
             cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
-            indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability
+            indx_list = [int(indx_list[k, 0]) for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability. RECAST TO INTEGER
             # FIXME: See previous FIXME
             for key in self._rvs.keys():
                 if isinstance(key, tuple):
@@ -975,7 +975,7 @@ def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativ
     weights = rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]  # rvs["weights"] # rvs["weights"] is *sorted* (side effect?), breaking test. Recalculated weights are not.  Use explicitly calculated weights until sorting effect identified
 #    weights = weights /numpy.sum(weights)    # Keep original normalization, so the integral values printed to stdout have meaning relative to the overall integral value.  No change in code logic : this factor scales out (from the log, below)
     igrandValues = numpy.zeros(ncopies)
-    len_part = numpy.floor(len(weights)/ncopies)
+    len_part = numpy.int(len(weights)/ncopies)  # deprecated: np.floor->np.int
     for indx in numpy.arange(ncopies):
         igrandValues[indx] = numpy.log(numpy.mean(weights[indx*len_part:(indx+1)*len_part]))  # change to mean rather than sum, so sub-integrals have meaning
     igrandValues= numpy.sort(igrandValues)#[2:]                            # Sort.  Useful in reports 
