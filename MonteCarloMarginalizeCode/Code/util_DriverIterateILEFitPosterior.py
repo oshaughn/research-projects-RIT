@@ -18,6 +18,13 @@ import subprocess
 from shutil import copyfile
 import time
 
+try:
+    import universal_divergence.estimate as kl_estimate
+except:
+    def kl_estimate(x):
+        return -1
+
+
 ILE_CODE_PATH='';
 try:
     ILE_CODE_PATH=os.environ['ILE_CODE_PATH'] + "/"
@@ -29,6 +36,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")
 parser.add_argument("--no-cumulative-info",action='store_true')
 parser.add_argument("--no-test-convergence",action='store_true')
+parser.add_argument("--test-convergence-1d",action='store_true',help="Uses 1 dimensional KL divergence tests (additive)")
 parser.add_argument("--run-dir",type=str, default=None, help="directory code was run in")
 parser.add_argument("--max-iter",type=int,default=10,help="maximum iteration")
 parser.add_argument("--approx",default="SEOBNRv4",help="approximant for output samples")
@@ -116,7 +124,7 @@ if opts.run_dir:
           print " POSTPROCESSING FAIL; HALT"
           sys.exit(0)
      
-      if (not opts.no_test_convergence) and it>2:  # 
+      if (not opts.no_test_convergence) and it>2 and not opts.test_convergence_1d: 
           prev_iter="iteration"+str(it-1)
           #load gamma matrices
           gamma1=np.loadtxt(run_dir_full+"/"+prev_iter+"/lnL_gamma.dat", delimiter=" ")
@@ -213,15 +221,6 @@ if opts.run_dir:
          comp_file_full=run_dir_full+"/"+iteration_dir+"/iterate.composite"
          it+=1
 
-
-#elif opts.composite:
-#   if len(opts.composite)>1:
-#      #combine all composite files into one  
-#      cmd="cat `ls "+str(opts.composite)+" | grep pp `| sort -rg -k10 > all.composite"
-#      os.system(cmd)
-#      comp_file="all.composite"
-#    else:
-#      comp_file=opts.composite
 
 
 else:
