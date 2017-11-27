@@ -209,7 +209,7 @@ parser.add_argument("--srate",type=int,default=16384,help="Sampling rate")
 parser.add_argument("--seglen", type=float,default=256*2., help="Default window size for processing.")
 parser.add_argument("--fref",type=float,default=0.);
 # External grid
-parser.add_argument("--use-eos", default=None, help="Equation of state to determine lambdas for given mass ranges")
+parser.add_argument("--use-eos", default=None, help="Equation of state to determine lambdas for given mass ranges. Filename, not EOS name (no internal database)")
 parser.add_argument("--external-grid-xml", default=None,help="Inspiral XML file (injection form) for alternate grid")
 parser.add_argument("--external-grid-txt", default=None, help="Cartesian grid. Must provide parameter names in header. Exactly like output of code. Last column not used.")
 # Base point

@@ -48,7 +48,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--xml-in", default="overlap-grid.xml.gz", help="input XML")
     parser.add_argument("--xml-out", default=None, help="Target output xml. Default is add eos name afterwards")
-    parser.add_argument("--use-eos", default='sly', help="Equation of state to determine lambdas for given mass ranges")
+    parser.add_argument("--use-eos", default='sly', help="Equation of state to determine lambdas for given mass ranges. If a file name, will load EOS from that file; otherwise, will look for that name in lalsimulation")
     opts=  parser.parse_args()
 
     append_lambda_to_xml(opts.xml_in,opts.use_eos, file_name_out=opts.xml_out)
