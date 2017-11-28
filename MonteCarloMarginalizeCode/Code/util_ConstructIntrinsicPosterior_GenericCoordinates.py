@@ -173,6 +173,7 @@ parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a'
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
 parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset")
+parser.add_argument("--lnL-offset-n-random",type=int,default=0,help="Add this many random points past the threshold")
 parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]")
 parser.add_argument("--M-max-cut",type=float,default=1e5,help="Maximum mass to consider (e.g., if there is a cut on distance, this matters)")
 parser.add_argument("--sigma-cut",type=float,default=0.6,help="Eliminate points with large error from the fit.")
@@ -751,6 +752,10 @@ Y_err = dat_out[:,-1]
 # Eliminate values with Y too small
 max_lnL = np.max(Y)
 indx_ok = Y>np.max(Y)-opts.lnL_offset
+# Provide some random points, to insure reasonable tapering behavior away from the sample
+if opts.lnL_offset_n_random>0:
+    p_select = np.min([opts.lnL_offset_n_random*1.0/len(Y),1])
+    indx_ok = np.logical_or(indx_ok, np.random.choice([True,False],size=len(indx_ok),p=[p_select,1-p_select]))
 print " Points used in fit : ", sum(indx_ok), " given max lnL ", max_lnL
 if max_lnL < 10 and np.mean(Y) > -10: # second condition to allow synthetic tests not to fail, as these often have maxlnL not large
     print " Resetting to use ALL input data -- beware ! "
