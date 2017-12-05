@@ -39,12 +39,19 @@ n_max_dirs = 1+ int(os.environ["EOB_C_ARCHIVE_NMAX"])
 default_interpolation_kind = 'linear'  # spline interpolation   # very slow! 
 
 #internal_ModesAvailable = [(2,2), (2,1), (2,-2), (2,-1), (3,3), (3,2), (3,1), (3,-3), (3,-2), (3,-1)]
-internal_ModesAvailable = [(2,2), (2,1), (2,-2), (2,-1), (3,3), (3,-3)]
+internal_ModesAvailable = [(2,2), (2,1), (2,-2), (2,-1), (3,3), (3,-3), (3,2), (3,-2), (3,1), (3,-1)]  
+# see TEOBResumSHlm.cpp for mode order (e.g., as in hlm_Tidal)
 internal_ModeLookup= {}
 internal_ModeLookup[(2,2)] = [3,4]  # amplitude, phase
 internal_ModeLookup[(2,-2)] = [3,4]  # amplitude, phase
 internal_ModeLookup[(2,1)] = [1,2]  # amplitude, phase
 internal_ModeLookup[(2,-1)] = [1,2]  # amplitude, phase
+internal_ModeLookup[(3,1)] = [5,6]  # amplitude, phase
+internal_ModeLookup[(3,-1)] = [5,6]  # amplitude, phase
+internal_ModeLookup[(3,2)] = [7,8]  # amplitude, phase
+internal_ModeLookup[(3,-2)] = [7,8]  # amplitude, phase
+internal_ModeLookup[(3,3)] = [9,10]  # amplitude, phase
+internal_ModeLookup[(3,-3)] = [9,10]  # amplitude, phase
 
 MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
 
@@ -246,8 +253,9 @@ class WaveformModeCatalog:
                 else:
                     datA*= nu *delta
 
-                fnA = UnivariateSpline(tvals, datA,ext='zeros',k=3,s=0)  # s=0 prevents horrible behavior
-                fnP =  UnivariateSpline(tvals, datP,ext='zeros',k=3,s=0) # s=0 prevents horrible behavior
+#                fnA = compose(np.exp,UnivariateSpline(tvals, np.log(datA+1e-40),ext='zeros',k=3,s=0))  # s=0 prevents horrible behavior. Interpolate logA  so A>0 is preserved.
+                fnA = UnivariateSpline(tvals, datA,ext='zeros',k=3,s=0)  # s=0 prevents horrible behavior. Sometimes interpolation in the log behaves oddly
+                fnP =  UnivariateSpline(tvals, datP,ext='const',k=3,s=0) # s=0 prevents horrible behavior. 'const' uses boundary value to prevent discontinuity
 
                 self.waveform_modes_complex_interpolated_amplitude[mode] = fnA #lambda x,s=fnA,t=fnTaperHere: t(x)*s(x) 
                 self.waveform_modes_complex_interpolated_phase[mode] = fnP
@@ -418,7 +426,6 @@ class WaveformModeCatalog:
         # Define units
         m_total_s = MsunInSec*(self.P.m1+self.P.m2)/lal.MSUN_SI
         distance_s = self.P.dist/lal.C_SI  # insures valid units.  Default distance is 1 Mpc !
-        d_ref_s  = 100*1e6*lal.PC_SI/lal.C_SI  # Default distance is 1Mpc
 
         # Create a suitable set of time samples.  Zero pad to 2^n samples.
         # Note waveform is stored in s already
