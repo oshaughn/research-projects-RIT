@@ -23,7 +23,7 @@ import lalsimutils
 import lalsimulation as lalsim
 import lal
 
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, UnivariateSpline
 
 import pickle
 import time
@@ -77,10 +77,10 @@ def ModeToString(pair):
     return str(pair[0])+str(pair[1])   # this is only used for POSITIVE l,m (single digit)
 
 def write_par_file(basedir, mtot_msun, q,chi1, chi2,lambda1,lambda2, fmin,dt):
-    lambda1_3 = lalsimutils.Yagi13_fit_barlamdel(lambda1,3)
-    lambda1_4 = lalsimutils.Yagi13_fit_barlamdel(lambda1,4)
-    lambda2_3 = lalsimutils.Yagi13_fit_barlamdel(lambda2,3)
-    lambda2_4 = lalsimutils.Yagi13_fit_barlamdel(lambda2,4)
+#    lambda1_3 = lalsimutils.Yagi13_fit_barlamdel(lambda1,3)
+#    lambda1_4 = lalsimutils.Yagi13_fit_barlamdel(lambda1,4)
+#    lambda2_3 = lalsimutils.Yagi13_fit_barlamdel(lambda2,3)
+#    lambda2_4 = lalsimutils.Yagi13_fit_barlamdel(lambda2,4)
     
     fname = basedir + "/my.par"
     with open(fname, 'w') as f:
@@ -90,25 +90,26 @@ def write_par_file(basedir, mtot_msun, q,chi1, chi2,lambda1,lambda2, fmin,dt):
         f.write("chi1 "+ str(chi1) +"\n")
         f.write("chi2 "+ str(chi2) +"\n")
 #        f.write("r0 "+ str(r0) +"\n")
-        f.write("fmin " + str(fmin * mtot_msun*MsunInSec)+"\n")    # because geometric units are used (e.g., for dt), we must convert to omega; see TEOBResunSUtils.cpp
+#        f.write("fmin " + str(fmin * mtot_msun*MsunInSec)+"\n")    # because geometric units are used (e.g., for dt), we must convert to omega; see TEOBResunSUtils.cpp
+        f.write("f_min "+str(fmin))
 #        f.write("NQC 0\n")
         f.write("tidal 1\n")  # must be 1 for tidal calculation
 #        f.write("spin 1\n")
         f.write("RWZ 0\n")
         f.write("speedy 1\n")
         f.write("dynamics 0\n")  # does nothing?
-        f.write("Yagi_fit 0\n")
+        f.write("Yagi_fit 1\n")
         f.write("multipoles 1\n")
         f.write("lm 1\n")
-        f.write("dt "+ str(dt)+ " \n")
+#        f.write("dt "+ str(dt)+ " \n")
         f.write("solver_scheme 0\n")
         f.write("LambdaAl2 "+str(lambda1) + "\n")
-        f.write("LambdaAl3 "+str(lambda1_3) + "\n")
-        f.write("LambdaAl4 "+str(lambda1_4) + "\n")
+#        f.write("LambdaAl3 "+str(lambda1_3) + "\n")
+#        f.write("LambdaAl4 "+str(lambda1_4) + "\n")
         f.write("LambdaBl2 "+str(lambda2) + "\n")
-        f.write("LambdaBl3 "+str(lambda2_3) + "\n")
-        f.write("LambdaBl4 "+str(lambda2_4) + "\n")
-        f.write("geometric_units 1\n")
+#        f.write("LambdaBl3 "+str(lambda2_3) + "\n")
+#        f.write("LambdaBl4 "+str(lambda2_4) + "\n")
+        f.write("geometric_units 0\n")
 
 class WaveformModeCatalog:
     """
@@ -172,6 +173,9 @@ class WaveformModeCatalog:
             if not os.path.exists(retrieve_directory):
                 print " Making directory to archive this run ... ", retrieve_directory
                 os.makedirs(retrieve_directory)  
+                if not os.path.exists(retrieve_directory):
+                    print " FAILED TO CREATE ", retrieve_directory
+                    sys.exit(0)
             M_sec = (P.m1+P.m2)/lal.MSUN_SI * MsunInSec
             dt_over_M = P.deltaT/M_sec # needed for solver sanity at end
             write_par_file(retrieve_directory, (m1InMsun+m2InMsun),m1InMsun/m2InMsun, P.s1z, P.s2z, P.lambda1,P.lambda2,P.fmin,dt_over_M)
@@ -186,7 +190,7 @@ class WaveformModeCatalog:
 
         # h_lm = A exp (- i phi)
         # time/M    Amp_21   phi_21   Amp_22 phi_22  Amp_33 phi_33
-        hlm_data_raw = np.loadtxt("hlm_insp.dat")
+        hlm_data_raw = np.loadtxt(retrieve_directory + "/hlm_insp.dat")
         # DELETE RESULTS
         print " Deleting intermediate files...", retrieve_directory
         shutil.rmtree(retrieve_directory)
@@ -194,26 +198,32 @@ class WaveformModeCatalog:
                
         tmin = np.min(hlm_data_raw[:,0])
         tmax = np.max(hlm_data_raw[:,0])
-        tvals = hlm_data_raw[:,0]
+        tvals = np.array(hlm_data_raw[:,0]) # copy
+        print " Loading time range ", tvals[0], tvals[-1],  " in dimensionless time "
 
         # Rescale time units (previously done in matlab code)
         tvals *= (m1InMsun+m2InMsun)*MsunInSec
+        tmax *= (m1InMsun+m2InMsun)*MsunInSec
+        tmin *= (m1InMsun+m2InMsun)*MsunInSec
 
         col_A_22 = internal_ModeLookup[(2,2)][0]
-        t_ref = np.argmax( np.abs(hlm_data_raw[:,col_A_22]) )  # peak of 22 mode                
+        t_ref = tvals[np.argmax( np.abs(hlm_data_raw[:,col_A_22]) )]  # peak of 22 mode                
         # shift all times, if necessary
         if align_at_peak_l2_m2_emission:
                     tvals += -t_ref
                     t_ref = 0
+        print " Time range after timeshift and rescaling to seconds ", tvals[0], tvals[-1]
 
 
-        # taper functuion: exactly like NR               
+        # taper functuion:                
+        # DISABLE: it so happens we taper *again* in hlmoft !  
         def fnTaperHere(x,tmax=tmax,tmin=tmin):
-                tTaperStart= np.max([5, 0.05* (tmax-tmin)])
-                return np.piecewise(x , [x<tmin+tTaperStart, x>tmax-2], 
-                                     [(lambda z, tm=tmin,dt=tTaperStart: 0.5-0.5*np.cos(np.pi* (z-tm)/dt)),
-                                      (lambda z, tm=tmax: 0.5-0.5*np.cos(np.pi* (tm-z)/2)),
-                                       lambda z: 1])
+                tTaperEnd= 10./P.fmin
+                return np.piecewise(x , [x<tmin, x>tmin+tTaperEnd, np.logical_and(x>tmin,x<=tmin+tTaperEnd)], 
+                                     [(lambda z:0),  (lambda z: 1)
+                                      (lambda z, tm=tmin,dt=tmin+tTaperEnd: 0.5-0.5*np.cos(np.pi* (z-tm)/dt))
+                                      ]
+                                      )
         
         for mode in internal_ModesAvailable:
             if mode[0]<= lmax:   
@@ -222,8 +232,8 @@ class WaveformModeCatalog:
                 col_t =0
                 col_A =internal_ModeLookup[mode][0]
                 col_P =internal_ModeLookup[mode][1]
-                datA = hlm_data_raw[:,col_A]
-                datP = (-1)* hlm_data_raw[:,col_P]
+                datA = np.array(hlm_data_raw[:,col_A]) # important to ALLOCATE so we are not accessing a pointer / same data
+                datP = np.array( (-1)* hlm_data_raw[:,col_P])  # allocate so not a copy
 
                 # Create, if symmetric
                 if mode[1]<0: # (-1)^l conjugate
@@ -232,35 +242,40 @@ class WaveformModeCatalog:
 
                 # # Add factor of 'nu' that was missing (historical)
                 if mode[1] %2 ==0 :
-                    datA[:,1]*= nu
+                    datA *= nu   # important we are not accessing a copy
                 else:
-                    datA[:,1]*= nu*delta
+                    datA*= nu *delta
 
-                fnA = UnivariateSpline(tvals, datA)
-                fnP =  UnivariateSpline(tvals, datP)
+                fnA = UnivariateSpline(tvals, datA,ext='zeros',k=3,s=0)  # s=0 prevents horrible behavior
+                fnP =  UnivariateSpline(tvals, datP,ext='zeros',k=3,s=0) # s=0 prevents horrible behavior
 
-                self.waveform_modes_strain_interpolated_amplitude[mode] = compose(RangeWrap1dAlt([tmin,tmax], 0,lambda x,s=fnA,t=fnTaperHere: t(x)*s(x) ), lambda x,ts=t_ref: x+ts)
-                self.waveform_modes_strain_interpolated_phase[mode] = compose(RangeWrap1dAlt([tmin,tmax], 0,lambda x,s=fnP,t=fnTaperHere: s(x) ), lambda x,ts=t_ref: x+ts)  # do not need to taper phase!
+                self.waveform_modes_complex_interpolated_amplitude[mode] = fnA #lambda x,s=fnA,t=fnTaperHere: t(x)*s(x) 
+                self.waveform_modes_complex_interpolated_phase[mode] = fnP
 
                 # Estimate starting frequency. Historical interest
-                nOffsetForPhase = 5  # ad-hoc offset based on uniform sampling
+                nOffsetForPhase = 0  # ad-hoc offset based on uniform sampling
                 nStride = 5
                 self.fMinMode[mode] = np.abs((datP[nOffsetForPhase+nStride]-datP[nOffsetForPhase])/(2*np.pi*(tvals[nOffsetForPhase+nStride]-tvals[nOffsetForPhase]))) # historical interest
                 if mode ==(2,2):
                     self.fOrbitLower  = 0.5*self.fMinMode[mode]
+                    if rosDebug:
+                        print " Identifying initial orbital frequency ", self.fOrbitLower, " which had better be related to ", P.fmin
+                if rosDebug:
+                    print mode, self.fMinMode[mode]
 
 
                 # Historical/used for plotting only
-                datC = datA*np.exp(datP)
-                self.waveform_modes[mode] =np.zeros( (len(datC),2),dtype=complex)
+                datC = datA*np.exp(1j*datP)
+                self.waveform_modes[mode] =np.zeros( (len(datC),3),dtype=float)
+                self.waveform_modes[mode][:,0] = tvals
                 self.waveform_modes[mode][:,1] = np.real(datC)
                 self.waveform_modes[mode][:,2] = np.imag(datC)
+                self.waveform_modes_complex[mode] =np.zeros( (len(datC),2),dtype=complex)
+                self.waveform_modes_complex[mode][:,0] = np.array(tvals)   # Convert to physical units
+                self.waveform_modes_complex[mode][:,1] = datC
 
-                self.waveform_modes_nonuniform_smallest_timestep[mode] = self.waveform_modes[mode][1,0]-self.waveform_modes[mode][0,0]  # uniform in time
+                self.waveform_modes_nonuniform_smallest_timestep[mode] = self.waveform_modes[mode][1,0]-self.waveform_modes[mode][0,0]  # NOT uniform in time
                 self.waveform_modes_nonuniform_largest_timestep[mode] = self.waveform_modes[mode][1,0]-self.waveform_modes[mode][0,0]  # uniform in time
-                  
-                
-
 
         print " Restoring current working directory... ",cwd
         os.chdir(cwd);
@@ -402,7 +417,8 @@ class WaveformModeCatalog:
         hlmT ={}
         # Define units
         m_total_s = MsunInSec*(self.P.m1+self.P.m2)/lal.MSUN_SI
-        distance_s = self.P.dist/lal.C_SI  # insures valid units
+        distance_s = self.P.dist/lal.C_SI  # insures valid units.  Default distance is 1 Mpc !
+        d_ref_s  = 100*1e6*lal.PC_SI/lal.C_SI  # Default distance is 1Mpc
 
         # Create a suitable set of time samples.  Zero pad to 2^n samples.
         # Note waveform is stored in s already
@@ -425,7 +441,8 @@ class WaveformModeCatalog:
 
         # If the buffer requested is SHORTER than the 2*waveform, work backwards
         # If the buffer requested is LONGER than the waveform, work forwards from the start of all data
-        if T_buffer_required/2 > T_estimated:
+        fac_safety=1  # Previously had used a factor of 2 for safety. but this can accidentally truncate the waveform at too high an fmin.  Remove.
+        if T_buffer_required/fac_safety > T_estimated:
             tvals =  np.arange(npts)*deltaT + float(self.waveform_modes_complex[(2,2)][0,0])   # start at time t=0 and go forwards (zeros automatically padded by interpolation code)
             t_crit = float( -self.waveform_modes_complex[(2,2)][0,0])
             n_crit = int( t_crit/deltaT) # estiamted peak sample location in the t array, working forward
@@ -435,13 +452,13 @@ class WaveformModeCatalog:
             # Create time samples by walking backwards from the last sample of the waveform, a suitable duration
             # ASSUME we are running in a configuration with align_at_peak_l2m2_emission
             # FIXME: Change this
-            tvals = T_buffer_required/2  + (-npts + 1+ np.arange(npts))*deltaT + np.real(self.waveform_modes_complex[(2,2)][-1,0])  # last insures we get some ringdown
-            t_crit = T_buffer_required/2 - (np.real(self.waveform_modes_complex[(2,2)][-1,0]))
+            tvals = T_buffer_required/fac_safety  + (-npts + 1+ np.arange(npts))*deltaT + np.real(self.waveform_modes_complex[(2,2)][-1,0])  # last insures we get some ringdown
+            t_crit = T_buffer_required/fac_safety - (np.real(self.waveform_modes_complex[(2,2)][-1,0]))
             n_crit = int(t_crit/deltaT)
             
-        if rosDebug:
-            print " time range being sampled ", [min(tvals),max(tvals)], " corresponding to dimensionless range", [min(tvals)/m_total_s,max(tvals)/m_total_s]
-            print " estimated peak sample at ", n_crit
+        # if rosDebug:
+        #     print " time range being sampled ", [min(tvals),max(tvals)], " corresponding to dimensionless range", [min(tvals)/m_total_s,max(tvals)/m_total_s]
+        #     print " estimated peak sample at ", n_crit
 
         # Loop over all modes in the system
         for mode in self.waveform_modes.keys():
