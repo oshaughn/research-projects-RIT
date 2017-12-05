@@ -249,10 +249,11 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             print "    Using external EOB interface (Bernuzzi)    "
             # Code WILL FAIL IF LAMBDA=0
             P.taper = lsu.lsu_TAPER_START
-            if P.lambda1<1:
-                    P.lambda1=1
-            if P.lambda2<1:
-                    P.lambda2=1
+            lambda_crit=1e-3  # Needed to have adequate i/o output 
+            if P.lambda1<lambda_crit:
+                    P.lambda1=lambda_crit
+            if P.lambda2<lambda_crit:
+                    P.lambda2=lambda_crit
             if P.deltaT > 1./16384:
                     print " Bad idea to use such a low sampling rate for EOB tidal "
             wfP = eobwf.WaveformModeCatalog(P,lmax=Lmax)
