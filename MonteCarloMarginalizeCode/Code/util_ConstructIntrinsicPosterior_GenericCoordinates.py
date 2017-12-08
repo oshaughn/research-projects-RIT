@@ -103,7 +103,7 @@ def extract_combination_from_LI(samples_LI, p):
             return lambda1
         if p == "lambda2":
             return lambda2
-    if p == 'delta':
+    if p == 'delta' or p=='delta_mc':
         return (samples_LI['m1']  - samples_LI['m2'])/((samples_LI['m1']  + samples_LI['m2']))
     # Return cartesian components of Lhat
     if p == 'product(sin_beta,sin_phiJL)':
@@ -223,6 +223,7 @@ remap_ILE_2_LI = {
   "xi":"chi_eff", 
   "chiMinus":"chi_minus", 
   "delta":"delta", 
+  "delta_mc":"delta", 
  "mtot":'mtotal', "mc":"mc", "eta":"eta","m1":"m1","m2":"m2",
   "cos_beta":"cosbeta",
   "beta":"beta",
@@ -344,6 +345,13 @@ def mc_prior(x):
     return x/(mc_max-mc_min)
 def eta_prior(x):
     return 1./np.power(x,6./5.)/np.power(1-4.*x, 0.5)/1.44
+def delta_mc_prior(x):
+    """
+    delta_mc = sqrt(1-4eta)  <-> eta = 1/4(1-delta^2)
+    Transform the prior above
+    """
+    eta_here = 0.25*(1 -x*x)
+    return 2./np.power(eta_here, 6./5.)/1.44
 
 def m_prior(x):
     return 1/(1e3-1.)  # uniform in mass, use a square.  Should always be used as m1,m2 in pairs. Note this does NOT restrict m1>m2.
@@ -382,7 +390,7 @@ def delta_lambda_tilde_prior(x):
     return np.ones(x.shape)/1000.   # -500,500
 
 
-prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "mc":mc_prior, "eta":eta_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
+prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
     's2x':s_component_uniform_prior,
     's1y':s_component_uniform_prior,
@@ -394,7 +402,7 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "
     'LambdaTilde':lambda_tilde_prior,
     'DeltaLambdaTilde':delta_lambda_tilde_prior,
 }
-prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_max,0.999*chi_max], "mc":[0.9,250], "eta":[0.01,0.2499999], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
+prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_max,0.999*chi_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
    's1x':[-chi_max,chi_max],
    's2x':[-chi_max,chi_max],
    's1y':[-chi_max,chi_max],
@@ -411,6 +419,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
 if not (opts.eta_range is None):
     print " Warning: Overriding default eta range. USE WITH CARE"
     prior_range_map['eta'] = eval(opts.eta_range)  # really only useful if eta is a coordinate.  USE WITH CARE
+    prior_range_map['delta_mc'] = np.sqrt(1-4*np.array(prior_range_map['eta']))[::-1]  # reverse
 
 ###
 ### Modify priors, as needed
@@ -1133,7 +1142,6 @@ for p in low_level_coord_names:
 if not no_plots:
     labels_tex = map(lambda x: tex_dictionary[x], low_level_coord_names)
     fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,truths=truth_here,range=range_here)
-
     my_cmap_values = 'g' # default color
     try:
 # Plot simulation points (X array): MAY NOT BE POSSIBLE if dimensionality is inconsistent
@@ -1150,8 +1158,10 @@ if not no_plots:
         print " Some ridiculous range error with the corner plots, again"
 
     if opts.fname_lalinference:
+      try:
         corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs) #,range=range_here)
-
+      except:
+          print " Failed !"
     plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
     plt.savefig("posterior_corner_nocut_beware.png"); plt.clf()
 

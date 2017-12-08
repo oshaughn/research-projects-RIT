@@ -164,6 +164,7 @@ tex_dictionary  = {
  "m2": '$m_2$',
   "q": "$q$",
   "delta" : "$\delta$",
+  "delta_mc" : "$\delta$",
   "beta" : "$\beta$",
   "cos_beta" : "$\cos(\\beta)$",
   "sin_beta" : "$\sin(\\beta)$",
@@ -305,6 +306,11 @@ class ChooseWaveformParams:
             M = self.m1 + self.m2
             self.m1 = M*(1+val)/2
             self.m2 = M*(1-val)/2
+            return self
+        if p == 'delta_mc':
+            # change implemented at fixed chi1, chi2, *mc*
+            eta_here = 0.25*(1 - val*val)
+            self.assign_param('eta', eta_here)
             return self
         if p == 'chi1':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
@@ -483,7 +489,7 @@ class ChooseWaveformParams:
             return (self.m2+self.m1)
         if p == 'q':
             return self.m2/self.m1
-        if p == 'delta':
+        if p == 'delta' or p=='delta_mc':  # Same access routine
             return (self.m1-self.m2)/(self.m1+self.m2)
         if p == 'mc':
             return mchirp(self.m1,self.m2)
