@@ -169,6 +169,7 @@ parser.add_argument("--downselect-parameter",action='append', help='Name of para
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--no-downselect",action='store_true')
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
+parser.add_argument("--mirror-points",action='store_true',help="Use if you have many points very near equal mass (BNS). Doubles the number of points in the fit, each of which has a swapped m1,m2")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
@@ -734,6 +735,35 @@ for line in dat:
         mc_min = mc_here
     if mc_here > mc_max:
         mc_max = mc_here
+
+    # Mirror!
+    if opts.mirror_points:
+        P.swap_components()
+        # INPUT GRID: Evaluate binary parameters on fitting coordinates
+        line_out = np.zeros(len(coord_names)+2)
+        for x in np.arange(len(coord_names)):
+            line_out[x] = P.extract_param(coord_names[x])
+        line_out[-2] = line[col_lnL]
+        line_out[-1] = line[col_lnL+1]  # adjoin error estimate
+        dat_out.append(line_out)
+
+        # Alternate grids: Evaluate input binary parameters on other coordinates requested, for comparison
+        for indx in np.arange(len(extra_plot_coord_names)):
+            line_out = np.zeros(len(extra_plot_coord_names[indx]))
+            for x in np.arange(len(line_out)):
+                line_out[x] = P.extract_param( extra_plot_coord_names[indx][x])
+            dat_out_extra[indx].append(line_out)
+
+        # results using sampling coordinates (low_level_coord_names) 
+        line_out = np.zeros(len(low_level_coord_names))
+        for x in np.arange(len(line_out)):
+            fac = 1
+            if low_level_coord_names[x] in ['mc','m1','m2','mtot']:
+                fac = lal.MSUN_SI
+            line_out[x] = P.extract_param(low_level_coord_names[x])/fac
+            if low_level_coord_names[x] in ['mc']:
+                mc_index = x
+        dat_out_low_level_coord_names.append(line_out)
 
 Pref_default = P.copy()  # keep this around to fix the masses, if we don't have an inj
 
