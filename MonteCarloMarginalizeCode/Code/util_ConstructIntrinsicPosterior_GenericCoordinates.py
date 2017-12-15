@@ -22,6 +22,7 @@ import sys
 import numpy as np
 import numpy.lib.recfunctions
 import scipy
+import scipy.stats
 import lalsimutils
 import lalsimulation as lalsim
 import lalframe
@@ -170,6 +171,7 @@ parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--no-downselect",action='store_true')
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
 parser.add_argument("--mirror-points",action='store_true',help="Use if you have many points very near equal mass (BNS). Doubles the number of points in the fit, each of which has a swapped m1,m2")
+parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
@@ -645,7 +647,10 @@ print " Original data size = ", len(dat), dat.shape
 P_list = []
 dat_out =[]
  
-extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['m1', 'm2'], ['chi1_perp', 's1z'], ['chi2_perp','s2z'], ['s1z','s2z'],['chi1','chi2'],['cos_theta1','cos_theta2']] # replot
+extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['mc', 'eta'], ['m1', 'm2'], ['s1z','s2z'] ] # replot
+if 's1x' in opts.parameter:  # in practice, we always use the transverse cartesian components 
+    print " Plotting coordinates include spin magnitude and transverse spins "
+    extra_plot_coord_names += [['chi1_perp', 's1z'], ['chi2_perp','s2z'],['chi1','chi2'],['cos_theta1','cos_theta2']]
 if 'lambda1' in opts.parameter or 'LambdaTilde' in opts.parameter or (not( opts.parameter_implied is None) and  ( 'LambdaTilde' in opts.parameter_implied)):
     print " Plotting coordinates include tides"
     extra_plot_coord_names += [['mc', 'eta', 'LambdaTilde'],['lambda1', 'lambda2'], ['LambdaTilde', 'DeltaLambdaTilde'], ['m1','lambda1'], ['m2','lambda2']]
@@ -787,6 +792,20 @@ for p in ['mc', 'm1', 'm2', 'mtot']:
 X =dat_out[:,0:len(coord_names)]
 Y = dat_out[:,-2]
 Y_err = dat_out[:,-1]
+# Save copies for later (plots)
+X_orig = X.copy()
+Y_orig = Y.copy()
+
+# Plot cumulative distribution in lnL, for all points.  Useful sanity check for convergence.  Start with RAW
+if not opts.no_plots:
+    Yvals_copy = Y_orig.copy()
+    Yvals_copy = Yvals_copy[Yvals_copy.argsort()[::-1]]
+    pvals = np.arange(len(Yvals_copy))*1.0/len(Yvals_copy)
+    plt.plot(Yvals_copy, pvals)
+    plt.xlabel(r"$\ln{\cal L}$")
+    plt.ylabel(r"evaluation fraction $(<\ln{\cal L})$")
+    plt.savefig("lnL_cumulative_distribution_of_input_points.png"); plt.clf()
+
 
 # Eliminate values with Y too small
 max_lnL = np.max(Y)
@@ -817,6 +836,14 @@ if opts.fit_method == "quadratic":
     Y=Y[indx_ok]
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     if opts.report_best_point:
         my_fit = fit_quadratic_alt(X,Y,symmetry_list=symmetry_list,verbose=opts.verbose)
         pt_best_X = np.loadtxt("lnL_bestpt.dat")
@@ -840,6 +867,14 @@ elif opts.fit_method == "polynomial":
     Y=Y[indx_ok]
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_polynomial(X,Y,symmetry_list=symmetry_list,y_errors=Y_err)
 elif opts.fit_method == 'gp_hyper':
     print " FIT METHOD ", opts.fit_method, " IS GP with hypercube rescaling"
@@ -849,6 +884,14 @@ elif opts.fit_method == 'gp_hyper':
     Y=Y[indx_ok]
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp(X,Y,y_errors=Y_err,hypercube_rescale=True)
 elif opts.fit_method == 'gp':
     print " FIT METHOD ", opts.fit_method, " IS GP"
@@ -858,13 +901,21 @@ elif opts.fit_method == 'gp':
     Y=Y[indx_ok]
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp(X,Y,y_errors=Y_err)
 
 # Sort for later convenience (scatterplots, etc)
 indx = Y.argsort()#[::-1]
 X=X[indx]
 Y=Y[indx]
-
+dat_out_low_level_coord_names =dat_out_low_level_coord_names[indx]
 
 # Make grid plots for all pairs of points, to facilitate direct validation of where posterior support lies
 if not no_plots:
@@ -878,8 +929,6 @@ if not no_plots:
     plt.ylabel( y_name )
     plt.title("rapid_pe evaluations (=inputs); no fits")
     plt.savefig("scatter_"+coord_names[i]+"_"+coord_names[j]+".png"); plt.clf()
-
-
 
 
 ###
@@ -1095,7 +1144,8 @@ if not no_plots:
     black_line = mlines.Line2D([], [], color='black', label='rapid_pe:'+opts.desc_ILE)
     red_line =mlines.Line2D([], [], color='red', label='LI:'+opts.desc_lalinference)
     green_line =mlines.Line2D([], [], color='green', label='rapid_pe (evaluation points)' )
-    line_handles = [black_line,green_line]
+    blue_line =mlines.Line2D([], [], color='blue', label='rapid_pe (evaluation points, good fit)' )
+    line_handles = [black_line,green_line,blue_line]
 #corner_legend_location=(0., 1.0, 1., .7)
     corner_legend_location=(0.7, 1.0)
     corner_legend_prop = {'size':6}
@@ -1103,7 +1153,7 @@ if not no_plots:
 #params = {'legend.fontsize': 20, 'legend.linewidth': 2}
 #plt.rcParams.update(params)
     if opts.fname_lalinference:
-        line_handles = [black_line,red_line]
+        line_handles = [black_line,red_line,green_line,blue_line]
 
 
 print " ---- Corner 1: Sampling coordinates (NO CONSTRAINTS APPLIED HERE: BIASED) ---- "
@@ -1173,7 +1223,8 @@ if not no_plots:
     labels_tex = map(lambda x: tex_dictionary[x], low_level_coord_names)
     fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,truths=truth_here,range=range_here)
     my_cmap_values = 'g' # default color
-    try:
+    if True:
+    #try:
 # Plot simulation points (X array): MAY NOT BE POSSIBLE if dimensionality is inconsistent
         cm = plt.cm.get_cmap('RdYlBu_r')
         y_span = Y.max() - Y.min()
@@ -1182,9 +1233,15 @@ if not no_plots:
         my_cmap_values = map(tuple,cm( (Y-y_min)/y_span) )
         my_cmap_values ='g'
 
-        fig_base = corner.corner(dat_out_low_level_coord_names,weights=np.ones(len(X))/len(X), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':my_cmap_values},hist_kwargs={'color':'g', 'linestyle':'dashed'},range_here=range_here)
-    except:
-#else:
+        fig_base = corner.corner(dat_out_low_level_coord_names,weights=np.ones(len(X))/len(X), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':my_cmap_values},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
+
+        # TRUNCATED data set used here
+        indx_ok = Y > Y.max() - scipy.stats.chi2.isf(0.1,len(low_level_coord_names))/2  # approximate threshold for significant points,from inverse cdf 90%
+	n_ok = np.sum(indx_ok)
+	fig_base  = corner.corner(dat_out_low_level_coord_names[indx_ok],weights=np.ones(n_ok)*1.0/n_ok, plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':'b'},hist_kwargs={'color':'b', 'linestyle':'dashed'},range=range_here)
+
+    #except:
+    else:
         print " Some ridiculous range error with the corner plots, again"
 
     if opts.fname_lalinference:
@@ -1277,7 +1334,18 @@ for indx_here in indx_list:
  ### Export data
  ###
 lalsimutils.ChooseWaveformParams_array_to_xml(P_list,fname=opts.fname_output_samples,fref=P.fref)
+lnL_list = np.array(lnL_list)
 np.savetxt(opts.fname_output_samples+"_lnL.dat", lnL_list)
+
+
+if not opts.no_plots:
+    Yvals_copy = lnL_list.copy()
+    Yvals_copy = Yvals_copy[Yvals_copy.argsort()[::-1]]
+    pvals = np.arange(len(Yvals_copy))*1.0/len(Yvals_copy)
+    plt.plot(Yvals_copy, pvals)
+    plt.xlabel(r"$\ln{\cal L}$")
+    plt.ylabel(r"$\hat{P}(<\ln{\cal L})$")
+    plt.savefig("lnL_cumulative_distribution_posterior_estimate.png"); plt.clf()
 
 
 
@@ -1427,14 +1495,19 @@ try:
  if opts.fname_lalinference:
     fig_base=corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
+ # BEFORE truncation, note, to highlight region explored. ONLY for this plot
+ fig_base = corner.corner(X_orig, weights=np.ones(len(X_orig))/len(X_orig),plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
+ # A subset of the truncated data set
+ indx_ok = Y > Y.max() - scipy.stats.chi2.isf(0.1,len(low_level_coord_names))/2  # approximate threshold for significant points,from inverse cdf 90%
+ n_ok = np.sum(indx_ok)
+ fig_base  = corner.corner(X[indx_ok],weights=np.ones(n_ok)*1.0/n_ok, plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':'r'},hist_kwargs={'color':'b', 'linestyle':'dashed'},range=range_here)
 
- fig_base = corner.corner(X, weights=np.ones(len(X))/len(X),plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
 
  plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
  plt.savefig("posterior_corner_fit_coords.png"); plt.clf()
 
 except:
-#else
+#else:
     print " No corner 2"
 
 
@@ -1499,15 +1572,21 @@ for indx in np.arange(len(extra_plot_coord_names)):
 
     print  " Truth here for ", coord_names_here, truth_here
 
-    print " Generating figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), len(dat_points_here)
+    print " Generating figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), " from the posterior and ",  len(dat_points_here) , len(Y_orig), " from the original data set "
     fig_base = corner.corner(dat_here, weights=np.ones(len(dat_here))*1.0/len(dat_here), labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range=range_here,truths=truth_here)
                 
     if can_render_LI:
         corner.corner( dat_mass_LI, weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI), color='r',labels=labels_tex,fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
 
+    print " Rendering past samples for ",  extra_plot_coord_names[indx], " based on ", len(dat_points_here)
     fig_base = corner.corner(dat_points_here,weights=np.ones(len(dat_points_here))*1.0/len(dat_points_here), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
-    
+    # Render points available. Note we use the ORIGINAL data set, and truncate it
+    indx_ok = Y_orig > Y_orig.max() - scipy.stats.chi2.isf(0.1,len(low_level_coord_names))/2  # approximate threshold for significant points,from inverse cdf 90%
+    n_ok = np.sum(indx_ok)
+    print " Adding points for figure ", n_ok, extra_plot_coord_names[indx], " drawn from original  "
+    fig_base  = corner.corner(dat_points_here[indx_ok],weights=np.ones(n_ok)*1.0/n_ok, plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':'b'},hist_kwargs={'color':'b', 'linestyle':'dashed'},range=range_here)
+
 
     plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
     print " Writing coord ", str_name
