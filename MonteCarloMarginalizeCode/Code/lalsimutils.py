@@ -2299,7 +2299,10 @@ def hlmoft(P, Lmax=2):
                 hlm_out[key].data.data[:ntaper]*=vectaper
         return hlm_out
 
-    hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
+    if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
+        hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
+    else:
+      hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
             P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
             P.nonGRparams, P.ampO, P.phaseO, Lmax, P.approx)
     # FIXME: Add ability to taper
@@ -2315,6 +2318,14 @@ def hlmoft(P, Lmax=2):
 
     return hlms   # note data type is different than with SEOB; need to finish port to pure dictionary
 
+def hlmoft_FromFD_dict(P,Lmax=2):
+    """
+    Uses Chris Pankow's interface in lalsuite
+    Do not redshift the source
+    """
+    hlm_struct = lalsim.SimInspiralTDModesFromPolarizations(P.deltaT, P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 0., P.lambda1, P.lambda2, P.waveFlags, None, P.ampO, P.phaseO, P.approx)
+
+    return hlm_struct
 
 def hlmoft_SEOBv3_dict(P,Lmax=2):
     """
