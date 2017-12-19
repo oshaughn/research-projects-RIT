@@ -322,16 +322,16 @@ class ChooseWaveformParams:
             # Fixes chiz_minus by construction
             czm = (self.s1z-self.s2z)/2.
             czp = val
-            self.s1z = (czp+czm)/2.
-            self.s2z = (czp-czm)/2.
+            self.s1z = (czp+czm)
+            self.s2z = (czp-czm)
             return self
         if p == 'chiz_minus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
             # Fixes chiz_plus by construction
             czm =  val
             czp = (self.s1z+self.s2z)/2.
-            self.s1z = (czp+czm)/2.
-            self.s2z = (czp-czm)/2.
+            self.s1z = (czp+czm)
+            self.s2z = (czp-czm)
             return self
         if p == 'chi1':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
