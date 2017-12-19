@@ -155,7 +155,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -179,6 +179,8 @@ tex_dictionary  = {
   "chi_eff": "$\chi_{eff}$",
   "xi": "$\chi_{eff}$",
    "chiMinus":"$\chi_{eff,-}$",
+  "chiz_plus":"$\chi_{z,+}$",
+  "chiz_minus":"$\chi_{z,-}$",
   "s1z": "$\chi_{1,z}$",
   "s2z": "$\chi_{2,z}$",
   "s1x": "$\chi_{1,x}$",
@@ -314,6 +316,22 @@ class ChooseWaveformParams:
             # change implemented at fixed chi1, chi2, *mc*
             eta_here = 0.25*(1 - val*val)
             self.assign_param('eta', eta_here)
+            return self
+        if p == 'chiz_plus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            # Fixes chiz_minus by construction
+            czm = (self.s1z-self.s2z)/2.
+            czp = val
+            self.s1z = (czp+czm)/2.
+            self.s2z = (czp-czm)/2.
+            return self
+        if p == 'chiz_minus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            # Fixes chiz_plus by construction
+            czm =  val
+            czp = (self.s1z+self.s2z)/2.
+            self.s1z = (czp+czm)/2.
+            self.s2z = (czp-czm)/2.
             return self
         if p == 'chi1':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
@@ -539,6 +557,12 @@ class ChooseWaveformParams:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             xi = np.dot(Lhat, (self.m1*chi1Vec - self.m2* chi2Vec))/(self.m1+self.m2)   # see also 'Xi', defined below
             return xi
+        if p == 'chiz_plus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            return (self.s1z+self.s2z)/2.
+        if p == 'chiz_minus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            return (self.s1z-self.s2z)/2.
         if p == 'chiMinusAlt':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])

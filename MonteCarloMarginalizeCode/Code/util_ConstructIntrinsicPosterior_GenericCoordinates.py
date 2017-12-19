@@ -85,6 +85,20 @@ def extract_combination_from_LI(samples_LI, p):
        if remap_ILE_2_LI[p] in samples_LI.dtype.names:
          return samples_LI[ remap_ILE_2_LI[p] ]
     # Return cartesian components of spin1, spin2.  NOTE: I may already populate these quantities in 'Add important quantities'
+    if p == 'chiz_plus':
+        print " Transforming "
+        if 'a1z' in samples_LI.dtype.names:
+            return (samples_LI['a1z']+ samples_LI['a2z'])/2.
+        if 'theta1' in samples_LI.dtype.names:
+            return (samples_LI['a1']*np.cos(samples_LI['theta1']) + samples_LI['a2']*np.cos(samples_LI['theta2']) )/2.
+#        return (samples_LI['a1']+ samples_LI['a2'])/2.
+    if p == 'chiz_minus':
+        print " Transforming "
+        if 'a1z' in samples_LI.dtype.names:
+            return (samples_LI['a1z']- samples_LI['a2z'])/2.
+        if 'theta1' in samples_LI.dtype.names:
+            return (samples_LI['a1']*np.cos(samples_LI['theta1']) - samples_LI['a2']*np.cos(samples_LI['theta2']) )/2.
+#        return (samples_LI['a1']- samples_LI['a2'])/2.
     if  'theta1' in samples_LI.dtype.names:
         if p == 's1x':
             return samples_LI["a1"]*np.sin(samples_LI[ 'theta1']) * np.cos( samples_LI['phi1'])
@@ -113,7 +127,7 @@ def extract_combination_from_LI(samples_LI, p):
         return np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.cos(  samples_LI['phi_jl'])
 
     print " No access for parameter ", p
-    return None
+    return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
 
 def add_field(a, descr):
     """Return a new array that is like "a", but has additional fields.
@@ -398,6 +412,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "
     's2x':s_component_uniform_prior,
     's1y':s_component_uniform_prior,
     's2y':s_component_uniform_prior,
+    'chiz_plus':s_component_uniform_prior,
+    'chiz_minus':s_component_uniform_prior,
     'm1':m_prior,
     'm2':m_prior,
     'lambda1':lambda_prior,
@@ -410,6 +426,8 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
    's2x':[-chi_max,chi_max],
    's1y':[-chi_max,chi_max],
    's2y':[-chi_max,chi_max],
+  'chiz_plus':[-chi_max,chi_max],   # BEWARE BOUNDARIES
+  'chiz_minus':[-chi_max,chi_max],
   'm1':[0.9,1e3],
   'm2':[0.9,1e3],
   'lambda1':[0.01,4000],
