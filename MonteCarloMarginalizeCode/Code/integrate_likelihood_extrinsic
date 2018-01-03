@@ -24,7 +24,7 @@ import factored_likelihood
 import mcsampler
 import xmlutils
 
-from lalinference.bayestar import fits as bfits
+#from lalinference.bayestar import fits as bfits
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -386,10 +386,10 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     assert psd_dict[inst].deltaF == deltaF
 
     # Highest freq. at which PSD is defined
-    if isinstance(psd_dict[inst],
-            pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
-        fmax = psd_dict[inst].f0 + deltaF * (len(psd_dict[inst].data) - 1)
-    elif isinstance(psd_dict[inst], lal.REAL8FrequencySeries):
+    #if isinstance(psd_dict[inst],
+    #        pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
+    #    fmax = psd_dict[inst].f0 + deltaF * (len(psd_dict[inst].data) - 1)
+    if isinstance(psd_dict[inst], lal.REAL8FrequencySeries):
         fmax = psd_dict[inst].f0 + deltaF * (psd_dict[inst].data.length - 1)
 
     # Assert upper limit of IP integral does not go past where PSD defined

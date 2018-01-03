@@ -2052,10 +2052,15 @@ def hoft(P, Fp=None, Fc=None):
 #        print " Using ridiculous tweak for equal-mass line EOB"
         P.m2 = P.m1*(1-1e-6)
 
-    hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
-            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
-            P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
-            P.ampO, P.phaseO, P.approx)
+    extra_params = P.to_lal_dict()
+    hp, hc = lalsim.SimInspiralTD( \
+            P.m1, P.m2, \
+            P.s1x, P.s1y, P.s1z, \
+            P.s2x, P.s2y, P.s2z, \
+            P.dist, P.incl, P.phiref,  \
+            P.psi, P.eccentricity, P.meanPerAno, \
+            P.deltaT, P.fmin, P.fref, \
+            extra_params, P.approx)
 
     if Fp!=None and Fc!=None:
         hp.data.data *= Fp
@@ -2319,9 +2324,10 @@ def hlmoft(P, Lmax=2):
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
     elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4):
-      hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
-            P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
-            P.nonGRparams, P.ampO, P.phaseO, Lmax, P.approx)
+        extra_params = P.to_lal_dict()
+        hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
+            P.fmin, P.fref, P.dist, extra_params,
+             Lmax, P.approx)
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
         extra_params = P.to_lal_dict()
         hlms = lalsim.SimInspiralTDModesFromPolarizations( \
@@ -3126,11 +3132,11 @@ def get_intp_psd_series_from_xmldoc(fname, inst):
 
 def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     # handle pylal REAL8FrequencySeries
-    if isinstance(psd, pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
-        psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data), psd.deltaF, psd.data
-        fvals_orig = psd.f0 + np.arange(len(psd.data))*psd.deltaF
+    #if isinstance(psd, pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
+    #    psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data), psd.deltaF, psd.data
+    #    fvals_orig = psd.f0 + np.arange(len(psd.data))*psd.deltaF
     # handle SWIG REAL8FrequencySeries
-    elif isinstance(psd, lal.REAL8FrequencySeries):
+    if isinstance(psd, lal.REAL8FrequencySeries):
         psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data.data), psd.deltaF, psd.data.data
         fvals_orig = psd.f0 + np.arange(psd.data.length)*psd_df
     # die horribly
