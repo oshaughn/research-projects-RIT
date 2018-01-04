@@ -242,6 +242,11 @@ class WaveformModeCatalog:
                 datA = np.array(hlm_data_raw[:,col_A]) # important to ALLOCATE so we are not accessing a pointer / same data
                 datP = np.array( (-1)* hlm_data_raw[:,col_P])  # allocate so not a copy
 
+                # nan removal: occasionally, TEOBResumS code can nan-pad at end (e,g., negative spins)
+                if rosDebug:
+                    print " Mode ", mode, " nan check for phase ", np.sum(np.isnan(datP)), " out of ", len(datP)
+                datP[np.isnan(datP)] = 0 # zero this out 
+
                 # Create, if symmetric
                 if mode[1]<0: # (-1)^l conjugate
                     datP *= -1;  # complex conjugate
@@ -254,11 +259,18 @@ class WaveformModeCatalog:
                     datA*= nu *delta
 
 #                fnA = compose(np.exp,UnivariateSpline(tvals, np.log(datA+1e-40),ext='zeros',k=3,s=0))  # s=0 prevents horrible behavior. Interpolate logA  so A>0 is preserved.
-                fnA = UnivariateSpline(tvals, datA,ext='zeros',k=3,s=0)  # s=0 prevents horrible behavior. Sometimes interpolation in the log behaves oddly
-                fnP =  UnivariateSpline(tvals, datP,ext='const',k=3,s=0) # s=0 prevents horrible behavior. 'const' uses boundary value to prevent discontinuity
+#                fnA = UnivariateSpline(tvals, datA,ext='zeros',k=3,s=0)  # s=0 prevents horrible behavior. Sometimes interpolation in the log behaves oddly
+ #               fnP =  UnivariateSpline(tvals, datP,ext='const',k=3,s=0) # s=0 prevents horrible behavior. 'const' uses boundary value to prevent discontinuity
 
-                self.waveform_modes_complex_interpolated_amplitude[mode] = fnA #lambda x,s=fnA,t=fnTaperHere: t(x)*s(x) 
-                self.waveform_modes_complex_interpolated_phase[mode] = fnP
+#                self.waveform_modes_complex_interpolated_amplitude[mode] = fnA #lambda x,s=fnA,t=fnTaperHere: t(x)*s(x) 
+#                self.waveform_modes_complex_interpolated_phase[mode] = fnP
+                fnA = UnivariateSpline(tvals, datA,k=3,s=0)  # s=0 prevents horrible behavior. Sometimes interpolation in the log behaves oddly    
+                fnP =  UnivariateSpline(tvals, datP,k=3,s=0) # s=0 prevents horrible behavior. 'const' uses boundary value to prevent discontinuit\
+y                                                                                                                                                  
+                                                                                                                                                   
+                self.waveform_modes_complex_interpolated_amplitude[mode] = RangeWrap1dAlt([tvals[0],tvals[-1]],0,fnA) #lambda x,s=fnA,t=fnTaperHer\
+e: t(x)*s(x)                                                                                                                                       
+                self.waveform_modes_complex_interpolated_phase[mode] = RangeWrap1dAlt([tvals[0],tvals[-1]], 0,fnP)
 
                 # Estimate starting frequency. Historical interest
                 nOffsetForPhase = 0  # ad-hoc offset based on uniform sampling
@@ -478,6 +490,7 @@ class WaveformModeCatalog:
             
             # Copy into a new LIGO time series object
             wfmTS = lal.CreateCOMPLEX16TimeSeries("h", lal.LIGOTimeGPS(0.), 0., deltaT, lalsimutils.lsu_DimensionlessUnit, npts)
+            wfmTS.data.data[:] = 0 # lal initialization is sometimes ratty.
             wfmTS.data.data =amp_vals*np.exp(1j*phase_vals)
 
             # Set the epoch for the time series correctly: should have peak near center of series by construction
