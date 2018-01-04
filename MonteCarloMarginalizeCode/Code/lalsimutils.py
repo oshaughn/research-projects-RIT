@@ -155,7 +155,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -164,6 +164,7 @@ tex_dictionary  = {
  "m2": '$m_2$',
   "q": "$q$",
   "delta" : "$\delta$",
+  "delta_mc" : "$\delta$",
   "beta" : "$\beta$",
   "cos_beta" : "$\cos(\\beta)$",
   "sin_beta" : "$\sin(\\beta)$",
@@ -178,6 +179,8 @@ tex_dictionary  = {
   "chi_eff": "$\chi_{eff}$",
   "xi": "$\chi_{eff}$",
    "chiMinus":"$\chi_{eff,-}$",
+  "chiz_plus":"$\chi_{z,+}$",
+  "chiz_minus":"$\chi_{z,-}$",
   "s1z": "$\chi_{1,z}$",
   "s2z": "$\chi_{2,z}$",
   "s1x": "$\chi_{1,x}$",
@@ -267,6 +270,9 @@ class ChooseWaveformParams:
         self.s2x,self.s2y,self.s2z  = s1x,s1y,s1z
         self.m1 = m2
         self.m2  = m1
+        lam1,lam2 =self.lambda1,self.lambda2
+        self.lambda2=lam1
+        self.lambda1=lam2
         self.phiref = self.phiref+np.pi
 
         
@@ -305,6 +311,27 @@ class ChooseWaveformParams:
             M = self.m1 + self.m2
             self.m1 = M*(1+val)/2
             self.m2 = M*(1-val)/2
+            return self
+        if p == 'delta_mc':
+            # change implemented at fixed chi1, chi2, *mc*
+            eta_here = 0.25*(1 - val*val)
+            self.assign_param('eta', eta_here)
+            return self
+        if p == 'chiz_plus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            # Fixes chiz_minus by construction
+            czm = (self.s1z-self.s2z)/2.
+            czp = val
+            self.s1z = (czp+czm)
+            self.s2z = (czp-czm)
+            return self
+        if p == 'chiz_minus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            # Fixes chiz_plus by construction
+            czm =  val
+            czp = (self.s1z+self.s2z)/2.
+            self.s1z = (czp+czm)
+            self.s2z = (czp-czm)
             return self
         if p == 'chi1':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
@@ -483,7 +510,7 @@ class ChooseWaveformParams:
             return (self.m2+self.m1)
         if p == 'q':
             return self.m2/self.m1
-        if p == 'delta':
+        if p == 'delta' or p=='delta_mc':  # Same access routine
             return (self.m1-self.m2)/(self.m1+self.m2)
         if p == 'mc':
             return mchirp(self.m1,self.m2)
@@ -530,6 +557,12 @@ class ChooseWaveformParams:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             xi = np.dot(Lhat, (self.m1*chi1Vec - self.m2* chi2Vec))/(self.m1+self.m2)   # see also 'Xi', defined below
             return xi
+        if p == 'chiz_plus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            return (self.s1z+self.s2z)/2.
+        if p == 'chiz_minus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            return (self.s1z-self.s2z)/2.
         if p == 'chiMinusAlt':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
@@ -1737,6 +1770,8 @@ def tidal_lambda_tilde(mass1, mass2, lambda1, lambda2):
     lt1, lt2 = lambda1, lambda2 # lambda1 / mass1**5, lambda2 / mass2**5  # Code is already dimensionless
     lt_sym = lt1 + lt2
     lt_asym = lt1 - lt2
+    if mass1 < mass2:
+        q*=-1
 
     lam_til = (1 + 7*eta - 31*eta**2) * lt_sym + q * (1 + 9*eta - 11*eta**2) * lt_asym
     dlam_til = q * (1 - 13272*eta/1319 + 8944*eta**2/1319) * lt_sym + (1 - 15910*eta/1319 + 32850*eta**2/1319 + 3380*eta**3/1319) * lt_asym
@@ -2264,7 +2299,10 @@ def hlmoft(P, Lmax=2):
                 hlm_out[key].data.data[:ntaper]*=vectaper
         return hlm_out
 
-    hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
+    if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
+        hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
+    else:
+      hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
             P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
             P.nonGRparams, P.ampO, P.phaseO, Lmax, P.approx)
     # FIXME: Add ability to taper
@@ -2280,6 +2318,14 @@ def hlmoft(P, Lmax=2):
 
     return hlms   # note data type is different than with SEOB; need to finish port to pure dictionary
 
+def hlmoft_FromFD_dict(P,Lmax=2):
+    """
+    Uses Chris Pankow's interface in lalsuite
+    Do not redshift the source
+    """
+    hlm_struct = lalsim.SimInspiralTDModesFromPolarizations(P.deltaT, P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 0., P.lambda1, P.lambda2, P.waveFlags, None, P.ampO, P.phaseO, P.approx)
+
+    return hlm_struct
 
 def hlmoft_SEOBv3_dict(P,Lmax=2):
     """
