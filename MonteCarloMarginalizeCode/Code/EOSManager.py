@@ -5,6 +5,10 @@
 #   - util_WriteXMLWithEOS
 #   - gwemlightcurves.KNTable
 
+# SERIOUS LIMITATIONS
+#   - EOSFromFile  : File i/o for each EOS creation will slow things donw.  This command is VERY trivial, so we should be able
+#          to directly create the structure ourselves, using eos_alloc_tabular
+#           https://github.com/lscsoft/lalsuite/blob/master/lalsimulation/src/LALSimNeutronStarEOSTabular.c
 
 
 import numpy as np
@@ -49,6 +53,8 @@ class EOSLALSimulation:
         eos = lalsim.SimNeutronStarEOSByName(name)
         fam = lalsim.CreateSimNeutronStarFamily(eos)
         mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
+        self.eos = eos
+        self.eos_fam = fam
         self.mMaxMsun = mmass
         return None
 
@@ -193,11 +199,109 @@ class EOSPiecewisePolytrope:
 
 
 class EOSLindblomSpectral:
-    def __init__(self,name):
+    def __init__(self,name=None,spec_params=None):
         self.name=name
         self.eos = None
         self.eos_fam = None
+
+        self.spec_params = spec_params
         return None
+
+
+    def gamma_of_x(x, coeffs):
+        """
+        Eq 6 from https://arxiv.org/pdf/1009.0738.pdf
+        """
+        gamma=0
+        for i in range(0,len(coeffs)):
+            gamma+=coeffs[i]*x**i 
+        gamma=np.exp(gamma)  
+        return gamma
+  
+    def mu(x, coeffs):
+        """
+        Eq 8 from https://arxiv.org/pdf/1009.0738.pdf
+        """
+
+        def int_func(x_prime):
+            return (gamma_of_x(x_prime, coeffs))**(-1)    
+
+        if isinstance(x, (list, np.ndarray)):
+            val=np.zeros(len(x))
+            for i in range(0,len(x)):
+                tmp=quad(int_func, 0, x[i])
+                val[i]=tmp[0]  
+        else:    
+            val=quad(int_func, 0, x)
+
+        return np.exp(-1.*val[0])
+
+    def epsilon(x, p0, eps0, coeffs):
+        """
+        Eq. 7 from https://arxiv.org/pdf/1009.0738.pdf
+        """
+        def int_func(x_prime):
+            num = mu(x_prime, coeffs)*np.exp(x_prime)
+            denom = gamma_of_x(x_prime, coeffs)
+            return num / denom
+          
+        mu_of_x=mu(x, coeffs)  
+        val=quad(int_func, 0, x)
+        #val=romberg(int_func, 0, x, show=True)   
+        eps=(eps0*C_CGS**2)/mu_of_x + p0/mu_of_x * val[0]
+ 
+        return eps
+
+    def make_spec_param_eos(self, npts, plot=False, verbose=False, save_dat=False):
+        """
+        Load values from table of spectral parameterization values
+        Table values taken from https://arxiv.org/pdf/1009.0738.pdf
+        """
+
+        spec_params = self.spec_params
+        coefficients=np.array([spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4']])
+        p0=spec_params['p0']
+        eps0=spec_params['epsilon0']
+        xmax=spec_params['xmax'] 
+
+    #make p range
+        x_range=np.linspace(0,xmax,npts)
+        p_range=p0*np.exp(x_range)
+       
+        eos_vals=np.zeros((npts,2))
+        eos_vals[:,1]=p_range
+
+        for i in range(0, len(x_range)):
+            eos_vals[i,0]=epsilon(x_range[i], p0, eps0, coefficients)
+            if verbose==True:
+                print "x:",x_range[i],"p:",p_range[i],"p0",p0,"epsilon:",eos_vals[i,0]
+  
+    #doing as those before me have done and using SLY4 as low density region
+        # THIS MUST BE FIXED TO USE STANDARD LALSUITE ACCESS, do not assume the file exists
+        low_density=np.loadtxt("LALSimNeutronStarEOS_SLY4.dat")
+        low_density[:,0]=low_density[:,0]*C_CGS**2/(7.42591549*10**(-25))
+        low_density[:,1]=low_density[:,1]*C_CGS**2/(7.42591549*10**(-25))
+        low_density[:,[0, 1]] = low_density[:,[1, 0]]
+
+        cutoff=eos_vals[0,:]   
+ 
+        for i in range(0, len(low_density)):
+            if low_density[i,0] > cutoff[0] or low_density[i,1] > cutoff[1]:   
+                break_pt=i
+                break 
+    
+        eos_vals=np.vstack((low_density[0:break_pt,:], eos_vals)) 
+
+        # if plot==True:
+        #     plt.plot(np.log10(eos_vals[:,0]/(C_CGS**2)), np.log10(eos_vals[:,1]/(C_CGS**2)), 'o')
+        #     plt.xlabel("Energy Density")
+        #     plt.ylabel("Pressure")
+        #     plt.show() 
+
+        if save_dat == True:
+            np.savetxt(eos_name+"_spec.dat", eos_vals)
+
+        return eos_vals
 
 
 
