@@ -37,12 +37,26 @@ class EOSConcrete:
         self.eos_fam = None
         return None
 
+    def lambda_from_m(self, m):
+        eos_fam = self.eos_fam
+        if m<10**15:
+            m=m*lal.MSUN_SI
+
+        k2=lalsim.SimNeutronStarLoveNumberK2(m, eos_fam)
+        r=lalsim.SimNeutronStarRadius(m, eos_fam)
+
+        m=m*lal.G_SI/lal.C_SI**2
+        lam=2./(3*lal.G_SI)*k2*r**5
+        dimensionless_lam=lal.G_SI*lam*(1/m)**5
+
+        return dimensionless_lam
+
 
 ###
 ### SERVICE 1: lalsimutils structure
 ###
 #  See https://github.com/lscsoft/lalsuite/tree/master/lalsimulation/src for available types
-class EOSLALSimulation:
+class EOSLALSimulation(EOSConcrete):
     def __init__(self,name):
         self.name=name
         self.eos = None
@@ -59,6 +73,9 @@ class EOSLALSimulation:
         return None
 
 
+
+
+
 ###
 ### SERVICE 2: EOSFromFile
 ###
@@ -69,7 +86,7 @@ dirEOSTablesBase = os.environ["EOS_TABLES"]
 ## Follow framework of NRWaveformCatalogManager
 
 
-class EOSFromDataFile:
+class EOSFromDataFile(EOSConcrete):
     """ 
     FromDataFileEquationOfState
     (just accepts filename...not attempting to parse a catalog)
@@ -182,7 +199,7 @@ class EOSFromDataFile:
 ###
 
 # Rizzo code: EOS_param.py
-class EOSPiecewisePolytrope:
+class EOSPiecewisePolytrope(EOSConcrete):
     def __init__(self,name,param_dict=None):
         self.name=name
         self.eos = None
