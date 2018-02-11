@@ -24,7 +24,7 @@ import factored_likelihood
 import mcsampler
 import xmlutils
 
-from lalinference.bayestar import fits as bfits
+#from lalinference.bayestar import fits as bfits
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
