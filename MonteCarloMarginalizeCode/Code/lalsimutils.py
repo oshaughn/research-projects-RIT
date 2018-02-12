@@ -40,6 +40,7 @@ import lalmetaio
 from pylal import frutils
 from pylal import series
 from pylal.series import read_psd_xmldoc
+#from lal.series import read_psd_xmldoc
 import pylal
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
@@ -1251,6 +1252,71 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
     return True
 
 
+hdf_params = ['m1', 'm2', \
+   's1x',   's1y', 's1z', 's2x', 's2y', 's2z', \
+    'dist', 'incl', 'phiref', 'theta', 'phi', 'tref', 'psi', \
+    'lambda1', 'lambda2', 'fref', 'fmin', \
+    'lnL', 'p', 'ps']
+import h5py
+def ChooseWaveformParams_array_to_hdf5(P_list, fname="injections", 
+        deltaT=1./4096., fref=0., waveFlags=None,
+        nonGRparams=None, detector="H1", deltaF=None, fMax=0.):
+    """
+    HDF5 storage for parameters.
+    Compare to lalinference HDF5 i/o https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/io/hdf5.py
+
+    TERRIBLE CODE: Assumes hardcoded order, does not embed metadata with field names
+    SHOULD RESTRUCTURE to load into record-array like structure
+    """
+    f = h5py.File(fname+".hdf5","w")
+
+    arr = np.zeros( (len(P_list),len(hdf_params)) )
+    indx = 0
+    for P in P_list:
+        pindex = 0
+        for param in hdf_params:  # Don't store these other quantities
+            if param in   ['lnL', 'p', 'ps']:
+                continue
+            val= P.extract_param(param); fac=1   # getattr is probably faster
+            if param in ['m1','m2']:
+                fac = lal.MSUN_SI
+            arr[indx][pindex] = val/fac
+            pindex += 1
+        indx += 1
+
+    dset = f.create_dataset("waveform_parameters", (len(P_list),len(hdf_params)), dtype='f', data=arr)  # lalinference_o2 for now            
+    f.close()
+    return True
+
+def hdf5_to_ChooseWaveformParams_array(fname="injections", 
+        deltaT=1./4096., fref=0., waveFlags=None,
+        nonGRparams=None, detector="H1", deltaF=None, fMax=0.):
+    """
+    HDF5 storage for parameters.
+    Compare to lalinference HDF5 i/o https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/io/hdf5.py
+
+    TERRIBLE CODE: Assumes hardcoded order, does not embed metadata with field names
+    SHOULD RESTRUCTURE to load into record-array like structure
+    """
+    f = h5py.File(fname+".hdf5","r")
+
+
+    dset = f["waveform_parameters"]
+    P_list = []
+    for indx in np.arange(len(dset)):
+        P = ChooseWaveformParams()
+        for pindex in np.arange(len(hdf_params)-3):
+            param = hdf_params[pindex]
+            fac = 1;
+            if param in ['m1','m2']:
+                fac = lal.MSUN_SI
+            P.assign_param(param, dset[indx,pindex]*fac)
+        P_list.append(P)
+
+    return P_list
+
+
+
 #
 # Classes for computing inner products of waveforms
 #
@@ -2143,7 +2209,7 @@ def hoff_FD(P, Fp=None, Fc=None):
 
     hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(P.phiref, P.deltaF,
             P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin,
-            P.fmax, P.dist, P.incl, P.lambda1, P.lambda2, P.waveFlags,
+            P.fmax, P.fref, P.dist, P.incl, P.lambda1, P.lambda2, P.waveFlags,
             P.nonGRparams, P.ampO, P.phaseO, P.approx)
     if Fp is not None and Fc is not None:
         hptilde.data.data *= Fp
@@ -2403,6 +2469,11 @@ def hlmoff(P, Lmax=2):
     """
 
     hlms = hlmoft(P, Lmax)
+    if isinstance(hlms,dict):
+        hlmsF = {}
+        for mode in hlms:
+            hlmsF[mode] = DataFourier(hlms[mode])
+        return hlmsF
     hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
     if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
         TDlen = nextPow2(hxx.data.length)
@@ -2447,6 +2518,8 @@ def SphHarmTimeSeries_to_dict(hlms, Lmax):
     lalsimulation.SphHarmTimeSeriesGetMode(hlms, l, m)
     returns a non-null pointer.
     """
+    if isinstance(hlms, dict):
+        return hlms
     hlm_dict = {}
     for l in range(2, Lmax+1):
         for m in range(-l, l+1):
@@ -2466,6 +2539,8 @@ def SphHarmFrequencySeries_to_dict(hlms, Lmax):
     lalsimulation.SphHarmFrequencySeriesGetMode(hlms, l, m)
     returns a non-null pointer.
     """
+    if isinstance(hlms, dict):
+        return hlms
     hlm_dict = {}
     for l in range(2, Lmax+1):
         for m in range(-l, l+1):
