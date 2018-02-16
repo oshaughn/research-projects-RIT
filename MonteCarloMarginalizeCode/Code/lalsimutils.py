@@ -786,7 +786,7 @@ class ChooseWaveformParams:
         self.dist = dist*1e6 * lsu_PC
         self.lambda1 = 0.
         self.lambda2 = 0.
-        self.theta = np.random.uniform(-np.pi/2,np.pi/2) # declination
+        self.theta = np.pi/2- np.arccos(np.random.uniform(-1,1))  #np.random.uniform(-np.pi/2,np.pi/2) # declination. Uniform in cos, but note range
         self.phi = np.random.uniform(0,2*np.pi) # right ascension
         self.psi = np.random.uniform(0,np.pi) # polarization angle
         self.deltaF = None
