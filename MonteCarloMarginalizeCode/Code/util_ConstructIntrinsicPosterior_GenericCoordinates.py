@@ -56,7 +56,7 @@ import mcsampler
 
 def render_coord(x):
     if x in lalsimutils.tex_dictionary.keys():
-        return tex_dictionary[x]
+        return lalsimutils.tex_dictionary[x]
     if 'product(' in x:
         a=x.replace(' ', '') # drop spaces
         a = a[:len(a)-1] # drop last
