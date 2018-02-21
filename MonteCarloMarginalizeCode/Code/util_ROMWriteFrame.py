@@ -53,9 +53,9 @@ if not opts.inj:
     P.taper = lalsimutils.lsu_TAPER_START
     P.tref =1000000000  # default
     if opts.approx:
-        P.approx = lalsimutils.StringToLALApproximant(opts.approx)
+        P.approx = lalsim.GetApproximantFromString(str(opts.approx))
     else:
-        P.approx = lalsimutils.StringToLALApproximant("SpinTaylorT2")
+        P.approx = lalsim.GetApproximantFromString("SpinTaylorT2")
 else:
     from glue.ligolw import lsctables, table, utils # check all are needed
 
