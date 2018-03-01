@@ -184,6 +184,7 @@ parser.add_argument("--downselect-parameter",action='append', help='Name of para
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--no-downselect",action='store_true')
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
+parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help="Applies volumetric prior internally, and then reweights at end step to get uniform spin magnitude prior")
 parser.add_argument("--mirror-points",action='store_true',help="Use if you have many points very near equal mass (BNS). Doubles the number of points in the fit, each of which has a swapped m1,m2")
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
@@ -1093,6 +1094,15 @@ ps =samples["joint_s_prior"]
 lnL = dat_logL
 lnLmax = np.max(lnL)
 weights = np.exp(lnL-lnLmax)*p/ps
+
+
+# If we are using pseudo uniform spin magnitude, reweight
+#     ONLY done if we use s1x, s1y, s1z, s2x, s2y, s2z
+if opts.pseudo_uniform_magnitude_prior:
+    chi1 = np.sqrt(samples["s1z"]**2+samples["s1y"]**2 + samples["s1x"]**2)
+    chi2 = np.sqrt(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2)
+    weights *= np.power(4*np.pi/3.0,2)/(chi1*chi1*chi2*chi2)   # volumetric prior scales as a1^2 a2^2 da1 da2
+
 
 # Load in reference parameters
 Pref = lalsimutils.ChooseWaveformParams()
