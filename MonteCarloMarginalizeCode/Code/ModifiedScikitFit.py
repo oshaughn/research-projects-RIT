@@ -21,8 +21,9 @@ from sklearn.utils import check_array
 from sklearn.utils import deprecated
 from sklearn.utils.extmath import row_norms
 from sklearn.utils.extmath import _incremental_mean_and_var
-from sklearn.utils.fixes import combinations_with_replacement as combinations_w_r
-from sklearn.utils.fixes import bincount
+from itertools import combinations_with_replacement as combinations_w_r
+#from sklearn.utils.fixes import bincount
+from numpy import bincount
 from sklearn.utils.sparsefuncs_fast import (inplace_csr_row_normalize_l1,
                                       inplace_csr_row_normalize_l2)
 from sklearn.utils.sparsefuncs import (inplace_column_scale,
