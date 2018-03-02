@@ -197,7 +197,9 @@ tex_dictionary  = {
   'lambda1':r'$\lambda_1$',
   'lambda2':r'$\lambda_2$',
   'LambdaTilde': r'$\tilde{\Lambda}$',
-  'DeltaLambdaTilde': r'$\Delta\tilde{\Lambda}$'
+  'lambdat': r'$\tilde{\Lambda}$',
+  'DeltaLambdaTilde': r'$\Delta\tilde{\Lambda}$',
+  'dlambdat': r'$\Delta\tilde{\Lambda}$'
 }
 
 
@@ -1836,8 +1838,9 @@ def tidal_lambda_tilde(mass1, mass2, lambda1, lambda2):
     lt1, lt2 = lambda1, lambda2 # lambda1 / mass1**5, lambda2 / mass2**5  # Code is already dimensionless
     lt_sym = lt1 + lt2
     lt_asym = lt1 - lt2
-    if mass1 < mass2:
-        q*=-1
+#    if mass1 < mass2:
+#        q*=-1
+    q*= np.sign(mass1-mass2)
 
     lam_til = (1 + 7*eta - 31*eta**2) * lt_sym + q * (1 + 9*eta - 11*eta**2) * lt_asym
     dlam_til = q * (1 - 13272*eta/1319 + 8944*eta**2/1319) * lt_sym + (1 - 15910*eta/1319 + 32850*eta**2/1319 + 3380*eta**3/1319) * lt_asym
