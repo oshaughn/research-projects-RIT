@@ -45,7 +45,12 @@ except ImportError:
 
 
 from sklearn.preprocessing import PolynomialFeatures
-import ModifiedScikitFit as msf  # altenative polynomialFeatures
+if True:
+#try:
+    import ModifiedScikitFit as msf  # altenative polynomialFeatures
+else:
+#except:
+    print " - Faiiled ModifiedScikitFit : No polynomial fits - "
 from sklearn import linear_model
 
 from glue.ligolw import lsctables, utils, ligolw
@@ -379,7 +384,7 @@ def xi_uniform_prior(x):
 def s_component_uniform_prior(x):  # If all three are used, a volumetric prior
     return np.ones(x.shape)/2.
 
-def s_component_zprior(x,R=1.):
+def s_component_zprior(x,R=chi_max):
     # assume maximum spin =1. Should get from appropriate prior range
     # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
     val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
@@ -1098,10 +1103,17 @@ weights = np.exp(lnL-lnLmax)*p/ps
 
 # If we are using pseudo uniform spin magnitude, reweight
 #     ONLY done if we use s1x, s1y, s1z, s2x, s2y, s2z
-if opts.pseudo_uniform_magnitude_prior:
-    chi1 = np.sqrt(samples["s1z"]**2+samples["s1y"]**2 + samples["s1x"]**2)
-    chi2 = np.sqrt(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2)
-    weights *= np.power(4*np.pi/3.0,2)/(chi1*chi1*chi2*chi2)   # volumetric prior scales as a1^2 a2^2 da1 da2
+# volumetric prior scales as a1^2 a2^2 da1 da2; we need to undo it
+if opts.pseudo_uniform_magnitude_prior and 's1z' in samples.keys():
+    print np
+    val = np.array(samples["s1z"]**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=np.float32)
+    chi1 = np.sqrt(val)  # weird typecasting problem
+    weights *= 3.*chi_max*chi_max/(chi1*chi1)
+    if 's2z' in samples.keys():
+        val = np.array(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=np.float32)
+        chi2= np.sqrt(val)
+#        chi2 = np.sqrt(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2)
+        weights *= 3.*chi_max*chi_max/(chi2*chi2)
 
 
 # Load in reference parameters
