@@ -31,7 +31,7 @@ import functools
 import itertools
 
 no_plots = True
-
+internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
 
 try:
     import matplotlib.pyplot as plt
@@ -796,8 +796,9 @@ for line in dat:
 
 Pref_default = P.copy()  # keep this around to fix the masses, if we don't have an inj
 
-dat_out = np.array(dat_out)
-print " Stripped size  = ", dat_out.shape
+# Force 32 bit dype
+dat_out = np.array(dat_out,dtype=internal_dtype)
+print " Stripped size  = ", dat_out.shape,  " with memory usage (bytes) ", sys.getsizeof(dat_out)
 dat_out_low_level_coord_names = np.array(dat_out_low_level_coord_names)
  # scale out mass units
 for p in ['mc', 'm1', 'm2', 'mtot']:
@@ -805,7 +806,7 @@ for p in ['mc', 'm1', 'm2', 'mtot']:
         indx = coord_names.index(p)
         dat_out[:,indx] /= lal.MSUN_SI
     for x in np.arange(len(extra_plot_coord_names)):
-        dat_out_extra[x] = np.array(dat_out_extra[x])  # put into np form
+        dat_out_extra[x] = np.array(dat_out_extra[x],dtype=internal_dtype)  # put into np form
         if p in extra_plot_coord_names[x]:
             indx = extra_plot_coord_names[x].index(p)
             dat_out_extra[x][:,indx] /= lal.MSUN_SI
@@ -997,61 +998,61 @@ if len(low_level_coord_names) ==1:
         if isinstance(x,float):
             return np.exp(my_fit([x]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x]).T)  ))
+            return np.exp(my_fit(convert_coords(np.array([x],dtype=internal_dtype).T) ))
 if len(low_level_coord_names) ==2:
     def likelihood_function(x,y):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y]).T)))
+            return np.exp(my_fit(convert_coords(np.array([x,y],dtype=internal_dtype).T)))
 if len(low_level_coord_names) ==3:
     def likelihood_function(x,y,z):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z]).T)))
+            return np.exp(my_fit(convert_coords(np.array([x,y,z],dtype=internal_dtype).T)))
 if len(low_level_coord_names) ==4:
     def likelihood_function(x,y,z,a):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a]).T)))
+            return np.exp(my_fit(convert_coords(np.array([x,y,z,a],dtype=internal_dtype).T)))
 if len(low_level_coord_names) ==5:
     def likelihood_function(x,y,z,a,b):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b]).T)))
+            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b],dtype=internal_dtype).T)))
 if len(low_level_coord_names) ==6:
     def likelihood_function(x,y,z,a,b,c):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c]).T)))
+            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c],dtype=internal_dtype).T)))
 if len(low_level_coord_names) ==7:
     def likelihood_function(x,y,z,a,b,c,d):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d]).T)))
+            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d],dtype=internal_dtype).T)))
 if len(low_level_coord_names) ==8:
     def likelihood_function(x,y,z,a,b,c,d,e):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e]).T)))
+            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e],dtype=internal_dtype).T)))
 if len(low_level_coord_names) ==9:
     def likelihood_function(x,y,z,a,b,c,d,e,f):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e,f]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e,f]).T)))
+            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e,f],dtype=internal_dtype).T)))
 if len(low_level_coord_names) ==10:
     def likelihood_function(x,y,z,a,b,c,d,e,f,g):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e,f,g]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e,f,g]).T)))
+            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e,f,g],dtype=internal_dtype).T)))
 
 
 n_step = 1e5
@@ -1106,11 +1107,11 @@ weights = np.exp(lnL-lnLmax)*p/ps
 # volumetric prior scales as a1^2 a2^2 da1 da2; we need to undo it
 if opts.pseudo_uniform_magnitude_prior and 's1z' in samples.keys():
     print np
-    val = np.array(samples["s1z"]**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=np.float32)
+    val = np.array(samples["s1z"]**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype)
     chi1 = np.sqrt(val)  # weird typecasting problem
     weights *= 3.*chi_max*chi_max/(chi1*chi1)
     if 's2z' in samples.keys():
-        val = np.array(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=np.float32)
+        val = np.array(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype)
         chi2= np.sqrt(val)
 #        chi2 = np.sqrt(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2)
         weights *= 3.*chi_max*chi_max/(chi2*chi2)
@@ -1374,7 +1375,7 @@ for indx_here in indx_list:
  ### Export data
  ###
 lalsimutils.ChooseWaveformParams_array_to_xml(P_list,fname=opts.fname_output_samples,fref=P.fref)
-lnL_list = np.array(lnL_list)
+lnL_list = np.array(lnL_list,dtype=internal_dtype)
 np.savetxt(opts.fname_output_samples+"_lnL.dat", lnL_list)
 
 
