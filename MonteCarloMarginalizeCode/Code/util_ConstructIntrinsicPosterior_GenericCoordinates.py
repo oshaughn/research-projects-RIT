@@ -1116,6 +1116,16 @@ if opts.pseudo_uniform_magnitude_prior and 's1z' in samples.keys():
 #        chi2 = np.sqrt(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2)
         weights *= 3.*chi_max*chi_max/(chi2*chi2)
 
+# If we are using alignedspin-zprior AND chiz+, chiz-, then we need to reweight .. that prior cannot be evaluated internally
+# Note we need to downslelect early in this case
+if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys():
+    s1z  = samples['chiz_plus'] + samples['chiz_minus']
+    s2z  =samples['chiz_plus'] - samples['chiz_minus']
+    indx_ok = np.logical_and(np.abs(s1z)<=chi_max , np.abs(s2z)<=chi_max)
+    weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
+    weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(4*chi_max*chi_max)  # correct for uniform
+        
+
 
 # Load in reference parameters
 Pref = lalsimutils.ChooseWaveformParams()
