@@ -188,6 +188,10 @@ tex_dictionary  = {
   "s2x": "$\chi_{2,x}$",
   "s1y": "$\chi_{1,y}$",
   "s2y": "$\chi_{2,y}$",
+  # tex labels for inherited LI names
+ "a1z": r'$\chi_{1,z}$',
+ "a2z": r'$\chi_{2,z}$',
+ "mtotal": r'$M_{tot}$',
  "cos_theta1":"$\cos \\theta_1$",
  "cos_theta2":"$\cos \\theta_2$",
  "chi1_perp": "$\chi_{1,\perp}$",
