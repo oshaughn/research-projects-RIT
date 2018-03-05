@@ -1105,8 +1105,7 @@ weights = np.exp(lnL-lnLmax)*p/ps
 # If we are using pseudo uniform spin magnitude, reweight
 #     ONLY done if we use s1x, s1y, s1z, s2x, s2y, s2z
 # volumetric prior scales as a1^2 a2^2 da1 da2; we need to undo it
-if opts.pseudo_uniform_magnitude_prior and 's1z' in samples.keys():
-    print np
+if opts.pseudo_uniform_magnitude_prior and 's1x' in samples.keys() and 's1z' in samples.keys():
     val = np.array(samples["s1z"]**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype)
     chi1 = np.sqrt(val)  # weird typecasting problem
     weights *= 3.*chi_max*chi_max/(chi1*chi1)
@@ -1115,10 +1114,20 @@ if opts.pseudo_uniform_magnitude_prior and 's1z' in samples.keys():
         chi2= np.sqrt(val)
 #        chi2 = np.sqrt(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2)
         weights *= 3.*chi_max*chi_max/(chi2*chi2)
+elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys():
+    s1z  = samples['chiz_plus'] + samples['chiz_minus']
+    s2z  = samples['chiz_plus'] - samples['chiz_minus']
+    val1 = np.array(s1z**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype); chi1 = np.sqrt(val1)
+    val2 = np.array(s2z**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype); chi2= np.sqrt(val2)
+    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_max)
+    weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
+    weights[indx_ok] *= 9.*(chi_max**4)/(chi1*chi1*chi2*chi2)[indx_ok]
+    
 
 # If we are using alignedspin-zprior AND chiz+, chiz-, then we need to reweight .. that prior cannot be evaluated internally
+# Prevent alignedspin-zprior from being used when transverse spins are present ... no sense!
 # Note we need to downslelect early in this case
-if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys():
+if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  and (not 's1x' in samples.keys()):
     s1z  = samples['chiz_plus'] + samples['chiz_minus']
     s2z  =samples['chiz_plus'] - samples['chiz_minus']
     indx_ok = np.logical_and(np.abs(s1z)<=chi_max , np.abs(s2z)<=chi_max)
