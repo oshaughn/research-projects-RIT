@@ -213,6 +213,7 @@ parser.add_argument("--fit-uses-reported-error-factor",type=float,default=1,help
 parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
+parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 parser.add_argument("--no-plots",action='store_true')
@@ -628,6 +629,27 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False)
 
         return lambda x,x0=x_center,scl=length_scale_est: gp.predict( (x-x0 )/scl)
 
+def map_funcs(func_list,obj):
+    return [func(obj) for func in func_list]
+def fit_gp_pool(x,y,n_pool=10,**kwargs):
+    """
+    Split the data into 10 parts, and return a GP that averages them
+    """
+    x_copy = np.array(x)
+    y_copy = np.array(y)
+    indx_list =np.arange(len(x_copy))
+    np.random.shuffle(indx_list) # acts in place
+    partition_list = np.array_split(indx_list,n_pool)
+    gp_fit_list =[]
+    for part in partition_list:
+        print " Fitting partition "
+        gp_fit_list.append(fit_gp(x[part],y[part],**kwargs))
+    fn_out =  lambda x: np.mean( map_funcs( gp_fit_list,x), axis=0)
+    print " Testing ", fn_out([x[0]])
+    return fn_out
+
+
+
 coord_names = opts.parameter # Used  in fit
 if coord_names is None:
     coord_names = []
@@ -935,6 +957,27 @@ elif opts.fit_method == 'gp':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'gp-pool':
+    print " FIT METHOD ", opts.fit_method, " IS GP (pooled) with pool size ", opts.pool_size
+    # some data truncation IS used for the GP, but beware
+    print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
+    X=X[indx_ok]
+    Y=Y[indx_ok]
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    if opts.pool_size == None:
+        opts.pool_size = np.max([2,np.round(4000/len(X))])  # pick a pool size that has no more than 4000 members per pool
+    my_fit = fit_gp_pool(X,Y,y_errors=Y_err,n_pool=opts.pool_size)
+
+
 
 # Sort for later convenience (scatterplots, etc)
 indx = Y.argsort()#[::-1]
@@ -998,61 +1041,67 @@ if len(low_level_coord_names) ==1:
         if isinstance(x,float):
             return np.exp(my_fit([x]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x],dtype=internal_dtype).T) ))
+#            return np.exp(my_fit(convert_coords(np.array([x],dtype=internal_dtype).T) ))
+            return np.exp(my_fit(convert_coords(np.c_[x])))
 if len(low_level_coord_names) ==2:
     def likelihood_function(x,y):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y],dtype=internal_dtype).T)))
+#            return np.exp(my_fit(convert_coords(np.array([x,y],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y])))
 if len(low_level_coord_names) ==3:
     def likelihood_function(x,y,z):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z],dtype=internal_dtype).T)))
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z])))
 if len(low_level_coord_names) ==4:
     def likelihood_function(x,y,z,a):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a],dtype=internal_dtype).T)))
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z,a],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c[x,y,z,a])))
 if len(low_level_coord_names) ==5:
     def likelihood_function(x,y,z,a,b):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b],dtype=internal_dtype).T)))
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b])))
 if len(low_level_coord_names) ==6:
     def likelihood_function(x,y,z,a,b,c):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c],dtype=internal_dtype).T)))
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c])))
 if len(low_level_coord_names) ==7:
     def likelihood_function(x,y,z,a,b,c,d):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d])))
 if len(low_level_coord_names) ==8:
     def likelihood_function(x,y,z,a,b,c,d,e):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e])))
 if len(low_level_coord_names) ==9:
     def likelihood_function(x,y,z,a,b,c,d,e,f):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e,f]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e,f],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f])))
 if len(low_level_coord_names) ==10:
     def likelihood_function(x,y,z,a,b,c,d,e,f,g):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e,f,g]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e,f,g],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g])))
 
 
 n_step = 1e5
