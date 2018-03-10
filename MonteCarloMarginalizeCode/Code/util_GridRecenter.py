@@ -29,11 +29,13 @@ for indx in np.arange(len(P_ref_list)):
 
 P_out = []
 dx = np.mean(dat,axis=0) - np.mean(dat_ref,axis=0)
+dat_out = []
 for indx in np.arange(len(P_list)):
    bInclude = True
+   vec = np.zeros(len(parameters_to_center))
    for pIndex in np.arange(len(parameters_to_center)):
 	param =  parameters_to_center[pIndex]
-	valNew = dat[indx,pIndex]+dx[pIndex]
+	vec[pIndex] = valNew = dat[indx,pIndex]-dx[pIndex]
         if param == 'eta':
 	    if valNew > 0.25 or valNew < 0.001:
 		bInclude=False
@@ -41,5 +43,8 @@ for indx in np.arange(len(P_list)):
 	P_list[indx].assign_param(param, valNew)
    P_list[indx].tref = float(P_list[indx].tref)
    P_out.append(P_list[indx])
+   dat_out.append(vec)
+
+print " Recentering report: last two should be equal : ", np.mean(dat,axis=0),np.mean(dat_ref,axis=0),np.mean(dat_out,axis=0)
 
 lalsimutils.ChooseWaveformParams_array_to_xml(P_out, "shifted.xml.gz")
