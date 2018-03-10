@@ -3438,9 +3438,11 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
+    import EOSManager  # be careful to avoid recursive dependence!
+    assert not (eos_class==None)
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
+    P = ChooseWaveformParams()
     for indx_out  in np.arange(len(x_in)):
-        P = ChooseWaveformParams()
         for indx in np.arange(len(low_level_coord_names)):
             P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
         for indx in np.arange(len(coord_names)):
@@ -3448,6 +3450,32 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         if enforce_kerr and (P.extract_param('chi1') > 1 or P.extract_param('chi2') >1):  # insure Kerr bound satisfied
             x_out[indx_out] = -np.inf*np.ones( len(coord_names) ) # return negative infinity for all coordinates, if Kerr bound violated
     return x_out
+
+def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,eos_class=None):
+    """
+    A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
+    """
+    x_out = np.zeros( (len(x_in), len(coord_names) ) )
+    P = ChooseWaveformParams()
+    for indx_out  in np.arange(len(x_in)):
+        for indx in np.arange(len(low_level_coord_names)):
+            P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
+        # Impose EOS. The below assumes it will work
+        try:
+            P.lambda1 = eos_class.lambda_from_m(P.m1)
+        except:
+            P.lambda1 = - np.inf
+        try:
+            P.lambda2 = eos_class.lambda_from_m(P.m2)
+        except:
+            P.lambda2 = -np.inf
+        # extract
+        for indx in np.arange(len(coord_names)):
+            x_out[indx_out,indx] = P.extract_param(coord_names[indx])
+        if enforce_kerr and (P.extract_param('chi1') > 1 or P.extract_param('chi2') >1):  # insure Kerr bound satisfied
+            x_out[indx_out] = -np.inf*np.ones( len(coord_names) ) # return negative infinity for all coordinates, if Kerr bound violated
+    return x_out
+
 
 def symmetry_sign_exchange(coord_names):
     P=ChooseWaveformParams()
