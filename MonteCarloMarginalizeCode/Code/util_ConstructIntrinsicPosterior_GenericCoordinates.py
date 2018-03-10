@@ -217,8 +217,25 @@ parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GP
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 parser.add_argument("--no-plots",action='store_true')
+parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS if not already determined in lnL")
+parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
 opts=  parser.parse_args()
 no_plots = no_plots |  opts.no_plots
+
+my_eos=None
+#option to be used if gridded values not calculated assuming EOS
+if opts.using_eos!=None:
+    import EOSManager
+    eos_name=opts.using_eos
+
+    if opts.eos_param == 'spectral':
+        # Will not work yet -- need to modify to parse command-line arguments
+        lalsim_spec_param=spec_param/(C_CGS**2)*7.42591549*10**(-25)
+        np.savetxt("lalsim_eos/"+eos_name+"_spec_param_geom.dat", np.c_[lalsim_spec_param[:,1], lalsim_spec_param[:,0]])
+        my_eos=lalsim.SimNeutronStarEOSFromFile(path+"/lalsim_eos/"+eos_name+"_spec_param_geom.dat")
+    else:
+        my_eos = EOSManager.EOSFromDataFile(name=eos_name,fname =EOSManager.dirEOSTablesBase+"/" + eos_name+".dat")
+
 
 with open('args.txt','w') as fp:
     import sys
@@ -1002,9 +1019,12 @@ if not no_plots:
 ###
 ### Coordinate conversion tool
 ###
-def convert_coords(x_in):
+if not opts.using_eos:
+ def convert_coords(x_in):
     return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names)
-
+else:
+ def convert_coords(x_in):
+    return lalsimutils.convert_waveform_coordinates_using_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos)
 
 ###
 ### Integrate posterior

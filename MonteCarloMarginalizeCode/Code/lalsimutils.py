@@ -3438,8 +3438,6 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
-    import EOSManager  # be careful to avoid recursive dependence!
-    assert not (eos_class==None)
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     P = ChooseWaveformParams()
     for indx_out  in np.arange(len(x_in)):
@@ -3455,6 +3453,8 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
+    import EOSManager  # be careful to avoid recursive dependence!
+    assert not (eos_class==None)
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     P = ChooseWaveformParams()
     for indx_out  in np.arange(len(x_in)):
