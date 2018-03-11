@@ -1083,7 +1083,7 @@ if len(low_level_coord_names) ==4:
             return np.exp(my_fit([x,y,z,a]))
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z,a],dtype=internal_dtype).T)))
-            return np.exp(my_fit(convert_coords(np.c[x,y,z,a])))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a])))
 if len(low_level_coord_names) ==5:
     def likelihood_function(x,y,z,a,b):  
         if isinstance(x,float):
