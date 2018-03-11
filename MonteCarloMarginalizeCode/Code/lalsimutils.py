@@ -544,7 +544,7 @@ class ChooseWaveformParams:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             return np.sqrt( np.dot(chi2Vec,chi2Vec) -  np.dot(Lhat, chi2Vec)**2 )  # L frame !
 
-        if p == 'xi':
+        if p == 'xi' or p == 'chieff_aligned':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             Lhat = None
