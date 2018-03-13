@@ -303,6 +303,11 @@ class ChooseWaveformParams:
             mtot = self.m2+self.m1
             self.m1,self.m2 = np.array( [1./(1+val), val/(1.+val)])*mtot
             return self
+        if p == 'log_mc':
+            # change implemented at fixed chi1, chi2, eta
+            eta = symRatio(self.m1,self.m2)
+            self.m1,self.m2 = m1m2(10**val,eta)
+            return self
         if p == 'mc':
             # change implemented at fixed chi1, chi2, eta
             eta = symRatio(self.m1,self.m2)
@@ -521,6 +526,8 @@ class ChooseWaveformParams:
             return (self.m1-self.m2)/(self.m1+self.m2)
         if p == 'mc':
             return mchirp(self.m1,self.m2)
+        if p == 'log_mc':
+            return np.log10(mchirp(self.m1,self.m2))
         if p == 'eta':
             return symRatio(self.m1,self.m2)
         if p == 'chi1':
@@ -2411,7 +2418,7 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
 
     # inc is not consistent with the modern convention I will be reading in (spins aligned with L, hlm in the L frame)
     hplus, hcross, dynHi, hlmPTS, hlmPTSHi, hIMRlmJTSHi, hLM, attachP = lalsim.SimIMRSpinEOBWaveformAll(0, P.deltaT, \
-                                            P.m1, P.m1, P.fmin, P.dist, 0, \
+                                            P.m1, P.m2, P.fmin, P.dist, 0, \
                                             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z)
     hlm_dict = SphHarmTimeSeries_to_dict(hLM,2)
     # for j in range(5):
