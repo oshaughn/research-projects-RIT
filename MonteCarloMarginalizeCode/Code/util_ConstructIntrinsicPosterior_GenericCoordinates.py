@@ -31,7 +31,7 @@ import functools
 import itertools
 
 no_plots = True
-
+internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
 
 try:
     import matplotlib.pyplot as plt
@@ -45,7 +45,12 @@ except ImportError:
 
 
 from sklearn.preprocessing import PolynomialFeatures
-import ModifiedScikitFit as msf  # altenative polynomialFeatures
+if True:
+#try:
+    import ModifiedScikitFit as msf  # altenative polynomialFeatures
+else:
+#except:
+    print " - Faiiled ModifiedScikitFit : No polynomial fits - "
 from sklearn import linear_model
 
 from glue.ligolw import lsctables, utils, ligolw
@@ -56,7 +61,7 @@ import mcsampler
 
 def render_coord(x):
     if x in lalsimutils.tex_dictionary.keys():
-        return tex_dictionary[x]
+        return lalsimutils.tex_dictionary[x]
     if 'product(' in x:
         a=x.replace(' ', '') # drop spaces
         a = a[:len(a)-1] # drop last
@@ -184,6 +189,7 @@ parser.add_argument("--downselect-parameter",action='append', help='Name of para
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--no-downselect",action='store_true')
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
+parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help="Applies volumetric prior internally, and then reweights at end step to get uniform spin magnitude prior")
 parser.add_argument("--mirror-points",action='store_true',help="Use if you have many points very near equal mass (BNS). Doubles the number of points in the fit, each of which has a swapped m1,m2")
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
@@ -207,11 +213,29 @@ parser.add_argument("--fit-uses-reported-error-factor",type=float,default=1,help
 parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
+parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 parser.add_argument("--no-plots",action='store_true')
+parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS if not already determined in lnL")
+parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
 opts=  parser.parse_args()
 no_plots = no_plots |  opts.no_plots
+
+my_eos=None
+#option to be used if gridded values not calculated assuming EOS
+if opts.using_eos!=None:
+    import EOSManager
+    eos_name=opts.using_eos
+
+    if opts.eos_param == 'spectral':
+        # Will not work yet -- need to modify to parse command-line arguments
+        lalsim_spec_param=spec_param/(C_CGS**2)*7.42591549*10**(-25)
+        np.savetxt("lalsim_eos/"+eos_name+"_spec_param_geom.dat", np.c_[lalsim_spec_param[:,1], lalsim_spec_param[:,0]])
+        my_eos=lalsim.SimNeutronStarEOSFromFile(path+"/lalsim_eos/"+eos_name+"_spec_param_geom.dat")
+    else:
+        my_eos = EOSManager.EOSFromDataFile(name=eos_name,fname =EOSManager.dirEOSTablesBase+"/" + eos_name+".dat")
+
 
 with open('args.txt','w') as fp:
     import sys
@@ -378,7 +402,7 @@ def xi_uniform_prior(x):
 def s_component_uniform_prior(x):  # If all three are used, a volumetric prior
     return np.ones(x.shape)/2.
 
-def s_component_zprior(x,R=1.):
+def s_component_zprior(x,R=chi_max):
     # assume maximum spin =1. Should get from appropriate prior range
     # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
     val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
@@ -622,6 +646,27 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False)
 
         return lambda x,x0=x_center,scl=length_scale_est: gp.predict( (x-x0 )/scl)
 
+def map_funcs(func_list,obj):
+    return [func(obj) for func in func_list]
+def fit_gp_pool(x,y,n_pool=10,**kwargs):
+    """
+    Split the data into 10 parts, and return a GP that averages them
+    """
+    x_copy = np.array(x)
+    y_copy = np.array(y)
+    indx_list =np.arange(len(x_copy))
+    np.random.shuffle(indx_list) # acts in place
+    partition_list = np.array_split(indx_list,n_pool)
+    gp_fit_list =[]
+    for part in partition_list:
+        print " Fitting partition "
+        gp_fit_list.append(fit_gp(x[part],y[part],**kwargs))
+    fn_out =  lambda x: np.mean( map_funcs( gp_fit_list,x), axis=0)
+    print " Testing ", fn_out([x[0]])
+    return fn_out
+
+
+
 coord_names = opts.parameter # Used  in fit
 if coord_names is None:
     coord_names = []
@@ -790,8 +835,9 @@ for line in dat:
 
 Pref_default = P.copy()  # keep this around to fix the masses, if we don't have an inj
 
-dat_out = np.array(dat_out)
-print " Stripped size  = ", dat_out.shape
+# Force 32 bit dype
+dat_out = np.array(dat_out,dtype=internal_dtype)
+print " Stripped size  = ", dat_out.shape,  " with memory usage (bytes) ", sys.getsizeof(dat_out)
 dat_out_low_level_coord_names = np.array(dat_out_low_level_coord_names)
  # scale out mass units
 for p in ['mc', 'm1', 'm2', 'mtot']:
@@ -799,7 +845,7 @@ for p in ['mc', 'm1', 'm2', 'mtot']:
         indx = coord_names.index(p)
         dat_out[:,indx] /= lal.MSUN_SI
     for x in np.arange(len(extra_plot_coord_names)):
-        dat_out_extra[x] = np.array(dat_out_extra[x])  # put into np form
+        dat_out_extra[x] = np.array(dat_out_extra[x],dtype=internal_dtype)  # put into np form
         if p in extra_plot_coord_names[x]:
             indx = extra_plot_coord_names[x].index(p)
             dat_out_extra[x][:,indx] /= lal.MSUN_SI
@@ -928,6 +974,27 @@ elif opts.fit_method == 'gp':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'gp-pool':
+    print " FIT METHOD ", opts.fit_method, " IS GP (pooled) with pool size ", opts.pool_size
+    # some data truncation IS used for the GP, but beware
+    print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
+    X=X[indx_ok]
+    Y=Y[indx_ok]
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    if opts.pool_size == None:
+        opts.pool_size = np.max([2,np.round(4000/len(X))])  # pick a pool size that has no more than 4000 members per pool
+    my_fit = fit_gp_pool(X,Y,y_errors=Y_err,n_pool=opts.pool_size)
+
+
 
 # Sort for later convenience (scatterplots, etc)
 indx = Y.argsort()#[::-1]
@@ -952,9 +1019,12 @@ if not no_plots:
 ###
 ### Coordinate conversion tool
 ###
-def convert_coords(x_in):
+if not opts.using_eos:
+ def convert_coords(x_in):
     return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names)
-
+else:
+ def convert_coords(x_in):
+    return lalsimutils.convert_waveform_coordinates_using_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos)
 
 ###
 ### Integrate posterior
@@ -991,61 +1061,67 @@ if len(low_level_coord_names) ==1:
         if isinstance(x,float):
             return np.exp(my_fit([x]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x]).T)  ))
+#            return np.exp(my_fit(convert_coords(np.array([x],dtype=internal_dtype).T) ))
+            return np.exp(my_fit(convert_coords(np.c_[x])))
 if len(low_level_coord_names) ==2:
     def likelihood_function(x,y):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y]).T)))
+#            return np.exp(my_fit(convert_coords(np.array([x,y],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y])))
 if len(low_level_coord_names) ==3:
     def likelihood_function(x,y,z):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z]).T)))
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z])))
 if len(low_level_coord_names) ==4:
     def likelihood_function(x,y,z,a):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a]).T)))
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z,a],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a])))
 if len(low_level_coord_names) ==5:
     def likelihood_function(x,y,z,a,b):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b]).T)))
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b])))
 if len(low_level_coord_names) ==6:
     def likelihood_function(x,y,z,a,b,c):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c]).T)))
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c],dtype=internal_dtype).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c])))
 if len(low_level_coord_names) ==7:
     def likelihood_function(x,y,z,a,b,c,d):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d]).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d])))
 if len(low_level_coord_names) ==8:
     def likelihood_function(x,y,z,a,b,c,d,e):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e]).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e])))
 if len(low_level_coord_names) ==9:
     def likelihood_function(x,y,z,a,b,c,d,e,f):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e,f]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e,f]).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f])))
 if len(low_level_coord_names) ==10:
     def likelihood_function(x,y,z,a,b,c,d,e,f,g):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e,f,g]))
         else:
-            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c,d,e,f,g]).T)))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g])))
 
 
 n_step = 1e5
@@ -1093,6 +1169,41 @@ ps =samples["joint_s_prior"]
 lnL = dat_logL
 lnLmax = np.max(lnL)
 weights = np.exp(lnL-lnLmax)*p/ps
+
+
+# If we are using pseudo uniform spin magnitude, reweight
+#     ONLY done if we use s1x, s1y, s1z, s2x, s2y, s2z
+# volumetric prior scales as a1^2 a2^2 da1 da2; we need to undo it
+if opts.pseudo_uniform_magnitude_prior and 's1x' in samples.keys() and 's1z' in samples.keys():
+    val = np.array(samples["s1z"]**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype)
+    chi1 = np.sqrt(val)  # weird typecasting problem
+    weights *= 3.*chi_max*chi_max/(chi1*chi1)
+    if 's2z' in samples.keys():
+        val = np.array(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype)
+        chi2= np.sqrt(val)
+#        chi2 = np.sqrt(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2)
+        weights *= 3.*chi_max*chi_max/(chi2*chi2)
+elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys():
+    s1z  = samples['chiz_plus'] + samples['chiz_minus']
+    s2z  = samples['chiz_plus'] - samples['chiz_minus']
+    val1 = np.array(s1z**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype); chi1 = np.sqrt(val1)
+    val2 = np.array(s2z**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype); chi2= np.sqrt(val2)
+    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_max)
+    weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
+    weights[indx_ok] *= 9.*(chi_max**4)/(chi1*chi1*chi2*chi2)[indx_ok]
+    
+
+# If we are using alignedspin-zprior AND chiz+, chiz-, then we need to reweight .. that prior cannot be evaluated internally
+# Prevent alignedspin-zprior from being used when transverse spins are present ... no sense!
+# Note we need to downslelect early in this case
+if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  and (not 's1x' in samples.keys()):
+    s1z  = samples['chiz_plus'] + samples['chiz_minus']
+    s2z  =samples['chiz_plus'] - samples['chiz_minus']
+    indx_ok = np.logical_and(np.abs(s1z)<=chi_max , np.abs(s2z)<=chi_max)
+    weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
+    weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(4*chi_max*chi_max)  # correct for uniform
+        
+
 
 # Load in reference parameters
 Pref = lalsimutils.ChooseWaveformParams()
@@ -1352,7 +1463,7 @@ for indx_here in indx_list:
  ### Export data
  ###
 lalsimutils.ChooseWaveformParams_array_to_xml(P_list,fname=opts.fname_output_samples,fref=P.fref)
-lnL_list = np.array(lnL_list)
+lnL_list = np.array(lnL_list,dtype=internal_dtype)
 np.savetxt(opts.fname_output_samples+"_lnL.dat", lnL_list)
 
 

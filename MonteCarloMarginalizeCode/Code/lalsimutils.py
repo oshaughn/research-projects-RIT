@@ -40,6 +40,7 @@ import lalmetaio
 from pylal import frutils
 from pylal import series
 from pylal.series import read_psd_xmldoc
+#from lal.series import read_psd_xmldoc
 import pylal
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
@@ -187,6 +188,10 @@ tex_dictionary  = {
   "s2x": "$\chi_{2,x}$",
   "s1y": "$\chi_{1,y}$",
   "s2y": "$\chi_{2,y}$",
+  # tex labels for inherited LI names
+ "a1z": r'$\chi_{1,z}$',
+ "a2z": r'$\chi_{2,z}$',
+ "mtotal": r'$M_{tot}$',
  "cos_theta1":"$\cos \\theta_1$",
  "cos_theta2":"$\cos \\theta_2$",
  "chi1_perp": "$\chi_{1,\perp}$",
@@ -196,7 +201,9 @@ tex_dictionary  = {
   'lambda1':r'$\lambda_1$',
   'lambda2':r'$\lambda_2$',
   'LambdaTilde': r'$\tilde{\Lambda}$',
-  'DeltaLambdaTilde': r'$\Delta\tilde{\Lambda}$'
+  'lambdat': r'$\tilde{\Lambda}$',
+  'DeltaLambdaTilde': r'$\Delta\tilde{\Lambda}$',
+  'dlambdat': r'$\Delta\tilde{\Lambda}$'
 }
 
 
@@ -295,6 +302,11 @@ class ChooseWaveformParams:
             # change implemented at fixed Mtot (NOT mc)
             mtot = self.m2+self.m1
             self.m1,self.m2 = np.array( [1./(1+val), val/(1.+val)])*mtot
+            return self
+        if p == 'log_mc':
+            # change implemented at fixed chi1, chi2, eta
+            eta = symRatio(self.m1,self.m2)
+            self.m1,self.m2 = m1m2(10**val,eta)
             return self
         if p == 'mc':
             # change implemented at fixed chi1, chi2, eta
@@ -514,6 +526,8 @@ class ChooseWaveformParams:
             return (self.m1-self.m2)/(self.m1+self.m2)
         if p == 'mc':
             return mchirp(self.m1,self.m2)
+        if p == 'log_mc':
+            return np.log10(mchirp(self.m1,self.m2))
         if p == 'eta':
             return symRatio(self.m1,self.m2)
         if p == 'chi1':
@@ -537,7 +551,7 @@ class ChooseWaveformParams:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             return np.sqrt( np.dot(chi2Vec,chi2Vec) -  np.dot(Lhat, chi2Vec)**2 )  # L frame !
 
-        if p == 'xi':
+        if p == 'xi' or p == 'chieff_aligned':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             Lhat = None
@@ -785,7 +799,7 @@ class ChooseWaveformParams:
         self.dist = dist*1e6 * lsu_PC
         self.lambda1 = 0.
         self.lambda2 = 0.
-        self.theta = np.random.uniform(-np.pi/2,np.pi/2) # declination
+        self.theta = np.pi/2- np.arccos(np.random.uniform(-1,1))  #np.random.uniform(-np.pi/2,np.pi/2) # declination. Uniform in cos, but note range
         self.phi = np.random.uniform(0,2*np.pi) # right ascension
         self.psi = np.random.uniform(0,np.pi) # polarization angle
         self.deltaF = None
@@ -1249,6 +1263,71 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
     utils.write_filename(xmldoc, fname+".xml.gz", gz=True)
 
     return True
+
+
+hdf_params = ['m1', 'm2', \
+   's1x',   's1y', 's1z', 's2x', 's2y', 's2z', \
+    'dist', 'incl', 'phiref', 'theta', 'phi', 'tref', 'psi', \
+    'lambda1', 'lambda2', 'fref', 'fmin', \
+    'lnL', 'p', 'ps']
+import h5py
+def ChooseWaveformParams_array_to_hdf5(P_list, fname="injections", 
+        deltaT=1./4096., fref=0., waveFlags=None,
+        nonGRparams=None, detector="H1", deltaF=None, fMax=0.):
+    """
+    HDF5 storage for parameters.
+    Compare to lalinference HDF5 i/o https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/io/hdf5.py
+
+    TERRIBLE CODE: Assumes hardcoded order, does not embed metadata with field names
+    SHOULD RESTRUCTURE to load into record-array like structure
+    """
+    f = h5py.File(fname+".hdf5","w")
+
+    arr = np.zeros( (len(P_list),len(hdf_params)) )
+    indx = 0
+    for P in P_list:
+        pindex = 0
+        for param in hdf_params:  # Don't store these other quantities
+            if param in   ['lnL', 'p', 'ps']:
+                continue
+            val= P.extract_param(param); fac=1   # getattr is probably faster
+            if param in ['m1','m2']:
+                fac = lal.MSUN_SI
+            arr[indx][pindex] = val/fac
+            pindex += 1
+        indx += 1
+
+    dset = f.create_dataset("waveform_parameters", (len(P_list),len(hdf_params)), dtype='f', data=arr)  # lalinference_o2 for now            
+    f.close()
+    return True
+
+def hdf5_to_ChooseWaveformParams_array(fname="injections", 
+        deltaT=1./4096., fref=0., waveFlags=None,
+        nonGRparams=None, detector="H1", deltaF=None, fMax=0.):
+    """
+    HDF5 storage for parameters.
+    Compare to lalinference HDF5 i/o https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/io/hdf5.py
+
+    TERRIBLE CODE: Assumes hardcoded order, does not embed metadata with field names
+    SHOULD RESTRUCTURE to load into record-array like structure
+    """
+    f = h5py.File(fname+".hdf5","r")
+
+
+    dset = f["waveform_parameters"]
+    P_list = []
+    for indx in np.arange(len(dset)):
+        P = ChooseWaveformParams()
+        for pindex in np.arange(len(hdf_params)-3):
+            param = hdf_params[pindex]
+            fac = 1;
+            if param in ['m1','m2']:
+                fac = lal.MSUN_SI
+            P.assign_param(param, dset[indx,pindex]*fac)
+        P_list.append(P)
+
+    return P_list
+
 
 
 #
@@ -1770,8 +1849,9 @@ def tidal_lambda_tilde(mass1, mass2, lambda1, lambda2):
     lt1, lt2 = lambda1, lambda2 # lambda1 / mass1**5, lambda2 / mass2**5  # Code is already dimensionless
     lt_sym = lt1 + lt2
     lt_asym = lt1 - lt2
-    if mass1 < mass2:
-        q*=-1
+#    if mass1 < mass2:
+#        q*=-1
+    q*= np.sign(mass1-mass2)
 
     lam_til = (1 + 7*eta - 31*eta**2) * lt_sym + q * (1 + 9*eta - 11*eta**2) * lt_asym
     dlam_til = q * (1 - 13272*eta/1319 + 8944*eta**2/1319) * lt_sym + (1 - 15910*eta/1319 + 32850*eta**2/1319 + 3380*eta**3/1319) * lt_asym
@@ -2143,7 +2223,7 @@ def hoff_FD(P, Fp=None, Fc=None):
 
     hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(P.phiref, P.deltaF,
             P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin,
-            P.fmax, P.dist, P.incl, P.lambda1, P.lambda2, P.waveFlags,
+            P.fmax, P.fref, P.dist, P.incl, P.lambda1, P.lambda2, P.waveFlags,
             P.nonGRparams, P.ampO, P.phaseO, P.approx)
     if Fp is not None and Fc is not None:
         hptilde.data.data *= Fp
@@ -2338,7 +2418,7 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
 
     # inc is not consistent with the modern convention I will be reading in (spins aligned with L, hlm in the L frame)
     hplus, hcross, dynHi, hlmPTS, hlmPTSHi, hIMRlmJTSHi, hLM, attachP = lalsim.SimIMRSpinEOBWaveformAll(0, P.deltaT, \
-                                            P.m1, P.m1, P.fmin, P.dist, 0, \
+                                            P.m1, P.m2, P.fmin, P.dist, 0, \
                                             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z)
     hlm_dict = SphHarmTimeSeries_to_dict(hLM,2)
     # for j in range(5):
@@ -2403,6 +2483,11 @@ def hlmoff(P, Lmax=2):
     """
 
     hlms = hlmoft(P, Lmax)
+    if isinstance(hlms,dict):
+        hlmsF = {}
+        for mode in hlms:
+            hlmsF[mode] = DataFourier(hlms[mode])
+        return hlmsF
     hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
     if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
         TDlen = nextPow2(hxx.data.length)
@@ -2447,6 +2532,8 @@ def SphHarmTimeSeries_to_dict(hlms, Lmax):
     lalsimulation.SphHarmTimeSeriesGetMode(hlms, l, m)
     returns a non-null pointer.
     """
+    if isinstance(hlms, dict):
+        return hlms
     hlm_dict = {}
     for l in range(2, Lmax+1):
         for m in range(-l, l+1):
@@ -2466,6 +2553,8 @@ def SphHarmFrequencySeries_to_dict(hlms, Lmax):
     lalsimulation.SphHarmFrequencySeriesGetMode(hlms, l, m)
     returns a non-null pointer.
     """
+    if isinstance(hlms, dict):
+        return hlms
     hlm_dict = {}
     for l in range(2, Lmax+1):
         for m in range(-l, l+1):
@@ -3357,8 +3446,8 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
+    P = ChooseWaveformParams()
     for indx_out  in np.arange(len(x_in)):
-        P = ChooseWaveformParams()
         for indx in np.arange(len(low_level_coord_names)):
             P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
         for indx in np.arange(len(coord_names)):
@@ -3366,6 +3455,34 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         if enforce_kerr and (P.extract_param('chi1') > 1 or P.extract_param('chi2') >1):  # insure Kerr bound satisfied
             x_out[indx_out] = -np.inf*np.ones( len(coord_names) ) # return negative infinity for all coordinates, if Kerr bound violated
     return x_out
+
+def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,eos_class=None):
+    """
+    A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
+    """
+    import EOSManager  # be careful to avoid recursive dependence!
+    assert not (eos_class==None)
+    x_out = np.zeros( (len(x_in), len(coord_names) ) )
+    P = ChooseWaveformParams()
+    for indx_out  in np.arange(len(x_in)):
+        for indx in np.arange(len(low_level_coord_names)):
+            P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
+        # Impose EOS. The below assumes it will work
+        try:
+            P.lambda1 = eos_class.lambda_from_m(P.m1)
+        except:
+            P.lambda1 = - np.inf
+        try:
+            P.lambda2 = eos_class.lambda_from_m(P.m2)
+        except:
+            P.lambda2 = -np.inf
+        # extract
+        for indx in np.arange(len(coord_names)):
+            x_out[indx_out,indx] = P.extract_param(coord_names[indx])
+        if enforce_kerr and (P.extract_param('chi1') > 1 or P.extract_param('chi2') >1):  # insure Kerr bound satisfied
+            x_out[indx_out] = -np.inf*np.ones( len(coord_names) ) # return negative infinity for all coordinates, if Kerr bound violated
+    return x_out
+
 
 def symmetry_sign_exchange(coord_names):
     P=ChooseWaveformParams()
