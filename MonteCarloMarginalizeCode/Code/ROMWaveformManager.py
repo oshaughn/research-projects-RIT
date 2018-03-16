@@ -227,6 +227,7 @@ class WaveformModeCatalog:
         if not 'NRSur7d' in param:
             self.sur =  gws.EvaluateSurrogate(dirBaseFiles +'/'+group+param,use_orbital_plane_symmetry=reflection_symmetric, ell_m=lm_list) # straight up filename.  MODIFY to change to use negative modes
             raw_modes = self.sur.all_model_modes()
+            self.modes_available=[]
         else:
             self.sur = NRSur7dq2.NRSurrogate7dq2()
             reflection_symmetric = False
