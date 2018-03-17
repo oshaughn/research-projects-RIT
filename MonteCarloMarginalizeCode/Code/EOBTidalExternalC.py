@@ -13,7 +13,7 @@
 #    NRWaveformCatalogManager   : very similar interface
 
 
-debug_output =True 
+debug_output =False
 
 import numpy as np
 import os
@@ -30,7 +30,7 @@ import time
 
 rosUseArchivedWaveforms = True
 
-rosDebug = True
+rosDebug = False
 #dirBaseFiles =os.environ["HOME"] + "/unixhome/Projects/LIGO-ILE-Applications/ILE-Tides/MatlabCodePolished"
 dirBaseFiles =os.environ["EOB_C_BASE"]
 dirBaseFilesArchive =os.environ["EOB_C_ARCHIVE"]
@@ -245,7 +245,9 @@ class WaveformModeCatalog:
                 # nan removal: occasionally, TEOBResumS code can nan-pad at end (e,g., negative spins)
                 if rosDebug:
                     print " Mode ", mode, " nan check for phase ", np.sum(np.isnan(datP)), " out of ", len(datP)
+                    print " Mode ", mode, " nan check for amp ", np.sum(np.isnan(datA)), " out of ", len(datA)
                 datP[np.isnan(datP)] = 0 # zero this out 
+                datA[np.isnan(datA)] = 0 # zero this out 
 
                 # Create, if symmetric
                 if mode[1]<0: # (-1)^l conjugate
@@ -265,11 +267,9 @@ class WaveformModeCatalog:
 #                self.waveform_modes_complex_interpolated_amplitude[mode] = fnA #lambda x,s=fnA,t=fnTaperHere: t(x)*s(x) 
 #                self.waveform_modes_complex_interpolated_phase[mode] = fnP
                 fnA = UnivariateSpline(tvals, datA,k=3,s=0)  # s=0 prevents horrible behavior. Sometimes interpolation in the log behaves oddly    
-                fnP =  UnivariateSpline(tvals, datP,k=3,s=0) # s=0 prevents horrible behavior. 'const' uses boundary value to prevent discontinuit\
-y                                                                                                                                                  
+                fnP =  UnivariateSpline(tvals, datP,k=3,s=0) # s=0 prevents horrible behavior. 'const' uses boundary value to prevent discontinuity
                                                                                                                                                    
-                self.waveform_modes_complex_interpolated_amplitude[mode] = RangeWrap1dAlt([tvals[0],tvals[-1]],0,fnA) #lambda x,s=fnA,t=fnTaperHer\
-e: t(x)*s(x)                                                                                                                                       
+                self.waveform_modes_complex_interpolated_amplitude[mode] = RangeWrap1dAlt([tvals[0],tvals[-1]],0,fnA) #lambda x,s=fnA,t=fnTaperHere: t(x)*s(x)                                                                                                                                       
                 self.waveform_modes_complex_interpolated_phase[mode] = RangeWrap1dAlt([tvals[0],tvals[-1]], 0,fnP)
 
                 # Estimate starting frequency. Historical interest
@@ -297,7 +297,8 @@ e: t(x)*s(x)
                 self.waveform_modes_nonuniform_smallest_timestep[mode] = self.waveform_modes[mode][1,0]-self.waveform_modes[mode][0,0]  # NOT uniform in time
                 self.waveform_modes_nonuniform_largest_timestep[mode] = self.waveform_modes[mode][1,0]-self.waveform_modes[mode][0,0]  # uniform in time
 
-        print " Restoring current working directory... ",cwd
+        if rosDebug:
+            print " Restoring current working directory... ",cwd
         os.chdir(cwd);
 
 
@@ -480,7 +481,7 @@ e: t(x)*s(x)
         #     print " estimated peak sample at ", n_crit
 
         # Loop over all modes in the system
-        for mode in self.waveform_modes.keys():
+        for mode in self.waveform_modes_complex.keys():
             amp_vals = m_total_s/distance_s * self.waveform_modes_complex_interpolated_amplitude[mode](tvals)  # vectorized interpolation with piecewise
             phase_vals = self.waveform_modes_complex_interpolated_phase[mode]( tvals)
             phase_vals = lalsimutils.unwind_phase(phase_vals)  # should not be necessary, but just in case
