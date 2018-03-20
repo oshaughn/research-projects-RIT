@@ -58,7 +58,8 @@ optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing c
 optp.add_option("-I", "--sim-xml", help="XML file containing mass grid to be evaluated")
 optp.add_option("-E", "--event", default=0,type=int, help="Event number used for this run")
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
-optp.add_option("--fmin-template", dest='fmin_template', type=float, default=40, help="Waveform starting frequency.  Default is 40 Hz.") 
+optp.add_option("--fmin-template", dest='fmin_template', type=float, default=40, help="Waveform starting frequency.  Default is 40 Hz. Also equal to starting frequency for integration") 
+optp.add_option("--fmin-ifo", action='append' , help="Minimum frequency for each IFO. Implemented by setting the PSD=0 below this cutoff. Use with care.") 
 #optp.add_option("--nr-params",default=None, help="List of specific NR parameters and groups (and masses?) to use for the grid.")
 #optp.add_option("--nr-index",type=int,default=-1,help="Index of specific NR simulation to use [integer]. Mass used: mtot= m1+m2")
 optp.add_option('--nr-group', default=None,help="If using a *ssingle specific simulation* specified on the command line, provide it here")
@@ -376,6 +377,13 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
             data_dict[inst].data.length)
 
+flow_ifo_dict = {}
+if opts.fmin_ifo:
+ for inst, freq_str in map(lambda c: c.split("="), opts.fmin_ifo):
+    freq_low_here = float(freq_str)
+    print "Reading low frequency cutoff for instrument %s from %s" % (inst, freq_str), freq_low_here
+    flow_ifo_dict[inst] = freq_low_here
+
 for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     print "Reading PSD for instrument %s from %s" % (inst, psdf)
     psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
@@ -383,6 +391,16 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     deltaF = data_dict[inst].deltaF
     psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
     print "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF
+
+    # implement cutoff.  
+    if inst in flow_ifo_dict.keys():
+        if isinstance(psd_dict[inst], lal.REAL8FrequencySeries):
+            psd_fvals = psd_dict[inst].f0 + deltaF*np.arange(psd_dict[inst].data.length)
+            psd_dict[inst].data.data[ psd_fvals < flow_ifo_dict[inst]] = 0 # 
+        elif isinstance(psd_dict[inst], pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):  # for backward compatibility
+            psd_fvals = psd_dict[inst].f0 + deltaF*np.arange(len(psd_dict[inst].data))
+            psd_dict[inst].data[psd_fvals < ifo_dict[inst]] =0
+
 
     assert psd_dict[inst].deltaF == deltaF
 
