@@ -15,6 +15,10 @@ import sys
 from optparse import OptionParser
 import numpy as np
 from glue.ligolw import utils, table, lsctables, ligolw
+try:
+    import h5py
+except:
+    print " - no h5py - "
 
 # Contenthandlers : argh
 #   - http://software.ligo.org/docs/glue/
@@ -41,6 +45,33 @@ if opts.export_tides:
     print "lambda1 lambda2",
 print
 for fname in args:
+ if ".hdf5" in fname:
+     # Load manually, to avoid problems with lnL, p, ps 
+     f = h5py.File(fname, 'r')
+     arr = f["waveform_parameters"]
+     for indx in np.arange(len(arr)):
+         line = arr[indx]
+         print line[0], line[1], line[2], line[3], line[4], line[5], line[6], line[7],  mc(line[0],line[1]), eta(line[0],line[0]), \
+            0, \
+            0, \
+            line[12], \
+            line[11], \
+            line[13], \
+            line[10],  \
+            line[14], \
+            line[9], \
+            line[8], \
+            line[-2],line[-1],line[-3], line[0]+line[1], line[1]/line[0],
+         if opts.export_extra_spins:
+            P = lalsimutils.ChooseWaveformParams(m1=line[0],m2=line[1], s1x=line[2], s1y=line[3], s1z=line[4], s2x=line[5], s2y=line[6],s2z=line[7])
+            P.fmin = line[-5]  # should use this first
+            thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = P.extract_system_frame()
+            print thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ,
+         if opts.export_tides:
+            print line[-7], line[-6],
+         print
+     f.close()
+ else:
     points = table.get_table(utils.load_filename(fname,contenthandler=ligolw.LIGOLWContentHandler), lsctables.SimInspiralTable.tableName)
     like = [row.alpha1 for row in points]  # hardcoded name
     p = [row.alpha2 for row in points]
