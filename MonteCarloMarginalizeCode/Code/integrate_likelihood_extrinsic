@@ -113,6 +113,7 @@ integration_params.add_option("--interpolate-time", default=False,help="If using
 integration_params.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
+integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
 optp.add_option_group(integration_params)
 
 #
@@ -149,6 +150,9 @@ for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
 optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
+
+manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
+
 
 
 intrinsic_param_names = opts.parameter
@@ -855,7 +859,7 @@ if not opts.time_marginalization:
                     P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
             i+=1
     
-        return numpy.exp(lnL)
+        return numpy.exp(lnL - manual_avoid_overflow_logarithm)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else: # Sum over time for every point in other extrinsic params
@@ -890,7 +894,7 @@ else: # Sum over time for every point in other extrinsic params
                     opts.l_max,interpolate=opts.interpolate_time)
             i+=1
     
-        return numpy.exp(lnL)
+        return numpy.exp(lnL -manual_avoid_overflow_logarithm)
 
     args = likelihood_function.func_code.co_varnames[:likelihood_function.func_code.co_argcount]
     print " --------> Arguments ", args
@@ -941,14 +945,14 @@ else: # Sum over time for every point in other extrinsic params
         t_end =lal.GPSTimeNow() 
         print " Cost per evaluation ", (t_end - t_start)/len(q)
         print " Max lnL for this iteration ", numpy.max(lnL)
-        return numpy.exp(lnL)
+        return numpy.exp(lnL - manual_avoid_overflow_logarithm)
 
     args = likelihood_function.func_code.co_varnames[:likelihood_function.func_code.co_argcount]
     print " --------> Arguments ", args
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 
-print " lnLmarg is ", numpy.log(res), " with expected relative error ", numpy.sqrt(var)/res
+print " lnLmarg is ", numpy.log(res+manual_avoid_overflow_logarithm), " with expected relative error ", numpy.sqrt(var)/res
 print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
 
 
@@ -1086,10 +1090,10 @@ if opts.output_file:
     if opts.event == None:
         event_id = -1
     if not (P.lambda1>0 or P.lambda2>0):
-        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  numpy.log(res), numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
     else:
         # Alternative output format if lambda is active
-        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, numpy.log(res), numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
 
 # Standard XML output
 #   ONLY KEEPS MASSES
@@ -1161,8 +1165,8 @@ if opts.output_file:
                 f["waveform_parameters"][indx] = arr[indx]
             # Add attributes to describe monte carlo integration ... only produced by ILE
 #            f.create_dataset("marginal_extrinsic_likelihood", (1,),dtype='f')
-            f["marginal_extrinsic_likelihood"] = numpy.log(res)
-            f["marginal_extrinsic_likelihood"].attrs.create("lnLmarg", numpy.log(res))
+            f["marginal_extrinsic_likelihood"] = numpy.log(res)+ manual_avoid_overflow_logarithm
+            f["marginal_extrinsic_likelihood"].attrs.create("lnLmarg", numpy.log(res)+manual_avoid_overflow_logarithm)
             f["marginal_extrinsic_likelihood"].attrs.create("sigma_lnLmarg", numpy.sqrt(var)/res )
             f["marginal_extrinsic_likelihood"].attrs.create("N", sampler.ntotal)
             f["marginal_extrinsic_likelihood"].attrs.create("n_eff", neff)
@@ -1171,5 +1175,5 @@ if opts.output_file:
     # FIXME: likelihood or loglikehood
     # FIXME: How to encode variance?
     if opts.output_format == "xml":
-        xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res), neff=neff, converged=dict_return["convergence_test_results"]["normal_integral"], **{"mass1": m1, "mass2": m2, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": numpy.sqrt(var)/res, "ttotal": sampler.ntotal})
+        xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=dict_return["convergence_test_results"]["normal_integral"], **{"mass1": m1, "mass2": m2, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": numpy.sqrt(var)/res, "ttotal": sampler.ntotal})
         utils.write_filename(xmldoc, opts.output_file, gz=opts.output_file.endswith(".gz"))
