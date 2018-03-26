@@ -73,6 +73,7 @@ optp.add_option("-s", "--sim-xml", help="XML file containing mass grid to be eva
 optp.add_option("-E", "--event", default=0, help="Event number used for this run")
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
 optp.add_option("--fmin-template", dest='fmin_template', type=float, default=40, help="Waveform starting frequency.  Default is 40 Hz.") 
+optp.add_option("--fmin-ifo", action='append' , help="Minimum frequency for each IFO. Implemented by setting the PSD=0 below this cutoff. Use with care.") 
 optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
 optp.add_option("-a", "--approximant", default="TaylorT4", help="Waveform family to use for templates. Any approximant implemented in LALSimulation is valid.")
 optp.add_option("-A", "--amp-order", type=int, default=0, help="Include amplitude corrections in template waveforms up to this e.g. (e.g. 5 <==> 2.5PN), default is Newtonian order.")
@@ -192,6 +193,7 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid
         sim_xml=opts.sim_xml,
         reference_freq=opts.reference_freq,
         fmin_template=opts.fmin_template,
+        fmin_ifo=opts.fmin_ifo,
         fmax=opts.fmax,
         nr_group=opts.nr_group,
         nr_param=opts.nr_param,
