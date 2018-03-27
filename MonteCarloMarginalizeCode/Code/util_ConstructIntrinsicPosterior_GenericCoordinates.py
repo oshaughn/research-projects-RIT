@@ -401,6 +401,13 @@ def xi_uniform_prior(x):
     return np.ones(x.shape)
 def s_component_uniform_prior(x):  # If all three are used, a volumetric prior
     return np.ones(x.shape)/2.
+def s_component_gaussian_prior(x,R=chi_max/3):
+    """
+    (proportinal to) prior on range in one-dimensional components, in a cartesian domain.
+    Could be useful to sample densely near zero spin.
+    """
+    return scipy.stats.norm.pdf(x,scale=R)/(1-2*scipy.stats.cdf(chi_max,scale=R))     
+
 
 def s_component_zprior(x,R=chi_max):
     # assume maximum spin =1. Should get from appropriate prior range
