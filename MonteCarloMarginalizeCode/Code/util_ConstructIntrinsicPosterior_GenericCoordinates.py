@@ -30,6 +30,8 @@ import lal
 import functools
 import itertools
 
+from sklearn.externals import joblib  # http://scikit-learn.org/stable/modules/model_persistence.html
+
 no_plots = True
 internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
 
@@ -214,6 +216,8 @@ parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
+parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP fit to load. Overrides fitting process, but user MUST correctly specify coordinate system to interpret the fit with.  Does not override loading and converting the data.")
+parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP fit to save. ")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 parser.add_argument("--no-plots",action='store_true')
@@ -595,10 +599,16 @@ def adderr(y):
     val,err = y
     return val+error_factor*err
 
-def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False):
+def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,fname_export="gp_fit"):
     """
     x = array so x[0] , x[1], x[2] are points.
     """
+
+    # If we are loading a fit, override everything else
+    if opts.fit_load_gp:
+        print " WARNING: Do not re-use fits across architectures or versions : pickling is not transferrable "
+        my_gp=joblib.load(opts.fit_load_gp)
+        return lambda x:my_gp.predict(x)
 
     # Amplitude: 
     #   - We are fitting lnL.  
@@ -633,6 +643,10 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False)
 
         print  " Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y) 
 
+        if opts.fit_save_gp:
+            print " Attempting to save fit "
+            joblib.dump(gp,opts.fit_save_gp+".pkl")
+        
         if not (opts.fit_uncertainty_added):
             return lambda x: gp.predict(x)
         else:
