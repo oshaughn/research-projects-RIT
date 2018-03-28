@@ -195,6 +195,8 @@ parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help
 parser.add_argument("--mirror-points",action='store_true',help="Use if you have many points very near equal mass (BNS). Doubles the number of points in the fit, each of which has a swapped m1,m2")
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
+parser.add_argument("--lambda-max", default=4000,type=float,help="Maximum range of 'Lambda' allowed.  Minimum value is ZERO, not negative.")
+parser.add_argument("--lambda-plus-max", default=None,type=float,help="Maximum range of 'Lambda_plus' allowed.  Used for sampling. Pick small values to accelerate sampling! Otherwise, use lambda-max.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
 parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset")
@@ -353,8 +355,14 @@ for indx in np.arange(len(dlist_ranges)):
 
 
 chi_max = opts.chi_max
+lambda_max=opts.lambda_max
+lambda_plus_max = opts.lambda_max
+if opts.lambda_plus_max:
+    lambda_plus_max  = opts.lambda_max
 downselect_dict['chi1'] = [0,chi_max]
 downselect_dict['chi2'] = [0,chi_max]
+downselect_dict['lambda1'] = [0,lambda_max]
+downselect_dict['lambda2'] = [0,lambda_max]
 for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
     downselect_dict[param] = [-chi_max,chi_max]
 # Enforce definition of eta
@@ -432,12 +440,12 @@ def s_component_aligned_volumetricprior(x,R=1.):
     return (3./4.*(1- np.power(x/R,2))/R)
 
 def lambda_prior(x):
-    return np.ones(x.shape)/4000.   # assume arbitrary
+    return np.ones(x.shape)/opts.lambda_max   # assume arbitrary
 
 
 # DO NOT USE UNLESS REQUIRED FOR COMPATIBILITY
 def lambda_tilde_prior(x):
-    return np.ones(x.shape)/5000.   # 0,4000
+    return np.ones(x.shape)/opts.lambda_max   # 0,4000
 def delta_lambda_tilde_prior(x):
     return np.ones(x.shape)/1000.   # -500,500
 
@@ -453,6 +461,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "
     'm2':m_prior,
     'lambda1':lambda_prior,
     'lambda2':lambda_prior,
+    'lambda_plus': lambda_prior,
+    'lambda_minus': lambda_prior,
     'LambdaTilde':lambda_tilde_prior,
     'DeltaLambdaTilde':delta_lambda_tilde_prior,
 }
@@ -465,8 +475,10 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'chiz_minus':[-chi_max,chi_max],
   'm1':[0.9,1e3],
   'm2':[0.9,1e3],
-  'lambda1':[0.01,4000],
-  'lambda2':[0.01,4000],
+  'lambda1':[0.01,lambda_max],
+  'lambda2':[0.01,lambda_max],
+  'lambda_plus':[0.01,lambda_plus_max],
+  'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
@@ -644,7 +656,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
         print  " Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y) 
 
         if opts.fit_save_gp:
-            print " Attempting to save fit "
+            print " Attempting to save fit ", opts.fit_save_gp+".pkl"
             joblib.dump(gp,opts.fit_save_gp+".pkl")
         
         if not (opts.fit_uncertainty_added):
