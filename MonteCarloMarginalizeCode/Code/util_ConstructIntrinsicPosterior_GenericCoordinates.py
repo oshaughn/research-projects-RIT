@@ -195,6 +195,7 @@ parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help
 parser.add_argument("--mirror-points",action='store_true',help="Use if you have many points very near equal mass (BNS). Doubles the number of points in the fit, each of which has a swapped m1,m2")
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
+parser.add_argument("--chiz-plus-range", default=None,help="USE WITH CARE: If you are using chiz_minus, chiz_plus for a near-equal-mass system, then setting the chiz-plus-range can improve convergence (e.g., for aligned-spin systems), loosely by setting a chi_eff range that is allowed")
 parser.add_argument("--lambda-max", default=4000,type=float,help="Maximum range of 'Lambda' allowed.  Minimum value is ZERO, not negative.")
 parser.add_argument("--lambda-plus-max", default=None,type=float,help="Maximum range of 'Lambda_plus' allowed.  Used for sampling. Pick small values to accelerate sampling! Otherwise, use lambda-max.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
@@ -483,6 +484,9 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
 }
+if not (opts.chiz_plus_range is None):
+    print " Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range
+    prior_range_map['chiz_plus']=eval(opts.chiz_plus_range)
 
 if not (opts.eta_range is None):
     print " Warning: Overriding default eta range. USE WITH CARE"
