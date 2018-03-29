@@ -35,6 +35,8 @@ from sklearn.externals import joblib  # http://scikit-learn.org/stable/modules/m
 no_plots = True
 internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
 
+C_CGS=2.997925*10**10 # Argh, Monica!
+ 
 try:
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
@@ -200,6 +202,7 @@ parser.add_argument("--lambda-max", default=4000,type=float,help="Maximum range 
 parser.add_argument("--lambda-plus-max", default=None,type=float,help="Maximum range of 'Lambda_plus' allowed.  Used for sampling. Pick small values to accelerate sampling! Otherwise, use lambda-max.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
+parser.add_argument("--lnL-shift-prevent-overflow",default=None,type=float,help="Define this quantity to be a large positive number to avoid overflows. Note that we do *not* define this dynamically based on sample values, to insure reproducibility and comparable integral results. BEWARE: If you shift the result to be below zero, because the GP relaxes to 0, you will get crazy answers.")
 parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset")
 parser.add_argument("--lnL-offset-n-random",type=int,default=0,help="Add this many random points past the threshold")
 parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]")
@@ -226,8 +229,12 @@ parser.add_argument("--fit-uncertainty-added",default=False, action='store_true'
 parser.add_argument("--no-plots",action='store_true')
 parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS if not already determined in lnL")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
+parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
 opts=  parser.parse_args()
 no_plots = no_plots |  opts.no_plots
+lnL_shift = 0
+if opts.lnL_shift_prevent_overflow:
+    lnL_shift  = opts.lnL_shift_prevent_overflow
 
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
@@ -237,7 +244,23 @@ if opts.using_eos!=None:
 
     if opts.eos_param == 'spectral':
         # Will not work yet -- need to modify to parse command-line arguments
-        lalsim_spec_param=spec_param/(C_CGS**2)*7.42591549*10**(-25)
+        spec_param_packed=eval(opts.eos_param_values) # two lists: first are 'fixed' and second are specific
+        fixed_params_array=spec_param_packed[0]
+        spec_param_array=spec_param_packed[1]
+        spec_params ={}
+        spec_params['gamma1']=spec_param_array[0]
+        spec_params['gamma2']=spec_param_array[1]
+        spec_params['p0']=fixed_param_array[0]
+        spec_params['epsilon0']=fixed_param_array[1]
+        spec_params['xmax']=fixed_param_array[2]
+        if len(spec_param_array) <3:
+            spec_params['gamma2']=spec_params['gamma3']=0
+        else:
+            spec_params['gamma2']=spec_param_array[2]
+            spec_params['gamma3']=spec_param_array[3]
+        eos_base = EOSMananager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params)
+        eos_vals = eos_base.make_spec_param_eos(npts=500)
+        lalsim_spec_param = eos_vals/(C_CGS**2)*7.42591549*10**(-25) # argh, Monica!
         np.savetxt("lalsim_eos/"+eos_name+"_spec_param_geom.dat", np.c_[lalsim_spec_param[:,1], lalsim_spec_param[:,0]])
         my_eos=lalsim.SimNeutronStarEOSFromFile(path+"/lalsim_eos/"+eos_name+"_spec_param_geom.dat")
     else:
@@ -934,7 +957,7 @@ my_fit= None
 if opts.fit_method == "quadratic":
     print " FIT METHOD ", opts.fit_method, " IS QUADRATIC"
     X=X[indx_ok]
-    Y=Y[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
@@ -965,7 +988,7 @@ if opts.fit_method == "quadratic":
 elif opts.fit_method == "polynomial":
     print " FIT METHOD ", opts.fit_method, " IS POLYNOMIAL"
     X=X[indx_ok]
-    Y=Y[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
@@ -982,7 +1005,7 @@ elif opts.fit_method == 'gp_hyper':
     # some data truncation IS used for the GP, but beware
     print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
     X=X[indx_ok]
-    Y=Y[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
@@ -999,7 +1022,7 @@ elif opts.fit_method == 'gp':
     # some data truncation IS used for the GP, but beware
     print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
     X=X[indx_ok]
-    Y=Y[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
@@ -1016,7 +1039,7 @@ elif opts.fit_method == 'gp-pool':
     # some data truncation IS used for the GP, but beware
     print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
     X=X[indx_ok]
-    Y=Y[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
