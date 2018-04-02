@@ -193,6 +193,7 @@ parser.add_argument("--downselect-parameter",action='append', help='Name of para
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--no-downselect",action='store_true')
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
+parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
 parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help="Applies volumetric prior internally, and then reweights at end step to get uniform spin magnitude prior")
 parser.add_argument("--pseudo-uniform-magnitude-prior-alternate-sampling", action='store_true',help="Changes the internal sampling to be gaussian, not volumetric")
 parser.add_argument("--mirror-points",action='store_true',help="Use if you have many points very near equal mass (BNS). Doubles the number of points in the fit, each of which has a swapped m1,m2")
@@ -462,7 +463,7 @@ def m_prior(x):
 def xi_uniform_prior(x):
     return np.ones(x.shape)
 def s_component_uniform_prior(x):  # If all three are used, a volumetric prior
-    return np.ones(x.shape)/2.
+    return np.ones(x.shape)/(2.*chi_max)
 def s_component_gaussian_prior(x,R=chi_max/3.):
     """
     (proportinal to) prior on range in one-dimensional components, in a cartesian domain.
@@ -554,6 +555,15 @@ if opts.aligned_prior == 'alignedspin-zprior':
     # prior on s1z constructed to produce the standard distribution
     prior_map["s1z"] = s_component_zprior
     prior_map["s2z"] = s_component_zprior
+    if  'chiz_plus' in low_level_coord_names:
+        if opts.spin_prior_chizplusminus_alternate_sampling is 'alignedspin_zprior':
+            # just a  trick to make reweighting more efficient.
+            prior_map['chiz_plus'] = s_component_zprior
+            prior_map['chiz_minus'] = s_component_zprior
+        else:
+            prior_map['chiz_plus'] = s_component_gaussian_prior
+            prior_map['chiz_minus'] = s_component_gaussian_prior
+
 
 
 if opts.aligned_prior == 'volumetric':
@@ -1281,11 +1291,12 @@ elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys():
 # Prevent alignedspin-zprior from being used when transverse spins are present ... no sense!
 # Note we need to downslelect early in this case
 if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  and (not 's1x' in samples.keys()):
+    prior_weight = np.prod([prior_map[x](samples[x]) for x in ['chiz_plus','chiz_minus'] ],axis=0)
     s1z  = samples['chiz_plus'] + samples['chiz_minus']
     s2z  =samples['chiz_plus'] - samples['chiz_minus']
     indx_ok = np.logical_and(np.abs(s1z)<=chi_max , np.abs(s2z)<=chi_max)
     weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
-    weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(4*chi_max*chi_max)  # correct for uniform
+    weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(prior_weight[indx_ok])  # correct for uniform
         
 
 
