@@ -761,13 +761,13 @@ class ChooseWaveformParams:
         sys.exit(0)
 
 
-    def randomize(self,zero_spin_Q=False,aligned_spin_Q=False,default_inclination=None,default_phase=None,default_polarization=None):
+    def randomize(self,zero_spin_Q=False,aligned_spin_Q=False,default_inclination=None,default_phase=None,default_polarization=None,dMax=500.,dMin=1.):
         mMin = 2.   # min component mass (Msun)
         mMax = 10.  # max component mass (Msun)
         sMin = 0.   # min spin magnitude
         sMax = 1.   # max spin magnitude
-        dMin = 20.   # min distance (Mpc)
-        dMax = 500. # max distance (Mpc)
+#        dMin = float(dMin)   # min distance (Mpc)
+#        dMax = float(dMax) # max distance (Mpc)
         self.m1 = np.random.uniform(mMin,mMax)
         self.m2 = np.random.uniform(mMin,mMax)  # 
         self.m1, self.m2 = [np.max([self.m1,self.m2]), np.min([self.m1,self.m2])]
@@ -819,7 +819,7 @@ class ChooseWaveformParams:
             print " catastrophe "
             sys.exit(0)
         self.radec=True
-        dist =  dMax*np.power(np.random.uniform(dMin/dMax,1), 1./3)  # rough, but it should work
+        dist =  dMax*np.power(np.random.uniform( np.power(dMin/dMax,3),1), 1./3)  # rough, but it should work
         self.dist = dist*1e6 * lsu_PC
         self.lambda1 = 0.
         self.lambda2 = 0.
