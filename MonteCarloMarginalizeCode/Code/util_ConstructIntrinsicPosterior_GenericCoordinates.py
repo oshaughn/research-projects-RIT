@@ -184,6 +184,7 @@ parser.add_argument("--desc-lalinference",type=str,default='',help="String to ad
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
+#parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
@@ -581,10 +582,10 @@ if opts.pseudo_uniform_magnitude_prior and opts.pseudo_uniform_magnitude_prior_a
     elif 'chiz_plus' in low_level_coord_names:  # because of rotated coordinate system. This matches in interior
         print " CODE PATH NOT YET WORKING "
         sys.exit(0)
-        prior_map['chiz_plus'] = lambda x: s_component_gaussian_prior(x, R=chi_max/3.)
-        prior_map['chiz_minus'] = lambda x: s_component_gaussian_prior(x, R=chi_max/3.) 
-        prior_map['s1z'] = s_component_gaussian_prior
-        prior_map['s2z'] = s_component_gaussian_prior
+        prior_map['chiz_plus'] = s_component_gaussian_prior #lambda x: s_component_gaussian_prior(x, R=chi_max/3.)
+        prior_map['chiz_minus'] = s_component_gaussian_prior #lambda x: s_component_gaussian_prior(x, R=chi_max/3.) 
+#        prior_map['s1z'] = s_component_gaussian_prior
+#        prior_map['s2z'] = s_component_gaussian_prior
 
 
 # tex_dictionary  = {
@@ -1277,7 +1278,8 @@ if opts.pseudo_uniform_magnitude_prior and 's1x' in samples.keys() and 's1z' in 
         val = np.array(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype)
         chi2= np.sqrt(val)
         weights *= 3.*chi_max*chi_max/(chi2*chi2*prior_weight)
-elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys():
+elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys() and not opts.pseudo_uniform_magnitude_prior_alternate_sampling:
+    # Uniform sampling: simple volumetric reweight
     s1z  = samples['chiz_plus'] + samples['chiz_minus']
     s2z  = samples['chiz_plus'] - samples['chiz_minus']
     val1 = np.array(s1z**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype); chi1 = np.sqrt(val1)
@@ -1285,6 +1287,15 @@ elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys():
     indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_max)
     weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
     weights[indx_ok] *= 9.*(chi_max**4)/(chi1*chi1*chi2*chi2)[indx_ok]
+elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys() and not opts.pseudo_uniform_magnitude_prior_alternate_sampling:
+    s1z  = samples['chiz_plus'] + samples['chiz_minus']
+    s2z  = samples['chiz_plus'] - samples['chiz_minus']
+    val1 = np.array(s1z**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype); chi1 = np.sqrt(val1)
+    val2 = np.array(s2z**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype); chi2= np.sqrt(val2)
+    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_max)
+    weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
+    prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s1x','s1y', 's2x', 's2y','chiz_plus','chiz_minus'] ],axis=0)
+    weights[indx_ok] *= 9.*(chi_max**4)/(chi1*chi1*chi2*chi2)[indx_ok]/prior_weight[indx_ok]  # undo chizplus, chizminus prior
     
 
 # If we are using alignedspin-zprior AND chiz+, chiz-, then we need to reweight .. that prior cannot be evaluated internally
