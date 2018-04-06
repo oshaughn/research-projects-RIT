@@ -184,6 +184,7 @@ parser.add_argument("--desc-lalinference",type=str,default='',help="String to ad
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
+#parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
@@ -193,7 +194,9 @@ parser.add_argument("--downselect-parameter",action='append', help='Name of para
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--no-downselect",action='store_true')
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
+parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
 parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help="Applies volumetric prior internally, and then reweights at end step to get uniform spin magnitude prior")
+parser.add_argument("--pseudo-uniform-magnitude-prior-alternate-sampling", action='store_true',help="Changes the internal sampling to be gaussian, not volumetric")
 parser.add_argument("--mirror-points",action='store_true',help="Use if you have many points very near equal mass (BNS). Doubles the number of points in the fit, each of which has a swapped m1,m2")
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
@@ -399,6 +402,31 @@ if opts.no_downselect:
 test_converged={}
 #test_converged['neff'] = functools.partial(mcsampler.convergence_test_MostSignificantPoint,0.01)  # most significant point less than 1/neff of probability.  Exactly equivalent to usual neff threshold.
 #test_converged["normal_integral"] = functools.partial(mcsampler.convergence_test_NormalSubIntegrals, 25, 0.01, 0.1)   # 20 sub-integrals are gaussian distributed [weakly; mainly to rule out outliers] *and* relative error < 10%, based on sub-integrals . Should use # of intervals << neff target from above.  Note this sets our target error tolerance on  lnLmarg.  Note the specific test requires >= 20 sub-intervals, which demands *very many* samples (each subintegral needs to be converged).
+###
+### Parameters in use
+###
+
+coord_names = opts.parameter # Used  in fit
+if coord_names is None:
+    coord_names = []
+low_level_coord_names = coord_names # Used for Monte Carlo
+if opts.parameter_implied:
+    coord_names = coord_names+opts.parameter_implied
+if opts.parameter_nofit:
+    if opts.parameter is None:
+        low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
+    else:
+        low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
+error_factor = len(coord_names)
+if opts.fit_uses_reported_error:
+    error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
+# TeX dictionary
+tex_dictionary = lalsimutils.tex_dictionary
+print " Coordinate names for fit :, ", coord_names
+print " Rendering coordinate names : ",  render_coordinates(coord_names)  # map(lambda x: tex_dictionary[x], coord_names)
+print " Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names)
+print " Coordinate names for Monte Carlo :, ", low_level_coord_names
+print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_level_coord_names)
 
 
 ###
@@ -436,20 +464,23 @@ def m_prior(x):
 def xi_uniform_prior(x):
     return np.ones(x.shape)
 def s_component_uniform_prior(x):  # If all three are used, a volumetric prior
-    return np.ones(x.shape)/2.
-def s_component_gaussian_prior(x,R=chi_max/3):
+    return np.ones(x.shape)/(2.*chi_max)
+def s_component_gaussian_prior(x,R=chi_max/3.):
     """
     (proportinal to) prior on range in one-dimensional components, in a cartesian domain.
     Could be useful to sample densely near zero spin.
+    [Note: we should use 'truncnorm' instead...]
     """
-    return scipy.stats.norm.pdf(x,scale=R)/(1-2*scipy.stats.cdf(chi_max,scale=R))     
-
+    xp = np.array(x,dtype=float)
+    val= scipy.stats.truncnorm(-chi_max/R,chi_max/R,scale=R).pdf(xp)  # stupid casting problem : x is dtype 'object'
+    return val
 
 def s_component_zprior(x,R=chi_max):
     # assume maximum spin =1. Should get from appropriate prior range
     # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
     val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
     return val
+
 
 def s_component_volumetricprior(x,R=1.):
     # assume maximum spin =1. Should get from appropriate prior range
@@ -525,16 +556,38 @@ if opts.aligned_prior == 'alignedspin-zprior':
     # prior on s1z constructed to produce the standard distribution
     prior_map["s1z"] = s_component_zprior
     prior_map["s2z"] = s_component_zprior
+    if  'chiz_plus' in low_level_coord_names:
+        if opts.spin_prior_chizplusminus_alternate_sampling is 'alignedspin_zprior':
+            # just a  trick to make reweighting more efficient.
+            prior_map['chiz_plus'] = s_component_zprior
+            prior_map['chiz_minus'] = s_component_zprior
+        else:
+            prior_map['chiz_plus'] = s_component_gaussian_prior
+            prior_map['chiz_minus'] = s_component_gaussian_prior
+
 
 
 if opts.aligned_prior == 'volumetric':
     prior_map["s1z"] = s_component_aligned_volumetricprior
     prior_map["s2z"] = s_component_aligned_volumetricprior
 
+if opts.pseudo_uniform_magnitude_prior and opts.pseudo_uniform_magnitude_prior_alternate_sampling:
+    prior_map['s1x'] = s_component_gaussian_prior
+    prior_map['s2x'] = s_component_gaussian_prior
+    prior_map['s1y'] = s_component_gaussian_prior
+    prior_map['s2y'] = s_component_gaussian_prior
+    if 's1z' in low_level_coord_names:
+        prior_map['s1z'] = s_component_gaussian_prior
+        prior_map['s2z'] = s_component_gaussian_prior
+    elif 'chiz_plus' in low_level_coord_names:  # because of rotated coordinate system. This matches in interior
+        print " CODE PATH NOT YET WORKING "
+        sys.exit(0)
+        prior_map['chiz_plus'] = s_component_gaussian_prior #lambda x: s_component_gaussian_prior(x, R=chi_max/3.)
+        prior_map['chiz_minus'] = s_component_gaussian_prior #lambda x: s_component_gaussian_prior(x, R=chi_max/3.) 
+#        prior_map['s1z'] = s_component_gaussian_prior
+#        prior_map['s2z'] = s_component_gaussian_prior
 
 
-# TeX dictionary
-tex_dictionary = lalsimutils.tex_dictionary
 # tex_dictionary  = {
 #  "mtot": '$M$',
 #  "mc": '${\cal M}_c$',
@@ -727,25 +780,6 @@ def fit_gp_pool(x,y,n_pool=10,**kwargs):
 
 
 
-coord_names = opts.parameter # Used  in fit
-if coord_names is None:
-    coord_names = []
-low_level_coord_names = coord_names # Used for Monte Carlo
-if opts.parameter_implied:
-    coord_names = coord_names+opts.parameter_implied
-if opts.parameter_nofit:
-    if opts.parameter is None:
-        low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
-    else:
-        low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
-error_factor = len(coord_names)
-if opts.fit_uses_reported_error:
-    error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
-print " Coordinate names for fit :, ", coord_names
-print " Rendering coordinate names : ",  render_coordinates(coord_names)  # map(lambda x: tex_dictionary[x], coord_names)
-print " Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names)
-print " Coordinate names for Monte Carlo :, ", low_level_coord_names
-print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_level_coord_names)
 
 # initialize
 dat_mass  = [] 
@@ -1235,15 +1269,17 @@ weights = np.exp(lnL-lnLmax)*p/ps
 #     ONLY done if we use s1x, s1y, s1z, s2x, s2y, s2z
 # volumetric prior scales as a1^2 a2^2 da1 da2; we need to undo it
 if opts.pseudo_uniform_magnitude_prior and 's1x' in samples.keys() and 's1z' in samples.keys():
+    prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s1x','s1y','s1z'] ],axis=0)
     val = np.array(samples["s1z"]**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype)
     chi1 = np.sqrt(val)  # weird typecasting problem
-    weights *= 3.*chi_max*chi_max/(chi1*chi1)
+    weights *= 3.*chi_max*chi_max/(chi1*chi1*prior_weight)   # prior_weight accounts for the density, in cartesian coordinates
     if 's2z' in samples.keys():
+        prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s2x','s2y','s2z'] ],axis=0)
         val = np.array(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype)
         chi2= np.sqrt(val)
-#        chi2 = np.sqrt(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2)
-        weights *= 3.*chi_max*chi_max/(chi2*chi2)
-elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys():
+        weights *= 3.*chi_max*chi_max/(chi2*chi2*prior_weight)
+elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys() and not opts.pseudo_uniform_magnitude_prior_alternate_sampling:
+    # Uniform sampling: simple volumetric reweight
     s1z  = samples['chiz_plus'] + samples['chiz_minus']
     s2z  = samples['chiz_plus'] - samples['chiz_minus']
     val1 = np.array(s1z**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype); chi1 = np.sqrt(val1)
@@ -1251,17 +1287,27 @@ elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys():
     indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_max)
     weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
     weights[indx_ok] *= 9.*(chi_max**4)/(chi1*chi1*chi2*chi2)[indx_ok]
+elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys() and not opts.pseudo_uniform_magnitude_prior_alternate_sampling:
+    s1z  = samples['chiz_plus'] + samples['chiz_minus']
+    s2z  = samples['chiz_plus'] - samples['chiz_minus']
+    val1 = np.array(s1z**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype); chi1 = np.sqrt(val1)
+    val2 = np.array(s2z**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype); chi2= np.sqrt(val2)
+    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_max)
+    weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
+    prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s1x','s1y', 's2x', 's2y','chiz_plus','chiz_minus'] ],axis=0)
+    weights[indx_ok] *= 9.*(chi_max**4)/(chi1*chi1*chi2*chi2)[indx_ok]/prior_weight[indx_ok]  # undo chizplus, chizminus prior
     
 
 # If we are using alignedspin-zprior AND chiz+, chiz-, then we need to reweight .. that prior cannot be evaluated internally
 # Prevent alignedspin-zprior from being used when transverse spins are present ... no sense!
 # Note we need to downslelect early in this case
 if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  and (not 's1x' in samples.keys()):
+    prior_weight = np.prod([prior_map[x](samples[x]) for x in ['chiz_plus','chiz_minus'] ],axis=0)
     s1z  = samples['chiz_plus'] + samples['chiz_minus']
     s2z  =samples['chiz_plus'] - samples['chiz_minus']
     indx_ok = np.logical_and(np.abs(s1z)<=chi_max , np.abs(s2z)<=chi_max)
     weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
-    weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(4*chi_max*chi_max)  # correct for uniform
+    weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(prior_weight[indx_ok])  # correct for uniform
         
 
 
