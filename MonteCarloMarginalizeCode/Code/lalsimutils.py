@@ -120,8 +120,8 @@ except:
     lalSEOBv4 =-1
     lalIMRPhenomD = -2
 try:
-    lalTEOBv2 = lalsim.TEOBv2
-    lalTEOBv4 = lalsim.TEOBv4
+    lalTEOBv2 = -3 # not implemented
+    lalTEOBv4 = lalsim.SEOBNRv4T
 except:
     lalTEOBv2 = -3
     lalTEOBv4 = -4
