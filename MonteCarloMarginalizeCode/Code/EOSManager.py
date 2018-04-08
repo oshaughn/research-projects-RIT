@@ -10,6 +10,7 @@
 #          to directly create the structure ourselves, using eos_alloc_tabular
 #           https://github.com/lscsoft/lalsuite/blob/master/lalsimulation/src/LALSimNeutronStarEOSTabular.c
 
+rosDebug=False
 
 import numpy as np
 import os
@@ -244,10 +245,9 @@ class EOSPiecewisePolytrope(EOSConcrete):
         self.mMaxMsun=None
 
 
-        eos=lalsim.SimNeutronStarEOS4ParameterPiecewisePolytrope(param_dict['logP1'], param_dict['gamma1'], param_dict['gamma2'], param_dict['gamma3'])
-        eos_fam=lalsim.CreateSimNeutronStarFamily(eos)
-        mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
-        self.mMaxMsun = mmass
+        eos=self.eos=lalsim.SimNeutronStarEOS4ParameterPiecewisePolytrope(param_dict['logP1'], param_dict['gamma1'], param_dict['gamma2'], param_dict['gamma3'])
+        eos_fam=self.eos_fam=lalsim.CreateSimNeutronStarFamily(eos)
+        self.mMaxMsun = lalsim.SimNeutronStarMaximumMass(eos_fam) / lal.MSUN_SI
 
         return None
 
@@ -373,35 +373,47 @@ def make_mr_lambda(eos):
    """
    fam=lalsim.CreateSimNeutronStarFamily(eos)
  
+   r_cut = 40   # Some EOS we consider for PE purposes will have very large radius!
+
    #set p_nuc max
-   p_nuc=3*10**33
+   #   - start at a fiducial nuclear density
+   #   - not sure what these termination conditions are designed to do ... generally this pushes to  20 km
+   #   - generally this quantity is the least reliable
+   p_nuc=3.*10**33   # consistent with examples
    fac_min=0
    r_fin=0
-   while r_fin > 28 or r_fin < 20:
-      #print "Trying:"
-      #print "p_c: ",(10**fac_min)*p_nuc
+   while r_fin > r_cut+8 or r_fin < r_cut:
+       # Generally tries to converge to density corresponding to 20km radius
       try: 
-         answer=lalsim.SimNeutronStarTOVODEIntegrate((10**fac_min)*p_nuc, eos)     
+         answer=lalsim.SimNeutronStarTOVODEIntegrate((10**fac_min)*p_nuc, eos)      # r(SI), m(SI), lambda
       except:
+          # If failure, backoff
          fac_min=-0.05
          break 
       r_fin=answer[0]
-      r_fin=r_fin*10**-3
-      #print "R: ",r_fin
-      if r_fin<20:
+      r_fin=r_fin*10**-3  # convert to SI
+#      print "R: ",r_fin
+      if r_fin<r_cut:
          fac_min-=0.05
-      elif r_fin>28:
+      elif r_fin>r_cut+8:
          fac_min+=0.01
+   answer=lalsim.SimNeutronStarTOVODEIntegrate((10**fac_min)*p_nuc, eos)      # r(SI), m(SI), lambda
+   m_min = answer[1]/lal.MSUN_SI
 
    #set p_nuc min
+   #   - tries to converge to central pressure corresponding to maximum NS mass
+   #   - very frustrating...this data is embedded in the C code
    fac_max=1.6
    r_fin=20.
-   while r_fin > lalsim.SimNeutronStarRadius(lalsim.SimNeutronStarMaximumMass(fam), fam)/(10**3) or r_fin < 7:
+   m_ref = lalsim.SimNeutronStarMaximumMass(fam)/lal.MSUN_SI
+   r_ref = lalsim.SimNeutronStarRadius(lalsim.SimNeutronStarMaximumMass(fam), fam)/(10**3)
+   answer=None
+   while r_fin > r_ref  or r_fin < 7:
        #print "Trying min:"
-       #print "p_c: ",(10**fac_max)*p_nuc
+#       print "p_c: ",(10**fac_max)*p_nuc
        try:
           answer=lalsim.SimNeutronStarTOVODEIntegrate((10**fac_max)*p_nuc, eos)         
-          if answer[0]*10**-3 < lalsim.SimNeutronStarRadius(lalsim.SimNeutronStarMaximumMass(fam), fam)/(10**3):
+          if answer[0]*10**-3 < r_ref:
              break 
        except:
           fac_max-=0.05
@@ -414,9 +426,9 @@ def make_mr_lambda(eos):
                 fac_max-=0.05
           break
           #print lalsim.SimNeutronStarTOVODEIntegrate((10**fac_max)*p_nuc, eos)
-       r_fin=answer[0]
-       r_fin=r_fin*10**-3
-       #print "R: ",r_fin
+       r_fin=answer[0]/10**3 # convert to km
+       if rosDebug:
+           print "R: ",r_fin, r_ref, " M: ", answer[1]/lal.MSUN_SI, m_ref , m_min # should converge to maximum mass
        if r_fin>8:
           fac_max+=0.05
        if r_fin<6:
@@ -424,10 +436,10 @@ def make_mr_lambda(eos):
 #       print 10**fac_max
 
    #generate mass-radius curve
-   scale=np.logspace(fac_min,fac_max,200)
-#   print scale 
+   npts_out = 1000
+   scale=np.logspace(fac_min,fac_max,npts_out)
    
-   mr_array=np.zeros((200,3))
+   mr_array=np.zeros((npts_out,3))
    for s,i in zip(scale,range(0,len(scale))):
 #       print s
        mr_array[i,:]=lalsim.SimNeutronStarTOVODEIntegrate(s*p_nuc, eos)
@@ -436,5 +448,7 @@ def make_mr_lambda(eos):
    mr_array[:,1]=mr_array[:,1]/lal.MSUN_SI
    mr_array[:,2]=2./(3*lal.G_SI)*mr_array[:,2]*(mr_array[:,0]*10**3)**5
    mr_array[:,2]=lal.G_SI*mr_array[:,2]*(1/(mr_array[:,1]*lal.MSUN_SI*lal.G_SI/lal.C_SI**2))**5
+
+#   print mr_array[:,1]
 
    return mr_array
