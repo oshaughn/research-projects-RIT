@@ -17,8 +17,11 @@ import os
 import sys
 import lal
 import lalsimulation as lalsim
+from scipy.integrate import quad
 #import gwemlightcurves.table as gw_eos_table
 
+
+C_CGS=2.997925*10**10 # Argh, Monica!
 
 ###
 ### SERVICE 0: General EOS structure
@@ -51,6 +54,24 @@ class EOSConcrete:
         dimensionless_lam=lal.G_SI*lam*(1/m)**5
 
         return dimensionless_lam
+
+
+    def pressure_density_on_grid(self,logrho_grid):
+        """ 
+        pressure_density_on_grid
+        """
+        dat_out = np.zeros(len(logrho_grid))
+        fam = self.eos_fam
+        eos = self.eos
+        npts_internal = 10000
+        p_internal = np.zeros(npts_internal)
+        rho_internal = np.zeros(npts_internal)
+        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos),npts_internal)
+        for indx in np.arange(npts_internal):
+            rho_internal[indx] = lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(h[indx],eos)
+            p_internal[indx] = lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(h[indx],eos)
+        logp_of_logrho = interp.interp1d(np.log10(rho),np.log10(p),kind='linear')
+        return logp_of_logrho(logrho_grid)
 
 
 ###
@@ -254,59 +275,38 @@ class EOSPiecewisePolytrope(EOSConcrete):
 
 class EOSLindblomSpectral:
     def __init__(self,name=None,spec_params=None):
-        self.name=name
+        if name is None:
+            self.name = 'spectral'
+        else:
+            self.name=name
         self.eos = None
         self.eos_fam = None
 
         self.spec_params = spec_params
+        print spec_params
+
+        # Create data file
+        self.make_spec_param_eos(500,save_dat=True,ligo_units=True)
+
+        # Use data file
+        print " Trying to load ",name+"_geom.dat"
+        import os; #print os.listdir('.')
+        cwd = os.getcwd()
+        self.eos=eos = lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
+        self.fam = fam=lalsim.CreateSimNeutronStarFamily(eos)
+        mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
+        self.mMaxMsun = mmass
+
+
+#        my_fromfile_eos =EOSFromDataFile(fname=name+"_spec.dat")
+#        self.eos = my_fromfile_eos.eos
+#        self.fam = my_fromfile_eos.fam
+#        self.mMaxMsun = my_fromfile_eos.mMaxMsun
         return None
 
 
-    def gamma_of_x(x, coeffs):
-        """
-        Eq 6 from https://arxiv.org/pdf/1009.0738.pdf
-        """
-        gamma=0
-        for i in range(0,len(coeffs)):
-            gamma+=coeffs[i]*x**i 
-        gamma=np.exp(gamma)  
-        return gamma
-  
-    def mu(x, coeffs):
-        """
-        Eq 8 from https://arxiv.org/pdf/1009.0738.pdf
-        """
 
-        def int_func(x_prime):
-            return (gamma_of_x(x_prime, coeffs))**(-1)    
-
-        if isinstance(x, (list, np.ndarray)):
-            val=np.zeros(len(x))
-            for i in range(0,len(x)):
-                tmp=quad(int_func, 0, x[i])
-                val[i]=tmp[0]  
-        else:    
-            val=quad(int_func, 0, x)
-
-        return np.exp(-1.*val[0])
-
-    def epsilon(x, p0, eps0, coeffs):
-        """
-        Eq. 7 from https://arxiv.org/pdf/1009.0738.pdf
-        """
-        def int_func(x_prime):
-            num = mu(x_prime, coeffs)*np.exp(x_prime)
-            denom = gamma_of_x(x_prime, coeffs)
-            return num / denom
-          
-        mu_of_x=mu(x, coeffs)  
-        val=quad(int_func, 0, x)
-        #val=romberg(int_func, 0, x, show=True)   
-        eps=(eps0*C_CGS**2)/mu_of_x + p0/mu_of_x * val[0]
- 
-        return eps
-
-    def make_spec_param_eos(self, npts, plot=False, verbose=False, save_dat=False):
+    def make_spec_param_eos(self, npts, plot=False, verbose=False, save_dat=False,ligo_units=False):
         """
         Load values from table of spectral parameterization values
         Table values taken from https://arxiv.org/pdf/1009.0738.pdf
@@ -332,7 +332,7 @@ class EOSLindblomSpectral:
   
     #doing as those before me have done and using SLY4 as low density region
         # THIS MUST BE FIXED TO USE STANDARD LALSUITE ACCESS, do not assume the file exists
-        low_density=np.loadtxt("LALSimNeutronStarEOS_SLY4.dat")
+        low_density=np.loadtxt(dirEOSTablesBase+"/LALSimNeutronStarEOS_SLY4.dat")
         low_density[:,0]=low_density[:,0]*C_CGS**2/(7.42591549*10**(-25))
         low_density[:,1]=low_density[:,1]*C_CGS**2/(7.42591549*10**(-25))
         low_density[:,[0, 1]] = low_density[:,[1, 0]]
@@ -352,11 +352,58 @@ class EOSLindblomSpectral:
         #     plt.ylabel("Pressure")
         #     plt.show() 
 
+        if ligo_units:
+            eos_vals *= 7.42591549e-25/(C_CGS**2)
+
         if save_dat == True:
-            np.savetxt(eos_name+"_spec.dat", eos_vals)
+            np.savetxt(self.name+"_geom.dat", eos_vals)
 
         return eos_vals
 
+
+def gamma_of_x(x, coeffs):
+        """
+        Eq 6 from https://arxiv.org/pdf/1009.0738.pdf
+        """
+        gamma=0
+        for i in range(0,len(coeffs)):
+            gamma+=coeffs[i]*x**i 
+        gamma=np.exp(gamma)  
+        return gamma
+  
+def mu(x, coeffs):
+        """
+        Eq 8 from https://arxiv.org/pdf/1009.0738.pdf
+        """
+
+        def int_func(x_prime):
+            return (gamma_of_x(x_prime, coeffs))**(-1)    
+
+        if isinstance(x, (list, np.ndarray)):
+            val=np.zeros(len(x))
+            for i in range(0,len(x)):
+                tmp=quad(int_func, 0, x[i])
+                val[i]=tmp[0]  
+        else:    
+            val=quad(int_func, 0, x)
+
+        return np.exp(-1.*val[0])
+
+def epsilon(x, p0, eps0, coeffs):
+        """
+        Eq. 7 from https://arxiv.org/pdf/1009.0738.pdf
+        """
+        def int_func(x_prime):
+            num = mu(x_prime, coeffs)*np.exp(x_prime)
+            denom = gamma_of_x(x_prime, coeffs)
+            return num / denom
+          
+        mu_of_x=mu(x, coeffs)  
+        val=quad(int_func, 0, x)
+        #val=romberg(int_func, 0, x, show=True)   
+        eps=(eps0*C_CGS**2)/mu_of_x + p0/mu_of_x * val[0]
+ 
+        return eps
 
 
 
