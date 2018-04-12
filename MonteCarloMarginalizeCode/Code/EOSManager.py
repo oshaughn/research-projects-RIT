@@ -20,8 +20,11 @@ import lalsimulation as lalsim
 from scipy.integrate import quad
 #import gwemlightcurves.table as gw_eos_table
 
+import MonotonicSpline as ms
+
 
 C_CGS=2.997925*10**10 # Argh, Monica!
+DENSITY_CGS_IN_MSQUARED=7.42591549e-25  # g/cm^3 m^2 //GRUnits. Multiply by this to convert from CGS -> 1/m^2 units (_geom)
 
 ###
 ### SERVICE 0: General EOS structure
@@ -137,8 +140,8 @@ class EOSFromDataFile(EOSConcrete):
             # NOTE: Adapted from code by Monica Rizzo
             print "Loading from %s" % self.fname
             bdens, press, edens = np.loadtxt(self.fname, unpack=True)
-            press *= 7.42591549e-25
-            edens *= 7.42591549e-25
+            press *= DENSITY_CGS_IN_MSQUARED
+            edens *= DENSITY_CGS_IN_MSQUARED
             eos_name = self.name
 
             if not np.all(np.diff(press) > 0):
@@ -283,13 +286,13 @@ class EOSLindblomSpectral:
         self.eos_fam = None
 
         self.spec_params = spec_params
-        print spec_params
+#        print spec_params
 
         # Create data file
-        self.make_spec_param_eos(500,save_dat=True,ligo_units=True)
+        self.make_spec_param_eos(500,save_dat=True,ligo_units=True,verbose=False)
 
         # Use data file
-        print " Trying to load ",name+"_geom.dat"
+        #print " Trying to load ",name+"_geom.dat"
         import os; #print os.listdir('.')
         cwd = os.getcwd()
         self.eos=eos = lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
@@ -306,19 +309,23 @@ class EOSLindblomSpectral:
 
 
 
-    def make_spec_param_eos(self, npts, plot=False, verbose=False, save_dat=False,ligo_units=False):
+    def make_spec_param_eos(self, npts=500, plot=False, verbose=False, save_dat=False,ligo_units=False,interpolate=False):
         """
         Load values from table of spectral parameterization values
         Table values taken from https://arxiv.org/pdf/1009.0738.pdf
+        Comments:
+            - eos_vals is recorded as *pressure,density* pairs, because the spectral representation is for energy density vs pressure
+            - units swap between geometric and CGS
         """
 
         spec_params = self.spec_params
+        if not 'gamma3' in spec_params:
+            spec_params['gamma3']=spec_params['gamma4']=0
         coefficients=np.array([spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4']])
         p0=spec_params['p0']
         eps0=spec_params['epsilon0']
         xmax=spec_params['xmax'] 
 
-    #make p range
         x_range=np.linspace(0,xmax,npts)
         p_range=p0*np.exp(x_range)
        
@@ -333,12 +340,15 @@ class EOSLindblomSpectral:
     #doing as those before me have done and using SLY4 as low density region
         # THIS MUST BE FIXED TO USE STANDARD LALSUITE ACCESS, do not assume the file exists
         low_density=np.loadtxt(dirEOSTablesBase+"/LALSimNeutronStarEOS_SLY4.dat")
-        low_density[:,0]=low_density[:,0]*C_CGS**2/(7.42591549*10**(-25))
-        low_density[:,1]=low_density[:,1]*C_CGS**2/(7.42591549*10**(-25))
-        low_density[:,[0, 1]] = low_density[:,[1, 0]]
+        low_density[:,0]=low_density[:,0]*C_CGS**2/(DENSITY_CGS_IN_MSQUARED)   # converts to energy density in CGS
+        low_density[:,1]=low_density[:,1]*C_CGS**2/(DENSITY_CGS_IN_MSQUARED)   # converts to energy density in CGS
+        low_density[:,[0, 1]] = low_density[:,[1, 0]]  # reverse order
 
         cutoff=eos_vals[0,:]   
+        if verbose:
+            print " cutoff ", cutoff
  
+        break_pt=0
         for i in range(0, len(low_density)):
             if low_density[i,0] > cutoff[0] or low_density[i,1] > cutoff[1]:   
                 break_pt=i
@@ -346,19 +356,39 @@ class EOSLindblomSpectral:
     
         eos_vals=np.vstack((low_density[0:break_pt,:], eos_vals)) 
 
-        # if plot==True:
-        #     plt.plot(np.log10(eos_vals[:,0]/(C_CGS**2)), np.log10(eos_vals[:,1]/(C_CGS**2)), 'o')
-        #     plt.xlabel("Energy Density")
-        #     plt.ylabel("Pressure")
-        #     plt.show() 
+        if not interpolate:
+#            print eos_vals
+            if ligo_units:
+                eos_vals *= DENSITY_CGS_IN_MSQUARED/(C_CGS**2)  # converts to geometric units: first convert from cgs energy density to g/cm^2, then to 1/m^2.
+ #               print " Rescaled "
+#                print eos_vals
+            
+            if save_dat == True:
+                np.savetxt(self.name+"_geom.dat", eos_vals[:,[1,0]])  #NOTE ORDER
 
-        if ligo_units:
-            eos_vals *= 7.42591549e-25/(C_CGS**2)
+            return eos_vals
+        
+        # Optional: interpolate in the log, to generate a denser EOS model
+        # Will produce better M(R) models for LAL
+        p_of_epsilon = ms.interpolate(np.log10(eos_vals[1:,0]), np.log10(eos_vals[1:,1]))
+  
+        new_eos_vals = np.zeros((resample_pts, 2))
+        epsilon_range = np.linspace(min(np.log10(eos_vals[1:,0])), max(np.log10(eos_vals[1:,0])), resample_pts)
+        new_eos_vals[:, 0] = 10**epsilon_range 
+ 
+        for i in range(0, resample_pts):
+            if verbose == True:
+                print "epsilon", 10**epsilon_range[i]
 
-        if save_dat == True:
-            np.savetxt(self.name+"_geom.dat", eos_vals)
+            new_eos_vals[i,1] = 10**ms.interp_func(epsilon_range[i], np.log10(eos_vals[1:,0]), np.log10(eos_vals[1:,1]), p_of_epsilon)
 
-        return eos_vals
+            if verbose == True:
+                print "p", new_eos_vals[i,1]
+    
+        new_eos_vals = check_monotonicity(new_eos_vals)
+        new_eos_vals = np.vstack((np.array([0.,0.]), new_eos_vals))
+        return new_eos_vals
+
 
 
 def gamma_of_x(x, coeffs):
