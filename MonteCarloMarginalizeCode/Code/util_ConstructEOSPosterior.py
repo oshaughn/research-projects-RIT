@@ -416,7 +416,7 @@ for line in dat:
   if line[col_lnL+1] > opts.sigma_cut:
       print "skipping", line
       continue
-  dat_here[:-2] = line[2:]
+  dat_here[:-2] = line[2:len(coord_names)+2]  # modify to use names!
   dat_here[-2] = line[0]
   dat_here[-1] = line[1]
   dat_out.append(dat_here)
