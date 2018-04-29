@@ -10,14 +10,21 @@
 #          to directly create the structure ourselves, using eos_alloc_tabular
 #           https://github.com/lscsoft/lalsuite/blob/master/lalsimulation/src/LALSimNeutronStarEOSTabular.c
 
+rosDebug=False
 
 import numpy as np
 import os
 import sys
 import lal
 import lalsimulation as lalsim
+from scipy.integrate import quad
 #import gwemlightcurves.table as gw_eos_table
 
+import MonotonicSpline as ms
+
+
+C_CGS=2.997925*10**10 # Argh, Monica!
+DENSITY_CGS_IN_MSQUARED=7.42591549e-25  # g/cm^3 m^2 //GRUnits. Multiply by this to convert from CGS -> 1/m^2 units (_geom)
 
 ###
 ### SERVICE 0: General EOS structure
@@ -50,6 +57,24 @@ class EOSConcrete:
         dimensionless_lam=lal.G_SI*lam*(1/m)**5
 
         return dimensionless_lam
+
+
+    def pressure_density_on_grid(self,logrho_grid):
+        """ 
+        pressure_density_on_grid
+        """
+        dat_out = np.zeros(len(logrho_grid))
+        fam = self.eos_fam
+        eos = self.eos
+        npts_internal = 10000
+        p_internal = np.zeros(npts_internal)
+        rho_internal = np.zeros(npts_internal)
+        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos),npts_internal)
+        for indx in np.arange(npts_internal):
+            rho_internal[indx] = lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(h[indx],eos)
+            p_internal[indx] = lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(h[indx],eos)
+        logp_of_logrho = interp.interp1d(np.log10(rho),np.log10(p),kind='linear')
+        return logp_of_logrho(logrho_grid)
 
 
 ###
@@ -115,8 +140,8 @@ class EOSFromDataFile(EOSConcrete):
             # NOTE: Adapted from code by Monica Rizzo
             print "Loading from %s" % self.fname
             bdens, press, edens = np.loadtxt(self.fname, unpack=True)
-            press *= 7.42591549e-25
-            edens *= 7.42591549e-25
+            press *= DENSITY_CGS_IN_MSQUARED
+            edens *= DENSITY_CGS_IN_MSQUARED
             eos_name = self.name
 
             if not np.all(np.diff(press) > 0):
@@ -244,25 +269,129 @@ class EOSPiecewisePolytrope(EOSConcrete):
         self.mMaxMsun=None
 
 
-        eos=lalsim.SimNeutronStarEOS4ParameterPiecewisePolytrope(param_dict['logP1'], param_dict['gamma1'], param_dict['gamma2'], param_dict['gamma3'])
-        eos_fam=lalsim.CreateSimNeutronStarFamily(eos)
-        mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
-        self.mMaxMsun = mmass
+        eos=self.eos=lalsim.SimNeutronStarEOS4ParameterPiecewisePolytrope(param_dict['logP1'], param_dict['gamma1'], param_dict['gamma2'], param_dict['gamma3'])
+        eos_fam=self.eos_fam=lalsim.CreateSimNeutronStarFamily(eos)
+        self.mMaxMsun = lalsim.SimNeutronStarMaximumMass(eos_fam) / lal.MSUN_SI
 
         return None
 
 
 class EOSLindblomSpectral:
     def __init__(self,name=None,spec_params=None):
-        self.name=name
+        if name is None:
+            self.name = 'spectral'
+        else:
+            self.name=name
         self.eos = None
         self.eos_fam = None
 
         self.spec_params = spec_params
+#        print spec_params
+
+        # Create data file
+        self.make_spec_param_eos(500,save_dat=True,ligo_units=True,verbose=False)
+
+        # Use data file
+        #print " Trying to load ",name+"_geom.dat"
+        import os; #print os.listdir('.')
+        cwd = os.getcwd()
+        self.eos=eos = lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
+        self.fam = fam=lalsim.CreateSimNeutronStarFamily(eos)
+        mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
+        self.mMaxMsun = mmass
+
+
+#        my_fromfile_eos =EOSFromDataFile(fname=name+"_spec.dat")
+#        self.eos = my_fromfile_eos.eos
+#        self.fam = my_fromfile_eos.fam
+#        self.mMaxMsun = my_fromfile_eos.mMaxMsun
         return None
 
 
-    def gamma_of_x(x, coeffs):
+
+    def make_spec_param_eos(self, npts=500, plot=False, verbose=False, save_dat=False,ligo_units=False,interpolate=False):
+        """
+        Load values from table of spectral parameterization values
+        Table values taken from https://arxiv.org/pdf/1009.0738.pdf
+        Comments:
+            - eos_vals is recorded as *pressure,density* pairs, because the spectral representation is for energy density vs pressure
+            - units swap between geometric and CGS
+        """
+
+        spec_params = self.spec_params
+        if not 'gamma3' in spec_params:
+            spec_params['gamma3']=spec_params['gamma4']=0
+        coefficients=np.array([spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4']])
+        p0=spec_params['p0']
+        eps0=spec_params['epsilon0']
+        xmax=spec_params['xmax'] 
+
+        x_range=np.linspace(0,xmax,npts)
+        p_range=p0*np.exp(x_range)
+       
+        eos_vals=np.zeros((npts,2))
+        eos_vals[:,1]=p_range
+
+        for i in range(0, len(x_range)):
+            eos_vals[i,0]=epsilon(x_range[i], p0, eps0, coefficients)
+            if verbose==True:
+                print "x:",x_range[i],"p:",p_range[i],"p0",p0,"epsilon:",eos_vals[i,0]
+  
+    #doing as those before me have done and using SLY4 as low density region
+        # THIS MUST BE FIXED TO USE STANDARD LALSUITE ACCESS, do not assume the file exists
+        low_density=np.loadtxt(dirEOSTablesBase+"/LALSimNeutronStarEOS_SLY4.dat")
+        low_density[:,0]=low_density[:,0]*C_CGS**2/(DENSITY_CGS_IN_MSQUARED)   # converts to energy density in CGS
+        low_density[:,1]=low_density[:,1]*C_CGS**2/(DENSITY_CGS_IN_MSQUARED)   # converts to energy density in CGS
+        low_density[:,[0, 1]] = low_density[:,[1, 0]]  # reverse order
+
+        cutoff=eos_vals[0,:]   
+        if verbose:
+            print " cutoff ", cutoff
+ 
+        break_pt=0
+        for i in range(0, len(low_density)):
+            if low_density[i,0] > cutoff[0] or low_density[i,1] > cutoff[1]:   
+                break_pt=i
+                break 
+    
+        eos_vals=np.vstack((low_density[0:break_pt,:], eos_vals)) 
+
+        if not interpolate:
+#            print eos_vals
+            if ligo_units:
+                eos_vals *= DENSITY_CGS_IN_MSQUARED/(C_CGS**2)  # converts to geometric units: first convert from cgs energy density to g/cm^2, then to 1/m^2.
+ #               print " Rescaled "
+#                print eos_vals
+            
+            if save_dat == True:
+                np.savetxt(self.name+"_geom.dat", eos_vals[:,[1,0]])  #NOTE ORDER
+
+            return eos_vals
+        
+        # Optional: interpolate in the log, to generate a denser EOS model
+        # Will produce better M(R) models for LAL
+        p_of_epsilon = ms.interpolate(np.log10(eos_vals[1:,0]), np.log10(eos_vals[1:,1]))
+  
+        new_eos_vals = np.zeros((resample_pts, 2))
+        epsilon_range = np.linspace(min(np.log10(eos_vals[1:,0])), max(np.log10(eos_vals[1:,0])), resample_pts)
+        new_eos_vals[:, 0] = 10**epsilon_range 
+ 
+        for i in range(0, resample_pts):
+            if verbose == True:
+                print "epsilon", 10**epsilon_range[i]
+
+            new_eos_vals[i,1] = 10**ms.interp_func(epsilon_range[i], np.log10(eos_vals[1:,0]), np.log10(eos_vals[1:,1]), p_of_epsilon)
+
+            if verbose == True:
+                print "p", new_eos_vals[i,1]
+    
+        new_eos_vals = check_monotonicity(new_eos_vals)
+        new_eos_vals = np.vstack((np.array([0.,0.]), new_eos_vals))
+        return new_eos_vals
+
+
+
+def gamma_of_x(x, coeffs):
         """
         Eq 6 from https://arxiv.org/pdf/1009.0738.pdf
         """
@@ -272,7 +401,7 @@ class EOSLindblomSpectral:
         gamma=np.exp(gamma)  
         return gamma
   
-    def mu(x, coeffs):
+def mu(x, coeffs):
         """
         Eq 8 from https://arxiv.org/pdf/1009.0738.pdf
         """
@@ -290,7 +419,7 @@ class EOSLindblomSpectral:
 
         return np.exp(-1.*val[0])
 
-    def epsilon(x, p0, eps0, coeffs):
+def epsilon(x, p0, eps0, coeffs):
         """
         Eq. 7 from https://arxiv.org/pdf/1009.0738.pdf
         """
@@ -305,58 +434,6 @@ class EOSLindblomSpectral:
         eps=(eps0*C_CGS**2)/mu_of_x + p0/mu_of_x * val[0]
  
         return eps
-
-    def make_spec_param_eos(self, npts, plot=False, verbose=False, save_dat=False):
-        """
-        Load values from table of spectral parameterization values
-        Table values taken from https://arxiv.org/pdf/1009.0738.pdf
-        """
-
-        spec_params = self.spec_params
-        coefficients=np.array([spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4']])
-        p0=spec_params['p0']
-        eps0=spec_params['epsilon0']
-        xmax=spec_params['xmax'] 
-
-    #make p range
-        x_range=np.linspace(0,xmax,npts)
-        p_range=p0*np.exp(x_range)
-       
-        eos_vals=np.zeros((npts,2))
-        eos_vals[:,1]=p_range
-
-        for i in range(0, len(x_range)):
-            eos_vals[i,0]=epsilon(x_range[i], p0, eps0, coefficients)
-            if verbose==True:
-                print "x:",x_range[i],"p:",p_range[i],"p0",p0,"epsilon:",eos_vals[i,0]
-  
-    #doing as those before me have done and using SLY4 as low density region
-        # THIS MUST BE FIXED TO USE STANDARD LALSUITE ACCESS, do not assume the file exists
-        low_density=np.loadtxt("LALSimNeutronStarEOS_SLY4.dat")
-        low_density[:,0]=low_density[:,0]*C_CGS**2/(7.42591549*10**(-25))
-        low_density[:,1]=low_density[:,1]*C_CGS**2/(7.42591549*10**(-25))
-        low_density[:,[0, 1]] = low_density[:,[1, 0]]
-
-        cutoff=eos_vals[0,:]   
- 
-        for i in range(0, len(low_density)):
-            if low_density[i,0] > cutoff[0] or low_density[i,1] > cutoff[1]:   
-                break_pt=i
-                break 
-    
-        eos_vals=np.vstack((low_density[0:break_pt,:], eos_vals)) 
-
-        # if plot==True:
-        #     plt.plot(np.log10(eos_vals[:,0]/(C_CGS**2)), np.log10(eos_vals[:,1]/(C_CGS**2)), 'o')
-        #     plt.xlabel("Energy Density")
-        #     plt.ylabel("Pressure")
-        #     plt.show() 
-
-        if save_dat == True:
-            np.savetxt(eos_name+"_spec.dat", eos_vals)
-
-        return eos_vals
-
 
 
 
@@ -373,35 +450,47 @@ def make_mr_lambda(eos):
    """
    fam=lalsim.CreateSimNeutronStarFamily(eos)
  
+   r_cut = 40   # Some EOS we consider for PE purposes will have very large radius!
+
    #set p_nuc max
-   p_nuc=3*10**33
+   #   - start at a fiducial nuclear density
+   #   - not sure what these termination conditions are designed to do ... generally this pushes to  20 km
+   #   - generally this quantity is the least reliable
+   p_nuc=3.*10**33   # consistent with examples
    fac_min=0
    r_fin=0
-   while r_fin > 28 or r_fin < 20:
-      #print "Trying:"
-      #print "p_c: ",(10**fac_min)*p_nuc
+   while r_fin > r_cut+8 or r_fin < r_cut:
+       # Generally tries to converge to density corresponding to 20km radius
       try: 
-         answer=lalsim.SimNeutronStarTOVODEIntegrate((10**fac_min)*p_nuc, eos)     
+         answer=lalsim.SimNeutronStarTOVODEIntegrate((10**fac_min)*p_nuc, eos)      # r(SI), m(SI), lambda
       except:
+          # If failure, backoff
          fac_min=-0.05
          break 
       r_fin=answer[0]
-      r_fin=r_fin*10**-3
-      #print "R: ",r_fin
-      if r_fin<20:
+      r_fin=r_fin*10**-3  # convert to SI
+#      print "R: ",r_fin
+      if r_fin<r_cut:
          fac_min-=0.05
-      elif r_fin>28:
+      elif r_fin>r_cut+8:
          fac_min+=0.01
+   answer=lalsim.SimNeutronStarTOVODEIntegrate((10**fac_min)*p_nuc, eos)      # r(SI), m(SI), lambda
+   m_min = answer[1]/lal.MSUN_SI
 
    #set p_nuc min
+   #   - tries to converge to central pressure corresponding to maximum NS mass
+   #   - very frustrating...this data is embedded in the C code
    fac_max=1.6
    r_fin=20.
-   while r_fin > lalsim.SimNeutronStarRadius(lalsim.SimNeutronStarMaximumMass(fam), fam)/(10**3) or r_fin < 7:
+   m_ref = lalsim.SimNeutronStarMaximumMass(fam)/lal.MSUN_SI
+   r_ref = lalsim.SimNeutronStarRadius(lalsim.SimNeutronStarMaximumMass(fam), fam)/(10**3)
+   answer=None
+   while r_fin > r_ref  or r_fin < 7:
        #print "Trying min:"
-       #print "p_c: ",(10**fac_max)*p_nuc
+#       print "p_c: ",(10**fac_max)*p_nuc
        try:
           answer=lalsim.SimNeutronStarTOVODEIntegrate((10**fac_max)*p_nuc, eos)         
-          if answer[0]*10**-3 < lalsim.SimNeutronStarRadius(lalsim.SimNeutronStarMaximumMass(fam), fam)/(10**3):
+          if answer[0]*10**-3 < r_ref:
              break 
        except:
           fac_max-=0.05
@@ -414,9 +503,9 @@ def make_mr_lambda(eos):
                 fac_max-=0.05
           break
           #print lalsim.SimNeutronStarTOVODEIntegrate((10**fac_max)*p_nuc, eos)
-       r_fin=answer[0]
-       r_fin=r_fin*10**-3
-       #print "R: ",r_fin
+       r_fin=answer[0]/10**3 # convert to km
+       if rosDebug:
+           print "R: ",r_fin, r_ref, " M: ", answer[1]/lal.MSUN_SI, m_ref , m_min # should converge to maximum mass
        if r_fin>8:
           fac_max+=0.05
        if r_fin<6:
@@ -424,10 +513,10 @@ def make_mr_lambda(eos):
 #       print 10**fac_max
 
    #generate mass-radius curve
-   scale=np.logspace(fac_min,fac_max,200)
-#   print scale 
+   npts_out = 1000
+   scale=np.logspace(fac_min,fac_max,npts_out)
    
-   mr_array=np.zeros((200,3))
+   mr_array=np.zeros((npts_out,3))
    for s,i in zip(scale,range(0,len(scale))):
 #       print s
        mr_array[i,:]=lalsim.SimNeutronStarTOVODEIntegrate(s*p_nuc, eos)
@@ -436,5 +525,7 @@ def make_mr_lambda(eos):
    mr_array[:,1]=mr_array[:,1]/lal.MSUN_SI
    mr_array[:,2]=2./(3*lal.G_SI)*mr_array[:,2]*(mr_array[:,0]*10**3)**5
    mr_array[:,2]=lal.G_SI*mr_array[:,2]*(1/(mr_array[:,1]*lal.MSUN_SI*lal.G_SI/lal.C_SI**2))**5
+
+#   print mr_array[:,1]
 
    return mr_array

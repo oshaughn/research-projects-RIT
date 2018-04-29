@@ -156,7 +156,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -182,6 +182,8 @@ tex_dictionary  = {
    "chiMinus":"$\chi_{eff,-}$",
   "chiz_plus":"$\chi_{z,+}$",
   "chiz_minus":"$\chi_{z,-}$",
+  "lambda_plus":"$\lambda_{+}$",
+  "lambda_minus":"$\lambda_{-}$",
   "s1z": "$\chi_{1,z}$",
   "s2z": "$\chi_{2,z}$",
   "s1x": "$\chi_{1,x}$",
@@ -344,6 +346,22 @@ class ChooseWaveformParams:
             czp = (self.s1z+self.s2z)/2.
             self.s1z = (czp+czm)
             self.s2z = (czp-czm)
+            return self
+        if p == 'lambda_plus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            # Fixes chiz_minus by construction
+            czm = (self.lambda1-self.lambda2)/2.
+            czp = val
+            self.lambda1 = (czp+czm)
+            self.lambda2 = (czp-czm)
+            return self
+        if p == 'lambda_minus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            # Fixes chiz_plus by construction
+            czm =  val
+            czp = (self.lambda1+self.lambda2)/2.
+            self.lambda1 = (czp+czm)
+            self.lambda2 = (czp-czm)
             return self
         if p == 'chi1':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
@@ -577,6 +595,12 @@ class ChooseWaveformParams:
         if p == 'chiz_minus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
             return (self.s1z-self.s2z)/2.
+        if p == 'lambda_plus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            return (self.lambda1+self.lambda2)/2.
+        if p == 'lambda_minus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            return (self.lambda1-self.lambda2)/2.
         if p == 'chiMinusAlt':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
@@ -737,13 +761,13 @@ class ChooseWaveformParams:
         sys.exit(0)
 
 
-    def randomize(self,zero_spin_Q=False,aligned_spin_Q=False,default_inclination=None,default_phase=None,default_polarization=None):
+    def randomize(self,zero_spin_Q=False,aligned_spin_Q=False,default_inclination=None,default_phase=None,default_polarization=None,dMax=500.,dMin=1.):
         mMin = 2.   # min component mass (Msun)
         mMax = 10.  # max component mass (Msun)
         sMin = 0.   # min spin magnitude
         sMax = 1.   # max spin magnitude
-        dMin = 20.   # min distance (Mpc)
-        dMax = 500. # max distance (Mpc)
+#        dMin = float(dMin)   # min distance (Mpc)
+#        dMax = float(dMax) # max distance (Mpc)
         self.m1 = np.random.uniform(mMin,mMax)
         self.m2 = np.random.uniform(mMin,mMax)  # 
         self.m1, self.m2 = [np.max([self.m1,self.m2]), np.min([self.m1,self.m2])]
@@ -795,7 +819,7 @@ class ChooseWaveformParams:
             print " catastrophe "
             sys.exit(0)
         self.radec=True
-        dist =  dMax*np.power(np.random.uniform(dMin/dMax,1), 1./3)  # rough, but it should work
+        dist =  dMax*np.power(np.random.uniform( np.power(dMin/dMax,3),1), 1./3)  # rough, but it should work
         self.dist = dist*1e6 * lsu_PC
         self.lambda1 = 0.
         self.lambda2 = 0.

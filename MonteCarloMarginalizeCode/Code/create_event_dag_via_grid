@@ -97,6 +97,7 @@ optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS fil
 optp.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 optp.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 optp.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
+optp.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
 optp.add_option("--use-external-EOB",default=False,action='store_true')
 optp.add_option("--maximize-only",default=False, action='store_true',help="After integrating, attempts to find the single best fitting point")
 optp.add_option("--nr-lookup",default=False,action='store_true')
@@ -229,6 +230,7 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid
         d_max=opts.d_max,
         declination_cosine_sampler=opts.declination_cosine_sampler,
         inclination_cosine_sampler=opts.inclination_cosine_sampler,
+        manual_logarithm_offset=opts.manual_logarithm_offset,
         use_external_EOB=opts.use_external_EOB,
         maximize_only=opts.maximize_only,
         nr_lookup=opts.nr_lookup,
