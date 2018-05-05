@@ -176,7 +176,7 @@ def add_field(a, descr):
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [EOS table: int_res gamma1 gamma2 ...]")
 parser.add_argument("--fname-output-samples",default="output-EOS-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
-parser.add_argument("--n-output-samples",default=5,type=int,help="output posterior samples (default 3000)")
+parser.add_argument("--n-output-samples",default=2000,type=int,help="output posterior samples (default 3000)")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state [spectral only, for now]")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior. Currently can only specify gamma1,gamma2, ..., and these MUST be columns in --fname")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
