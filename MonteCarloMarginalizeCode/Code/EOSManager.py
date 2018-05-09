@@ -18,6 +18,8 @@ import sys
 import lal
 import lalsimulation as lalsim
 from scipy.integrate import quad
+import scipy.interpolate as interp
+
 #import gwemlightcurves.table as gw_eos_table
 
 import MonotonicSpline as ms
@@ -59,9 +61,38 @@ class EOSConcrete:
         return dimensionless_lam
 
 
-    def pressure_density_on_grid(self,logrho_grid):
+    def pressure_density_on_grid_alternate(self,logrho_grid):
         """ 
-        pressure_density_on_grid
+        pressure_density_on_grid.
+        Input and output grid units are in SI (rho: kg/m^3; p = N/m^2)
+        Pressure provided by lalsuite (=EOM integration)
+        Density computed by m*n = (epsilon+p)/c^2mn exp(-h), which does NOT rely on lalsuite implementation 
+        """
+        dat_out = np.zeros(len(logrho_grid))
+        fam = self.eos_fam
+        eos = self.eos
+        npts_internal = 10000
+        p_internal = np.zeros(npts_internal)
+        rho_internal = np.zeros(npts_internal)
+        epsilon_internal = np.zeros(npts_internal)
+        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos),npts_internal)
+        for indx in np.arange(npts_internal):
+            p_internal[indx] = lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(h[indx],eos)  # SI. Multiply by 10 to get CGS
+            epsilon_internal[indx] =lalsim.SimNeutronStarEOSEnergyDensityOfPseudoEnthalpy(h[indx],eos)  # SI. Note factor of C^2 needed to get mass density
+            rho_internal[indx] =np.exp(-h[indx])* (epsilon_internal[indx]+p_internal[indx])/(lal.C_SI**2)  # 
+#        print epsilon_internal[10],rho_internal[10], p_internal[10], h[10]
+        logp_of_logrho = interp.interp1d(np.log10(rho_internal),np.log10(p_internal),kind='linear',bounds_error=False,fill_value=np.inf)  # should change to Monica's spline
+ #       print logrho_grid,
+        return logp_of_logrho(logrho_grid)
+
+    def pressure_density_on_grid(self,logrho_grid,reference_pair=None):
+        """ 
+        pressure_density_on_grid.
+        Input and output grid units are in SI (rho: kg/m^3; p = N/m^2)
+        POTENTIAL PROBLEMS OF USING LALSUITE
+            - lalinference_o2 / master: Unless patched, the *rest mass* density is not reliable.  
+              To test with the unpatched LI version, use reference_pair to specify a low-density EOS.
+              This matching is highly suboptimal, so preferably test either (a) a patched code or (b) the alternative code below
         """
         dat_out = np.zeros(len(logrho_grid))
         fam = self.eos_fam
@@ -71,9 +102,15 @@ class EOSConcrete:
         rho_internal = np.zeros(npts_internal)
         h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos),npts_internal)
         for indx in np.arange(npts_internal):
-            rho_internal[indx] = lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(h[indx],eos)
-            p_internal[indx] = lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(h[indx],eos)
-        logp_of_logrho = interp.interp1d(np.log10(rho),np.log10(p),kind='linear')
+            rho_internal[indx] = lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(h[indx],eos)  # SI. Multiply by 10^(-3) to get CGS
+            p_internal[indx] = lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(h[indx],eos)  # SI. Multiply by 10 to get CGS
+        if not (reference_pair is None):
+            indx_match = np.argmin( np.abs(np.log10(p_internal) - np.log10(reference_pair[1]))) # force agreement of densities at target pressure, if requested! Addresses bug /ambiguity in scaling of rest mass estimate; intend to apply in highly nonrelativistic regime
+            delta_rho = np.log10(reference_pair[0]) -np.log10(rho_internal[indx_match]) 
+            rho_internal *= np.power(10, delta_rho)
+#            print  np.log10(np.c_[rho_internal,p_internal])
+        logp_of_logrho = interp.interp1d(np.log10(rho_internal),np.log10(p_internal),kind='linear',bounds_error=False,fill_value=np.inf)  # should change to Monica's spline
+ #       print logrho_grid,
         return logp_of_logrho(logrho_grid)
 
 
@@ -276,7 +313,7 @@ class EOSPiecewisePolytrope(EOSConcrete):
         return None
 
 
-class EOSLindblomSpectral:
+class EOSLindblomSpectral(EOSConcrete):
     def __init__(self,name=None,spec_params=None):
         if name is None:
             self.name = 'spectral'
@@ -409,6 +446,7 @@ def mu(x, coeffs):
         def int_func(x_prime):
             return (gamma_of_x(x_prime, coeffs))**(-1)    
 
+        # very inefficient: does integration multiple times. Should change to ODE solve
         if isinstance(x, (list, np.ndarray)):
             val=np.zeros(len(x))
             for i in range(0,len(x)):
@@ -428,6 +466,7 @@ def epsilon(x, p0, eps0, coeffs):
             denom = gamma_of_x(x_prime, coeffs)
             return num / denom
           
+        # very inefficient: does integration multiple times. Should change to ODE solve
         mu_of_x=mu(x, coeffs)  
         val=quad(int_func, 0, x)
         #val=romberg(int_func, 0, x, show=True)   
