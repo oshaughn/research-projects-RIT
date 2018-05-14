@@ -36,6 +36,10 @@ dirBaseFiles =os.environ["EOB_C_BASE"]
 dirBaseFilesArchive =os.environ["EOB_C_ARCHIVE"]
 n_max_dirs = 1+ int(os.environ["EOB_C_ARCHIVE_NMAX"])
 
+# PRINT GIT REPO IN LOG
+print " EOB resumS git hash "
+os.system("(cd " + dirBaseFiles +"; git rev-parse HEAD)")
+
 default_interpolation_kind = 'linear'  # spline interpolation   # very slow! 
 
 #internal_ModesAvailable = [(2,2), (2,1), (2,-2), (2,-1), (3,3), (3,2), (3,1), (3,-3), (3,-2), (3,-1)]
