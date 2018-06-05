@@ -29,4 +29,4 @@ The following authors should be contacted
   * ...
 
 ## Relationship to version of rapid_pe in lalsuite
-Chris Pankow has also been maintaining a port of the original rapid_pe as part of lalsuite. While this code is unreviewed and has many API and workflow differences, the underlying likelihood evaluation procedure is the same.  We hope to eventually merge the codebases, likely by modernizing the version in lalsuite and/or by ports of rapid_pe techniques to the next-generation PE code 'gwin'. 
+Chris Pankow has also been maintaining a [port of the original rapid_pe as part of lalsuite](https://github.com/lscsoft/lalsuite/tree/master/lalinference/python/lalinference/rapid_pe). While this code is unreviewed and has many API and workflow differences, the underlying likelihood evaluation procedure is the same.  We hope to eventually merge the codebases, likely by modernizing the version in lalsuite and/or by ports of rapid_pe techniques to the next-generation PE code 'gwin'. 
