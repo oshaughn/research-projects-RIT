@@ -27,3 +27,6 @@ The following authors should be contacted
   * O'Shaughnessy and Lange: Iterative pipeline, fitting and posterior generation code, external interfaces (EOB, surrogates)
   * Field, O'Shaughnessy, Blackman: Surrogate basis method 
   * ...
+
+## Relationship to version of rapid_pe in lalsuite
+Chris Pankow has also been maintaining a port of the original rapid_pe as part of lalsuite. While this code is unreviewed and has many API and workflow differences, the underlying likelihood evaluation procedure is the same.  We hope to eventually merge the codebases, likely by modernizing the version in lalsuite and/or by ports of rapid_pe techniques to the next-generation PE code 'gwin'. 
