@@ -20,7 +20,7 @@ import lalsimulation as lalsim
 import lal
 import sys
 
-import EOBTidalExternal as eobT
+import EOBTidalExternalC as eobT
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--group", default="Sequence-GT-Aligned-UnequalMass",help="inspiral XML file containing injection information.")
@@ -59,7 +59,7 @@ try:
         print " No OSX; no interactive plots "
     else:
         print " Unknown configuration "
-        fig_extension = '.jpg'
+        fig_extension = '.png'
         bNoInteractivePlots =True
     from matplotlib import pyplot as plt
     bNoPlots=False
@@ -180,7 +180,7 @@ for mode in hlmT_lal.keys():
     plt.legend()
 
   if opts.save_plots:
-      plt.savefig("EOB_mode_"+str(mode)+".jpg")
+      plt.savefig("EOB_mode_"+str(mode)+fig_extension)
 
  
 print "FREQUENCY VERSUS TIME"
@@ -266,9 +266,9 @@ if opts.show_plots or opts.save_plots:
     if opts.show_plots:
         plt.show()
     else:
-        plt.figure(1);  plt.savefig("EOB_plt1.jpg")
-        plt.figure(2);  plt.savefig("EOB_plt2.jpg")
-        plt.figure(3);  plt.savefig("EOB_plt3.jpg")
+        plt.figure(1);  plt.savefig("EOB_plt1"+fig_extension)
+        plt.figure(2);  plt.savefig("EOB_plt2"+fig_extension)
+        plt.figure(3);  plt.savefig("EOB_plt3"+fig_extension)
 
 
 ###

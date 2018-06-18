@@ -102,7 +102,7 @@ def write_par_file(basedir, mtot_msun, q,chi1, chi2,lambda1,lambda2, fmin,dt):
         f.write("chi2 "+ str(chi2) +"\n")
 #        f.write("r0 "+ str(r0) +"\n")
 #        f.write("fmin " + str(fmin * mtot_msun*MsunInSec)+"\n")    # because geometric units are used (e.g., for dt), we must convert to omega; see TEOBResunSUtils.cpp
-        f.write("f_min "+str(fmin))
+        f.write("f_min "+str(fmin) + "\n")
 #        f.write("NQC 0\n")
         f.write("tidal 1\n")  # must be 1 for tidal calculation
 #        f.write("spin 1\n")
