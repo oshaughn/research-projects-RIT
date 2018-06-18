@@ -21,7 +21,7 @@ import lalsimulation as lalsim
 import lalframe
 import lal
 
-import EOBTidalExternal as eobwf
+import EOBTidalExternalC as eobwf
 
 
 parser = argparse.ArgumentParser()
