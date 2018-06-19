@@ -125,10 +125,19 @@ def ConvertWPtoSurrogateParams(P,**kwargs):
     Takes P, returns arguments of the form usually used in gwsurrogate.
     (currently, just returns 1/q = P.m1/P.m1, the mass ratio parameter usually accepted)
     """
-
     q = P.m2/P.m1
 #    return {"q":1./q}
     return 1./q
+
+def ConvertWPtoSurrogateParamsAligned(P,**kwargs):
+    """
+    Takes P, returns arguments of the form used in gwsurrogate for a nonprecessing binary
+    """
+    q = P.m2/P.m1
+    val =[1./q, P.s1z, P.s2z ]
+    return val
+
+
 
 def ConvertWPtoSurrogateParamsPrecessing(P,**kwargs):
     """
@@ -211,9 +220,14 @@ class WaveformModeCatalog:
         if 'NRSur4d' in param:
             print " GENERATING ROM WAVEFORM WITH SPIN PARAMETERS "
             my_converter = ConvertWPtoSurrogateParamsPrecessing
+            reflection_symmetric=False
+        if 'NRHybSur3d' in param:
+            print " GENERATING hybrid ROM WAVEFORM WITH  aligned SPIN PARAMETERS "
+            my_converter = ConvertWPtoSurrogateParamsAligned
         if 'NRSur7d' in param:
-            print " GENERATING ROM WAVEFORM WITH ALL SPIN PARAMETERS "
+            print " GENERATING ROM WAVEFORM WITH FULL SPIN PARAMETERS "
             my_converter = ConvertWPtoSurrogateParamsPrecessingFull
+            reflection_symmetric=False
         # PENDING: General-purpose interface, based on the coordinate string specified. SHOULD look up these names from the surrogate!
         def convert_coords(P):
             vals_out = np.zeros(len(coord_names_internal))
@@ -224,10 +238,19 @@ class WaveformModeCatalog:
                 return vals_out
 
         raw_modes =[]
-        if not 'NRSur7d' in param:
-            self.sur =  gws.EvaluateSurrogate(dirBaseFiles +'/'+group+param,use_orbital_plane_symmetry=reflection_symmetric, ell_m=lm_list) # straight up filename.  MODIFY to change to use negative modes
+        if (not 'NRSur7d' in param) and (not 'NRHyb' in param):
+            self.sur =  gws.EvaluateSurrogate(dirBaseFiles +'/'+group+param,use_orbital_plane_symmetry=reflection_symmetric, ell_m=None) # lm_list) # straight up filename.  MODIFY to change to use negative modes
+                # Modified surrogate import call to load *all* modes all the time
             raw_modes = self.sur.all_model_modes()
             self.modes_available=[]
+        elif 'NRHybSur' in param:
+            self.sur = gwsurrogate.LoadSurrogate(param)   # get the dimensinoless surrogate file?
+            raw_modes = self.sur.all_model_modes()
+            reflection_symmetric = True
+            self.modes_available=[(2, 0), (2, 1), (2,-1), (2, 2),(2,-2) (3, 0), (3, 1),(3,-1), (3, 2),(3,-2), (3, 3),(3,-3), (4, 2),(4,-2), (4, 3),(4,-3), (4, 4), (4,-4),(5, 5), (5,-5)]
+            t = self.sur.domain
+            self.ToverMmin = t.min()
+            self.ToverMmax = t.max()
         else:
             self.sur = NRSur7dq2.NRSurrogate7dq2()
             reflection_symmetric = False
@@ -617,6 +640,10 @@ class WaveformModeCatalog:
             for mode in self.modes_available:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
                 hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
+        # Option 1: Use NRHybXXX approach (i.e., generate an hlmoft dictionary...but with its OWN time grid and scaling...very annoying)
+        # if 'NRHyb' in self.param:
+        #     params_here = self.parameter_convert[(2,2)](P)
+        #     f_low = P.fmin
             
 
         # Loop over all modes in the system
