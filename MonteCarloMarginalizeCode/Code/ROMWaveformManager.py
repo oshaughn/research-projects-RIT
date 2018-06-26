@@ -199,6 +199,7 @@ class WaveformModeCatalog:
         self.post_dict_complex ={}
         self.post_dict_complex_coef ={}
         self.parameter_convert = {}
+        self.single_mode_sur = True
         self.nbasis_per_mode ={}   # number of basis functions
 
         lm_list=None
@@ -224,9 +225,11 @@ class WaveformModeCatalog:
         if 'NRHybSur3d' in param:
             print " GENERATING hybrid ROM WAVEFORM WITH  aligned SPIN PARAMETERS "
             my_converter = ConvertWPtoSurrogateParamsAligned
+            self.single_mode_sur=False
         if 'NRSur7d' in param:
             print " GENERATING ROM WAVEFORM WITH FULL SPIN PARAMETERS "
             my_converter = ConvertWPtoSurrogateParamsPrecessingFull
+            self.single_mode_sur=False
             reflection_symmetric=False
         # PENDING: General-purpose interface, based on the coordinate string specified. SHOULD look up these names from the surrogate!
         def convert_coords(P):
@@ -244,13 +247,21 @@ class WaveformModeCatalog:
             raw_modes = self.sur.all_model_modes()
             self.modes_available=[]
         elif 'NRHybSur' in param:
-            self.sur = gwsurrogate.LoadSurrogate(param)   # get the dimensinoless surrogate file?
-            raw_modes = self.sur.all_model_modes()
+            self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group+param)   # get the dimensinoless surrogate file?
+            raw_modes = self.sur.mode_list  # raw modes
             reflection_symmetric = True
-            self.modes_available=[(2, 0), (2, 1), (2,-1), (2, 2),(2,-2) (3, 0), (3, 1),(3,-1), (3, 2),(3,-2), (3, 3),(3,-3), (4, 2),(4,-2), (4, 3),(4,-3), (4, 4), (4,-4),(5, 5), (5,-5)]
+            self.modes_available=[(2, 0), (2, 1), (2,-1), (2, 2),(2,-2), (3, 0), (3, 1),(3,-1), (3, 2),(3,-2), (3, 3),(3,-3), (4, 2),(4,-2), (4, 3),(4,-3), (4, 4), (4,-4),(5, 5), (5,-5)]  # see sur.mode_list
             t = self.sur.domain
             self.ToverMmin = t.min()
             self.ToverMmax = t.max()
+            self.ToverM_peak=0   # Need to figure out where this is?  Let's assume it is zero to make my life easier
+            for mode in self.modes_available:
+                # Not used, bt populate anyways
+                self.post_dict[mode] = sur_identity
+                self.post_dict_complex[mode]  = lambda x: x   # to mode
+                self.post_dict_complex_coef[mode] = lambda x:x  #  to coefficients.
+                self.parameter_convert[mode] =  my_converter #  ConvertWPtoSurrogateParams   # default conversion routine
+#            return
         else:
             self.sur = NRSur7dq2.NRSurrogate7dq2()
             reflection_symmetric = False
@@ -271,13 +282,14 @@ class WaveformModeCatalog:
           if mode[0]<=self.lmax and mode in lm_list:  # latter SHOULD be redundant (because of ell_m=lm_list)
             print " Loading mode ", mode
             self.modes_available.append(mode)
-            self.sur_dict[mode] = self.sur.single_mode(mode)
             self.post_dict[mode] = sur_identity
             self.post_dict_complex[mode]  = lambda x: x   # to mode
             self.post_dict_complex_coef[mode] = lambda x:x  #  to coefficients.
             self.parameter_convert[mode] =  my_converter #  ConvertWPtoSurrogateParams   # default conversion routine
-            print ' mode ', mode, self.sur_dict[mode].B.shape
-            self.nbasis_per_mode[mode] = (self.sur_dict[mode].B.shape)[1]
+            if self.single_mode_sur:
+                self.sur_dict[mode] = self.sur.single_mode(mode)
+                print ' mode ', mode, self.sur_dict[mode].B.shape
+                self.nbasis_per_mode[mode] = (self.sur_dict[mode].B.shape)[1]
             if max_nbasis_per_mode != None  and self.sur_dict[mode].surrogate_mode_type == 'waveform_basis':
              if max_nbasis_per_mode >0: # and max_nbasis_per_mode < self.nbasis_per_mode[mode]:
                 # See  https://arxiv.org/pdf/1308.3565v2.pdf  Eqs. 13 - 19
@@ -303,15 +315,21 @@ class WaveformModeCatalog:
                 
             if reflection_symmetric and raw_modes.count((mode[0],-mode[1]))<1:
                 mode_alt = (mode[0],-mode[1])
-                self.nbasis_per_mode[mode_alt] = self.nbasis_per_mode[mode]
 #                if max_nbasis_per_mode:
  #                   self.nbasis_per_mode[mode_alt] = np.max([int(max_nbasis_per_mode),1])    # INFRASTRUTCTURE PLAN: Truncate t                print " Loading mode ", mode_alt, " via reflection symmetry "
                 self.modes_available.append(mode_alt)
                 self.post_dict[mode_alt] = sur_conj
                 self.post_dict_complex_coef[mode_alt] = lambda x,l=mode[0]: np.power(-1,l)*np.conj(x)  # beware, do not apply this twice.
                 self.post_dict_complex[mode_alt] = np.conj  # beware, do not apply this twice.
-                self.sur_dict[mode_alt] = self.sur_dict[mode]
                 self.parameter_convert[mode_alt] = my_converter
+                if self.single_mode_sur: 
+                    self.nbasis_per_mode[mode_alt] = self.nbasis_per_mode[mode]
+                    self.sur_dict[mode_alt] = self.sur_dict[mode]
+        if not self.single_mode_sur:
+            # return after performing all the neat reflection symmetrization setup described above, in case model is *not* a single-mode surrogate
+            print "  ... done setting mode symmetry requirements"
+#            print raw_modes, self.post_dict
+            return  
         # CURRENTLY ONLY LOAD THE 22 MODE and generate the 2,-2 mode by symmetr
         t = self.sur_dict[(2,2)].times  # end time
         self.ToverMmin = t.min()
@@ -641,10 +659,19 @@ class WaveformModeCatalog:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
                 hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
         # Option 1: Use NRHybXXX approach (i.e., generate an hlmoft dictionary...but with its OWN time grid and scaling...very annoying)
-        # if 'NRHyb' in self.param:
-        #     params_here = self.parameter_convert[(2,2)](P)
-        #     f_low = P.fmin
-            
+        if 'NRHyb' in self.param:
+            params_here = self.parameter_convert[(2,2)](P)
+            f_low = P.fmin  # need to convert to dimensionless time
+            tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
+            indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
+            hlmT ={}
+            hlmT_dimensionless_narrow = self.sur(params_here,times=tvals_dimensionless[indx_ok])
+            for mode in self.modes_available:
+                hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
+                if mode[1]<0:  # currently ALWAYS enforce reflection symmetry
+                    mode_alt = (mode[0],-mode[1])
+                else:
+                    hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
 
         # Loop over all modes in the system
         for mode in self.modes_available: # loop over modes
@@ -658,7 +685,7 @@ class WaveformModeCatalog:
             if not use_basis:
                 params_here = self.parameter_convert[mode](P)
                 # Option 0: Use NRSur7dsq approach (i.e., use the stored hlmT data )
-                if 'NRSur7d' in self.param:
+                if  not self.single_mode_sur: # 'NRSur7d' in self.param:
                     wfmTS.data.data = m_total_s/distance_s * hlmT_dimensionless[mode]
                 else:
                     t_phys, hp_dim, hc_dim = self.post_dict[mode](*self.sur_dict[mode](q=params_here,samples=tvals/m_total_s + self.ToverM_peak))  # center time values AT PEAK
@@ -670,11 +697,16 @@ class WaveformModeCatalog:
                 if P.taper:
                     n0 = np.argmin(np.abs(tvals)) # origin of time; this will map to the peak
                     # start taper
-                    nstart = n0+int((self.ToverMmin-self.ToverM_peak)*m_total_s/deltaT)        # note offset for tapering
-                    ntaper = int( (self.ToverM_peak-self.ToverMmin)*m_total_s/deltaT*0.1)  # SHOULD BE set by a few Hz in time fixed 1% of waveform length
+                    nstart = n0+ int((self.ToverMmin-self.ToverM_peak)*m_total_s/deltaT)        # note offset for tapering. Assumes time interval longer than requested...for NRHyb, ToverMmin does NOT relate to returned array size, beware!
+                    nstart = np.max([0,nstart]) # in principle, waveform returned could be massively longer than available time
+                    if nstart >0:
+                        ntaper = int( (self.ToverM_peak-self.ToverMmin)*m_total_s/deltaT*0.1)  # SHOULD BE set by a few Hz in time fixed 1% of waveform length
+                    else:
+                        ntaper = int(0.01*len(tvals))   # force 1% length taper
                     vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
                     if rosDebug:
                         print " Tapering ROM hlm(t) for ", mode, " over range ", nstart, nstart+ntaper, " or time offset ", nstart*deltaT, " and window ", ntaper*deltaT
+                        print  len(vectaper), ntaper, n0,nstart, len(tvals), wfmTS.data.length
                     wfmTS.data.data[nstart:nstart+ntaper]*=vectaper
 
                     # end taper
