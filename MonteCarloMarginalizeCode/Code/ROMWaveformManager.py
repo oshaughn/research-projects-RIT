@@ -1,7 +1,7 @@
 #
 
-debug_output = False
-rosDebug = False
+debug_output = True
+rosDebug = True
 
 
 import numpy as np
@@ -201,6 +201,7 @@ class WaveformModeCatalog:
         self.parameter_convert = {}
         self.single_mode_sur = True
         self.nbasis_per_mode ={}   # number of basis functions
+        self.reflection_symmetric = reflection_symmetric
 
         lm_list=None
         lm_list = []
@@ -241,7 +242,7 @@ class WaveformModeCatalog:
                 return vals_out
 
         raw_modes =[]
-        if (not 'NRSur7d' in param) and (not 'NRHyb' in param):
+        if self.single_mode_sur: #(not 'NRSur7d' in param) and (not 'NRHyb' in param):
             self.sur =  gws.EvaluateSurrogate(dirBaseFiles +'/'+group+param,use_orbital_plane_symmetry=reflection_symmetric, ell_m=None) # lm_list) # straight up filename.  MODIFY to change to use negative modes
                 # Modified surrogate import call to load *all* modes all the time
             raw_modes = self.sur.all_model_modes()
@@ -250,17 +251,18 @@ class WaveformModeCatalog:
             self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group+param)   # get the dimensinoless surrogate file?
             raw_modes = self.sur.mode_list  # raw modes
             reflection_symmetric = True
-            self.modes_available=[(2, 0), (2, 1), (2,-1), (2, 2),(2,-2), (3, 0), (3, 1),(3,-1), (3, 2),(3,-2), (3, 3),(3,-3), (4, 2),(4,-2), (4, 3),(4,-3), (4, 4), (4,-4),(5, 5), (5,-5)]  # see sur.mode_list
+            self.modes_available=[]
+#            self.modes_available=[(2, 0), (2, 1), (2,-1), (2, 2),(2,-2), (3, 0), (3, 1),(3,-1), (3, 2),(3,-2), (3, 3),(3,-3), (4, 2),(4,-2), (4, 3),(4,-3), (4, 4), (4,-4),(5, 5), (5,-5)]  # see sur.mode_list
             t = self.sur.domain
             self.ToverMmin = t.min()
             self.ToverMmax = t.max()
             self.ToverM_peak=0   # Need to figure out where this is?  Let's assume it is zero to make my life easier
-            for mode in self.modes_available:
-                # Not used, bt populate anyways
-                self.post_dict[mode] = sur_identity
-                self.post_dict_complex[mode]  = lambda x: x   # to mode
-                self.post_dict_complex_coef[mode] = lambda x:x  #  to coefficients.
-                self.parameter_convert[mode] =  my_converter #  ConvertWPtoSurrogateParams   # default conversion routine
+            # for mode in self.modes_available:
+            #     # Not used, bt populate anyways
+            #     self.post_dict[mode] = sur_identity
+            #     self.post_dict_complex[mode]  = lambda x: x   # to mode
+            #     self.post_dict_complex_coef[mode] = lambda x:x  #  to coefficients.
+            #     self.parameter_convert[mode] =  my_converter #  ConvertWPtoSurrogateParams   # default conversion routine
 #            return
         else:
             self.sur = NRSur7dq2.NRSurrogate7dq2()
@@ -315,6 +317,8 @@ class WaveformModeCatalog:
                 
             if reflection_symmetric and raw_modes.count((mode[0],-mode[1]))<1:
                 mode_alt = (mode[0],-mode[1])
+                if rosDebug:
+                    print " Adjoining postprocessing to enable complex conjugate for reflection symmetric case", mode_alt
 #                if max_nbasis_per_mode:
  #                   self.nbasis_per_mode[mode_alt] = np.max([int(max_nbasis_per_mode),1])    # INFRASTRUTCTURE PLAN: Truncate t                print " Loading mode ", mode_alt, " via reflection symmetry "
                 self.modes_available.append(mode_alt)
@@ -327,7 +331,7 @@ class WaveformModeCatalog:
                     self.sur_dict[mode_alt] = self.sur_dict[mode]
         if not self.single_mode_sur:
             # return after performing all the neat reflection symmetrization setup described above, in case model is *not* a single-mode surrogate
-            print "  ... done setting mode symmetry requirements"
+            print "  ... done setting mode symmetry requirements", self.modes_available
 #            print raw_modes, self.post_dict
             return  
         # CURRENTLY ONLY LOAD THE 22 MODE and generate the 2,-2 mode by symmetr
@@ -668,8 +672,10 @@ class WaveformModeCatalog:
             hlmT_dimensionless_narrow = self.sur(params_here,times=tvals_dimensionless[indx_ok])
             for mode in self.modes_available:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
-                if mode[1]<0:  # currently ALWAYS enforce reflection symmetry
+                if mode[1]<0 and self.reflection_symmetric: 
+                    # Perform reflection symmetry
                     mode_alt = (mode[0],-mode[1])
+                    hlmT_dimensionless[mode][indx_ok] = np.power(-1, mode[0])*np.conj( hlmT_dimensionless_narrow[mode_alt])
                 else:
                     hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
 
@@ -702,7 +708,7 @@ class WaveformModeCatalog:
                     if nstart >0:
                         ntaper = int( (self.ToverM_peak-self.ToverMmin)*m_total_s/deltaT*0.1)  # SHOULD BE set by a few Hz in time fixed 1% of waveform length
                     else:
-                        ntaper = int(0.01*len(tvals))   # force 1% length taper
+                        ntaper = int(0.05*len(tvals))   # force 1% length taper
                     vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
                     if rosDebug:
                         print " Tapering ROM hlm(t) for ", mode, " over range ", nstart, nstart+ntaper, " or time offset ", nstart*deltaT, " and window ", ntaper*deltaT
