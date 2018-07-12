@@ -144,6 +144,7 @@ class EOSLALSimulation(EOSConcrete):
 
 # Example directory: EOS_Tables
 dirEOSTablesBase = os.environ["EOS_TABLES"]
+dirLALSimulationBase = os.environ["LALSIMULATION_DATADIR"]  # LAL table data
 ## Add routines to find, parse standard directory of EOS files and load suitable metadata into memory
 ## Follow framework of NRWaveformCatalogManager
 
@@ -314,7 +315,7 @@ class EOSPiecewisePolytrope(EOSConcrete):
 
 
 class EOSLindblomSpectral(EOSConcrete):
-    def __init__(self,name=None,spec_params=None):
+    def __init__(self,name=None,spec_params=None,verbose=False):
         if name is None:
             self.name = 'spectral'
         else:
@@ -326,7 +327,7 @@ class EOSLindblomSpectral(EOSConcrete):
 #        print spec_params
 
         # Create data file
-        self.make_spec_param_eos(500,save_dat=True,ligo_units=True,verbose=False)
+        self.make_spec_param_eos(500,save_dat=True,ligo_units=True,verbose=verbose)
 
         # Use data file
         #print " Trying to load ",name+"_geom.dat"
@@ -346,13 +347,14 @@ class EOSLindblomSpectral(EOSConcrete):
 
 
 
-    def make_spec_param_eos(self, npts=500, plot=False, verbose=False, save_dat=False,ligo_units=False,interpolate=False):
+    def make_spec_param_eos(self, npts=500, plot=False, verbose=False, save_dat=False,ligo_units=False,interpolate=False,eosname_lalsuite="SLY4"):
         """
         Load values from table of spectral parameterization values
         Table values taken from https://arxiv.org/pdf/1009.0738.pdf
         Comments:
             - eos_vals is recorded as *pressure,density* pairs, because the spectral representation is for energy density vs pressure
             - units swap between geometric and CGS
+            - eosname_lalsuite is used for the low-density EOS
         """
 
         spec_params = self.spec_params
@@ -376,7 +378,8 @@ class EOSLindblomSpectral(EOSConcrete):
   
     #doing as those before me have done and using SLY4 as low density region
         # THIS MUST BE FIXED TO USE STANDARD LALSUITE ACCESS, do not assume the file exists
-        low_density=np.loadtxt(dirEOSTablesBase+"/LALSimNeutronStarEOS_SLY4.dat")
+#        low_density=np.loadtxt(dirEOSTablesBase+"/LALSimNeutronStarEOS_SLY4.dat")
+        low_density = np.loadtxt(dirLALSimulationBase+"/LALSimNeutronStarEOS_"+ eosname_lalsuite+".dat")
         low_density[:,0]=low_density[:,0]*C_CGS**2/(DENSITY_CGS_IN_MSQUARED)   # converts to energy density in CGS
         low_density[:,1]=low_density[:,1]*C_CGS**2/(DENSITY_CGS_IN_MSQUARED)   # converts to energy density in CGS
         low_density[:,[0, 1]] = low_density[:,[1, 0]]  # reverse order
@@ -568,3 +571,24 @@ def make_mr_lambda(eos):
 #   print mr_array[:,1]
 
    return mr_array
+
+
+
+def LookupCrustEpsilonAtPressure(p_ref,eosname_lalsuite="SLY4"):
+    """
+    Tool for spectral EOS manager to find epsilon(p) via lookup tables from the lalsuite data files.
+    Units are *CGS*
+    Uses linear interpolation in the log. 
+
+    Warning: lalsuite files use lal units (epsilon, p in 1/m^2), but we will presume p and epsilon are in energy density
+
+    """
+    lal_dat =np.loadtxt(dirLALSimulationBase+"/LALSimNeutronStarEOS_"+ eosname_lalsuite+".dat")
+    lal_dat[:,0]=lal_dat[:,0]*C_CGS**2/(DENSITY_CGS_IN_MSQUARED)   # converts to energy density in CGS
+    lal_dat[:,1]=lal_dat[:,1]*C_CGS**2/(DENSITY_CGS_IN_MSQUARED)   # converts to energy density in CGS
+#    lal_dat[:,[0, 1]] = lal_dat[:,[1, 0]]  # reverse order
+    
+    # Interpolate in log
+    lal_dat_log = np.log10(lal_dat)
+    eps_out = np.power(10.,np.interp(np.log10(p_ref),  lal_dat_log[:,0], lal_dat_log[:,1]))
+    return eps_out
