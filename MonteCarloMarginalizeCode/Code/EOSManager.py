@@ -61,7 +61,7 @@ class EOSConcrete:
         return dimensionless_lam
 
 
-    def pressure_density_on_grid_alternate(self,logrho_grid):
+    def pressure_density_on_grid_alternate(self,logrho_grid,enforce_causal=False):
         """ 
         pressure_density_on_grid.
         Input and output grid units are in SI (rho: kg/m^3; p = N/m^2)
@@ -75,7 +75,11 @@ class EOSConcrete:
         p_internal = np.zeros(npts_internal)
         rho_internal = np.zeros(npts_internal)
         epsilon_internal = np.zeros(npts_internal)
-        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos),npts_internal)
+        hmax = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
+        if enforce_causal:
+            # strip out everything except the causal part.
+            hmax = lalsim.SimNeutronStarEOSMinAcausalPseudoEnthalpy(eos)
+        h = np.linspace(0.0001,hmax,npts_internal)
         for indx in np.arange(npts_internal):
             p_internal[indx] = lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(h[indx],eos)  # SI. Multiply by 10 to get CGS
             epsilon_internal[indx] =lalsim.SimNeutronStarEOSEnergyDensityOfPseudoEnthalpy(h[indx],eos)  # SI. Note factor of C^2 needed to get mass density
@@ -85,7 +89,7 @@ class EOSConcrete:
  #       print logrho_grid,
         return logp_of_logrho(logrho_grid)
 
-    def pressure_density_on_grid(self,logrho_grid,reference_pair=None):
+    def pressure_density_on_grid(self,logrho_grid,reference_pair=None,enforce_causal=False):
         """ 
         pressure_density_on_grid.
         Input and output grid units are in SI (rho: kg/m^3; p = N/m^2)
@@ -100,7 +104,11 @@ class EOSConcrete:
         npts_internal = 10000
         p_internal = np.zeros(npts_internal)
         rho_internal = np.zeros(npts_internal)
-        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos),npts_internal)
+        hmax = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
+        if enforce_causal:
+            # strip out everything except the causal part.
+            hmax = lalsim.SimNeutronStarEOSMinAcausalPseudoEnthalpy(eos)
+        h = np.linspace(0.0001,hmax,npts_internal)
         for indx in np.arange(npts_internal):
             rho_internal[indx] = lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(h[indx],eos)  # SI. Multiply by 10^(-3) to get CGS
             p_internal[indx] = lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(h[indx],eos)  # SI. Multiply by 10 to get CGS
@@ -113,6 +121,23 @@ class EOSConcrete:
  #       print logrho_grid,
         return logp_of_logrho(logrho_grid)
 
+    def test_speed_of_sound_causal(self):
+        """
+        Test if EOS satisfies speed of sound.
+        Relies on low-level lalsimulation interpolation routines to get v(h) and as such is not very reliable
+
+        By CONSTRUCTION, we are testing the FULL EOS range.  We can of course always strip off the acausal part.
+        """
+        npts_internal = 1000
+        eos = self.eos
+        vs_internal = np.zeros(npts_internal)
+        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos),npts_internal)
+#        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMinAcausalPseudoEnthalpy(eos),npts_internal)
+        for indx in np.arange(npts_internal):
+            vs_internal[indx] =  lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(h[indx],eos)
+            if rosDebug:
+                print h[indx], vs_internal[indx]
+        return not np.any(vs_internal>1.1)   # allow buffer, so we have some threshold
 
 ###
 ### SERVICE 1: lalsimutils structure
@@ -347,7 +372,6 @@ class EOSLindblomSpectral(EOSConcrete):
 #        self.fam = my_fromfile_eos.fam
 #        self.mMaxMsun = my_fromfile_eos.mMaxMsun
         return None
-
 
 
     def make_spec_param_eos(self, npts=500, plot=False, verbose=False, save_dat=False,ligo_units=False,interpolate=False,eosname_lalsuite="SLY4"):
