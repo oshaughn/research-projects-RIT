@@ -315,7 +315,7 @@ class EOSPiecewisePolytrope(EOSConcrete):
 
 
 class EOSLindblomSpectral(EOSConcrete):
-    def __init__(self,name=None,spec_params=None,verbose=False):
+    def __init__(self,name=None,spec_params=None,verbose=False,use_lal_spec_eos=False):
         if name is None:
             self.name = 'spectral'
         else:
@@ -326,15 +326,18 @@ class EOSLindblomSpectral(EOSConcrete):
         self.spec_params = spec_params
 #        print spec_params
 
-        # Create data file
-        self.make_spec_param_eos(500,save_dat=True,ligo_units=True,verbose=verbose)
-
-        # Use data file
-        #print " Trying to load ",name+"_geom.dat"
-        import os; #print os.listdir('.')
-        cwd = os.getcwd()
-        self.eos=eos = lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
-        self.fam = fam=lalsim.CreateSimNeutronStarFamily(eos)
+        if use_lal_spec_eos:
+#            self.eos=lalsim.SimNeutronStarEOS4ParameterSpectralDecomposition(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'])   # Should have this function! but only on master
+            self.eos=lalsim.SimNeutronStarEOSSpectralDecomposition_for_plot(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'],4)   # Should have this function! but only on master
+        else:
+            # Create data file
+            self.make_spec_param_eos(500,save_dat=True,ligo_units=True,verbose=verbose)
+            # Use data file
+            #print " Trying to load ",name+"_geom.dat"
+            import os; #print os.listdir('.')
+            cwd = os.getcwd()
+            self.eos=eos = lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
+        self.fam = fam=lalsim.CreateSimNeutronStarFamily(self.eos)
         mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
         self.mMaxMsun = mmass
 
@@ -484,12 +487,37 @@ def epsilon(x, p0, eps0, coeffs):
 ### Utilities
 ###
 
+# Les-like
+def make_mr_lambda_lal(eos,n_bins=100):
+    """
+    Construct mass-radius curve from EOS
+    Based on modern code resources (https://git.ligo.org/publications/gw170817/bns-eos/blob/master/scripts/eos-params.py) which access low-level structures
+    """
+    fam=lalsim.CreateSimNeutronStarFamily(eos)
+    max_m = lalsim.SimNeutronStarMaximumMass(fam)/lal.MSUN_SI
+    min_m = lalsim.SimNeutronStarFamMinimumMass(fam)/lal.MSUN_SI
+    mgrid = np.linspace(min_m,max_m, n_bins)
+    mrL_dat = np.zeros((n_bins,3))
+    mrL_dat[:,0] = mgrid
+    for indx in np.arange(n_bins):
+       mass_now = mgrid[indx]
+       r = lalsim.SimNeutronStarRadius(mass_now*lal.MSUN_SI,fam)/1000.
+       mrL_dat[indx,1] = r
+       k = lalsim.SimNeutronStarLoveNumberK2(mass_now*lal.MSUN_SI,fam)
+       c = mass_now * lal.MRSUN_SI / (r*1000.)
+       mrL_dat[indx,2] = (2. / 3.) * k / c**5.
+
+    return mrL_dat
+
 # Rizzo
-def make_mr_lambda(eos):
+def make_mr_lambda(eos,use_lal=False):
    """
    construct mass-radius curve from EOS    
    DOES NOT YET WORK RELIABLY
    """
+   if use_lal:
+       make_mr_lambda_lal(eos)
+
    fam=lalsim.CreateSimNeutronStarFamily(eos)
  
    r_cut = 40   # Some EOS we consider for PE purposes will have very large radius!
