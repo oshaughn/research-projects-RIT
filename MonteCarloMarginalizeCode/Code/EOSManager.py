@@ -122,7 +122,7 @@ class EOSConcrete:
  #       print logrho_grid,
         return logp_of_logrho(logrho_grid)
 
-    def test_speed_of_sound_causal(self, test_only_under_mmax=True,fast_test=True):
+    def test_speed_of_sound_causal(self, test_only_under_mmax=False,fast_test=True):
         """
         Test if EOS satisfies speed of sound.
         Relies on low-level lalsimulation interpolation routines to get v(h) and as such is not very reliable
@@ -136,18 +136,25 @@ class EOSConcrete:
         npts_internal = 1000
         eos = self.eos
         fam = self.eos_fam
-        vs_internal = np.zeros(npts_internal)
         # Largest NS provides largest attained central pressure
-        m_max_SI = lalsim.SimNeutronStarMaximumMass(fam)
-        pmax = lalsim.SimNeutronStarCentralPressure(m_max_SI,fam)
-        hmax = lalsim.SimNeutronStarEOSPseudoEnthalpyOfPressure(pmax,eos)
-        if fast_test:
-            vsmax = lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(hmax, eos)
-            return vsmax <1.1
+        m_max_SI = self.mMaxMsun*lal.MSUN_SI
+        if fast_test: 
+            # https://git.ligo.org/lscsoft/lalsuite/blob/lalinference_o2/lalinference/src/LALInference.c#L2513
+            try:
+                pmax = lalsim.SimNeutronStarCentralPressure(m_max_SI,fam)  
+                hmax = lalsim.SimNeutronStarEOSPseudoEnthalpyOfPressure(pmax,eos)
+                vsmax = lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(hmax, eos)
+                return vsmax <1.1
+            except:
+                # catch gsl interpolation errors for example
+                return False
+        else:
+            print " not performing fast test "
         if not test_only_under_mmax:
             hmax = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
         h = np.linspace(0.0001,hmax,npts_internal)
 #        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMinAcausalPseudoEnthalpy(eos),npts_internal)
+        vs_internal = np.zeros(npts_internal)
         for indx in np.arange(npts_internal):
             vs_internal[indx] =  lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(h[indx],eos)
             if rosDebug:
@@ -368,7 +375,7 @@ class EOSLindblomSpectral(EOSConcrete):
 
         if use_lal_spec_eos:
 #            self.eos=lalsim.SimNeutronStarEOS4ParameterSpectralDecomposition(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'])   # Should have this function! but only on master
-            self.eos=lalsim.SimNeutronStarEOSSpectralDecomposition_for_plot(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'],4)   # Should have this function! but only on master
+            self.eos=lalsim.SimNeutronStarEOSSpectralDecomposition_for_plot(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'],4)
         else:
             # Create data file
             self.make_spec_param_eos(500,save_dat=True,ligo_units=True,verbose=verbose)
@@ -377,15 +384,10 @@ class EOSLindblomSpectral(EOSConcrete):
             import os; #print os.listdir('.')
             cwd = os.getcwd()
             self.eos=eos = lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
-        self.fam = fam=lalsim.CreateSimNeutronStarFamily(self.eos)
+        self.eos_fam = fam=lalsim.CreateSimNeutronStarFamily(self.eos)
         mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
         self.mMaxMsun = mmass
 
-
-#        my_fromfile_eos =EOSFromDataFile(fname=name+"_spec.dat")
-#        self.eos = my_fromfile_eos.eos
-#        self.fam = my_fromfile_eos.fam
-#        self.mMaxMsun = my_fromfile_eos.mMaxMsun
         return None
 
 
@@ -675,6 +677,6 @@ def LookupCrustEpsilonAtPressure(p_ref,eosname_lalsuite="SLY4"):
 #    lal_dat[:,[0, 1]] = lal_dat[:,[1, 0]]  # reverse order
     
     # Interpolate in log
-    lal_dat_log = np.log10(lal_dat)
+    lal_dat_log = np.log10(lal_dat)   # note first sample is zero,and causes problems nominally with this interpolation
     eps_out = np.power(10.,np.interp(np.log10(p_ref),  lal_dat_log[:,0], lal_dat_log[:,1]))
     return eps_out
