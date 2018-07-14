@@ -19,6 +19,7 @@ import lal
 import lalsimulation as lalsim
 from scipy.integrate import quad
 import scipy.interpolate as interp
+import scipy
 
 #import gwemlightcurves.table as gw_eos_table
 
@@ -121,17 +122,31 @@ class EOSConcrete:
  #       print logrho_grid,
         return logp_of_logrho(logrho_grid)
 
-    def test_speed_of_sound_causal(self):
+    def test_speed_of_sound_causal(self, test_only_under_mmax=True,fast_test=True):
         """
         Test if EOS satisfies speed of sound.
         Relies on low-level lalsimulation interpolation routines to get v(h) and as such is not very reliable
 
-        By CONSTRUCTION, we are testing the FULL EOS range.  We can of course always strip off the acausal part.
+        By DEFAULT, we are testing the part of the EOS that is
+             - at the largest pressure (assuming monotonic sound speed)
+             - associated with the maximum mass NS that is stable
+        We can also test the full table that is provided to us.
+        https://git.ligo.org/lscsoft/lalsuite/blob/lalinference_o2/lalinference/src/LALInference.c#L2513
         """
         npts_internal = 1000
         eos = self.eos
+        fam = self.eos_fam
         vs_internal = np.zeros(npts_internal)
-        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos),npts_internal)
+        # Largest NS provides largest attained central pressure
+        m_max_SI = lalsim.SimNeutronStarMaximumMass(fam)
+        pmax = lalsim.SimNeutronStarCentralPressure(m_max_SI,fam)
+        hmax = lalsim.SimNeutronStarEOSPseudoEnthalpyOfPressure(pmax,eos)
+        if fast_test:
+            vsmax = lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(hmax, eos)
+            return vsmax <1.1
+        if not test_only_under_mmax:
+            hmax = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
+        h = np.linspace(0.0001,hmax,npts_internal)
 #        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMinAcausalPseudoEnthalpy(eos),npts_internal)
         for indx in np.arange(npts_internal):
             vs_internal[indx] =  lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(h[indx],eos)
@@ -398,10 +413,11 @@ class EOSLindblomSpectral(EOSConcrete):
         eos_vals=np.zeros((npts,2))
         eos_vals[:,1]=p_range
 
-        for i in range(0, len(x_range)):
-            eos_vals[i,0]=epsilon(x_range[i], p0, eps0, coefficients)
-            if verbose==True:
-                print "x:",x_range[i],"p:",p_range[i],"p0",p0,"epsilon:",eos_vals[i,0]
+        eos_vals[:,0] = epsilon(x_range,p0,eps0, coefficients)
+        # for i in range(0, len(x_range)):
+        #    eos_vals[i,0]=epsilon(x_range[i], p0, eps0, coefficients)
+        #    if verbose==True:
+        #        print "x:",x_range[i],"p:",p_range[i],"p0",p0,"epsilon:",eos_vals[i,0]
   
     #doing as those before me have done and using SLY4 as low density region
         # THIS MUST BE FIXED TO USE STANDARD LALSUITE ACCESS, do not assume the file exists
@@ -463,8 +479,10 @@ def gamma_of_x(x, coeffs):
         Eq 6 from https://arxiv.org/pdf/1009.0738.pdf
         """
         gamma=0
-        for i in range(0,len(coeffs)):
-            gamma+=coeffs[i]*x**i 
+        # Equivalent to np.polyval(coeffs[::-1],x)
+        gamma=np.polyval(coeffs[::-1],x)
+        # for i in range(0,len(coeffs)):
+        #     gamma+=coeffs[i]*x**i 
         gamma=np.exp(gamma)  
         return gamma
   
@@ -473,31 +491,47 @@ def mu(x, coeffs):
         Eq 8 from https://arxiv.org/pdf/1009.0738.pdf
         """
 
-        def int_func(x_prime):
-            return (gamma_of_x(x_prime, coeffs))**(-1)    
 
         # very inefficient: does integration multiple times. Should change to ODE solve
         if isinstance(x, (list, np.ndarray)):
-            val=np.zeros(len(x))
-            for i in range(0,len(x)):
-                tmp=quad(int_func, 0, x[i])
-                val[i]=tmp[0]  
+            def int_func(dummy,x_prime):
+              return (gamma_of_x(x_prime, coeffs))**(-1)    
+            y = scipy.integrate.odeint(int_func,[0],x,full_output=False).T  # x=0 needs to be value in array
+            return np.exp(-1.*y)
+#            val=np.zeros(len(x))
+#            for i in range(0,len(x)):
+#                tmp=quad(int_func, 0, x[i])
+#                val[i]=tmp[0]  
+#            return np.exp(-1.*val)
         else:    
+            def int_func(x_prime):
+              return (gamma_of_x(x_prime, coeffs))**(-1)    
             val=quad(int_func, 0, x)
 
         return np.exp(-1.*val[0])
 
-def epsilon(x, p0, eps0, coeffs):
+def epsilon(x, p0, eps0, coeffs,use_ode=True):
         """
         Eq. 7 from https://arxiv.org/pdf/1009.0738.pdf
         """
-        def int_func(x_prime):
+        mu_of_x=mu(x, coeffs)  
+        if use_ode and isinstance(x, (list,np.ndarray)):
+          mu_intp = scipy.interpolate.interp1d(x,mu_of_x,bounds_error=False,fill_value=0)
+          def int_func(dummy,x_prime):
+            num = mu_intp(x_prime)*np.exp(x_prime)
+            denom = gamma_of_x(x_prime, coeffs)
+            return num / denom
+          y= scipy.integrate.odeint(int_func,0,x,full_output=False).T  # x=0 needs to be value in array
+          eps=(eps0*C_CGS**2)/mu_of_x + p0/mu_of_x * y
+          return eps
+        else:
+          def int_func(x_prime):
             num = mu(x_prime, coeffs)*np.exp(x_prime)
             denom = gamma_of_x(x_prime, coeffs)
             return num / denom
           
         # very inefficient: does integration multiple times. Should change to ODE solve
-        mu_of_x=mu(x, coeffs)  
+        # Would require lookup interpolation of mu_of_x
         val=quad(int_func, 0, x)
         #val=romberg(int_func, 0, x, show=True)   
         eps=(eps0*C_CGS**2)/mu_of_x + p0/mu_of_x * val[0]
