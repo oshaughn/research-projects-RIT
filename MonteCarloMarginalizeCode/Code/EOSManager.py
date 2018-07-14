@@ -122,7 +122,7 @@ class EOSConcrete:
  #       print logrho_grid,
         return logp_of_logrho(logrho_grid)
 
-    def test_speed_of_sound_causal(self, test_only_under_mmax=False,fast_test=True):
+    def test_speed_of_sound_causal(self, test_only_under_mmax=True,fast_test=True):
         """
         Test if EOS satisfies speed of sound.
         Relies on low-level lalsimulation interpolation routines to get v(h) and as such is not very reliable
@@ -138,20 +138,26 @@ class EOSConcrete:
         fam = self.eos_fam
         # Largest NS provides largest attained central pressure
         m_max_SI = self.mMaxMsun*lal.MSUN_SI
-        if fast_test: 
-            # https://git.ligo.org/lscsoft/lalsuite/blob/lalinference_o2/lalinference/src/LALInference.c#L2513
+        if not test_only_under_mmax:
+            hmax = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
+        else:
             try:
                 pmax = lalsim.SimNeutronStarCentralPressure(m_max_SI,fam)  
                 hmax = lalsim.SimNeutronStarEOSPseudoEnthalpyOfPressure(pmax,eos)
+            except:
+                # gatch gsl interpolation errors for example
+                return False  
+        if fast_test: 
+            # https://git.ligo.org/lscsoft/lalsuite/blob/lalinference_o2/lalinference/src/LALInference.c#L2513
+            try:
                 vsmax = lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(hmax, eos)
                 return vsmax <1.1
             except:
                 # catch gsl interpolation errors for example
                 return False
         else:
-            print " not performing fast test "
-        if not test_only_under_mmax:
-            hmax = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
+            if rosDebug:
+                print " performing comprehensive test "
         h = np.linspace(0.0001,hmax,npts_internal)
 #        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMinAcausalPseudoEnthalpy(eos),npts_internal)
         vs_internal = np.zeros(npts_internal)
@@ -390,6 +396,22 @@ class EOSLindblomSpectral(EOSConcrete):
 
         return None
 
+    def test_bounded_adiabatic_index(self,bounds=[0.6,4.5]):
+        """
+        Gamma(p) \in bounds
+        Uses xmax and other parameters from spectral result
+        """
+        spec_params =self.spec_params
+        if not 'gamma3' in spec_params:
+            spec_params['gamma3']=spec_params['gamma4']=0
+        coefficients=np.array([spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4']])
+        xmax = self.spec_params['xmax']
+        xvals = np.linspace(0,xmax,500)
+        gamma_vals = gamma_of_x(xvals, coefficients)
+        if rosDebug:
+            print "  Spectral EOS debug test limits: Gamma bounds", np.min(gamma_vals), np.max(gamma_vals)
+        return  not( np.any(gamma_vals < bounds[0]) or np.any(gamma_vals>bounds[1]) )
+            
 
     def make_spec_param_eos(self, npts=500, plot=False, verbose=False, save_dat=False,ligo_units=False,interpolate=False,eosname_lalsuite="SLY4"):
         """
