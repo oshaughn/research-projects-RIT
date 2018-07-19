@@ -3551,7 +3551,15 @@ def test_coord_output(x_out):
     """
     ret = map( np.isfinite, x_out)
     return ret
-
+def RangeProtect(fn,val):
+    """
+    RangeProtect(fn) wraps fn, returning  - np.inf in cases where an argument is not finite, and calling the function otherwise.
+    Intended to be used with test_coord_output and coordinate conversion routines, to identify range errors, etc
+    """
+    def my_protected(x):
+        x_test = test_coord_output(x)
+        return np.piecewise(x, [x_test, np.logical_not(x_test)], [fn, (lambda x: val)])
+    return my_protected 
 
 def symmetry_sign_exchange(coord_names):
     P=ChooseWaveformParams()
