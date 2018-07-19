@@ -230,7 +230,10 @@ parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP f
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 parser.add_argument("--no-plots",action='store_true')
-parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS if not already determined in lnL")
+parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not) ")
+parser.add_argument("--no-matter1", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
+parser.add_argument("--no-matter2", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
+parser.add_argument("--source-redshift",default=0,type=float,help="Source redshift (used to convert from source-frame mass [integration limits] to arguments of fitting function.  Note that if nonzero, integration done in SOURCE FRAME MASSES, but the fit is calculated using DETECTOR FRAME")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
 opts=  parser.parse_args()
@@ -238,6 +241,9 @@ no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 if opts.lnL_shift_prevent_overflow:
     lnL_shift  = opts.lnL_shift_prevent_overflow
+
+source_redshift=0
+
 
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
@@ -261,11 +267,15 @@ if opts.using_eos!=None:
         else:
             spec_params['gamma2']=spec_param_array[2]
             spec_params['gamma3']=spec_param_array[3]
-        eos_base = EOSMananager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params)
-        eos_vals = eos_base.make_spec_param_eos(npts=500)
-        lalsim_spec_param = eos_vals/(C_CGS**2)*7.42591549*10**(-25) # argh, Monica!
-        np.savetxt("lalsim_eos/"+eos_name+"_spec_param_geom.dat", np.c_[lalsim_spec_param[:,1], lalsim_spec_param[:,0]])
-        my_eos=lalsim.SimNeutronStarEOSFromFile(path+"/lalsim_eos/"+eos_name+"_spec_param_geom.dat")
+        eos_base = EOSMananager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=True)
+#        eos_vals = eos_base.make_spec_param_eos(npts=500)
+#        lalsim_spec_param = eos_vals/(C_CGS**2)*7.42591549*10**(-25) # argh, Monica!
+#        np.savetxt("lalsim_eos/"+eos_name+"_spec_param_geom.dat", np.c_[lalsim_spec_param[:,1], lalsim_spec_param[:,0]])
+#        my_eos=lalsim.SimNeutronStarEOSFromFile(path+"/lalsim_eos/"+eos_name+"_spec_param_geom.dat")
+        my_eos=eos_base
+    elif 'lal_' in eos_name:
+        eos_name = eos_name.replace('lal_','')
+        my_eos = EOSManager.EOSLALSimulation(name=eos_name)
     else:
         my_eos = EOSManager.EOSFromDataFile(name=eos_name,fname =EOSManager.dirEOSTablesBase+"/" + eos_name+".dat")
 
@@ -1118,7 +1128,8 @@ if not opts.using_eos:
     return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names)
 else:
  def convert_coords(x_in):
-    return lalsimutils.convert_waveform_coordinates_using_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos)
+    x_out = lalsimutils.convert_waveform_coordinates_with_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,no_matter1=opts.no_matter1, no_matter2=opts.no_matter2)
+    return x_out
 
 ###
 ### Integrate posterior
@@ -1162,7 +1173,6 @@ if len(low_level_coord_names) ==2:
         if isinstance(x,float):
             return np.exp(my_fit([x,y]))
         else:
-#            return np.exp(my_fit(convert_coords(np.array([x,y],dtype=internal_dtype).T)))
             return np.exp(my_fit(convert_coords(np.c_[x,y])))
 if len(low_level_coord_names) ==3:
     def likelihood_function(x,y,z):  
@@ -1176,7 +1186,6 @@ if len(low_level_coord_names) ==4:
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a]))
         else:
-#            return np.exp(my_fit(convert_coords(np.array([x,y,z,a],dtype=internal_dtype).T)))
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a])))
 if len(low_level_coord_names) ==5:
     def likelihood_function(x,y,z,a,b):  
