@@ -3485,6 +3485,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     P = ChooseWaveformParams()
+    # note NO MASS CONVERSION here, because the fit is in solar mass units!
     for indx_out  in np.arange(len(x_in)):
         for indx in np.arange(len(low_level_coord_names)):
             P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
@@ -3503,6 +3504,8 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     P = ChooseWaveformParams()
     for indx_out  in np.arange(len(x_in)):
+        # WARNING UNUSUAL CONVENTION
+        #   note, P.m1, P.m2 in Msun units here
         for indx in np.arange(len(low_level_coord_names)):
             P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
         # Impose EOS, unless no_matter1
@@ -3510,16 +3513,28 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
             P.lambda1=0
         else:
           try:
-            P.lambda1 = eos_class.lambda_from_m(P.m1)
+            if P.m1 < eos_class.mMaxMsun:
+                P.lambda1 = eos_class.lambda_from_m(P.m1*lal.MSUN_SI)
+            else:
+                if rosDebugMessagesContainer[0]:
+                    print " Failed (safely) for ", P.m1
+                P.lambda1= -np.inf
           except:
-            P.lambda1 = - np.inf
+#              print " Failed for ", P.m1
+              P.lambda1 = - np.inf
         if no_matter2:
             P.lambda2=0
         else:
           try:
-            P.lambda2 = eos_class.lambda_from_m(P.m2)
+            if P.m2 < eos_class.mMaxMsun:
+                P.lambda2 = eos_class.lambda_from_m(P.m2*lal.MSUN_SI)
+            else:
+                if rosDebugMessagesContainer[0]:
+                    print " Failed (safely) for ", P.m2
+                P.lambda2= -np.inf
           except:
-            P.lambda2 = -np.inf
+#              print " Failed for ", P.m2
+              P.lambda2=-np.inf
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
         P.m1 = P.m1*(1+source_redshift)
         P.m2 = P.m2*(1+source_redshift)
@@ -3529,6 +3544,13 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         if enforce_kerr and (P.extract_param('chi1') > 1 or P.extract_param('chi2') >1):  # insure Kerr bound satisfied
             x_out[indx_out] = -np.inf*np.ones( len(coord_names) ) # return negative infinity for all coordinates, if Kerr bound violated
     return x_out
+
+def test_coord_output(x_out):
+    """
+    Checks if any of the x_out are -np.inf.  Returns a boolean array [ True, False, False, ...] with True if the corresponding coordinate row is ok, false otherwise
+    """
+    ret = map( np.isfinite, x_out)
+    return ret
 
 
 def symmetry_sign_exchange(coord_names):
