@@ -233,6 +233,7 @@ parser.add_argument("--no-plots",action='store_true')
 parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not) ")
 parser.add_argument("--no-matter1", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
 parser.add_argument("--no-matter2", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
+parser.add_argument("--protect-coordinate-conversions", action='store_true', help="Adds an extra layer to coordinate conversions with range tests. Slows code down, but adds layer of safety for out-of-range EOS parameters for example")
 parser.add_argument("--source-redshift",default=0,type=float,help="Source redshift (used to convert from source-frame mass [integration limits] to arguments of fitting function.  Note that if nonzero, integration done in SOURCE FRAME MASSES, but the fit is calculated using DETECTOR FRAME")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
@@ -710,6 +711,8 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
     if opts.fit_load_gp:
         print " WARNING: Do not re-use fits across architectures or versions : pickling is not transferrable "
         my_gp=joblib.load(opts.fit_load_gp)
+        if opts.protect_coordinate_conversions:
+            return lalsimutils.RangeProtectReduce(lambda x: my_gp.predict(x), -np.inf)
         return lambda x:my_gp.predict(x)
 
     # Amplitude: 
@@ -750,6 +753,8 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
             joblib.dump(gp,opts.fit_save_gp+".pkl")
         
         if not (opts.fit_uncertainty_added):
+            if opts.protect_coordinate_conversions:
+                return lalsimutils.RangeProtectReduce( (lambda x: gp.predict(x) ), -np.inf)
             return lambda x: gp.predict(x)
         else:
             return lambda x: adderr(gp.predict(x,return_std=True))
