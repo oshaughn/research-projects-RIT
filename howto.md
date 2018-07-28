@@ -101,6 +101,8 @@ Commandline
 >>> ./command-single.sh >> ile.log # redirect output into a log file
 ```
 
+The result should be the log file, CME.xml.gz, and CME.xml.gz.dat
+
 7. 
 
 ```bash
