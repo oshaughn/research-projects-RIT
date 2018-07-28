@@ -1,29 +1,47 @@
 ## Running ILE
 
-These are (poorly organized -- cleanup needed!) notes on running the ILE code. There's no garuntee they work, and steps are probably missing. They've been cobbled together from various sources. 
+These are notes on running the ILE code, and they have been found to work on the machine Bajor.
 
 ## Example workflow
 
 1. Create xml injection file (maybe no noise, mdc.xml.gz)
 
 ``` bash
->>> util_WriteInjectionFile.py --parameter m1 --parameter-value 100 --parameter m2 --parameter-value 30 --parameter incl --parameter-value 0.785398 --parameter dist --parameter-value 568.3 --parameter tref --parameter-value 1000000000 --approx EOBNRv2HM --parameter fmin --parameter-value 10
+>>> util_WriteInjectionFile.py \
+--parameter m1 --parameter-value 100 \
+--parameter m2 --parameter-value 30 \
+--parameter incl --parameter-value 0.785398 \
+--parameter dist --parameter-value 568.3 \
+--parameter tref --parameter-value 1000000000 \
+--approx EOBNRv2HM
+--parameter fmin --parameter-value 10
 >>> util_PrintInjection.py --inj mdc.xml.gz --event 0 --verbose
 ```
 
-2. Create frame file (frames.cache)... can probably source richard's directory, see "NR_plot"
+2. Create frame file (frames.cache)
 
 ```bash
->>> util_LALWriteFrame.py --instrument H1 --inj mdc.xml.gz --event 0 --start 999999900 --stop 1000001000
->>> util_LALWriteFrame.py --instrument L1 --inj mdc.xml.gz --event 0 --start 999999900 --stop 1000001000
+>>> util_LALWriteFrame.py \
+--instrument H1 \
+--inj mdc.xml.gz \
+--event 0 \
+--start 999999900 --stop 1000001000
+>>> util_LALWriteFrame.py \
+--instrument L1 \
+--inj mdc.xml.gz \
+--event 0 \
+--start 999999900 --stop 1000001000
 >>> find . -name '*.gwf' | lalapps_path2cache > frames.cache
 ```
 
-3. Check zero-noise SNR
+3. Check zero-noise SNR (note the absolute path to Richard's folder)
 
 ```bash
->>> cp /home/scott.field/ILE-ROM/ReferenceRuns/synthetic_data/*psd* .
->>> /home/oshaughn/unixhome/PythonPackages/util_FrameZeroNoiseSNR.py --cache frames.cache --psd-file H1=H1-psd.xml.gz --psd-file L1=L1-psd.xml.gz
+>>> cp /home/scott.field/*psd* .
+>>> /home/oshaughn/unixhome/PythonPackages/util_FrameZeroNoiseSNR.py \
+--cache frames.cache \
+--psd-file H1=H1-psd.xml.gz \
+--psd-file L1=L1-psd.xml.gz
 ```
 
 4. lays out grid in (M,q)...
