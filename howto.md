@@ -103,7 +103,13 @@ Commandline
 
 The result should be the log file, CME.xml.gz, and CME.xml.gz.dat
 
-7. 
+7. Postprocessing (see Jake's tutorial)
+
+```bash
+>>> util_ILEdagPostprocess.sh /path/to/ILE/run/directory/ ''label''
+```
+
+8. 
 
 ```bash
 >>> cat run_standard_allmodes_v?_bajor.composite > tmp_allmodes.composite  # joined !
