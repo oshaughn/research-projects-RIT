@@ -47,31 +47,60 @@ These are notes on running the ILE code, and they have been found to work on the
 4. lays out grid in (M,q)...
 
 ```bash
->>> util_ManualOverlapGrid.py --inj mdc.xml.gz --event 0 --parameter 'mtot' --parameter-range '[110,160]' --parameter q --parameter-range '[0.1,1]' --skip-overlap --verbose --grid-cartesian-npts 500)
+>>> util_ManualOverlapGrid.py \
+--inj mdc.xml.gz \
+--event 0 \
+--parameter 'mtot' --parameter-range '[110,160]' \
+--parameter q --parameter-range '[0.1,1]' \
+--skip-overlap --verbose --grid-cartesian-npts 500
 ```
 
-5. create a DAG: create_event_dag_via_grid
-
-from run_standard...
+5. Run create_event_dag_via_grid (from run_standard...), which will generate two files: integrate.sub and command-single.sh. Both run the ile code, where sub uses condor and sh can be executed from the commandline. 
 
 ```bash
->>> create_event_dag_via_grid --cache-file frames.cache   --event-time 1000000000  --sim-xml overlap-grid.xml.gz  --fmin-template 20 --reference-freq 0 --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN  --psd-file "H1=H1-psd.xml.gz" --psd-file "L1=L1-psd.xml.gz"  --save-samples --time-marginalization --n-max 500000 --n-eff 200 --output-file CME.xml.gz    --n-copies 2 --fmax 2000 --adapt-weight-exponent 0.2 --adapt-floor-level 0.1 --n-chunk 4000 --approximant EOBNRv2HM --l-max 4 --declination-cosine-sampler --inclination-cosine-sampler  --save-P 0.9
+>>> create_event_dag_via_grid \
+--cache-file frames.cache   \
+--event-time 1000000000  \
+--sim-xml overlap-grid.xml.gz \
+--fmin-template 20 \
+--reference-freq 0 \
+--channel-name H1=FAKE-STRAIN \
+--channel-name L1=FAKE-STRAIN  \
+--psd-file "H1=H1-psd.xml.gz" \
+--psd-file "L1=L1-psd.xml.gz" \
+--save-samples \
+--time-marginalization \
+--n-max 500000 \
+--n-eff 200 \
+--output-file CME.xml.gz \
+--n-copies 2 \
+--fmax 2000 \
+--adapt-weight-exponent 0.2 \
+--adapt-floor-level 0.1 \
+--n-chunk 4000 \
+--approximant EOBNRv2HM \
+--l-max 4 \
+--declination-cosine-sampler \
+--inclination-cosine-sampler  \
+--save-P 0.9
 ```
 
-6. submit the dag, and monitor its progress
+6. Either submit the dag to run through condor, or run on the commandline.
+
+Condor:
 
 ```bash
->>> condor_submit_dag integrate.sub
->>> condor_q -dag
+>>> condor_submit integrate.sub
+>>> condor_submit_dag marginalize_extrinsic_parameters_grid.dag  # Option 2 -- if you have a dag file 
+>>> condor_q -dag # monitor progress
 ```
 
-*** NOTE ***
+Commandline
 
 ```bash
->>> condor_submit integrate.sub  # works
->>> condor_submit_dag integrate.sub  # fails
->>> condor_submit_dag marginalize_extrinsic_parameters_grid.dag  # works
+>>> ./command-single.sh >> ile.log # redirect output into a log file
 ```
+
 7. 
 
 ```bash
