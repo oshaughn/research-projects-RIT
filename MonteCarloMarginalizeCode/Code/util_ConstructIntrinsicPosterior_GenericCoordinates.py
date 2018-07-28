@@ -175,6 +175,7 @@ parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
+parser.add_argument("--fname-output-integral",default="integral_result",help="output filename for integral result. Postfixes appended")
 parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
 parser.add_argument("--fref",default=20,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz)")
 parser.add_argument("--fmin",type=float,default=20)
@@ -1241,7 +1242,8 @@ res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_
 
 
 # Save result -- needed for odds ratios, etc.
-np.savetxt("integral_result.dat", [np.log(res)])
+#   Warning: integral_result.dat uses *original* prior, before any reweighting
+np.savetxt(opts.fname_output_integral+".dat", [np.log(res)])
 
 if neff < len(low_level_coord_names):
     print " PLOTS WILL FAIL "
@@ -1323,6 +1325,10 @@ if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  
     weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
     weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(prior_weight[indx_ok])  # correct for uniform
         
+
+# Integral result v2: using modified prior
+res_reweighted = lnLmax + np.log(np.sum(weights))
+np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [np.log(res)])  # should agree with the usual result, if no prior changes
 
 
 # Load in reference parameters
