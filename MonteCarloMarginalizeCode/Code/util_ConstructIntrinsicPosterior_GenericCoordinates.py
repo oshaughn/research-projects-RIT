@@ -1244,6 +1244,7 @@ res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_
 # Save result -- needed for odds ratios, etc.
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
 np.savetxt(opts.fname_output_integral+".dat", [np.log(res)])
+np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([np.log(res), np.sqrt(var)/res, neff]).T)
 
 if neff < len(low_level_coord_names):
     print " PLOTS WILL FAIL "
@@ -1329,7 +1330,7 @@ if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  
 # Integral result v2: using modified prior
 res_reweighted = lnLmax + np.log(np.sum(weights))
 np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [np.log(res)])  # should agree with the usual result, if no prior changes
-
+np.savetxt(opts.fname_output_integral+"_withpriorchange+annotation.dat", np.array([np.log(res),np.sqrt(var)/res, neff]).T)
 
 # Load in reference parameters
 Pref = lalsimutils.ChooseWaveformParams()
@@ -1416,7 +1417,8 @@ dat_mass = np.zeros( (len(lnL),len(low_level_coord_names)),dtype=np.float64)
 dat_mass_LI = []
 if opts.fname_lalinference:
     dat_mass_LI = np.zeros( (len(samples_LI), len(low_level_coord_names)), dtype=np.float64)
-for indx in np.arange(len(low_level_coord_names)):
+if not no_plots:
+  for indx in np.arange(len(low_level_coord_names)):
     dat_mass[:,indx] = samples[low_level_coord_names[indx]]
     if opts.fname_lalinference and low_level_coord_names[indx] in remap_ILE_2_LI.keys() :
 #        tmp = extract_combination_from_LI[samples_LI, low_level_coord_names[indx]]
@@ -1439,7 +1441,8 @@ for indx in np.arange(len(low_level_coord_names)):
 CIs = [0.95,0.9, 0.68]
 quantiles_1d = [0.05,0.95]
 range_here = []
-for p in low_level_coord_names:
+if not no_plots:
+  for p in low_level_coord_names:
 #    print p, prior_range_map[p]
     range_here.append(prior_range_map[p])
     if (range_here[-1][1] < np.mean(samples[p])+2*np.std(samples[p])  ):
