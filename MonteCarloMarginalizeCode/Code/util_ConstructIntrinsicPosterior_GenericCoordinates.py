@@ -1244,7 +1244,7 @@ res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_
 # Save result -- needed for odds ratios, etc.
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
 np.savetxt(opts.fname_output_integral+".dat", [np.log(res)])
-np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([np.log(res), np.sqrt(var)/res, neff]).T)
+np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]))
 
 if neff < len(low_level_coord_names):
     print " PLOTS WILL FAIL "
@@ -1290,10 +1290,12 @@ if opts.pseudo_uniform_magnitude_prior and 's1x' in samples.keys() and 's1z' in 
     val = np.array(samples["s1z"]**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype)
     chi1 = np.sqrt(val)  # weird typecasting problem
     weights *= 3.*chi_max*chi_max/(chi1*chi1*prior_weight)   # prior_weight accounts for the density, in cartesian coordinates
+    weights[ chi1>chi_max] =0
     if 's2z' in samples.keys():
         prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s2x','s2y','s2z'] ],axis=0)
         val = np.array(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype)
         chi2= np.sqrt(val)
+        weights[ chi2>chi_max] =0
         weights *= 3.*chi_max*chi_max/(chi2*chi2*prior_weight)
 elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys() and not opts.pseudo_uniform_magnitude_prior_alternate_sampling:
     # Uniform sampling: simple volumetric reweight
@@ -1327,10 +1329,14 @@ if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  
     weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(prior_weight[indx_ok])  # correct for uniform
         
 
-# Integral result v2: using modified prior
-res_reweighted = lnLmax + np.log(np.sum(weights))
-np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [np.log(res)])  # should agree with the usual result, if no prior changes
-np.savetxt(opts.fname_output_integral+"_withpriorchange+annotation.dat", np.array([np.log(res),np.sqrt(var)/res, neff]).T)
+# Integral result v2: using modified prior. 
+# Note also downselects NOT applied: no range cuts, unless applied as part of aligned_prior, etc.  
+#   - use for Bayes factors with GREAT CARE for this reason; should correct for with indx_ok
+log_res_reweighted = lnLmax + np.log(np.sum(weights))
+sigma_reweighted= np.std(weights)/np.sum(weights)
+neff_reweighted = np.sum(weights)/np.max(weights)
+np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [log_res_reweighted])  # should agree with the usual result, if no prior changes
+np.savetxt(opts.fname_output_integral+"_withpriorchange+annotation.dat", np.array([[log_res_reweighted,sigma_reweighted, neff]]))
 
 # Load in reference parameters
 Pref = lalsimutils.ChooseWaveformParams()
