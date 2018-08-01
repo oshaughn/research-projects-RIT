@@ -447,7 +447,7 @@ print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_lev
 
 # mcmin, mcmax : to be defined later
 def M_prior(x):  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
-    return x/(mc_max-mc_min)
+    return 2*x/(mc_max**2-mc_min**2)
 def q_prior(x):
     return 1./(1+x)**2  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
 def m1_prior(x):
@@ -455,11 +455,11 @@ def m1_prior(x):
 def m2_prior(x):
     return 1./200
 def s1z_prior(x):
-    return 1./2
+    return 1./(2*chi_max)
 def s2z_prior(x):
-    return 1./2
+    return 1./(2*chi_max)
 def mc_prior(x):
-    return x/(mc_max-mc_min)
+    return 2*x/(mc_max**2-mc_min**2)
 def eta_prior(x):
     return 1./np.power(x,6./5.)/np.power(1-4.*x, 0.5)/1.44
 def delta_mc_prior(x):
@@ -475,8 +475,8 @@ def m_prior(x):
 
 def xi_uniform_prior(x):
     return np.ones(x.shape)
-def s_component_uniform_prior(x):  # If all three are used, a volumetric prior
-    return np.ones(x.shape)/(2.*chi_max)
+def s_component_uniform_prior(x,R=chi_max):  # If all three are used, a volumetric prior
+    return np.ones(x.shape)/(2.*R)
 def s_component_gaussian_prior(x,R=chi_max/3.):
     """
     (proportinal to) prior on range in one-dimensional components, in a cartesian domain.
@@ -517,7 +517,7 @@ def delta_lambda_tilde_prior(x):
     return np.ones(x.shape)/1000.   # -500,500
 
 
-prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
+prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":s_component_uniform_prior, "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
     's2x':s_component_uniform_prior,
     's1y':s_component_uniform_prior,
