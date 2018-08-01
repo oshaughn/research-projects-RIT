@@ -98,7 +98,7 @@ Condor:
 Commandline
 
 ```bash
->>> ./command-single.sh >> ile.log # redirect output into a log file
+>>> ./command-single.sh >> ile.log # NOTE: this may not be equivalent to integrate.sh; could result in errors in next step
 ```
 
 The result should be the log file, CME.xml.gz, and CME.xml.gz.dat
