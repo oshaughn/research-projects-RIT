@@ -38,7 +38,7 @@ These are notes on running the ILE code, and they have been found to work on the
 
 ```bash
 >>> cp /home/scott.field/*psd* .
->>> /home/oshaughn/unixhome/PythonPackages/util_FrameZeroNoiseSNR.py \
+>>> /home/scott.field/util_FrameZeroNoiseSNR.py \
 --cache frames.cache \
 --psd-file H1=H1-psd.xml.gz \
 --psd-file L1=L1-psd.xml.gz
