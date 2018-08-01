@@ -1332,8 +1332,8 @@ if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  
 # Integral result v2: using modified prior. 
 # Note also downselects NOT applied: no range cuts, unless applied as part of aligned_prior, etc.  
 #   - use for Bayes factors with GREAT CARE for this reason; should correct for with indx_ok
-log_res_reweighted = lnLmax + np.log(np.sum(weights))
-sigma_reweighted= np.std(weights)/np.sum(weights)
+log_res_reweighted = lnLmax + np.log(np.mean(weights))
+sigma_reweighted= np.std(weights,dtype=np.float128)/np.mean(weights)
 neff_reweighted = np.sum(weights)/np.max(weights)
 np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [log_res_reweighted])  # should agree with the usual result, if no prior changes
 np.savetxt(opts.fname_output_integral+"_withpriorchange+annotation.dat", np.array([[log_res_reweighted,sigma_reweighted, neff]]))
