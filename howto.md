@@ -101,7 +101,7 @@ Commandline
 >>> ./command-single.sh >> ile.log # NOTE: this may not be equivalent to integrate.sh; could result in errors in next step
 ```
 
-The result should be the log file, CME.xml.gz, and CME.xml.gz.dat
+The result should be the log file, CME.xml.gz, and CME.xml.gz.dat. The log-likelihood evaluations are found in the many files that have the form CME.dat. These will be catted into .composite file (next step).
 
 7. Postprocessing (see Jake's tutorial)
 
