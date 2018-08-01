@@ -85,20 +85,19 @@ These are notes on running the ILE code, and they have been found to work on the
 --save-P 0.9
 ```
 
-6. Either submit the dag to run through condor, or run on the commandline.
+6. Either submit the dag to condor, or run on the commandline. Since integrate.sub makes use of variables defined in the dag file, it doesn't make sense to directly run these.
 
 Condor:
 
 ```bash
->>> condor_submit integrate.sub
->>> condor_submit_dag marginalize_extrinsic_parameters_grid.dag  # Option 2 -- if you have a dag file 
+>>> condor_submit_dag marginalize_extrinsic_parameters_grid.dag  # this will make many calls to integrate.sub 
 >>> condor_q -dag # monitor progress
 ```
 
 Commandline
 
 ```bash
->>> ./command-single.sh >> ile.log # NOTE: this may not be equivalent to integrate.sh; could result in errors in next step
+>>> ./command-single.sh >> ile.log # NOTE: this may not be equivalent to the condor run; could result in errors in next step
 ```
 
 The result should be the log file, CME.xml.gz, and CME.xml.gz.dat. The log-likelihood evaluations are found in the many files that have the form CME.dat. These will be catted into .composite file (next step).
