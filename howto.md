@@ -13,7 +13,7 @@ These are notes on running the ILE code, and they have been found to work on the
 --parameter incl --parameter-value 0.785398 \
 --parameter dist --parameter-value 568.3 \
 --parameter tref --parameter-value 1000000000 \
---approx EOBNRv2HM
+--approx EOBNRv2HM \
 --parameter fmin --parameter-value 10
 >>> util_PrintInjection.py --inj mdc.xml.gz --event 0 --verbose
 ```
