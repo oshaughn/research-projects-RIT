@@ -75,6 +75,7 @@ optp.add_option("--rom-limit-basis-size-to",default=None,type=int)
 optp.add_option("--rom-integrate-intrinsic",default=False,action='store_true',help='Integrate over intrinsic variables. REQUIRES rom_use_basis at present. ONLY integrates in mass ratio as present')
 optp.add_option("--nr-perturbative-extraction",default=False,action='store_true')
 optp.add_option("--nr-use-provided-strain",default=False,action='store_true')
+optp.add_option("--no-memory",default=False,action='store_true', help="At present, turns off m=0 modes. Use with EXTREME caution only if requested by model developer")
 optp.add_option("--use-external-EOB",default=False,action='store_true')
 optp.add_option("--maximize-only",default=False, action='store_true',help="After integrating, attempts to find the single best fitting point")
 optp.add_option("--dump-lnL-time-series",default=False, action='store_true',help="(requires --sim-xml) Dump lnL(t) at the injected parameters")
@@ -454,7 +455,7 @@ rholms_intp, cross_terms, cross_terms_V,  rholms, rest=factored_likelihood.Preco
         fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
         False, inv_spec_trunc_Q, T_spec,
         NR_group=NR_template_group,NR_param=NR_template_param,
-        use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=not opts.rom_integrate_intrinsic,ROM_limit_basis_size=opts.rom_limit_basis_size_to)
+        use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=not opts.rom_integrate_intrinsic,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory)
 
 ### DEBUGGING CHECK: what keys are used (for rom)
 if opts.rom_use_basis:

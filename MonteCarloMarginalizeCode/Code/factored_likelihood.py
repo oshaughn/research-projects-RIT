@@ -122,6 +122,10 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             hlms_conj = {}
             for mode in bT:
               if mode[0]<=Lmax:  # don't report waveforms from modes outside the target L range
+                if no_memory and mode[1]==0 and wfP.P.SoftAlignedQ():
+                        # skip memory modes if requested to do so. DANGER
+                        print " Skipping memory mode in precompute stage ", mode
+                        continue
                 if rosDebugMessagesDictionary["DebugMessagesLong"]:
                         print " FFT for mode ", mode, bT[mode].data.length, " note duration = ", bT[mode].data.length*bT[mode].deltaT
                 hlms[mode] = lsu.DataFourier(bT[mode])
