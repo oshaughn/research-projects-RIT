@@ -1244,7 +1244,12 @@ res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_
 # Save result -- needed for odds ratios, etc.
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
 np.savetxt(opts.fname_output_integral+".dat", [np.log(res)])
-np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]))
+eos_extra = []
+if opts.using_eos:
+    eos_extra = opts.using_eos
+    if opts.eos_param == 'spectral':
+        eos_extra += opts.eos_param
+np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 
 if neff < len(low_level_coord_names):
     print " PLOTS WILL FAIL "
@@ -1336,7 +1341,7 @@ log_res_reweighted = lnLmax + np.log(np.mean(weights))
 sigma_reweighted= np.std(weights,dtype=np.float128)/np.mean(weights)
 neff_reweighted = np.sum(weights)/np.max(weights)
 np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [log_res_reweighted])  # should agree with the usual result, if no prior changes
-np.savetxt(opts.fname_output_integral+"_withpriorchange+annotation.dat", np.array([[log_res_reweighted,sigma_reweighted, neff]]))
+np.savetxt(opts.fname_output_integral+"_withpriorchange+annotation.dat", np.array([[log_res_reweighted,sigma_reweighted, neff]]),header=eos_extra)
 
 # Load in reference parameters
 Pref = lalsimutils.ChooseWaveformParams()
