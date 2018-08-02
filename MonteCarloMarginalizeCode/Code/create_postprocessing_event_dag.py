@@ -167,7 +167,7 @@ with open(opts.cip_args) as f:
 cip_args = ' '.join( map( lambda x: x.replace('\\',''),cip_args_list) )
 cip_args = ' '.join(cip_args.split(' ')[1:])
 # Some argument protection for later
-cip_args = cip_args.replace('[', '\'[')
+cip_args = cip_args.replace('[', ' \'[')
 cip_args = cip_args.replace(']', ']\'')
 cip_args=cip_args.rstrip()
 print cip_args
@@ -198,11 +198,22 @@ elif opts.workflow=='eos_rank' and not (opts.eos_params is None):
     eos_job, eos_job_name = write_CIP_sub(tag='CIP',log_dir=log_dir,arg_str=cip_args,use_eos=True)
     eos_job.write_sub_file()
 
+    cip_args_nomatter = cip_args + " --no-matter1 --no-matter2 "  # redundant, should not be needed
+    bbh_job, bbh_job_name = write_CIP_sub(tag='CIP_bbh',log_dir=log_dir,arg_str=cip_args_nomatter,use_eos=False)
+    bbh_job.write_sub_file()
+
     # Look up EOS names
     names_eos = list(np.loadtxt(opts.eos_params,dtype=str).flat)
     print names_eos
 
     for name in names_eos:
+        if name == 'lal_BBH':
+            # Do a BBH run, without an EOS parameterization added. Lambdas will default to zero.
+            cip_node = pipeline.CondorDAGNode(bbh_job)
+            cip_node.add_macro("macrousing_eos", "SLY4")   # not used
+            cip_node.set_category("CIP_BH")
+            dag.add_node(cip_node)
+            continue
         cip_node = pipeline.CondorDAGNode(eos_job)
         cip_node.add_macro("macrousing_eos", name)
         cip_node.set_category("CIP")
