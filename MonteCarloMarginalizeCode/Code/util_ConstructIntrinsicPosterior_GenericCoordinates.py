@@ -1245,11 +1245,21 @@ res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
 np.savetxt(opts.fname_output_integral+".dat", [np.log(res)])
 eos_extra = []
+annotation_header = "lnL sigmaL neff "
 if opts.using_eos:
-    eos_extra = opts.using_eos
+    eos_extra = [opts.using_eos]
+    annotation_header += 'eos_name'
     if opts.eos_param == 'spectral':
-        eos_extra += opts.eos_param
-np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
+        # Should also 
+        my_eos_params = my_eos.spec_params
+        eos_extra += map( lambda x: my_eos_params[x], ["gamma1", "gamma2", "gamma3", "gamma4", "p0", "epsilon0", "xmax"])
+#        eos_extra += opts.eos_param
+        annotation_header += "gamma1 gamma2 gamma3 gamma4 p0 epsilon0 xmax"
+with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
+    str_out = map(str,[np.log(res), np.sqrt(var)/res, neff])
+    file_out.write("# " + annotation_header + "\n")
+    file_out.write(' '.join( str_out + eos_extra + ["\n"]))
+#np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 
 if neff < len(low_level_coord_names):
     print " PLOTS WILL FAIL "
@@ -1341,7 +1351,11 @@ log_res_reweighted = lnLmax + np.log(np.mean(weights))
 sigma_reweighted= np.std(weights,dtype=np.float128)/np.mean(weights)
 neff_reweighted = np.sum(weights)/np.max(weights)
 np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [log_res_reweighted])  # should agree with the usual result, if no prior changes
-np.savetxt(opts.fname_output_integral+"_withpriorchange+annotation.dat", np.array([[log_res_reweighted,sigma_reweighted, neff]]),header=eos_extra)
+with open(opts.fname_output_integral+"_withpriorchange+annotation.dat", 'w') as file_out:
+    str_out = map(str,[log_res_reweighted, sigma_reweighted, neff])
+    file_out.write("# " + annotation_header + "\n")
+    file_out.write(' '.join( str_out + eos_extra + ["\n"]))
+#np.savetxt(opts.fname_output_integral+"_withpriorchange+annotation.dat", np.array([[log_res_reweighted,sigma_reweighted, neff]]),header=eos_extra)
 
 # Load in reference parameters
 Pref = lalsimutils.ChooseWaveformParams()
