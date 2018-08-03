@@ -28,7 +28,7 @@ import lal
 import functools
 import itertools
 
-from glue import pipeline
+from glue import pipeline # https://github.com/lscsoft/lalsuite-archive/blob/5a47239a877032e93b1ca34445640360d6c3c990/glue/glue/pipeline.py
 
 # Taken from
 # http://pythonadventures.wordpress.com/2011/03/13/equivalent-of-the-which-command-in-python/
@@ -54,7 +54,7 @@ def mkdir(dir_name):
         pass
 
 
-def write_CIP_sub(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,arg_vals=None, **kwargs):
+def write_CIP_sub(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, **kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -126,7 +126,11 @@ def write_CIP_sub(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
     ile_job.add_condor_cmd('getenv', 'True')
-    ile_job.add_condor_cmd('request_memory', '2048')
+    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
+    # To change interactively:
+    #   condor_qedit
+    # for example: 
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -152,7 +156,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--working-directory",default="./")
 parser.add_argument("--cip-args",default=None,help="filename of args.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--eos-params",default=None,help="filename of eos_params.dat, which is either a list of LAL EOS names *or* a list of parameters. Header identifies types")
-parser.add_argument("--workflow",default='single',help="[single|fit|posterior|eos_rank|eos_marg] describes workflow layout used.  'Single' is a single node, running the fit and posterior.  'fit' only generates the fit and saves it; posterior only generates the posterior (with multiple jobs); eos_rank uses a saved fit to rank EOS; and eos_marg uses a saved fit for EOS marginalization")
+parser.add_argument("--request-memory",default=4096,type=int,help="Memory request for condor (in Mb).")
+parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior jobs. Used in posterior and fit+posterior workflows")
+parser.add_argument("--workflow",default='single',help="[single|fit|fit+posterior|eos_rank|eos_marg] describes workflow layout used.  'Single' is a single node, running the fit and posterior.  'fit' only generates the fit and saves it; posterior only generates the posterior (with multiple jobs); eos_rank uses a saved fit to rank EOS; and eos_marg uses a saved fit for EOS marginalization")
 opts=  parser.parse_args()
 
 
@@ -170,6 +176,7 @@ cip_args = ' '.join(cip_args.split(' ')[1:])
 cip_args = cip_args.replace('[', ' \'[')
 cip_args = cip_args.replace(']', ']\'')
 cip_args=cip_args.rstrip()
+cip_args += ' --no-plots '
 print cip_args
 
 ###
@@ -186,7 +193,9 @@ mkdir(log_dir) # Make a directory to hold log files of jobs
 ###
 ###  Configuration 0: Fit job
 ###
-if opts.workflow == 'single':
+if opts.workflow == 'single' or opts.workflow=='fit':
+    if opts.workflow=='fit':
+        cip_args += ' --fit-save-gp my_fit.pkl'
     single_job, single_job_name = write_CIP_sub(tag='CIP',log_dir=log_dir,arg_str=cip_args)
     single_job.write_sub_file()
 
@@ -194,7 +203,36 @@ if opts.workflow == 'single':
     cip_node.add_macro("macroevent", 0)
     cip_node.set_category("CIP")
     dag.add_node(cip_node)
+if opts.workflow == 'posterior' or opts.workflow=='fit+posterior':
+    cip_args_fit = cip_args + ' --fit-save-gp my_fit.pkl'
+    cip_args_fit += ' --fname-output-integral integral_fit'   # insure output filenames unique if multiple runs performed
+    cip_args_fit += ' --fname-output-sampes integral_fit'   # insure output filenames unique if multiple runs performed
+
+    fit_job, fit_job_name = write_CIP_sub(tag='CIP_fit',log_dir=log_dir,arg_str=cip_args_fit)
+    fit_job.write_sub_file()
+
+    cip_args_load = cip_args + ' --fit-load-gp my_fit.pkl'
+    cip_args_load += ' --fname-output-integral integral_$(macroevent)'   # insure output filenames unique if multiple runs performed
+    cip_args_load += ' --fname-output-sampes integral_$(macroevent)'   # insure output filenames unique if multiple runs performed
+    single_job, single_job_name = write_CIP_sub(tag='CIP_post',log_dir=log_dir,arg_str=cip_args_load)
+    single_job.write_sub_file()
+
+    fit_node = pipeline.CondorDAGNode(fit_job)
+    fit_node.add_macro("macroevent", 0)
+    fit_node.set_category("CIP")
+    dag.add_node(fit_node)
+
+    for event_id in np.arange(opts.n_post_jobs):
+        cip_node = pipeline.CondorDAGNode(single_job)
+        cip_node.add_macro("macroevent", event_id)
+        cip_node.set_category("CIP")
+        cip_node.add_parent(fit_node)
+        dag.add_node(cip_node)
+        
+
 elif opts.workflow=='eos_rank' and not (opts.eos_params is None):
+    cip_args += ' --fname-output-integral integral_$(macrousingeos)'   # insure output filenames unique if multiple runs performed
+    cip_args += ' --fname-output-sampes integral_$(macrousingeos)'   # insure output filenames unique if multiple runs performed
     eos_job, eos_job_name = write_CIP_sub(tag='CIP',log_dir=log_dir,arg_str=cip_args,use_eos=True)
     eos_job.write_sub_file()
 
