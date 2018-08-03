@@ -54,7 +54,7 @@ def mkdir(dir_name):
         pass
 
 
-def write_CIP_sub(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, **kwargs):
+def write_CIP_sub(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,arg_vals=None, **kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -156,7 +156,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--working-directory",default="./")
 parser.add_argument("--cip-args",default=None,help="filename of args.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--eos-params",default=None,help="filename of eos_params.dat, which is either a list of LAL EOS names *or* a list of parameters. Header identifies types")
-parser.add_argument("--request-memory",default=4096,type=int,help="Memory request for condor (in Mb).")
+parser.add_argument("--request-memory",default=8192,type=int,help="Memory request for condor (in Mb).")
 parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior jobs. Used in posterior and fit+posterior workflows")
 parser.add_argument("--workflow",default='single',help="[single|fit|fit+posterior|eos_rank|eos_marg] describes workflow layout used.  'Single' is a single node, running the fit and posterior.  'fit' only generates the fit and saves it; posterior only generates the posterior (with multiple jobs); eos_rank uses a saved fit to rank EOS; and eos_marg uses a saved fit for EOS marginalization")
 opts=  parser.parse_args()
@@ -196,7 +196,7 @@ mkdir(log_dir) # Make a directory to hold log files of jobs
 if opts.workflow == 'single' or opts.workflow=='fit':
     if opts.workflow=='fit':
         cip_args += ' --fit-save-gp my_fit.pkl'
-    single_job, single_job_name = write_CIP_sub(tag='CIP',log_dir=log_dir,arg_str=cip_args)
+    single_job, single_job_name = write_CIP_sub(tag='CIP',log_dir=log_dir,arg_str=cip_args,request_memory=opts.request_memory)
     single_job.write_sub_file()
 
     cip_node = pipeline.CondorDAGNode(single_job)
@@ -208,13 +208,13 @@ if opts.workflow == 'posterior' or opts.workflow=='fit+posterior':
     cip_args_fit += ' --fname-output-integral integral_fit'   # insure output filenames unique if multiple runs performed
     cip_args_fit += ' --fname-output-sampes integral_fit'   # insure output filenames unique if multiple runs performed
 
-    fit_job, fit_job_name = write_CIP_sub(tag='CIP_fit',log_dir=log_dir,arg_str=cip_args_fit)
+    fit_job, fit_job_name = write_CIP_sub(tag='CIP_fit',log_dir=log_dir,arg_str=cip_args_fit,request_memory=opts.request_memory)
     fit_job.write_sub_file()
 
     cip_args_load = cip_args + ' --fit-load-gp my_fit.pkl'
     cip_args_load += ' --fname-output-integral integral_$(macroevent)'   # insure output filenames unique if multiple runs performed
     cip_args_load += ' --fname-output-sampes integral_$(macroevent)'   # insure output filenames unique if multiple runs performed
-    single_job, single_job_name = write_CIP_sub(tag='CIP_post',log_dir=log_dir,arg_str=cip_args_load)
+    single_job, single_job_name = write_CIP_sub(tag='CIP_post',log_dir=log_dir,arg_str=cip_args_load,request_memory=opts.request_memory)
     single_job.write_sub_file()
 
     fit_node = pipeline.CondorDAGNode(fit_job)
@@ -233,11 +233,11 @@ if opts.workflow == 'posterior' or opts.workflow=='fit+posterior':
 elif opts.workflow=='eos_rank' and not (opts.eos_params is None):
     cip_args += ' --fname-output-integral integral_$(macrousingeos)'   # insure output filenames unique if multiple runs performed
     cip_args += ' --fname-output-sampes integral_$(macrousingeos)'   # insure output filenames unique if multiple runs performed
-    eos_job, eos_job_name = write_CIP_sub(tag='CIP',log_dir=log_dir,arg_str=cip_args,use_eos=True)
+    eos_job, eos_job_name = write_CIP_sub(tag='CIP',log_dir=log_dir,arg_str=cip_args,use_eos=True,request_memory=opts.request_memory)
     eos_job.write_sub_file()
 
     cip_args_nomatter = cip_args + " --no-matter1 --no-matter2 "  # redundant, should not be needed
-    bbh_job, bbh_job_name = write_CIP_sub(tag='CIP_bbh',log_dir=log_dir,arg_str=cip_args_nomatter,use_eos=False)
+    bbh_job, bbh_job_name = write_CIP_sub(tag='CIP_bbh',log_dir=log_dir,arg_str=cip_args_nomatter,use_eos=False,request_memory=opts.request_memory)
     bbh_job.write_sub_file()
 
     # Look up EOS names
