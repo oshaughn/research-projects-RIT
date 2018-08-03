@@ -206,14 +206,14 @@ if opts.workflow == 'single' or opts.workflow=='fit':
 if opts.workflow == 'posterior' or opts.workflow=='fit+posterior':
     cip_args_fit = cip_args + ' --fit-save-gp my_fit.pkl'
     cip_args_fit += ' --fname-output-integral integral_fit'   # insure output filenames unique if multiple runs performed
-    cip_args_fit += ' --fname-output-sampes integral_fit'   # insure output filenames unique if multiple runs performed
+    cip_args_fit += ' --fname-output-samples integral_fit'   # insure output filenames unique if multiple runs performed
 
     fit_job, fit_job_name = write_CIP_sub(tag='CIP_fit',log_dir=log_dir,arg_str=cip_args_fit,request_memory=opts.request_memory)
     fit_job.write_sub_file()
 
     cip_args_load = cip_args + ' --fit-load-gp my_fit.pkl'
     cip_args_load += ' --fname-output-integral integral_$(macroevent)'   # insure output filenames unique if multiple runs performed
-    cip_args_load += ' --fname-output-sampes integral_$(macroevent)'   # insure output filenames unique if multiple runs performed
+    cip_args_load += ' --fname-output-samples integral_$(macroevent)'   # insure output filenames unique if multiple runs performed
     single_job, single_job_name = write_CIP_sub(tag='CIP_post',log_dir=log_dir,arg_str=cip_args_load,request_memory=opts.request_memory)
     single_job.write_sub_file()
 
@@ -232,7 +232,7 @@ if opts.workflow == 'posterior' or opts.workflow=='fit+posterior':
 
 elif opts.workflow=='eos_rank' and not (opts.eos_params is None):
     cip_args += ' --fname-output-integral integral_$(macrousingeos)'   # insure output filenames unique if multiple runs performed
-    cip_args += ' --fname-output-sampes integral_$(macrousingeos)'   # insure output filenames unique if multiple runs performed
+    cip_args += ' --fname-output-samples integral_$(macrousingeos)'   # insure output filenames unique if multiple runs performed
     eos_job, eos_job_name = write_CIP_sub(tag='CIP',log_dir=log_dir,arg_str=cip_args,use_eos=True,request_memory=opts.request_memory)
     eos_job.write_sub_file()
 
