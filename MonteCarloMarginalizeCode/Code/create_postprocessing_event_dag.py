@@ -180,6 +180,21 @@ cip_args += ' --no-plots '
 print cip_args
 
 ###
+### Fiducial fit job (=sanity check that code will run)
+###
+cmdname="%s/command-single_fit.sh" % opts.working_directory
+cmd = open(cmdname, 'w')
+arg_list = cip_args
+exe = which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
+cmd.write('#!/usr/bin/env bash\n')
+cmd.write(exe + ' ' + arg_list )
+cmd.close()
+st = os.stat(cmdname)
+import stat
+os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+
+
+###
 ### DAG generation
 ###
 log_dir="%s/logs/" % opts.working_directory # directory to hold
