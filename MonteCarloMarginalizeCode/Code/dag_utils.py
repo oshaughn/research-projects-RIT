@@ -392,8 +392,8 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     ile_job.add_opt("fname", input_net)
-    ile_job.add_opt("fname-output-samples", out_dir+"/"+output+'.xml.gz')
-    ile_job.add_opt("fname-output-integral", out_dir+"/"+output+'.dat')
+    ile_job.add_opt("fname-output-samples", out_dir+"/"+output)
+    ile_job.add_opt("fname-output-integral", out_dir+"/"+output)
 
     #
     # Macro based options.
