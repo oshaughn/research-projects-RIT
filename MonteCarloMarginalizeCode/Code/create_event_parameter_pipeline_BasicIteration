@@ -165,7 +165,6 @@ ile_job.write_sub_file()
 
 ##   Consolidate job(s)
 #   - consolidate output of single previous job
-#   - update 'all.net' to include all previous events
 con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str='',base=opts.working_directory+"/iteration_$(macroiteration)_ile", target='consolidated_$(macroiteration)')
 # Modify: set 'initialdir' : should run in top-level direcory
 #con_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_con")
@@ -174,6 +173,16 @@ con_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/lo
 con_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(cluster)-$(process).err")
 con_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logscon-$(cluster)-$(process).out")
 con_job.write_sub_file()
+
+##   Unify job
+#   - update 'all.net' to include all previous events
+unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str='', target='all.net')
+unify_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).log")
+unify_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).err")
+unify_job.set_stdout_file(opts.working_directory+"/all.net")
+unify_job.write_sub_file()
+
+
 
 
 ##   Fit job
@@ -214,7 +223,10 @@ for it in np.arange(opts.n_iterations):
     # Create consolidate job
     con_node = pipeline.CondorDAGNode(con_job)
     con_node.add_macro("macroiteration",it)
-
+    # Create unify job
+    unify_node = pipeline.CondorDAGNode(unify_job)
+    unify_node.add_macro("macroiteration",it)
+    unify_node.add_parent(con_node)
     
     # Create one node per job
     for i in np.arange(opts.n_samples_per_job):
@@ -230,12 +242,13 @@ for it in np.arange(opts.n_iterations):
 
     # add con job
     dag.add_node(con_node)
+    dag.add_node(unify_node)
 
     # Create fit node, which depends on consolidate node
     fit_node = pipeline.CondorDAGNode(cip_job)
     fit_node.add_macro("macroiteration", it)
     fit_node.set_category("CIP")
-    fit_node.add_parent(con_node)
+    fit_node.add_parent(unify_node)
     dag.add_node(fit_node)
 
     parent_fit_node = fit_node
