@@ -91,7 +91,7 @@ ile_args=ile_args.rstrip()
 print "ILE", ile_args
 
 # Copy seed grid into place as overlap-grid-0.xml.gz
-shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")
+shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
 
 
 
@@ -123,7 +123,7 @@ os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 # Add argument to ile_args.txt to 
 #    identify overlap grid input
 #    identify output file names (?)
-ile_args+= ' --sim-xml overlap-grid-$(macroiteration).xml.gz '
+ile_args+= ' --sim-xml ' + opts.working_directory + '/overlap-grid-$(macroiteration).xml.gz '
 
 
 ###
