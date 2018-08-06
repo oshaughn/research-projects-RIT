@@ -157,7 +157,7 @@ for indx in np.arange(opts.n_iterations):
 
 ##   ILE job
 
-ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out",ncopies=opts.n_copies)
+ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies)
 # Modify: create macro for iteration 
 #   - added on a per-node basis
 # Modify: add macro argument for overlap grid to be used (kept in top-level directory)
@@ -194,7 +194,7 @@ unify_job.write_sub_file()
 
 
 ##   Fit job
-cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output='output-ILE-samples-$(macroiterationnext)',out_dir=opts.working_directory)
+cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=opts.working_directory)
 # Modify: set 'initialdir'
 cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
 # Modify output argument: change logs and working directory to be subdirectory for the run
