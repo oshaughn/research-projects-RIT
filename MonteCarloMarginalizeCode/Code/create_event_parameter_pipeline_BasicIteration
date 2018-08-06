@@ -197,9 +197,48 @@ cip_job.write_sub_file()
 
 # Create workflow
 #   - Loop over iterations
-#      - if iteration0, use seed grid
+#      - if iteration0, use seed grid (should already be copied in place)
 #      - if not iteration 0, grid should be in place (from previous stage)
 #      - Loop over events, make ILE node per event
 #      - create consolidate job, make it depend on all events in that iteration
 #      - create fit job, make it depend on consolidate job
 #    
+
+parent_fit_node = None
+for it in np.arange(opts.n_iterations):
+    consolidate_now = None
+    fit_node_now = None
+    ile_nodes_now =[]
+    # Create consolidate job
+    con_node = pipeline.CondorDAGNode(con_job)
+    con_node.add_macro("macroiteration",it)
+
+    
+    # Create one node per job
+    for i in np.arange(opts.n_samples_per_job):
+        # Add task per ILE operation
+        ile_node = pipeline.CondorDAGNode(ile_job)
+#        ile_node.set_priority(JOB_PRIORITIES["ILE"])
+        ile_node.add_macro("macroevent", i)
+        ile_node.add_macro("macroiteration", it)
+        if not(parent_fit_node is None):
+            ile_node.add_parent(parent_fit_node)
+        con_node.add_parent(ile_node) # consolidate depends on all of the individual jobs
+        dag.add_node(ile_node)
+
+    # add con job
+    dag.add_node(con_node)
+
+    # Create fit node, which depends on consolidate node
+    fit_node = pipeline.CondorDAGNode(cip_job)
+    fit_node.add_macro("macroiteration", it)
+    fit_node.set_category("CIP")
+    fit_node.add_parent(con_node)
+    dag.add_node(fit_node)
+
+    parent_fit_node = fit_node
+
+
+dag_name="marginalize_intrinsic_parameters_BasicIterationWorkflow"
+dag.set_dag_file(dag_name)
+dag.write_concrete_dag()
