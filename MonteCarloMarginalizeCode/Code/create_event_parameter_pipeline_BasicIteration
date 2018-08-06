@@ -137,7 +137,7 @@ dag = pipeline.CondorDAG(log=os.getcwd())
 for indx in np.arange(opts.n_iterations):
     ile_dir = opts.working_directory+"/iteration_"+str(indx)+"_ile"
     cip_dir = opts.working_directory+"/iteration_"+str(indx)+"_cip"
-    consolidate_dir = opts.working_directory+"/iteration_"+str(indx)+"_consolidate"
+    consolidate_dir = opts.working_directory+"/iteration_"+str(indx)+"_con"
 
     mkdir(ile_dir); mkdir(ile_dir+"/logs")
     mkdir(cip_dir);  mkdir(cip_dir+"/logs")
