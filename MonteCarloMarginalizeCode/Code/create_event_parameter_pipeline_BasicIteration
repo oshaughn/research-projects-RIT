@@ -186,7 +186,7 @@ unify_job.write_sub_file()
 
 
 ##   Fit job
-cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args,request_memory=opts.request_memory_CIP)
+cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args,request_memory=opts.request_memory_CIP,input_net='all.net',output='output-ILE-samples-$(macroiterationnext)',out_dir=opts.working_directory)
 # Modify: set 'initialdir'
 cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
 # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -247,6 +247,7 @@ for it in np.arange(opts.n_iterations):
     # Create fit node, which depends on consolidate node
     fit_node = pipeline.CondorDAGNode(cip_job)
     fit_node.add_macro("macroiteration", it)
+    fit_node.add_macro("macroiterationnext", it+1)
     fit_node.set_category("CIP")
     fit_node.add_parent(unify_node)
     dag.add_node(fit_node)

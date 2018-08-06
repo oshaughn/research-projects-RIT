@@ -369,7 +369,7 @@ def write_1dpos_plot_sub(tag='1d_post_plot', exe=None, log_dir=None, output_dir=
 
 
 
-def write_CIP_sub(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,arg_vals=None, **kwargs):
+def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,arg_vals=None, **kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -390,6 +390,10 @@ def write_CIP_sub(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies
     # Add options en mass, by brute force
     #
     ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+
+    ile_job.add_opt("fname", input_net)
+    ile_job.add_opt("fname-output-samples", out_dir+"/"+output+'.xml.gz')
+    ile_job.add_opt("fname-output-integral", out_dir+"/"+output+'.dat')
 
     #
     # Macro based options.
@@ -640,3 +644,53 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 
     return ile_job, ile_sub_name
 
+
+
+def write_unify_sub_simple(tag='unify', exe=None, target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+    """
+    Write a submit file for launching a consolidation job
+       util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
+       arg_str   # add argument (used for NR postprocessing, to identify group)
+
+
+    """
+
+    exe = exe or which("cat")
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    # Add manual options for input, output
+    ile_job.add_arg('*.composite') # what to do
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file(target)
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    # To change interactively:
+    #   condor_qedit
+    # for example: 
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        
+    
+
+    ###
+    ### SUGGESTION FROM STUART (for later)
+    # request_memory = ifthenelse( (LastHoldReasonCode=!=34 && LastHoldReasonCode=!=26), InitialRequestMemory, int(1.5 * NumJobStarts * MemoryUsage) )
+    # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
+    # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
+
+
+    return ile_job, ile_sub_name
