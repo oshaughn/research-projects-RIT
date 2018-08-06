@@ -656,13 +656,25 @@ def write_unify_sub_simple(tag='unify', exe=None, target=None,arg_str=None,log_d
     """
 
     exe = exe or which("cat")
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    # Write unify.sh
+    #    - problem of globbing inside condor commands
+    cmdname ='unify.sh'
+    with open(cmdname,'w') as f:
+        f.write("#! /usr/bin/env bash\n")
+        f.write( exe + " *.composite")
+    st = os.stat(cmdname)
+    import stat
+    os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable="./"+cmdname)
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
     # Add manual options for input, output
-    ile_job.add_arg('*.composite') # what to do
+#    ile_job.add_arg('*.composite') # what to do
 
     #
     # Logging options

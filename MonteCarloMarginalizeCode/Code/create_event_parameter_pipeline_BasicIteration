@@ -24,8 +24,15 @@
 #          PSD files (.... --psd  in cip_args)
 #          channel names
 #          event time
+#    - Inputs
+#         args_cip.txt   # no --fname, --fname-output-...  (overrridden)
+#         args_ile.txt    # no --sim-xml,  --event (overrridden)
 #    - Workspaces
 #          Creates one directory for each task, for each iteration
+#          Main directory:
+#              - output-ILE-<iteration>.xml.gz, starting with iteration 0 (=input)
+#              - *.composite files, from each consolidation step
+#              - all.net : union of all *.composite files 
 #   
 # EXAMPLES
 #    python create_event_parameter_pipeline_BasicIteration.py --ile-args args_ile.txt --cip-args args.txt 
@@ -165,18 +172,19 @@ ile_job.write_sub_file()
 
 ##   Consolidate job(s)
 #   - consolidate output of single previous job
-con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str='',base=opts.working_directory+"/iteration_$(macroiteration)_ile", target='consolidated_$(macroiteration)')
+con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str='',base=opts.working_directory+"/iteration_$(macroiteration)_ile", target=opts.working_directory+'/consolidated_$(macroiteration)')
 # Modify: set 'initialdir' : should run in top-level direcory
 #con_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_con")
 # Modify output argument: change logs and working directory to be subdirectory for the run
 con_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(cluster)-$(process).log")
 con_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(cluster)-$(process).err")
-con_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logscon-$(cluster)-$(process).out")
+con_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(cluster)-$(process).out")
 con_job.write_sub_file()
 
 ##   Unify job
 #   - update 'all.net' to include all previous events
 unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str='', target='all.net')
+unify_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).log")
 unify_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).err")
 unify_job.set_stdout_file(opts.working_directory+"/all.net")
