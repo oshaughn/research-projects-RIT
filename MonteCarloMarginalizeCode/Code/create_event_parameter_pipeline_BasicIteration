@@ -183,7 +183,7 @@ con_job.write_sub_file()
 
 ##   Unify job
 #   - update 'all.net' to include all previous events
-unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str='', target='all.net')
+unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str='', target=opts.working_directory+'/all.net')
 unify_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).log")
 unify_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).err")
@@ -194,7 +194,7 @@ unify_job.write_sub_file()
 
 
 ##   Fit job
-cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args,request_memory=opts.request_memory_CIP,input_net='all.net',output='output-ILE-samples-$(macroiterationnext)',out_dir=opts.working_directory)
+cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output='output-ILE-samples-$(macroiterationnext)',out_dir=opts.working_directory)
 # Modify: set 'initialdir'
 cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
 # Modify output argument: change logs and working directory to be subdirectory for the run
