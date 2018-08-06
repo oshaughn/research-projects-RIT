@@ -154,11 +154,12 @@ ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,ar
 #   - added on a per-node basis
 # Modify: add macro argument for overlap grid to be used (kept in top-level directory)
 # Modify: set 'initialdir'
+#     NOTE: logs will be specified relative to this directory
 ile_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
 # Modify output argument: change logs and working directory to be subdirectory for the run
-ile_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/")
-ile_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs")
-ile_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs")
+ile_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macromass)-$(cluster)-$(process).log")
+ile_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macromass)-$(cluster)-$(process).err")
+ile_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macromass)-$(cluster)-$(process).out")
 ile_job.write_sub_file()
 
 ##   Consolidate job(s)
@@ -168,9 +169,9 @@ con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_di
 # Modify: set 'initialdir' : should run in top-level direcory
 #con_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_con")
 # Modify output argument: change logs and working directory to be subdirectory for the run
-con_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/")
-con_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs")
-con_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs")
+con_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(cluster)-$(process).log")
+con_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(cluster)-$(process).err")
+con_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logscon-$(cluster)-$(process).out")
 con_job.write_sub_file()
 
 
@@ -179,9 +180,9 @@ cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=c
 # Modify: set 'initialdir'
 cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
 # Modify output argument: change logs and working directory to be subdirectory for the run
-cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/")
-cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs")
-cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs")
+cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
+cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
+cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
 cip_job.write_sub_file()
 
 ##   Convert job(s)
