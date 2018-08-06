@@ -1,0 +1,118 @@
+#! /usr/bin/env python
+#
+#  GOAL
+#    Simple pipeline: just ILE+fitting iteration jobs
+#    User must provide arglists for both ILE and fitting/iteration jobs
+#    Assumes user has done all necessary setup (e.g., PSDs, data selection, picking channel names, etc)
+#    Will add in fit assessment jobs later
+#
+#  WHY DO THIS?
+#    We're often reanalyzing a single stretch of data again and again. (Or otherwise have some simple setup).
+#    This saves time for large-scale injection studies or systematics reruns
+#
+#    Intend to replace naive iteration code with reproducible, extendable/scalable workflow
+#
+#  SEE ALSO
+#     - original shell-script-based generation scripts
+#     - create_event_parameter_pipeline  # long term plan
+#     - create_postprocessing_event_dag.py
+#     - create_event_dag_via_grid   # basic iteration code
+#   
+# EXAMPLES
+#    python create_event_parameter_pipeline_BasicIteration.py --ile-args args_ile.txt --cip-args args.txt 
+
+
+
+import argparse
+import sys
+import os
+import numpy as np
+import lalsimutils
+import lalsimulation as lalsim
+import lal
+import functools
+import itertools
+
+from glue import pipeline # https://github.com/lscsoft/lalsuite-archive/blob/5a47239a877032e93b1ca34445640360d6c3c990/glue/glue/pipeline.py
+
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--working-directory",default="./")
+parser.add_argument("--input-grid",default="overlap-grid.xml.gz")
+parser.add_argument("--cip-args",default=None,help="filename of args_cip.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
+parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
+parser.add_argument("--request-memory-CIP",default=16384,type=int,help="Memory request for condor (in Mb) for fitting jobs.")
+parser.add_argument('--n-iterations',default=3,type=int,help="Number of iterations to perform")
+parser.add_argument('--n-samples-per-job',default=2000,type=int,help="Number of samples generated each iteration; also, number of ILE jobs run each iteration. Should increase with dimension of problem")
+parser.add_argument('--neff-threshold',default=800,type=int,help="Number of samples generated each iteration")
+parser.add_argument("--workflow",default='single',help="[single|fit+posterior|full] describes workflow layout used.  'Single' is a single node, running the fit and posterior for each iteration; 'full' produces many followup jobs to produce a reliable posterior")
+parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior jobs. Used in posterior and fit+posterior workflows")
+opts=  parser.parse_args()
+
+if opts.cip_args is None:
+    print " No arguments provided for low-level job"
+    sys.exit(0)
+
+# Load args.txt. Remove first item.  Store
+with open(opts.cip_args) as f:
+    cip_args_list = f.readlines()
+cip_args = ' '.join( map( lambda x: x.replace('\\',''),cip_args_list) )
+cip_args = ' '.join(cip_args.split(' ')[1:])
+# Some argument protection for later
+cip_args = cip_args.replace('[', ' \'[')
+cip_args = cip_args.replace(']', ']\'')
+cip_args=cip_args.rstrip()
+cip_args += ' --no-plots '
+print "CIP", cip_args
+
+# Load args.txt. Remove first item.  Store
+with open(opts.ile_args) as f:
+    ile_args_list = f.readlines()
+ile_args = ' '.join( map( lambda x: x.replace('\\',''),ile_args_list) )
+ile_args = ' '.join(ile_args.split(' ')[1:])
+# Some argument protection for later
+ile_args = ile_args.replace('[', ' \'[')
+ile_args = ile_args.replace(']', ']\'')
+ile_args=ile_args.rstrip()
+ile_args += ' --no-plots '
+print "ILE", ile_args
+
+
+###
+### Fiducial fit job (=sanity check that code will run)
+###
+cmdname="%s/command-single_fit.sh" % opts.working_directory
+cmd = open(cmdname, 'w')
+arg_list = cip_args
+exe = which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
+cmd.write('#!/usr/bin/env bash\n')
+cmd.write(exe + ' ' + arg_list )
+cmd.close()
+st = os.stat(cmdname)
+import stat
+os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+
+
+###
+### DAG generation
+###
+log_dir="%s/logs/" % opts.working_directory # directory to hold
+
+dag = pipeline.CondorDAG(log=os.getcwd())
+
+mkdir(log_dir) # Make a directory to hold log files of jobs
+
+
+
+# Create workflow jobs
+
+##   ILE job
+
+# Modify output argument: make unique subdirectory for each run
+single_job, single_job_name = write_CIP_sub(tag='CIP',log_dir=log_dir,arg_str=cip_args,request_memory=opts.request_memory)
+single_job.write_sub_file()
+
+##   Consolidate job
+##   Fit job
+##   Assessment job (no-op for now)
