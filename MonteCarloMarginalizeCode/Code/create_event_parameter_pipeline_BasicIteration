@@ -143,7 +143,9 @@ for indx in np.arange(opts.n_iterations):
     mkdir(consolidate_dir); mkdir(consolidate_dir+"/logs")
 
 
+# ++++
 # Create workflow tasks
+# ++++
 
 ##   ILE job
 
@@ -162,6 +164,16 @@ ile_job.write_sub_file()
 ##   Consolidate job(s)
 #   - consolidate output of single previous job
 #   - update 'all.net' to include all previous events
+con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str='',base=opts.working_directory+"/iteration_$(macroiteration)_ile", target='consolidated_$(macroiteration)')
+# Modify: set 'initialdir' : should run in top-level direcory
+#con_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_con")
+# Modify output argument: change logs and working directory to be subdirectory for the run
+con_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/")
+con_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs")
+con_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs")
+con_job.write_sub_file()
+
+
 ##   Fit job
 cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args,request_memory=opts.request_memory_CIP)
 # Modify: set 'initialdir'
@@ -172,7 +184,6 @@ cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip
 cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs")
 cip_job.write_sub_file()
 
-
 ##   Convert job(s)
 #    - relocate input grid to correct location.  (MAKE TRIVIAL: do via output arguments in previous stage!)
 ##   Assessment job (no-op for now)
@@ -180,6 +191,9 @@ cip_job.write_sub_file()
 
 
 
+# ++++
+# Create workflow 
+# ++++
 
 # Create workflow
 #   - Loop over iterations
