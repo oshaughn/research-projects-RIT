@@ -35,3 +35,5 @@ env >> ${BASE_OUT}.environment
 
 # tar file
 tar cvzf ${BASE_OUT}.tgz ${BASE_OUT}.composite  ${BASE_OUT}.manifest ${BASE_OUT}.environment
+
+exit 0 ;  # force end on success, for DAG
