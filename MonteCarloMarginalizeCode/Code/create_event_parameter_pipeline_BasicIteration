@@ -17,6 +17,15 @@
 #     - create_event_parameter_pipeline  # long term plan
 #     - create_postprocessing_event_dag.py
 #     - create_event_dag_via_grid   # basic iteration code
+#
+# WORKFLOW STRUCTURE
+#    - Required elements:
+#          cache file  (specified in  --cache <cache> in cip_args)
+#          PSD files (.... --psd  in cip_args)
+#          channel names
+#          event time
+#    - Workspaces
+#          Creates one directory for each task, for each iteration
 #   
 # EXAMPLES
 #    python create_event_parameter_pipeline_BasicIteration.py --ile-args args_ile.txt --cip-args args.txt 
@@ -26,6 +35,7 @@
 import argparse
 import sys
 import os
+import shutil
 import numpy as np
 import lalsimutils
 import lalsimulation as lalsim
@@ -35,7 +45,9 @@ import itertools
 
 from glue import pipeline # https://github.com/lscsoft/lalsuite-archive/blob/5a47239a877032e93b1ca34445640360d6c3c990/glue/glue/pipeline.py
 
-
+import dag_utils
+from dag_utils import mkdir
+from dag_utils import which
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--working-directory",default="./")
@@ -75,8 +87,11 @@ ile_args = ' '.join(ile_args.split(' ')[1:])
 ile_args = ile_args.replace('[', ' \'[')
 ile_args = ile_args.replace(']', ']\'')
 ile_args=ile_args.rstrip()
-ile_args += ' --no-plots '
 print "ILE", ile_args
+
+# Copy seed grid into place as overlap-grid-0.xml.gz
+shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")
+
 
 
 ###
@@ -85,34 +100,92 @@ print "ILE", ile_args
 cmdname="%s/command-single_fit.sh" % opts.working_directory
 cmd = open(cmdname, 'w')
 arg_list = cip_args
-exe = which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
+exe = dag_utils.which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
 cmd.write('#!/usr/bin/env bash\n')
-cmd.write(exe + ' ' + arg_list )
 cmd.close()
 st = os.stat(cmdname)
 import stat
 os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 
 
+cmdname="%s/command-single.sh" % opts.working_directory
+cmd = open(cmdname, 'w')
+arg_list = ile_args
+exe = dag_utils.which("integrate_likelihood_extrinsic")
+cmd.write('#!/usr/bin/env bash\n')
+cmd.write('# (run me only in working directories)\n')
+cmd.write(exe + ' ' + arg_list + " --sim-xml overlap-grid-0.xml.gz")  # make it concrete, so I can test it
+cmd.close()
+st = os.stat(cmdname)
+import stat
+os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+# Add argument to ile_args.txt to 
+#    identify overlap grid input
+#    identify output file names (?)
+ile_args+= ' --sim-xml overlap-grid-$(macroiteration).xml.gz '
+
+
 ###
 ### DAG generation
 ###
-log_dir="%s/logs/" % opts.working_directory # directory to hold
 
 dag = pipeline.CondorDAG(log=os.getcwd())
 
-mkdir(log_dir) # Make a directory to hold log files of jobs
+
+# Make directories for all iterations
+for indx in np.arange(opts.n_iterations):
+    ile_dir = opts.working_directory+"/iteration_"+str(indx)+"_ile"
+    cip_dir = opts.working_directory+"/iteration_"+str(indx)+"_cip"
+    consolidate_dir = opts.working_directory+"/iteration_"+str(indx)+"_consolidate"
+
+    mkdir(ile_dir); mkdir(ile_dir+"/logs")
+    mkdir(cip_dir);  mkdir(cip_dir+"/logs")
+    mkdir(consolidate_dir); mkdir(consolidate_dir+"/logs")
 
 
-
-# Create workflow jobs
+# Create workflow tasks
 
 ##   ILE job
 
-# Modify output argument: make unique subdirectory for each run
-single_job, single_job_name = write_CIP_sub(tag='CIP',log_dir=log_dir,arg_str=cip_args,request_memory=opts.request_memory)
-single_job.write_sub_file()
+ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="ILE_out")
+# Modify: create macro for iteration 
+#   - added on a per-node basis
+# Modify: add macro argument for overlap grid to be used (kept in top-level directory)
+# Modify: set 'initialdir'
+ile_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
+# Modify output argument: change logs and working directory to be subdirectory for the run
+ile_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/")
+ile_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs")
+ile_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs")
+ile_job.write_sub_file()
 
-##   Consolidate job
+##   Consolidate job(s)
+#   - consolidate output of single previous job
+#   - update 'all.net' to include all previous events
 ##   Fit job
+cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args,request_memory=opts.request_memory_CIP)
+# Modify: set 'initialdir'
+cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
+# Modify output argument: change logs and working directory to be subdirectory for the run
+cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/")
+cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs")
+cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs")
+cip_job.write_sub_file()
+
+
+##   Convert job(s)
+#    - relocate input grid to correct location.  (MAKE TRIVIAL: do via output arguments in previous stage!)
 ##   Assessment job (no-op for now)
+
+
+
+
+
+# Create workflow
+#   - Loop over iterations
+#      - if iteration0, use seed grid
+#      - if not iteration 0, grid should be in place (from previous stage)
+#      - Loop over events, make ILE node per event
+#      - create consolidate job, make it depend on all events in that iteration
+#      - create fit job, make it depend on consolidate job
+#    
