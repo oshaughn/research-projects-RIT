@@ -122,10 +122,6 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             hlms_conj = {}
             for mode in bT:
               if mode[0]<=Lmax:  # don't report waveforms from modes outside the target L range
-                if no_memory and mode[1]==0 and wfP.P.SoftAlignedQ():
-                        # skip memory modes if requested to do so. DANGER
-                        print " Skipping memory mode in precompute stage ", mode
-                        continue
                 if rosDebugMessagesDictionary["DebugMessagesLong"]:
                         print " FFT for mode ", mode, bT[mode].data.length, " note duration = ", bT[mode].data.length*bT[mode].deltaT
                 hlms[mode] = lsu.DataFourier(bT[mode])
@@ -140,6 +136,15 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
            # this code is modular but inefficient: the waveform is regenerated twice
            hlms = acatHere.hlmoff(P, use_basis=False,force_T=1./P.deltaF,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
            hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
+           mode_list = hlms.keys()  # make copy: dictionary will change during iteration
+           for mode in mode_list:
+                   if no_memory and mode[1]==0 and P.SoftAlignedQ():
+                           # skip memory modes if requested to do so. DANGER
+                        print " WARNING: Deleting memory mode in precompute stage ", mode
+                        del hlms[mode]
+                        del hlms_conj[mode]
+                        continue
+
 
     elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4):
         print "  FACTORED LIKELIHOOD WITH SEOB "    
