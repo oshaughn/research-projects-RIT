@@ -144,7 +144,7 @@ If you have access to bajor, you can find several end-to-end demos in
 
 
  1.  Create a file for arguments of ILE and the fitting code.  Note the input and output arguments should not be provided
-```
+   ```
      echo X --cache-file frames.cache   \
 --event-time 1000000000  \
 --fmin-template 20 \
@@ -167,16 +167,16 @@ If you have access to bajor, you can find several end-to-end demos in
 --declination-cosine-sampler \
 --inclination-cosine-sampler  \
 --save-P 0.9 > args_ile.txt
-```
+   ```
  1. Create a file for arguments of the fitting code 
-```
-echo X  --n-chunk 4000 --time-marginalization --sim-xml overlap-grid.xml.gz --save-samples --reference-freq 100.0 --adapt-weight-exponent 0.1  --event-time 1126259462.391000032 --save-P 0.1 --cache-file ${PWD}/local.cache --fmin-template 10.0 --n-max 2000000 --fmax 1700.0 --save-deltalnL inf --l-max 2  --n-eff 100  --approximant SEOBNRv4 --adapt-floor-level 0.1 --maximize-only  --d-max 2000.0  --psd-file H1=${PWD}/H1-psd.xml.gz --psd-file L1=${PWD}/L1-psd.xml.gz --channel-name H1=GDS-CALIB_STRAIN --channel-name L1=GDS-CALIB_STRAIN   > args_ile.txt)
-```
+   ```
+   echo X  --n-chunk 4000 --time-marginalization --sim-xml overlap-grid.xml.gz --save-samples --reference-freq 100.0 --adapt-weight-exponent 0.1  --event-time 1126259462.391000032 --save-P 0.1 --cache-file ${PWD}/local.cache --fmin-template 10.0 --n-max 2000000 --fmax 1700.0 --save-deltalnL inf --l-max 2  --n-eff 100  --approximant SEOBNRv4 --adapt-floor-level 0.1 --maximize-only  --d-max 2000.0  --psd-file H1=${PWD}/H1-psd.xml.gz --psd-file L1=${PWD}/L1-psd.xml.gz --channel-name H1=GDS-CALIB_STRAIN --channel-name L1=GDS-CALIB_STRAIN   > args_cip.txt)
+   ```
  1. Run the pipeline generation code
-```
+   ```
 create_event_parameter_pipeline_BasicIteration --ile-args args_ile.txt --cip-args args_cip.txt  --input-grid ${PWD}/overlap-grid.xml.gz --n-samples-per-job ${NPTS_IT_BIG} --working-directory ${PWD}
-```
+   ```
  1. Submit the jobs to condor
-```
-condor_submit_dag marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
-```
+   ```
+   condor_submit_dag marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
+   ```
