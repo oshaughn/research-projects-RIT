@@ -189,7 +189,7 @@ con_job.write_sub_file()
 
 ##   Unify job
 #   - update 'all.net' to include all previous events
-unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str='', target=opts.working_directory+'/all.net')
+unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str='', base=opts.working_directory, target=opts.working_directory+'/all.net')
 unify_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).log")
 unify_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).err")
@@ -263,7 +263,8 @@ for it in np.arange(it_start,opts.n_iterations):
     fit_node.add_macro("macroiteration", it)
     fit_node.add_macro("macroiterationnext", it+1)
     fit_node.set_category("CIP")
-    dag.add_node(fit_node)
+    fit_node.add_parent(unify_node)  # only fit if we have results from the previous iteration
+    dag.add_node(fit_node) 
 
     parent_fit_node = fit_node
 
