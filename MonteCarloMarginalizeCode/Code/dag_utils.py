@@ -646,7 +646,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 
 
 
-def write_unify_sub_simple(tag='unify', exe=None, target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -659,10 +659,15 @@ def write_unify_sub_simple(tag='unify', exe=None, target=None,arg_str=None,log_d
 
     # Write unify.sh
     #    - problem of globbing inside condor commands
+    #    - problem that *.composite files from intermediate results will generally NOT be present
     cmdname ='unify.sh'
-    with open(cmdname,'w') as f:
+    base_str = ''
+    if not (base is None):
+        base_str = ' ' + base +"/"
+    with open(cmdname,'w') as f:        
         f.write("#! /usr/bin/env bash\n")
-        f.write( exe + " *.composite")
+        f.write( "ls " + base_str+"*.composite  1>&2 \n")  # write filenames being concatenated to stderr
+        f.write( exe +  base_str+ "*.composite \n")
     st = os.stat(cmdname)
     import stat
     os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
