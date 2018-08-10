@@ -224,6 +224,7 @@ parser.add_argument("--fit-uses-reported-error",action='store_true')
 parser.add_argument("--fit-uses-reported-error-factor",type=float,default=1,help="Factor to add to standard deviation of fit, before adding to lnL. Multiplies number fitting dimensions")
 parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
+parser.add_argument("--fail-unless-n-eff",default=None,type=int,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
 parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP fit to load. Overrides fitting process, but user MUST correctly specify coordinate system to interpret the fit with.  Does not override loading and converting the data.")
@@ -1240,6 +1241,11 @@ print " Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.
 
 res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
+# Test n_eff threshold
+if not (opts.fail_unless_n_eff is None):
+    if neff < opts.fail_unless_n_eff:
+        print " FAILURE: n_eff too small"
+        sys.exit(1)
 
 # Save result -- needed for odds ratios, etc.
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
