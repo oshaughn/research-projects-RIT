@@ -61,7 +61,10 @@ for indx in indx_names:
     os.system(cvt + " "+fname_xml + " > " + fname_post) 
     new_args = ' --posterior-file ' + fname_post + ' --posterior-label ' + str(indx)
     cmd += new_args
-    
+
+fname_comp= glob.glob("all.net")
+if len(fname_comp) >0:
+    cmd+= ' --composite-file all.net '
 
 print cmd
 os.system(cmd)
