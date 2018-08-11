@@ -1544,7 +1544,8 @@ if not no_plots:
 print " ---- Subset for posterior samples (and further corner work) --- " 
 
 # pick random numbers
-p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=opts.n_output_samples)
+p_threshold_size = np.min([5*opts.n_output_samples,len(weights)])
+p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=p_threshold_size)#opts.n_output_samples)
 if opts.verbose:
     print " output size: selected thresholds N=", len(p_thresholds)
 # find sample indexes associated with the random numbers
@@ -1622,7 +1623,8 @@ for indx_here in indx_list:
  ###
  ### Export data
  ###
-lalsimutils.ChooseWaveformParams_array_to_xml(P_list,fname=opts.fname_output_samples,fref=P.fref)
+n_output_size = np.min([len(P_list),opts.n_output_samples])
+lalsimutils.ChooseWaveformParams_array_to_xml(P_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
 lnL_list = np.array(lnL_list,dtype=internal_dtype)
 np.savetxt(opts.fname_output_samples+"_lnL.dat", lnL_list)
 
