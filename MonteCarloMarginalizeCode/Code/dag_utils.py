@@ -655,7 +655,7 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,arg_str=
 
     """
 
-    exe = exe or which("cat")
+    exe = exe or which("util_CleanILE.py")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
 
     # Write unify.sh
     #    - problem of globbing inside condor commands
@@ -700,14 +700,8 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,arg_str=
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
         print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
-        
-    
-
-    ###
-    ### SUGGESTION FROM STUART (for later)
-    # request_memory = ifthenelse( (LastHoldReasonCode=!=34 && LastHoldReasonCode=!=26), InitialRequestMemory, int(1.5 * NumJobStarts * MemoryUsage) )
-    # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
-    # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
-
 
     return ile_job, ile_sub_name
+
+
+
