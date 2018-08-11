@@ -87,7 +87,7 @@ cip_args = ' '.join(cip_args.split(' ')[1:])
 cip_args = cip_args.replace('[', ' \'[')
 cip_args = cip_args.replace(']', ']\'')
 cip_args=cip_args.rstrip()
-cip_args += ' --no-plots '
+cip_args += ' --no-plots '  
 print "CIP", cip_args
 
 # Load args.txt. Remove first item.  Store
@@ -99,6 +99,7 @@ ile_args = ' '.join(ile_args.split(' ')[1:])
 ile_args = ile_args.replace('[', ' \'[')
 ile_args = ile_args.replace(']', ']\'')
 ile_args=ile_args.rstrip()
+ile_args += ' --soft-fail-event-range '  #important in case event is out of range. Simply exit
 print "ILE", ile_args
 
 # Copy seed grid into place as overlap-grid-0.xml.gz

@@ -57,6 +57,7 @@ optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS fil
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
 optp.add_option("-I", "--sim-xml", help="XML file containing mass grid to be evaluated")
 optp.add_option("-E", "--event", default=0,type=int, help="Event number used for this run")
+optp.add_option("--soft-fail-event-range",action='store_true',help='Soft failure (exit 0) if event ID is out of range. This happens in pipelines, if we have pre-built a DAG attempting to analyze more points than we really have')
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
 optp.add_option("--fmin-template", dest='fmin_template', type=float, default=40, help="Waveform starting frequency.  Default is 40 Hz. Also equal to starting frequency for integration") 
 optp.add_option("--fmin-ifo", action='append' , help="Minimum frequency for each IFO. Implemented by setting the PSD=0 below this cutoff. Use with care.") 
@@ -292,7 +293,11 @@ fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more di
 # Struct to hold template parameters
 if opts.sim_xml:
     print "====Loading injection XML:", opts.sim_xml, opts.event, " ======="
-    P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))[opts.event]  # Load in the physical parameters of the injection.  
+    P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
+    if len(P_list) > opts.event  and opts.soft_fail_event_range:
+        print " Event out of range; soft exit"
+        sys.exit(0)
+    P = P_list[opts.event]  # Load in the physical parameters of the injection.  
     P.radec =False  # do NOT propagate the epoch later
     P.fref = opts.reference_freq
     P.fmin = template_min_freq
