@@ -99,7 +99,7 @@ ile_args = ' '.join(ile_args.split(' ')[1:])
 ile_args = ile_args.replace('[', ' \'[')
 ile_args = ile_args.replace(']', ']\'')
 ile_args=ile_args.rstrip()
-ile_args += ' --soft-fail-event-range '  #important in case event is out of range. Simply exit
+#ile_args += ' --soft-fail-event-range '  #important in case event is out of range. Simply exit NO ...not backwards compatible
 print "ILE", ile_args
 
 # Copy seed grid into place as overlap-grid-0.xml.gz
