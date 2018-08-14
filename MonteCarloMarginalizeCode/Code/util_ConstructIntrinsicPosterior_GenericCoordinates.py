@@ -198,6 +198,9 @@ parser.add_argument("--aligned-prior", default="uniform",help="Options are 'unif
 parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
 parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help="Applies volumetric prior internally, and then reweights at end step to get uniform spin magnitude prior")
 parser.add_argument("--pseudo-uniform-magnitude-prior-alternate-sampling", action='store_true',help="Changes the internal sampling to be gaussian, not volumetric")
+parser.add_argument("--pseudo-gaussian-mass-prior",action='store_true', help="Applies a gaussian mass prior in postprocessing. Done via reweighting so we can use arbitrary mass sampling coordinates.")
+parser.add_argument("--pseudo-gaussian-mass-prior-mean",default=1.33, help="Mean value for reweighting")
+parser.add_argument("--pseudo-gaussian-mass-prior-std",default=0.09, help="Width for reweighting")
 parser.add_argument("--mirror-points",action='store_true',help="Use if you have many points very near equal mass (BNS). Doubles the number of points in the fit, each of which has a swapped m1,m2")
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
@@ -516,6 +519,10 @@ def lambda_tilde_prior(x):
     return np.ones(x.shape)/opts.lambda_max   # 0,4000
 def delta_lambda_tilde_prior(x):
     return np.ones(x.shape)/1000.   # -500,500
+
+def gaussian_mass_prior(x,mu=0,sigma=1):
+    return np.exp( - 0.5*(x-mu)**2/sigma**2)
+
 
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":s_component_uniform_prior, "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
@@ -1348,7 +1355,44 @@ if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  
     indx_ok = np.logical_and(np.abs(s1z)<=chi_max , np.abs(s2z)<=chi_max)
     weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
     weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(prior_weight[indx_ok])  # correct for uniform
-        
+
+if opts.pseudo_gaussian_mass_prior:
+    # Extract m1 and m2, i solar mass units
+    m1 = np.zeros(len(weights))
+    m2 = np.zeros(len(weights))
+    for indx in np.arange(len(weights)):
+        P=lalsimutils.ChooseWaveformParams()
+        for indx_name in np.arange(len(low_level_coord_names)):
+            p = low_level_coord_names[indx_name]
+            # Do not bother to scale by solar masses, only to undo it later
+            P.assign_param(p, samples[p][indx])
+        m1[indx] = P.extract_param('m1')
+        m2[indx] = P.extract_param('m2')
+    # For speed, do this transformation to mass coordinates by hand rather than the usual loop
+    # m1=None
+    # m2=None
+    # if 'm1' in samples.keys():  # will never happen
+    #     m1 = samples['m1']
+    #     m2 = samples['m2']
+    # elif 'mc' in samples.keys():  #almost always true
+    #     mc = samples['mc']
+    #     eta = None
+    #     if 'eta' in samples.keys():
+    #         eta = samples['eta']
+    #     elif 'delta_mc' in samples.keys():
+    #         eta = np.array(0.25*(1-samples['delta_mc']**2)) # see definition
+    #     else:
+    #         print " Failed transformation "
+    #         sys.exit(0)
+    #     print type(mc), type(eta)
+    #     m1 = lalsimutils.mass1(mc,eta)
+    #     m2 = lalsimutils.mass2(mc,eta)
+    # else:
+    #     print " Failed transformation"
+    #     sys.exit(0)
+    # Reormalize mass region. Note normalizatoin issue introduced: no boundaries in mass region used to rescale.
+    weights *= gaussian_mass_prior( m1, opts.pseudo_gaussian_mass_prior_mean,opts.pseudo_gaussian_mass_prior_std)*gaussian_mass_prior( m2, opts.pseudo_gaussian_mass_prior_mean,opts.pseudo_gaussian_mass_prior_std)
+
 
 # Integral result v2: using modified prior. 
 # Note also downselects NOT applied: no range cuts, unless applied as part of aligned_prior, etc.  
