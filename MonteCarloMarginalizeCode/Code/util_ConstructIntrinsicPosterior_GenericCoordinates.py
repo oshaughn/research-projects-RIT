@@ -193,7 +193,8 @@ parser.add_argument("--trust-sample-parameter-box",action='store_true', help="If
 parser.add_argument("--plots-do-not-force-large-range",action='store_true', help = "If used, the plots do NOT automatically set the chieff range to [-1,1], the eta range to [0,1/4], etc")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
-parser.add_argument("--no-downselect",action='store_true')
+parser.add_argument("--no-downselect",action='store_true','Prevent using downselection on output points' )
+parser.add_argument("--no-downselect-grid",action='store_true','Prevent using downselection on input points. Applied only to mc range' )
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
 parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
 parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help="Applies volumetric prior internally, and then reweights at end step to get uniform spin magnitude prior")
@@ -869,7 +870,7 @@ for line in dat:
   if line[col_lnL] < opts.lnL_cut:
       continue  # strip worthless points.  DANGEROUS
   mc_here = lalsimutils.mchirp(line[1],line[2])
-  if mc_here < mc_cut_range[0] or mc_here > mc_cut_range[1]:
+  if  (not opts.no_downselect_grid) and mc_here < mc_cut_range[0] or mc_here > mc_cut_range[1]:
       if False and opts.verbose:
           print "Stripping because sample outside of target  mc range ", line
       continue
@@ -1645,9 +1646,6 @@ for indx_here in indx_list:
         Pgrid.phaseO =-1
                         
             
-#        if opts.verbose:
-#            Pgrid.print_params()
-
         # Downselect.
         # for param in downselect_dict:
         #     if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
