@@ -271,6 +271,48 @@ elif opts.workflow=='eos_rank' and not (opts.eos_params is None):
         cip_node.add_macro("macrousing_eos", name)
         cip_node.set_category("CIP")
         dag.add_node(cip_node)
+
+elif opts.workflow=='eos_rank_param' and not (opts.eos_params is None):
+    params_eos = np.genfromtxt(opts.eos_params,names=True)
+    param_names = params_eos.dtype.names
+
+    cmdname="%s/command-single_fit.sh" % opts.working_directory
+    cmd = open(cmdname, 'w')
+    arg_list = cip_args
+    exe = which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
+    cmd.write('#!/usr/bin/env bash\n')
+    cmd.write(exe + ' ' + arg_list + " --eos-param spectral --eos-param-values [[0,0,0],[1,1,0,0]] ")  # just to have something to parse
+    cmd.close()
+
+    cip_args += ' --fname-output-integral integral_$(macroindex)-$(cluster)-$(process)'   # insure output filenames unique if multiple runs performed
+    cip_args += ' --fname-output-samples integral_$(macroindex)-$(cluster)-$(process)'   # insure output filenames unique if multiple runs performed
+    cip_args += ' --eos-param spectral'
+    if 'epsilon0' in param_names:
+        # the first few arguments are not used in the LAL case anyways
+        cip_args += ' --eos-param-values [[$(macrop0),$(macroeps0),$(macroxmax)],[$(macrogamma1),$(macrogamma2),$(macrogamma3),$(macrogamma4)]] '
+    else:
+        # Thee are not used in the LAL case anyways
+        cip_args += ' --eos-param-values [[0,0,0],[$(macrogamma1),$(macrogamma2),$(macrogamma3),$(macrogamma4)]] '
+    eos_job, eos_job_name = write_CIP_sub(tag='CIP',log_dir=log_dir,arg_str=cip_args,use_eos=True,request_memory=opts.request_memory)
+    eos_job.write_sub_file()
+
+
+    # Look up EOS names
+    # DEFAULT: spectral parameterization (for now)
+    for indx in np.arange(len(params_eos[param_names[0]])):
+        cip_node = pipeline.CondorDAGNode(eos_job)
+        cip_node.add_macro("macroindex", indx)
+        if 'epsilon0' in param_names:
+            cip_node.add_macro("macroepsilon0", params_eos["epsilon0"][indx])
+            cip_node.add_macro("macrop0", params_eos["p0"][indx])
+            cip_node.add_macro("macroxmax", params_eos["xmax"][indx])
+        cip_node.add_macro("macrogamma1", params_eos["gamma1"][indx])
+        cip_node.add_macro("macrogamma2", params_eos["gamma2"][indx])
+        cip_node.add_macro("macrogamma3", params_eos["gamma3"][indx])
+        cip_node.add_macro("macrogamma4", params_eos["gamma4"][indx])
+        cip_node.set_category("CIP_spectral")
+        dag.add_node(cip_node)
+        
         
 
 dag_name="marginalize_intrinsic_parameters_postprocessing"
