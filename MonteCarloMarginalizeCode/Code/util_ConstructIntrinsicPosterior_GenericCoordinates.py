@@ -1270,11 +1270,11 @@ eos_extra = []
 annotation_header = "lnL sigmaL neff "
 if opts.using_eos:
     eos_extra = [opts.using_eos]
-    annotation_header += 'eos_name'
+    annotation_header += 'eos_name '
     if opts.eos_param == 'spectral':
         # Should also 
         my_eos_params = my_eos.spec_params
-        eos_extra += map( lambda x: my_eos_params[x], ["gamma1", "gamma2", "gamma3", "gamma4", "p0", "epsilon0", "xmax"])
+        eos_extra += map( lambda x: str(my_eos_params[x]), ["gamma1", "gamma2", "gamma3", "gamma4", "p0", "epsilon0", "xmax"])
 #        eos_extra += opts.eos_param
         annotation_header += "gamma1 gamma2 gamma3 gamma4 p0 epsilon0 xmax"
 with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
