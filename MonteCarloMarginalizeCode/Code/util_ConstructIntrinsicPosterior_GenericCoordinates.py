@@ -250,7 +250,7 @@ lnL_shift = 0
 if opts.lnL_shift_prevent_overflow:
     lnL_shift  = opts.lnL_shift_prevent_overflow
 
-source_redshift=0
+source_redshift=opts.source_redshift
 
 
 my_eos=None
@@ -258,6 +258,8 @@ my_eos=None
 if opts.using_eos!=None:
     import EOSManager
     eos_name=opts.using_eos
+    if opts.verbose:
+        print " Using EOS ", eos_name, opts.eos_param, opts.eos_param_values
 
     if opts.eos_param == 'spectral':
         # Will not work yet -- need to modify to parse command-line arguments
@@ -1145,7 +1147,7 @@ if not opts.using_eos:
     return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names)
 else:
  def convert_coords(x_in):
-    x_out = lalsimutils.convert_waveform_coordinates_with_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,no_matter1=opts.no_matter1, no_matter2=opts.no_matter2)
+    x_out = lalsimutils.convert_waveform_coordinates_with_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,no_matter1=opts.no_matter1, no_matter2=opts.no_matter2,source_redshift=source_redshift)
     return x_out
 
 ###
