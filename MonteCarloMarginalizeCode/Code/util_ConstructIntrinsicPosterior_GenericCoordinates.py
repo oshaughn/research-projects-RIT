@@ -236,6 +236,7 @@ parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 parser.add_argument("--no-plots",action='store_true')
 parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not) ")
+parser.add_argument("--no-use-lal-eos",action='store_true',help="Do not use LAL EOS interface. Used for spectral EOS. Do not use this.")
 parser.add_argument("--no-matter1", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
 parser.add_argument("--no-matter2", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
 parser.add_argument("--protect-coordinate-conversions", action='store_true', help="Adds an extra layer to coordinate conversions with range tests. Slows code down, but adds layer of safety for out-of-range EOS parameters for example")
@@ -265,15 +266,16 @@ if opts.using_eos!=None:
         spec_params ={}
         spec_params['gamma1']=spec_param_array[0]
         spec_params['gamma2']=spec_param_array[1]
-        spec_params['p0']=fixed_param_array[0]
+        # not used anymore: p0, epsilon0 set by the LI interface
+        spec_params['p0']=fixed_param_array[0]   
         spec_params['epsilon0']=fixed_param_array[1]
         spec_params['xmax']=fixed_param_array[2]
         if len(spec_param_array) <3:
-            spec_params['gamma2']=spec_params['gamma3']=0
+            spec_params['gamma3']=spec_params['gamma4']=0
         else:
-            spec_params['gamma2']=spec_param_array[2]
-            spec_params['gamma3']=spec_param_array[3]
-        eos_base = EOSMananager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=True)
+            spec_params['gamma3']=spec_param_array[2]
+            spec_params['gamma4']=spec_param_array[3]
+        eos_base = EOSMananager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
 #        eos_vals = eos_base.make_spec_param_eos(npts=500)
 #        lalsim_spec_param = eos_vals/(C_CGS**2)*7.42591549*10**(-25) # argh, Monica!
 #        np.savetxt("lalsim_eos/"+eos_name+"_spec_param_geom.dat", np.c_[lalsim_spec_param[:,1], lalsim_spec_param[:,0]])
