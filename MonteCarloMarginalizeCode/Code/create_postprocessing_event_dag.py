@@ -281,7 +281,7 @@ elif opts.workflow=='eos_rank_param' and not (opts.eos_params is None):
     arg_list = cip_args
     exe = which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
     cmd.write('#!/usr/bin/env bash\n')
-    cmd.write(exe + ' ' + arg_list + " --eos-param spectral --eos-param-values [[0,0,0],[1,1,0,0]] ")  # just to have something to parse
+    cmd.write(exe + ' ' + arg_list + " --using-eos spec --eos-param spectral --eos-param-values [[0,0,0],[1,1,0,0]] ")  # just to have something to parse
     cmd.close()
 
     cip_args += ' --fname-output-integral integral_$(macroindex)-$(cluster)-$(process)'   # insure output filenames unique if multiple runs performed
