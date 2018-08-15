@@ -276,7 +276,7 @@ if opts.using_eos!=None:
         else:
             spec_params['gamma3']=spec_param_array[2]
             spec_params['gamma4']=spec_param_array[3]
-        eos_base = EOSMananager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
+        eos_base = EOSManager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
 #        eos_vals = eos_base.make_spec_param_eos(npts=500)
 #        lalsim_spec_param = eos_vals/(C_CGS**2)*7.42591549*10**(-25) # argh, Monica!
 #        np.savetxt("lalsim_eos/"+eos_name+"_spec_param_geom.dat", np.c_[lalsim_spec_param[:,1], lalsim_spec_param[:,0]])
