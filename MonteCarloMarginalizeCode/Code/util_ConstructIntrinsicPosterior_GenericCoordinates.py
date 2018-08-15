@@ -262,7 +262,7 @@ if opts.using_eos!=None:
     if opts.eos_param == 'spectral':
         # Will not work yet -- need to modify to parse command-line arguments
         spec_param_packed=eval(opts.eos_param_values) # two lists: first are 'fixed' and second are specific
-        fixed_params_array=spec_param_packed[0]
+        fixed_param_array=spec_param_packed[0]
         spec_param_array=spec_param_packed[1]
         spec_params ={}
         spec_params['gamma1']=spec_param_array[0]
