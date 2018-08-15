@@ -302,6 +302,7 @@ elif opts.workflow=='eos_rank_param' and not (opts.eos_params is None):
     for indx in np.arange(len(params_eos[param_names[0]])):
         cip_node = pipeline.CondorDAGNode(eos_job)
         cip_node.add_macro("macroindex", indx)
+        cip_node.add_macro("macrousingeos", 'spec')  # not used in this format, but we need to pass something
         if 'epsilon0' in param_names:
             cip_node.add_macro("macroepsilon0", params_eos["epsilon0"][indx])
             cip_node.add_macro("macrop0", params_eos["p0"][indx])
