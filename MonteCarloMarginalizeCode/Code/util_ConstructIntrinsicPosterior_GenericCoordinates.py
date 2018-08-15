@@ -38,6 +38,8 @@ internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savin
 C_CGS=2.997925*10**10 # Argh, Monica!
  
 try:
+    import matplotlib
+    matplotlib.use('agg')  # prevent requests for DISPLAY
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
     import matplotlib.lines as mlines
@@ -853,7 +855,9 @@ mc_max = -1
 mc_index = -1 # index of mchirp in parameter index. To help with nonstandard GP
 mc_cut_range = [-np.inf, np.inf] 
 if opts.mc_range:
-    mc_cut_range = eval(opts.mc_range)  # throw out samples outside this range
+    mc_cut_range = eval(opts.mc_range)  # throw out samples outside this range.
+    if opts.source_redshift>0:
+        mc_cut_range =np.array(mc_cut_range)*(1+opts.source_redshift)  # prevent stupidity in grid selection
 print " Stripping samples outside of ", mc_cut_range, " in mc"
 P= lalsimutils.ChooseWaveformParams()
 for line in dat:
