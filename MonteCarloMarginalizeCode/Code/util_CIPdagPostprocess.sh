@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /bin/bash
 #
 # GOAL
 #   - wrap up results from
@@ -21,7 +21,6 @@ echo '#User:' `whoami` >>  ${BASE_OUT}.manifest
 echo '#Date:' `date` >>  ${BASE_OUT}.manifest
 echo '#Host:' `hostname -f` >>  ${BASE_OUT}.manifest
 echo '#Directory:' `pwd`/${DIR_PROCESS} >>  ${BASE_OUT}.manifest
-md5sum ${DIR_PROCESS}/*psd.xml.gz >> ${BASE_OUT}.manifest
 cat ${DIR_PROCESS}/command-single_fit.sh >>  ${BASE_OUT}.manifest  
 env >> ${BASE_OUT}.environment  
 
