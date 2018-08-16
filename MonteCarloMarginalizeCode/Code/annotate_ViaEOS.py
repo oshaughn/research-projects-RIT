@@ -97,7 +97,7 @@ if not 'eos_name' in param_names:
 samples =add_field(samples, [('R_fiducial_km',float)])
 if opts.annotate_m_max:
     samples =add_field(samples, [('m_max_msun',float)])
-if opts.annotate_lambda:
+if opts.annotate_lambda and 'm1' in param_names:
     samples =add_field(samples, [('lambda1',float)])
     samples =add_field(samples, [('lambda2',float)])
 
@@ -114,8 +114,11 @@ for indx in np.arange(npts):
     samples['R_fiducial_km'][indx] = lalsim.SimNeutronStarRadius(opts.fiducial_mass*lal.MSUN_SI,eos_now.eos_fam)/1e3
     # Fill maximum mass
     if opts.annotate_m_max:
-        samples['m_max_msun'] = eos_now.mMaxMsun
+        samples['m_max_msun'][indx] = eos_now.mMaxMsun
     # Fill lambda(m) values
+    if opts.annotate_lambda and 'm1' in param_names:
+        True
+    
 
 # write format specifier : 
 fmt = ""
