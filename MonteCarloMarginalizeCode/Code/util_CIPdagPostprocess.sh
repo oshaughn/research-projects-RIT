@@ -11,7 +11,7 @@ BASE_OUT=$2
 # join together the .dat files
 echo " Joining data files .... "
 find ${DIR_PROCESS} -name 'integral*_withpriorchange+annotation.dat' -exec cat {} \;  | sort | uniq | sort -r >  ${BASE_OUT}.integral_withprior
-find ${DIR_PROCESS} -name 'integral*[0-9]+annotation.dat' -exec cat {} \;  | sort | uniq | sort -r >  ${BASE_OUT}.integral
+(for i in ` find ${DIR_PROCESS} -name 'integral*+annotation.dat' | grep -v _withpriorchange`; do cat $i; done)  | sort | uniq | sort -r >  ${BASE_OUT}.integral
 
 
 
