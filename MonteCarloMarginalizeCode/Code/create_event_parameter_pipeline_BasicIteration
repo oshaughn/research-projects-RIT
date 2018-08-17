@@ -64,6 +64,7 @@ parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt fil
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--cip-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
 parser.add_argument("--ile-batch",action='store_true',help="Different workflow: the ILE job is assumed to create a .composite file directly in the current working directory. Designed for fake ILE sets and long-term batch workflow. NOT IMPLEMENTED ")
+parser.add_argument("--transfer-file-list",default=None,help="File containing list of *input* filenames to transfer, one name per file. Copied into transfer_files for condor directly.  If provided, also enables attempts to deduce files that need to be transferred for the pipeline to operate, as needed for OSG, etc")
 parser.add_argument("--request-memory-CIP",default=16384,type=int,help="Memory request for condor (in Mb) for fitting jobs.")
 parser.add_argument('--n-copies',default=2,type=int,help="Number of duplicates of each ILE job, for redundant Monte Carlo")
 parser.add_argument('--n-iterations',default=3,type=int,help="Number of iterations to perform")
@@ -107,6 +108,15 @@ it_start = opts.start_iteration
 if it_start is 0:
     shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
 
+
+transfer_file_names = None
+if not (opts.transfer_file_list is None):
+    transfer_file_names=[]
+    # Load args.txt. Remove first item.  Store
+    with open(opts.transfer_file_list) as f:
+        for  line in f.readlines():
+            transfer_file_names.append(line.rstrip())
+    print " Input files to transfer to job working directory (note!)", transfer_file_names
 
 
 ###
@@ -164,7 +174,7 @@ for indx in np.arange(it_start,opts.n_iterations):
 
 ##   ILE job
 
-ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=opts.ile_exe)
+ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=opts.ile_exe,transfer_files=transfer_file_names)
 # Modify: create macro for iteration 
 #   - added on a per-node basis
 # Modify: add macro argument for overlap grid to be used (kept in top-level directory)

@@ -469,7 +469,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     return ile_job, ile_sub_name
 
 
-def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, **kwargs):
+def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None, **kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -500,6 +500,10 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     if use_eos:
         ile_job.add_var_opt("using-eos")
 
+    if not transfer_files is None:
+        fname_str = ','.join(transfer_files)
+        fname_str=fname_str.strip()
+        ile_job.add_condor_cmd('transfer_input_files', fname_str)
 
     #
     # Logging options
