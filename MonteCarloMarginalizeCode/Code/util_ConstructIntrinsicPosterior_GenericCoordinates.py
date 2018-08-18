@@ -209,6 +209,7 @@ parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of p
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--chiz-plus-range", default=None,help="USE WITH CARE: If you are using chiz_minus, chiz_plus for a near-equal-mass system, then setting the chiz-plus-range can improve convergence (e.g., for aligned-spin systems), loosely by setting a chi_eff range that is allowed")
 parser.add_argument("--lambda-max", default=4000,type=float,help="Maximum range of 'Lambda' allowed.  Minimum value is ZERO, not negative.")
+parser.add_argument("--lambda-small-max", default=None,type=float,help="Maximum range of 'Lambda' allowed for smaller body. If provided and smaller than lambda_max, used ")
 parser.add_argument("--lambda-plus-max", default=None,type=float,help="Maximum range of 'Lambda_plus' allowed.  Used for sampling. Pick small values to accelerate sampling! Otherwise, use lambda-max.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
@@ -406,13 +407,16 @@ for indx in np.arange(len(dlist_ranges)):
 
 chi_max = opts.chi_max
 lambda_max=opts.lambda_max
+lambda_small_max  = lambda_max
+if not  (opts.lambda_small_max is None):
+    lambda_small_max = opts.lambda_small_max
 lambda_plus_max = opts.lambda_max
 if opts.lambda_plus_max:
     lambda_plus_max  = opts.lambda_max
 downselect_dict['chi1'] = [0,chi_max]
 downselect_dict['chi2'] = [0,chi_max]
 downselect_dict['lambda1'] = [0,lambda_max]
-downselect_dict['lambda2'] = [0,lambda_max]
+downselect_dict['lambda2'] = [0,lambda_small_max]
 for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
     downselect_dict[param] = [-chi_max,chi_max]
 # Enforce definition of eta
@@ -518,7 +522,9 @@ def s_component_aligned_volumetricprior(x,R=1.):
     return (3./4.*(1- np.power(x/R,2))/R)
 
 def lambda_prior(x):
-    return np.ones(x.shape)/opts.lambda_max   # assume arbitrary
+    return np.ones(x.shape)/lambda_max   # assume arbitrary
+def lambda_small_prior(x):
+    return np.ones(x.shape)/lambda_small_max   # assume arbitrary
 
 
 # DO NOT USE UNLESS REQUIRED FOR COMPATIBILITY
@@ -542,7 +548,7 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'm1':m_prior,
     'm2':m_prior,
     'lambda1':lambda_prior,
-    'lambda2':lambda_prior,
+    'lambda2':lambda_small_prior,
     'lambda_plus': lambda_prior,
     'lambda_minus': lambda_prior,
     'LambdaTilde':lambda_tilde_prior,
@@ -558,7 +564,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'm1':[0.9,1e3],
   'm2':[0.9,1e3],
   'lambda1':[0.01,lambda_max],
-  'lambda2':[0.01,lambda_max],
+  'lambda2':[0.01,lambda_small_max],
   'lambda_plus':[0.01,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
