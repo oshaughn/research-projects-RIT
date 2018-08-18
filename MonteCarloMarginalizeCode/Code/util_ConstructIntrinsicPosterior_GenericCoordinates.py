@@ -207,6 +207,7 @@ parser.add_argument("--pseudo-gaussian-mass-prior-std",default=0.09, type=float,
 parser.add_argument("--mirror-points",action='store_true',help="Use if you have many points very near equal mass (BNS). Doubles the number of points in the fit, each of which has a swapped m1,m2")
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
+parser.add_argument("--chi-small-max", default=None,type=float,help="Maximum range of 'a' allowed on the smaller body.  If not specified, defaults to chi_max")
 parser.add_argument("--chiz-plus-range", default=None,help="USE WITH CARE: If you are using chiz_minus, chiz_plus for a near-equal-mass system, then setting the chiz-plus-range can improve convergence (e.g., for aligned-spin systems), loosely by setting a chi_eff range that is allowed")
 parser.add_argument("--lambda-max", default=4000,type=float,help="Maximum range of 'Lambda' allowed.  Minimum value is ZERO, not negative.")
 parser.add_argument("--lambda-small-max", default=None,type=float,help="Maximum range of 'Lambda' allowed for smaller body. If provided and smaller than lambda_max, used ")
@@ -406,6 +407,9 @@ for indx in np.arange(len(dlist_ranges)):
 
 
 chi_max = opts.chi_max
+chi_small_max = chi_max
+if not opts.chi_small_max is None:
+    chi_small_max = opts.chi_small_max
 lambda_max=opts.lambda_max
 lambda_small_max  = lambda_max
 if not  (opts.lambda_small_max is None):
@@ -414,7 +418,7 @@ lambda_plus_max = opts.lambda_max
 if opts.lambda_plus_max:
     lambda_plus_max  = opts.lambda_max
 downselect_dict['chi1'] = [0,chi_max]
-downselect_dict['chi2'] = [0,chi_max]
+downselect_dict['chi2'] = [0,chi_small_max]
 downselect_dict['lambda1'] = [0,lambda_max]
 downselect_dict['lambda2'] = [0,lambda_small_max]
 for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
@@ -538,11 +542,11 @@ def gaussian_mass_prior(x,mu=0,sigma=1):
 
 
 
-prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":s_component_uniform_prior, "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
+prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
-    's2x':s_component_uniform_prior,
+    's2x':functools.partial(s_component_uniform_prior, R=chi_small_max),
     's1y':s_component_uniform_prior,
-    's2y':s_component_uniform_prior,
+    's2y': functools.partial(s_component_uniform_prior, R=chi_small_max),
     'chiz_plus':s_component_uniform_prior,
     'chiz_minus':s_component_uniform_prior,
     'm1':m_prior,
@@ -554,11 +558,11 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'LambdaTilde':lambda_tilde_prior,
     'DeltaLambdaTilde':delta_lambda_tilde_prior,
 }
-prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_max,0.999*chi_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
+prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_small_max,0.999*chi_small_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
    's1x':[-chi_max,chi_max],
-   's2x':[-chi_max,chi_max],
+   's2x':[-chi_small_max,chi_small_max],
    's1y':[-chi_max,chi_max],
-   's2y':[-chi_max,chi_max],
+   's2y':[-chi_small_max,chi_small_max],
   'chiz_plus':[-chi_max,chi_max],   # BEWARE BOUNDARIES
   'chiz_minus':[-chi_max,chi_max],
   'm1':[0.9,1e3],
@@ -588,7 +592,7 @@ if not (opts.eta_range is None):
 if opts.aligned_prior == 'alignedspin-zprior':
     # prior on s1z constructed to produce the standard distribution
     prior_map["s1z"] = s_component_zprior
-    prior_map["s2z"] = s_component_zprior
+    prior_map["s2z"] = functools.partial(s_component_zprior,R=chi_small_max)
     if  'chiz_plus' in low_level_coord_names:
         if opts.spin_prior_chizplusminus_alternate_sampling is 'alignedspin_zprior':
             # just a  trick to make reweighting more efficient.
@@ -1338,26 +1342,26 @@ if opts.pseudo_uniform_magnitude_prior and 's1x' in samples.keys() and 's1z' in 
         prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s2x','s2y','s2z'] ],axis=0)
         val = np.array(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype)
         chi2= np.sqrt(val)
-        weights[ chi2>chi_max] =0
-        weights *= 3.*chi_max*chi_max/(chi2*chi2*prior_weight)
+        weights[ chi2>chi_small_max] =0
+        weights *= 3.*chi_small_max*chi_small_max/(chi2*chi2*prior_weight)
 elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys() and not opts.pseudo_uniform_magnitude_prior_alternate_sampling:
     # Uniform sampling: simple volumetric reweight
     s1z  = samples['chiz_plus'] + samples['chiz_minus']
     s2z  = samples['chiz_plus'] - samples['chiz_minus']
     val1 = np.array(s1z**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype); chi1 = np.sqrt(val1)
     val2 = np.array(s2z**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype); chi2= np.sqrt(val2)
-    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_max)
+    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_small_max)
     weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
-    weights[indx_ok] *= 9.*(chi_max**4)/(chi1*chi1*chi2*chi2)[indx_ok]
+    weights[indx_ok] *= 9.*(chi_max**2 * chi_small_max**2)/(chi1*chi1*chi2*chi2)[indx_ok]
 elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys() and not opts.pseudo_uniform_magnitude_prior_alternate_sampling:
     s1z  = samples['chiz_plus'] + samples['chiz_minus']
     s2z  = samples['chiz_plus'] - samples['chiz_minus']
     val1 = np.array(s1z**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype); chi1 = np.sqrt(val1)
     val2 = np.array(s2z**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype); chi2= np.sqrt(val2)
-    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_max)
+    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_small_max)
     weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
     prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s1x','s1y', 's2x', 's2y','chiz_plus','chiz_minus'] ],axis=0)
-    weights[indx_ok] *= 9.*(chi_max**4)/(chi1*chi1*chi2*chi2)[indx_ok]/prior_weight[indx_ok]  # undo chizplus, chizminus prior
+    weights[indx_ok] *= 9.*(chi_max**2  * chi_small_max**2)/(chi1*chi1*chi2*chi2)[indx_ok]/prior_weight[indx_ok]  # undo chizplus, chizminus prior
     
 
 # If we are using alignedspin-zprior AND chiz+, chiz-, then we need to reweight .. that prior cannot be evaluated internally
