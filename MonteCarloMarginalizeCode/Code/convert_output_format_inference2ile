@@ -75,16 +75,26 @@ fac_reduce = 1; #int(n_samples_in/(opts.target_size+1))
 for indx in np.arange(opts.target_size):
     m1 = samples_in["m1"][indx*fac_reduce]*lal.MSUN_SI
     m2 = samples_in["m2"][fac_reduce*indx]*lal.MSUN_SI
-    d = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
+    if 'distance' in samples_in.dtype.names:
+            d = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
+    elif 'dist' in samples_in.dtype.names:
+            d = samples_in["dist"][fac_reduce*indx]*lal.PC_SI*1e6
+    else:
+            d = 1.0 
     P = lalsimutils.ChooseWaveformParams(m1=m1,m2=m2,dist=d)
     if "time_maxl" in samples_in.dtype.names:
      P.tref = samples_in["time_maxl"][fac_reduce*indx]
-    else:
+    elif 'time' in samples_in.dtype.names:
      P.tref = samples_in["time"][fac_reduce*indx]
+    elif 'tref' in samples_in.dtype.names:
+     P.tref = samples_in["tref"][fac_reduce*indx]
+    else:
+            print "Failure"
 #    P.fmin = opts.fmin
 #    P.fref = opts.fref
-    P.fmin =  samples_in["flow"][fac_reduce*indx]  # REFERENCE FREQUENCY IS NOT YET RELIABLE
-    P.fref = samples_in["f_ref"][fac_reduce*indx]  # a field now !  MAY NOT BE RELIABLE
+    if 'flow' in samples_in.dtype.names:
+            P.fmin =  samples_in["flow"][fac_reduce*indx]  # REFERENCE FREQUENCY IS NOT YET RELIABLE
+            P.fref = samples_in["f_ref"][fac_reduce*indx]  # a field now !  MAY NOT BE RELIABLE
     if P.approx == lalsim.SEOBNRv3:
             P.fref = P.fmin
     if "phi_orb" in samples_in.dtype.names:
@@ -93,8 +103,10 @@ for indx in np.arange(opts.target_size):
      P.phiref =samples_in["phase_maxl"][fac_reduce*indx]
     elif "phase" in samples_in.dtype.names:
      P.phiref = samples_in["phase"][fac_reduce*indx]
+    elif "phiorb" in samples_in.dtype.names:
+     P.phiref = samples_in["phiorb"][fac_reduce*indx]
     else:
-     print samples_in.dtype.names
+     print ' No phase in ', samples_in.dtype.names
      P.phiref = 0  # does not actually matter
     P.approx = lalsim.GetApproximantFromString(opts.approx)
     if opts.use_no_spin:
