@@ -219,29 +219,34 @@ if opts.workflow == 'single' or opts.workflow=='fit':
     cip_node.set_category("CIP")
     dag.add_node(cip_node)
 if opts.workflow == 'posterior' or opts.workflow=='fit+posterior':
-    cip_args_fit = cip_args + ' --fit-save-gp my_fit.pkl'
-    cip_args_fit += ' --fname-output-integral integral_fit'   # insure output filenames unique if multiple runs performed
-    cip_args_fit += ' --fname-output-samples integral_fit'   # insure output filenames unique if multiple runs performed
+    if opts.workflow=='fit+posterior':
+        cip_args_fit = cip_args + ' --fit-save-gp my_fit.pkl'
+        cip_args_fit += ' --fname-output-integral integral_fit'   # insure output filenames unique if multiple runs performed
+        cip_args_fit += ' --fname-output-samples integral_fit'   # insure output filenames unique if multiple runs performed
 
-    fit_job, fit_job_name = write_CIP_sub(tag='CIP_fit',log_dir=log_dir,arg_str=cip_args_fit,request_memory=opts.request_memory)
-    fit_job.write_sub_file()
+        fit_job, fit_job_name = write_CIP_sub(tag='CIP_fit',log_dir=log_dir,arg_str=cip_args_fit,request_memory=opts.request_memory)
+        fit_job.write_sub_file()
 
-    cip_args_load = cip_args + ' --fit-load-gp my_fit.pkl'
+    cip_args_load=cip_args
+    if opts.workflow == 'fit+posterior':
+        cip_args_load =  ' --fit-load-gp my_fit.pkl'  # we are saving the fit
     cip_args_load += ' --fname-output-integral integral_$(macroevent)'   # insure output filenames unique if multiple runs performed
     cip_args_load += ' --fname-output-samples integral_$(macroevent)'   # insure output filenames unique if multiple runs performed
     single_job, single_job_name = write_CIP_sub(tag='CIP_post',log_dir=log_dir,arg_str=cip_args_load,request_memory=opts.request_memory)
     single_job.write_sub_file()
 
-    fit_node = pipeline.CondorDAGNode(fit_job)
-    fit_node.add_macro("macroevent", 0)
-    fit_node.set_category("CIP")
-    dag.add_node(fit_node)
+    if opts.workflow =='fit+posterior':
+        fit_node = pipeline.CondorDAGNode(fit_job)
+        fit_node.add_macro("macroevent", 0)
+        fit_node.set_category("CIP")
+        dag.add_node(fit_node)
 
     for event_id in np.arange(opts.n_post_jobs):
         cip_node = pipeline.CondorDAGNode(single_job)
         cip_node.add_macro("macroevent", event_id)
         cip_node.set_category("CIP")
-        cip_node.add_parent(fit_node)
+        if opts.workflow == 'fit+posterior':
+            cip_node.add_parent(fit_node)
         dag.add_node(cip_node)
         
 
