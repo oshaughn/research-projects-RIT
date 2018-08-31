@@ -594,7 +594,7 @@ if not (opts.chiz_plus_range is None):
 
 if not (opts.eta_range is None):
     print " Warning: Overriding default eta range. USE WITH CARE"
-    prior_range_map['eta'] = eval(opts.eta_range)  # really only useful if eta is a coordinate.  USE WITH CARE
+    eta_range=prior_range_map['eta'] = eval(opts.eta_range)  # really only useful if eta is a coordinate.  USE WITH CARE
     prior_range_map['delta_mc'] = np.sqrt(1-4*np.array(prior_range_map['eta']))[::-1]  # reverse
 
     # change eta range normalization factors to match prior range on eta
