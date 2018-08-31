@@ -1395,7 +1395,7 @@ if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  
 
 if opts.pseudo_gaussian_mass_prior:
     # mass normalization (assuming mc, eta limits are bounds - as is invariably the case)
-    mass_area = 0.5*(mc_range[1]**2 - mc_range[0]**2)*(unscaled_eta_prior_cdf(eta_range[0]) - unscaled_eta_prior_cdf(eta_range[1]))
+    mass_area = 0.5*(mc_max**2 - mc_min**2)*(unscaled_eta_prior_cdf(eta_range[0]) - unscaled_eta_prior_cdf(eta_range[1]))
     # Extract m1 and m2, i solar mass units
     m1 = np.zeros(len(weights))
     m2 = np.zeros(len(weights))
