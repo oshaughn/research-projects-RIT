@@ -23,6 +23,7 @@ import numpy as np
 import numpy.lib.recfunctions
 import scipy
 import scipy.stats
+import scipy.special
 import lalsimutils
 import lalsimulation as lalsim
 import lalframe
@@ -479,15 +480,27 @@ def s2z_prior(x):
     return 1./(2*chi_max)
 def mc_prior(x):
     return 2*x/(mc_max**2-mc_min**2)
-def eta_prior(x):
-    return 1./np.power(x,6./5.)/np.power(1-4.*x, 0.5)/1.44
-def delta_mc_prior(x):
+def unscaled_eta_prior_cdf(eta_min):
+    """
+    cumulative for integration of x^(-6/5)(1-4x)^(-1/2) from eta_min to 1/4.
+    Used to normalize the eta prior
+    Derivation in mathematica:
+       Integrate[ 1/\[Eta]^(6/5) 1/Sqrt[1 - 4 \[Eta]], {\[Eta], \[Eta]min, 1/4}]
+    """
+    return  2**(2./5.) *np.sqrt(np.pi)*scipy.special.gamma(-0.2)/scipy.special.gamma(0.3) + 5*scipy.special.hyp2f1(-0.2,0.5,0.8, 4*eta_min)/(eta_min**(0.2))
+def eta_prior(x,norm_factor=1.44):
+    """
+    eta_prior returns the eta prior. 
+    Change norm_factor by the output 
+    """
+    return 1./np.power(x,6./5.)/np.power(1-4.*x, 0.5)/norm_factor
+def delta_mc_prior(x,norm_factor=1.44):
     """
     delta_mc = sqrt(1-4eta)  <-> eta = 1/4(1-delta^2)
     Transform the prior above
     """
     eta_here = 0.25*(1 -x*x)
-    return 2./np.power(eta_here, 6./5.)/1.44
+    return 2./np.power(eta_here, 6./5.)/norm_factor
 
 def m_prior(x):
     return 1/(1e3-1.)  # uniform in mass, use a square.  Should always be used as m1,m2 in pairs. Note this does NOT restrict m1>m2.
@@ -538,7 +551,7 @@ def delta_lambda_tilde_prior(x):
     return np.ones(x.shape)/1000.   # -500,500
 
 def gaussian_mass_prior(x,mu=0,sigma=1):
-    return np.exp( - 0.5*(x-mu)**2/sigma**2)
+    return np.exp( - 0.5*(x-mu)**2/sigma**2)/np.sqrt(2*np.pi*sigma**2)
 
 
 
@@ -583,6 +596,11 @@ if not (opts.eta_range is None):
     print " Warning: Overriding default eta range. USE WITH CARE"
     prior_range_map['eta'] = eval(opts.eta_range)  # really only useful if eta is a coordinate.  USE WITH CARE
     prior_range_map['delta_mc'] = np.sqrt(1-4*np.array(prior_range_map['eta']))[::-1]  # reverse
+
+    # change eta range normalization factors to match prior range on eta
+    norm_factor = unscaled_eta_prior_cdf(eta_range[0]) - unscaled_eta_prior_cdf(eta_range[1])
+    prior_map['eta'] = functools.partial(eta_prior, norm_factor=norm_factor)
+    prior_map['delta_mc'] = functools.partial(delta_mc_prior, norm_factor=norm_factor)
 
 ###
 ### Modify priors, as needed
@@ -1376,6 +1394,8 @@ if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  
     weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(prior_weight[indx_ok])  # correct for uniform
 
 if opts.pseudo_gaussian_mass_prior:
+    # mass normalization (assuming mc, eta limits are bounds - as is invariably the case)
+    mass_area = 0.5*(mc_range[1]**2 - mc_range[0]**2)*(unscaled_eta_prior_cdf(eta_range[0]) - unscaled_eta_prior_cdf(eta_range[1]))
     # Extract m1 and m2, i solar mass units
     m1 = np.zeros(len(weights))
     m2 = np.zeros(len(weights))
@@ -1410,7 +1430,7 @@ if opts.pseudo_gaussian_mass_prior:
     #     print " Failed transformation"
     #     sys.exit(0)
     # Reormalize mass region. Note normalizatoin issue introduced: no boundaries in mass region used to rescale.
-    weights *= gaussian_mass_prior( m1, opts.pseudo_gaussian_mass_prior_mean,opts.pseudo_gaussian_mass_prior_std)*gaussian_mass_prior( m2, opts.pseudo_gaussian_mass_prior_mean,opts.pseudo_gaussian_mass_prior_std)
+    weights *= mass_area*gaussian_mass_prior( m1, opts.pseudo_gaussian_mass_prior_mean,opts.pseudo_gaussian_mass_prior_std)*gaussian_mass_prior( m2, opts.pseudo_gaussian_mass_prior_mean,opts.pseudo_gaussian_mass_prior_std)
 
 
 # Integral result v2: using modified prior. 
