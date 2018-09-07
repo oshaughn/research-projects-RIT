@@ -1,7 +1,7 @@
 #
 
-debug_output = True
-rosDebug = True
+debug_output = False
+rosDebug = False
 
 
 import numpy as np
@@ -228,7 +228,8 @@ class WaveformModeCatalog:
             my_converter = ConvertWPtoSurrogateParamsAligned
             self.single_mode_sur=False
         if 'NRSur7d' in param:
-            print " GENERATING ROM WAVEFORM WITH FULL SPIN PARAMETERS "
+            if  rosDebug:
+                print " GENERATING ROM WAVEFORM WITH FULL SPIN PARAMETERS "
             my_converter = ConvertWPtoSurrogateParamsPrecessingFull
             self.single_mode_sur=False
             reflection_symmetric=False
@@ -503,7 +504,8 @@ class WaveformModeCatalog:
             npts = lalsimutils.nextPow2(npts_estimated)
         else:
             npts = int(force_T/deltaT)
-            print " Forcing length T=", force_T, " length ", npts
+            if rosDebug:
+                print " Forcing length T=", force_T, " length ", npts
         tvals = (np.arange(npts)-npts/2)*deltaT   # Use CENTERED time to make sure I handle CENTERED NR signal (usual)
         if rosDebug:
             print " time range being sampled ", [min(tvals),max(tvals)], " corresponding to dimensionless range", [min(tvals)/m_total_s,max(tvals)/m_total_s], " for mtotal ", (P.m1+P.m2)/lal.MSUN_SI
@@ -635,7 +637,8 @@ class WaveformModeCatalog:
             npts = lalsimutils.nextPow2(npts_estimated)
         else:
             npts = int(force_T/deltaT)
-            print " Forcing length T=", force_T, " length ", npts
+            if rosDebug:
+                print " Forcing length T=", force_T, " length ", npts
         tvals = (np.arange(npts)-npts/2)*deltaT   # Use CENTERED time to make sure I handle CENTERED NR signal (usual)
         if rosDebug:
             print " time range being sampled ", [min(tvals),max(tvals)], " corresponding to dimensionless range", [min(tvals)/m_total_s,max(tvals)/m_total_s]
