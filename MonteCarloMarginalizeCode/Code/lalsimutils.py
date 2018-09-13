@@ -754,6 +754,20 @@ class ChooseWaveformParams:
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             S0 = (chi1Vec*self.m1+chi2Vec*self.m2)/(self.m1+self.m2)
             return S0  # VECTOR
+        if p == 'chi_p':
+            # see e.g.,https://journals.aps.org/prd/pdf/10.1103/PhysRevD.91.024043 Eq. 3.3, 3.4
+            mtot = self.extract_param('mtot')
+            m1 = self.extract_param('m1')
+            m2 = self.extract_param('m2')
+            chi1 = np.array([self.s1x, self.s1y, self.s1z])
+            chi2 = np.array([self.s2x, self.s2y, self.s2z])
+            q = m2/m1
+            A1 = (2+ 3.*q/2); A2 = (2+3./(2*q))
+            S1p = (m1**2 * chi1)[:2]
+            S2p = (m2**2 * chi2)[:2]
+            Sp = np.max([np.linalg.norm( A1*S1p), np.linalg.norm(A2*S2p)])
+            return Sp/(A2*m2**2)
+
         if p == 'LambdaTilde':
             Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
             return Lt
