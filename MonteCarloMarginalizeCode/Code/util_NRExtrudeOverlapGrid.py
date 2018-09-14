@@ -64,8 +64,8 @@ parser.add_argument("--param", action='append', help='Explicit list of parameter
 parser.add_argument("--insert-missing-spokes", action='store_true')
 parser.add_argument("--aligned-only",action='store_true')
 parser.add_argument("--eta-range",default='[0.1,0.25]')
-parser.add_argument("--mass-xi-factor",default=0.6,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
-parser.add_argument("--mass-eta-factor",default=2,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
+parser.add_argument("--mass-xi-factor",default=0.0,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
+parser.add_argument("--mass-eta-factor",default=0,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
 # Cutoff options
 parser.add_argument("--skip-overlap",action='store_true', help="If true, the grid is generated without actually performing overlaps. Very helpful if the grid is just in mtot, for the purposes of reproducing a specific NR simulation")
 parser.add_argument("--match-value", type=float, default=0.01, help="Use this as the minimum match value. Default is 0.01 (i.e., keep almost everything)")
@@ -145,11 +145,11 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
         Pgrid = P.manual_copy()
         # Set attributes that are being changed as necessary, leaving all others fixed
         for indx in np.arange(len(param_names)):
-            Pgrid.assign_param(param_names[indx], line[indx])
+                Pgrid.assign_param(param_names[indx], line[indx])   # DANGER: need to keep overlap values
         # Rescale mass parameters using the xi factor
         xi_now = Pgrid.extract_param('xi')
         eta_now = Pgrid.extract_param('eta')
-        # THIS CAN BE NEGATIVE: PATHOLOGICAL
+            # THIS CAN BE NEGATIVE: PATHOLOGICAL
         Pgrid.m1 *= (1.+xi_now*xi_factor - eta_factor0*(0.25-eta_now))
         Pgrid.m2 *= (1.+xi_now*xi_factor - eta_factor0*(0.25-eta_now))
         P_list.append(Pgrid)
@@ -383,9 +383,15 @@ ip_min_freq = opts.fmin
 
 # For now, we just extrude in these parameters
 if not opts.skip_overlap:  # aligned only!  Compare to SEOB
-    param_names = ['mtot', 'eta','s1z','s2z']
+    if opts.mc_range:
+        param_names = ['mc', 'eta','s1z','s2z']
+    else:
+        param_names = ['mtot', 'q','s1z','s2z']
 else:
-    param_names = ['mtot', 'eta', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
+    if opts.mc_range:
+        param_names = ['mtot', 'q', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
+    else:
+        param_names = ['mc', 'eta', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
 
 mass_range =[]
 if opts.mc_range:
