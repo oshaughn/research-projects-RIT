@@ -389,9 +389,9 @@ if not opts.skip_overlap:  # aligned only!  Compare to SEOB
         param_names = ['mtot', 'q','s1z','s2z']
 else:
     if opts.mc_range:
-        param_names = ['mtot', 'q', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
-    else:
         param_names = ['mc', 'eta', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
+    else:
+        param_names = ['mtot', 'q', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
 
 mass_range =[]
 if opts.mc_range:
