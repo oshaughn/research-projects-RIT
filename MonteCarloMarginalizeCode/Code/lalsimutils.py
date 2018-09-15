@@ -37,11 +37,14 @@ import lalsimulation as lalsim
 import lalinspiral
 import lalmetaio
 
-from pylal import frutils
-from pylal import series
-from pylal.series import read_psd_xmldoc
+try:
+  from pylal import frutils
+  from pylal import series
+  from pylal.series import read_psd_xmldoc
 #from lal.series import read_psd_xmldoc
-import pylal
+  import pylal
+except:
+  print " - no pylal "
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
