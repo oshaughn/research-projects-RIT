@@ -39,12 +39,13 @@ import lalmetaio
 
 try:
   from pylal import frutils
-  from pylal import series
+  from pylal import seriesutils as series
   from pylal.series import read_psd_xmldoc
 #from lal.series import read_psd_xmldoc
   import pylal
 except:
   print " - no pylal "
+from lal.series import read_psd_xmldoc
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -123,8 +124,8 @@ except:
     lalSEOBv4 =-1
     lalIMRPhenomD = -2
 try:
-    lalTEOBv2 = lalsim.TEOBv2
-    lalTEOBv4 = lalsim.TEOBv4
+    lalTEOBv2 = -3 # not implemented
+    lalTEOBv4 = lalsim.SEOBNRv4T
 except:
     lalTEOBv2 = -3
     lalTEOBv4 = -4
@@ -256,12 +257,28 @@ class ChooseWaveformParams:
         self.theta = theta     # DEC.  DEC =0 on the equator; the south pole has DEC = - pi/2
         self.phi = phi         # RA.   
         self.psi = psi
+        self.meanPerAno = 0.0  # port 
+        self.longAscNodes = self.psi # port to master
+        self.eccentricity=0
         self.tref = tref
         self.radec = radec
         self.detector = "H1"
         self.deltaF=deltaF
         self.fmax=fmax
         self.taper = taper
+
+    # From Pankow/master
+    _LAL_DICT_PARAMS = {"Lambda1": "lambda1", "Lambda2": "lambda2", "ampO": "ampO", "phaseO": "phaseO"}
+    _LAL_DICT_PTYPE = {"Lambda1": lal.DictInsertREAL8Value, "Lambda2": lal.DictInsertREAL8Value, "ampO": lal.DictInsertINT4Value, "phaseO": lal.DictInsertINT4Value}
+    def to_lal_dict(self):
+        extra_params = lal.CreateDict()
+        for k, p in ChooseWaveformParams._LAL_DICT_PARAMS.iteritems():
+            typfunc = ChooseWaveformParams._LAL_DICT_PTYPE[k]
+            typfunc(extra_params, k, getattr(self, p))
+        # Properly add tidal parammeters
+        lalsim.SimInspiralWaveformParamsInsertTidalLambda1(extra_params, self.lambda1)
+        lalsim.SimInspiralWaveformParamsInsertTidalLambda2(extra_params, self.lambda2)
+        return extra_params
 
     def manual_copy(self):
         P=self.copy()
@@ -2156,10 +2173,15 @@ def hoft(P, Fp=None, Fc=None):
 #        print " Using ridiculous tweak for equal-mass line EOB"
         P.m2 = P.m1*(1-1e-6)
 
-    hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
-            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
-            P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
-            P.ampO, P.phaseO, P.approx)
+    extra_params = P.to_lal_dict()
+    hp, hc = lalsim.SimInspiralTD( \
+            P.m1, P.m2, \
+            P.s1x, P.s1y, P.s1z, \
+            P.s2x, P.s2y, P.s2z, \
+            P.dist, P.incl, P.phiref,  \
+            P.psi, P.eccentricity, P.meanPerAno, \
+            P.deltaT, P.fmin, P.fref, \
+            extra_params, P.approx)
 
     if Fp!=None and Fc!=None:
         hp.data.data *= Fp
@@ -2398,16 +2420,16 @@ def hlmoft(P, Lmax=2):
     """
     assert Lmax >= 2
 
-    if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
-        hlm_out = hlmoft_SEOB_dict(P)
-        if True: #P.taper:
-            ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
-            vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
-            for key in hlm_out.keys():
-                # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
-                hlm_out[key].data.data[:ntaper]*=vectaper
-        return hlm_out
-    elif P.approx == lalsim.SEOBNRv3:
+#    if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
+#        hlm_out = hlmoft_SEOB_dict(P)
+#        if True: #P.taper:
+#            ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
+#            vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+#            for key in hlm_out.keys():
+#                # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
+#                hlm_out[key].data.data[:ntaper]*=vectaper
+#        return hlm_out
+    if P.approx == lalsim.SEOBNRv3:
         hlm_out = hlmoft_SEOBv3_dict(P)
         if not hlm_out:
             print " Failed generation: SEOBNRv3 "
@@ -2422,10 +2444,22 @@ def hlmoft(P, Lmax=2):
 
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
-    else:
-      hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
-            P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
-            P.nonGRparams, P.ampO, P.phaseO, Lmax, P.approx)
+    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4):
+        extra_params = P.to_lal_dict()
+        hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
+            P.fmin, P.fref, P.dist, extra_params,
+             Lmax, P.approx)
+    else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
+        extra_params = P.to_lal_dict()
+        hlms = lalsim.SimInspiralTDModesFromPolarizations( \
+            P.m1, P.m2, \
+            P.s1x, P.s1y, P.s1z, \
+            P.s2x, P.s2y, P.s2z, \
+            P.dist, P.incl, P.phiref,  \
+            P.psi, P.eccentricity, P.meanPerAno, \
+            P.deltaT, P.fmin, P.fref, \
+            extra_params, P.approx)
+
     # FIXME: Add ability to taper
     # COMMENT: Add ability to generate hlmoft at a nonzero GPS time directly.
     #      USUALLY we will use the hlms in template-generation mode, so will want the event at zero GPS time
@@ -2458,9 +2492,10 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
     ampFac = (P.m1 + P.m2)/lal.MSUN_SI * lal.MRSUN_SI / P.dist
 
     # inc is not consistent with the modern convention I will be reading in (spins aligned with L, hlm in the L frame)
+    PrecEOBversion=300 # use opt
     hplus, hcross, dynHi, hlmPTS, hlmPTSHi, hIMRlmJTSHi, hLM, attachP = lalsim.SimIMRSpinEOBWaveformAll(0, P.deltaT, \
-                                            P.m1, P.m2, P.fmin, P.dist, 0, \
-                                            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z)
+                                            P.m1, P.m1, P.fmin, P.dist, 0, \
+                                            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, PrecEOBversion)
     hlm_dict = SphHarmTimeSeries_to_dict(hLM,2)
     # for j in range(5):
     #     m = hLM.m
@@ -3207,9 +3242,20 @@ def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqReq
 #    psdNew.data.data = (np.array([raw_psd.data.data for j in np.arange(facStretch)])).transpose().flatten()  # a bit too large, but that's fine for our purposes
     return psdNew
 
-def get_psd_series_from_xmldoc(fname, inst):
-   # return read_psd_xmldoc(utils.load_filename(fname, contenthandler=series.LIGOLWContentHandler ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
-    return read_psd_xmldoc(utils.load_filename(fname ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+
+my_content=lal.series.PSDContentHandler
+
+try:
+    my_content = lal.series.PSDContentHandler
+
+    def get_psd_series_from_xmldoc(fname, inst):
+        return read_psd_xmldoc(utils.load_filename(fname ,contenthandler = my_content))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+except:
+    def get_psd_series_from_xmldoc(fname, inst):
+        return read_psd_xmldoc(utils.load_filename(fname))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+
+
+
 
 def get_intp_psd_series_from_xmldoc(fname, inst):
     psd = get_psd_series_from_xmldoc(fname, inst)
@@ -3217,11 +3263,11 @@ def get_intp_psd_series_from_xmldoc(fname, inst):
 
 def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     # handle pylal REAL8FrequencySeries
-    if isinstance(psd, pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
-        psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data), psd.deltaF, psd.data
-        fvals_orig = psd.f0 + np.arange(len(psd.data))*psd.deltaF
+    #if isinstance(psd, pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
+    #    psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data), psd.deltaF, psd.data
+    #    fvals_orig = psd.f0 + np.arange(len(psd.data))*psd.deltaF
     # handle SWIG REAL8FrequencySeries
-    elif isinstance(psd, lal.REAL8FrequencySeries):
+    if isinstance(psd, lal.REAL8FrequencySeries):
         psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data.data), psd.deltaF, psd.data.data
         fvals_orig = psd.f0 + np.arange(psd.data.length)*psd_df
     # die horribly
