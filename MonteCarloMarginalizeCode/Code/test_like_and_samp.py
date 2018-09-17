@@ -784,6 +784,15 @@ if opts.rotate_sky_coordinates:  # FIXME: should also test that both theta, phi 
 # Uses the (already-allocated) template structure "P" structure *only* to pass parameters.  All parameters used should be specified.
 #
 nEvals = 0
+lookupNKDict = {}
+lookupKNDict={}
+lookupKNconjDict={}
+ctUArrayDict = {}
+ctVArrayDict={}
+rholmArrayDict={}
+rholms_intpArrayDict={}
+epochDict={}
+
 if not opts.LikelihoodType_MargTdisc_array:
     def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance): # right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
         global nEvals
@@ -813,6 +822,46 @@ if not opts.LikelihoodType_MargTdisc_array:
 
         nEvals+=i 
         return np.exp(lnLOffsetValue)*np.exp(lnL - lnLOffsetValue)
+elif opts.LikelihoodType_MargTdisc_array_vector:
+    # Pack operation does it for each detector, so I need a loop
+    for det in rholms_intp.keys():
+        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det])
+        print det, lookupKNDict[det]
+
+    def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
+            psi, distance):
+        global nEvals
+        global lnLOffsetValue
+        # use EXTREMELY many bits
+        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
+        i = 0
+#        if opts.rotate_sky_coordinates:
+#            print "   -Sky ring width ", np.std(declination), " note contribution from floor is of order p_floor*(pi)/sqrt(12) ~ 0.9 pfloor"
+#            print "   -RA width", np.std(right_ascension)
+#            print "   -Distance width", np.std(distance)
+
+        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+        for ph, th, phr, ic, ps, di in zip(right_ascension, declination,
+                phi_orb, inclination, psi, distance):
+            if opts.rotate_sky_coordinates: 
+                th,ph = rotate_sky_backwards(np.pi/2 - th,ph)
+                th = np.pi/2 - th
+                ph = np.mod(ph, 2*np.pi)
+
+            P.phi = float(ph) # right ascension
+            P.theta = float(th) # declination
+            P.tref = float(theEpochFiducial)  # see 'tvals', above
+            P.phiref = float(phr) # ref. orbital phase
+            P.incl = float(ic) # inclination
+            P.psi = float(ps) # polarization angle
+            P.dist = float(di* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
+
+            lnL[i] = factored_likelihood.DiscreteFactoredLogLikelihoodViaArray(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
+            i+=1
+        
+        nEvals +=i # len(tvals)  # go forward using length of tvals
+        return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
 else: # Sum over time for every point in other extrinsic params
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
