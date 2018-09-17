@@ -51,6 +51,7 @@ def ParseStandardArguments():
     parser.add_argument("--LikelihoodType_MargT",default=False,action='store_true',help="Deprecated/disabled")
     parser.add_argument("--LikelihoodType_MargTdisc",default=False,action='store_true',help="Deprecated/disabled")
     parser.add_argument("--LikelihoodType_MargTdisc_array",default=True,action='store_true',help="Default")
+    parser.add_argument("--LikelihoodType_MargTdisc_array_vector",default=True,action='store_true',help="Default")
     parser.add_argument("--adapt-parameter", action='append',help = "Adapt in this parameter (ra, dec, tref, incl,dist,phi,psi)")
     parser.add_argument( "--adapt-beta", type=float,default=1)
     parser.add_argument("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
