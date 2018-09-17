@@ -143,7 +143,6 @@ tEventFiducial =   0                                                            
 det_dict = {}
 rhoExpected ={}
 
-tWindowReference =   factored_likelihood_test.tWindowReference
 tWindowExplore =     factored_likelihood.tWindowExplore
 
 approxSignal = lalsim.GetApproximantFromString(opts.approx)
@@ -600,7 +599,7 @@ except:
 #   WARNING: Using default values for inverse spectrum truncation (True) and inverse spectrun truncation time (8s) from ourparams.py
 #                     ILE adopts a different convention.  ROS old development branch has yet another approach (=set during PSD reading).
 #
-rholms_intp, crossTerms, crossTermsV, rholms, rest = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,ignore_threshold=opts.opt_SkipModeThreshold,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime,NR_group=opts.NR_template_group,NR_param=opts.NR_template_param,use_external_EOB=opts.use_external_EOB,ROM_group=opts.ROM_template_group,ROM_param=opts.ROM_template_group)
+rholms_intp, crossTerms, crossTermsV, rholms, rest = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowExplore[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,ignore_threshold=opts.opt_SkipModeThreshold,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime,NR_group=opts.NR_template_group,NR_param=opts.NR_template_param,use_external_EOB=opts.use_external_EOB,ROM_group=opts.ROM_template_group,ROM_param=opts.ROM_template_group)
 
 
 epoch_post = theEpochFiducial # Suggested change.  BE CAREFUL: Now that we trim the series, this is NOT what I used to be
