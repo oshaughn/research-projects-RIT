@@ -52,30 +52,14 @@ Examples:
      python test_like_and_samp.py  --mass1 1.5 --mass2 1.35  --signal-mass1 1.5 --signal-mass2 1.35 --seglen 128 --verbose
      python test_like_and_samp.py --use-external-EOB  --mass1 1.5 --mass2 1.35  --signal-mass1 1.5 --signal-mass2 1.35 --seglen 128 --verbose
 """
-try:
-    import matplotlib
-    #matplotlib.use("Agg")
-    print matplotlib.get_backend()
-#    if matplotlib.get_backend() is not 'TkAgg':  # on cluster
-#        matplotlib.use("GDK")
-    fExtension = "png"
-    if matplotlib.get_backend() is 'agg':
-        fExtension="png"
-    if matplotlib.get_backend() is 'MacOSX':
-        fExtension='jpeg'
-    from matplotlib import pylab as plt
-    bNoInteractivePlots = False  # Move towards saved fig plots, for speed
-    bNoMatplotlib = False
-except:
-    print "- no matplotlib -"
-    bNoInteractivePlots = True
-    bNoMatplotlib=True
+print "- no matplotlib -"
+bNoInteractivePlots = True
+bNoMatplotlib=True
 
 
 
 
 import sys
-import pickle
 
 import numpy as np
 
@@ -87,31 +71,12 @@ from glue.ligolw.utils import process
 import lal
 import lalsimulation as lalsim
 import lalsimutils
-try:
-    hasNR=True
-    import NRWaveformCatalogManager as nrwf
-except:
-    hasNR=False
-    print " - no NR waveforms -"
-try:
-    hasEOB=True
-    import EOBTidalExternal as eobwf
-except:
-    hasEOB=False
-    print " - no EOB waveforms - "
-try:
-    import healpy
-    from lalinference.bayestar import fits as bfits
-    from lalinference.bayestar import plot as bplot
-except:
-    print " -no skymaps - "
 
 
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 import factored_likelihood
-import factored_likelihood_test
 
 import xmlutils
 import common_cl
@@ -216,58 +181,6 @@ elif opts.channel_name is not None:
 #
 data_dict = {}
 Psig = None
-
-# Read in *coincidence* XML (overridden by injection, if present)
-if opts.coinc:
-    print "Loading coinc XML:", opts.coinc
-    xmldoc = utils.load_filename(opts.coinc)
-    coinc_table = table.get_table(xmldoc, lsctables.CoincInspiralTable.tableName)
-    assert len(coinc_table) == 1
-    coinc_row = coinc_table[0]
-    event_time = float(coinc_row.get_end())  # 
-    event_time_gps = lal.GPSTimeNow()    # Pack as GPSTime *explicitly*, so all time operations are type-consistent
-#    event_time_gps.gpsSeconds = int(event_time)
-#    event_time_gps.gpsNanoSeconds = int(1e9*(event_time -event_time_gps.gpsSeconds))
-    event_time_gps = event_time
-    theEpochFiducial = event_time_gps       # really should avoid duplicate names
-    print "Coinc XML loaded, event time: %s" % str(coinc_row.get_end())
-    # Populate the SNR sequence and mass sequence
-    sngl_inspiral_table = table.get_table(xmldoc, lsctables.SnglInspiralTable.tableName)
-    m1, m2 = None, None
-    for sngl_row in sngl_inspiral_table:
-        # NOTE: gstlal is exact match, but other pipelines may not be
-        assert m1 is None or (sngl_row.mass1 == m1 and sngl_row.mass2 == m2)
-        m1, m2 = sngl_row.mass1, sngl_row.mass2
-        rhoExpected[str(sngl_row.ifo)] = sngl_row.snr  # record for comparisons later
-        if rosDebugMessagesDictionary["DebugMessages"]:
-            det = str(sngl_row.ifo)
-            print det, rhoExpected[det]
-    m1 = m1*lalsimutils.lsu_MSUN
-    m2 = m2*lalsimutils.lsu_MSUN
-    rho2Net = 0
-    for det in rhoExpected:
-        rho2Net += rhoExpected[det]**2
-    if rosDebugMessagesDictionary["DebugMessages"]:
-        print " Network :", np.sqrt(rho2Net)
-    # Create a 'best recovered signal'
-    Psig = lalsimutils.ChooseWaveformParams(
-        m1=m1,m2=m2,approx=approxSignal,
-        fmin = fminWavesSignal, 
-        dist=factored_likelihood.distMpcRef*1e6*lalsimutils.lsu_PC,    # default distance
-        fref=fref, 
-        tref = event_time_gps,
-        ampO=ampO      
-        )  # FIXME: Parameter mapping from trigger space to search space
-    if rosDebugMessagesDictionary["DebugMessages"]:
-        print " === Coinc table : estimated signal [overridden if injection] ==="
-        Psig.print_params()
-
-# If no coinc file, set m1, m2 using command line arguments by default
-if not opts.coinc:
-    if opts.template_mass1:
-        m1 = opts.template_mass1*lal.MSUN_SI
-    if opts.template_mass2:
-        m2 = opts.template_mass2*lal.MSUN_SI
 
 # Read in *injection* XML
 if opts.inj:
@@ -712,108 +625,13 @@ if lnLOffsetValue > 200:
 
 
 
-try:
-    print "====Loading metadata from previous runs (if any): <base>-seed-data.dat ====="
-    if not opts.force_use_metadata:
-        print " ... this data will NOT be used to change the samplers... "
-    metadata ={}
-    fnameBase = opts.points_file_base
-    if opts.fname_metadata:
-        fname = opts.fname_metadata
-    else:
-        fname =  fnameBase+"-seed-data.pkl"
-    print " ... trying to open ", fname
-    with open(fname,'r') as f:
-        metadata = pickle.load(f)
-        print " Loaded metadata file :", metadata
-except:
-    print " === Skipping metadata step ==="
-
-TestDictionary = factored_likelihood_test.TestDictionaryDefault
-TestDictionary["DataReport"]             = True
-#TestDictionary["DataReportTime"]             = False
-TestDictionary["UVReport"]              =  analytic_signal  # this report is very confusing for real data
-# TestDictionary["UVReflection"]          = True
-# TestDictionary["QReflection"]          = False
-TestDictionary["Rho22Timeseries"]      = False
-TestDictionary["lnLModelAtKnown"]  =  analytic_signal  # this report is very confusing for real data
-TestDictionary["lnLDataAtKnownPlusOptimalTimePhase"] = False
-TestDictionary["lnLAtKnown"]           = True
-TestDictionary["lnLAtKnownMarginalizeTime"]  = False  # cluster python has problems with integrate.quad
-TestDictionary["lnLDataPlot"]            = opts.plot_ShowLikelihoodVersusTime
-TestDictionary["lnLDataPlotVersusPsi"]            = False # opts.plot_ShowLikelihoodVersusTime
-TestDictionary["lnLDataPlotVersusPhi"]            = False # opts.plot_ShowLikelihoodVersusTime
-TestDictionary["lnLDataPlotVersusPhiPsi"]            = False # opts.plot_ShowLikelihoodVersusTime
-
-#opts.fmin_SNR=40
-
-factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,  data_dict, psd_dict, fmaxSNR,analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, crossTermsV,  detectors,Lmax)
-
-if opts.rotate_sky_coordinates:  # FIXME: should also test that both theta, phi are coordinates *and* adaptation is on
-    det0 = data_dict.keys()[0]
-    det1 = data_dict.keys()[1]
-    print " ======= ROTATING COORDINATES ====== " 
-    print "Rotation based on current position of detectors detectors", det0, det1
-    import lalsimulation as lalsim
-    # Detector seperation relative to the earth, *not* sky fixed coordinates
-    theDetectorSeparation = lalsim.DetectorPrefixToLALDetector(det0).location - lalsim.DetectorPrefixToLALDetector(det1).location
-    vecZ = np.array(theDetectorSeparation/np.sqrt( np.dot(theDetectorSeparation,theDetectorSeparation)))
-    vecZth, vecZph = lalsimutils.polar_angles_in_frame(lalsimutils.unit_frame(), vecZ)
-    # Rotate to sky-fixed coordinates (azimuth)  [Could also do with polar angles, just adding gmst]
-    time_angle =  np.mod( lal.GreenwichMeanSiderealTime(theEpochFiducial), 2*np.pi)
-    vecZnew = np.dot(lalsimutils.rotation_matrix(np.array([0,0,1]), time_angle), vecZ)
-    print "Rotation 'z' vector in sidereal coordinates ", vecZnew
-#    print lalsimutils.polar_angles_in_frame(lalsimutils.unit_frame(), vecZ), lalsimutils.polar_angles_in_frame(lalsimutils.unit_frame(), vecZnew)
-
-    # Create a frame associated with the rotated angle
-    frm = lalsimutils.VectorToFrame(vecZnew)   # Create an orthonormal frame related to this particular choice of z axis. (Used as 'rotation' object)
-    frmInverse= np.asarray(np.matrix(frm).I)                                    # Create an orthonormal frame to undo the transform above
-    def rotate_sky_forwards(theta,phi):   # When theta=0 we are describing the coordinats of the zhat direction in the vecZ frame
-        global frm
-        return lalsimutils.polar_angles_in_frame_alt(frm, theta,phi)
-
-    def rotate_sky_backwards(theta,phi): # When theta=0, the vector should be along the vecZ direction and the polar angles returned its polar angles
-        global frmInverse
-        return lalsimutils.polar_angles_in_frame_alt(frmInverse, theta,phi)
-
-
-
 
 #
 # Call the likelihood function for various extrinsic parameter values
 # Uses the (already-allocated) template structure "P" structure *only* to pass parameters.  All parameters used should be specified.
 #
 nEvals = 0
-if not opts.LikelihoodType_MargTdisc_array:
-    def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance): # right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
-        global nEvals
-        global lnLOffsetValue
-
-#        if opts.rotate_sky_coordinates:
-#            print "   -Sky ring width ", np.std(declination), " note contribution from floor is of order p_floor*(pi)/sqrt(12) ~ 0.9 pfloor"
-#            print "   -Distance width", np.std(distance)
-
-        lnL = np.zeros(right_ascension.shape)
-        i = 0
-        for ph, th, tr, phr, ic, ps, di in zip(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
-            if opts.rotate_sky_coordinates: 
-                th,ph = rotate_sky_backwards(np.pi/2 - th,ph)
-                th = np.pi/2 - th
-                ph = np.mod(ph, 2*np.pi)
-            P.phi = float(ph) # right ascension
-            P.theta = float(th) # declination
-            P.tref = float(theEpochFiducial + tr) # ref. time (rel to epoch for data taking)
-            P.phiref = float(phr) # ref. orbital phase
-            P.incl = float(ic) # inclination
-            P.psi = ps # polarization angle
-            P.dist = float(di*1e6*lalsimutils.lsu_PC) # luminosity distance.  The sampler assumes Mpc; P requires SI
-            lnL[i] = factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms, crossTermsV, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
-            i+=1
-
-
-        nEvals+=i 
-        return np.exp(lnLOffsetValue)*np.exp(lnL - lnLOffsetValue)
-else: # Sum over time for every point in other extrinsic params
+if True:
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
         global nEvals
@@ -858,72 +676,6 @@ sampler = mcsampler.MCSampler()
 pinned_params = ourparams.PopulateSamplerParameters(sampler, theEpochFiducial,tEventFiducial, distBoundGuess, Psig, opts)
 unpinned_params = set(sampler.params) - set(pinned_params)
 
-if opts.plot_ShowPSD and not bNoInteractivePlots:
-    for det in psd_dict.keys():
-        if analyticPSD_Q:
-            fvals =  np.arange(opts.fmin_SNR,2000,1.)              # the upper limit is kind of random
-            Sh   =  map(psd_dict[det],fvals)
-        else:
-            fvals = np.arange(len(psd_dict[det].data.data))*deltaF  # stored as one-sided PSD
-            Sh  = psd_dict[det].data.data
-            nSkip = int(len(fvals)/(4096))
-            fvals = fvals[::nSkip]   # downsample! PSDs are often too huge to plot!
-            Sh = Sh[::nSkip]        # downsample!
-        plt.figure(0)
-        plt.plot(np.log10(fvals),np.log10(Sh),label="Sh:"+det)
-        plt.xlabel('f (Hz)')
-        plt.ylabel('Sh $Hz^{-1}$')
-        plt.title('PSDs used')
-    # Comparison plot: iLIGO
-    Sh = map(lal.LIGOIPsd,fvals)
-    plt.plot(np.log10(fvals),np.log10(Sh),label="Sh:iLIGO")
-    Sh = map(lalsim.SimNoisePSDaLIGOZeroDetHighPower,fvals)
-    plt.plot(np.log10(fvals),np.log10(Sh),label="Sh:aLIGO")
-    plt.legend()
-    plt.xlim(0,4)
-    plt.ylim(-50,-30)
-    plt.savefig("FLT-psd.jpg")  # really not in FLT, but the same kind of plot
-
-if rosShowSamplerInputDistributions and not bNoInteractivePlots:
-    print " ====== Plotting prior and sampling distributions ==== "
-    print "  PROBLEM: Build in/hardcoded via uniform limits on each parameter! Need to add measure factors "
-    nFig = 0
-    for param in sampler.params:
-      if  not(isinstance(param,tuple)): # not(sampler.pinned[param]) and
-        nFig+=1
-        plt.figure(nFig)
-        plt.clf()
-        xLow = sampler.llim[param]
-        xHigh = sampler.rlim[param]
-        xvals = np.linspace(xLow,xHigh,500)
-        pdfPrior = sampler.prior_pdf[param]  # Force type conversion in case we have non-float limits for some reasona
-        pdfvalsPrior = np.array(map(pdfPrior, xvals))  # do all the np operations by hand: no vectorization
-        pdf = sampler.pdf[param]
-        cdf = sampler.cdf[param]
-        pdfvals = pdf(xvals)
-        cdfvals = cdf(xvals)
-        plt.plot(xvals,pdfvalsPrior,label="prior:"+str(param),linestyle='--')
-        plt.plot(xvals,pdfvals,label=str(param))
-        plt.plot(xvals,cdfvals,label='cdf:'+str(param))
-        plt.xlabel(str(param))
-        plt.legend()
-        plt.savefig("test_like_and_samp-"+str(param)+".jpg")
-
-
-if  (rosShowSamplerInputDistributions or opts.plot_ShowPSD) and not bNoInteractivePlots:  # minimize number of pauses
-    plt.show()
-
-
-#
-# Provide convergence tests
-# FIXME: Currently using hardcoded thresholds, poorly hand-tuned
-#
-import functools
-test_converged = {}
-if opts.convergence_tests_on:
-    test_converged['neff'] = functools.partial(mcsampler.convergence_test_MostSignificantPoint,0.01)  # most significant point less than 1% of probability
-    test_converged["normal_integral"] = functools.partial(mcsampler.convergence_test_NormalSubIntegrals, 25, 0.01, 0.1)   # 20 sub-integrals are gaussian distributed *and* relative error < 10%, based on sub-integrals . Should use # of intervals << neff target from above.  Note this sets our target error tolerance on  lnLmarg
-
 
 import time
 tManualStart = time.clock()
@@ -945,19 +697,6 @@ pinned_params.update({"n": opts.nskip, "nmax": opts.nmax, "neff": opts.neff, "fu
 })
 print " Params ", pinned_params
 res, var,  neff , dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
-
-if opts.rotate_sky_coordinates:
-        tmpTheta = np.zeros(len(sampler._rvs["declination"]))
-        tmpPhi = np.zeros(len(sampler._rvs["declination"]))
-        tmpThetaOut = np.zeros(len(sampler._rvs["declination"]))
-        tmpPhiOut = np.zeros(len(sampler._rvs["declination"]))
-        tmpTheta = sampler._rvs["declination"]
-        tmpPhi = sampler._rvs["right_ascension"]
-        for indx in np.arange(len(tmpTheta)):
-            tmpThetaOut[indx],tmpPhiOut[indx] = rotate_sky_backwards(np.pi/2 - tmpTheta[indx],tmpPhi[indx])
-        sampler._rvs["declination"] = np.pi/2 - tmpThetaOut
-        sampler._rvs["right_ascension"] = np.mod(tmpPhiOut, 2*np.pi)
-
 
 print sampler._rvs.keys()
 field_names = ['m1', 'm2', 'ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'p', 'ps', 'lnL']   # FIXME: Modify to use record array, so not hardcoding fields
@@ -1084,52 +823,3 @@ if  True: # opts.points_file_base:
     xmlutils.append_likelihood_result_to_xmldoc(xmldoc, np.log(res), **{"mass1": m1, "mass2": m2})
     utils.write_filename(xmldoc, opts.points_file_base+".xml.gz", gz=True)
 
-
-# Plot terminal histograms from the sampled points and log likelihoods
-# FIXME: Needs to be rewritten to work with the new sampler names
-if False: #rosShowTerminalSampleHistograms:
-    print " ==== CONVERGENCE PLOTS (**beware: potentially truncated data!**) === "
-    plt.figure(99)
-    plt.clf()
-    lnL = np.transpose(ret)[-1]
-#    plt.plot(np.arange(len(lnLmarg)), lnLmarg,label="lnLmarg")
-#    nExtend = np.max([len(lnL),len(lnLmarg)])
-    plt.plot(np.arange(nExtend), np.ones(nExtend)*rho2Net/2,label="rho^2/2")
-    plt.xlim(0,len(lnL))
-    plt.xlabel('iteration')
-    plt.ylabel('lnL')
-    plt.legend()
-    ourio.plotParameterDistributionsFromSamples("results", sampler, ret,  ['ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'lnL'])
-    print " ==== TERMINAL 2D HISTOGRAMS: Sampling and posterior === "
-        # Distance-inclination
-    ra,dec,tref,phi,incl, psi,dist,lnL = np.transpose(ret)  # unpack. This can include all or some of the data set. The default configuration returns *all* points
-    plt.figure(1)
-    plt.clf()
-    H, xedges, yedges = np.histogram2d(dist/(1e6*lalsimutils.lsu_PC),incl, weights=np.exp(lnL),bins=(10,10))
-    extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
-    plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
-    plt.colorbar()
-    plt.xlim(0, 50)
-    plt.ylim(0, np.pi)
-    plt.title("Posterior distribution: d-incl ")
-        # phi-psi
-    plt.figure(2)
-    plt.clf()
-    H, xedges, yedges = np.histogram2d(phi,psi, bins=(10,10),weights=np.exp(lnL))
-    extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
-    plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
-    plt.colorbar()
-    plt.xlim(0,2*np.pi)
-    plt.ylim(0,np.pi)
-    plt.title("Posterior distribution: phi-psi ")
-        # ra-dec
-    plt.figure(3)
-    plt.clf()
-    H, xedges, yedges = np.histogram2d(ra,dec, bins=(10,10),weights=np.exp(lnL))
-    extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
-    plt.imshow(H, extent=extent, interpolation='nearest', aspect=0.618)
-    plt.xlim(0,2*np.pi)
-    plt.ylim(-np.pi,np.pi)
-    plt.colorbar()
-    plt.title("Posterior distribution: ra-dec ")
-    plt.show()
