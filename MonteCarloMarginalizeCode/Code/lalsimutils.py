@@ -160,7 +160,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu"]
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -774,6 +774,22 @@ class ChooseWaveformParams:
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             S0 = (chi1Vec*self.m1+chi2Vec*self.m2)/(self.m1+self.m2)
             return S0  # VECTOR
+        if p == 'chi_p':
+            # see e.g.,https://journals.aps.org/prd/pdf/10.1103/PhysRevD.91.024043 Eq. 3.3, 3.4
+            # Reviewed implementation  (note horrible shift in names for A1, A2 !)
+            #   https://git.ligo.org/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/bayespputils.py#L3783
+            mtot = self.extract_param('mtot')
+            m1 = self.extract_param('m1')
+            m2 = self.extract_param('m2')
+            chi1 = np.array([self.s1x, self.s1y, self.s1z])
+            chi2 = np.array([self.s2x, self.s2y, self.s2z])
+            q = m2/m1  # note convention
+            A1 = (2+ 3.*q/2); A2 = (2+3./(2*q))
+            S1p = (m1**2 * chi1)[:2]
+            S2p = (m2**2 * chi2)[:2]
+            Sp = np.max([np.linalg.norm( A1*S1p), np.linalg.norm(A2*S2p)])
+            return Sp/(A1*m1**2)  # divide by term for *larger* BH
+
         if p == 'LambdaTilde':
             Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
             return Lt
