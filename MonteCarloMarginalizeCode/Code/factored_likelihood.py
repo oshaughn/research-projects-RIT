@@ -1372,3 +1372,14 @@ def  DiscreteFactoredLogLikelihoodViaArray(epoch, P, lookupNKDict, rholmsArrayDi
 #        lnLmargT = np.log(deltaT*np.sum(np.exp(lnLArray))/Twindow)
         lnLmargT = np.log(integrate.simps(np.exp(lnLArray), dx=deltaT))
         return lnLmargT
+
+def ComputeYlmsArray(lookupNK, theta, phi):
+    """
+    Returns an array Ylm[k] where lookup(k) = l,m.  Only computes the LM values needed.
+    """
+    Ylms = np.zeros(len(lookupNK),dtype=complex)
+    for indx in np.arange(len(lookupNK)):
+            l = int(lookupNK[indx][0])
+            m = int(lookupNK[indx][1])
+            Ylms[ indx] = lal.SpinWeightedSphericalHarmonic(theta, phi,-2, l, m)
+    return Ylms

@@ -405,10 +405,10 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     # implement cutoff.  
     if inst in flow_ifo_dict.keys():
         if isinstance(psd_dict[inst], lal.REAL8FrequencySeries):
-            psd_fvals = psd_dict[inst].f0 + deltaF*np.arange(psd_dict[inst].data.length)
+            psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(psd_dict[inst].data.length)
             psd_dict[inst].data.data[ psd_fvals < flow_ifo_dict[inst]] = 0 # 
         elif isinstance(psd_dict[inst], pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):  # for backward compatibility
-            psd_fvals = psd_dict[inst].f0 + deltaF*np.arange(len(psd_dict[inst].data))
+            psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(len(psd_dict[inst].data))
             psd_dict[inst].data[psd_fvals < ifo_dict[inst]] =0
 
 
