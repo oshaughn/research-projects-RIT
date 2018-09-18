@@ -1483,7 +1483,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
             ifirst = int(round(( float(tfirst) - t_ref) / P_vec.deltaT) + 0.5) # this should be fast, done once
             ilast = ifirst + npts
 
-            det_rholms = np.zeros(( len(lookupNKDict[det]),npts))  # rholms evaluated at time at detector, in window, packed. Should be the same
+            det_rholms = np.zeros(( len(lookupNKDict[det]),npts),dtype=complex)  # rholms evaluated at time at detector, in window, packed. Should be the same
             # do not interpolate, just use nearest neighbors.
             for indx in np.arange(len(lookupNKDict[det])):
                 det_rholms[indx] = rholmsArrayDict[det][indx][ifirst:ilast]  # as structured in this loop, this will be FIXED window edges
@@ -1544,7 +1544,7 @@ try:
                         F[indx] = ComplexAntennaFactor(det, RA[indx],DEC[indx], psi[indx], tref)
                 return F
         def lalT(det, RA, DEC,tref): # note tref is a SCALAR
-                T = np.zeros( len(RA), dtype=complex)
+                T = np.zeros( len(RA), dtype=float)
                 for indx  in np.arange(len(RA)):
                         T[indx] = ComputeArrivalTimeAtDetector(det, RA[indx],DEC[indx],  tref)
                 return T
@@ -1565,7 +1565,7 @@ except:
         def lalT(det, RA, DEC,tref):
                 if isinstance(RA, float):
                         return ComputeArrivalTimeAtDetector(det, RA, DEC,tref)
-                T = np.zeros( len(RA), dtype=complex)
+                T = np.zeros( len(RA), dtype=float)
                 for indx  in np.arange(len(RA)):
                         T[indx] = ComputeArrivalTimeAtDetector(det, RA[indx],DEC[indx], tref)
                 return T
