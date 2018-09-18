@@ -862,6 +862,30 @@ elif opts.LikelihoodType_MargTdisc_array_vector:
         
         nEvals +=i # len(tvals)  # go forward using length of tvals
         return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
+elif opts.LikelihoodType_vectorized:
+    # Pack operation does it for each detector, so I need a loop
+    for det in rholms_intp.keys():
+        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det])
+        print det, lookupKNDict[det]
+    print " Likelihood PASSING VECTORS DOWN - DEVELOPMENT CODE "
+    def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
+            psi, distance):
+        global nEvals
+        global lnLOffsetValue
+        # use EXTREMELY many bits
+        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
+        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+        P.phi = right_ascension.astype(float)  # cast to float
+        P.theta = declination.astype(float)
+        P.tref = float(theEpochFiducial)
+        P.phiref = phi_orb.astype(float)
+        P.incl = inclination.astype(float)
+        P.psi = psi.astype(float)
+        P.dist = (distance* 1.e6 * lalsimutils.lsu_PC).astype(float) # luminosity distance
+
+        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
+        return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
 else: # Sum over time for every point in other extrinsic params
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
