@@ -1437,7 +1437,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     npts = len(tvals)
     npts_extrinsic = len(P_vec.phi)
 
-    # these are arrays!
+    # All arrays of length `npts_extrinsic`, except for `tref` which is a scalar
     RA = P_vec.phi
     DEC =  P_vec.theta
     tref = P_vec.tref # geocenter time, stored as a scalar
@@ -1454,55 +1454,71 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     # Array to use for work
     lnL = np.zeros(npts,dtype=np.float128)
     # Array to use for output
-    lnLmargOut = np.zeros(npts_extrinsic,dtype=np.float128)
-#    term1  = np.zeros(npts, dtype=complex) # workspace
+    lnLmargOut = np.zeros(npts_extrinsic, dtype=np.float128)
 
     for det in detectors:  # strings right now - need to change to make ufunc-able
-      # these do not depend on extrinsic params
-      U= ctUArrayDict[det]
-      V = ctVArrayDict[det]
+        # These do not depend on extrinsic params.
+        # Arrays of shape (n_lms, n_lms).
+        # Axis 0 corresponds to (l,m), and axis 1 corresponds to (l',m').
+        U = ctUArrayDict[det]
+        V = ctVArrayDict[det]
 
-      # these do depend on extrinsic params
-      Ylms_vec = ComputeYlmsArrayVector(lookupNKDict[det], incl,-phiref)
-      F_vec = lalF(det, RA, DEC, psi, tref)
-      invDistMpc = distMpcRef/distMpc
+        # These do depend on extrinsic params
+        # Array of shape (npts_extrinsic, n_lms,)
+        Ylms_vec = ComputeYlmsArrayVector(lookupNKDict[det], incl, -phiref).T
+        # Array of shape (npts_extrinsic,)
+        F_vec = lalF(det, RA, DEC, psi, tref)
+        # Array of shape (npts_extrinsic,)
+        invDistMpc = distMpcRef/distMpc
 
-      t_ref = epochDict[det]  # a constant for each IFO
+        # Scalar -- is constant for each IFO
+        t_ref = epochDict[det]
 
-      # This is the GPS time at the detector...an arra y
-      t_det = lalT(det, RA, DEC, tref)
-      for indx_ex in np.arange(npts_extrinsic):  # effectively a loop over RA, DEC
-            tfirst = float(t_det[indx_ex])+tvals[0]
-            d_here = distMpc[indx_ex]
-      
-            # pull out scalars
-            Ylms = Ylms_vec.T[indx_ex].T  # yank out Ylms for this specific set of parameters
-            F = float(F_vec.T[indx_ex])  # should be scalar
+        # This is the GPS time at the detector, an array of shape (npts_extrinsic,)
+        t_det = lalT(det, RA, DEC, tref)
 
-            # these are scalars
-            ifirst = int(round(( float(tfirst) - t_ref) / P_vec.deltaT) + 0.5) # this should be fast, done once
-            ilast = ifirst + npts
+        tfirst = t_det + tvals[0]
 
-            det_rholms = np.zeros(( len(lookupNKDict[det]),npts))  # rholms evaluated at time at detector, in window, packed. Should be the same
-            # do not interpolate, just use nearest neighbors.
-            for indx in np.arange(len(lookupNKDict[det])):
-                det_rholms[indx] = rholmsArrayDict[det][indx][ifirst:ilast]  # as structured in this loop, this will be FIXED window edges
+        ifirst = (np.round((tfirst-t_ref) / P_vec.deltaT) + 0.5).astype(int)
+        ilast = ifirst + npts
 
-            # Quadratic term: SingleDetectorLogLikelihoodModelViaArray
-            term2 = 0.j
-            term2 += F*np.conj(F)*(np.dot(np.conj(Ylms), np.dot(U,Ylms)))
-            term2 += F*F*np.dot(Ylms,np.dot(V,Ylms))
-            term2 = np.sum(term2)
-            term2 = -np.real(term2) / 4. /(d_here/distMpcRef)**2
+        # Note: Very inefficient, need to avoid making `Qlms` by doing the
+        # inner product in a CUDA kernel.
+        det_rholms = rholmsArrayDict[det]
+        Qlms = np.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
+        for i in range(npts_extrinsic):
+            Qlms[i] = det_rholms[ifirst[i]:ilast[i]]
 
-            # Linear term
-            term1  = np.zeros(len(tvals), dtype=complex) # workspace
-            term1 = np.dot(np.conj(F*Ylms),det_rholms)   # be very careful re how this multiplication is done: suitable to use this form of multiply
-            term1 = np.real(term1) / (d_here/distMpcRef)
+        # Has shape (npts_extrinsic,)
+        term2 = (
+            (F*np.conj(F)) *
+            np.inner(np.conj(Ylms_vec), np.inner(Ylms_vec, U)).real
+        )
+        term2 += (
+            np.square(F) *
+            np.inner(Ylms_vec, np.inner(Ylms_vec, V))
+        ).real
+        term2 *= -0.25 * np.square(distMpc / distMpcRef)
 
+        # Has shape (npts_extrinsic, npts).
+        # Starts as term1, and accumulates term2 after.
+        lnL_t = np.inner(np.conj(F * Ylms_vec)[..., np.newaxis], Qlms)
 
-            lnL = term1+term2
-            lnLmargOut[indx_ex] = np.log(integrate.simps(np.exp(lnL), dx=deltaT))
+        # Accumulate term2 into the time-dependent log likelihood.
+        # Have to create a view with an extra axis so they broadcast.
+        lnL_t += term2[..., np.newaxis]
+
+        # Take exponential of the log likelihood in-place.
+        L_t = numpy.exp(lnL_t, out=lnL_t)
+
+        # Integrate out the time dimension.  We now have an array of shape
+        # (npts_extrinsic,)
+        L = integrate.simps(L_t, dx=deltaT, axis=-1)
+
+        # Compute log likelihood in-place.
+        lnL = numpy.log(L, out=L)
+
+        lnLmargOut += lnL
 
     return lnLmargOut
 
@@ -1554,7 +1570,7 @@ except:
         print " Numba off "
         # Very inefficient
         def lalylm(th,ph,s,l,m):
-                return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
+p                return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
         def lalF(det, RA, DEC,psi,tref):
                 if isinstance(RA, float):
                         return ComplexAntennaFactor(det, RA, DEC, psi,tref)
