@@ -1419,7 +1419,7 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
         lnLmargT = np.log(integrate.simps(np.exp(lnLArray), dx=deltaT))
         return lnLmargT
 
-
+#@profile
 def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
@@ -1463,7 +1463,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
         U = ctUArrayDict[det]
         V = ctVArrayDict[det]
 
-	n_lms = len(U)
+        n_lms = len(U)
         # These do depend on extrinsic params
         # Array of shape (npts_extrinsic, n_lms,)
         Ylms_vec = ComputeYlmsArrayVector(lookupNKDict[det], incl, -phiref).T
@@ -1486,38 +1486,49 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
         # Note: Very inefficient, need to avoid making `Qlms` by doing the
         # inner product in a CUDA kernel.
         det_rholms = rholmsArrayDict[det]
-        Qlms = np.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
+        Qlms = np.empty((npts_extrinsic, npts, n_lms), dtype=complex)
         for i in range(npts_extrinsic):
-            Qlms[i] = det_rholms[ifirst[i]:ilast[i]]
+            Qlms[i] = det_rholms[...,ifirst[i]:ilast[i]].T
 
         # Has shape (npts_extrinsic,)
         term2 = (
-            (F*np.conj(F)) *
-            np.inner(np.conj(Ylms_vec), np.inner(Ylms_vec, U)).real
+            (F_vec*np.conj(F_vec)).real *
+            np.conj(
+                Ylms_vec *
+                (Ylms_vec[:,np.newaxis,:] * U[np.newaxis,...]).sum(axis=-1)
+            ).sum(axis=-1).real
         )
         term2 += (
-            np.square(F) *
-            np.inner(Ylms_vec, np.inner(Ylms_vec, V))
+            np.square(F_vec) * (
+                Ylms_vec *
+                (Ylms_vec[:,np.newaxis,:] * V[np.newaxis,...]).sum(axis=-1)
+            ).sum(axis=-1)
         ).real
         term2 *= -0.25 * np.square(distMpc / distMpcRef)
 
         # Has shape (npts_extrinsic, npts).
         # Starts as term1, and accumulates term2 after.
-        lnL_t = np.inner(np.conj(F * Ylms_vec)[..., np.newaxis], Qlms)
+        lnL_t = (
+            np.conj(F_vec[..., np.newaxis] * Ylms_vec)[:, np.newaxis, :] *
+            Qlms
+        ).sum(axis=-1).real
+
 
         # Accumulate term2 into the time-dependent log likelihood.
         # Have to create a view with an extra axis so they broadcast.
         lnL_t += term2[..., np.newaxis]
 
+
         # Take exponential of the log likelihood in-place.
-        L_t = numpy.exp(lnL_t, out=lnL_t)
+        L_t = np.exp(lnL_t, out=lnL_t)
+
 
         # Integrate out the time dimension.  We now have an array of shape
         # (npts_extrinsic,)
         L = integrate.simps(L_t, dx=deltaT, axis=-1)
 
         # Compute log likelihood in-place.
-        lnL = numpy.log(L, out=L)
+        lnL = np.log(L, out=L)
 
         lnLmargOut += lnL
 
