@@ -26,11 +26,12 @@ import lal
 import lalsimulation as lalsim
 import lalsimutils as lsu
 import numpy as np
+import cupy
 from scipy import interpolate, integrate
 from scipy import special
 from itertools import product
 
-
+import optimized_gpu_tools
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -1420,7 +1421,7 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
         return lnLmargT
 
 #@profile
-def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False):
+def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=cupy):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time. 
@@ -1431,85 +1432,91 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     Note 'P' must have the *sampling rate* set to correctly interpret the event time.
      Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have 'Vector' postfix
     """
-    global distMpcRef
+    tvals = xpy.asarray(tvals).astype(np.float64)
 
     detectors = rholmsArrayDict.keys()
     npts = len(tvals)
     npts_extrinsic = len(P_vec.phi)
 
     # All arrays of length `npts_extrinsic`, except for `tref` which is a scalar
-    RA = P_vec.phi
-    DEC =  P_vec.theta
-    tref = P_vec.tref # geocenter time, stored as a scalar
-    phiref = P_vec.phiref
-    incl = P_vec.incl
-    psi = P_vec.psi
-    dist = P_vec.dist
-    distMpc = dist/(lal.PC_SI*1e6)
-    invDistMpc = distMpcRef/distMpc
+    RA = P_vec.phi.astype(np.float64)
+    DEC = P_vec.theta.astype(np.float64)
+    # geocenter time, stored as a scalar
+    tref = P_vec.tref
+    phiref = P_vec.phiref.astype(np.float64)
+    incl = P_vec.incl.astype(np.float64)
+    psi = P_vec.psi.astype(np.float64)
+    dist = xpy.asarray(P_vec.dist).astype(np.float64)
+    distMpc = xpy.asarray(dist/(lal.PC_SI*1e6)).astype(np.float64)
 
 
-    deltaT = P_vec.deltaT # this is stored as a scalar
+    # this is stored as a scalar
+    deltaT = xpy.asarray(P_vec.deltaT).astype(np.float64)
 
     # Array to use for work
-    lnL = np.zeros(npts,dtype=np.float128)
+    lnL = xpy.zeros(npts,dtype=np.float64)
     # Array to use for output
-    lnLmargOut = np.zeros(npts_extrinsic, dtype=np.float128)
+    lnLmargOut = xpy.zeros(npts_extrinsic, dtype=np.float64)
+
+    if xpy is np:
+        simps = integrate.simps
+    elif xpy is cupy:
+        simps = optimized_gpu_tools.simps
+    else:
+        raise NotImplementedError("Backend not supported: {}".format(xpy))
 
     for det in detectors:  # strings right now - need to change to make ufunc-able
         # These do not depend on extrinsic params.
         # Arrays of shape (n_lms, n_lms).
         # Axis 0 corresponds to (l,m), and axis 1 corresponds to (l',m').
-        U = ctUArrayDict[det]
-        V = ctVArrayDict[det]
+        U = xpy.asarray(ctUArrayDict[det])
+        V = xpy.asarray(ctVArrayDict[det])
 
         n_lms = len(U)
         # These do depend on extrinsic params
         # Array of shape (npts_extrinsic, n_lms,)
-        Ylms_vec = ComputeYlmsArrayVector(lookupNKDict[det], incl, -phiref).T
+        Ylms_vec = xpy.asarray(ComputeYlmsArrayVector(lookupNKDict[det], incl, -phiref).T)
         # Array of shape (npts_extrinsic,)
-        F_vec = lalF(det, RA, DEC, psi, tref)
-        # Array of shape (npts_extrinsic,)
-        invDistMpc = distMpcRef/distMpc
+        F_vec = xpy.asarray(lalF(det, RA, DEC, psi, tref))
 
         # Scalar -- is constant for each IFO
-        t_ref = epochDict[det]
+        t_ref = xpy.asarray(epochDict[det])
 
         # This is the GPS time at the detector, an array of shape (npts_extrinsic,)
-        t_det = lalT(det, RA, DEC, tref)
+        t_det = xpy.asarray(lalT(det, RA, DEC, tref))
 
         tfirst = t_det + tvals[0]
 
-        ifirst = (np.round((tfirst-t_ref) / P_vec.deltaT) + 0.5).astype(int)
+        ifirst = (xpy.rint((tfirst-t_ref) / deltaT) + 0.5).astype(int)
         ilast = ifirst + npts
 
         # Note: Very inefficient, need to avoid making `Qlms` by doing the
         # inner product in a CUDA kernel.
-        det_rholms = rholmsArrayDict[det]
-        Qlms = np.empty((npts_extrinsic, npts, n_lms), dtype=complex)
+        det_rholms = xpy.asarray(rholmsArrayDict[det])
+        Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=complex)
         for i in range(npts_extrinsic):
             Qlms[i] = det_rholms[...,ifirst[i]:ilast[i]].T
 
         # Has shape (npts_extrinsic,)
         term2 = (
-            (F_vec*np.conj(F_vec)).real *
-            np.conj(
+            (F_vec*xpy.conj(F_vec)).real *
+            xpy.conj(
                 Ylms_vec *
                 (Ylms_vec[:,np.newaxis,:] * U[np.newaxis,...]).sum(axis=-1)
             ).sum(axis=-1).real
         )
         term2 += (
-            np.square(F_vec) * (
+            xpy.square(F_vec) * (
                 Ylms_vec *
                 (Ylms_vec[:,np.newaxis,:] * V[np.newaxis,...]).sum(axis=-1)
             ).sum(axis=-1)
         ).real
-        term2 *= -0.25 * np.square(distMpc / distMpcRef)
+        term2 *= -0.25 * xpy.square(distMpc / distMpcRef)
 
         # Has shape (npts_extrinsic, npts).
         # Starts as term1, and accumulates term2 after.
         lnL_t = (
-            np.conj(F_vec[..., np.newaxis] * Ylms_vec)[:, np.newaxis, :] *
+            xpy.conj(F_vec[..., np.newaxis] * Ylms_vec)[:, np.newaxis, :] *
             Qlms
         ).sum(axis=-1).real
 
@@ -1520,19 +1527,18 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
 
 
         # Take exponential of the log likelihood in-place.
-        L_t = np.exp(lnL_t, out=lnL_t)
-
+        L_t = xpy.exp(lnL_t, out=lnL_t)
 
         # Integrate out the time dimension.  We now have an array of shape
         # (npts_extrinsic,)
-        L = integrate.simps(L_t, dx=deltaT, axis=-1)
+        L = simps(L_t, dx=deltaT, axis=-1)
 
         # Compute log likelihood in-place.
-        lnL = np.log(L, out=L)
+        lnL = xpy.log(L, out=L)
 
         lnLmargOut += lnL
 
-    return lnLmargOut
+    return cupy.asnumpy(lnLmargOut)
 
 
 def ComputeYlmsArray(lookupNK, theta, phi):
@@ -1601,7 +1607,7 @@ except:
 #        lalF = ComplexAntennaFactor
 #        lalT = ComputeArrivalTimeAtDetector
 
-def ComputeYlmsArrayVector(lookupNK, theta,phi):
+def ComputeYlmsArrayVector(lookupNK, theta, phi):
     """
     Returns an array Ylm[k] where lookup(k) = l,m.  Only computes the LM values needed.
     theta, phi arguments are *vectors*.  Shape is (len(th),len(lookup(NK)))
@@ -1614,13 +1620,13 @@ def ComputeYlmsArrayVector(lookupNK, theta,phi):
     """
 
     # Allocate
-    Ylms = np.zeros( (len(lookupNK), len(theta)),dtype=complex)
+    Ylms = np.zeros((len(lookupNK), len(theta)),dtype=complex)
 
     # Loop over l, m and evaluate.
-    for indx in np.arange(len(lookupNK)):
+    for indx in range(len(lookupNK)):
             l = int(lookupNK[indx][0])*np.ones(len(theta),dtype=int)   # use np.repeat instead for speed
             m = int(lookupNK[indx][1])*np.ones(len(theta),dtype=int)
             s = -2 * np.ones(len(theta),dtype=int)
 
-            Ylms[ indx] = lalylm(theta, phi,s, l, m)
+            Ylms[indx] = lalylm(theta, phi, s, l, m)
     return Ylms
