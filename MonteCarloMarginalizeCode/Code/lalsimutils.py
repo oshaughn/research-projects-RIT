@@ -2496,9 +2496,17 @@ def hlmoft_FromFD_dict(P,Lmax=2):
     Uses Chris Pankow's interface in lalsuite
     Do not redshift the source
     """
-    hlm_struct = lalsim.SimInspiralTDModesFromPolarizations(P.deltaT, P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 0., P.lambda1, P.lambda2, P.waveFlags, None, P.ampO, P.phaseO, P.approx)
+    extra_params = P.to_lal_dict()
+    hlms = lalsim.SimInspiralTDModesFromPolarizations( \
+            P.m1, P.m2, \
+            P.s1x, P.s1y, P.s1z, \
+            P.s2x, P.s2y, P.s2z, \
+            P.dist, P.incl, P.phiref,  \
+            P.psi, P.eccentricity, P.meanPerAno, \
+            P.deltaT, P.fmin, P.fref, \
+            extra_params, P.approx)
 
-    return hlm_struct
+    return hlms
 
 def hlmoft_SEOBv3_dict(P,Lmax=2):
     """
