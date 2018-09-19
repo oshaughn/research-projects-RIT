@@ -39,20 +39,20 @@ def ParseStandardArguments():
     # Options.  Try to be consistent with lalinference
 
     # General parameters
-    parser.add_argument("--Niter", dest='nmax',default=10000,type=int,help="Number of iterations")
+    parser.add_argument("--Niter", dest='nmax',default=100000,type=int,help="Number of iterations")
     parser.add_argument("--Neff", dest='neff', default=100,type=int,help="Target number of effective samples")
     parser.add_argument("--Nskip", dest='nskip', default=2000,type=int,help="How often MC progress is reported (in verbose mode)")
     parser.add_argument("--convergence-tests-on", default=False,action='store_true')
     parser.add_argument("--d-max",default=10000,type=float,help="Maximum distance in Mpc")
 
     # Likelihood functions
-    parser.add_argument("--LikelihoodType_raw",default=True,action='store_true')
+    parser.add_argument("--LikelihoodType_raw",default=False,action='store_true')
     parser.add_argument("--LikelihoodType_MargPhi",default=False,action='store_true',help="Deprecated/disabled")
     parser.add_argument("--LikelihoodType_MargT",default=False,action='store_true',help="Deprecated/disabled")
     parser.add_argument("--LikelihoodType_MargTdisc",default=False,action='store_true',help="Deprecated/disabled")
     parser.add_argument("--LikelihoodType_MargTdisc_array",default=True,action='store_true',help="Default")
     parser.add_argument("--LikelihoodType_MargTdisc_array_vector",default=False,action='store_true',help="Use matrix operations to compute likelihood. Discrete....ViaArray is called. Inputs are scalars")
-    parser.add_argument("--LikelihoodType_vectorized",default=True,action='store_true',help="Use matrix operations to compute likelihood. Discrete....ViaArray is called. Inputs are vectors")
+    parser.add_argument("--LikelihoodType_vectorized",default=False,action='store_true',help="Use matrix operations to compute likelihood. Discrete....ViaArray is called. Inputs are vectors")
     parser.add_argument("--adapt-parameter", action='append',help = "Adapt in this parameter (ra, dec, tref, incl,dist,phi,psi)")
     parser.add_argument( "--adapt-beta", type=float,default=1)
     parser.add_argument("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
