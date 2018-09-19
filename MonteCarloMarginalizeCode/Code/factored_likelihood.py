@@ -1456,6 +1456,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
 
     # Array to use for work
     lnL = np.zeros(npts,dtype=np.float128)
+    lnL_array = np.zeros((npts_extrinsic,npts),dtype=np.float128)
     # Array to use for output
     lnLmargOut = np.zeros(npts_extrinsic,dtype=np.float128)
 #    term1  = np.zeros(npts, dtype=complex) # workspace
@@ -1505,7 +1506,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
 
 
             lnL = term1+term2
-            lnLmargOut[indx_ex] = np.log(integrate.simps(np.exp(lnL), dx=deltaT))
+            lnL_array[indx_ex] += lnL  #  copy into array.  Add, because we will get terms from other IFOs
+    lnLmargOut = np.log(integrate.simps(np.exp(lnL_array), dx=deltaT)) 
 
     return lnLmargOut
 
