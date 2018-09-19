@@ -489,7 +489,7 @@ def FactoredLogLikelihood(extr_params, rholms,rholms_intp, crossTerms, crossTerm
             for key, rhoTS in rholms[det].iteritems():
                 tfirst = t_det
                 ifirst = int(np.round(( float(tfirst) - float(rhoTS.epoch)) / rhoTS.deltaT) + 0.5)
-                det_rholms[key] = rhoTS.data.data[ifirst]
+                det_rholms[key] = rhoTS.data.data[ifirst]  # note no time marginalization: a scalar.
 
 
         lnL += SingleDetectorLogLikelihood(det_rholms, CT, CTV,Ylms, F, dist)
@@ -1146,7 +1146,7 @@ def IdentifyEffectiveModesForDetector(crossTermsOneDetector, fac,det):
 #### Reimplementation with arrays   [NOT YET GENERALIZED TO USE V]
 ####
 
-def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetector, rholmsDictionaryForDetector,crossTermsForDetector):
+def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetector, rholmsDictionaryForDetector,crossTermsForDetector,crossTermsVForDetector):
     """
     Accepts list of LM pairs, dictionary for rholms against keys, and cross terms (a dictionary)
 
@@ -1181,8 +1181,8 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
             indx1 = lookupKeysToNumber[pair1]
             indx2 = lookupKeysToNumber[pair2]
             crossTermsArrayU[indx1][indx2] = crossTermsForDetector[(pair1,pair2)]
-            pair1New = (pair1[0], -pair1[1])
-            crossTermsArrayV[indx1][indx2] = (-1)**pair1[0]*crossTermsForDetector[(pair1New,pair2)]   # this actually should be a seperate array in general; we are assuming reflection symmetry to populate it
+#            pair1New = (pair1[0], -pair1[1])
+            crossTermsArrayV[indx1][indx2] =  crossTermsVForDetector[(pair1,pair2)] #(-1)**pair1[0]*crossTermsForDetector[(pair1New,pair2)]   # this actually should be a seperate array in general; we are assuming reflection symmetry to populate it
     if rosDebugMessagesDictionary["DebugMessagesLong"]:
         print  " Built cross-terms matrix ", crossTermsArray
 
@@ -1200,8 +1200,8 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
             rholm_intpArray[indx1] = rholms_intpDictionaryForDetector[pair1]
             
     ### step 4: create dictionary (one per detector) with epoch  associated with the starting point for that IFO.  (should be the same for all modes for a given IFO)
-    epochHere  = float(rholmsDictionaryForDetector[pair1].epoch)
-    
+    epochHere  = float(rholmsDictionaryForDetector[pair1].epoch) # beware: print epochHere does not show full precision, don't worry - it is ok.
+      
     return lookupNumberToKeys,lookupKeysToNumber, lookupNumberToNumberConjugation, crossTermsArrayU,crossTermsArrayV, rholmArray, rholm_intpArray, epochHere
 
 
@@ -1375,16 +1375,18 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
 
     lnL = np.zeros(npts,dtype=np.float128)
 
-
+    term2_net = 0j
+    term1_net = np.zeros(npts,dtype=complex)
     for det in detectors:
             U = ctUArrayDict[det]
             V = ctVArrayDict[det]
-            Ylms = ComputeYlmsArray(lookupNKDict[det], incl,-phiref)
+            Ylms = ComputeYlmsArray(lookupNKDict[det], incl,-phiref)  # lookup dictionary specifies selected modes
 
             F = ComplexAntennaFactor(det, RA, DEC, psi, tref)
             invDistMpc = distMpcRef/distMpc
 
             t_ref = epochDict[det]
+#            print det, t_ref, P.tref - t_ref
 
             # This is the GPS time at the detector
             t_det = ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
@@ -1397,24 +1399,25 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
             for indx in np.arange(len(lookupNKDict[det])):
                 det_rholms[indx] = rholmsArrayDict[det][indx][ifirst:ilast]
 
-            # Quadratic term: SingleDetectorLogLikelihoodModelViaArray
+            # Quadratic term: SingleDetectorLogLikelihoodModelViaArray. Scalar
             term2 = 0.j
             term2 += F*np.conj(F)*(np.dot(np.conj(Ylms), np.dot(U,Ylms)))
             term2 += F*F*np.dot(Ylms,np.dot(V,Ylms))
-            term2 = np.sum(term2)
             term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
 
-            # Linear term
-            term1 = np.zeros(len(tvals), dtype=complex)
-            term1 = np.dot(np.conj(F*Ylms),det_rholms)   # be very careful re how this multiplication is done: suitable to use this form of multiply
-            term1 = np.real(term1) / (distMpc/distMpcRef)
+            term2_net+= term2
 
+            # Linear term
+            term1 = np.dot(np.conj(F*Ylms),det_rholms)   # be very careful re how this multiplication is done: suitable to use this form of multiply
+            term1 += np.real(term1) / (distMpc/distMpcRef)
+
+            term1_net += term1
 
     if  array_output:  # return the raw array
-        return term1+term2
+        return term1_net+term2_net
     else:  # return the marginalized lnL in time
         lnLArray = np.zeros(npts,dtype=np.complex128)   # avoid nan's
-        lnLArray = term1+term2
+        lnLArray = term1_net+term2_net
 #        lnLmargT = np.log(deltaT*np.sum(np.exp(lnLArray))/Twindow)
         lnLmargT = np.log(integrate.simps(np.exp(lnLArray), dx=deltaT))
         return lnLmargT
