@@ -866,7 +866,7 @@ elif opts.LikelihoodType_MargTdisc_array_vector:
         nEvals +=i # len(tvals)  # go forward using length of tvals
         return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
 elif opts.LikelihoodType_vectorized:
-    print " ===> Likelihood model: Time marginalized, matrix multiplies <== "
+    print " ===> Likelihood model: Time marginalized, matrix multiplies, vectorized <== "
     # Pack operation does it for each detector, so I need a loop
     for det in rholms_intp.keys():
         print " Packing ", det
