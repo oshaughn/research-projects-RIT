@@ -30,6 +30,7 @@ import cupy
 from scipy import interpolate, integrate
 from scipy import special
 from itertools import product
+import math
 
 import optimized_gpu_tools
 
@@ -1443,20 +1444,18 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     DEC = P_vec.theta.astype(np.float64)
     # geocenter time, stored as a scalar
     tref = P_vec.tref
-    phiref = P_vec.phiref.astype(np.float64)
-    incl = P_vec.incl.astype(np.float64)
+    phiref = xpy.asarray(P_vec.phiref).astype(np.float64)
+    incl = xpy.asarray(P_vec.incl).astype(np.float64)
     psi = P_vec.psi.astype(np.float64)
     dist = xpy.asarray(P_vec.dist).astype(np.float64)
     distMpc = xpy.asarray(dist/(lal.PC_SI*1e6)).astype(np.float64)
 
-
     # this is stored as a scalar
     deltaT = xpy.asarray(P_vec.deltaT).astype(np.float64)
 
-    # Array to use for work
     lnL = xpy.zeros(npts,dtype=np.float64)
-    # Array to use for output
-    lnLmargOut = xpy.zeros(npts_extrinsic, dtype=np.float64)
+    # Array to accumulate lnL(t) summed across all detectors.
+    lnL_t_accum = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
 
     if xpy is np:
         simps = integrate.simps
@@ -1473,9 +1472,16 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
         V = xpy.asarray(ctVArrayDict[det])
 
         n_lms = len(U)
+
+        lms = lookupNKDict[det]
+
         # These do depend on extrinsic params
         # Array of shape (npts_extrinsic, n_lms,)
-        Ylms_vec = xpy.asarray(ComputeYlmsArrayVector(lookupNKDict[det], incl, -phiref).T)
+        Ylms_vec = SphericalHarmonicsVectorized(
+            lms, incl, -phiref,
+            xpy=xpy,
+        )
+
         # Array of shape (npts_extrinsic,)
         F_vec = xpy.asarray(lalF(det, RA, DEC, psi, tref))
 
@@ -1500,45 +1506,60 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
         # Has shape (npts_extrinsic,)
         term2 = (
             (F_vec*xpy.conj(F_vec)).real *
-            xpy.conj(
-                Ylms_vec *
-                (Ylms_vec[:,np.newaxis,:] * U[np.newaxis,...]).sum(axis=-1)
-            ).sum(axis=-1).real
+            xpy.einsum(
+                "...i,...j,ij",
+                xpy.conj(Ylms_vec), Ylms_vec, U,
+            ).real
         )
+
         term2 += (
-            xpy.square(F_vec) * (
-                Ylms_vec *
-                (Ylms_vec[:,np.newaxis,:] * V[np.newaxis,...]).sum(axis=-1)
-            ).sum(axis=-1)
+            xpy.square(F_vec) *
+            xpy.einsum(
+                "...i,...j,ij",
+                Ylms_vec, Ylms_vec, V,
+            )
         ).real
-        term2 *= -0.25 * xpy.square(distMpc / distMpcRef)
+        term2 *= -0.25 * xpy.square(distMpcRef / distMpc)
 
         # Has shape (npts_extrinsic, npts).
         # Starts as term1, and accumulates term2 after.
-        lnL_t = (
-            xpy.conj(F_vec[..., np.newaxis] * Ylms_vec)[:, np.newaxis, :] *
-            Qlms
-        ).sum(axis=-1).real
+
+        # View into F with shape (npts_extrinsic, n_lms)
+        F_vec_dummy_lm = F_vec[..., np.newaxis]
+        # View into F * Ylm with shape (npts_extrinsic, npts, n_lms)
+        FY_dummy_t = xpy.broadcast_to(
+            (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
+            Qlms.shape,
+        )
+
+     #   print xpy.conj(FY_dummy_t).shape, Qlms.shape
+
+        lnL_t_accum += xpy.einsum(
+            "...i,...i",
+            xpy.conj(FY_dummy_t), Qlms,
+        ).real * (distMpcRef/distMpc)[...,None]
 
 
         # Accumulate term2 into the time-dependent log likelihood.
         # Have to create a view with an extra axis so they broadcast.
-        lnL_t += term2[..., np.newaxis]
+        lnL_t_accum += term2[..., np.newaxis]
+
+#        print lnL_t_accum.shape, lnL_t.shape
+
+#        lnL_t_accum += lnL_t
 
 
-        # Take exponential of the log likelihood in-place.
-        L_t = xpy.exp(lnL_t, out=lnL_t)
+    # Take exponential of the log likelihood in-place.
+    L_t = xpy.exp(lnL_t_accum, out=lnL_t_accum)
 
-        # Integrate out the time dimension.  We now have an array of shape
-        # (npts_extrinsic,)
-        L = simps(L_t, dx=deltaT, axis=-1)
+    # Integrate out the time dimension.  We now have an array of shape
+    # (npts_extrinsic,)
+    L = simps(L_t, dx=deltaT, axis=-1)
 
-        # Compute log likelihood in-place.
-        lnL = xpy.log(L, out=L)
+    # Compute log likelihood in-place.
+    lnL = xpy.log(L, out=L)
 
-        lnLmargOut += lnL
-
-    return cupy.asnumpy(lnLmargOut)
+    return cupy.asnumpy(lnL)
 
 
 def ComputeYlmsArray(lookupNK, theta, phi):
@@ -1630,3 +1651,161 @@ def ComputeYlmsArrayVector(lookupNK, theta, phi):
 
             Ylms[indx] = lalylm(theta, phi, s, l, m)
     return Ylms
+
+
+
+_coeff2m2 = math.sqrt(5.0 / (64.0 * math.pi))
+_coeff2m1 = math.sqrt(5.0 / (16.0 * math.pi))
+_coeff20 = math.sqrt(15.0 / (32.0 * math.pi))
+_coeff2p1 = math.sqrt(5.0 / (16.0 * math.pi))
+_coeff2p2 = math.sqrt(5.0 / (64.0 * math.pi))
+
+def SphericalHarmonicsVectorized(
+        lm,
+        theta, phi,
+        xpy=cupy, dtype=np.complex128,
+    ):
+    """
+    Compute spherical harmonics Y_{lm}(theta, phi) for a given set of lm's,
+    thetas, and phis.
+
+    Parameters
+    ----------
+    lm : array_like, shape = (n_indices, 2)
+
+    theta : array_like, shape = (n_params,)
+
+    phi : array_like, shape = (n_params,)
+
+    Returns
+    -------
+    Ylm : array_like, shape = (n_params, n_indices)
+    """
+    l, m = lm.T
+
+    n_indices = l.size
+    n_params = theta.size
+
+    Ylm = xpy.empty((n_params, n_indices), dtype=dtype)
+
+    # Ensure coefficients are on the board if using cupy.
+    c2m2 = xpy.asarray(_coeff2m2)
+    c2m1 = xpy.asarray(_coeff2m1)
+    c20 = xpy.asarray(_coeff20)
+    c2p1 = xpy.asarray(_coeff2p1)
+    c2p2 = xpy.asarray(_coeff2p2)
+    imag = xpy.asarray(1.0j)
+
+    # Precompute 1 +/- cos(theta).
+    cos_theta = xpy.cos(theta)
+    one_minus_cos_theta = (1.0 - cos_theta)
+    one_plus_cos_theta = xpy.add(1.0, cos_theta, out=cos_theta)
+    del cos_theta
+
+    # Precompute sin(theta).
+    sin_theta = xpy.sin(theta)
+
+    for i, m_i in enumerate(m):
+        if m_i == -2:
+            Ylm[...,i] = (
+                c2m2 *
+                xpy.square(one_minus_cos_theta) *
+                xpy.exp(imag * m_i * phi)
+            )
+        elif m_i == -1:
+            Ylm[...,i] = (
+                c2m1 *
+                xpy.multiply(sin_theta, one_minus_cos_theta) *
+                xpy.exp(imag * m_i * phi)
+            )
+        elif m_i == 0:
+            Ylm[...,i] = (
+                c20 *
+                xpy.square(sin_theta)
+            )
+        elif m_i == +1:
+            Ylm[...,i] = (
+                c2p1 *
+                xpy.multiply(sin_theta, one_plus_cos_theta) *
+                xpy.exp(imag * m_i * phi)
+            )
+        elif m_i == +2:
+            Ylm[...,i] = (
+                c2p2 *
+                xpy.square(one_plus_cos_theta) *
+                xpy.exp(imag * m_i * phi)
+            )
+        else:
+            Ylm[...,i] = xpy.nan
+
+    return Ylm
+
+    # # Pre-allocate an index array for picking the `m` index.
+    # m_index = xpy.empty(n_indices, dtype=bool)
+    # m_index_view = m_index[None,...]
+
+    # ## Will need when l!=2 supported
+    # # lmax = xpy.max(l)
+
+
+    # ## m = -2 case ##
+    # # Set index array
+    # xpy.equal(xpy.asarray(-2), m, out=m_index)
+
+    # # Overwrite output with (1 - cos(theta))**2
+    # xpy.square(one_minus_cos_theta, out=Ylm, where=m_index_view)
+    # # Multiply output with coefficient.
+    # xpy.multiply(xpy.asarray(_coeff2m2), Ylm, out=Ylm, where=m_index_view)
+
+    # ## m = -1 case ##
+    # # Set index array
+    # xpy.equal(xpy.asarray(-1), m, out=m_index)
+
+    # # Overwrite output with sin(theta) * (1 - cos(theta))
+    # xpy.multiply(sin_theta, one_minus_cos_theta, out=Ylm, where=m_index_view)
+    # # Multiply with coefficient
+    # xpy.multiply(xpy.asarray(_coeff2m1), Ylm, out=Ylm, where=m_index_view)
+
+    # # Skip m = 0 case until the end.
+
+    # ## m = +1 case ##
+    # # Set index array
+    # xpy.equal(xpy.asarray(+1), m, out=m_index)
+
+    # # Overwrite output with sin(theta) * (1 + cos(theta))
+    # xpy.multiply(sin_theta, one_plus_cos_theta, out=Ylm, where=m_index_view)
+    # # Multiply with coefficient
+    # xpy.multiply(xpy.asarray(_coeff2p1), Ylm, out=Ylm, where=m_index_view)
+
+    # ## m = +2 case ##
+    # # Set index array
+    # xpy.equal(xpy.asarray(+2), m, out=m_index)
+
+    # # Overwrite output with (1 + cos(theta))**2
+    # xpy.square(one_plus_cos_theta, out=Ylm, where=m_index_view)
+    # # Multiply with coefficient
+    # xpy.multiply(xpy.asarray(_coeff2p2), Ylm, out=Ylm, where=m_index_view)
+
+    # ## m = 0 case ##
+    # # Set index array
+    # xpy.equal(xpy.asarray(0), m, out=m_index)
+
+    # # Overwrite output with sin(theta)**2
+    # xpy.square(sin_theta, out=Ylm, where=m_index_view)
+    # # Multiply with coefficient
+    # xpy.multiply(xpy.asarray(_coeff20), Ylm, out=Ylm, where=m_index_view)
+
+    # ## m != 0 cases ##
+    # # Set index array
+    # xpy.invert(m_index, out=m_index)
+
+    # # Compute exp(i*m*phi), without allocating extra arrays, and only bothering
+    # # to compute it where m != 0.  We won't use the m == 0 cases.
+    # complex_term = xpy.outer(phi, m, where=m_index)
+    # xpy.multiply(1j, complex_term, out=complex_term, where=m_index)
+    # xpy.exp(complex_term, out=complex_term, where=m_index)
+
+    # # Multiply exp(i*m*phi) onto the result, but only where m == 0.
+    # xpy.multiply(Ylm, complex_term, out=Ylm, where=m_index)
+
+    # return Ylm
