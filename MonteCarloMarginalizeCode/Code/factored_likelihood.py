@@ -33,6 +33,7 @@ from itertools import product
 import math
 
 import optimized_gpu_tools
+import Q_inner_product
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -1496,12 +1497,13 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
         ifirst = (xpy.rint((tfirst-t_ref) / deltaT) + 0.5).astype(int)
         ilast = ifirst + npts
 
-        # Note: Very inefficient, need to avoid making `Qlms` by doing the
-        # inner product in a CUDA kernel.
-        det_rholms = xpy.asarray(rholmsArrayDict[det])
-        Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=complex)
-        for i in range(npts_extrinsic):
-            Qlms[i] = det_rholms[...,ifirst[i]:ilast[i]].T
+        Q = xpy.ascontiguousarray(xpy.asarray(rholmsArrayDict[det]).T)
+        # # Note: Very inefficient, need to avoid making `Qlms` by doing the
+        # # inner product in a CUDA kernel.
+        # det_rholms = xpy.asarray(rholmsArrayDict[det])
+        # Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=complex)
+        # for i in range(npts_extrinsic):
+        #     Qlms[i] = det_rholms[...,ifirst[i]:ilast[i]].T
 
         # Has shape (npts_extrinsic,)
         term2 = (
@@ -1526,18 +1528,30 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
 
         # View into F with shape (npts_extrinsic, n_lms)
         F_vec_dummy_lm = F_vec[..., np.newaxis]
-        # View into F * Ylm with shape (npts_extrinsic, npts, n_lms)
-        FY_dummy_t = xpy.broadcast_to(
-            (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
-            Qlms.shape,
-        )
+        # # View into F * Ylm with shape (npts_extrinsic, npts, n_lms)
+        # FY_dummy_t = xpy.broadcast_to(
+        #     (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
+        #     Qlms.shape,
+        # )
 
-     #   print xpy.conj(FY_dummy_t).shape, Qlms.shape
+        # lnL_t_accum += xpy.einsum(
+        #     "...i,...i",
+        #     xpy.conj(FY_dummy_t), Qlms,
+        # ).real * (distMpcRef/distMpc)[...,None]
 
-        lnL_t_accum += xpy.einsum(
-            "...i,...i",
-            xpy.conj(FY_dummy_t), Qlms,
-        ).real * (distMpcRef/distMpc)[...,None]
+        FY_conj = xpy.conj(F_vec_dummy_lm * Ylms_vec)
+
+        Q_prod_result = Q_inner_product.Q_inner_product_cupy(
+            Q, FY_conj,
+            ifirst, npts,
+        ).real
+
+        lnL_t_accum += Q_prod_result * (distMpcRef/distMpc)[...,None]
+
+        # lnL_t_accum += Q_inner_product.Q_inner_product_cupy(
+        #     FY_conj, Q,
+        #     ifirst, npts,
+        # ).real * (distMpcRef/distMpc)[...,None]
 
 
         # Accumulate term2 into the time-dependent log likelihood.
