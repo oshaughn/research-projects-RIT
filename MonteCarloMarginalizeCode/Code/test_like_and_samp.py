@@ -793,7 +793,8 @@ rholmArrayDict={}
 rholms_intpArrayDict={}
 epochDict={}
 
-if not opts.LikelihoodType_MargTdisc_array:
+if  opts.LikelihoodType_raw:
+    print " ===> Likelihood model: raw, no time marginalization <== "
     def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance): # right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
         global nEvals
         global lnLOffsetValue
@@ -816,17 +817,19 @@ if not opts.LikelihoodType_MargTdisc_array:
             P.incl = float(ic) # inclination
             P.psi = ps # polarization angle
             P.dist = float(di*1e6*lalsimutils.lsu_PC) # luminosity distance.  The sampler assumes Mpc; P requires SI
-            lnL[i] = factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms, crossTermsV, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+            lnL[i] = factored_likelihood.FactoredLogLikelihood(P, rholms, rholms_intp, crossTerms, crossTermsV, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
             i+=1
 
 
         nEvals+=i 
         return np.exp(lnLOffsetValue)*np.exp(lnL - lnLOffsetValue)
 elif opts.LikelihoodType_MargTdisc_array_vector:
+    print " ===> Likelihood model: Discrete time marginalization, matrix multiplies <== "
     # Pack operation does it for each detector, so I need a loop
     for det in rholms_intp.keys():
-        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det])
-        print det, lookupKNDict[det]
+        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det],crossTermsV[det])
+#        print det, lookupKNDict[det], ctUArrayDict[det]
+#        print crossTerms[det]
 
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
@@ -863,10 +866,14 @@ elif opts.LikelihoodType_MargTdisc_array_vector:
         nEvals +=i # len(tvals)  # go forward using length of tvals
         return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
 elif opts.LikelihoodType_vectorized:
+    print " ===> Likelihood model: Time marginalized, matrix multiplies <== "
     # Pack operation does it for each detector, so I need a loop
     for det in rholms_intp.keys():
-        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det])
-        print det, lookupKNDict[det]
+        print " Packing ", det
+        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det],crossTermsV[det])
+#        print det, lookupKNDict[det]
+#        print crossTermsU[det], crossTermsV[det]
+
     print " Likelihood PASSING VECTORS DOWN - DEVELOPMENT CODE "
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
@@ -885,8 +892,10 @@ elif opts.LikelihoodType_vectorized:
 
         lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
+        nEvals +=len(right_ascension)
         return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
-else: # Sum over time for every point in other extrinsic params
+elif opts.LikelihoodType_MargTdisc_array: # Sum over time for every point in other extrinsic params
+    print " ===> Likelihood model: Time marginalized, but with for loops <== "
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
         global nEvals
@@ -922,6 +931,9 @@ else: # Sum over time for every point in other extrinsic params
         
         nEvals +=i # len(tvals)  # go forward using length of tvals
         return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
+else:
+        print " ===> Likelihood model: ?? <== "
+        sys.exit(0)
 
 import mcsampler
 sampler = mcsampler.MCSampler()
