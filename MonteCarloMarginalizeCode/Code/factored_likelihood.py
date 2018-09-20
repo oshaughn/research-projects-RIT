@@ -1440,7 +1440,7 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
         lnLmargT = np.log(integrate.simps(np.exp(lnLArray), dx=deltaT))
         return lnLmargT
 
-#@profile
+@profile
 def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=cupy):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
@@ -1452,29 +1452,21 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     Note 'P' must have the *sampling rate* set to correctly interpret the event time.
      Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have 'Vector' postfix
     """
-    tvals = xpy.asarray(tvals).astype(np.float64)
-
     detectors = rholmsArrayDict.keys()
     npts = len(tvals)
     npts_extrinsic = len(P_vec.phi)
 
     # All arrays of length `npts_extrinsic`, except for `tref` which is a scalar
-    RA = P_vec.phi.astype(np.float64)
-    DEC = P_vec.theta.astype(np.float64)
+    RA = P_vec.phi
+    DEC = P_vec.theta
 
     # geocenter time, stored as a scalar
     tref = P_vec.tref
-    phiref = xpy.asarray(P_vec.phiref).astype(np.float64)
-    incl = xpy.asarray(P_vec.incl).astype(np.float64)
-    psi = P_vec.psi.astype(np.float64)
-    dist = xpy.asarray(P_vec.dist).astype(np.float64)
-    distMpc = xpy.asarray(dist/(lal.PC_SI*1e6)).astype(np.float64)
-
-    # Won't need this after lalF is made vectorized, will just use RA,DEC names
-    # instead
-    RA_xpy = xpy.asarray(RA)
-    DEC_xpy = xpy.asarray(DEC)
-    psi_xpy = xpy.asarray(psi)
+    phiref = P_vec.phiref
+    incl = P_vec.incl
+    psi = P_vec.psi
+    dist = P_vec.dist
+    distMpc = dist/(lal.PC_SI*1e6)
 
     # Convert tref to greenwich mean sidereal time
     greenwich_mean_sidereal_time_tref = xpy.asarray(
@@ -1482,9 +1474,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     )
 
     # this is stored as a scalar
-    deltaT = xpy.asarray(P_vec.deltaT).astype(np.float64)
+    deltaT = P_vec.deltaT
 
-    lnL = xpy.zeros(npts,dtype=np.float64)
     # Array to accumulate lnL(t) summed across all detectors.
     lnL_t_accum = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
 
@@ -1505,12 +1496,11 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
         # These do not depend on extrinsic params.
         # Arrays of shape (n_lms, n_lms).
         # Axis 0 corresponds to (l,m), and axis 1 corresponds to (l',m').
-        U = xpy.asarray(ctUArrayDict[det])
-        V = xpy.asarray(ctVArrayDict[det])
+        U = ctUArrayDict[det]
+        V = ctVArrayDict[det]
 
         lms = lookupNKDict[det]
         n_lms = len(lms)
-
 
         # These do depend on extrinsic params
         # Array of shape (npts_extrinsic, n_lms,)
@@ -1520,20 +1510,20 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
         )
 
         # Array of shape (npts_extrinsic,)
-        F_vec_old = xpy.asarray(lalF(det, RA, DEC, psi, tref))
-        F_vec_new = vectorized_lal_tools.ComputeDetAMResponse(
+#        F_vec_old = xpy.asarray(lalF(det, RA, DEC, psi, tref))
+        F_vec = vectorized_lal_tools.ComputeDetAMResponse(
             detector_response,
-            RA_xpy, DEC_xpy, psi_xpy,
+            RA, DEC, psi,
             greenwich_mean_sidereal_time_tref,
         )
 
         # Scalar -- is constant for each IFO
-        t_ref = xpy.asarray(epochDict[det])
+        t_ref = epochDict[det]
 
         # This is the GPS time at the detector,
         # an array of shape (npts_extrinsic,)
         t_det = tref + vectorized_lal_tools.TimeDelayFromEarthCenter(
-            detector_location, RA_xpy, DEC_xpy,
+            detector_location, RA, DEC,
             greenwich_mean_sidereal_time_tref,
         )
         tfirst = t_det + tvals[0]
@@ -1541,7 +1531,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
         ifirst = (xpy.rint((tfirst-t_ref) / deltaT) + 0.5).astype(int)
 #        ilast = ifirst + npts
 
-        Q = xpy.ascontiguousarray(xpy.asarray(rholmsArrayDict[det]).T)
+        Q = xpy.ascontiguousarray(rholmsArrayDict[det].T)
         # # Note: Very inefficient, need to avoid making `Qlms` by doing the
         # # inner product in a CUDA kernel.
         # det_rholms = xpy.asarray(rholmsArrayDict[det])
@@ -1617,7 +1607,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     # Compute log likelihood in-place.
     lnL = xpy.log(L, out=L)
 
-    return cupy.asnumpy(lnL)
+    return lnL
 
 
 def ComputeYlmsArray(lookupNK, theta, phi):

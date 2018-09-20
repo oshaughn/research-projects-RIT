@@ -79,6 +79,11 @@ import pickle
 
 import numpy as np
 
+try:
+    import cupy
+except:
+    print "No CuPy"
+
 from glue.lal import Cache
 from glue.ligolw import utils, lsctables, table, ligolw,  git_version
 from glue.ligolw.utils import process
@@ -793,7 +798,7 @@ rholmArrayDict={}
 rholms_intpArrayDict={}
 epochDict={}
 
-if not opts.LikelihoodType_MargTdisc_array:
+if False: #opts.LikelihoodType_raw:
     def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance): # right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
         global nEvals
         global lnLOffsetValue
@@ -822,7 +827,7 @@ if not opts.LikelihoodType_MargTdisc_array:
 
         nEvals+=i 
         return np.exp(lnLOffsetValue)*np.exp(lnL - lnLOffsetValue)
-elif opts.LikelihoodType_MargTdisc_array_vector:
+elif False: #opts.LikelihoodType_MargTdisc_array_vector:
     # Pack operation does it for each detector, so I need a loop
     for det in rholms_intp.keys():
         lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det])
@@ -859,33 +864,58 @@ elif opts.LikelihoodType_MargTdisc_array_vector:
             lnL[i] = factored_likelihood.DiscreteFactoredLogLikelihoodViaArray(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
             i+=1
-        
+
         nEvals +=i # len(tvals)  # go forward using length of tvals
         return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
-elif opts.LikelihoodType_vectorized:
+elif  opts.LikelihoodType_vectorized:
     # Pack operation does it for each detector, so I need a loop
     for det in rholms_intp.keys():
-        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det])
+        (
+            lookupNKDict[det], lookupKNDict[det], lookupKNconjDict[det],
+            ctUArrayDict[det], ctVArrayDict[det],
+            rholmArrayDict[det], rholms_intpArrayDict[det],
+            epochDict[det],
+        ) = factored_likelihood.PackLikelihoodDataStructuresAsArrays(
+            rholms[det].keys(), rholms_intp[det], rholms[det],
+            crossTerms[det],
+        )
+
+        lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
+        rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
+        ctUArrayDict[det] = cupy.asarray(ctUArrayDict[det])
+        ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
+        epochDict[det] = cupy.asarray(epochDict[det])
+
         print det, lookupKNDict[det]
     print " Likelihood PASSING VECTORS DOWN - DEVELOPMENT CODE "
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
         global nEvals
         global lnLOffsetValue
-        # use EXTREMELY many bits
-        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
-        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-        P.phi = right_ascension.astype(float)  # cast to float
-        P.theta = declination.astype(float)
+        # choose an array at the target sampling rate. P is inherited globally
+        tvals = cupy.linspace(
+            tWindowExplore[0], tWindowExplore[1],
+            int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT),
+        )
+        P.phi = cupy.asarray(right_ascension, dtype=np.float64)#.astype(float)  # cast to float
+        P.theta = cupy.asarray(declination, dtype=np.float64)#.astype(float)
         P.tref = float(theEpochFiducial)
-        P.phiref = phi_orb.astype(float)
-        P.incl = inclination.astype(float)
-        P.psi = psi.astype(float)
-        P.dist = (distance* 1.e6 * lalsimutils.lsu_PC).astype(float) # luminosity distance
+        P.phiref = cupy.asarray(phi_orb, dtype=np.float64)#.astype(float)
+        P.incl = cupy.asarray(inclination, dtype=np.float64)#.astype(float)
+        P.psi = cupy.asarray(psi, dtype=np.float64)#.astype(float)
+        P.dist = cupy.asarray(
+            (distance* 1.e6 * lalsimutils.lsu_PC),
+            dtype=np.float64,
+        )#.astype(float) # luminosity distance
 
-        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
-                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
-        return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
+        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(
+            tvals,
+            P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,
+            epochDict, Lmax=Lmax,
+        )
+        return cupy.asnumpy(
+            cupy.exp(lnLOffsetValue)*cupy.exp(lnL-lnLOffsetValue)
+        )
 else: # Sum over time for every point in other extrinsic params
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):

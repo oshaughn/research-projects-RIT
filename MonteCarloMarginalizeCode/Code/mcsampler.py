@@ -194,7 +194,7 @@ class MCSampler(object):
             cdf /= cdf[-1]
         # Interpolate the inverse
         return interpolate.interp1d(cdf, x_i)
-
+    @profile
     def draw(self, rvs, *args, **kwargs):
         """
         Draw a set of random variates for parameter(s) args. Left and right limits are handed to the function. If args is None, then draw *all* parameters. 'rdict' parameter is a boolean. If true, returns a dict matched to param name rather than list. rvs must be either a list of uniform random variates to transform for sampling, or an integer number of samples to draw.
@@ -208,8 +208,16 @@ class MCSampler(object):
             #
             # FIXME: UGH! Really? This was the most elegant thing you could come
             # up with?
-            rvs_tmp = [numpy.random.uniform(0,1,(len(p), int(rvs))) for p in map(lambda i: (i,) if not isinstance(i, tuple) else i, args)]
-            rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)], dtype=numpy.object)
+            rvs_tmp = [
+                numpy.random.uniform(0,1,(len(p), int(rvs)))
+                for p in
+                map(lambda i: (i,) if not isinstance(i, tuple) else i, args)
+            ]
+            rvs_tmp = numpy.array([
+                self.cdf_inv[param](*rv)
+                for (rv, param)
+                in zip(rvs_tmp, args)
+            ], dtype=numpy.object)
         else:
             rvs_tmp = numpy.array(rvs)
 
@@ -324,6 +332,7 @@ class MCSampler(object):
     # internal reference to them needs to be moved to a subclass which handles
     # the incovnenient part os doing the \int p/p_s L d\theta integral.
     #
+    @profile
     def integrate(self, func, *args, **kwargs):
         """
         Integrate func, by using n sample points. Right now, all params defined must be passed to args must be provided, but this will change soon.

@@ -122,7 +122,4 @@ def ComputeDetAMResponse(
         Y*xpy.inner(X, detector_response_matrix)
     ).sum(axis=-1)
 
-    F_plus_test = xpy.zeros(sample_shape, dtype=dtype_real)
-    F_cross_test = xpy.zeros(sample_shape, dtype=dtype_real)
-
     return F_plus + 1.0j*F_cross
