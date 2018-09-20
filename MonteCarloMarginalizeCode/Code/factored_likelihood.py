@@ -26,14 +26,20 @@ import lal
 import lalsimulation as lalsim
 import lalsimutils as lsu
 import numpy as np
-import cupy
+try:
+  import cupy
+  import optimized_gpu_tools
+  import Q_inner_product
+except:
+  print ' no cupy'
+  import numpy as cupy
+  optimized_gpu_tools=None
+  Q_inner_product=None
 from scipy import interpolate, integrate
 from scipy import special
 from itertools import product
 import math
 
-import optimized_gpu_tools
-import Q_inner_product
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
