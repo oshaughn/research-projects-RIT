@@ -15,6 +15,9 @@ extern "C" {
 
     /* Figure out which extrinsic sample number we're on. */
     size_t sample_idx = threadIdx.x + blockDim.x*blockIdx.x;
+    
+    // time index in the window for each sample
+    size_t t_idx = threadIdx.y + blockDim.y * blockIdx.y;
 
     /* Only do something if we're not out of bounds. */
     if (sample_idx < num_extrinsic_samples) {
@@ -27,7 +30,7 @@ extern "C" {
       size_t i_first_time = index_start[sample_idx];
 
       /* Iterate over the time window. */
-      for (size_t i_time = 0; i_time < window_size; ++i_time) {
+      for (size_t i_time = t_idx; i_time < window_size; i_time+=blockDim.y) {
         /* Determine the index we're going to output to. */
         size_t i_output = sample_idx*window_size + i_time;
 

@@ -20,9 +20,14 @@ def Q_inner_product_cupy(Q, A, start_indices, window_size):
     Q_prod_fn = mod.get_function("Q_inner")
 
     float_prec = 16
-    num_threads = 128
-    grid_size = num_threads, 0, 0
-    block_size = (num_extrinsic_samples+num_threads-1)//num_threads, 0, 0
+    num_threads_x = 4
+    num_threads_y = 1024 // 4
+    block_size = num_threads_x, num_threads_y, 0
+    grid_size = (
+        (num_extrinsic_samples+num_threads_x-1)//num_threads_x,
+        0,
+        0,
+    )
     args = (
         Q, A, start_indices, window_size,
         num_time_points, num_extrinsic_samples, num_lms,
@@ -30,7 +35,7 @@ def Q_inner_product_cupy(Q, A, start_indices, window_size):
     )
     Q_prod_fn(
         grid_size, block_size, args,
-        shared_mem=cupy.int32(num_threads*num_lms*float_prec),
+        shared_mem=cupy.int32(num_threads_x*num_lms*float_prec),
     )
 
     return out

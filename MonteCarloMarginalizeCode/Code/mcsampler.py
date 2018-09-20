@@ -8,6 +8,12 @@ from scipy import integrate, interpolate
 import itertools
 import functools
 
+import os
+
+if 'PROFILE' not in os.environ:
+   def profile(fn):
+        return fn
+
 try:
     import healpy
 except:
@@ -174,6 +180,30 @@ class MCSampler(object):
             cdf /= cdf[-1]
         # Interpolate the inverse
         return interpolate.interp1d( x_i,cdf)
+
+    def cdf_function_from_histogram(self, x):
+        """
+        Computes the CDF from a histogram at the points `x`.
+
+        Params
+        ------
+        x : array_like, shape = sample_shape
+
+        Returns
+        -------
+        P(x) : array_like, shape = sample_shape
+        """
+        float_indices = (x - self.x0) / self.dx
+        indices, fractions = self.xpy.modf(float_indices)
+
+        cdf_before = self.partial_cdfs[indices]
+        cdf_after = self.dx * fractions * (
+            self.bin_heights[indices] +
+            fractions * self.bin_deltas[indices]
+        )
+
+        return self.xpy.add(cdf_before, cdf_after, out=cdf_before)
+
 
     def cdf_inverse(self, param):
         """
@@ -393,6 +423,7 @@ class MCSampler(object):
         neff = kwargs["neff"] if kwargs.has_key("neff") else numpy.float128("inf")
         n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
         convergence_tests = kwargs["convergence_tests"] if kwargs.has_key("convergence_tests") else None
+	save_no_samples = kwargs["save_no_samples"]
 
 
         #
@@ -542,9 +573,10 @@ class MCSampler(object):
 
             # Calculate the effective samples via max over the current 
             # evaluations
-            maxval = [max(maxval, int_val[0]) if int_val[0] != 0 else maxval]
-            for v in int_val[1:]:
-                maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
+            maxval = max(maxval, int_val[0]) if int_val[0] != 0 else maxval
+            maxval = max(maxval,numpy.amax(int_val))
+            #for v in int_val[1:]:
+            #    maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
             # running variance
             var = cumvar(int_val, mean, var, int(self.ntotal))[-1]
@@ -554,7 +586,7 @@ class MCSampler(object):
             self.ntotal += n
             # FIXME: Likely redundant with int_val1
             mean = int_val1/self.ntotal
-            maxval = maxval[-1]
+            #maxval = maxval[-1]
 
             eff_samp = int_val1/maxval
 
@@ -588,10 +620,6 @@ class MCSampler(object):
             # FIXME: We need a better stopping condition here
             if self.ntotal > n_adapt:
                 continue
-
-            # FIXME: Hardcoding
-            #mixing_floor = 10**(-numpy.sqrt(ntotal))
-            #mixing_floor = 10**-50
 
             #
             # Iterate through each of the parameters, updating the sampling
@@ -655,7 +683,7 @@ class MCSampler(object):
         #   - find and remove samples with  lnL less than maxlnL - deltalnL (latter user-specified)
         #   - create the cumulative weights
         #   - find and remove samples which contribute too little to the cumulative weights
-        if "integrand" in self._rvs:
+        if (not save_no_samples) and ( "integrand" in self._rvs):
             self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
             # Step 1: Cut out any sample with lnL belw threshold
             indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1

@@ -46,13 +46,13 @@ def ParseStandardArguments():
     parser.add_argument("--d-max",default=10000,type=float,help="Maximum distance in Mpc")
 
     # Likelihood functions
-    parser.add_argument("--LikelihoodType_raw",default=True,action='store_true')
+    parser.add_argument("--LikelihoodType_raw",default=False,action='store_true')
     parser.add_argument("--LikelihoodType_MargPhi",default=False,action='store_true',help="Deprecated/disabled")
     parser.add_argument("--LikelihoodType_MargT",default=False,action='store_true',help="Deprecated/disabled")
     parser.add_argument("--LikelihoodType_MargTdisc",default=False,action='store_true',help="Deprecated/disabled")
     parser.add_argument("--LikelihoodType_MargTdisc_array",default=True,action='store_true',help="Default")
     parser.add_argument("--LikelihoodType_MargTdisc_array_vector",default=False,action='store_true',help="Use matrix operations to compute likelihood. Discrete....ViaArray is called. Inputs are scalars")
-    parser.add_argument("--LikelihoodType_vectorized",default=True,action='store_true',help="Use matrix operations to compute likelihood. Discrete....ViaArray is called. Inputs are vectors")
+    parser.add_argument("--LikelihoodType_vectorized",default=False,action='store_true',help="Use matrix operations to compute likelihood. Discrete....ViaArray is called. Inputs are vectors")
     parser.add_argument("--adapt-parameter", action='append',help = "Adapt in this parameter (ra, dec, tref, incl,dist,phi,psi)")
     parser.add_argument( "--adapt-beta", type=float,default=1)
     parser.add_argument("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
@@ -162,6 +162,7 @@ def ParseStandardArguments():
     parser.add_argument("--save-sampler-file", dest="points_file_base",default="sampler-output-file")
     parser.add_argument("--save-threshold-fraction", dest="points_threshold_match",type=float,default=0.0,help="Roughly speaking, target match for points to be returned.  In practice, all points with L> \sqrt{P}L_{max} are returned")
     parser.add_argument("--save-P",default=0.,type=float)
+    parser.add_argument("--save-no-samples",action='store_true', help='Do not save any samples at all. Prevent storing the samples in the low level loop, writing them, etc')
     parser.add_argument("--save-deltalnL",type=float, default=float("Inf"), 
                         help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
     parser.add_argument("--save-metadata", dest="force_store_metadata",action="store_true")
