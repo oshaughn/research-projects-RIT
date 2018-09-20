@@ -34,6 +34,7 @@ import math
 
 import optimized_gpu_tools
 import Q_inner_product
+import vectorized_lal_tools
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -929,6 +930,23 @@ def ComputeArrivalTimeAtDetector(det, RA, DEC, tref):
     # it shoud be automagically converted in the appropriate way
     return tref + lal.TimeDelayFromEarthCenter(detector.location, RA, DEC, tref)
 
+
+def ComputeArrivalTimeAtDetectorWithoutShift(det, RA, DEC, tref):
+    """
+    Function to compute the time of arrival at a detector
+    from the time of arrival at the geocenter.
+
+    'det' is a detector prefix string (e.g. 'H1')
+    'RA' and 'DEC' are right ascension and declination (in radians)
+    'tref' is the reference time at the geocenter.  It can be either a float (in which case the return is a float) or a GPSTime object (in which case it returns a GPSTime)
+    """
+    detector = lalsim.DetectorPrefixToLALDetector(det)
+    print detector, detector.location
+    # if tref is a float or a GPSTime object,
+    # it shoud be automagically converted in the appropriate way
+    return lal.TimeDelayFromEarthCenter(detector.location, RA, DEC, tref)
+
+
 # Create complex FD data that does not assume Hermitianity - i.e.
 # contains positive and negative freq. content
 # TIMING INFO: 
@@ -1443,6 +1461,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     # All arrays of length `npts_extrinsic`, except for `tref` which is a scalar
     RA = P_vec.phi.astype(np.float64)
     DEC = P_vec.theta.astype(np.float64)
+
     # geocenter time, stored as a scalar
     tref = P_vec.tref
     phiref = xpy.asarray(P_vec.phiref).astype(np.float64)
@@ -1450,6 +1469,17 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     psi = P_vec.psi.astype(np.float64)
     dist = xpy.asarray(P_vec.dist).astype(np.float64)
     distMpc = xpy.asarray(dist/(lal.PC_SI*1e6)).astype(np.float64)
+
+    # Won't need this after lalF is made vectorized, will just use RA,DEC names
+    # instead
+    RA_xpy = xpy.asarray(RA)
+    DEC_xpy = xpy.asarray(DEC)
+    psi_xpy = xpy.asarray(psi)
+
+    # Convert tref to greenwich mean sidereal time
+    greenwich_mean_sidereal_time_tref = xpy.asarray(
+        lal.GreenwichMeanSiderealTime(tref)
+    )
 
     # this is stored as a scalar
     deltaT = xpy.asarray(P_vec.deltaT).astype(np.float64)
@@ -1465,16 +1495,22 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     else:
         raise NotImplementedError("Backend not supported: {}".format(xpy))
 
-    for det in detectors:  # strings right now - need to change to make ufunc-able
+    # strings right now - need to change to make ufunc-able
+    for det in detectors:
+        # Compute the detector's location and response matrix
+        detector = lalsim.DetectorPrefixToLALDetector(det)
+        detector_location = xpy.asarray(detector.location)
+        detector_response = xpy.asarray(detector.response)
+
         # These do not depend on extrinsic params.
         # Arrays of shape (n_lms, n_lms).
         # Axis 0 corresponds to (l,m), and axis 1 corresponds to (l',m').
         U = xpy.asarray(ctUArrayDict[det])
         V = xpy.asarray(ctVArrayDict[det])
 
-        n_lms = len(U)
-
         lms = lookupNKDict[det]
+        n_lms = len(lms)
+
 
         # These do depend on extrinsic params
         # Array of shape (npts_extrinsic, n_lms,)
@@ -1484,18 +1520,26 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
         )
 
         # Array of shape (npts_extrinsic,)
-        F_vec = xpy.asarray(lalF(det, RA, DEC, psi, tref))
+        F_vec_old = xpy.asarray(lalF(det, RA, DEC, psi, tref))
+        F_vec_new = vectorized_lal_tools.ComputeDetAMResponse(
+            detector_response,
+            RA_xpy, DEC_xpy, psi_xpy,
+            greenwich_mean_sidereal_time_tref,
+        )
 
         # Scalar -- is constant for each IFO
         t_ref = xpy.asarray(epochDict[det])
 
-        # This is the GPS time at the detector, an array of shape (npts_extrinsic,)
-        t_det = xpy.asarray(lalT(det, RA, DEC, tref))
-
+        # This is the GPS time at the detector,
+        # an array of shape (npts_extrinsic,)
+        t_det = tref + vectorized_lal_tools.TimeDelayFromEarthCenter(
+            detector_location, RA_xpy, DEC_xpy,
+            greenwich_mean_sidereal_time_tref,
+        )
         tfirst = t_det + tvals[0]
 
         ifirst = (xpy.rint((tfirst-t_ref) / deltaT) + 0.5).astype(int)
-        ilast = ifirst + npts
+#        ilast = ifirst + npts
 
         Q = xpy.ascontiguousarray(xpy.asarray(rholmsArrayDict[det]).T)
         # # Note: Very inefficient, need to avoid making `Qlms` by doing the
