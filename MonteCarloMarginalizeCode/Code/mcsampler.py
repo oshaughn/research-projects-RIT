@@ -4,6 +4,7 @@ import bisect
 from collections import defaultdict
 
 import numpy
+import numpy as np
 from scipy import integrate, interpolate
 import itertools
 import functools
@@ -22,6 +23,8 @@ except:
 from statutils import cumvar
 
 from multiprocessing import Pool
+
+import vectorized_general_tools
 
 try:
     import vegas
@@ -103,6 +106,7 @@ class MCSampler(object):
 
         # histogram setup
         self.setup_hist()
+        self.xpy = numpy
 
 
     def clear(self):
@@ -164,6 +168,7 @@ class MCSampler(object):
             print "   Adapting ", params
             self.adaptive.append(params)
 
+
     def setup_hist(self):
         """
         Initializes dictionaries for all of the info that needs to be stored for
@@ -180,28 +185,18 @@ class MCSampler(object):
         self.histogram_cdf = {}
 
 
-    def compute_hist(self, x_samples, x_min, x_max, n_bins, param):
+    def setup_hist_single_param(self, x_min, x_max, n_bins, param):
         # Compute the range of allowed values.
         x_max_minus_min = x_max - x_min
-        # Rescale the samples to [0, 1]
-        y_samples = (x_samples - x_min) / x_max_minus_min
         # Compute the points at which the histogram will be evaluated, and store
         # the spacing used.
-        histogram_edges, dx = np.linspace(0.0, 1.0, n_bins, retstep=True)
-        # Evaluate the histogram at each of the bins.
-        histogram_values, _ = np.histogram(
-            y_samples, bins=histogram_edges, density=True,
+        histogram_edges, dx = self.xpy.linspace(
+            0.0, 1.0, n_bins+1,
+            retstep=True,
         )
-        # Evaluate the CDF by taking a cumulative sum of the histogram.
-        histogram_cdf = np.empty(
-            histogram_values.size+1, dtype=histogram_values.dtype,
-        )
-        np.cumsum(histogram_values, out=histogram_cdf[1:])
-        histogram_cdf *= dx
-        histogram_cdf[0] = 0.0
 
-        # Renormalize histogram.
-        histogram_values /= x_max_minus_min
+        # Initialize output array for CDF.
+        histogram_cdf = self.xpy.empty(n_bins+1, dtype=numpy.float64)
 
         # Store basic setup parameters
         self.x_min[param] = x_min
@@ -211,8 +206,29 @@ class MCSampler(object):
         self.n_bins[param] = n_bins
 
         self.histogram_edges[param] = histogram_edges
-        self.histogram_values[param] = histogram_values
         self.histogram_cdf[param] = histogram_cdf
+
+
+    def compute_hist(self, x_samples, param):
+        # Rescale the samples to [0, 1]
+        y_samples = (
+            (x_samples - self.x_min[param]) / self.x_max_minus_min[param]
+        )
+        # Evaluate the histogram at each of the bins.
+        histogram_values = vectorized_general_tools.histogram(
+            y_samples, self.n_bins[param],
+            xpy=self.xpy,
+        )
+        # Evaluate the CDF by taking a cumulative sum of the histogram.
+        self.xpy.cumsum(histogram_values, out=self.histogram_cdf[param][1:])
+        self.histogram_cdf[param] *= self.dx[param]
+        self.histogram_cdf[param][0] = 0.0
+
+        # Renormalize histogram.
+        histogram_values /= self.x_max_minus_min[param]
+
+        # Store histogram values.
+        self.histogram_values[param] = histogram_values
 
 
     def cdf_inverse_from_hist(self, P, param):
@@ -228,9 +244,10 @@ class MCSampler(object):
         # Rescale `x` to [0, 1].
         y = (x - self.x_min[param]) / self.x_max_minus_min[param]
         # Compute the indices of the histogram bins that `x` falls into.
-        indices = np.trunc(y / self.dx[param], out=y).astype(np.int32)
+        indices = self.xpy.trunc(y / self.dx[param], out=y).astype(np.int32)
         # Return the value of the histogram.
         return self.histogram_values[param][indices]
+
 
     def cdf_function(self, param):
         """
@@ -295,13 +312,61 @@ class MCSampler(object):
             cdf /= cdf[-1]
         # Interpolate the inverse
         return interpolate.interp1d(cdf, x_i)
+
     @profile
-    def draw(self, rvs, *args, **kwargs):
+    def draw_simplified(self, n_samples, *args, **kwargs):
+        if len(args) == 0:
+            args = self.params
+
+        n_params = len(args)
+
+        save_no_samples = kwargs.get("save_no_samples", False)
+
+        # Allocate memory.
+        rv = self.xpy.empty((n_params, n_samples), dtype=numpy.float64)
+        joint_p_s = self.xpy.ones(n_samples, dtype=numpy.float64)
+        joint_p_prior = self.xpy.ones(n_samples, dtype=numpy.float64)
+
+        # Iterate over the parameters.
+        for i, param in enumerate(args):
+            # Do inverse CDF sampling for the parameter.
+            unif_samples = self.xpy.random.uniform(0.0, 1.0, n_samples)
+            param_samples = self.cdf_inv[param](unif_samples)
+
+            # Store the random samples, and multiply on the contribution to the
+            # joint PDF and joint prior at those samples.
+            rv[i] = param_samples
+            joint_p_s *= self.pdf[param](param_samples)
+            joint_p_prior *= self.prior_pdf[param](param_samples)
+
+
+        #
+        # Cache the samples we chose
+        #
+        if not save_no_samples:
+            if len(self._rvs) == 0:
+               self._rvs = dict(zip(args, rv))
+            else:
+               rvs_tmp = dict(zip(args, rv))
+               #for p, ar in self._rvs.iteritems():
+               for p in self.params_ordered:
+                   self._rvs[p] = numpy.hstack((self._rvs[p], rvs_tmp[p]))
+
+
+        return joint_p_s, joint_p_prior, rv
+
+    #@profile
+    def draw(self, rvs, *args,**kwargs):
         """
         Draw a set of random variates for parameter(s) args. Left and right limits are handed to the function. If args is None, then draw *all* parameters. 'rdict' parameter is a boolean. If true, returns a dict matched to param name rather than list. rvs must be either a list of uniform random variates to transform for sampling, or an integer number of samples to draw.
         """
         if len(args) == 0:
             args = self.params
+
+        save_no_samples= False
+        if 'save_no_samples' in kwargs.keys():
+            save_no_samples = kwargs['save_no_samples']
+
 
         if isinstance(rvs, int) or isinstance(rvs, float):
             #
@@ -318,9 +383,7 @@ class MCSampler(object):
                 self.cdf_inv[param](*rv)
                 for (rv, param)
                 in zip(rvs_tmp, args)
-            ], dtype=numpy.object)
-        else:
-            rvs_tmp = numpy.array(rvs)
+            ], dtype=numpy.float64)
 
         # FIXME: ELegance; get some of that...
         # This is mainly to ensure that the array can be "splatted", e.g.
@@ -339,9 +402,10 @@ class MCSampler(object):
         #
         # Cache the samples we chose
         #
-        if len(self._rvs) == 0:
+        if not save_no_samples:
+         if len(self._rvs) == 0:
             self._rvs = dict(zip(args, rvs_tmp))
-        else:
+         else:
             rvs_tmp = dict(zip(args, rvs_tmp))
             #for p, ar in self._rvs.iteritems():
             for p in self.params_ordered:
@@ -456,6 +520,10 @@ class MCSampler(object):
 
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """
+        # Setup histogram data
+        n_bins = 100
+        for p in self.params_ordered:
+            self.setup_hist_single_param(self.llim[p], self.rlim[p], n_bins, p)
 
         #
         # Pin values
@@ -463,7 +531,7 @@ class MCSampler(object):
         tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
         temppdfnormdict = defaultdict(lambda: 1.0)
         for p, val in kwargs.iteritems():
-            if p in self.params_ordered:  
+            if p in self.params_ordered:
                 # Store the previous pdf/cdf in case it's already defined
                 tempcdfdict[p] = self.cdf_inv[p]
                 temppdfdict[p] = self.pdf[p]
@@ -553,19 +621,9 @@ class MCSampler(object):
             last_convergence_test = defaultdict(lambda: False)   # need record of tests to be returned always
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
-            p_s, p_prior, rv = self.draw(n, *self.params_ordered)  # keep in order
-
-#            print "Prior ",  type(p_prior[0]), p_prior[0]
-#            print "rv ",  type(rv[0]), rv[0]    # rv generally has dtype = object, to enable joint sampling with multid variables
-#            print "Sampling prior ", type(p_s[0]), p_s[0]  
-                        
-            # Calculate the overall p_s assuming each pdf is independent
-            joint_p_s = numpy.prod(p_s, axis=0)
-            joint_p_prior = numpy.prod(p_prior, axis=0)
-            joint_p_prior = numpy.array(joint_p_prior,dtype=numpy.float128)  # Force type. Some type issues have arisen (dtype=object returns by accident)
-
-#            print "Joint prior ",  type(joint_p_prior), joint_p_prior.dtype, joint_p_prior
-#            print "Joint sampling prior ", type(joint_p_s), joint_p_s.dtype
+            joint_p_s, joint_p_prior, rv = self.draw_simplified(
+                n, *self.params_ordered
+            )
 
             #
             # Prevent zeroes in the sampling prior
@@ -696,57 +754,76 @@ class MCSampler(object):
             # Iterate through each of the parameters, updating the sampling
             # prior PDF according to the 1-D marginalization
             #
+            def function_wrapper(f, p):
+                def inner(arg):
+                    return f(arg, p)
+                return inner
+
             for itr, p in enumerate(self.params_ordered):
-                # FIXME: The second part of this condition should be made more
-                # specific to pinned parameters
-                if p not in self.adaptive or p in kwargs.keys():
-                    continue
+                # # FIXME: The second part of this condition should be made more
+                # # specific to pinned parameters
+                # if p not in self.adaptive or p in kwargs.keys():
+                #     continue
+
                 points = self._rvs[p][-n_history:]
+                self.compute_hist(points, p)
+                self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
+                self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
+
 #                print "      Points", p, type(points),points.dtype
                 # use log weights or weights
-                if not temper_log:
-                    weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp_running
-                else:
-                    weights = numpy.max([1e-5,numpy.log(self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])])**tempering_exp_running
+#                 if not temper_log:
+#                     weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp_running
+#                 else:
+#                     weights = numpy.max([1e-5,numpy.log(self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])])**tempering_exp_running
 
-                if tempering_adapt:
-                    # have the adaptive exponent converge to 2/ln(w_max), ln (w)*alpha <= 2. This helps dynamic range
-                    # almost always dominated by the parameters we care about
-                    tempering_exp_running = 0.8 *tempering_exp_running + 0.2*(3./numpy.max([1,numpy.log(numpy.max(weights))]))
-                    if rosDebugMessages:
-                        print "     -  New adaptive exponent  ", tempering_exp_running, " based on max 1d weight ", numpy.max(weights), " based on parameter ", p
+#                 if tempering_adapt:
+#                     # have the adaptive exponent converge to 2/ln(w_max), ln (w)*alpha <= 2. This helps dynamic range
+#                     # almost always dominated by the parameters we care about
+#                     tempering_exp_running = 0.8 *tempering_exp_running + 0.2*(3./numpy.max([1,numpy.log(numpy.max(weights))]))
+#                     if rosDebugMessages:
+#                         print "     -  New adaptive exponent  ", tempering_exp_running, " based on max 1d weight ", numpy.max(weights), " based on parameter ", p
 
-#                print "      Weights",  type(weights),weights.dtype
-                self._hist[p], edges = numpy.histogram( points,
-                    bins = 100,
-                    range = (self.llim[p], self.rlim[p]),
-                    weights = weights,
-                    normed = True
-                )
-                # FIXME: numpy.hist can't normalize worth a damn
-                self._hist[p] /= self._hist[p].sum()
+# #                print "      Weights",  type(weights),weights.dtype
+#                 self._hist[p], edges = numpy.histogram( points,
+#                     bins = 100,
+#                     range = (self.llim[p], self.rlim[p]),
+#                     weights = weights,
+#                     normed = True
+#                 )
+#                 # FIXME: numpy.hist can't normalize worth a damn
+#                 self._hist[p] /= self._hist[p].sum()
 
-                # Mix with uniform distribution
-                self._hist[p] = (1-floor_integrated_probability)*self._hist[p] + numpy.ones(len(self._hist[p]))*floor_integrated_probability/len(self._hist[p])
-                if rosDebugMessages:
-                    print "         Weight entropy (after histogram) ", numpy.sum(-1*self._hist[p]*numpy.log(self._hist[p])), p
+#                 # Mix with uniform distribution
+#                 self._hist[p] = (1-floor_integrated_probability)*self._hist[p] + numpy.ones(len(self._hist[p]))*floor_integrated_probability/len(self._hist[p])
+#                 if rosDebugMessages:
+#                     print "         Weight entropy (after histogram) ", numpy.sum(-1*self._hist[p]*numpy.log(self._hist[p])), p
 
-                edges = [ (e0+e1)/2.0 for e0, e1 in zip(edges[:-1], edges[1:]) ]
-                edges.append( edges[-1] + (edges[-1] - edges[-2]) )
-                edges.insert( 0, edges[0] - (edges[-1] - edges[-2]) )
-                
-                # Dan's hisogram code
-                self.histogram_edges[p]=edges
-                self.histogram_values[p] = self.hist[p]
+#                 edges = [ (e0+e1)/2.0 for e0, e1 in zip(edges[:-1], edges[1:]) ]
+#                 edges.append( edges[-1] + (edges[-1] - edges[-2]) )
+#                 edges.insert( 0, edges[0] - (edges[-1] - edges[-2]) )
 
-                # FIXME: KS test probably has a place here. Not sure yet where.
-                #from scipy.stats import kstest
-                #d, pval = kstest(self._rvs[p][-n_history:], self.cdf[p])
-                #print p, d, pval
+#                 # Dan's hisogram code
+#                 self.histogram_edges[p]=edges
+#                 self.histogram_values[p] = self.hist[p]
 
-                self.pdf[p] = interpolate.interp1d(edges, [0] + list(self._hist[p]) + [0])
-                self.cdf[p] = self.cdf_function(p)
-                self.cdf_inv[p] = self.cdf_inverse(p)
+#                 # FIXME: KS test probably has a place here. Not sure yet where.
+#                 #from scipy.stats import kstest
+#                 #d, pval = kstest(self._rvs[p][-n_history:], self.cdf[p])
+#                 #print p, d, pval
+
+#                 # self.pdf[p] = interpolate.interp1d(edges, [0] + list(self._hist[p]) + [0])
+#                 # self.cdf[p] = self.cdf_function(p)
+#                 # self.cdf_inv[p] = self.cdf_inverse(p)
+
+
+# #                print "      Weights",  type(weights),weights.dtype
+#                 self._hist[p], edges = numpy.histogram( points,
+#                     bins = 100,
+#                     range = (self.llim[p], self.rlim[p]),
+#                     weights = weights,
+#                     normed = True
+#                 )
 
         # If we were pinning any values, undo the changes we did before
         self.cdf_inv.update(tempcdfdict)
