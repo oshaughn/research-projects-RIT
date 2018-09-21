@@ -734,6 +734,10 @@ class MCSampler(object):
                 edges = [ (e0+e1)/2.0 for e0, e1 in zip(edges[:-1], edges[1:]) ]
                 edges.append( edges[-1] + (edges[-1] - edges[-2]) )
                 edges.insert( 0, edges[0] - (edges[-1] - edges[-2]) )
+                
+                # Dan's hisogram code
+                self.histogram_edges[p]=edges
+                self.histogram_values[p] = self.hist[p]
 
                 # FIXME: KS test probably has a place here. Not sure yet where.
                 #from scipy.stats import kstest
