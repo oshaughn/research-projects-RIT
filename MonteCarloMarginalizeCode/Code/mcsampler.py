@@ -101,6 +101,10 @@ class MCSampler(object):
         # ASSUMES the user insures they are normalized
         self.prior_pdf = {}
 
+        # histogram setup
+        self.setup_hist()
+
+
     def clear(self):
         """
         Clear out the parameters and their settings, as well as clear the sample cache.
@@ -160,6 +164,73 @@ class MCSampler(object):
             print "   Adapting ", params
             self.adaptive.append(params)
 
+    def setup_hist(self):
+        """
+        Initializes dictionaries for all of the info that needs to be stored for
+        the histograms, across every parameter.
+        """
+        self.x_min = {}
+        self.x_max = {}
+        self.x_max_minus_min = {}
+        self.dx = {}
+        self.n_bins = {}
+
+        self.histogram_edges = {}
+        self.histogram_values = {}
+        self.histogram_cdf = {}
+
+
+    def compute_hist(self, x_samples, x_min, x_max, n_bins, param):
+        # Compute the range of allowed values.
+        x_max_minus_min = x_max - x_min
+        # Rescale the samples to [0, 1]
+        y_samples = (x_samples - x_min) / x_max_minus_min
+        # Compute the points at which the histogram will be evaluated, and store
+        # the spacing used.
+        histogram_edges, dx = np.linspace(0.0, 1.0, n_bins, retstep=True)
+        # Evaluate the histogram at each of the bins.
+        histogram_values, _ = np.histogram(
+            y_samples, bins=histogram_edges, density=True,
+        )
+        # Evaluate the CDF by taking a cumulative sum of the histogram.
+        histogram_cdf = np.empty(
+            histogram_values.size+1, dtype=histogram_values.dtype,
+        )
+        np.cumsum(histogram_values, out=histogram_cdf[1:])
+        histogram_cdf *= dx
+        histogram_cdf[0] = 0.0
+
+        # Renormalize histogram.
+        histogram_values /= x_max_minus_min
+
+        # Store basic setup parameters
+        self.x_min[param] = x_min
+        self.x_max[param] = x_max
+        self.x_max_minus_min[param] = x_max_minus_min
+        self.dx[param] = dx
+        self.n_bins[param] = n_bins
+
+        self.histogram_edges[param] = histogram_edges
+        self.histogram_values[param] = histogram_values
+        self.histogram_cdf[param] = histogram_cdf
+
+
+    def cdf_inverse_from_hist(self, P, param):
+        # Compute the value of the inverse CDF, but scaled to [0, 1].
+        y = np.interp(
+            P, self.histogram_cdf[param],
+            self.histogram_edges[param],
+        )
+        # Return the value in the original scaling.
+        return y*self.x_max_minus_min[param] + self.x_min[param]
+
+    def pdf_from_hist(self, x, param):
+        # Rescale `x` to [0, 1].
+        y = (x - self.x_min[param]) / self.x_max_minus_min[param]
+        # Compute the indices of the histogram bins that `x` falls into.
+        indices = np.trunc(y / self.dx[param], out=y).astype(np.int32)
+        # Return the value of the histogram.
+        return self.histogram_values[param][indices]
 
     def cdf_function(self, param):
         """
