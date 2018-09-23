@@ -310,10 +310,11 @@ else:
 
 eta_range = eval(opts.eta_range)
 
+print opts.group, opts.param
 for group in glist:
-  print opts.group, opts.param
   if not opts.param:
     for param in nrwf.internal_ParametersAvailable[group]:
+     print "  -> ", group, param
      try:
         wfP = nrwf.WaveformModeCatalog(group,param,metadata_only=True)
         wfP.P.deltaT = P.deltaT
@@ -332,12 +333,18 @@ for group in glist:
                 wfP.P.s1y = 0
                 wfP.P.s2y = 0
                 P_list_NR = P_list_NR + [wfP.P]
-                omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+                try:
+                    omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+                except:
+                    omega_list_NR+=[-1]
             elif opts.skip_overlap:
                 if not opts.aligned_only:
                     print " Adding generic sim; for layout only ", group, param
                     P_list_NR = P_list_NR + [wfP.P]
-                    omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+                    try:
+                        omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+                    except:
+                        omega_list_NR+=[-1]
                 elif opts.aligned_only and  wfP.P.SoftAlignedQ():
                     print " Adding aligned spin simulation; for layout only", group, param, " and fixing transverse spins accordingly"
                     wfP.P.s1x = 0
@@ -345,7 +352,10 @@ for group in glist:
                     wfP.P.s1y = 0
                     wfP.P.s2y = 0
                     P_list_NR = P_list_NR + [wfP.P]
-                    omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+                    try:
+                        omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+                    except:
+                        omega_list_NR+=[-1]
 
                     
             else:
@@ -354,6 +364,7 @@ for group in glist:
 #                print nrwf.internal_WaveformMetadata[group][param]
      except:
 	print " Failed to add ", group, param
+        
   else: # target case if a single group and parameter sequence are specified
         print "Looping over list ", opts.param
         for paramKey in opts.param:
@@ -367,7 +378,10 @@ for group in glist:
         wfP.P.deltaF = P.deltaF
         wfP.P.fmin = P.fmin
         P_list_NR = P_list_NR + [wfP.P]
-        omega_list_NR.append(nrwf.internal_WaveformMetadata[group][param]["Momega0"])
+        try:
+            omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+        except:
+            omega_list_NR+=[-1]
 
 
 if len(P_list_NR)<1:
@@ -411,6 +425,7 @@ mass_grid =np.linspace( mass_range[0],mass_range[1],opts.grid_cartesian_npts)
 # Loop over simulations and mass grid
 grid = []
 indx=-1
+print "Length check", len(P_list_NR), len(omega_list_NR)
 for P in P_list_NR:
     indx+=1
     Momega0_here = omega_list_NR[indx]
