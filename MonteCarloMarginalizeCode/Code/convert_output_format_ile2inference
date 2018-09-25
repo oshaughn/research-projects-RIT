@@ -51,7 +51,7 @@ if opts.export_extra_spins:
 # Add LI-style export
 if opts.convention == 'LI':
   import lalsimutils
-  print "# m1 m2 a1x a1y a1z a2x a2y a2z mc eta  ra dec time phiorb incl psi  distance Npts lnL p ps  mtotal q chi_eff chi_p",
+  print "# m1 m2 a1x a1y a1z a2x a2y a2z mc eta  ra dec time phiorb incl psi  distance Npts lnL p ps neff  mtotal q chi_eff chi_p",
   if opts.export_extra_spins:
       print 'thetaJN phi_jl tilt1 tilt2 costilt1 costilt2 phi12 a1 a2 psiJ',
   if opts.export_tides:
@@ -65,7 +65,11 @@ if opts.convention == 'LI':
     like = [row.alpha1 for row in points]  # hardcoded name
     p = [row.alpha2 for row in points]
     ps = [row.alpha3 for row in points]
-    Nmax = np.max([int(row.simulation_id) for row in points])+1
+    Nmax = np.max([int(row.simulation_id) for row in points])+1    # Nmax. Assumes NOT mixed samples.
+
+    wt = np.exp(like)*p/ps
+    neff_here = np.sum(wt)/np.max(wt)  # neff for this file.  Assumes NOT mixed samples: dangerous
+
 
     for indx in np.arange(len(points)):
         pt = points[indx]
@@ -102,7 +106,7 @@ if opts.convention == 'LI':
             pt.inclination, \
             pt.polarization, \
             pt.distance, \
-            Nmax, like[indx], p[indx],ps[indx], \
+            Nmax, like[indx], p[indx],ps[indx], neff_here, \
             mtot_here, pt.mass2/pt.mass1, \
             chieff_here,  \
             chip_here,
