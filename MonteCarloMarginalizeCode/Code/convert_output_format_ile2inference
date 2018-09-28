@@ -112,6 +112,7 @@ if opts.convention == 'LI':
             chip_here,
         if opts.export_extra_spins:
             P.incl = pt.inclination  # need inclination to calculate theta_jn
+            P.phiref=pt.coa_phase  # need coa_phase to calculate theta_jn ... this determines viewing angle
             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = P.extract_system_frame()
             print thetaJN, phiJL, theta1, theta2, np.cos(theta1), np.cos(theta2), phi12, chi1, chi2, psiJ,
         if opts.export_tides:
