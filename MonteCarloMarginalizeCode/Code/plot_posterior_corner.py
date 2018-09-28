@@ -136,7 +136,8 @@ remap_ILE_2_LI = {
   "cos_beta":"cosbeta",
   "beta":"beta",
   "LambdaTilde":"lambdat",
-  "DeltaLambdaTilde": "dlambdat"}
+  "DeltaLambdaTilde": "dlambdat",
+  "thetaJN":"theta_jn"}
 remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot'}
 
 
