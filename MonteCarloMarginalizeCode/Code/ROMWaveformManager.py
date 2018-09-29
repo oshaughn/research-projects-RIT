@@ -7,8 +7,10 @@ rosDebug = False
 import numpy as np
 import os, sys
 import gwsurrogate as gws
+print "  gwsurrogate: ",  gws.__file__
 try:
     import NRSur7dq2
+    print "  NRSur7dq2: ", NRSur7dq2.__version__, NRSur7dq2.__file__
 except:
     print " - no NRSur7dq2 - "
 
