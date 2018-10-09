@@ -90,6 +90,8 @@ optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumul
 optp.add_option("--n-chunk", type=int, help="Chunk'.",default=100)
 optp.add_option("--convergence-tests-on",default=False,action='store_true')
 optp.add_option("--adapt-floor-level", type=float,default=0.1,help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.0 (no floor)")
+optp.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
+optp.add_option("--no-adapt-distance", action="store_true", help="Turn off adaptive sampling, just for distance. Adaptive sampling is on by default.")
 optp.add_option("--adapt-weight-exponent", type=float,default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
 optp.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
 optp.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
@@ -225,6 +227,8 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid
         adapt_floor_level=opts.adapt_floor_level,
         adapt_weight_exponent=opts.adapt_weight_exponent,
         adapt_log=opts.adapt_log,
+        no_adapt=opts.no_adapt,
+        no_adapt_distance=opts.no_adapt_distance,
         adapt_adapt=opts.adapt_adapt,
         skymap_file=opts.skymap_file,
         d_max=opts.d_max,

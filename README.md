@@ -19,6 +19,9 @@ If you are working with this development repository, please try to add your name
  2. If you are using the surrogate-basis approach, please cite
      3. O'Shaughnessy, Blackman, Field 2017 [paper](http://adsabs.harvard.edu/abs/2017CQGra..34n4002O)
 
+ 3. If you are using a GPU-optimized version, please acknowledge
+     4.  O'Shaughnessy, Wysocki, Fong, Lange, Layton [in prep]
+
 
 ## Authorlists: Opt-in model
 Several aspects of this code are very actively developed.  We encourage  close collaboration with the lead developers (O'Shaughnessy and Lange) to produce the best possible results, particularly given comparatively rapid changes to the interface and pipeline in the past and planned for the future as the user- and developer-base expands.
@@ -32,7 +35,8 @@ This policy refers only to commits in this repository, and not to resources and 
 The following authors should be contacted 
   * O'Shaughnessy and Lange: Iterative pipeline, fitting and posterior generation code, external interfaces (EOB, surrogates)
   * Field, O'Shaughnessy, Blackman: Surrogate basis method 
+  * O'Shaughnessy, Wysocki, Fong, Lange, Layton: GPU optimizations
   * ...
 
 ## Relationship to version of rapid_pe in lalsuite
-Chris Pankow has also been maintaining a [port of the original rapid_pe as part of lalsuite](https://github.com/lscsoft/lalsuite/tree/master/lalinference/python/lalinference/rapid_pe). While this code is unreviewed and has many API and workflow differences, the underlying likelihood evaluation procedure is the same.  We hope to eventually merge the codebases, likely by modernizing the version in lalsuite and/or by ports of rapid_pe techniques to the next-generation PE code 'gwin'. 
+Chris Pankow has also been maintaining a [port of the original rapid_pe as part of lalsuite](https://github.com/lscsoft/lalsuite/tree/master/lalinference/python/lalinference/rapid_pe). While this code is unreviewed and has many API and workflow differences, the underlying likelihood evaluation procedure is the same.  We hope to eventually merge the codebases, likely by modernizing the version in lalsuite and/or by ports of rapid_pe techniques to next-generation PE codes.

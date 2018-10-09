@@ -82,6 +82,7 @@ parser.add_argument("--external-grid-txt", default=None, help="Cartesian grid. M
 parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing the base point (OR containing the reference XML grid to check against a database)")
 parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
 parser.add_argument("--fmin", default=10,type=float,help="Mininmum frequency in Hz, default is 40Hz to make short enough waveforms. Focus will be iLIGO to keep comutations short")
+parser.add_argument("--require-fmin-above-NR-start",action='store_true')
 parser.add_argument("--fmax",default=2000,type=float,help="Maximum frequency in Hz, used for PSD integral.")
 parser.add_argument("--mass1", default=35,type=float,help="Mass in solar masses")  # 150 turns out to be ok for Healy et al sims
 parser.add_argument("--mass2", default=35,type=float,help="Mass in solar masses")
@@ -299,6 +300,7 @@ if opts.inj and opts.insert_missing_spokes:
 ### Load in the NR simulation array metadata
 ###
 P_list_NR = []
+omega_list_NR=[]
 
 glist = []
 if opts.group:
@@ -308,10 +310,11 @@ else:
 
 eta_range = eval(opts.eta_range)
 
+print opts.group, opts.param
 for group in glist:
-  print opts.group, opts.param
   if not opts.param:
     for param in nrwf.internal_ParametersAvailable[group]:
+     print "  -> ", group, param
      try:
         wfP = nrwf.WaveformModeCatalog(group,param,metadata_only=True)
         wfP.P.deltaT = P.deltaT
@@ -330,10 +333,18 @@ for group in glist:
                 wfP.P.s1y = 0
                 wfP.P.s2y = 0
                 P_list_NR = P_list_NR + [wfP.P]
+                try:
+                    omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+                except:
+                    omega_list_NR+=[-1]
             elif opts.skip_overlap:
                 if not opts.aligned_only:
                     print " Adding generic sim; for layout only ", group, param
                     P_list_NR = P_list_NR + [wfP.P]
+                    try:
+                        omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+                    except:
+                        omega_list_NR+=[-1]
                 elif opts.aligned_only and  wfP.P.SoftAlignedQ():
                     print " Adding aligned spin simulation; for layout only", group, param, " and fixing transverse spins accordingly"
                     wfP.P.s1x = 0
@@ -341,6 +352,11 @@ for group in glist:
                     wfP.P.s1y = 0
                     wfP.P.s2y = 0
                     P_list_NR = P_list_NR + [wfP.P]
+                    try:
+                        omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+                    except:
+                        omega_list_NR+=[-1]
+
                     
             else:
                 print " Skipping non-aligned simulation because overlaps active (=SEOBNRv2 comparison usually)", group, param
@@ -348,6 +364,7 @@ for group in glist:
 #                print nrwf.internal_WaveformMetadata[group][param]
      except:
 	print " Failed to add ", group, param
+        
   else: # target case if a single group and parameter sequence are specified
         print "Looping over list ", opts.param
         for paramKey in opts.param:
@@ -361,6 +378,11 @@ for group in glist:
         wfP.P.deltaF = P.deltaF
         wfP.P.fmin = P.fmin
         P_list_NR = P_list_NR + [wfP.P]
+        try:
+            omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+        except:
+            omega_list_NR+=[-1]
+
 
 if len(P_list_NR)<1:
     print " No simulations"
@@ -389,9 +411,9 @@ if not opts.skip_overlap:  # aligned only!  Compare to SEOB
         param_names = ['mtot', 'q','s1z','s2z']
 else:
     if opts.mc_range:
-        param_names = ['mtot', 'q', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
-    else:
         param_names = ['mc', 'eta', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
+    else:
+        param_names = ['mtot', 'q', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
 
 mass_range =[]
 if opts.mc_range:
@@ -402,7 +424,11 @@ mass_grid =np.linspace( mass_range[0],mass_range[1],opts.grid_cartesian_npts)
 
 # Loop over simulations and mass grid
 grid = []
+indx=-1
+print "Length check", len(P_list_NR), len(omega_list_NR)
 for P in P_list_NR:
+    indx+=1
+    Momega0_here = omega_list_NR[indx]
 #    P.print_params()
     eta0 = P.extract_param('eta')   # prevent drift in mass ratio across the set if I change mc
     for M in mass_grid:
@@ -415,7 +441,10 @@ for P in P_list_NR:
         for param in param_names:
             newline = newline + [P.extract_param(param)]
 #        print newline
-        grid = grid+[ newline]
+        fstart_NR = Momega0_here/((P.extract_param('mtot')/(lal.MSUN_SI) ) *lalsimutils.MsunInSec*(np.pi))
+        if   fstart_NR < P.fmin or not opts.require_fmin_above_NR_start :
+            # only add mass point if a valid mass choice, given NR starting frequency.
+            grid = grid+[ newline]
 
 print " ---- DONE WITH GRID SETUP --- "
 print " grid points # = " ,len(grid)
