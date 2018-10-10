@@ -1688,7 +1688,7 @@ except:
         print " Numba off "
         # Very inefficient
         def lalylm(th,ph,s,l,m):
-p                return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
+                return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
         def lalF(det, RA, DEC,psi,tref):
                 if isinstance(RA, float):
                         return ComplexAntennaFactor(det, RA, DEC, psi,tref)
