@@ -38,7 +38,7 @@ import lalinspiral
 import lalmetaio
 
 from lalframe import frread
-from pylal import frutils
+#from pylal import frutils
 from pylal import series
 from pylal.series import read_psd_xmldoc
 #from lal.series import read_psd_xmldoc
@@ -3011,7 +3011,7 @@ def hoft_to_frame_data(fname, channel, hoft):
     return True
 
 
-def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
+def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0.,
         verbose=True):
     """
     Function to read in data in the frame format and convert it to 
@@ -3065,7 +3065,7 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
 
     return tmp
 
-def frame_data_to_hoft_new(fname, channel, start=None, stop=None, window_shape=0.,
+def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
         verbose=True):
     """
     Function to read in data in the frame format and convert it to 
@@ -3091,7 +3091,8 @@ def frame_data_to_hoft_new(fname, channel, start=None, stop=None, window_shape=0
     if verbose:
         print cachef.to_segmentlistdict()
         
-    tmp = frread.read_timeseries(cachef, channel, start=start,duration=(stop-start),datatype='REAL8')
+    duration = stop - start if None not in (start, stop) else None
+    tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose) #,datatype='REAL8')
     # Window the data - N.B. default is identity (no windowing)
     hoft_window = lal.CreateTukeyREAL8Window(tmp.data.length, window_shape)
     tmp.data.data *= hoft_window.data.data
