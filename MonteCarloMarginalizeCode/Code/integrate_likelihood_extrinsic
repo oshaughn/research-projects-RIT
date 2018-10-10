@@ -17,7 +17,7 @@ import lal
 from glue.ligolw import utils, lsctables, table, ligolw
 from glue.ligolw.utils import process
 import glue.lal
-import pylal
+#import pylal
 
 import lalsimutils
 import factored_likelihood
