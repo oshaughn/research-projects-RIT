@@ -37,11 +37,9 @@ import lalsimulation as lalsim
 import lalinspiral
 import lalmetaio
 
-from pylal import frutils
-#from pylal import series
-from pylal import seriesutils as series
+#from pylal import seriesutils as series
 from lal.series import read_psd_xmldoc
-import pylal
+from lalframe import frread
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -3060,7 +3058,7 @@ def hoft_to_frame_data(fname, channel, hoft):
     return True
 
 
-def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
+def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0.,
         verbose=True):
     """
     Function to read in data in the frame format and convert it to 
@@ -3113,6 +3111,41 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
     tmp.data.data *= hoft_window.data.data
 
     return tmp
+
+def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
+        verbose=True):
+    """
+    Function to read in data in the frame format and convert it to 
+    a REAL8TimeSeries. fname is the path to a LIGO cache file.
+
+    Applies a Tukey window to the data with shape parameter 'window_shape'.
+    N.B. if window_shape=0, the window is the identity function
+         if window_shape=1, the window becomes a Hann window
+         if 0<window_shape<1, the data will transition from zero to full
+            strength over that fraction of each end of the data segment.
+
+    Modified to rely on the lalframe read_timeseries function
+      https://github.com/lscsoft/lalsuite/blob/master/lalframe/python/lalframe/frread.py
+    """
+    if verbose:
+        print " ++ Loading from cache ", fname, channel
+    with open(fname) as cfile:
+        cachef = Cache.fromfile(cfile)
+    for i in range(len(cachef))[::-1]:
+        # FIXME: HACKHACKHACK
+        if cachef[i].observatory != channel[0]:
+            del cachef[i]
+    if verbose:
+        print cachef.to_segmentlistdict()
+        
+    duration = stop - start if None not in (start, stop) else None
+    tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose) #,datatype='REAL8')
+    # Window the data - N.B. default is identity (no windowing)
+    hoft_window = lal.CreateTukeyREAL8Window(tmp.data.length, window_shape)
+    tmp.data.data *= hoft_window.data.data
+
+    return tmp
+
 
 def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
         window_shape=0., verbose=True):
