@@ -79,6 +79,11 @@ import pickle
 
 import numpy as np
 
+try:
+    import cupy
+except:
+    print "No CuPy"
+
 from glue.lal import Cache
 from glue.ligolw import utils, lsctables, table, ligolw,  git_version
 from glue.ligolw.utils import process
@@ -794,7 +799,7 @@ rholms_intpArrayDict={}
 epochDict={}
 
 if  opts.LikelihoodType_raw:
-    print " ===> Likelihood model: raw, no time marginalization <== "
+    print " Likelihood; raw"
     def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance): # right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
         global nEvals
         global lnLOffsetValue
@@ -824,12 +829,11 @@ if  opts.LikelihoodType_raw:
         nEvals+=i 
         return np.exp(lnLOffsetValue)*np.exp(lnL - lnLOffsetValue)
 elif opts.LikelihoodType_MargTdisc_array_vector:
-    print " ===> Likelihood model: Discrete time marginalization, matrix multiplies <== "
+    print " Vectorized array"
     # Pack operation does it for each detector, so I need a loop
     for det in rholms_intp.keys():
-        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det],crossTermsV[det])
-#        print det, lookupKNDict[det], ctUArrayDict[det]
-#        print crossTerms[det]
+        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det])
+        print det, lookupKNDict[det]
 
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
@@ -862,69 +866,61 @@ elif opts.LikelihoodType_MargTdisc_array_vector:
             lnL[i] = factored_likelihood.DiscreteFactoredLogLikelihoodViaArray(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
             i+=1
-        
+
         nEvals +=i # len(tvals)  # go forward using length of tvals
         return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
 elif opts.LikelihoodType_vectorized:
-    print " ===> Likelihood model: Time marginalized, matrix multiplies, vectorized <== "
+    print " Using CUDA"
     # Pack operation does it for each detector, so I need a loop
     for det in rholms_intp.keys():
-        print " Packing ", det
-        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det],crossTermsV[det])
-#        print det, lookupKNDict[det]
-#        print crossTermsU[det], crossTermsV[det]
+        (
+            lookupNKDict[det], lookupKNDict[det], lookupKNconjDict[det],
+            ctUArrayDict[det], ctVArrayDict[det],
+            rholmArrayDict[det], rholms_intpArrayDict[det],
+            epochDict[det],
+        ) = factored_likelihood.PackLikelihoodDataStructuresAsArrays(
+            rholms[det].keys(), rholms_intp[det], rholms[det],
+            crossTerms[det],
+        )
 
+        lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
+        rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
+        ctUArrayDict[det] = cupy.asarray(ctUArrayDict[det])
+        ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
+        epochDict[det] = cupy.asarray(epochDict[det])
+
+        print det, lookupKNDict[det]
     print " Likelihood PASSING VECTORS DOWN - DEVELOPMENT CODE "
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
         global nEvals
         global lnLOffsetValue
-        # use EXTREMELY many bits
-        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
-        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-        P.phi = right_ascension.astype(float)  # cast to float
-        P.theta = declination.astype(float)
+        # choose an array at the target sampling rate. P is inherited globally
+        tvals = cupy.linspace(
+            tWindowExplore[0], tWindowExplore[1],
+            int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT),
+        )
+        P.phi = cupy.asarray(right_ascension, dtype=np.float64)#.astype(float)  # cast to float
+        P.theta = cupy.asarray(declination, dtype=np.float64)#.astype(float)
         P.tref = float(theEpochFiducial)
-        P.phiref = phi_orb.astype(float)
-        P.incl = inclination.astype(float)
-        P.psi = psi.astype(float)
-        P.dist = (distance* 1.e6 * lalsimutils.lsu_PC).astype(float) # luminosity distance
+        P.phiref = cupy.asarray(phi_orb, dtype=np.float64)#.astype(float)
+        P.incl = cupy.asarray(inclination, dtype=np.float64)#.astype(float)
+        P.psi = cupy.asarray(psi, dtype=np.float64)#.astype(float)
+        P.dist = cupy.asarray(
+            (distance* 1.e6 * lalsimutils.lsu_PC),
+            dtype=np.float64,
+        )#.astype(float) # luminosity distance
 
-        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
-                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
-        nEvals +=len(right_ascension)
-        return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
-elif opts.LikelihoodType_vectorized_noloops:
-    print " ===> Likelihood model: Time marginalized, matrix multiplies, vectorized, no loops <== "
-    # Pack operation does it for each detector, so I need a loop
-    for det in rholms_intp.keys():
-        print " Packing ", det
-        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det],crossTermsV[det])
-#        print det, lookupKNDict[det]
-#        print crossTermsU[det], crossTermsV[det]
-
-    print " Likelihood PASSING VECTORS DOWN - DEVELOPMENT CODE "
-    def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
-            psi, distance):
-        global nEvals
-        global lnLOffsetValue
-        # use EXTREMELY many bits
-        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
-        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-        P.phi = right_ascension.astype(float)  # cast to float
-        P.theta = declination.astype(float)
-        P.tref = float(theEpochFiducial)
-        P.phiref = phi_orb.astype(float)
-        P.incl = inclination.astype(float)
-        P.psi = psi.astype(float)
-        P.dist = (distance* 1.e6 * lalsimutils.lsu_PC).astype(float) # luminosity distance
-
-        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
-        nEvals +=len(right_ascension)
-        return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
-elif opts.LikelihoodType_MargTdisc_array: # Sum over time for every point in other extrinsic params
-    print " ===> Likelihood model: Time marginalized, but with for loops <== "
+        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(
+            tvals,
+            P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,
+            epochDict, Lmax=Lmax,
+        )
+        return cupy.asnumpy(
+            cupy.exp(lnLOffsetValue)*cupy.exp(lnL-lnLOffsetValue)
+        )
+else: # Sum over time for every point in other extrinsic params
+    print " Default: discrete time "
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
         global nEvals
@@ -960,9 +956,6 @@ elif opts.LikelihoodType_MargTdisc_array: # Sum over time for every point in oth
         
         nEvals +=i # len(tvals)  # go forward using length of tvals
         return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
-else:
-        print " ===> Likelihood model: ?? <== "
-        sys.exit(0)
 
 import mcsampler
 sampler = mcsampler.MCSampler()
@@ -1054,13 +1047,14 @@ pinned_params.update({"n": opts.nskip, "nmax": opts.nmax, "neff": opts.neff, "fu
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1-D histograms
     "n_adapt": 100, # Number of chunks to allow adaption over
     "igrand_threshold_deltalnL": opts.save_deltalnL, # Threshold on distance from max L to save sample
-    "igrand_threshold_p": opts.save_P # Threshold on cumulative probability contribution to cache sample
+    "igrand_threshold_p": opts.save_P, # Threshold on cumulative probability contribution to cache sample
+    "save_no_samples": opts.save_no_samples
 
 })
 print " Params ", pinned_params
 res, var,  neff , dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
-if opts.rotate_sky_coordinates:
+if (not opts.save_no_samples) and opts.rotate_sky_coordinates:
         tmpTheta = np.zeros(len(sampler._rvs["declination"]))
         tmpPhi = np.zeros(len(sampler._rvs["declination"]))
         tmpThetaOut = np.zeros(len(sampler._rvs["declination"]))
@@ -1072,13 +1066,13 @@ if opts.rotate_sky_coordinates:
         sampler._rvs["declination"] = np.pi/2 - tmpThetaOut
         sampler._rvs["right_ascension"] = np.mod(tmpPhiOut, 2*np.pi)
 
-
-print sampler._rvs.keys()
-field_names = ['m1', 'm2', 'ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'p', 'ps', 'lnL']   # FIXME: Modify to use record array, so not hardcoding fields
-retNew = [P.m1/lalsimutils.lsu_MSUN*np.ones(len(sampler._rvs['right_ascension'])), P.m2/lalsimutils.lsu_MSUN*np.ones(len(sampler._rvs['right_ascension'])), sampler._rvs["right_ascension"], sampler._rvs['declination'],sampler._rvs['t_ref'], sampler._rvs['phi_orb'],sampler._rvs['inclination'], sampler._rvs['psi'],  sampler._rvs['distance'], sampler._rvs["joint_prior"], sampler._rvs["joint_s_prior"],np.log(sampler._rvs["integrand"])]
-retNew = map(list, zip(*retNew))
-ret = np.array(retNew)
-retNiceIndexed = np.array(np.reshape(ret,-1)).view(dtype=zip(field_names, ['float64']*len(field_names))).copy()  # Nice record array, use for recording outuput without screwing up column indexing.  Reshape makes sure the arrays returned are 1d.  Silly syntax.
+if not opts.save_no_samples:
+  print sampler._rvs.keys()
+  field_names = ['m1', 'm2', 'ra','dec', 'tref', 'phi', 'incl', 'psi', 'dist', 'p', 'ps', 'lnL']   # FIXME: Modify to use record array, so not hardcoding fields
+  retNew = [P.m1/lalsimutils.lsu_MSUN*np.ones(len(sampler._rvs['right_ascension'])), P.m2/lalsimutils.lsu_MSUN*np.ones(len(sampler._rvs['right_ascension'])), sampler._rvs["right_ascension"], sampler._rvs['declination'],sampler._rvs['t_ref'], sampler._rvs['phi_orb'],sampler._rvs['inclination'], sampler._rvs['psi'],  sampler._rvs['distance'], sampler._rvs["joint_prior"], sampler._rvs["joint_s_prior"],np.log(sampler._rvs["integrand"])]
+  retNew = map(list, zip(*retNew))
+  ret = np.array(retNew)
+  retNiceIndexed = np.array(np.reshape(ret,-1)).view(dtype=zip(field_names, ['float64']*len(field_names))).copy()  # Nice record array, use for recording outuput without screwing up column indexing.  Reshape makes sure the arrays returned are 1d.  Silly syntax.
 #ret = np.array(retNew)
 
 tGPSEnd = lal.GPSTimeNow()
@@ -1102,8 +1096,9 @@ print "   - Time per neff             ", float(tGPSEnd-tGPSStart)/neff
 # Save the sampled points to a file
 # Only store some
 fnameBase = opts.points_file_base
-retSorted = ret[ np.argsort(ret[:,-1])]
-ourio.dumpSamplesToFile(fnameBase+"-points.dat", retSorted, field_names) 
+if not opts.save_no_samples:
+ retSorted = ret[ np.argsort(ret[:,-1])]
+ ourio.dumpSamplesToFile(fnameBase+"-points.dat", retSorted, field_names) 
 #sampArray = Psig.list_params()  # Eventually, make this used. Note odd structure in list
 #np.savetxt(fnameBase+"-params.dat", np.array(sampArray))
 #print " Parameters : ", sampArray
@@ -1111,7 +1106,7 @@ ourio.dumpSamplesToFile(fnameBase+'-result.dat', np.array([[res, np.sqrt(var), n
 #np.savetxt(fnameBase+'-result.dat', [res, np.sqrt(var), ntotal])   # integral, std dev,  total number of points. Be SURE we do not lose precision!
 #np.savetxt(fnameBase+'-dump-lnLmarg.dat',lnLmarg[::opts.nskip])  # only print output periodically -- otherwise far too large files!
 
-if neff > 5 or opts.force_store_metadata:  # A low threshold but not completely implausible.  Often we are not clueless 
+if not opts.save_no_samples and (neff > 5 or opts.force_store_metadata):  # A low threshold but not completely implausible.  Often we are not clueless 
     print "==== Computing and saving metadata for future runs: <base>-seed-data.dat ====="
     print " Several effective points producted; generating metadata file "
     if neff < 20:
@@ -1161,7 +1156,7 @@ if opts.inj:
 
 
 # Save the outputs in CP's format, for comparison.  NOT YET ACTIVE CODE -- xmlutils has a bug on master (lacking terms in dictionary)
-if  True: # opts.points_file_base:
+if not opts.save_no_samples: # opts.points_file_base:
     print "==== Exporting to xml: <base>.xml.gz ====="
     xmldoc = ligolw.Document()
     xmldoc.appendChild(ligolw.LIGO_LW())
