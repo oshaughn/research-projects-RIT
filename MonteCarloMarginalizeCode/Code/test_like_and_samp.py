@@ -687,7 +687,7 @@ except:
 #   WARNING: Using default values for inverse spectrum truncation (True) and inverse spectrun truncation time (8s) from ourparams.py
 #                     ILE adopts a different convention.  ROS old development branch has yet another approach (=set during PSD reading).
 #
-rholms_intp, crossTerms, crossTermsV, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,ignore_threshold=opts.opt_SkipModeThreshold,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime,NR_group=opts.NR_template_group,NR_param=opts.NR_template_param,use_external_EOB=opts.use_external_EOB,ROM_group=opts.ROM_template_group,ROM_param=opts.ROM_template_group)
+rholms_intp, crossTerms, crossTermsV, rholms, rest = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q,ignore_threshold=opts.opt_SkipModeThreshold,inv_spec_trunc_Q=opts.psd_TruncateInverse,T_spec=opts.psd_TruncateInverseTime,NR_group=opts.NR_template_group,NR_param=opts.NR_template_param,use_external_EOB=opts.use_external_EOB,ROM_group=opts.ROM_template_group,ROM_param=opts.ROM_template_group)
 
 
 epoch_post = theEpochFiducial # Suggested change.  BE CAREFUL: Now that we trim the series, this is NOT what I used to be
@@ -784,7 +784,17 @@ if opts.rotate_sky_coordinates:  # FIXME: should also test that both theta, phi 
 # Uses the (already-allocated) template structure "P" structure *only* to pass parameters.  All parameters used should be specified.
 #
 nEvals = 0
-if not opts.LikelihoodType_MargTdisc_array:
+lookupNKDict = {}
+lookupKNDict={}
+lookupKNconjDict={}
+ctUArrayDict = {}
+ctVArrayDict={}
+rholmArrayDict={}
+rholms_intpArrayDict={}
+epochDict={}
+
+if  opts.LikelihoodType_raw:
+    print " ===> Likelihood model: raw, no time marginalization <== "
     def likelihood_function(right_ascension, declination, t_ref, phi_orb, inclination, psi, distance): # right_ascension, declination, t_ref, phi_orb, inclination, psi, distance):
         global nEvals
         global lnLOffsetValue
@@ -807,13 +817,114 @@ if not opts.LikelihoodType_MargTdisc_array:
             P.incl = float(ic) # inclination
             P.psi = ps # polarization angle
             P.dist = float(di*1e6*lalsimutils.lsu_PC) # luminosity distance.  The sampler assumes Mpc; P requires SI
-            lnL[i] = factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms, crossTermsV, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
+            lnL[i] = factored_likelihood.FactoredLogLikelihood(P, rholms, rholms_intp, crossTerms, crossTermsV, Lmax)#+ np.log(pdfFullPrior(ph, th, tr, ps, ic, ps, di))
             i+=1
 
 
         nEvals+=i 
         return np.exp(lnLOffsetValue)*np.exp(lnL - lnLOffsetValue)
-else: # Sum over time for every point in other extrinsic params
+elif opts.LikelihoodType_MargTdisc_array_vector:
+    print " ===> Likelihood model: Discrete time marginalization, matrix multiplies <== "
+    # Pack operation does it for each detector, so I need a loop
+    for det in rholms_intp.keys():
+        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det],crossTermsV[det])
+#        print det, lookupKNDict[det], ctUArrayDict[det]
+#        print crossTerms[det]
+
+    def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
+            psi, distance):
+        global nEvals
+        global lnLOffsetValue
+        # use EXTREMELY many bits
+        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
+        i = 0
+#        if opts.rotate_sky_coordinates:
+#            print "   -Sky ring width ", np.std(declination), " note contribution from floor is of order p_floor*(pi)/sqrt(12) ~ 0.9 pfloor"
+#            print "   -RA width", np.std(right_ascension)
+#            print "   -Distance width", np.std(distance)
+
+        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+        for ph, th, phr, ic, ps, di in zip(right_ascension, declination,
+                phi_orb, inclination, psi, distance):
+            if opts.rotate_sky_coordinates: 
+                th,ph = rotate_sky_backwards(np.pi/2 - th,ph)
+                th = np.pi/2 - th
+                ph = np.mod(ph, 2*np.pi)
+
+            P.phi = float(ph) # right ascension
+            P.theta = float(th) # declination
+            P.tref = float(theEpochFiducial)  # see 'tvals', above
+            P.phiref = float(phr) # ref. orbital phase
+            P.incl = float(ic) # inclination
+            P.psi = float(ps) # polarization angle
+            P.dist = float(di* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
+
+            lnL[i] = factored_likelihood.DiscreteFactoredLogLikelihoodViaArray(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
+            i+=1
+        
+        nEvals +=i # len(tvals)  # go forward using length of tvals
+        return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
+elif opts.LikelihoodType_vectorized:
+    print " ===> Likelihood model: Time marginalized, matrix multiplies, vectorized <== "
+    # Pack operation does it for each detector, so I need a loop
+    for det in rholms_intp.keys():
+        print " Packing ", det
+        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det],crossTermsV[det])
+#        print det, lookupKNDict[det]
+#        print crossTermsU[det], crossTermsV[det]
+
+    print " Likelihood PASSING VECTORS DOWN - DEVELOPMENT CODE "
+    def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
+            psi, distance):
+        global nEvals
+        global lnLOffsetValue
+        # use EXTREMELY many bits
+        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
+        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+        P.phi = right_ascension.astype(float)  # cast to float
+        P.theta = declination.astype(float)
+        P.tref = float(theEpochFiducial)
+        P.phiref = phi_orb.astype(float)
+        P.incl = inclination.astype(float)
+        P.psi = psi.astype(float)
+        P.dist = (distance* 1.e6 * lalsimutils.lsu_PC).astype(float) # luminosity distance
+
+        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
+        nEvals +=len(right_ascension)
+        return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
+elif opts.LikelihoodType_vectorized_noloops:
+    print " ===> Likelihood model: Time marginalized, matrix multiplies, vectorized, no loops <== "
+    # Pack operation does it for each detector, so I need a loop
+    for det in rholms_intp.keys():
+        print " Packing ", det
+        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det],crossTermsV[det])
+#        print det, lookupKNDict[det]
+#        print crossTermsU[det], crossTermsV[det]
+
+    print " Likelihood PASSING VECTORS DOWN - DEVELOPMENT CODE "
+    def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
+            psi, distance):
+        global nEvals
+        global lnLOffsetValue
+        # use EXTREMELY many bits
+        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
+        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+        P.phi = right_ascension.astype(float)  # cast to float
+        P.theta = declination.astype(float)
+        P.tref = float(theEpochFiducial)
+        P.phiref = phi_orb.astype(float)
+        P.incl = inclination.astype(float)
+        P.psi = psi.astype(float)
+        P.dist = (distance* 1.e6 * lalsimutils.lsu_PC).astype(float) # luminosity distance
+
+        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
+        nEvals +=len(right_ascension)
+        return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
+elif opts.LikelihoodType_MargTdisc_array: # Sum over time for every point in other extrinsic params
+    print " ===> Likelihood model: Time marginalized, but with for loops <== "
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
             psi, distance):
         global nEvals
@@ -849,6 +960,9 @@ else: # Sum over time for every point in other extrinsic params
         
         nEvals +=i # len(tvals)  # go forward using length of tvals
         return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
+else:
+        print " ===> Likelihood model: ?? <== "
+        sys.exit(0)
 
 import mcsampler
 sampler = mcsampler.MCSampler()

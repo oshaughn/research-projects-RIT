@@ -23,6 +23,7 @@ import numpy as np
 import numpy.lib.recfunctions
 import scipy
 import scipy.stats
+import scipy.special
 import lalsimutils
 import lalsimulation as lalsim
 import lalframe
@@ -30,10 +31,16 @@ import lal
 import functools
 import itertools
 
+from sklearn.externals import joblib  # http://scikit-learn.org/stable/modules/model_persistence.html
+
 no_plots = True
 internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
 
+C_CGS=2.997925*10**10 # Argh, Monica!
+ 
 try:
+    import matplotlib
+    matplotlib.use('agg')  # prevent requests for DISPLAY
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
     import matplotlib.lines as mlines
@@ -171,6 +178,7 @@ parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
+parser.add_argument("--fname-output-integral",default="integral_result",help="output filename for integral result. Postfixes appended")
 parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
 parser.add_argument("--fref",default=20,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz)")
 parser.add_argument("--fmin",type=float,default=20)
@@ -180,6 +188,7 @@ parser.add_argument("--desc-lalinference",type=str,default='',help="String to ad
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
+#parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
@@ -187,14 +196,26 @@ parser.add_argument("--trust-sample-parameter-box",action='store_true', help="If
 parser.add_argument("--plots-do-not-force-large-range",action='store_true', help = "If used, the plots do NOT automatically set the chieff range to [-1,1], the eta range to [0,1/4], etc")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
-parser.add_argument("--no-downselect",action='store_true')
+parser.add_argument("--no-downselect",action='store_true',help='Prevent using downselection on output points' )
+parser.add_argument("--no-downselect-grid",action='store_true',help='Prevent using downselection on input points. Applied only to mc range' )
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
+parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
 parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help="Applies volumetric prior internally, and then reweights at end step to get uniform spin magnitude prior")
+parser.add_argument("--pseudo-uniform-magnitude-prior-alternate-sampling", action='store_true',help="Changes the internal sampling to be gaussian, not volumetric")
+parser.add_argument("--pseudo-gaussian-mass-prior",action='store_true', help="Applies a gaussian mass prior in postprocessing. Done via reweighting so we can use arbitrary mass sampling coordinates.")
+parser.add_argument("--pseudo-gaussian-mass-prior-mean",default=1.33,type=float, help="Mean value for reweighting")
+parser.add_argument("--pseudo-gaussian-mass-prior-std",default=0.09, type=float,help="Width for reweighting")
 parser.add_argument("--mirror-points",action='store_true',help="Use if you have many points very near equal mass (BNS). Doubles the number of points in the fit, each of which has a swapped m1,m2")
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
+parser.add_argument("--chi-small-max", default=None,type=float,help="Maximum range of 'a' allowed on the smaller body.  If not specified, defaults to chi_max")
+parser.add_argument("--chiz-plus-range", default=None,help="USE WITH CARE: If you are using chiz_minus, chiz_plus for a near-equal-mass system, then setting the chiz-plus-range can improve convergence (e.g., for aligned-spin systems), loosely by setting a chi_eff range that is allowed")
+parser.add_argument("--lambda-max", default=4000,type=float,help="Maximum range of 'Lambda' allowed.  Minimum value is ZERO, not negative.")
+parser.add_argument("--lambda-small-max", default=None,type=float,help="Maximum range of 'Lambda' allowed for smaller body. If provided and smaller than lambda_max, used ")
+parser.add_argument("--lambda-plus-max", default=None,type=float,help="Maximum range of 'Lambda_plus' allowed.  Used for sampling. Pick small values to accelerate sampling! Otherwise, use lambda-max.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
+parser.add_argument("--lnL-shift-prevent-overflow",default=None,type=float,help="Define this quantity to be a large positive number to avoid overflows. Note that we do *not* define this dynamically based on sample values, to insure reproducibility and comparable integral results. BEWARE: If you shift the result to be below zero, because the GP relaxes to 0, you will get crazy answers.")
 parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset")
 parser.add_argument("--lnL-offset-n-random",type=int,default=0,help="Add this many random points past the threshold")
 parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]")
@@ -212,27 +233,65 @@ parser.add_argument("--fit-uses-reported-error",action='store_true')
 parser.add_argument("--fit-uses-reported-error-factor",type=float,default=1,help="Factor to add to standard deviation of fit, before adding to lnL. Multiplies number fitting dimensions")
 parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
+parser.add_argument("--fail-unless-n-eff",default=None,type=int,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
+parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP fit to load. Overrides fitting process, but user MUST correctly specify coordinate system to interpret the fit with.  Does not override loading and converting the data.")
+parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP fit to save. ")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 parser.add_argument("--no-plots",action='store_true')
-parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS if not already determined in lnL")
+parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not) ")
+parser.add_argument("--no-use-lal-eos",action='store_true',help="Do not use LAL EOS interface. Used for spectral EOS. Do not use this.")
+parser.add_argument("--no-matter1", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
+parser.add_argument("--no-matter2", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
+parser.add_argument("--protect-coordinate-conversions", action='store_true', help="Adds an extra layer to coordinate conversions with range tests. Slows code down, but adds layer of safety for out-of-range EOS parameters for example")
+parser.add_argument("--source-redshift",default=0,type=float,help="Source redshift (used to convert from source-frame mass [integration limits] to arguments of fitting function.  Note that if nonzero, integration done in SOURCE FRAME MASSES, but the fit is calculated using DETECTOR FRAME")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
+parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
 opts=  parser.parse_args()
 no_plots = no_plots |  opts.no_plots
+lnL_shift = 0
+if opts.lnL_shift_prevent_overflow:
+    lnL_shift  = opts.lnL_shift_prevent_overflow
+
+source_redshift=opts.source_redshift
+
 
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
 if opts.using_eos!=None:
     import EOSManager
     eos_name=opts.using_eos
+    if opts.verbose:
+        print " Using EOS ", eos_name, opts.eos_param, opts.eos_param_values
 
     if opts.eos_param == 'spectral':
         # Will not work yet -- need to modify to parse command-line arguments
-        lalsim_spec_param=spec_param/(C_CGS**2)*7.42591549*10**(-25)
-        np.savetxt("lalsim_eos/"+eos_name+"_spec_param_geom.dat", np.c_[lalsim_spec_param[:,1], lalsim_spec_param[:,0]])
-        my_eos=lalsim.SimNeutronStarEOSFromFile(path+"/lalsim_eos/"+eos_name+"_spec_param_geom.dat")
+        spec_param_packed=eval(opts.eos_param_values) # two lists: first are 'fixed' and second are specific
+        fixed_param_array=spec_param_packed[0]
+        spec_param_array=spec_param_packed[1]
+        spec_params ={}
+        spec_params['gamma1']=spec_param_array[0]
+        spec_params['gamma2']=spec_param_array[1]
+        # not used anymore: p0, epsilon0 set by the LI interface
+        spec_params['p0']=fixed_param_array[0]   
+        spec_params['epsilon0']=fixed_param_array[1]
+        spec_params['xmax']=fixed_param_array[2]
+        if len(spec_param_array) <3:
+            spec_params['gamma3']=spec_params['gamma4']=0
+        else:
+            spec_params['gamma3']=spec_param_array[2]
+            spec_params['gamma4']=spec_param_array[3]
+        eos_base = EOSManager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
+#        eos_vals = eos_base.make_spec_param_eos(npts=500)
+#        lalsim_spec_param = eos_vals/(C_CGS**2)*7.42591549*10**(-25) # argh, Monica!
+#        np.savetxt("lalsim_eos/"+eos_name+"_spec_param_geom.dat", np.c_[lalsim_spec_param[:,1], lalsim_spec_param[:,0]])
+#        my_eos=lalsim.SimNeutronStarEOSFromFile(path+"/lalsim_eos/"+eos_name+"_spec_param_geom.dat")
+        my_eos=eos_base
+    elif 'lal_' in eos_name:
+        eos_name = eos_name.replace('lal_','')
+        my_eos = EOSManager.EOSLALSimulation(name=eos_name)
     else:
         my_eos = EOSManager.EOSFromDataFile(name=eos_name,fname =EOSManager.dirEOSTablesBase+"/" + eos_name+".dat")
 
@@ -349,8 +408,20 @@ for indx in np.arange(len(dlist_ranges)):
 
 
 chi_max = opts.chi_max
+chi_small_max = chi_max
+if not opts.chi_small_max is None:
+    chi_small_max = opts.chi_small_max
+lambda_max=opts.lambda_max
+lambda_small_max  = lambda_max
+if not  (opts.lambda_small_max is None):
+    lambda_small_max = opts.lambda_small_max
+lambda_plus_max = opts.lambda_max
+if opts.lambda_plus_max:
+    lambda_plus_max  = opts.lambda_max
 downselect_dict['chi1'] = [0,chi_max]
-downselect_dict['chi2'] = [0,chi_max]
+downselect_dict['chi2'] = [0,chi_small_max]
+downselect_dict['lambda1'] = [0,lambda_max]
+downselect_dict['lambda2'] = [0,lambda_small_max]
 for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
     downselect_dict[param] = [-chi_max,chi_max]
 # Enforce definition of eta
@@ -363,6 +434,31 @@ if opts.no_downselect:
 test_converged={}
 #test_converged['neff'] = functools.partial(mcsampler.convergence_test_MostSignificantPoint,0.01)  # most significant point less than 1/neff of probability.  Exactly equivalent to usual neff threshold.
 #test_converged["normal_integral"] = functools.partial(mcsampler.convergence_test_NormalSubIntegrals, 25, 0.01, 0.1)   # 20 sub-integrals are gaussian distributed [weakly; mainly to rule out outliers] *and* relative error < 10%, based on sub-integrals . Should use # of intervals << neff target from above.  Note this sets our target error tolerance on  lnLmarg.  Note the specific test requires >= 20 sub-intervals, which demands *very many* samples (each subintegral needs to be converged).
+###
+### Parameters in use
+###
+
+coord_names = opts.parameter # Used  in fit
+if coord_names is None:
+    coord_names = []
+low_level_coord_names = coord_names # Used for Monte Carlo
+if opts.parameter_implied:
+    coord_names = coord_names+opts.parameter_implied
+if opts.parameter_nofit:
+    if opts.parameter is None:
+        low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
+    else:
+        low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
+error_factor = len(coord_names)
+if opts.fit_uses_reported_error:
+    error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
+# TeX dictionary
+tex_dictionary = lalsimutils.tex_dictionary
+print " Coordinate names for fit :, ", coord_names
+print " Rendering coordinate names : ",  render_coordinates(coord_names)  # map(lambda x: tex_dictionary[x], coord_names)
+print " Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names)
+print " Coordinate names for Monte Carlo :, ", low_level_coord_names
+print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_level_coord_names)
 
 
 ###
@@ -371,7 +467,7 @@ test_converged={}
 
 # mcmin, mcmax : to be defined later
 def M_prior(x):  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
-    return x/(mc_max-mc_min)
+    return 2*x/(mc_max**2-mc_min**2)
 def q_prior(x):
     return 1./(1+x)**2  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
 def m1_prior(x):
@@ -379,34 +475,56 @@ def m1_prior(x):
 def m2_prior(x):
     return 1./200
 def s1z_prior(x):
-    return 1./2
+    return 1./(2*chi_max)
 def s2z_prior(x):
-    return 1./2
+    return 1./(2*chi_max)
 def mc_prior(x):
-    return x/(mc_max-mc_min)
-def eta_prior(x):
-    return 1./np.power(x,6./5.)/np.power(1-4.*x, 0.5)/1.44
-def delta_mc_prior(x):
+    return 2*x/(mc_max**2-mc_min**2)
+def unscaled_eta_prior_cdf(eta_min):
+    """
+    cumulative for integration of x^(-6/5)(1-4x)^(-1/2) from eta_min to 1/4.
+    Used to normalize the eta prior
+    Derivation in mathematica:
+       Integrate[ 1/\[Eta]^(6/5) 1/Sqrt[1 - 4 \[Eta]], {\[Eta], \[Eta]min, 1/4}]
+    """
+    return  2**(2./5.) *np.sqrt(np.pi)*scipy.special.gamma(-0.2)/scipy.special.gamma(0.3) + 5*scipy.special.hyp2f1(-0.2,0.5,0.8, 4*eta_min)/(eta_min**(0.2))
+def eta_prior(x,norm_factor=1.44):
+    """
+    eta_prior returns the eta prior. 
+    Change norm_factor by the output 
+    """
+    return 1./np.power(x,6./5.)/np.power(1-4.*x, 0.5)/norm_factor
+def delta_mc_prior(x,norm_factor=1.44):
     """
     delta_mc = sqrt(1-4eta)  <-> eta = 1/4(1-delta^2)
     Transform the prior above
     """
     eta_here = 0.25*(1 -x*x)
-    return 2./np.power(eta_here, 6./5.)/1.44
+    return 2./np.power(eta_here, 6./5.)/norm_factor
 
 def m_prior(x):
     return 1/(1e3-1.)  # uniform in mass, use a square.  Should always be used as m1,m2 in pairs. Note this does NOT restrict m1>m2.
 
 def xi_uniform_prior(x):
     return np.ones(x.shape)
-def s_component_uniform_prior(x):  # If all three are used, a volumetric prior
-    return np.ones(x.shape)/2.
+def s_component_uniform_prior(x,R=chi_max):  # If all three are used, a volumetric prior
+    return np.ones(x.shape)/(2.*R)
+def s_component_gaussian_prior(x,R=chi_max/3.):
+    """
+    (proportinal to) prior on range in one-dimensional components, in a cartesian domain.
+    Could be useful to sample densely near zero spin.
+    [Note: we should use 'truncnorm' instead...]
+    """
+    xp = np.array(x,dtype=float)
+    val= scipy.stats.truncnorm(-chi_max/R,chi_max/R,scale=R).pdf(xp)  # stupid casting problem : x is dtype 'object'
+    return val
 
 def s_component_zprior(x,R=chi_max):
     # assume maximum spin =1. Should get from appropriate prior range
     # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
     val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
     return val
+
 
 def s_component_volumetricprior(x,R=1.):
     # assume maximum spin =1. Should get from appropriate prior range
@@ -421,50 +539,68 @@ def s_component_aligned_volumetricprior(x,R=1.):
     return (3./4.*(1- np.power(x/R,2))/R)
 
 def lambda_prior(x):
-    return np.ones(x.shape)/4000.   # assume arbitrary
+    return np.ones(x.shape)/lambda_max   # assume arbitrary
+def lambda_small_prior(x):
+    return np.ones(x.shape)/lambda_small_max   # assume arbitrary
 
 
 # DO NOT USE UNLESS REQUIRED FOR COMPATIBILITY
 def lambda_tilde_prior(x):
-    return np.ones(x.shape)/5000.   # 0,4000
+    return np.ones(x.shape)/opts.lambda_max   # 0,4000
 def delta_lambda_tilde_prior(x):
     return np.ones(x.shape)/1000.   # -500,500
 
+def gaussian_mass_prior(x,mu=0,sigma=1):
+    return np.exp( - 0.5*(x-mu)**2/sigma**2)/np.sqrt(2*np.pi*sigma**2)
 
-prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s1z_prior, "s2z":s2z_prior, "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
+
+
+prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
-    's2x':s_component_uniform_prior,
+    's2x':functools.partial(s_component_uniform_prior, R=chi_small_max),
     's1y':s_component_uniform_prior,
-    's2y':s_component_uniform_prior,
+    's2y': functools.partial(s_component_uniform_prior, R=chi_small_max),
     'chiz_plus':s_component_uniform_prior,
     'chiz_minus':s_component_uniform_prior,
     'm1':m_prior,
     'm2':m_prior,
     'lambda1':lambda_prior,
-    'lambda2':lambda_prior,
+    'lambda2':lambda_small_prior,
+    'lambda_plus': lambda_prior,
+    'lambda_minus': lambda_prior,
     'LambdaTilde':lambda_tilde_prior,
     'DeltaLambdaTilde':delta_lambda_tilde_prior,
 }
-prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_max,0.999*chi_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
+prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_small_max,0.999*chi_small_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
    's1x':[-chi_max,chi_max],
-   's2x':[-chi_max,chi_max],
+   's2x':[-chi_small_max,chi_small_max],
    's1y':[-chi_max,chi_max],
-   's2y':[-chi_max,chi_max],
+   's2y':[-chi_small_max,chi_small_max],
   'chiz_plus':[-chi_max,chi_max],   # BEWARE BOUNDARIES
   'chiz_minus':[-chi_max,chi_max],
   'm1':[0.9,1e3],
   'm2':[0.9,1e3],
-  'lambda1':[0.01,4000],
-  'lambda2':[0.01,4000],
+  'lambda1':[0.01,lambda_max],
+  'lambda2':[0.01,lambda_small_max],
+  'lambda_plus':[0.01,lambda_plus_max],
+  'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
 }
+if not (opts.chiz_plus_range is None):
+    print " Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range
+    prior_range_map['chiz_plus']=eval(opts.chiz_plus_range)
 
 if not (opts.eta_range is None):
     print " Warning: Overriding default eta range. USE WITH CARE"
-    prior_range_map['eta'] = eval(opts.eta_range)  # really only useful if eta is a coordinate.  USE WITH CARE
+    eta_range=prior_range_map['eta'] = eval(opts.eta_range)  # really only useful if eta is a coordinate.  USE WITH CARE
     prior_range_map['delta_mc'] = np.sqrt(1-4*np.array(prior_range_map['eta']))[::-1]  # reverse
+
+    # change eta range normalization factors to match prior range on eta
+    norm_factor = unscaled_eta_prior_cdf(eta_range[0]) - unscaled_eta_prior_cdf(eta_range[1])
+    prior_map['eta'] = functools.partial(eta_prior, norm_factor=norm_factor)
+    prior_map['delta_mc'] = functools.partial(delta_mc_prior, norm_factor=norm_factor)
 
 ###
 ### Modify priors, as needed
@@ -474,17 +610,39 @@ if not (opts.eta_range is None):
 if opts.aligned_prior == 'alignedspin-zprior':
     # prior on s1z constructed to produce the standard distribution
     prior_map["s1z"] = s_component_zprior
-    prior_map["s2z"] = s_component_zprior
+    prior_map["s2z"] = functools.partial(s_component_zprior,R=chi_small_max)
+    if  'chiz_plus' in low_level_coord_names:
+        if opts.spin_prior_chizplusminus_alternate_sampling is 'alignedspin_zprior':
+            # just a  trick to make reweighting more efficient.
+            prior_map['chiz_plus'] = s_component_zprior
+            prior_map['chiz_minus'] = s_component_zprior
+        else:
+            prior_map['chiz_plus'] = s_component_gaussian_prior
+            prior_map['chiz_minus'] = s_component_gaussian_prior
+
 
 
 if opts.aligned_prior == 'volumetric':
     prior_map["s1z"] = s_component_aligned_volumetricprior
     prior_map["s2z"] = s_component_aligned_volumetricprior
 
+if opts.pseudo_uniform_magnitude_prior and opts.pseudo_uniform_magnitude_prior_alternate_sampling:
+    prior_map['s1x'] = s_component_gaussian_prior
+    prior_map['s2x'] = s_component_gaussian_prior
+    prior_map['s1y'] = s_component_gaussian_prior
+    prior_map['s2y'] = s_component_gaussian_prior
+    if 's1z' in low_level_coord_names:
+        prior_map['s1z'] = s_component_gaussian_prior
+        prior_map['s2z'] = s_component_gaussian_prior
+    elif 'chiz_plus' in low_level_coord_names:  # because of rotated coordinate system. This matches in interior
+        print " CODE PATH NOT YET WORKING "
+        sys.exit(0)
+        prior_map['chiz_plus'] = s_component_gaussian_prior #lambda x: s_component_gaussian_prior(x, R=chi_max/3.)
+        prior_map['chiz_minus'] = s_component_gaussian_prior #lambda x: s_component_gaussian_prior(x, R=chi_max/3.) 
+#        prior_map['s1z'] = s_component_gaussian_prior
+#        prior_map['s2z'] = s_component_gaussian_prior
 
 
-# TeX dictionary
-tex_dictionary = lalsimutils.tex_dictionary
 # tex_dictionary  = {
 #  "mtot": '$M$',
 #  "mc": '${\cal M}_c$',
@@ -588,10 +746,18 @@ def adderr(y):
     val,err = y
     return val+error_factor*err
 
-def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False):
+def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,fname_export="gp_fit"):
     """
     x = array so x[0] , x[1], x[2] are points.
     """
+
+    # If we are loading a fit, override everything else
+    if opts.fit_load_gp:
+        print " WARNING: Do not re-use fits across architectures or versions : pickling is not transferrable "
+        my_gp=joblib.load(opts.fit_load_gp)
+        if opts.protect_coordinate_conversions:
+            return lalsimutils.RangeProtectReduce(lambda x: my_gp.predict(x), -np.inf)
+        return lambda x:my_gp.predict(x)
 
     # Amplitude: 
     #   - We are fitting lnL.  
@@ -626,7 +792,13 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False)
 
         print  " Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y) 
 
+        if opts.fit_save_gp:
+            print " Attempting to save fit ", opts.fit_save_gp+".pkl"
+            joblib.dump(gp,opts.fit_save_gp+".pkl")
+        
         if not (opts.fit_uncertainty_added):
+            if opts.protect_coordinate_conversions:
+                return lalsimutils.RangeProtectReduce( (lambda x: gp.predict(x) ), -np.inf)
             return lambda x: gp.predict(x)
         else:
             return lambda x: adderr(gp.predict(x,return_std=True))
@@ -667,25 +839,6 @@ def fit_gp_pool(x,y,n_pool=10,**kwargs):
 
 
 
-coord_names = opts.parameter # Used  in fit
-if coord_names is None:
-    coord_names = []
-low_level_coord_names = coord_names # Used for Monte Carlo
-if opts.parameter_implied:
-    coord_names = coord_names+opts.parameter_implied
-if opts.parameter_nofit:
-    if opts.parameter is None:
-        low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
-    else:
-        low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
-error_factor = len(coord_names)
-if opts.fit_uses_reported_error:
-    error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
-print " Coordinate names for fit :, ", coord_names
-print " Rendering coordinate names : ",  render_coordinates(coord_names)  # map(lambda x: tex_dictionary[x], coord_names)
-print " Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names)
-print " Coordinate names for Monte Carlo :, ", low_level_coord_names
-print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_level_coord_names)
 
 # initialize
 dat_mass  = [] 
@@ -730,7 +883,9 @@ mc_max = -1
 mc_index = -1 # index of mchirp in parameter index. To help with nonstandard GP
 mc_cut_range = [-np.inf, np.inf] 
 if opts.mc_range:
-    mc_cut_range = eval(opts.mc_range)  # throw out samples outside this range
+    mc_cut_range = eval(opts.mc_range)  # throw out samples outside this range.
+    if opts.source_redshift>0:
+        mc_cut_range =np.array(mc_cut_range)*(1+opts.source_redshift)  # prevent stupidity in grid selection
 print " Stripping samples outside of ", mc_cut_range, " in mc"
 P= lalsimutils.ChooseWaveformParams()
 for line in dat:
@@ -749,7 +904,7 @@ for line in dat:
   if line[col_lnL] < opts.lnL_cut:
       continue  # strip worthless points.  DANGEROUS
   mc_here = lalsimutils.mchirp(line[1],line[2])
-  if mc_here < mc_cut_range[0] or mc_here > mc_cut_range[1]:
+  if  (not opts.no_downselect_grid) and (mc_here < mc_cut_range[0] or mc_here > mc_cut_range[1]):
       if False and opts.verbose:
           print "Stripping because sample outside of target  mc range ", line
       continue
@@ -897,7 +1052,7 @@ my_fit= None
 if opts.fit_method == "quadratic":
     print " FIT METHOD ", opts.fit_method, " IS QUADRATIC"
     X=X[indx_ok]
-    Y=Y[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
@@ -928,7 +1083,7 @@ if opts.fit_method == "quadratic":
 elif opts.fit_method == "polynomial":
     print " FIT METHOD ", opts.fit_method, " IS POLYNOMIAL"
     X=X[indx_ok]
-    Y=Y[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
@@ -945,7 +1100,7 @@ elif opts.fit_method == 'gp_hyper':
     # some data truncation IS used for the GP, but beware
     print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
     X=X[indx_ok]
-    Y=Y[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
@@ -962,7 +1117,7 @@ elif opts.fit_method == 'gp':
     # some data truncation IS used for the GP, but beware
     print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
     X=X[indx_ok]
-    Y=Y[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
@@ -979,7 +1134,7 @@ elif opts.fit_method == 'gp-pool':
     # some data truncation IS used for the GP, but beware
     print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
     X=X[indx_ok]
-    Y=Y[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
@@ -1021,10 +1176,11 @@ if not no_plots:
 ###
 if not opts.using_eos:
  def convert_coords(x_in):
-    return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names)
+    return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift)
 else:
  def convert_coords(x_in):
-    return lalsimutils.convert_waveform_coordinates_using_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos)
+    x_out = lalsimutils.convert_waveform_coordinates_with_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,no_matter1=opts.no_matter1, no_matter2=opts.no_matter2,source_redshift=source_redshift)
+    return x_out
 
 ###
 ### Integrate posterior
@@ -1068,7 +1224,6 @@ if len(low_level_coord_names) ==2:
         if isinstance(x,float):
             return np.exp(my_fit([x,y]))
         else:
-#            return np.exp(my_fit(convert_coords(np.array([x,y],dtype=internal_dtype).T)))
             return np.exp(my_fit(convert_coords(np.c_[x,y])))
 if len(low_level_coord_names) ==3:
     def likelihood_function(x,y,z):  
@@ -1082,7 +1237,6 @@ if len(low_level_coord_names) ==4:
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a]))
         else:
-#            return np.exp(my_fit(convert_coords(np.array([x,y,z,a],dtype=internal_dtype).T)))
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a])))
 if len(low_level_coord_names) ==5:
     def likelihood_function(x,y,z,a,b):  
@@ -1131,9 +1285,31 @@ print " Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.
 
 res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
+# Test n_eff threshold
+if not (opts.fail_unless_n_eff is None):
+    if neff < opts.fail_unless_n_eff:
+        print " FAILURE: n_eff too small"
+        sys.exit(1)
 
 # Save result -- needed for odds ratios, etc.
-np.savetxt("integral_result.dat", [np.log(res)])
+#   Warning: integral_result.dat uses *original* prior, before any reweighting
+np.savetxt(opts.fname_output_integral+".dat", [np.log(res)])
+eos_extra = []
+annotation_header = "lnL sigmaL neff "
+if opts.using_eos:
+    eos_extra = [opts.using_eos]
+    annotation_header += 'eos_name '
+    if opts.eos_param == 'spectral':
+        # Should also 
+        my_eos_params = my_eos.spec_params
+        eos_extra += map( lambda x: str(my_eos_params[x]), ["gamma1", "gamma2", "gamma3", "gamma4", "p0", "epsilon0", "xmax"])
+#        eos_extra += opts.eos_param
+        annotation_header += "gamma1 gamma2 gamma3 gamma4 p0 epsilon0 xmax"
+with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
+    str_out = map(str,[np.log(res), np.sqrt(var)/res, neff])
+    file_out.write("# " + annotation_header + "\n")
+    file_out.write(' '.join( str_out + eos_extra + ["\n"]))
+#np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 
 if neff < len(low_level_coord_names):
     print " PLOTS WILL FAIL "
@@ -1175,35 +1351,100 @@ weights = np.exp(lnL-lnLmax)*p/ps
 #     ONLY done if we use s1x, s1y, s1z, s2x, s2y, s2z
 # volumetric prior scales as a1^2 a2^2 da1 da2; we need to undo it
 if opts.pseudo_uniform_magnitude_prior and 's1x' in samples.keys() and 's1z' in samples.keys():
+    prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s1x','s1y','s1z'] ],axis=0)
     val = np.array(samples["s1z"]**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype)
     chi1 = np.sqrt(val)  # weird typecasting problem
-    weights *= 3.*chi_max*chi_max/(chi1*chi1)
+    weights *= 3.*chi_max*chi_max/(chi1*chi1*prior_weight)   # prior_weight accounts for the density, in cartesian coordinates
+    weights[ chi1>chi_max] =0
     if 's2z' in samples.keys():
+        prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s2x','s2y','s2z'] ],axis=0)
         val = np.array(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype)
         chi2= np.sqrt(val)
-#        chi2 = np.sqrt(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2)
-        weights *= 3.*chi_max*chi_max/(chi2*chi2)
-elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys():
+        weights[ chi2>chi_small_max] =0
+        weights *= 3.*chi_small_max*chi_small_max/(chi2*chi2*prior_weight)
+elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys() and not opts.pseudo_uniform_magnitude_prior_alternate_sampling:
+    # Uniform sampling: simple volumetric reweight
     s1z  = samples['chiz_plus'] + samples['chiz_minus']
     s2z  = samples['chiz_plus'] - samples['chiz_minus']
     val1 = np.array(s1z**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype); chi1 = np.sqrt(val1)
     val2 = np.array(s2z**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype); chi2= np.sqrt(val2)
-    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_max)
+    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_small_max)
     weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
-    weights[indx_ok] *= 9.*(chi_max**4)/(chi1*chi1*chi2*chi2)[indx_ok]
+    weights[indx_ok] *= 9.*(chi_max**2 * chi_small_max**2)/(chi1*chi1*chi2*chi2)[indx_ok]
+elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys() and not opts.pseudo_uniform_magnitude_prior_alternate_sampling:
+    s1z  = samples['chiz_plus'] + samples['chiz_minus']
+    s2z  = samples['chiz_plus'] - samples['chiz_minus']
+    val1 = np.array(s1z**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype); chi1 = np.sqrt(val1)
+    val2 = np.array(s2z**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype); chi2= np.sqrt(val2)
+    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_small_max)
+    weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
+    prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s1x','s1y', 's2x', 's2y','chiz_plus','chiz_minus'] ],axis=0)
+    weights[indx_ok] *= 9.*(chi_max**2  * chi_small_max**2)/(chi1*chi1*chi2*chi2)[indx_ok]/prior_weight[indx_ok]  # undo chizplus, chizminus prior
     
 
 # If we are using alignedspin-zprior AND chiz+, chiz-, then we need to reweight .. that prior cannot be evaluated internally
 # Prevent alignedspin-zprior from being used when transverse spins are present ... no sense!
 # Note we need to downslelect early in this case
 if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  and (not 's1x' in samples.keys()):
+    prior_weight = np.prod([prior_map[x](samples[x]) for x in ['chiz_plus','chiz_minus'] ],axis=0)
     s1z  = samples['chiz_plus'] + samples['chiz_minus']
     s2z  =samples['chiz_plus'] - samples['chiz_minus']
     indx_ok = np.logical_and(np.abs(s1z)<=chi_max , np.abs(s2z)<=chi_max)
     weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
-    weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(4*chi_max*chi_max)  # correct for uniform
-        
+    weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(prior_weight[indx_ok])  # correct for uniform
 
+if opts.pseudo_gaussian_mass_prior:
+    # mass normalization (assuming mc, eta limits are bounds - as is invariably the case)
+    mass_area = 0.5*(mc_max**2 - mc_min**2)*(unscaled_eta_prior_cdf(eta_range[0]) - unscaled_eta_prior_cdf(eta_range[1]))
+    # Extract m1 and m2, i solar mass units
+    m1 = np.zeros(len(weights))
+    m2 = np.zeros(len(weights))
+    for indx in np.arange(len(weights)):
+        P=lalsimutils.ChooseWaveformParams()
+        for indx_name in np.arange(len(low_level_coord_names)):
+            p = low_level_coord_names[indx_name]
+            # Do not bother to scale by solar masses, only to undo it later
+            P.assign_param(p, samples[p][indx])
+        m1[indx] = P.extract_param('m1')
+        m2[indx] = P.extract_param('m2')
+    # For speed, do this transformation to mass coordinates by hand rather than the usual loop
+    # m1=None
+    # m2=None
+    # if 'm1' in samples.keys():  # will never happen
+    #     m1 = samples['m1']
+    #     m2 = samples['m2']
+    # elif 'mc' in samples.keys():  #almost always true
+    #     mc = samples['mc']
+    #     eta = None
+    #     if 'eta' in samples.keys():
+    #         eta = samples['eta']
+    #     elif 'delta_mc' in samples.keys():
+    #         eta = np.array(0.25*(1-samples['delta_mc']**2)) # see definition
+    #     else:
+    #         print " Failed transformation "
+    #         sys.exit(0)
+    #     print type(mc), type(eta)
+    #     m1 = lalsimutils.mass1(mc,eta)
+    #     m2 = lalsimutils.mass2(mc,eta)
+    # else:
+    #     print " Failed transformation"
+    #     sys.exit(0)
+    # Reormalize mass region. Note normalizatoin issue introduced: no boundaries in mass region used to rescale.
+    weights *= mass_area*gaussian_mass_prior( m1, opts.pseudo_gaussian_mass_prior_mean,opts.pseudo_gaussian_mass_prior_std)*gaussian_mass_prior( m2, opts.pseudo_gaussian_mass_prior_mean,opts.pseudo_gaussian_mass_prior_std)
+
+
+# Integral result v2: using modified prior. 
+# Note also downselects NOT applied: no range cuts, unless applied as part of aligned_prior, etc.  
+#   - use for Bayes factors with GREAT CARE for this reason; should correct for with indx_ok
+log_res_reweighted = lnLmax + np.log(np.mean(weights))
+sigma_reweighted= np.std(weights,dtype=np.float128)/np.mean(weights)
+neff_reweighted = np.sum(weights)/np.max(weights)
+np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [log_res_reweighted])  # should agree with the usual result, if no prior changes
+with open(opts.fname_output_integral+"_withpriorchange+annotation.dat", 'w') as file_out:
+    str_out = map(str,[log_res_reweighted, sigma_reweighted, neff])
+    file_out.write("# " + annotation_header + "\n")
+    file_out.write(' '.join( str_out + eos_extra + ["\n"]))
+#np.savetxt(opts.fname_output_integral+"_withpriorchange+annotation.dat", np.array([[log_res_reweighted,sigma_reweighted, neff]]),header=eos_extra)
 
 # Load in reference parameters
 Pref = lalsimutils.ChooseWaveformParams()
@@ -1290,7 +1531,8 @@ dat_mass = np.zeros( (len(lnL),len(low_level_coord_names)),dtype=np.float64)
 dat_mass_LI = []
 if opts.fname_lalinference:
     dat_mass_LI = np.zeros( (len(samples_LI), len(low_level_coord_names)), dtype=np.float64)
-for indx in np.arange(len(low_level_coord_names)):
+if not no_plots:
+  for indx in np.arange(len(low_level_coord_names)):
     dat_mass[:,indx] = samples[low_level_coord_names[indx]]
     if opts.fname_lalinference and low_level_coord_names[indx] in remap_ILE_2_LI.keys() :
 #        tmp = extract_combination_from_LI[samples_LI, low_level_coord_names[indx]]
@@ -1313,7 +1555,8 @@ for indx in np.arange(len(low_level_coord_names)):
 CIs = [0.95,0.9, 0.68]
 quantiles_1d = [0.05,0.95]
 range_here = []
-for p in low_level_coord_names:
+if not no_plots:
+  for p in low_level_coord_names:
 #    print p, prior_range_map[p]
     range_here.append(prior_range_map[p])
     if (range_here[-1][1] < np.mean(samples[p])+2*np.std(samples[p])  ):
@@ -1384,7 +1627,8 @@ if not no_plots:
 print " ---- Subset for posterior samples (and further corner work) --- " 
 
 # pick random numbers
-p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=opts.n_output_samples)
+p_threshold_size = np.min([5*opts.n_output_samples,len(weights)])
+p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=p_threshold_size)#opts.n_output_samples)
 if opts.verbose:
     print " output size: selected thresholds N=", len(p_thresholds)
 # find sample indexes associated with the random numbers
@@ -1438,9 +1682,6 @@ for indx_here in indx_list:
         Pgrid.phaseO =-1
                         
             
-#        if opts.verbose:
-#            Pgrid.print_params()
-
         # Downselect.
         # for param in downselect_dict:
         #     if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
@@ -1462,7 +1703,8 @@ for indx_here in indx_list:
  ###
  ### Export data
  ###
-lalsimutils.ChooseWaveformParams_array_to_xml(P_list,fname=opts.fname_output_samples,fref=P.fref)
+n_output_size = np.min([len(P_list),opts.n_output_samples])
+lalsimutils.ChooseWaveformParams_array_to_xml(P_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
 lnL_list = np.array(lnL_list,dtype=internal_dtype)
 np.savetxt(opts.fname_output_samples+"_lnL.dat", lnL_list)
 

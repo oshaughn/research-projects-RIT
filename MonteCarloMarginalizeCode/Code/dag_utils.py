@@ -44,6 +44,13 @@ def which(program):
 
     return None
 
+def mkdir(dir_name):
+    try :
+        os.mkdir(dir_name)
+    except OSError:
+        pass
+
+
 def generate_job_id():
     """
     Generate a unique md5 hash for use as a job ID.
@@ -359,3 +366,346 @@ def write_1dpos_plot_sub(tag='1d_post_plot', exe=None, log_dir=None, output_dir=
     plot_job.add_condor_cmd('request_memory', '2048')
     
     return plot_job, plot_sub_name
+
+
+
+def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,arg_vals=None, **kwargs):
+    """
+    Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
+
+    Inputs:
+    Outputs:
+        - An instance of the CondorDAGJob that was generated for ILE
+    """
+
+    exe = exe or which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    #
+    # Add options en mass, by brute force
+    #
+    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+
+    ile_job.add_opt("fname", input_net)
+    ile_job.add_opt("fname-output-samples", out_dir+"/"+output)
+    ile_job.add_opt("fname-output-integral", out_dir+"/"+output)
+
+    #
+    # Macro based options.
+    #     - select EOS from list (done via macro)
+    #     - pass spectral parameters
+    #
+#    ile_job.add_var_opt("event")
+    if use_eos:
+        ile_job.add_var_opt("using-eos")
+
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(macroevent)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    if kwargs.has_key("fname_output_samples") and kwargs["fname_output_samples"] is not None:
+        #
+        # Need to modify the output file so it's unique
+        #
+        ofname = kwargs["fname_output_samples"].split(".")
+        ofname, ext = ofname[0], ".".join(ofname[1:])
+        ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
+    if kwargs.has_key("fname_output_integral") and kwargs["fname_output_integral"] is not None:
+        #
+        # Need to modify the output file so it's unique
+        #
+        ofname = kwargs["fname_output_integral"].split(".")
+        ofname, ext = ofname[0], ".".join(ofname[1:])
+        ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
+
+    #
+    # Add normal arguments
+    # FIXME: Get valid options from a module
+    #
+    for opt, param in kwargs.iteritems():
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
+    # To change interactively:
+    #   condor_qedit
+    # for example: 
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        
+    
+
+    ###
+    ### SUGGESTION FROM STUART (for later)
+    # request_memory = ifthenelse( (LastHoldReasonCode=!=34 && LastHoldReasonCode=!=26), InitialRequestMemory, int(1.5 * NumJobStarts * MemoryUsage) )
+    # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
+    # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
+
+
+    return ile_job, ile_sub_name
+
+
+def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None, **kwargs):
+    """
+    Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
+
+    Inputs:
+    Outputs:
+        - An instance of the CondorDAGJob that was generated for ILE
+    """
+
+    exe = exe or which("integrate_likelihood_extrinsic")
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    #
+    # Add options en mass, by brute force
+    #
+    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+
+    #
+    # Macro based options.
+    #     - select EOS from list (done via macro)
+    #     - pass spectral parameters
+    #
+#    ile_job.add_var_opt("event")
+    if use_eos:
+        ile_job.add_var_opt("using-eos")
+
+    if not transfer_files is None:
+        fname_str = ','.join(transfer_files)
+        fname_str=fname_str.strip()
+        ile_job.add_condor_cmd('transfer_input_files', fname_str)
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    # Add lame initial argument
+
+    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+        #
+        # Need to modify the output file so it's unique
+        #
+        ofname = kwargs["output_file"].split(".")
+        ofname, ext = ofname[0], ".".join(ofname[1:])
+        ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
+        del kwargs["output_file"]
+        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+            ile_job.add_opt("save-samples", None)
+            del kwargs["save_samples"]
+
+
+    #
+    # Add normal arguments
+    # FIXME: Get valid options from a module
+    #
+    for opt, param in kwargs.iteritems():
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    ile_job.add_var_opt("event")
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
+    # To change interactively:
+    #   condor_qedit
+    # for example: 
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        
+    
+
+    ###
+    ### SUGGESTION FROM STUART (for later)
+    # request_memory = ifthenelse( (LastHoldReasonCode=!=34 && LastHoldReasonCode=!=26), InitialRequestMemory, int(1.5 * NumJobStarts * MemoryUsage) )
+    # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
+    # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
+
+
+    return ile_job, ile_sub_name
+
+
+
+def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+    """
+    Write a submit file for launching a consolidation job
+       util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
+       arg_str   # add argument (used for NR postprocessing, to identify group)
+
+
+    """
+
+    exe = exe or which("util_ILEdagPostprocess.sh")
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    # Add manual options for input, output
+    ile_job.add_arg(base) # what directory to load
+    ile_job.add_arg(target) # where to put the output (label), in CWD
+
+    #
+    # Add options en mass, by brute force
+    #
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+
+
+    #
+    # Add normal arguments
+    # FIXME: Get valid options from a module
+    #
+    for opt, param in kwargs.iteritems():
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    # To change interactively:
+    #   condor_qedit
+    # for example: 
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        
+    
+
+    ###
+    ### SUGGESTION FROM STUART (for later)
+    # request_memory = ifthenelse( (LastHoldReasonCode=!=34 && LastHoldReasonCode=!=26), InitialRequestMemory, int(1.5 * NumJobStarts * MemoryUsage) )
+    # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
+    # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
+
+
+    return ile_job, ile_sub_name
+
+
+
+def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+    """
+    Write a submit file for launching a consolidation job
+       util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
+       arg_str   # add argument (used for NR postprocessing, to identify group)
+
+
+    """
+
+    exe = exe or which("util_CleanILE.py")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
+
+    # Write unify.sh
+    #    - problem of globbing inside condor commands
+    #    - problem that *.composite files from intermediate results will generally NOT be present
+    cmdname ='unify.sh'
+    base_str = ''
+    if not (base is None):
+        base_str = ' ' + base +"/"
+    with open(cmdname,'w') as f:        
+        f.write("#! /usr/bin/env bash\n")
+        f.write( "ls " + base_str+"*.composite  1>&2 \n")  # write filenames being concatenated to stderr
+        f.write( exe +  base_str+ "*.composite \n")
+    st = os.stat(cmdname)
+    import stat
+    os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable="./"+cmdname)
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    # Add manual options for input, output
+#    ile_job.add_arg('*.composite') # what to do
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file(target)
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    # To change interactively:
+    #   condor_qedit
+    # for example: 
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+
+    return ile_job, ile_sub_name
+
+
+

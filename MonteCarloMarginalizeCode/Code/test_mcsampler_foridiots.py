@@ -2,40 +2,49 @@
 import numpy as np
 from matplotlib import pylab as plt
 
-import mcsampler
+#import mcsampler
+import mcsamplerEnsemble as mcsampler
 import ourio
+
+#import dill # so I can pickle lambda functions: https://stackoverflow.com/questions/25348532/can-python-pickle-lambda-functions?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
+
 
 # Specify a CDF
 samplerPrior = mcsampler.MCSampler()
 samplerPrior.add_parameter('x', np.vectorize(lambda x: 1.3), None, -1.5,1)  # is this correctly renormalized?
 
 # Do an MC integral with this sampler (=the measure specified by the sampler).
-ret = samplerPrior.integrate(np.vectorize(lambda x:1), 'x', nmax=1e4,verbose=True)
+ret = samplerPrior.integrate(np.vectorize(lambda x:1.0), 'x', nmax=1e4,verbose=True)
 print "Integral of 1 over this range ", [samplerPrior.llim['x'] ,samplerPrior.rlim['x'] ], " is ", ret, " needs to be ", samplerPrior.rlim['x'] -  samplerPrior.llim['x'] ," and (small)"
 # do an integral with a different prior
 samplerNewPrior = mcsampler.MCSampler()
-samplerNewPrior.add_parameter('y', np.vectorize(lambda x: np.exp(-x**2/2)), None, -1,1, prior_pdf = np.vectorize(lambda x: 1/2.)) # normalized prior!
+samplerNewPrior.add_parameter('y', np.vectorize(lambda x: np.exp(-x**2/2.)), None, -1,1, prior_pdf = np.vectorize(lambda x: 1/2.)) # normalized prior!
 ret = samplerNewPrior.integrate(np.vectorize(lambda x:1), 'y', nmax=1e4)
 print "Integral of 1 over a normalized pdf  is ", ret, " and needs to be 1"
 
 
 # Manual plotting. Note the PDF is NOT renormalized
-xvals = np.linspace(-1,1,100)
-yvals = samplerPrior.pdf['x'](xvals)
-ypvals = samplerPrior.pdf['x'](xvals)/samplerPrior._pdf_norm['x']
-zvals = samplerPrior.cdf['x'](xvals)
-plt.plot(xvals, yvals,label='pdf shape')
-plt.plot(xvals, ypvals,label='pdf')
-plt.plot(xvals, zvals,label='cdf')
-plt.ylim(0,2)
-plt.legend()
-plt.show()
+try:
+    xvals = np.linspace(-1,1,100)
+    yvals = samplerPrior.pdf['x'](xvals)
+    ypvals = samplerPrior.pdf['x'](xvals)/samplerPrior._pdf_norm['x']
+    zvals = samplerPrior.cdf['x'](xvals)
+    plt.plot(xvals, yvals,label='pdf shape')
+    plt.plot(xvals, ypvals,label='pdf')
+    plt.plot(xvals, zvals,label='cdf')
+    plt.ylim(0,2)
+    plt.legend()
+    plt.show()
+except:
+    print " Alternate interfae does not support raw access to priors "
 
-# Automated plotting 
-sampler = mcsampler.MCSampler()
-sampler.add_parameter('x', np.vectorize(lambda x: np.exp(-x**2/2)), None, -1,1)
-ourio.plotParameterDistributions('sampler-foridiots-example', sampler)
-
+try:
+    # Automated plotting 
+    sampler = mcsampler.MCSampler()
+    sampler.add_parameter('x', np.vectorize(lambda x: np.exp(-x**2/2)), None, -1,1)
+    ourio.plotParameterDistributions('sampler-foridiots-example', sampler)
+except:
+    print " Alternate interface does not support alternate plots"
 
 #print "Integral of 1 over this range ", [samplerPrior.llim['y'] ,samplerPrior.rlim['y'] ], " is ", ret, " needs to be 1, because I used a normalized prior"
 

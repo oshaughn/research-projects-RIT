@@ -156,13 +156,16 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu"]
 
 tex_dictionary  = {
  "mtot": '$M$',
  "mc": '${\cal M}_c$',
  "m1": '$m_1$',
  "m2": '$m_2$',
+ "m1_source": r'$m_{1,source}$',
+ "m2_source": r'$m_{2,source}$',
+ "mtotal_source": r'$M_{source}$',
   "q": "$q$",
   "delta" : "$\delta$",
   "delta_mc" : "$\delta$",
@@ -179,9 +182,12 @@ tex_dictionary  = {
   "eta": "$\eta$",
   "chi_eff": "$\chi_{eff}$",
   "xi": "$\chi_{eff}$",
+  "chi_p": "$\chi_{p}$",
    "chiMinus":"$\chi_{eff,-}$",
   "chiz_plus":"$\chi_{z,+}$",
   "chiz_minus":"$\chi_{z,-}$",
+  "lambda_plus":"$\lambda_{+}$",
+  "lambda_minus":"$\lambda_{-}$",
   "s1z": "$\chi_{1,z}$",
   "s2z": "$\chi_{2,z}$",
   "s1x": "$\chi_{1,x}$",
@@ -285,12 +291,12 @@ class ChooseWaveformParams:
         return P
 
     def swap_components(self):
-        s1x,s1y,s1z = self.spin1x,self.spin1y,self.spin1z
-        s2x,s2y,s2z = self.spin2x,self.spin2y,self.spin2z
+        s1x,s1y,s1z = self.s1x,self.s1y,self.s1z
+        s2x,s2y,s2z = self.s2x,self.s2y,self.s2z
         m1 =self.m1
         m2 = self.m2
-        self.spin1x,self.spin1y,self.spin1z  = s2x,s2y,s2z 
-        self.spin2x,self.spin2y,self.spin2z  = s1x,s1y,s1z
+        self.s1x,self.s1y,self.s1z  = s2x,s2y,s2z 
+        self.s2x,self.s2y,self.s2z  = s1x,s1y,s1z
         self.m1 = m2
         self.m2  = m1
         lam1,lam2 =self.lambda1,self.lambda2
@@ -348,38 +354,54 @@ class ChooseWaveformParams:
         if p == 'chiz_plus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
             # Fixes chiz_minus by construction
-            czm = (self.spin1z-self.spin2z)/2.
+            czm = (self.s1z-self.s2z)/2.
             czp = val
-            self.spin1z = (czp+czm)
-            self.spin2z = (czp-czm)
+            self.s1z = (czp+czm)
+            self.s2z = (czp-czm)
             return self
         if p == 'chiz_minus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
             # Fixes chiz_plus by construction
             czm =  val
-            czp = (self.spin1z+self.spin2z)/2.
-            self.spin1z = (czp+czm)
-            self.spin2z = (czp-czm)
+            czp = (self.s1z+self.s2z)/2.
+            self.s1z = (czp+czm)
+            self.s2z = (czp-czm)
+            return self
+        if p == 'lambda_plus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            # Fixes chiz_minus by construction
+            czm = (self.lambda1-self.lambda2)/2.
+            czp = val
+            self.lambda1 = (czp+czm)
+            self.lambda2 = (czp-czm)
+            return self
+        if p == 'lambda_minus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            # Fixes chiz_plus by construction
+            czm =  val
+            czp = (self.lambda1+self.lambda2)/2.
+            self.lambda1 = (czp+czm)
+            self.lambda2 = (czp-czm)
             return self
         if p == 'chi1':
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             chi1VecMag = np.sqrt(np.dot(chi1Vec,chi1Vec))
             if chi1VecMag < 1e-5:
                 Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
                 Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
-                self.spin1x,self.spin1y,self.spin1z = val*Lhat
+                self.s1x,self.s1y,self.s1z = val*Lhat
             else:
-                self.spin1x,self.spin1y,self.spin1z = val* chi1Vec/chi1VecMag
+                self.s1x,self.s1y,self.s1z = val* chi1Vec/chi1VecMag
             return self
         if p == 'chi2':
-            chi1Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi1Vec = np.array([self.s2x,self.s2y,self.s2z])
             chi1VecMag = np.sqrt(np.dot(chi1Vec,chi1Vec))
             if chi1VecMag < 1e-5:
                 Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
                 Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
-                self.spin2x,self.spin2y,self.spin2z = val*Lhat
+                self.s2x,self.s2y,self.s2z = val*Lhat
             else:
-                self.spin2x,self.spin2y,self.spin2z = val* chi1Vec/chi1VecMag
+                self.s2x,self.s2y,self.s2z = val* chi1Vec/chi1VecMag
             return self
         if p == 'thetaJN':
             if self.fref is 0:
@@ -396,12 +418,12 @@ class ChooseWaveformParams:
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=val,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
         # if p == 'chi1':
-        #     chi1_vec_now = np.array([self.spin1x,self.spin1y,self.spin1z])
+        #     chi1_vec_now = np.array([self.s1x,self.s1y,self.s1z])
         #     chi1_now = np.sqrt(np.dot(chi1_vec_now,chi1_vec_now))
         #     if chi1_now < 1e-5:
-        #         self.spin1z = val  # assume aligned
+        #         self.s1z = val  # assume aligned
         #         return self
-        #     self.spin1x,self.spin1y,self.spin1z = chi1_vec_now * val/chi1_now
+        #     self.s1x,self.s1y,self.s1z = chi1_vec_now * val/chi1_now
         #     return self
         if p == 'theta1':
             if self.fref is 0:
@@ -415,10 +437,10 @@ class ChooseWaveformParams:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             # Do it MANUALLY, assuming the L frame! 
-            chiperp_vec_now = np.array([self.spin1x,self.spin1y])
+            chiperp_vec_now = np.array([self.s1x,self.s1y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
-            self.spin1x = chiperp_now*np.cos(val)
-            self.spin1y = chiperp_now*np.sin(val)
+            self.s1x = chiperp_now*np.cos(val)
+            self.s1y = chiperp_now*np.sin(val)
             return self
         if p == 'theta2':
             if self.fref is 0:
@@ -432,10 +454,10 @@ class ChooseWaveformParams:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             # Do it MANUALLY, assuming the L frame! 
-            chiperp_vec_now = np.array([self.spin2x,self.spin2y])
+            chiperp_vec_now = np.array([self.s2x,self.s2y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
-            self.spin2x = chiperp_now*np.cos(val)
-            self.spin2y = chiperp_now*np.sin(val)
+            self.s2x = chiperp_now*np.cos(val)
+            self.s2y = chiperp_now*np.sin(val)
             return self
         if p == 'psiJ':
             if self.fref is 0:
@@ -547,20 +569,20 @@ class ChooseWaveformParams:
         if p == 'eta':
             return symRatio(self.m1,self.m2)
         if p == 'chi1':
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             return np.sqrt(np.dot(chi1Vec,chi1Vec))
         if p == 'chi2':
-            chi1Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi1Vec = np.array([self.s2x,self.s2y,self.s2z])
             return np.sqrt(np.dot(chi1Vec,chi1Vec))
         if p == 'chi1_perp':
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             if spin_convention == "L":
                 Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
             else:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             return np.sqrt( np.dot(chi1Vec,chi1Vec) -  np.dot(Lhat, chi1Vec)**2 )  # L frame !
         if p == 'chi2_perp':
-            chi2Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             if spin_convention == "L":
                 Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
             else:
@@ -568,8 +590,8 @@ class ChooseWaveformParams:
             return np.sqrt( np.dot(chi2Vec,chi2Vec) -  np.dot(Lhat, chi2Vec)**2 )  # L frame !
 
         if p == 'xi' or p == 'chieff_aligned':
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
-            chi2Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             Lhat = None
             if spin_convention == "L":
                 Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
@@ -578,8 +600,8 @@ class ChooseWaveformParams:
             xi = np.dot(Lhat, (self.m1*chi1Vec + self.m2* chi2Vec))/(self.m1+self.m2)   # see also 'Xi', defined below
             return xi
         if p == 'chiMinus':
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
-            chi2Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             Lhat = None
             if spin_convention == "L":
                 Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
@@ -589,13 +611,33 @@ class ChooseWaveformParams:
             return xi
         if p == 'chiz_plus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
-            return (self.spin1z+self.spin2z)/2.
+            return (self.s1z+self.s2z)/2.
         if p == 'chiz_minus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
-            return (self.spin1z-self.spin2z)/2.
+            return (self.s1z-self.s2z)/2.
+        if p == 'shu':
+            # https://arxiv.org/pdf/1801.08162.pdf
+            # Eq. 27
+            # Shu/M^2 =  xi - 1/2 L.(S1/q + q S2)/M^2 = xi  - 1/2 L.(m1 m2 chi1 + m1 m2 chi2) = xi - 1/2 eta(chi1+chi2).L
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            Lhat = None
+            if spin_convention == "L":
+                Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
+            else:
+                Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
+            xi = np.dot(Lhat, (self.m1*chi1Vec + self.m2* chi2Vec))/(self.m1+self.m2)   # see also 'Xi', defined below
+            shu = xi - 0.5*np.dot(Lhat, chi1Vec+chi2Vec) * (self.m1*self.m2)/ (self.m1+self.m2)**2
+            return shu
+        if p == 'lambda_plus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            return (self.lambda1+self.lambda2)/2.
+        if p == 'lambda_minus':
+            # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
+            return (self.lambda1-self.lambda2)/2.
         if p == 'chiMinusAlt':
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
-            chi2Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             Lhat = None
             if spin_convention == "L":
                 Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
@@ -686,18 +728,18 @@ class ChooseWaveformParams:
             return np.sqrt(1- np.dot(Lhat,Jhat)**2)   # holds in general
         # Other spin parameters of use in generalised fits
         if p == 'SoverM2':   # SCALAR
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
-            chi2Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             S = (chi1Vec*self.m1**2+chi2Vec*self.m2**2)/(self.m1+self.m2)**2
             return np.sqrt(np.dot(S,S))
         if p == 'SOverM2_vec':  
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
-            chi2Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             S = (chi1Vec*self.m1**2+chi2Vec*self.m2**2)/(self.m1+self.m2)**2
             return S
         if p == 'SOverM2_perp':  
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
-            chi2Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             S = (chi1Vec*self.m1**2+chi2Vec*self.m2**2)/(self.m1+self.m2)**2
             if spin_convention == "L":
                 Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
@@ -705,13 +747,13 @@ class ChooseWaveformParams:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD conventi
             return  np.sqrt(np.dot(S,S) - np.dot(S,Lhat)**2  )
         if p == 'DeltaOverM2_vec':  
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
-            chi2Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             Delta = -1*(chi1Vec*self.m1-chi2Vec*self.m2)/(self.m1+self.m2)
             return Delta  # VECTOR
         if p == 'DeltaOverM2_perp':  
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
-            chi2Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             Delta = -1*(chi1Vec*self.m1-chi2Vec*self.m2)/(self.m1+self.m2)
             if spin_convention == "L":
                 Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
@@ -719,8 +761,8 @@ class ChooseWaveformParams:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD conventi
             return  np.sqrt(np.dot(Delta,Delta) - np.dot(Delta,Lhat)**2  )
         if p == 'DeltaOverM2_L':  
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
-            chi2Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             Delta = -1*(chi1Vec*self.m1-chi2Vec*self.m2)/(self.m1+self.m2)
             if spin_convention == "L":
                 Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
@@ -728,10 +770,26 @@ class ChooseWaveformParams:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD conventi
             return  np.dot(Delta,Lhat)
         if p == 'S0_vec':  
-            chi1Vec = np.array([self.spin1x,self.spin1y,self.spin1z])
-            chi2Vec = np.array([self.spin2x,self.spin2y,self.spin2z])
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             S0 = (chi1Vec*self.m1+chi2Vec*self.m2)/(self.m1+self.m2)
             return S0  # VECTOR
+        if p == 'chi_p':
+            # see e.g.,https://journals.aps.org/prd/pdf/10.1103/PhysRevD.91.024043 Eq. 3.3, 3.4
+            # Reviewed implementation  (note horrible shift in names for A1, A2 !)
+            #   https://git.ligo.org/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/bayespputils.py#L3783
+            mtot = self.extract_param('mtot')
+            m1 = self.extract_param('m1')
+            m2 = self.extract_param('m2')
+            chi1 = np.array([self.s1x, self.s1y, self.s1z])
+            chi2 = np.array([self.s2x, self.s2y, self.s2z])
+            q = m2/m1  # note convention
+            A1 = (2+ 3.*q/2); A2 = (2+3./(2*q))
+            S1p = (m1**2 * chi1)[:2]
+            S2p = (m2**2 * chi2)[:2]
+            Sp = np.max([np.linalg.norm( A1*S1p), np.linalg.norm(A2*S2p)])
+            return Sp/(A1*m1**2)  # divide by term for *larger* BH
+
         if p == 'LambdaTilde':
             Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
             return Lt
@@ -753,13 +811,13 @@ class ChooseWaveformParams:
         sys.exit(0)
 
 
-    def randomize(self,zero_spin_Q=False,aligned_spin_Q=False,default_inclination=None,default_phase=None,default_polarization=None):
+    def randomize(self,zero_spin_Q=False,aligned_spin_Q=False,default_inclination=None,default_phase=None,default_polarization=None,dMax=500.,dMin=1.):
         mMin = 2.   # min component mass (Msun)
         mMax = 10.  # max component mass (Msun)
         sMin = 0.   # min spin magnitude
         sMax = 1.   # max spin magnitude
-        dMin = 20.   # min distance (Mpc)
-        dMax = 500. # max distance (Mpc)
+#        dMin = float(dMin)   # min distance (Mpc)
+#        dMax = float(dMax) # max distance (Mpc)
         self.m1 = np.random.uniform(mMin,mMax)
         self.m2 = np.random.uniform(mMin,mMax)  # 
         self.m1, self.m2 = [np.max([self.m1,self.m2]), np.min([self.m1,self.m2])]
@@ -788,12 +846,12 @@ class ChooseWaveformParams:
             s2mag = np.random.uniform(sMin,sMax)
             s2theta = np.random.uniform(0,np.pi)
             s2phi = np.random.uniform(0,2*np.pi)
-            self.spin1x = s1mag * sin(s1theta) * cos(s1phi)
-            self.spin1y = s1mag * sin(s1theta) * sin(s1phi)
-            self.spin1z = s1mag * cos(s1theta)
-            self.spin2x = s2mag * sin(s2theta) * cos(s2phi)
-            self.spin2y = s2mag * sin(s2theta) * sin(s2phi)
-            self.spin2z = s2mag * cos(s2theta)
+            self.s1x = s1mag * sin(s1theta) * cos(s1phi)
+            self.s1y = s1mag * sin(s1theta) * sin(s1phi)
+            self.s1z = s1mag * cos(s1theta)
+            self.s2x = s2mag * sin(s2theta) * cos(s2phi)
+            self.s2y = s2mag * sin(s2theta) * sin(s2phi)
+            self.s2z = s2mag * cos(s2theta)
         if aligned_spin_Q:
             s1mag = np.random.uniform(sMin,sMax)
             s1theta = self.incl
@@ -801,17 +859,17 @@ class ChooseWaveformParams:
             s2mag = np.random.uniform(sMin,sMax)
             s2theta = self.incl
             s2phi = 0.
-            self.spin1x = s1mag * sin(s1theta) * cos(s1phi)
-            self.spin1y = s1mag * sin(s1theta) * sin(s1phi)
-            self.spin1z = s1mag * cos(s1theta)
-            self.spin2x = s2mag * sin(s2theta) * cos(s2phi)
-            self.spin2y = s2mag * sin(s2theta) * sin(s2phi)
-            self.spin2z = s2mag * cos(s2theta)
+            self.s1x = s1mag * sin(s1theta) * cos(s1phi)
+            self.s1y = s1mag * sin(s1theta) * sin(s1phi)
+            self.s1z = s1mag * cos(s1theta)
+            self.s2x = s2mag * sin(s2theta) * cos(s2phi)
+            self.s2y = s2mag * sin(s2theta) * sin(s2phi)
+            self.s2z = s2mag * cos(s2theta)
         if np.isnan(s1mag):
             print " catastrophe "
             sys.exit(0)
         self.radec=True
-        dist =  dMax*np.power(np.random.uniform(dMin/dMax,1), 1./3)  # rough, but it should work
+        dist =  dMax*np.power(np.random.uniform( np.power(dMin/dMax,3),1), 1./3)  # rough, but it should work
         self.dist = dist*1e6 * lsu_PC
         self.lambda1 = 0.
         self.lambda2 = 0.
@@ -827,8 +885,8 @@ class ChooseWaveformParams:
         P.init_via_system_frame(thetaJN=0.1, phiJL=0.1, theta1=0.1, theta2=0.1, phi12=0.1, chi1=1., chi2=1., psiJ=0.)
         """
         # Create basic parameters
-#        self.incl, self.spin1x,self.spin1y, self.spin1z, self.spin2x, self.spin2y, self.spin2z = lalsim.SimInspiralTransformPrecessingInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
-        self.incl, self.spin1x,self.spin1y, self.spin1z, self.spin2x, self.spin2y, self.spin2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
+#        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
+        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
         # Define psiL via the deficit angle between Jhat in the radiation frame and the psiJ we want to achieve 
         Jref = self.TotalAngularMomentumAtReferenceOverM2()
         Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
@@ -844,8 +902,8 @@ class ChooseWaveformParams:
         PROBLEM: Polarization angle isn't stable (oddly?)
         """
         M = self.m1+self.m2
-        S1 = (self.m1/M)*(self.m1/M) * np.array([self.spin1x,self.spin1y, self.spin1z])
-        S2 = self.m2*self.m2 * np.array([self.spin2x,self.spin2y, self.spin2z])/(M*M)
+        S1 = (self.m1/M)*(self.m1/M) * np.array([self.s1x,self.s1y, self.s1z])
+        S2 = self.m2*self.m2 * np.array([self.s2x,self.s2y, self.s2z])/(M*M)
         Jref = self.TotalAngularMomentumAtReferenceOverM2()
         Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
         Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
@@ -928,23 +986,23 @@ class ChooseWaveformParams:
         print "This ChooseWaveformParams has the following parameter values:"
         print "m1 =", self.m1 / lsu_MSUN, "(Msun)"
         print "m2 =", self.m2 / lsu_MSUN, "(Msun)"
-        print "s1x =", self.spin1x
-        print "s1y =", self.spin1y
-        print "s1z =", self.spin1z
-        print "s2x =", self.spin2x
-        print "s2y =", self.spin2y
-        print "s2z =", self.spin2z
-        S1vec = np.array([self.spin1x,self.spin1y,self.spin1z])*self.m1*self.m1
-        S2vec = np.array([self.spin2x,self.spin2y,self.spin2z])*self.m2*self.m2
+        print "s1x =", self.s1x
+        print "s1y =", self.s1y
+        print "s1z =", self.s1z
+        print "s2x =", self.s2x
+        print "s2y =", self.s2y
+        print "s2z =", self.s2z
+        S1vec = np.array([self.s1x,self.s1y,self.s1z])*self.m1*self.m1
+        S2vec = np.array([self.s2x,self.s2y,self.s2z])*self.m2*self.m2
         qval = self.m2/self.m1
         print   " : Vector spin products"
-        print   " : |s1|, |s2| = ", np.sqrt(vecDot([self.spin1x,self.spin1y,self.spin1z],[self.spin1x,self.spin1y,self.spin1z])), np.sqrt(vecDot([self.spin2x,self.spin2y,self.spin2z],[self.spin2x,self.spin2y,self.spin2z]))
-        print   " : s1.s2 = ",  vecDot([self.spin1x,self.spin1y,self.spin1z],[self.spin2x,self.spin2y,self.spin2z])
+        print   " : |s1|, |s2| = ", np.sqrt(vecDot([self.s1x,self.s1y,self.s1z],[self.s1x,self.s1y,self.s1z])), np.sqrt(vecDot([self.s2x,self.s2y,self.s2z],[self.s2x,self.s2y,self.s2z]))
+        print   " : s1.s2 = ",  vecDot([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z])
         if spin_convention == "L":
             Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
         else:
             Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
-        print   " : hat(L). s1 x s2 =  ",  vecDot( Lhat, vecCross([self.spin1x,self.spin1y,self.spin1z],[self.spin2x,self.spin2y,self.spin2z]))
+        print   " : hat(L). s1 x s2 =  ",  vecDot( Lhat, vecCross([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z]))
         print   " : hat(L).(S1(1+q)+S2(1+1/q)) = ", vecDot( Lhat, S1vec*(1+qval)  + S2vec*(1+1./qval) )/(self.m1+self.m2)/(self.m1+self.m2)
         if show_system_frame:
             thePrefix = ""
@@ -1031,8 +1089,8 @@ class ChooseWaveformParams:
         return L/(self.m1+self.m2)/(self.m1+self.m2)
     def TotalAngularMomentumAtReference(self):    # does NOT correct for psi polar angle, per convention
         L = self.OrbitalAngularMomentumAtReference()
-        S1 = self.m1*self.m1 * np.array([self.spin1x,self.spin1y, self.spin1z])
-        S2 = self.m2*self.m2 * np.array([self.spin2x,self.spin2y, self.spin2z])
+        S1 = self.m1*self.m1 * np.array([self.s1x,self.s1y, self.s1z])
+        S2 = self.m2*self.m2 * np.array([self.s2x,self.s2y, self.s2z])
         return L+S1+S2
     def TotalAngularMomentumAtReferenceOverM2(self):
         J = self.TotalAngularMomentumAtReference()
@@ -1040,8 +1098,8 @@ class ChooseWaveformParams:
 
     def Xi(self):
         L = self.OrbitalAngularMomentumAtReferenceOverM2()
-        S1 = self.m1*self.m1 * np.array([self.spin1x,self.spin1y, self.spin1z])
-        S2 = self.m2*self.m2 * np.array([self.spin2x,self.spin2y, self.spin2z])
+        S1 = self.m1*self.m1 * np.array([self.s1x,self.s1y, self.s1z])
+        S2 = self.m2*self.m2 * np.array([self.s2x,self.s2y, self.s2z])
         S0 = (S1*(1+self.m2/self.m1) + S2*(1+self.m1/self.m2))/(self.m1+self.m2)/(self.m1+self.m2)
         return vecDot(vecUnit(L), S0)
 
@@ -1049,15 +1107,15 @@ class ChooseWaveformParams:
         """
         Test if L,S1,S2 all parallel to z
         """
-        return self.incl == 0. and self.spin1y ==0. and self.spin1x==0. and self.spin2x==0. and self.spin2y==0.
+        return self.incl == 0. and self.s1y ==0. and self.s1x==0. and self.s2x==0. and self.s2y==0.
 
     def SoftAlignedQ(self):
         """
         Test if L,S1,S2 all parallel to *one another*
         """
         Lvec = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
-        S1 = np.array([self.spin1x,self.spin1y, self.spin1z])
-        S2 = np.array([self.spin2x,self.spin2y, self.spin2z])
+        S1 = np.array([self.s1x,self.s1y, self.s1z])
+        S2 = np.array([self.s2x,self.s2y, self.s2z])
         if np.dot(S1,S1) < 1e-5:
             S1hat = Lvec
         else:
@@ -1082,12 +1140,12 @@ class ChooseWaveformParams:
         self.phiref = row.coa_phase
         self.m1 = row.mass1 * lsu_MSUN
         self.m2 = row.mass2 * lsu_MSUN
-        self.spin1x = row.spin1x
-        self.spin1y = row.spin1y
-        self.spin1z = row.spin1z
-        self.spin2x = row.spin2x
-        self.spin2y = row.spin2y
-        self.spin2z = row.spin2z
+        self.s1x = row.spin1x
+        self.s1y = row.spin1y
+        self.s1z = row.spin1z
+        self.s2x = row.spin2x
+        self.s2y = row.spin2y
+        self.s2z = row.spin2z
         self.fmin = row.f_lower
         self.dist = row.distance * lsu_PC * 1.e6
         self.incl = row.inclination
@@ -1124,12 +1182,12 @@ class ChooseWaveformParams:
         # Set all parameters to default value of zero
         for slot in row.__slots__: setattr(row, slot, 0.)
         # Copy parameters
-        row.spin1x = self.spin1x
-        row.spin1y = self.spin1y
-        row.spin1z = self.spin1z
-        row.spin2x = self.spin2x
-        row.spin2y = self.spin2y
-        row.spin2z = self.spin2z
+        row.spin1x = self.s1x
+        row.spin1y = self.s1y
+        row.spin1z = self.s1z
+        row.spin2x = self.s2x
+        row.spin2y = self.s2y
+        row.spin2z = self.s2z
         row.mass1 = self.m1/lsu_MSUN
         row.mass2 = self.m2/lsu_MSUN
         row.mchirp = mchirp(row.mass1,row.mass2)
@@ -3502,41 +3560,71 @@ def DataRollTime(ht,DeltaT):  # ONLY FOR TIME DOMAIN. ACTS IN PLACE
     return DataRollBins(ht, nL)            
 
 
-def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False):
+def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,source_redshift=0):
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     P = ChooseWaveformParams()
+    # note NO MASS CONVERSION here, because the fit is in solar mass units!
     for indx_out  in np.arange(len(x_in)):
         for indx in np.arange(len(low_level_coord_names)):
             P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
+        # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
+        P.m1 = P.m1*(1+source_redshift)
+        P.m2 = P.m2*(1+source_redshift)
         for indx in np.arange(len(coord_names)):
             x_out[indx_out,indx] = P.extract_param(coord_names[indx])
         if enforce_kerr and (P.extract_param('chi1') > 1 or P.extract_param('chi2') >1):  # insure Kerr bound satisfied
             x_out[indx_out] = -np.inf*np.ones( len(coord_names) ) # return negative infinity for all coordinates, if Kerr bound violated
     return x_out
 
-def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,eos_class=None):
+def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,eos_class=None,no_matter1=False,no_matter2=False,source_redshift=0):
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
-    import EOSManager  # be careful to avoid recursive dependence!
+    try:
+        import EOSManager  # be careful to avoid recursive dependence!
+    except:
+        print " - Failed to load EOSManager - "  # this will occur at the start
     assert not (eos_class==None)
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     P = ChooseWaveformParams()
     for indx_out  in np.arange(len(x_in)):
+        # WARNING UNUSUAL CONVENTION
+        #   note, P.m1, P.m2 in Msun units here
         for indx in np.arange(len(low_level_coord_names)):
             P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
-        # Impose EOS. The below assumes it will work
-        try:
-            P.lambda1 = eos_class.lambda_from_m(P.m1)
-        except:
-            P.lambda1 = - np.inf
-        try:
-            P.lambda2 = eos_class.lambda_from_m(P.m2)
-        except:
-            P.lambda2 = -np.inf
+        # Impose EOS, unless no_matter1
+        if no_matter1:
+            P.lambda1=0
+        else:
+          try:
+            if P.m1 < eos_class.mMaxMsun:
+                P.lambda1 = eos_class.lambda_from_m(P.m1*lal.MSUN_SI)
+            else:
+                if rosDebugMessagesContainer[0]:
+                    print " Failed (safely) for ", P.m1
+                P.lambda1= -np.inf
+          except:
+#              print " Failed for ", P.m1
+              P.lambda1 = - np.inf
+        if no_matter2:
+            P.lambda2=0
+        else:
+          try:
+            if P.m2 < eos_class.mMaxMsun:
+                P.lambda2 = eos_class.lambda_from_m(P.m2*lal.MSUN_SI)
+            else:
+                if rosDebugMessagesContainer[0]:
+                    print " Failed (safely) for ", P.m2
+                P.lambda2= -np.inf
+          except:
+#              print " Failed for ", P.m2
+              P.lambda2=-np.inf
+        # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
+        P.m1 = P.m1*(1+source_redshift)
+        P.m2 = P.m2*(1+source_redshift)
         # extract
         for indx in np.arange(len(coord_names)):
             x_out[indx_out,indx] = P.extract_param(coord_names[indx])
@@ -3544,6 +3632,40 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
             x_out[indx_out] = -np.inf*np.ones( len(coord_names) ) # return negative infinity for all coordinates, if Kerr bound violated
     return x_out
 
+def test_coord_output(x_out):
+    """
+    Checks if any of the x_out are -np.inf.  Returns a boolean array [ True, False, False, ...] with True if the corresponding coordinate row is ok, false otherwise
+    """
+    if len(x_out.shape) > 1:
+        ret = np.apply_along_axis(all, 1,map( np.isfinite, x_out))
+    else:
+        ret = map(np.isfinite, x_out)
+    return ret
+def RangeProtect(fn,val):
+    """
+    RangeProtect(fn) wraps fn, returning  - np.inf in cases where an argument is not finite, and calling the function otherwise.
+    Intended to be used with test_coord_output and coordinate conversion routines, to identify range errors, etc.
+
+    This function assumes fn acts on EACH ELEMENT INDIVIDUALLY, and does not reduce the dimension.
+    Not to use.
+    """
+    def my_protected(x):
+        x_test = test_coord_output(x)
+        return np.piecewise(x, [x_test, np.logical_not(x_test)], [fn, (lambda x: val)])
+    return my_protected 
+def RangeProtectReduce(fn,val):
+    """
+    RangeProtect(fn) wraps fn, returning  - np.inf in cases where an argument is not finite, and calling the function otherwise.
+    Intended to be used with test_coord_output and coordinate conversion routines, to identify range errors, etc.
+
+    This function assumes fn acts to REDUCE the data to one dimension (e.g., a list of points)
+    """
+    def my_protected(x):
+        x_test = test_coord_output(x)
+        ret = val*np.ones(len(x_test))
+        ret[x_test] = fn( x[x_test])  # only apply the function to the rows that pass the test, otherwise return val
+        return ret
+    return my_protected 
 
 def symmetry_sign_exchange(coord_names):
     P=ChooseWaveformParams()

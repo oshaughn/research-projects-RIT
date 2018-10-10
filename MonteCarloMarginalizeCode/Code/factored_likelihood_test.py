@@ -212,7 +212,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
     # lnL (known parameters)
     if TestDictionary["lnLAtKnown"]:
             print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters  =========="
-            lnL = factored_likelihood.FactoredLogLikelihood(Psig, rholms_intp, crossTerms, crossTermsV, Lmax)
+            lnL = factored_likelihood.FactoredLogLikelihood(Psig, rholms, rholms_intp, crossTerms, crossTermsV, Lmax)
             print "  : Default code : ", lnL, " versus rho^2/2 ", rho2Net/2 , " [last two equal (in zero noise)?]"
             print "     [should agree in zero noise. Some disagreement expected because *recovered* (=best-fit-to-data) time and phase parameters are slightly different than injected]"
 
@@ -227,7 +227,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             def fn(x):
                 P2 = Psig.copy()
                 P2.tref = theEpochFiducial+x  
-                return np.exp(np.max([factored_likelihood.FactoredLogLikelihood(P2, rholms_intp, crossTerms,crossTermsV,Lmax),-15]))   # control for roundoff
+                return np.exp(np.max([factored_likelihood.FactoredLogLikelihood(P2, rholms, rholms_intp, crossTerms,crossTermsV,Lmax),-15]))   # control for roundoff
             lnLmargT3 = np.log(integrate.quad(fn,  tWindowExplore[0], tWindowExplore[1],points=[0],limit=500)[0])
             print "Validating ln \int L dt/T over a window (manual,interp,discrete)= ", lnLmargT3, lnLmargT1, lnLmargT1b,   " note time window has length ", tWindowExplore[1]-tWindowExplore[0]
 
@@ -284,7 +284,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         lnL = np.zeros(len(tvals))
         for indx in np.arange(len(tvals)):
             P.tref =  theEpochFiducial+tvals[indx]
-            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms,crossTermsV, Lmax)
+            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(P, rholms,  rholms_intp, crossTerms,crossTermsV, Lmax)
         lnLEstimate = np.ones(len(tvals))*rho2Net/2
         plt.figure(1)
         tvalsPlot = tvals 
@@ -314,7 +314,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         lnL = np.zeros(len(psivals))
         for indx in np.arange(len(psivals)):
             P.psi =  psivals[indx]
-            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms,crossTermsV, 2)
+            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(P, rholms, rholms_intp, crossTerms,crossTermsV, 2)
         lnLEstimate = np.ones(len(psivals))*rho2Net/2
         plt.figure(5)
         plt.plot(psivals, lnL,label='lnL(phi)')
@@ -338,7 +338,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         lnLdata = {}
         for indx in np.arange(len(phivals)):
             P.phiref =  phivals[indx]
-            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms, crossTermsV, 2)
+            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(P, rholms, rholms_intp, crossTerms, crossTermsV, 2)
         for det in detectors:
             lnLdata[det] = np.zeros(len(phivals))
             for indx in np.arange(len(phivals)):
@@ -373,7 +373,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             for y in np.arange(psivals.shape[1]):
                 P.psi =  psivals[indx,y]
                 P.phiref =  phivals[indx,y]
-                lnL[indx,y] =  factored_likelihood.FactoredLogLikelihood(P, rholms_intp, crossTerms,crossTermsV, 2)
+                lnL[indx,y] =  factored_likelihood.FactoredLogLikelihood(P, rholms, rholms_intp, crossTerms,crossTermsV, 2)
 
         myfig = plt.figure(7)
         ax = myfig.add_subplot(111, projection='3d')

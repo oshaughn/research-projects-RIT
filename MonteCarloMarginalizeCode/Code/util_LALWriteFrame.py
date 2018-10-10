@@ -21,6 +21,8 @@ import lal
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname", default=None, help = "Base name for output frame file. Otherwise auto-generated ")
+parser.add_argument("--background-cache",default=None,help="If nonzero, loads a frame cache, and overlays with result. Used to add noise. Must specify background-channel ")
+parser.add_argument("--background-channel",default=None,help="If nonzero, loads a frame cache, and overlays with result. Used to add noise. Must specify background-cache ")
 parser.add_argument("--instrument", default="H1",help="Use H1, L1,V1")
 parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing injection information.")
 parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
@@ -98,6 +100,14 @@ if opts.stop and hoft.epoch+hoft.data.length*hoft.deltaT < opts.stop:
     nToAddAtEnd = int( (-(hoft.epoch+hoft.data.length*hoft.deltaT)+opts.stop)/hoft.deltaT)
     print "Padding end ", nToAddAtEnd, hoft.data.length
     hoft = lal.ResizeREAL8TimeSeries(hoft,0, int(hoft.data.length+nToAddAtEnd))
+
+# Import background data, if needed, and add it
+if not ( opts.background_cache is None  or opts.background_channel is None and opts.start is None and opts.stop is None):
+    # Don't use specific times
+    start = opts.start
+    stop = opts.stop
+    hoft_bg = lalsimutils.frame_data_to_hoft(opts.background_cache,opts.background_channel,start,stop)
+    hoft.data.data += hoft_bg.data.data  # add noise
 
 channel = opts.instrument+":FAKE-STRAIN"
 

@@ -23,6 +23,8 @@ parser.add_argument("--inj",default=None)
 parser.add_argument("--event",default=None,type=int)
 parser.add_argument("--group", default="Sequence-GT-Aligned-UnequalMass",help="inspiral XML file containing injection information.")
 parser.add_argument("--param", default=(0.0, 2.),help="Parameter value")
+parser.add_argument("--hybrid-use",action='store_true',help="Enable use of NR (or ROM!) hybrid, using --approx as the default approximant and with a frequency fmin")
+parser.add_argument("--hybrid-method",default="taper_add",help="Hybridization method for NR (or ROM!).  Passed through to LALHybrid. pseudo_aligned_from22 will provide ad-hoc higher modes, if the early-time hybridization model only includes the 22 mode")
 parser.add_argument("--no-memory",action='store_true')
 parser.add_argument("--seglen",default=8,type=int)
 parser.add_argument("--t-ref",default=None,type=float,help="Zero of time to use on exported data files. (default is to use the time in the XML")
@@ -138,7 +140,7 @@ for ifo in ['H1', 'L1', 'V1']:
     fig_list[ifo] = indx
     plt.figure(indx)
     wfP.P.detector = ifo
-    data_dict_T[ifo] = wfP.real_hoft(no_memory=opts.no_memory)
+    data_dict_T[ifo] = wfP.real_hoft(no_memory=opts.no_memory,hybrid_use=opts.hybrid_use,hybrid_method=opts.hybrid_method)
     tvals = data_dict_T[ifo].deltaT*np.arange(data_dict_T[ifo].data.length) + float(data_dict_T[ifo].epoch)
     det = lalsim.DetectorPrefixToLALDetector(ifo)
     print  ifo, " T_peak =", P.tref + lal.TimeDelayFromEarthCenter(det.location, P.phi, P.theta, P.tref) - t_ref

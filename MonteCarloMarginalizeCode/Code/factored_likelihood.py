@@ -30,6 +30,8 @@ from scipy import interpolate, integrate
 from scipy import special
 from itertools import product
 
+
+
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 try:
@@ -136,6 +138,15 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
            # this code is modular but inefficient: the waveform is regenerated twice
            hlms = acatHere.hlmoff(P, use_basis=False,force_T=1./P.deltaF,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
            hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
+           mode_list = hlms.keys()  # make copy: dictionary will change during iteration
+           for mode in mode_list:
+                   if no_memory and mode[1]==0 and P.SoftAlignedQ():
+                           # skip memory modes if requested to do so. DANGER
+                        print " WARNING: Deleting memory mode in precompute stage ", mode
+                        del hlms[mode]
+                        del hlms_conj[mode]
+                        continue
+
 
     elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4):
         print "  FACTORED LIKELIHOOD WITH SEOB "    
@@ -478,7 +489,7 @@ def FactoredLogLikelihood(extr_params, rholms,rholms_intp, crossTerms, crossTerm
             for key, rhoTS in rholms[det].iteritems():
                 tfirst = t_det
                 ifirst = int(np.round(( float(tfirst) - float(rhoTS.epoch)) / rhoTS.deltaT) + 0.5)
-                det_rholms[key] = rhoTS.data.data[ifirst]
+                det_rholms[key] = rhoTS.data.data[ifirst]  # note no time marginalization: a scalar.
 
 
         lnL += SingleDetectorLogLikelihood(det_rholms, CT, CTV,Ylms, F, dist)
@@ -1135,7 +1146,7 @@ def IdentifyEffectiveModesForDetector(crossTermsOneDetector, fac,det):
 #### Reimplementation with arrays   [NOT YET GENERALIZED TO USE V]
 ####
 
-def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetector, rholmsDictionaryForDetector,crossTermsForDetector):
+def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetector, rholmsDictionaryForDetector,crossTermsForDetector,crossTermsVForDetector):
     """
     Accepts list of LM pairs, dictionary for rholms against keys, and cross terms (a dictionary)
 
@@ -1170,8 +1181,8 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
             indx1 = lookupKeysToNumber[pair1]
             indx2 = lookupKeysToNumber[pair2]
             crossTermsArrayU[indx1][indx2] = crossTermsForDetector[(pair1,pair2)]
-            pair1New = (pair1[0], -pair1[1])
-            crossTermsArrayV[indx1][indx2] = (-1)**pair1[0]*crossTermsForDetector[(pair1New,pair2)]   # this actually should be a seperate array in general; we are assuming reflection symmetry to populate it
+#            pair1New = (pair1[0], -pair1[1])
+            crossTermsArrayV[indx1][indx2] =  crossTermsVForDetector[(pair1,pair2)] #(-1)**pair1[0]*crossTermsForDetector[(pair1New,pair2)]   # this actually should be a seperate array in general; we are assuming reflection symmetry to populate it
     if rosDebugMessagesDictionary["DebugMessagesLong"]:
         print  " Built cross-terms matrix ", crossTermsArray
 
@@ -1188,13 +1199,16 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
             indx1 = lookupKeysToNumber[pair1]
             rholm_intpArray[indx1] = rholms_intpDictionaryForDetector[pair1]
             
-    
-    return lookupNumberToKeys,lookupKeysToNumber, lookupNumberToNumberConjugation, crossTermsArrayU,crossTermsArrayV, rholmArray, rholm_intpArray
+    ### step 4: create dictionary (one per detector) with epoch  associated with the starting point for that IFO.  (should be the same for all modes for a given IFO)
+    epochHere  = float(rholmsDictionaryForDetector[pair1].epoch) # beware: print epochHere does not show full precision, don't worry - it is ok.
+      
+    return lookupNumberToKeys,lookupKeysToNumber, lookupNumberToNumberConjugation, crossTermsArrayU,crossTermsArrayV, rholmArray, rholm_intpArray, epochHere
 
 
 def SingleDetectorLogLikelihoodDataViaArray(epoch,lookupNK, rholms_intpArrayDict,tref, RA,DEC, thS,phiS,psi,  dist, det):
     """
     SingleDetectorLogLikelihoodDataViaArray evaluates everything using *arrays* for each (l,m) pair
+    Note arguments passed are STILL SCALARS
     """
     global distMpcRef
 
@@ -1221,26 +1235,33 @@ def SingleDetectorLogLikelihoodDataViaArray(epoch,lookupNK, rholms_intpArrayDict
 
     return term1
 
-def DiscreteSingleDetectorLogLikelihoodDataViaArray(epoch,lookupNK, rholmsArrayDict,deltaT, tref, RA,DEC, thS,phiS,psi,  dist, det):
+def DiscreteSingleDetectorLogLikelihoodDataViaArray(tvals,extr_params,lookupNK, rholmsArrayDict,Lmax=2,det='H1'):
     """
-    SingleDetectorLogLikelihoodDataViaArray evaluates everything using *arrays* for each (l,m) pair
+    SingleDetectorLogLikelihoodDataViaArray evaluates everything using *arrays* for each (l,m) pair.
+    Uses discrete arrays.  Compare to  FactoredLogLikelihoodTimeMarginalized
     """
     global distMpcRef
 
-    # N.B.: The Ylms are a function of - phiref b/c we are passively rotating
-    # the source frame, rather than actively rotating the binary.
-    # Said another way, the m^th harmonic of the waveform should transform as
-    # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
-    # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
-    Ylms = ComputeYlmsArray(lookupNK[det], thS,-phiS)
+
+    RA = extr_params.phi
+    DEC =  extr_params.theta
+    tref = extr_params.tref # geocenter time
+    phiref = extr_params.phiref
+    incl = extr_params.incl
+    psi = extr_params.psi
+    dist = extr_params.dist
+
+    npts = len(tvals)
+
+    Ylms = ComputeYlmsArray(lookupNK[det], incl,-phiref)
     if (det == "Fake"):
         F=np.exp(-2.*1j*psi)  # psi is applied through *F* in our model
         tshift= tref - epoch
     else:
         F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
         detector = lalsim.DetectorPrefixToLALDetector(det)
-        tshift = ComputeArrivalTimeAtDetector(det, RA,DEC, tref)  -  epoch   # detector time minus reference time (so far)
-    rholmsArray = rholmsArrayDict[det]
+        t_det = ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
+    rhoTS = rholmsArrayDict[det]
     distMpc = dist/(lal.PC_SI*1e6)
 
     npts = len(rholmsArray[0])
@@ -1251,8 +1272,9 @@ def DiscreteSingleDetectorLogLikelihoodDataViaArray(epoch,lookupNK, rholmsArrayD
 
     # Apply timeshift *at end*, without loss of generality: this is a single detector. Note no subsample interpolation
     # This timeshift should *only* be applied if all detectors start at the same array index!
-    nShiftL = int(  float(tshift)/deltaT)
-    term1 = np.roll(term1,-nShiftL)
+    nShiftL =int( float(tshift)/deltaT)
+    # return structure: different shifts
+    term1 = map(lambda x: np.roll(term1,-x), nShiftL)
 
     return term1
 
@@ -1292,10 +1314,12 @@ def  FactoredLogLikelihoodViaArray(epoch, P, lookupNKDict, rholms_intpArrayDict,
     """
     FactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood, a single scalar value.
     This generally is marginally faster, particularly if Lmax is large.
+    The timeseries quantities are computed via interpolation onto the desired grid
 
     Speed-wise, because we extract a *single* scalar value, this code has the same efficiency as FactoredLogLikelihoood
 
     Note 'P' must have the *sampling rate* set to correctly interpret the event time.
+    Note arguments passed are STILL SCALARS
     """
     global distMpcRef
 
@@ -1321,21 +1345,21 @@ def  FactoredLogLikelihoodViaArray(epoch, P, lookupNKDict, rholms_intpArrayDict,
     return term1+term2
 
 
-def  DiscreteFactoredLogLikelihoodViaArray(epoch, P, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,array_output=False):
+def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time. 
     This generally is marginally faster, particularly if Lmax is large.
 
-    The biggest speedup from array-izing structures comes.
+    The timeseries quantities are computed via discrete shifts of an existing grid
 
     Note 'P' must have the *sampling rate* set to correctly interpret the event time.
+     Note arguments passed are STILL SCALARS
     """
     global distMpcRef
 
     detectors = rholmsArrayDict.keys()
-
-    npts = len(rholmsArrayDict[detectors[0]][0])
+    npts = len(tvals)
 
     RA = P.phi
     DEC =  P.theta
@@ -1344,22 +1368,350 @@ def  DiscreteFactoredLogLikelihoodViaArray(epoch, P, lookupNKDict, rholmsArrayDi
     incl = P.incl
     psi = P.psi
     dist = P.dist
+    distMpc = dist/(lal.PC_SI*1e6)
+    invDistMpc = distMpcRef/distMpc
 
     deltaT = P.deltaT
-    Twindow  = deltaT*npts  # assume the user has set this to the prior. Be careful
 
-    term1 = np.zeros(npts)
-    term2 = 0.
+    lnL = np.zeros(npts,dtype=np.float128)
+
+    term2_net = 0j
+    term1_net = np.zeros(npts,dtype=complex)
     for det in detectors:
-        term1 += DiscreteSingleDetectorLogLikelihoodDataViaArray(epoch,lookupNKDict, rholmsArrayDict,deltaT,tref, RA, DEC, incl,phiref,psi,dist,det)
-        term2 += SingleDetectorLogLikelihoodModelViaArray(lookupNKDict, ctUArrayDict, ctVArrayDict, tref, RA, DEC, incl,phiref,psi,dist,det)
+            U = ctUArrayDict[det]
+            V = ctVArrayDict[det]
+            Ylms = ComputeYlmsArray(lookupNKDict[det], incl,-phiref)  # lookup dictionary specifies selected modes
 
+            F = ComplexAntennaFactor(det, RA, DEC, psi, tref)
+            invDistMpc = distMpcRef/distMpc
+
+            t_ref = epochDict[det]
+#            print det, t_ref, P.tref - t_ref
+
+            # This is the GPS time at the detector
+            t_det = ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
+            tfirst = float(t_det)+tvals[0]
+            ifirst = int(round(( float(tfirst) - t_ref) / P.deltaT) + 0.5) # this should be fast, done once
+            ilast = ifirst + npts
+
+            det_rholms = np.zeros(( len(lookupNKDict[det]),npts))  # rholms evaluated at time at detector, in window, packed
+            # do not interpolate, just use nearest neighbors.
+            for indx in np.arange(len(lookupNKDict[det])):
+                det_rholms[indx] = rholmsArrayDict[det][indx][ifirst:ilast]
+
+            # Quadratic term: SingleDetectorLogLikelihoodModelViaArray. Scalar
+            term2 = 0.j
+            term2 += F*np.conj(F)*(np.dot(np.conj(Ylms), np.dot(U,Ylms)))
+            term2 += F*F*np.dot(Ylms,np.dot(V,Ylms))
+            term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
+
+            term2_net+= term2
+
+            # Linear term
+            term1 = np.dot(np.conj(F*Ylms),det_rholms)   # be very careful re how this multiplication is done: suitable to use this form of multiply
+            term1 += np.real(term1) / (distMpc/distMpcRef)
+
+            term1_net += term1
 
     if  array_output:  # return the raw array
-        return term1+term2
+        return term1_net+term2_net
     else:  # return the marginalized lnL in time
         lnLArray = np.zeros(npts,dtype=np.complex128)   # avoid nan's
-        lnLArray = term1+term2
+        lnLArray = term1_net+term2_net
 #        lnLmargT = np.log(deltaT*np.sum(np.exp(lnLArray))/Twindow)
         lnLmargT = np.log(integrate.simps(np.exp(lnLArray), dx=deltaT))
         return lnLmargT
+
+
+def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False):
+    """
+    DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
+    either as an array vs time *or* marginalized in time. 
+    This generally is marginally faster, particularly if Lmax is large.
+
+    The timeseries quantities are computed via discrete shifts of an existing grid
+
+    Note 'P' must have the *sampling rate* set to correctly interpret the event time.
+     Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have 'Vector' postfix
+    """
+    global distMpcRef
+
+    detectors = rholmsArrayDict.keys()
+    npts = len(tvals)
+    npts_extrinsic = len(P_vec.phi)
+
+    # these are arrays!
+    RA = P_vec.phi
+    DEC =  P_vec.theta
+    tref = P_vec.tref # geocenter time, stored as a scalar
+    phiref = P_vec.phiref
+    incl = P_vec.incl
+    psi = P_vec.psi
+    dist = P_vec.dist
+    distMpc = dist/(lal.PC_SI*1e6)
+    invDistMpc = distMpcRef/distMpc
+
+
+    deltaT = P_vec.deltaT # this is stored as a scalar
+
+    # Array to use for work
+    lnL = np.zeros(npts,dtype=np.float128)
+    lnL_array = np.zeros((npts_extrinsic,npts),dtype=np.float128)
+    # Array to use for output
+    lnLmargOut = np.zeros(npts_extrinsic,dtype=np.float128)
+#    term1  = np.zeros(npts, dtype=complex) # workspace
+
+    for det in detectors:  # strings right now - need to change to make ufunc-able
+      # these do not depend on extrinsic params
+      U= ctUArrayDict[det]
+      V = ctVArrayDict[det]
+
+      # these do depend on extrinsic params
+      Ylms_vec = ComputeYlmsArrayVector(lookupNKDict[det], incl,-phiref)
+      F_vec = lalF(det, RA, DEC, psi, tref)
+      invDistMpc = distMpcRef/distMpc
+
+      t_ref = epochDict[det]  # a constant for each IFO
+
+      # This is the GPS time at the detector...an arra y
+      t_det = lalT(det, RA, DEC, tref)
+      for indx_ex in np.arange(npts_extrinsic):  # effectively a loop over RA, DEC
+            tfirst = float(t_det[indx_ex])+tvals[0]
+            d_here = distMpc[indx_ex]
+      
+            # pull out scalars
+            Ylms = Ylms_vec.T[indx_ex].T  # yank out Ylms for this specific set of parameters
+            F = float(F_vec.T[indx_ex])  # should be scalar
+
+            # these are scalars
+            ifirst = int(round(( float(tfirst) - t_ref) / P_vec.deltaT) + 0.5) # this should be fast, done once
+            ilast = ifirst + npts
+
+            det_rholms = np.zeros(( len(lookupNKDict[det]),npts),dtype=complex)  # rholms evaluated at time at detector, in window, packed. Should be the same
+            # do not interpolate, just use nearest neighbors.
+            for indx in np.arange(len(lookupNKDict[det])):
+                det_rholms[indx] = rholmsArrayDict[det][indx][ifirst:ilast]  # as structured in this loop, this will be FIXED window edges
+
+            # Quadratic term: SingleDetectorLogLikelihoodModelViaArray
+            term2 = 0.j
+            term2 += F*np.conj(F)*(np.dot(np.conj(Ylms), np.dot(U,Ylms)))
+            term2 += F*F*np.dot(Ylms,np.dot(V,Ylms))
+            term2 = np.sum(term2)
+            term2 = -np.real(term2) / 4. /(d_here/distMpcRef)**2
+
+            # Linear term
+            term1  = np.zeros(len(tvals), dtype=complex) # workspace
+            term1 = np.dot(np.conj(F*Ylms),det_rholms)   # be very careful re how this multiplication is done: suitable to use this form of multiply
+            term1 = np.real(term1) / (d_here/distMpcRef)
+
+
+            lnL = term1+term2
+            lnL_array[indx_ex] += lnL  #  copy into array.  Add, because we will get terms from other IFOs
+    lnLmargOut = np.log(integrate.simps(np.exp(lnL_array), dx=deltaT)) 
+
+    return lnLmargOut
+
+
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False):
+    """
+    DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
+    either as an array vs time *or* marginalized in time. 
+    This generally is marginally faster, particularly if Lmax is large.
+    The timeseries quantities are computed via discrete shifts of an existing grid
+    Note 'P' must have the *sampling rate* set to correctly interpret the event time.
+     Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have 'Vector' postfix
+    """
+    global distMpcRef
+
+    detectors = rholmsArrayDict.keys()
+    npts = len(tvals)
+    npts_extrinsic = len(P_vec.phi)
+
+    # All arrays of length `npts_extrinsic`, except for `tref` which is a scalar
+    RA = P_vec.phi
+    DEC =  P_vec.theta
+    tref = P_vec.tref # geocenter time, stored as a scalar
+    phiref = P_vec.phiref
+    incl = P_vec.incl
+    psi = P_vec.psi
+    dist = P_vec.dist
+    distMpc = dist/(lal.PC_SI*1e6)
+    invDistMpc = distMpcRef/distMpc
+
+
+    deltaT = P_vec.deltaT # this is stored as a scalar
+
+    # Array to use for work
+    lnL = np.zeros(npts,dtype=np.float64)
+    lnL_t_accum = np.zeros((npts_extrinsic,npts),dtype=np.float64)
+
+    for det in detectors:  # strings right now - need to change to make ufunc-able
+        # These do not depend on extrinsic params.
+        # Arrays of shape (n_lms, n_lms).
+        # Axis 0 corresponds to (l,m), and axis 1 corresponds to (l',m').
+        U = ctUArrayDict[det]
+        V = ctVArrayDict[det]
+
+        n_lms = len(U)
+
+        # These do depend on extrinsic params
+        # Array of shape (npts_extrinsic, n_lms,)
+        Ylms_vec = ComputeYlmsArrayVector(lookupNKDict[det], incl, -phiref).T
+        # Array of shape (npts_extrinsic,)
+        F_vec = lalF(det, RA, DEC, psi, tref)
+        # Array of shape (npts_extrinsic,)
+        invDistMpc = distMpcRef/distMpc
+
+        # Scalar -- is constant for each IFO
+        t_ref = epochDict[det]
+
+        # This is the GPS time at the detector, an array of shape (npts_extrinsic,)
+        t_det = lalT(det, RA, DEC, tref)
+
+        tfirst = t_det + tvals[0]
+
+        ifirst = (np.round((tfirst-t_ref) / P_vec.deltaT) + 0.5).astype(int)
+        ilast = ifirst + npts
+
+        # Note: Very inefficient, need to avoid making `Qlms` by doing the
+        # inner product in a CUDA kernel.
+        det_rholms = rholmsArrayDict[det]
+        Qlms = np.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
+        for i in range(npts_extrinsic):
+            Qlms[i] = det_rholms[..., ifirst[i]:ilast[i]].T
+
+        # Has shape (npts_extrinsic,)
+        term2 = ( (F_vec*np.conj(F_vec)).real *np.einsum(
+                "...i,...j,ij",
+                np.conj(Ylms_vec), Ylms_vec, U,
+            ).real )
+        term2 += (np.square(F_vec) *
+            np.einsum(
+                "...i,...j,ij",
+                Ylms_vec, Ylms_vec, V,
+            )
+        ).real
+        term2 *= -0.25 * np.square(distMpcRef / distMpc)
+
+       # Has shape (npts_extrinsic, npts).
+        # Starts as term1, and accumulates term2 after.
+
+        # View into F with shape (npts_extrinsic, n_lms)
+        F_vec_dummy_lm = F_vec[..., np.newaxis]
+        # View into F * Ylm with shape (npts_extrinsic, npts, n_lms)
+        FY_dummy_t = np.broadcast_to(
+            (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
+            Qlms.shape,
+        )
+
+        lnL_t_accum += np.einsum(
+            "...i,...i",
+            np.conj(FY_dummy_t), Qlms,
+        ).real * (distMpcRef/distMpc)[...,None]
+
+
+        # Accumulate term2 into the time-dependent log likelihood.
+        # Have to create a view with an extra axis so they broadcast.
+        lnL_t_accum += term2[..., np.newaxis]
+
+    # Take exponential of the log likelihood in-place.
+    L_t = np.exp(lnL_t_accum, out=lnL_t_accum)
+        
+    # Integrate out the time dimension.  We now have an array of shape
+    # (npts_extrinsic,)
+    L = integrate.simps(L_t, dx=deltaT, axis=-1)
+    # Compute log likelihood in-place.
+    lnL = np.log(L, out=L)
+
+
+    return lnL
+
+def ComputeYlmsArray(lookupNK, theta, phi):
+    """
+    Returns an array Ylm[k] where lookup(k) = l,m.  Only computes the LM values needed.
+    theta, phi arguments are *scalars*
+
+    SHOULD BE DEPRECATED
+    """
+    Ylms = np.zeros(len(lookupNK),dtype=complex)
+    for indx in np.arange(len(lookupNK)):
+            l = int(lookupNK[indx][0])
+            m = int(lookupNK[indx][1])
+            Ylms[ indx] = lal.SpinWeightedSphericalHarmonic(theta, phi,-2, l, m)
+    return Ylms
+
+try: 
+        import numba
+        from numba import vectorize, complex128, float64, int64
+        numba_on = True
+        print " Numba on "
+
+        # Very inefficient : decorating
+        @vectorize([complex128(float64,float64,int64,int64,int64)])
+        def lalylm(th,ph,s,l,m):
+                return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
+        # @vectorize
+        # def lalF(det, RA,DEC,psi,tref):
+        #         return ComplexAntennaFactor(det, RA, DEC, psi, tref)
+        # @vectorize
+        # def lalT(deta, RA, DEC, tref):
+                return ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
+
+        def lalF(det, RA, DEC,psi,tref): # note tref is a SCALAR
+                F = np.zeros( len(RA), dtype=complex)
+                for indx  in np.arange(len(RA)):
+                        F[indx] = ComplexAntennaFactor(det, RA[indx],DEC[indx], psi[indx], tref)
+                return F
+        def lalT(det, RA, DEC,tref): # note tref is a SCALAR
+                T = np.zeros( len(RA), dtype=float)
+                for indx  in np.arange(len(RA)):
+                        T[indx] = ComputeArrivalTimeAtDetector(det, RA[indx],DEC[indx],  tref)
+                return T
+
+except:
+        numba_on = False
+        print " Numba off "
+        # Very inefficient
+        def lalylm(th,ph,s,l,m):
+                return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
+        def lalF(det, RA, DEC,psi,tref):
+                if isinstance(RA, float):
+                        return ComplexAntennaFactor(det, RA, DEC, psi,tref)
+                F = np.zeros( len(RA), dtype=complex)
+                for indx  in np.arange(len(RA)):
+                        F[indx] = ComplexAntennaFactor(det, RA[indx],DEC[indx], psi[indx], tref)
+                return F
+        def lalT(det, RA, DEC,tref):
+                if isinstance(RA, float):
+                        return ComputeArrivalTimeAtDetector(det, RA, DEC,tref)
+                T = np.zeros( len(RA), dtype=float)
+                for indx  in np.arange(len(RA)):
+                        T[indx] = ComputeArrivalTimeAtDetector(det, RA[indx],DEC[indx], tref)
+                return T
+
+#        lalF = ComplexAntennaFactor
+#        lalT = ComputeArrivalTimeAtDetector
+
+def ComputeYlmsArrayVector(lookupNK, theta,phi):
+    """
+    Returns an array Ylm[k] where lookup(k) = l,m.  Only computes the LM values needed.
+    theta, phi arguments are *vectors*.  Shape is (len(th),len(lookup(NK)))
+
+    Should be combined with the previous routine ComputeYlmsArray (redundant)
+
+    Example:
+       th = np.linspace(0,np.pi, 5); lookupNK =[[2,-2], [2,2]]  
+       factored_likelihood.ComputeYlmsArrayVector(lookupNK,th,th)
+    """
+
+    # Allocate
+    Ylms = np.zeros( (len(lookupNK), len(theta)),dtype=complex)
+
+    # Loop over l, m and evaluate.
+    for indx in np.arange(len(lookupNK)):
+            l = int(lookupNK[indx][0])*np.ones(len(theta),dtype=int)   # use np.repeat instead for speed
+            m = int(lookupNK[indx][1])*np.ones(len(theta),dtype=int)
+            s = -2 * np.ones(len(theta),dtype=int)
+
+            Ylms[ indx] = lalylm(theta, phi,s, l, m)
+    return Ylms
