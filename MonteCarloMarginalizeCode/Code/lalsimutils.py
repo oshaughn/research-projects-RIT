@@ -1067,7 +1067,7 @@ class ChooseWaveformParams:
             Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
         M = (self.m1+self.m2)
         eta = symRatio(self.m1,self.m2)   # dimensionless
-        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v +  (27./8 - 19*eta/8 +eta*eta/24.)*(v**3) )   # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or Blanchet 1310.1528 Eq. 234 (zero spin)
+        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v +  (27./8 - 19*eta/8 +eta*eta/24.)*(v**4) )   # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or 2PN from Blanchet 1310.1528 Eq. 234 (zero spin)
     def OrbitalAngularMomentumAtReferenceOverM2(self):
         L = self.OrbitalAngularMomentumAtReference()
         return L/(self.m1+self.m2)/(self.m1+self.m2)
