@@ -35,6 +35,7 @@ optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depend
 optp.add_option("--export-extra-spins",action='store_true',help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
 optp.add_option("--export-tides",action='store_true',help="Include tidal parameters")
 optp.add_option("--export-cosmology",action='store_true',help="Include source frame masses and redshift")
+optp.add_option("--export-weights",action='store_true',help="Include a field 'weights' equal to L p/ps")
 optp.add_option("--with-cosmology",default="Planck15",help="Specific cosmology to use")
 optp.add_option("--convention",default="RIFT",help="RIFT|LI")
 opts, args = optp.parse_args()
@@ -58,6 +59,8 @@ if opts.convention == 'LI':
       print "lambda1 lambda2 lam_tilde",
   if opts.export_cosmology:
       print " m1_source m2_source mc_source mtotal_source redshift ",
+  if opts.export_weights:
+      print " weights ", 
   print
   for fname in args:
     points = table.get_table(utils.load_filename(fname,contenthandler=ligolw.LIGOLWContentHandler), lsctables.SimInspiralTable.tableName)
@@ -126,6 +129,8 @@ if opts.convention == 'LI':
             m1_source = pt.mass1/(1+z)
             m2_source = pt.mass2/(1+z)
             print m1_source, m2_source, mc_here/(1+z), mtot_here/(1+z), z, 
+        if opts.export_weights:
+            print wt[indx]
         print
 
 
@@ -140,6 +145,8 @@ if opts.export_tides:
     print "lambda1 lambda2",
 if opts.export_cosmology:
     print " m1_source m2_source redshift ",
+if opts.export_weights:
+    print " weights ",
 print
 for fname in args:
  if ".hdf5" in fname:
@@ -176,6 +183,7 @@ for fname in args:
     Nmax = np.max([int(row.simulation_id) for row in points])+1
     sim_id = np.array([int(row.simulation_id) for row in points])+1
 
+    wt = np.exp(like)*p/ps
 
     for indx in np.arange(len(points)):
         pt = points[indx]
@@ -210,5 +218,7 @@ for fname in args:
             m1_source = pt.mass1/(1+z)
             m2_source = pt.mass2/(1+z)
             print m1_source, m2_source, z,
+        if opts.export_weights:
+            print wt[indx],
         print
 #    print pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, ind like[indx]
