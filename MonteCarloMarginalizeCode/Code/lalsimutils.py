@@ -125,7 +125,10 @@ try:
 except:
     lalTEOBv2 = -3
     lalTEOBv4 = -4
-
+try:
+    lalSEOBv4HM = lalsim.SEOBNRv4HM
+except:
+    lalSEOBNRv4HM = -5
 
 MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
 
