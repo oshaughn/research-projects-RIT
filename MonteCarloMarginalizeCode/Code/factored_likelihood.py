@@ -40,8 +40,6 @@ from scipy import special
 from itertools import product
 import math
 
-import optimized_gpu_tools
-import Q_inner_product
 import vectorized_lal_tools
 
 import os

@@ -1,12 +1,18 @@
 import numpy
-import cupy
+try:
+    import cupy
+    xpy_default=cupy
+except:
+    xpy_default=numpy
+
+
 
 def TimeDelayFromEarthCenter(
         detector_earthfixed_xyz_metres,
         source_right_ascension_radians,
         source_declination_radians,
         greenwich_mean_sidereal_time,
-        xpy=cupy, dtype=numpy.float64,
+        xpy=xpy_default, dtype=numpy.float64,
     ):
     """
 
@@ -58,7 +64,7 @@ def ComputeDetAMResponse(
         source_declination_radians,
         source_polarization_radians,
         greenwich_mean_sidereal_time,
-        xpy=cupy, dtype_real=numpy.float64, dtype_complex=numpy.complex128,
+        xpy=xpy_default, dtype_real=numpy.float64, dtype_complex=numpy.complex128,
     ):
     """
     Parameters
