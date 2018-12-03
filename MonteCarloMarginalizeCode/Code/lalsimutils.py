@@ -2473,7 +2473,8 @@ def hlmoft(P, Lmax=2):
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
     elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4):
         extra_params = P.to_lal_dict()
-        hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
+        hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
+            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, \
             P.fmin, P.fref, P.dist, extra_params,
              Lmax, P.approx)
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
