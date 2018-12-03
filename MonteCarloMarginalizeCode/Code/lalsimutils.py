@@ -2450,15 +2450,15 @@ def hlmoft(P, Lmax=2):
     """
     assert Lmax >= 2
 
-#    if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
-#        hlm_out = hlmoft_SEOB_dict(P)
-#        if True: #P.taper:
-#            ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
-#            vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
-#            for key in hlm_out.keys():
-#                # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
-#                hlm_out[key].data.data[:ntaper]*=vectaper
-#        return hlm_out
+    if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4  or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
+       hlm_out = hlmoft_SEOB_dict(P)
+       if True: #P.taper:
+           ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
+           vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+           for key in hlm_out.keys():
+               # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
+               hlm_out[key].data.data[:ntaper]*=vectaper
+       return hlm_out
     if P.approx == lalsim.SEOBNRv3:
         hlm_out = hlmoft_SEOBv3_dict(P)
         if not hlm_out:
