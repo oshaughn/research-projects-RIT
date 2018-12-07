@@ -187,7 +187,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         if not isinstance(hlms_list,dict):
                 hlms_conj = lsu.SphHarmFrequencySeries_to_dict(hlms_conj_list, Lmax) # a dictionary
         else:
-                hlms_conj = hlm_conj_list
+                hlms_conj = hlms_conj_list
     elif (nr_lookup or NR_group) and useNR:
 	    # look up simulation
 	    # use nrwf to get hlmf
