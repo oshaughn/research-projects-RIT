@@ -119,6 +119,7 @@ try:
 except:
     lalSEOBv4 =-1
     lalIMRPhenomD = -2
+
 try:
     lalTEOBv2 = lalsim.TEOBv2
     lalTEOBv4 = lalsim.TEOBv4
@@ -209,7 +210,8 @@ tex_dictionary  = {
   'LambdaTilde': r'$\tilde{\Lambda}$',
   'lambdat': r'$\tilde{\Lambda}$',
   'DeltaLambdaTilde': r'$\Delta\tilde{\Lambda}$',
-  'dlambdat': r'$\Delta\tilde{\Lambda}$'
+  'dlambdat': r'$\Delta\tilde{\Lambda}$',
+  'distance':r'$d_L$'
 }
 
 
@@ -2404,7 +2406,7 @@ def non_herm_hoff(P):
 
 
 
-def hlmoft(P, Lmax=2):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -2412,8 +2414,14 @@ def hlmoft(P, Lmax=2):
 
     The linked list will contain all modes with l <= Lmax
     and all values of m for these l.
+
+    nr_polarization_convention : apply a factor -1 to all modes provided by lalsuite
     """
     assert Lmax >= 2
+
+    sign_factor = 1
+    if nr_polarization_convention:
+        sign_factor = -1
 
     if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
         hlm_out = hlmoft_SEOB_dict(P)
@@ -2421,6 +2429,7 @@ def hlmoft(P, Lmax=2):
             ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             for key in hlm_out.keys():
+                hlm_out[key].data.data *= sign_factor
                 # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
                 hlm_out[key].data.data[:ntaper]*=vectaper
         return hlm_out
@@ -2434,6 +2443,7 @@ def hlmoft(P, Lmax=2):
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             for key in hlm_out.keys():
                 # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
+                hlm_out[key].data.data *= sign_factor
                 hlm_out[key].data.data[:ntaper]*=vectaper
         return hlm_out
 
@@ -2453,8 +2463,12 @@ def hlmoft(P, Lmax=2):
         assert TDlen >= hxx.data.length
         hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
 
+    hlm_dict = SphHarmTimeSeries_to_dict(hlms,Lmax)
 
-    return hlms   # note data type is different than with SEOB; need to finish port to pure dictionary
+    for key in hlm_dict:
+        hlm_dict[key].data.data *= sign_factor
+
+    return hlm_dict   # note data type is different than with SEOB; need to finish port to pure dictionary
 
 def hlmoft_FromFD_dict(P,Lmax=2):
     """
@@ -2470,6 +2484,8 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a dictionary of modes.
     A hack for SEOBNRv3, because there's not a natural dictionary output
+
+    Will NOT perform the -1 factor correction
     """
 
     ampFac = (P.m1 + P.m2)/lal.MSUN_SI * lal.MRSUN_SI / P.dist
@@ -2561,6 +2577,12 @@ def hlmoff(P, Lmax=2):
 
 def conj_hlmoff(P, Lmax=2):
     hlms = hlmoft(P, Lmax)
+    if isinstance(hlms,dict):
+        hlmsF = {}
+        for mode in hlms:
+            hlms[mode].data.data = np.conj(hlms[mode].data.data)
+            hlmsF[mode] = DataFourier(hlms[mode])
+        return hlmsF
     hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
     if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
         TDlen = nextPow2(hxx.data.length)
