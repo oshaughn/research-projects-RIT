@@ -2587,7 +2587,7 @@ def hlmoft_SEOB_dict(P,Lmax=2):
                 hC = hlms[mode]
                 hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0, 
                                                     hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
-                hC2.data.data =np.conj(hC.data.data)
+                hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
 #                hT = hlms[mode].copy() # hopefully this works
 #                hT.data.data = np.conj(hT.data.data)
                 hlms[mode_conj] = hC2
