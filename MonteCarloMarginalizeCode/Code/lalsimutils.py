@@ -2567,6 +2567,22 @@ def hlmoft_SEOB_dict(P,Lmax=2):
     Works for any aligned-spin time-domain waveform with only (2,\pm 2) modes though.
     """
 
+    if P.approx == lalSEOBNRv4HM:
+        extra_params = P.to_lal_dict()        
+        nqcCoeffsInput=lal.CreateREAL8Vector(10)
+        hlm_struct, dyn, dynHi = lalsim.SimIMRSpinAlignedEOBModes(P.deltaT, P.m1, P.m2, P.fmin, P.dist, P.s1z, P.s2z,41, 0., 0., 0.,0.,0.,0.,0.,0.,1.,1.,nqcCoeffsInput, 0)
+
+        hlms = SphHarmTimeSeries_to_dict(hlms,Lmax)
+        # Should only populate positive modes; create negative modes
+        mode_list_orig = hlms.keys()
+        for mode in mode_list_orig:
+            mode_conj = (mode[0],-mode[1])
+            if not mode_conj in hlms:
+                hT = hlms[mode].copy() # hopefully this works
+                hT.data.data = np.conj(hT.data.data)
+                hlms[mode_conj] = hT
+        return hlms
+
     if not (P.approx == lalsim.SEOBNRv2 or P.approx==lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx==lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
         return None
 
