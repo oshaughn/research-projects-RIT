@@ -34,7 +34,7 @@ from glue.lal import Cache
 
 import lal
 import lalsimulation as lalsim
-import lalinspiral
+#import lalinspiral
 import lalmetaio
 
 from pylal import frutils
