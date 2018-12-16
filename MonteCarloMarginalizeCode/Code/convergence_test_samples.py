@@ -106,12 +106,12 @@ for param in opts.parameter:
 
 # Perform test
 val_test = np.inf
-if opts.method is 'lame':
+if opts.method == 'lame':
     val_test = test_lame(dat1,dat2)
 elif opts.method == 'KS_1d':
     val_test = test_ks1d(dat1[:,0],dat2[:,0])
 elif opts.method == 'KL_1d':
-    val_test = test_KL1d(dat1,dat2)
+    val_test = test_KL1d(dat1[:,0],dat2[:,0])
 else:
     print " No known method ", opts.method
 print  val_test
