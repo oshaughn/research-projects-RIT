@@ -27,7 +27,7 @@ parser.add_argument("--parameter-range", action='append', help="Parameter ranges
 parser.add_argument("--method",  help="Test to perform: lame|ks1d|...")
 parser.add_argument("--threshold",default=None,  help="Manual threshold for the test being performed. (If not specified, the success condition is determined by default for that diagnostic, based on the samples size and properties")
 parser.add_argument("--test-output",  help="Filename to return output. Result is a scalar >=0 and ideally <=1.  Closer to 0 should be good. Second column is the diagnostic, first column is 0 or 1 (success or failure)")
-parser.add_argument("--always-succeed",help="Test output is always success.  Use for plotting convergence diagnostics so jobs insured to run for many iterations.")
+parser.add_argument("--always-succeed",action='store_true',help="Test output is always success.  Use for plotting convergence diagnostics so jobs insured to run for many iterations.")
 opts=  parser.parse_args()
 
 if len(opts.samples)<1:
