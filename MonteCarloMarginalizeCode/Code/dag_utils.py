@@ -707,5 +707,130 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,arg_str=
 
     return ile_job, ile_sub_name
 
+def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,arg_str='',log_dir=None, use_eos=False,ncopies=1, **kwargs):
+    """
+    Write a submit file for launching a 'convert' job
+       convert_output_format_ile2inference
+
+    """
+
+    exe = exe or which("convert_output_format_ile2inference")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    if not(arg_str is None or len(arg_str)<2):
+        ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    ile_job.add_arg(file_input)
+    
+    #
+    # Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file(file_output)
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    # To change interactively:
+    #   condor_qedit
+    # for example: 
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+
+    return ile_job, ile_sub_name
+
+
+def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+    """
+    Write a submit file for launching a convergence test job
+
+    """
+
+    exe = exe or which("convergence_test_samples.py") 
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+
+    # Add options for two parameter files
+    for name in samples_files:
+#        ile_job.add_opt("samples",name)  # do not add in usual fashion, because otherwise the key's value is overwritten
+        ile_job.add_opt("samples " + name,'')  
+
+    # Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file(target)
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    # To change interactively:
+    #   condor_qedit
+    # for example: 
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+
+    return ile_job, ile_sub_name
+
+
+
+def write_plot_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+    """
+    Write a submit file for launching a final plot.  Note the user can in principle specify several samples (e.g., several iterations, if we want to diagnose them)
+
+    """
+
+    exe = exe or which("plot_posterior_corner.py") 
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+
+    # Add options for two parameter files
+    for name in samples_files:
+#        ile_job.add_opt("samples",name)  # do not add in usual fashion, because otherwise the key's value is overwritten
+        ile_job.add_opt("posterior-file " + name,'')  
+
+    # Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file(target)
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    # To change interactively:
+    #   condor_qedit
+    # for example: 
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+
+    return ile_job, ile_sub_name
+
 
 
