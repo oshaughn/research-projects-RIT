@@ -344,11 +344,11 @@ for it in np.arange(it_start,opts.n_iterations):
     unify_node.add_parent(con_node)
     
     # Create one node per job
-    for i in np.arange(opts.n_samples_per_job):
+    for event in np.arange(opts.n_samples_per_job):
         # Add task per ILE operation
         ile_node = pipeline.CondorDAGNode(ile_job)
 #        ile_node.set_priority(JOB_PRIORITIES["ILE"])
-        ile_node.add_macro("macroevent", i)
+        ile_node.add_macro("macroevent", event)
         ile_node.add_macro("macroiteration", it)
         if not(parent_fit_node is None):
             ile_node.add_parent(parent_fit_node)
@@ -381,11 +381,11 @@ for it in np.arange(it_start,opts.n_iterations):
 
 
 
-    if opts.test_args and i>0:
+    if opts.test_args and it>0:
         # Cannot run test on first iteration
         test_node = pipeline.CondorDAGNode(test_job)
-        test_node.add_macro("macroiteration", i)
-        test_node.add_macro("macroiterationlast", i-1)
+        test_node.add_macro("macroiteration", it)
+        test_node.add_macro("macroiterationlast", it-1)
         test_node.add_parent(parent_fit_node)
         test_node.set_category("CONVERGE")
         dag.add_node(test_node)
