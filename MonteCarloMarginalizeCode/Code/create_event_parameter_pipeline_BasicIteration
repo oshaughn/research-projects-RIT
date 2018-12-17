@@ -71,9 +71,11 @@ parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
 parser.add_argument("--test-exe",default=None,help="filename of test code or equivalent executable.  Must have a --test-output <fname> argument.  Used for convergence testing or other termination. NOT ACTIVE; see 'convergence_test_samples.py' for example")
 parser.add_argument("--plot-exe",default=None,help="filename of plot code or equivalent executable.  Will default to `which plot_posterior_corner.py`.  Default is to plot last set of samples")
+parser.add_argument("--gridinit-exe",default=None,help="filename of initial grid creation or equivalent executable.  Will default to `which util_ManualOverlapGrid.py`.  Must create overlap-grid-0.xml.gz")
 parser.add_argument("--test-args",default=None,help="filename of args_test.txt, which holds test arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments")
 parser.add_argument("--convert-args",default=None,help="filename of args_convert.txt, which holds arguments to the convert function. Needed if you plan to export tide informaton")
 parser.add_argument("--plot-args",default=None,help="filename of args_plot.txt, which holds plot arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments.  To create the posterior samples file, you probably need to run the convert job (e.g., via the tests)")
+parser.add_argument("--gridinit-args",default=None,help="arguments for grid creation or equivalent executable.  If empty, will attempt to use the --input-grid argument")
 parser.add_argument("--ile-batch",action='store_true',help="Different workflow: the ILE job is assumed to create a .composite file directly in the current working directory. Designed for fake ILE sets and long-term batch workflow. NOT IMPLEMENTED ")
 parser.add_argument("--transfer-file-list",default=None,help="File containing list of *input* filenames to transfer, one name per file. Copied into transfer_files for condor directly.  If provided, also enables attempts to deduce files that need to be transferred for the pipeline to operate, as needed for OSG, etc")
 parser.add_argument("--request-memory-ILE",default=4096,type=int,help="Memory request for condor (in Mb) for ILE jobs.")
@@ -154,10 +156,23 @@ if opts.convert_args:
     convert_args=convert_args.rstrip()
     print "CONVERT", convert_args
 
+gridinit_args=None
+if opts.gridinit_args:
+    # Load args.txt. Remove first item.  Store
+    with open(opts.gridinit_args) as f:
+        gridinit_args_list = f.readlines()
+    gridinit_args = ' '.join( map( lambda x: x.replace('\\',''),gridinit_args_list) )
+    gridinit_args = ' '.join(gridinit_args.split(' ')[1:])
+# Some argument protection for later
+    gridinit_args = gridinit_args.replace('[', ' \'[')
+    gridinit_args = gridinit_args.replace(']', ']\'')
+    gridinit_args=gridinit_args.rstrip()
+    print "GRIDINIT", gridinit_args
+
 
 # Copy seed grid into place as overlap-grid-0.xml.gz
 it_start = opts.start_iteration
-if it_start is 0:
+if (it_start is 0) and not gridinit_args:
     shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
 
 
@@ -307,13 +322,18 @@ if opts.test_args:
 if opts.plot_args and opts.test_args:
     # default: last two iterations
     plot_job, plot_job_name = dag_utils.write_plot_sub(tag='plot',log_dir=None,arg_str=plot_args,samples_files=['posterior_samples-$(macroiteration).dat','posterior_samples-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.plot_exe)
-    # Modify: set 'initialdir'
-#    plot_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_plot")
-    # Modify output argument: change logs and working directory to be subdirectory for the run
     plot_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).log")
     plot_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).err")
     plot_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).out")
     plot_job.write_sub_file()
+
+
+if opts.gridinit_args:
+    gridinit_job, gridinit_job_name = dag_utils.write_init_sub(tag='grid',log_dir=None,arg_str=gridinit_args,out_dir=opts.working_directory,exe=opts.gridinit_exe)
+    gridinit_job.set_log_file(opts.working_directory+"/init-$(cluster)-$(process).log")
+    gridinit_job.set_stderr_file(opts.working_directory+"init--$(cluster)-$(process).err")
+    gridinit_job.set_stdout_file(opts.working_directory+"/init-$(cluster)-$(process).out")
+    gridinit_job.write_sub_file()
 
 
 ##   Convert job(s)
@@ -328,6 +348,7 @@ if opts.plot_args and opts.test_args:
 # ++++
 
 # Create workflow
+#   - Create grid node as needed
 #   - Loop over iterations
 #      - if iteration0, use seed grid (should already be copied in place)
 #      - if not iteration 0, grid should be in place (from previous stage)
@@ -337,6 +358,13 @@ if opts.plot_args and opts.test_args:
 #    
 
 parent_fit_node = None
+
+if opts.gridinit_args:
+   grid_node = pipeline.CondorDAGNode(gridinit_job) 
+   dag.add_node(grid_node)
+   parent_fit_node = grid_node  # this must happen before the first ILE jobs
+
+
 for it in np.arange(it_start,opts.n_iterations):
     consolidate_now = None
     fit_node_now = None
