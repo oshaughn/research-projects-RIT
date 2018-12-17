@@ -887,7 +887,10 @@ class ChooseWaveformParams:
         """
         # Create basic parameters
 #        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
-        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
+        f_to_use = self.fref
+        if self.fref==0:
+            f_to_use = self.fmin
+        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, f_to_use)
         # Define psiL via the deficit angle between Jhat in the radiation frame and the psiJ we want to achieve 
         Jref = self.TotalAngularMomentumAtReferenceOverM2()
         Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
