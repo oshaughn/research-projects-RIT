@@ -200,6 +200,8 @@ parser.add_argument("--no-downselect",action='store_true',help='Prevent using do
 parser.add_argument("--no-downselect-grid",action='store_true',help='Prevent using downselection on input points. Applied only to mc range' )
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
 parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
+parser.add_argument("--prior-gaussian-mass-ratio",action='store_true',help="Applies a gaussian mass ratio prior (mean=0.5, width=0.2 by default). Only viable in mtot, q coordinates. Not properly normalized, so will break bayes factors by about 2%")
+parser.add_argument("--prior-gaussian-spin-magnitude",action='store_true',help="Applies a gaussian spin magnitude prior (mean=0.7, width=0.1 by default) for both spins. Only viable in polar spin coordinates. Not properly normalized, so will break bayes factors by a small amount (depending on chi_max)")
 parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help="Applies volumetric prior internally, and then reweights at end step to get uniform spin magnitude prior")
 parser.add_argument("--pseudo-uniform-magnitude-prior-alternate-sampling", action='store_true',help="Changes the internal sampling to be gaussian, not volumetric")
 parser.add_argument("--pseudo-gaussian-mass-prior",action='store_true', help="Applies a gaussian mass prior in postprocessing. Done via reweighting so we can use arbitrary mass sampling coordinates.")
@@ -554,7 +556,6 @@ def gaussian_mass_prior(x,mu=0,sigma=1):
     return np.exp( - 0.5*(x-mu)**2/sigma**2)/np.sqrt(2*np.pi*sigma**2)
 
 
-
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
     's2x':functools.partial(s_component_uniform_prior, R=chi_small_max),
@@ -570,6 +571,13 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'lambda_minus': lambda_prior,
     'LambdaTilde':lambda_tilde_prior,
     'DeltaLambdaTilde':delta_lambda_tilde_prior,
+    # Polar spin components (uniform magnitude by default)
+    'chi1':s_component_uniform_prior,  
+    'chi2':s_component_uniform_prior,
+    'theta1': mcsampler.uniform_samp_theta,
+    'theta2': mcsampler.uniform_samp_theta,
+    'phi1':mcsampler.uniform_samp_phase,
+    'phi2':mcsampler.uniform_samp_phase
 }
 prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_small_max,0.999*chi_small_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
    's1x':[-chi_max,chi_max],
@@ -587,6 +595,12 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
+  'chi1':[0,chi_max],
+  'chi2':[0,chi_max],
+  'theta1':[0,np.pi],
+  'theta2':[0,np.pi],
+  'phi1':[0,2*np.pi],
+  'phi2':[0,2*np.pi],
 }
 if not (opts.chiz_plus_range is None):
     print " Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range
