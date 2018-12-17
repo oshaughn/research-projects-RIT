@@ -26,7 +26,7 @@
 #          event time
 #    - Inputs
 #         args_cip.txt   # no --fname, --fname-output-...  (overrridden)
-#         args_ile.txt    # no --sim-xml,  --event (overrridden)
+#         args_ile.txt    # no --sim-xml,  --event (overrridden)      ... though you may want to add them for command-single.sh to run properly
 #    - Workspaces
 #          Creates one directory for each task, for each iteration
 #          Main directory:
@@ -36,6 +36,12 @@
 #   
 # EXAMPLES
 #    python create_event_parameter_pipeline_BasicIteration.py --ile-args args_ile.txt --cip-args args.txt 
+#
+# TEST SEQUENCE
+#        unixhome/Projects/LIGO-ILE-Applications/communications/20180806-Me-PipelineDevelopment
+#    * Trivial iteration, fitting a constant likelihood at each step: 
+#           rm -rf test_workflow_trivial; make test_workflow_trivial
+#         
 
 
 
@@ -67,7 +73,7 @@ parser.add_argument("--test-exe",default=None,help="filename of test code or equ
 parser.add_argument("--plot-exe",default=None,help="filename of plot code or equivalent executable.  Will default to `which plot_posterior_corner.py`.  Default is to plot last set of samples")
 parser.add_argument("--test-args",default=None,help="filename of args_test.txt, which holds test arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments")
 parser.add_argument("--convert-args",default=None,help="filename of args_convert.txt, which holds arguments to the convert function. Needed if you plan to export tide informaton")
-parser.add_argument("--plot-args",default=None,help="filename of args_plot.txt, which holds plot arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments")
+parser.add_argument("--plot-args",default=None,help="filename of args_plot.txt, which holds plot arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments.  To create the posterior samples file, you probably need to run the convert job (e.g., via the tests)")
 parser.add_argument("--ile-batch",action='store_true',help="Different workflow: the ILE job is assumed to create a .composite file directly in the current working directory. Designed for fake ILE sets and long-term batch workflow. NOT IMPLEMENTED ")
 parser.add_argument("--transfer-file-list",default=None,help="File containing list of *input* filenames to transfer, one name per file. Copied into transfer_files for condor directly.  If provided, also enables attempts to deduce files that need to be transferred for the pipeline to operate, as needed for OSG, etc")
 parser.add_argument("--request-memory-ILE",default=4096,type=int,help="Memory request for condor (in Mb) for ILE jobs.")
@@ -298,11 +304,11 @@ if opts.test_args:
     test_job.write_sub_file()
 
 
-if opts.plot_args:
+if opts.plot_args and opts.test_args:
     # default: last two iterations
-    plot_job, plot_job_name = dag_utils.write_plot_sub(tag='plot',log_dir=None,arg_str=plot_args,samples_files=['overlap-grid-$(macroiteration).dat','overlap-grid-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.plot_exe)
+    plot_job, plot_job_name = dag_utils.write_plot_sub(tag='plot',log_dir=None,arg_str=plot_args,samples_files=['posterior_samples-$(macroiteration).dat','posterior_samples-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.plot_exe)
     # Modify: set 'initialdir'
-    plot_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_plot")
+#    plot_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_plot")
     # Modify output argument: change logs and working directory to be subdirectory for the run
     plot_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).log")
     plot_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).err")
