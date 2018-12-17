@@ -160,7 +160,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu"]
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -202,6 +202,10 @@ tex_dictionary  = {
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
  "mtotal": r'$M_{tot}$',
+ "theta1":r"$\theta_1$",
+ "theta2":r"$\theta_2$",
+ "phi1":r"$\phi_1$",
+ "phi2":r"$\phi_2$",
  "cos_theta1":"$\cos \\theta_1$",
  "cos_theta2":"$\cos \\theta_2$",
  "chi1_perp": "$\chi_{1,\perp}$",
@@ -670,6 +674,14 @@ class ChooseWaveformParams:
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.cos(theta2)
+        if p == 'phi1':  # Assumes L frame!
+            zfac =self.s1x + 1j*self.s1y
+            phi1 =  np.angle(zfac)
+            return phi1
+        if p == 'phi2':  # Assumes L frame!
+            zfac =self.s2x + 1j*self.s2y
+            phi2 =  np.angle(zfac)
+            return phi2
         if p == 'psiJ':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
