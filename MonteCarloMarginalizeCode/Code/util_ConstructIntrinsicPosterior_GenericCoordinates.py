@@ -201,7 +201,7 @@ parser.add_argument("--no-downselect-grid",action='store_true',help='Prevent usi
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
 parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
 parser.add_argument("--prior-gaussian-mass-ratio",action='store_true',help="Applies a gaussian mass ratio prior (mean=0.5, width=0.2 by default). Only viable in mtot, q coordinates. Not properly normalized, so will break bayes factors by about 2%")
-parser.add_argument("--prior-gaussian-spin-magnitude",action='store_true',help="Applies a gaussian spin magnitude prior (mean=0.7, width=0.1 by default) for both spins. Only viable in polar spin coordinates. Not properly normalized, so will break bayes factors by a small amount (depending on chi_max)")
+parser.add_argument("--prior-gaussian-spin1-magnitude",action='store_true',help="Applies a gaussian spin magnitude prior (mean=0.7, width=0.1 by default) for FIRST spin. Only viable in polar spin coordinates. Not properly normalized, so will break bayes factors by a small amount (depending on chi_max).  Used for 2g+1g merger arguments")
 parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help="Applies volumetric prior internally, and then reweights at end step to get uniform spin magnitude prior")
 parser.add_argument("--pseudo-uniform-magnitude-prior-alternate-sampling", action='store_true',help="Changes the internal sampling to be gaussian, not volumetric")
 parser.add_argument("--pseudo-gaussian-mass-prior",action='store_true', help="Applies a gaussian mass prior in postprocessing. Done via reweighting so we can use arbitrary mass sampling coordinates.")
@@ -552,8 +552,9 @@ def lambda_tilde_prior(x):
 def delta_lambda_tilde_prior(x):
     return np.ones(x.shape)/1000.   # -500,500
 
-def gaussian_mass_prior(x,mu=0,sigma=1):
-    return np.exp( - 0.5*(x-mu)**2/sigma**2)/np.sqrt(2*np.pi*sigma**2)
+def gaussian_mass_prior(x,mu=0.,sigma=1.):   # actually viable for *any* prior.  
+    y = np.array(x,dtype=np.float32)
+    return np.exp( - 0.5*(y-mu)**2/sigma**2)/np.sqrt(2*np.pi*sigma**2)
 
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
@@ -655,6 +656,18 @@ if opts.pseudo_uniform_magnitude_prior and opts.pseudo_uniform_magnitude_prior_a
         prior_map['chiz_minus'] = s_component_gaussian_prior #lambda x: s_component_gaussian_prior(x, R=chi_max/3.) 
 #        prior_map['s1z'] = s_component_gaussian_prior
 #        prior_map['s2z'] = s_component_gaussian_prior
+
+if opts.prior_gaussian_spin1_magnitude:
+    if not  'chi1' in low_level_coord_names:
+        print " Incompatible options: gaussian spin1 prior requires polar coordinates"
+        sys.exit(0)
+    prior_map['chi1'] =functools.partial(gaussian_mass_prior,mu=0.7,sigma=0.1)  # not fully normalized particularly if chimax <1! Dangerous, fixme eventually
+
+if opts.prior_gaussian_mass_ratio:
+    if not  'q' in low_level_coord_names:
+        print " Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)"
+        sys.exit(0)
+    prior_map['q'] = functools.partial(gaussian_mass_prior,mu=0.5,sigma=0.2)  # not fully normalized, and very ad-hoc
 
 
 # tex_dictionary  = {
