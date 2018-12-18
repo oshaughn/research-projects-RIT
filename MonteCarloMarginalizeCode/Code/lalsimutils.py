@@ -34,7 +34,7 @@ from glue.lal import Cache
 
 import lal
 import lalsimulation as lalsim
-import lalinspiral
+#import lalinspiral
 import lalmetaio
 
 #from pylal import seriesutils as series
@@ -158,7 +158,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu"]
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -200,6 +200,10 @@ tex_dictionary  = {
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
  "mtotal": r'$M_{tot}$',
+ "theta1":r"$\theta_1$",
+ "theta2":r"$\theta_2$",
+ "phi1":r"$\phi_1$",
+ "phi2":r"$\phi_2$",
  "cos_theta1":"$\cos \\theta_1$",
  "cos_theta2":"$\cos \\theta_2$",
  "chi1_perp": "$\chi_{1,\perp}$",
@@ -684,6 +688,14 @@ class ChooseWaveformParams:
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.cos(theta2)
+        if p == 'phi1':  # Assumes L frame!
+            zfac =self.s1x + 1j*self.s1y
+            phi1 =  np.angle(zfac)
+            return phi1
+        if p == 'phi2':  # Assumes L frame!
+            zfac =self.s2x + 1j*self.s2y
+            phi2 =  np.angle(zfac)
+            return phi2
         if p == 'psiJ':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
@@ -889,7 +901,10 @@ class ChooseWaveformParams:
         """
         # Create basic parameters
 #        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
-        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
+        f_to_use = self.fref
+        if self.fref==0:
+            f_to_use = self.fmin
+        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, f_to_use)
         # Define psiL via the deficit angle between Jhat in the radiation frame and the psiJ we want to achieve 
         Jref = self.TotalAngularMomentumAtReferenceOverM2()
         Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
@@ -1086,7 +1101,7 @@ class ChooseWaveformParams:
             Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
         M = (self.m1+self.m2)
         eta = symRatio(self.m1,self.m2)   # dimensionless
-        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v +  (27./8 - 19*eta/8 +eta*eta/24.)*(v**3) )   # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or Blanchet 1310.1528 Eq. 234 (zero spin)
+        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v +  (27./8 - 19*eta/8 +eta*eta/24.)*(v**4) )   # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or 2PN from Blanchet 1310.1528 Eq. 234 (zero spin)
     def OrbitalAngularMomentumAtReferenceOverM2(self):
         L = self.OrbitalAngularMomentumAtReference()
         return L/(self.m1+self.m2)/(self.m1+self.m2)
