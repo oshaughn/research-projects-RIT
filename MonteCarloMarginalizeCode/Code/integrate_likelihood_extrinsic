@@ -95,6 +95,7 @@ optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
+optp.add_option("--verbose",action='store_true')
 
 #
 # Add the integration options
@@ -384,8 +385,9 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
     data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
             inst+":"+chan, start=start_time, stop=end_time,
-            window_shape=opts.window_shape)
-    print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
+            window_shape=opts.window_shape,verbose=opts.verbose)
+    if opts.verbose:
+        print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
             data_dict[inst].data.length)
 
 flow_ifo_dict = {}
