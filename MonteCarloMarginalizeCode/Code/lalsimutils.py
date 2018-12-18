@@ -3198,15 +3198,16 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
         print " ++ Loading from cache ", fname, channel
     with open(fname) as cfile:
         cachef = Cache.fromfile(cfile)
-    for i in range(len(cachef))[::-1]:
-        # FIXME: HACKHACKHACK
-        if cachef[i].observatory != channel[0]:
-            del cachef[i]
+    cachef=cachef.sieve(ifos=channel[:1])
+    # for i in range(len(cachef))[::-1]:
+    #     # FIXME: HACKHACKHACK
+    #     if cachef[i].observatory != channel[0]:
+    #         del cachef[i]
     if verbose:
         print cachef.to_segmentlistdict()
         
     duration = stop - start if None not in (start, stop) else None
-    tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose) #,datatype='REAL8')
+    tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose,datatype='REAL8')
     # Window the data - N.B. default is identity (no windowing)
     hoft_window = lal.CreateTukeyREAL8Window(tmp.data.length, window_shape)
     tmp.data.data *= hoft_window.data.data
