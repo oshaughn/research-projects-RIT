@@ -148,7 +148,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                         continue
 
 
-    elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4):
+    elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx ==lsu.lalSEOBv4HM or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4 ):
         print "  FACTORED LIKELIHOOD WITH SEOB "    
         hlmst = {}
         if P.approx == lalsim.SEOBNRv3:
@@ -157,7 +157,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 if useNR:
                         nrwf.HackRoundTransverseSpin(P) # HACK, to make reruns of NR play nicely, without needing to rerun
 
-                hlmsT = lsu.hlmoft_SEOB_dict(P)  # only 2,2 modes -- Lmax irrelevant
+                hlmsT = lsu.hlmoft_SEOB_dict(P, Lmax)  # only 2,2 modes -- Lmax irrelevant
         print "  hlm generation complete "    
         if P.approx == lalsim.SEOBNRv3 or  P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
                 TDlen = int(1./(P.deltaF*P.deltaT))#TDlen = lsu.nextPow2(hlmsT[(2,2)].data.length)
