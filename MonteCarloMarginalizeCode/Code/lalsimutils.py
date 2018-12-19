@@ -2455,6 +2455,10 @@ def non_herm_hoff(P):
 
 
 
+## Version protection
+#   Pull out arguments of the ModesFromPolarizations function
+#argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
+
 
 def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
     """
@@ -2507,11 +2511,12 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
              Lmax, P.approx)
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
         extra_params = P.to_lal_dict()
+        # Format about to change: should not have several of these parameters
         hlms = lalsim.SimInspiralTDModesFromPolarizations( \
             P.m1, P.m2, \
             P.s1x, P.s1y, P.s1z, \
             P.s2x, P.s2y, P.s2z, \
-            P.dist, P.incl, P.phiref,  \
+            P.dist, P.phiref,  \
             P.psi, P.eccentricity, P.meanPerAno, \
             P.deltaT, P.fmin, P.fref, \
             extra_params, P.approx)
@@ -2587,7 +2592,7 @@ def hlmoft_SEOB_dict(P,Lmax=2):
         nqcCoeffsInput=lal.CreateREAL8Vector(10)
         hlm_struct, dyn, dynHi = lalsim.SimIMRSpinAlignedEOBModes(P.deltaT, P.m1, P.m2, P.fmin, P.dist, P.s1z, P.s2z,41, 0., 0., 0.,0.,0.,0.,0.,0.,1.,1.,nqcCoeffsInput, 0)
 
-        hlms = SphHarmTimeSeries_to_dict(hlms,Lmax)
+        hlms = SphHarmTimeSeries_to_dict(hlm_struct,Lmax)
         mode_list_orig = hlms.keys()
         for mode in mode_list_orig:
             # Add zero padding if requested time period too short
