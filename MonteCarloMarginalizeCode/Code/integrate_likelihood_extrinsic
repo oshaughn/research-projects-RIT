@@ -124,6 +124,7 @@ optp.add_option_group(integration_params)
 #
 intrinsic_params = OptionGroup(optp, "Intrinsic Parameters", "Intrinsic parameters (e.g component mass) to use.")
 intrinsic_params.add_option("--pin-to-sim", help="Pin values to sim_inspiral table entry.")
+intrinsic_params.add_option("--pin-distance-to-sim",action='store_true', help="Pin *distance* value to sim entry. Used to enable source frame reconstruction with NR.")
 intrinsic_params.add_option("--mass1", type=float, help="Value of first component mass, in solar masses. Required if not providing coinc tables.")
 intrinsic_params.add_option("--mass2", type=float, help="Value of second component mass, in solar masses. Required if not providing coinc tables.")
 intrinsic_params.add_option("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given.")
@@ -306,7 +307,10 @@ if opts.sim_xml:
     m1 = P.m1/lal.MSUN_SI
     m2 =P.m2/lal.MSUN_SI
     lambda1, lambda2 = P.lambda1,P.lambda2
-    P.dist = factored_likelihood.distMpcRef * 1.e6 * lal.PC_SI
+    if  opts.pin_distance_to_sim:
+        dist_in =P.dist
+        opts.distance = dist_in/lal.PC_SI/1e6  # create de facto pinnable parrameter. Use Mpc unit
+    P.dist = factored_likelihood.distMpcRef * 1.e6 * lal.PC_SI   # use *nonstandard* distance
     P.phi=0.0
     P.psi=0.0
     P.incl = 0.0       # only works for aligned spins. Be careful.
@@ -1097,7 +1101,11 @@ if opts.output_file:
     if opts.event == None:
         event_id = -1
     if not (P.lambda1>0 or P.lambda2>0):
+      if not opts.pin_distance_to_sim:
         numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+      else:
+        # Use case for this scenario is NR, where lambda is not present
+        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["distance"],  numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
     else:
         # Alternative output format if lambda is active
         numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
@@ -1182,5 +1190,8 @@ if opts.output_file:
     # FIXME: likelihood or loglikehood
     # FIXME: How to encode variance?
     if opts.output_format == "xml":
-        xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=dict_return["convergence_test_results"]["normal_integral"], **{"mass1": m1, "mass2": m2, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": numpy.sqrt(var)/res, "ttotal": sampler.ntotal})
+        dict_out={"mass1": m1, "mass2": m2, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": numpy.sqrt(var)/res, "ttotal": sampler.ntotal}
+        if 'distance' in pinned_params:
+            dict_out['distance'] = pinned_params["distance"]
+        xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=dict_return["convergence_test_results"]["normal_integral"], **dict_out)
         utils.write_filename(xmldoc, opts.output_file, gz=opts.output_file.endswith(".gz"))
