@@ -3784,9 +3784,9 @@ def symmetry_sign_exchange(coord_names):
         # LAL spin convention!  Assumes spins do not rotate with phiref
         phiref = P.phiref
         m1,s1x,s1y,s1z = [P.m1,P.s1x,P.s1y,P.s1z]
-        m2,s2x,s2y,s2z = [P.m2,P.spin2x,P.spin2y,P.spin2z]
+        m2,s2x,s2y,s2z = [P.m2,P.s2x,P.s2y,P.s2z]
         P.m1,P.s1x,P.s1y,P.s1z = [m2,s2x,s2y,s2z]
-        P.m2,P.spin2x,P.spin2y,P.spin2z = [m1,s1x,s1y,s1z]
+        P.m2,P.s2x,P.s2y,P.s2z = [m1,s1x,s1y,s1z]
         
         lambda1,lambda2 = [P.lambda1,P.lambda2]
         P.lambda1,P.lambda2= [lambda2,lambda1]
