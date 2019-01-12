@@ -201,7 +201,10 @@ parser.add_argument("--no-downselect-grid",action='store_true',help='Prevent usi
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
 parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
 parser.add_argument("--prior-gaussian-mass-ratio",action='store_true',help="Applies a gaussian mass ratio prior (mean=0.5, width=0.2 by default). Only viable in mtot, q coordinates. Not properly normalized, so will break bayes factors by about 2%")
+parser.add_argument("--prior-tapered-mass-ratio",action='store_true',help="Applies a tapered mass ratio prior (transition 0.8, kappa=20). Only viable in mtot, q coordinates. Not properly normalized, a tapering factor instread")
 parser.add_argument("--prior-gaussian-spin1-magnitude",action='store_true',help="Applies a gaussian spin magnitude prior (mean=0.7, width=0.1 by default) for FIRST spin. Only viable in polar spin coordinates. Not properly normalized, so will break bayes factors by a small amount (depending on chi_max).  Used for 2g+1g merger arguments")
+parser.add_argument("--prior-tapered-spin1-magnitude",action='store_true',help="Applies a tapered prior to spin1 magnitude")
+parser.add_argument("--prior-tapered-spin1z",action='store_true',help="Applies a tapered prior to spin1's z component")
 parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help="Applies volumetric prior internally, and then reweights at end step to get uniform spin magnitude prior")
 parser.add_argument("--pseudo-uniform-magnitude-prior-alternate-sampling", action='store_true',help="Changes the internal sampling to be gaussian, not volumetric")
 parser.add_argument("--pseudo-gaussian-mass-prior",action='store_true', help="Applies a gaussian mass prior in postprocessing. Done via reweighting so we can use arbitrary mass sampling coordinates.")
@@ -556,6 +559,29 @@ def gaussian_mass_prior(x,mu=0.,sigma=1.):   # actually viable for *any* prior.
     y = np.array(x,dtype=np.float32)
     return np.exp( - 0.5*(y-mu)**2/sigma**2)/np.sqrt(2*np.pi*sigma**2)
 
+def tapered_magnitude_prior(x,loc=0.65,kappa=19.):   # 
+    """ 
+    tapered_magnitude_prior is 1 inside a region and tapers to 0 outside
+    The scale factor is designed so the taper is very strong and has no effect away from the region of significance
+    Equivalent to
+        (1 - 1/(1+f1)) / (1+f2) = f1/(1+f1)(1+f2)
+    """
+    y = np.array(x,dtype=np.float32) # problem of object type data
+    f1 = np.exp( - (y-loc)*kappa)
+    f2 = np.exp( - (y+loc)*kappa)
+    
+    return f1/(1+f1)/(1+f2)
+
+def tapered_magnitude_prior_alt(x,loc=0.85,kappa=20.):   # 
+    """ 
+    tapered_magnitude_prior is 1 above the scale factor and 0 below it
+        1/ (1+f) =
+    """
+    y = np.array(x,dtype=np.float32) # problem of object type data
+    f1 = np.exp( - (y-loc)*kappa)
+    
+    return 1/(1+f1)
+
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
@@ -663,11 +689,29 @@ if opts.prior_gaussian_spin1_magnitude:
         sys.exit(0)
     prior_map['chi1'] =functools.partial(gaussian_mass_prior,mu=0.7,sigma=0.1)  # not fully normalized particularly if chimax <1! Dangerous, fixme eventually
 
+if opts.prior_tapered_spin1_magnitude:
+    if not  'chi1' in low_level_coord_names:
+        print " Incompatible options: tapered spin1 prior requires polar coordinates"
+        sys.exit(0)
+    prior_map['s1z'] =tapered_magnitude_prior
+
+if opts.prior_tapered_spin1z:
+    if not  's1z' in low_level_coord_names:
+        print " Incompatible options: tapered spin1z prior requires cartesian coordinates"
+        sys.exit(0)
+    prior_map['s1z'] =tapered_magnitude_prior
+
 if opts.prior_gaussian_mass_ratio:
     if not  'q' in low_level_coord_names:
         print " Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)"
         sys.exit(0)
     prior_map['q'] = functools.partial(gaussian_mass_prior,mu=0.5,sigma=0.2)  # not fully normalized, and very ad-hoc
+
+if opts.prior_tapered_mass_ratio:
+    if not  'q' in low_level_coord_names:
+        print " Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)"
+        sys.exit(0)
+    prior_map['q'] = functools.partial(tapered_magnitude_prior_alt,loc=0.85,kappa=20.)  # not fully normalized, and very ad-hoc
 
 
 # tex_dictionary  = {
