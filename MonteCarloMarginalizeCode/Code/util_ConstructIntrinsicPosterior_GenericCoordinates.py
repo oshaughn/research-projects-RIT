@@ -176,6 +176,7 @@ def add_field(a, descr):
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
+parser.add_argument("--input-distance",action='store_true',help="Use input format with distance fields (but not tidal fields?) enabled.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
 parser.add_argument("--fname-output-integral",default="integral_result",help="output filename for integral result. Postfixes appended")
@@ -924,6 +925,9 @@ col_lnL = 9
 if opts.input_tides:
     print " Tides input"
     col_lnL +=2
+if opts.input_distance:
+    print " Distance input"
+    col_lnL +=1
 dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
 print " Original data size = ", len(dat), dat.shape
@@ -994,6 +998,8 @@ for line in dat:
     if opts.input_tides:
         P.lambda1 = line[9]
         P.lambda2 = line[10]
+    if opts.input_distance:
+        P.dist = lal.PC_SI*1e6*line[9]  # Incompatible with tides, note!
 
     # INPUT GRID: Evaluate binary parameters on fitting coordinates
     line_out = np.zeros(len(coord_names)+2)
