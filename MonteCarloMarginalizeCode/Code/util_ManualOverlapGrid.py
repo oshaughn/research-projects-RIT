@@ -365,6 +365,11 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
         if p in param_names:
             indx = param_names.index(p)
             grid_out[:,indx] /= lal.MSUN_SI
+    # remove distance units at end
+    for p in ['distance', 'dist']:
+        if p in param_names:
+            indx = param_names.index(p)
+            grid_out[:,indx] /= lal.PC_SI*1e6
     # Truncate grid so overlap with the base point is > opts.min_match. Make sure to CONSISTENTLY truncate all lists (e.g., the P_list)
     grid_out_new = []
     P_list_out_new = []
@@ -532,6 +537,12 @@ else:
             indx = param_names.index(p)
             #print p, param_names[indx], param_ranges[indx]
             param_ranges[indx]= np.array(param_ranges[indx])* lal.MSUN_SI
+        # Rescale hand-specified ranges to SI units
+        for p in ['distance','dist']:
+          if p in param_names:
+            indx = param_names.index(p)
+            #print p, param_names[indx], param_ranges[indx]
+            param_ranges[indx]= np.array(param_ranges[indx])* lal.PC_SI*1e6
     else:
      for param in param_names:
         if param == 'mc':
