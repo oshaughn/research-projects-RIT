@@ -2754,7 +2754,7 @@ def complex_hoft(P, sgn=-1):
     #         P.ampO, P.phaseO, P.approx)
     extra_params = P.to_lal_dict()
     hp, hc = lalsim.SimInspiralChooseTDWaveform( P.m1, P.m2, 
-            P.s1x, P.s1y, P.s1z, P.spin2x, P.spin2y, P.spin2z, 
+            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
             P.dist, P.incl, P.phiref,  \
             P.psi, P.eccentricity, P.meanPerAno, \
             P.deltaT, P.fmin, P.fref, \
