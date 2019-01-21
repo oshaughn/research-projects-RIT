@@ -90,6 +90,7 @@ optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --
 optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Timescale of inverse spectrum truncation in seconds (Default is 8 - give 0 for no truncation)")
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
+optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
@@ -915,6 +916,30 @@ else: # Sum over time for every point in other extrinsic params
     args = likelihood_function.func_code.co_varnames[:likelihood_function.func_code.co_argcount]
     print " --------> Arguments ", args
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+ elif opts.vectorized: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
+    for det in rholms_intp.keys():
+        print " Packing ", det
+        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det],crossTermsV[det])
+    def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
+            psi, distance):
+        global nEvals
+        global lnLOffsetValue
+        # use EXTREMELY many bits
+        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
+        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+        P.phi = right_ascension.astype(float)  # cast to float
+        P.theta = declination.astype(float)
+        P.tref = float(theEpochFiducial)
+        P.phiref = phi_orb.astype(float)
+        P.incl = inclination.astype(float)
+        P.psi = psi.astype(float)
+        P.dist = (distance* 1.e6 * lalsimutils.lsu_PC).astype(float) # luminosity distance
+
+        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
+        nEvals +=len(right_ascension)
+        return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
+
  else: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
     def likelihood_function(right_ascension, declination, phi_orb, inclination,
             psi, distance,q):
