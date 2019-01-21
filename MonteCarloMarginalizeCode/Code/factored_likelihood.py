@@ -1216,6 +1216,9 @@ def SingleDetectorLogLikelihoodDataViaArray(epoch,lookupNK, rholms_intpArrayDict
     """
     SingleDetectorLogLikelihoodDataViaArray evaluates everything using *arrays* for each (l,m) pair
     Note arguments passed are STILL SCALARS
+
+    DEPRECATED: use DiscreteFactoredLogLikelihoodViaArray for end-to-end uuse
+    USED IN : FactoredLogLikelihoodViaArray
     """
     global distMpcRef
 
@@ -1259,6 +1262,7 @@ def DiscreteSingleDetectorLogLikelihoodDataViaArray(tvals,extr_params,lookupNK, 
     dist = extr_params.dist
 
     npts = len(tvals)
+    deltaT = extr_params.deltaT
 
     Ylms = ComputeYlmsArray(lookupNK[det], incl,-phiref)
     if (det == "Fake"):
@@ -1268,20 +1272,21 @@ def DiscreteSingleDetectorLogLikelihoodDataViaArray(tvals,extr_params,lookupNK, 
         F = ComplexAntennaFactor(det, RA,DEC,psi,tref)
         detector = lalsim.DetectorPrefixToLALDetector(det)
         t_det = ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
+        tshift= t_det - tref
     rhoTS = rholmsArrayDict[det]
     distMpc = dist/(lal.PC_SI*1e6)
 
-    npts = len(rholmsArray[0])
+    npts = len(rhoTS[0])
     # Following loop *should* be implemented as an array multiply!
     term1 = np.zeros(npts,dtype=complex)
-    term1 = np.dot(np.conj(F*Ylms),rholmsArray)   # be very careful re how this multiplication is done: suitable to use this form of multiply
+    term1 = np.dot(np.conj(F*Ylms),rhoTS)   # be very careful re how this multiplication is done: suitable to use this form of multiply
     term1 = np.real(term1) / (distMpc/distMpcRef)
 
     # Apply timeshift *at end*, without loss of generality: this is a single detector. Note no subsample interpolation
     # This timeshift should *only* be applied if all detectors start at the same array index!
-    nShiftL =int( float(tshift)/deltaT)
+    nShiftL =int(np.round(float(tshift)/deltaT))
     # return structure: different shifts
-    term1 = map(lambda x: np.roll(term1,-x), nShiftL)
+    term1 = np.roll(term1,-nShiftL)
 
     return term1
 
@@ -1403,7 +1408,7 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
             ifirst = int(round(( float(tfirst) - t_ref) / P.deltaT) + 0.5) # this should be fast, done once. Should also be POSITIVE
             ilast = ifirst + npts
 
-            det_rholms = np.zeros(( len(lookupNKDict[det]),npts))  # rholms evaluated at time at detector, in window, packed. Do NOT 
+            det_rholms = np.zeros(( len(lookupNKDict[det]),npts),dtype=np.complex64)  # rholms evaluated at time at detector, in window, packed. Do NOT 
             # do not interpolate, just use nearest neighbors.
             for indx in np.arange(len(lookupNKDict[det])):
                 det_rholms[indx] = rholmsArrayDict[det][indx][ifirst:ilast]
@@ -1428,7 +1433,8 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
         lnLArray = np.zeros(npts,dtype=np.complex128)   # avoid nan's
         lnLArray = term1_net+term2_net
 #        lnLmargT = np.log(deltaT*np.sum(np.exp(lnLArray))/Twindow)
-        lnLmargT = np.log(integrate.simps(np.exp(lnLArray), dx=deltaT))
+        lnLmax = np.max(lnLArray)
+        lnLmargT = np.log(integrate.simps(np.exp(lnLArray-lnLmax), dx=deltaT)) + lnLmax
         return lnLmargT
 
 
@@ -1490,7 +1496,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
       
             # pull out scalars
             Ylms = Ylms_vec.T[indx_ex].T  # yank out Ylms for this specific set of parameters
-            F = float(F_vec.T[indx_ex])  # should be scalar
+            F = complex(F_vec.T[indx_ex])  # should be scalar
 
             # these are scalars
             ifirst = int(round(( float(tfirst) - t_ref) / P_vec.deltaT) + 0.5) # this should be fast, done once
