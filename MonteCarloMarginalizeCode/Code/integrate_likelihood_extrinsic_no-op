@@ -271,7 +271,7 @@ Sigma_list = []
 rv_list = []
 sigma_1d = 0.1
 x_0 = numpy.array([35,30,0.0,0.0,0.0,0,0,0])
-Sigma= numpy.diag( [1,1, 0.01, 0.01, 0.01, 0.01,0.01,0.01])
+Sigma= numpy.diag( [16,16, 0.01, 0.01, 0.01, 0.01,0.01,0.01])
 print x_0.shape, Sigma.shape
 Sigma_list.append(Sigma)
 rv_list.append( scipy.stats.multivariate_normal(mean=x_0, cov=Sigma))  # one-dimensional in one parameter
@@ -306,8 +306,8 @@ for param in numpy.arange(n_gauss):
     # print rv_list[param].pdf(x_now)
     Lval+= rv_list[param].pdf(x_now) * wt_array[param]
 
-res = numpy.log(Lval) + 250  # manual offset
-var = 0.1
+res  = Lval*numpy.exp(250)  # manual offset
+var = 0.1*res*res
 neff = 100
 ntotal=1e5
 
