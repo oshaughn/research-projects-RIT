@@ -807,8 +807,8 @@ def InterpolateRholm(rholm, t,verbose=False):
     if verbose:
         print "Interpolation length check ", len(t), len(h_re)
     # spline interpolate the real and imaginary parts of the time series
-    h_real = interpolate.InterpolatedUnivariateSpline(t, h_re[:len(t)], k=3)
-    h_imag = interpolate.InterpolatedUnivariateSpline(t, h_im[:len(t)], k=3)
+    h_real = interpolate.InterpolatedUnivariateSpline(t, h_re[:len(t)], k=3,ext='zeros')
+    h_imag = interpolate.InterpolatedUnivariateSpline(t, h_im[:len(t)], k=3,ext='zeros')
     return lambda ti: h_real(ti) + 1j*h_imag(ti)
 
     # Little faster
@@ -1522,7 +1522,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
 
             lnL = term1+term2
             lnL_array[indx_ex] += lnL  #  copy into array.  Add, because we will get terms from other IFOs
-    lnLmargOut = np.log(integrate.simps(np.exp(lnL_array), dx=deltaT)) 
+            maxlnL = np.max(lnL)
+            lnLmargOut[indx_ex] = maxlnL + np.log(integrate.simps(np.exp(lnL_array[indx_ex] - maxlnL), dx=deltaT))  # integrate term by term, minmize overflows
 
     return lnLmargOut
 
@@ -1630,13 +1631,14 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         lnL_t_accum += term2[..., np.newaxis]
 
     # Take exponential of the log likelihood in-place.
-    L_t = np.exp(lnL_t_accum, out=lnL_t_accum)
+    lnLmax  = np.max(lnL_t_accum)
+    L_t = np.exp(lnL_t_accum/lnLmax, out=lnL_t_accum)
         
     # Integrate out the time dimension.  We now have an array of shape
     # (npts_extrinsic,)
-    L = integrate.simps(L_t, dx=deltaT, axis=-1)
+    L = integrate.simps(L_t/Lmax, dx=deltaT, axis=-1)
     # Compute log likelihood in-place.
-    lnL = np.log(L, out=L)
+    lnL = lnLmax+ np.log(L, out=L)
 
 
     return lnL
