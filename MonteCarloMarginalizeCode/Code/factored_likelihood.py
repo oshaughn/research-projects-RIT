@@ -1632,11 +1632,11 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
     # Take exponential of the log likelihood in-place.
     lnLmax  = np.max(lnL_t_accum)
-    L_t = np.exp(lnL_t_accum/lnLmax, out=lnL_t_accum)
+    L_t = np.exp(lnL_t_accum - lnLmax, out=lnL_t_accum)
         
     # Integrate out the time dimension.  We now have an array of shape
     # (npts_extrinsic,)
-    L = integrate.simps(L_t/Lmax, dx=deltaT, axis=-1)
+    L = integrate.simps(L_t, dx=deltaT, axis=-1)
     # Compute log likelihood in-place.
     lnL = lnLmax+ np.log(L, out=L)
 
