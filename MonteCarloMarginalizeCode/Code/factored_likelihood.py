@@ -76,7 +76,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None):
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,restricted_mode_list=None,perturbative_extraction=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -298,6 +298,17 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             import sys
             sys.exit(0)
 
+    # Reduce list of modes
+    if not(restricted_mode_list is None):
+            print " ====== REDUCING MODE LIST ===== "
+            mode_list_orig = hlms.keys()
+            for mode in mode_list_orig:
+                    if not mode in restricted_mode_list:
+                            del(hlms[mode])
+                            del(hlms_conj[mode])
+            print " Restricting mode list : ", restricted_mode_list, hlms.keys(), hlms_conj.keys()
+
+    # Impose the cutoff
     if not(ignore_threshold is None) and (not ROM_use_basis):
             crossTermsFiducial = ComputeModeCrossTermIP(hlms,hlms, psd_dict[detectors[0]], 
                                                         P.fmin, fMax,
@@ -305,6 +316,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             theWorthwhileModes =  IdentifyEffectiveModesForDetector(crossTermsFiducial, ignore_threshold, detectors)
             # Make sure worthwhile modes satisfy reflection symmetry! Do not truncate egregiously!
             theWorthwhileModes  = theWorthwhileModes.union(  set([(p,-q) for (p,q) in theWorthwhileModes]))
+            if not(restricted_mode_list is None):
+                    theWorthwhileModes = theWorthwhileModes.intersection( set(restricted_mode_list))
             print "  Worthwhile modes : ", theWorthwhileModes
             hlmsNew = {}
             hlmsConjNew = {}
