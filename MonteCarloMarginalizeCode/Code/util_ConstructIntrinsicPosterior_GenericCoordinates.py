@@ -176,6 +176,7 @@ def add_field(a, descr):
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
+parser.add_argument("--input-distance",action='store_true',help="Use input format with distance fields (but not tidal fields?) enabled.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
 parser.add_argument("--fname-output-integral",default="integral_result",help="output filename for integral result. Postfixes appended")
@@ -200,6 +201,11 @@ parser.add_argument("--no-downselect",action='store_true',help='Prevent using do
 parser.add_argument("--no-downselect-grid",action='store_true',help='Prevent using downselection on input points. Applied only to mc range' )
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
 parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
+parser.add_argument("--prior-gaussian-mass-ratio",action='store_true',help="Applies a gaussian mass ratio prior (mean=0.5, width=0.2 by default). Only viable in mtot, q coordinates. Not properly normalized, so will break bayes factors by about 2%")
+parser.add_argument("--prior-tapered-mass-ratio",action='store_true',help="Applies a tapered mass ratio prior (transition 0.8, kappa=20). Only viable in mtot, q coordinates. Not properly normalized, a tapering factor instread")
+parser.add_argument("--prior-gaussian-spin1-magnitude",action='store_true',help="Applies a gaussian spin magnitude prior (mean=0.7, width=0.1 by default) for FIRST spin. Only viable in polar spin coordinates. Not properly normalized, so will break bayes factors by a small amount (depending on chi_max).  Used for 2g+1g merger arguments")
+parser.add_argument("--prior-tapered-spin1-magnitude",action='store_true',help="Applies a tapered prior to spin1 magnitude")
+parser.add_argument("--prior-tapered-spin1z",action='store_true',help="Applies a tapered prior to spin1's z component")
 parser.add_argument("--pseudo-uniform-magnitude-prior", action='store_true',help="Applies volumetric prior internally, and then reweights at end step to get uniform spin magnitude prior")
 parser.add_argument("--pseudo-uniform-magnitude-prior-alternate-sampling", action='store_true',help="Changes the internal sampling to be gaussian, not volumetric")
 parser.add_argument("--pseudo-gaussian-mass-prior",action='store_true', help="Applies a gaussian mass prior in postprocessing. Done via reweighting so we can use arbitrary mass sampling coordinates.")
@@ -550,9 +556,32 @@ def lambda_tilde_prior(x):
 def delta_lambda_tilde_prior(x):
     return np.ones(x.shape)/1000.   # -500,500
 
-def gaussian_mass_prior(x,mu=0,sigma=1):
-    return np.exp( - 0.5*(x-mu)**2/sigma**2)/np.sqrt(2*np.pi*sigma**2)
+def gaussian_mass_prior(x,mu=0.,sigma=1.):   # actually viable for *any* prior.  
+    y = np.array(x,dtype=np.float32)
+    return np.exp( - 0.5*(y-mu)**2/sigma**2)/np.sqrt(2*np.pi*sigma**2)
 
+def tapered_magnitude_prior(x,loc=0.65,kappa=19.):   # 
+    """ 
+    tapered_magnitude_prior is 1 inside a region and tapers to 0 outside
+    The scale factor is designed so the taper is very strong and has no effect away from the region of significance
+    Equivalent to
+        (1 - 1/(1+f1)) / (1+f2) = f1/(1+f1)(1+f2)
+    """
+    y = np.array(x,dtype=np.float32) # problem of object type data
+    f1 = np.exp( - (y-loc)*kappa)
+    f2 = np.exp( - (y+loc)*kappa)
+    
+    return f1/(1+f1)/(1+f2)
+
+def tapered_magnitude_prior_alt(x,loc=0.85,kappa=20.):   # 
+    """ 
+    tapered_magnitude_prior is 1 above the scale factor and 0 below it
+        1/ (1+f) =
+    """
+    y = np.array(x,dtype=np.float32) # problem of object type data
+    f1 = np.exp( - (y-loc)*kappa)
+    
+    return 1/(1+f1)
 
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
@@ -570,6 +599,13 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'lambda_minus': lambda_prior,
     'LambdaTilde':lambda_tilde_prior,
     'DeltaLambdaTilde':delta_lambda_tilde_prior,
+    # Polar spin components (uniform magnitude by default)
+    'chi1':s_component_uniform_prior,  
+    'chi2':s_component_uniform_prior,
+    'theta1': mcsampler.uniform_samp_theta,
+    'theta2': mcsampler.uniform_samp_theta,
+    'phi1':mcsampler.uniform_samp_phase,
+    'phi2':mcsampler.uniform_samp_phase
 }
 prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_small_max,0.999*chi_small_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
    's1x':[-chi_max,chi_max],
@@ -587,6 +623,12 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
+  'chi1':[0,chi_max],
+  'chi2':[0,chi_max],
+  'theta1':[0,np.pi],
+  'theta2':[0,np.pi],
+  'phi1':[0,2*np.pi],
+  'phi2':[0,2*np.pi],
 }
 if not (opts.chiz_plus_range is None):
     print " Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range
@@ -641,6 +683,36 @@ if opts.pseudo_uniform_magnitude_prior and opts.pseudo_uniform_magnitude_prior_a
         prior_map['chiz_minus'] = s_component_gaussian_prior #lambda x: s_component_gaussian_prior(x, R=chi_max/3.) 
 #        prior_map['s1z'] = s_component_gaussian_prior
 #        prior_map['s2z'] = s_component_gaussian_prior
+
+if opts.prior_gaussian_spin1_magnitude:
+    if not  'chi1' in low_level_coord_names:
+        print " Incompatible options: gaussian spin1 prior requires polar coordinates"
+        sys.exit(0)
+    prior_map['chi1'] =functools.partial(gaussian_mass_prior,mu=0.7,sigma=0.1)  # not fully normalized particularly if chimax <1! Dangerous, fixme eventually
+
+if opts.prior_tapered_spin1_magnitude:
+    if not  'chi1' in low_level_coord_names:
+        print " Incompatible options: tapered spin1 prior requires polar coordinates"
+        sys.exit(0)
+    prior_map['s1z'] =tapered_magnitude_prior
+
+if opts.prior_tapered_spin1z:
+    if not  's1z' in low_level_coord_names:
+        print " Incompatible options: tapered spin1z prior requires cartesian coordinates"
+        sys.exit(0)
+    prior_map['s1z'] =tapered_magnitude_prior
+
+if opts.prior_gaussian_mass_ratio:
+    if not  'q' in low_level_coord_names:
+        print " Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)"
+        sys.exit(0)
+    prior_map['q'] = functools.partial(gaussian_mass_prior,mu=0.5,sigma=0.2)  # not fully normalized, and very ad-hoc
+
+if opts.prior_tapered_mass_ratio:
+    if not  'q' in low_level_coord_names:
+        print " Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)"
+        sys.exit(0)
+    prior_map['q'] = functools.partial(tapered_magnitude_prior_alt,loc=0.85,kappa=20.)  # not fully normalized, and very ad-hoc
 
 
 # tex_dictionary  = {
@@ -853,6 +925,9 @@ col_lnL = 9
 if opts.input_tides:
     print " Tides input"
     col_lnL +=2
+if opts.input_distance:
+    print " Distance input"
+    col_lnL +=1
 dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
 print " Original data size = ", len(dat), dat.shape
@@ -923,6 +998,8 @@ for line in dat:
     if opts.input_tides:
         P.lambda1 = line[9]
         P.lambda2 = line[10]
+    if opts.input_distance:
+        P.dist = lal.PC_SI*1e6*line[9]  # Incompatible with tides, note!
 
     # INPUT GRID: Evaluate binary parameters on fitting coordinates
     line_out = np.zeros(len(coord_names)+2)

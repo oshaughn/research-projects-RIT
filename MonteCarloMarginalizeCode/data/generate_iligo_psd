@@ -4,11 +4,8 @@ import lalsimulation
 
 from glue.ligolw import utils
 
-from pylal.series import make_psd_xmldoc
-
-from pylal.xlal.datatypes.ligotimegps import LIGOTimeGPS
-from pylal.xlal.datatypes.real8frequencyseries import REAL8FrequencySeries
-from pylal.xlal.datatypes.lalunit import LALUnit
+from lal.series import make_psd_xmldoc
+import lal
 
 from optparse import OptionParser
 
@@ -26,10 +23,11 @@ psd = numpy.array(map(lalsimulation.SimNoisePSDiLIGOSRD, f))
 psd[0] = 0
 
 # Generate the frequency series
-epoch = LIGOTimeGPS(0.0)
+epoch = lal.LIGOTimeGPS(0.0)
 psddict = {}
 for d in ["H1", "L1", "V1"]:
-    psd_s = REAL8FrequencySeries(name="iLIGO PSD", epoch=epoch, f0=f0, deltaF=df, sampleUnits=LALUnit(""), data=psd)
+    psd_s = lal.CreateREAL8FrequencySeries(name=d, epoch=epoch, f0=f0, deltaF=df, sampleUnits="s", length=len(psd))
+    psd_s.data.data = psd
     psddict[d] = psd_s
 
 xmldoc = make_psd_xmldoc(psddict)

@@ -22,6 +22,7 @@ data_at_intrinsic = {}
 my_digits=5  # safety for high-SNR BNS
 
 tides_on = False
+distance_on = False  
 col_intrinsic = 9
 
 
@@ -31,8 +32,12 @@ for fname in sys.argv[1:]:
     for line in data:
         line = np.around(line, decimals=my_digits)
         lambda1=lambda2=0
-        if len(line) == 13 and not tides_on:  # strip lines with the wrong length
+        if len(line) == 13 and (not tides_on) and (not distance_on):  # strip lines with the wrong length
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,lnL, sigmaOverL, ntot, neff = line
+        elif  len(line) == 14:
+            distance_on=True
+            col_intrinsic=10
+            indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,dist, lnL, sigmaOverL, ntot, neff = line
         elif len(line)==15:
             tides_on  = True
             col_intrinsic =11
@@ -57,5 +62,7 @@ for key in data_at_intrinsic:
 
     if tides_on:
         print -1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1
+    elif distance_on:
+        print -1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1
     else:
         print -1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1

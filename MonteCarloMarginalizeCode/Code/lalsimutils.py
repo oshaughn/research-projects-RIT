@@ -34,7 +34,7 @@ from glue.lal import Cache
 
 import lal
 import lalsimulation as lalsim
-import lalinspiral
+#import lalinspiral
 import lalmetaio
 
 #from pylal import seriesutils as series
@@ -117,13 +117,17 @@ try:
 except:
     lalSEOBv4 =-1
     lalIMRPhenomD = -2
+
 try:
     lalTEOBv2 = -3 # not implemented
     lalTEOBv4 = lalsim.SEOBNRv4T
 except:
     lalTEOBv2 = -3
     lalTEOBv4 = -4
-
+try:
+    lalSEOBv4HM = lalsim.SEOBNRv4HM
+except:
+    lalSEOBNRv4HM = -5
 
 MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
 
@@ -154,7 +158,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2','psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO"]
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -196,6 +200,10 @@ tex_dictionary  = {
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
  "mtotal": r'$M_{tot}$',
+ "theta1":r"$\theta_1$",
+ "theta2":r"$\theta_2$",
+ "phi1":r"$\phi_1$",
+ "phi2":r"$\phi_2$",
  "cos_theta1":"$\cos \\theta_1$",
  "cos_theta2":"$\cos \\theta_2$",
  "chi1_perp": "$\chi_{1,\perp}$",
@@ -207,7 +215,8 @@ tex_dictionary  = {
   'LambdaTilde': r'$\tilde{\Lambda}$',
   'lambdat': r'$\tilde{\Lambda}$',
   'DeltaLambdaTilde': r'$\Delta\tilde{\Lambda}$',
-  'dlambdat': r'$\Delta\tilde{\Lambda}$'
+  'dlambdat': r'$\Delta\tilde{\Lambda}$',
+  'distance':r'$d_L$'
 }
 
 
@@ -679,6 +688,14 @@ class ChooseWaveformParams:
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.cos(theta2)
+        if p == 'phi1':  # Assumes L frame!
+            zfac =self.s1x + 1j*self.s1y
+            phi1 =  np.angle(zfac)
+            return phi1
+        if p == 'phi2':  # Assumes L frame!
+            zfac =self.s2x + 1j*self.s2y
+            phi2 =  np.angle(zfac)
+            return phi2
         if p == 'psiJ':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
@@ -884,7 +901,10 @@ class ChooseWaveformParams:
         """
         # Create basic parameters
 #        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
-        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, self.fref)
+        f_to_use = self.fref
+        if self.fref==0:
+            f_to_use = self.fmin
+        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, f_to_use)
         # Define psiL via the deficit angle between Jhat in the radiation frame and the psiJ we want to achieve 
         Jref = self.TotalAngularMomentumAtReferenceOverM2()
         Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
@@ -1081,7 +1101,7 @@ class ChooseWaveformParams:
             Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
         M = (self.m1+self.m2)
         eta = symRatio(self.m1,self.m2)   # dimensionless
-        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v +  (27./8 - 19*eta/8 +eta*eta/24.)*(v**3) )   # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or Blanchet 1310.1528 Eq. 234 (zero spin)
+        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v +  (27./8 - 19*eta/8 +eta*eta/24.)*(v**4) )   # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or 2PN from Blanchet 1310.1528 Eq. 234 (zero spin)
     def OrbitalAngularMomentumAtReferenceOverM2(self):
         L = self.OrbitalAngularMomentumAtReference()
         return L/(self.m1+self.m2)/(self.m1+self.m2)
@@ -2435,8 +2455,12 @@ def non_herm_hoff(P):
 
 
 
+## Version protection
+#   Pull out arguments of the ModesFromPolarizations function
+#argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
-def hlmoft(P, Lmax=2):
+
+def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -2444,19 +2468,26 @@ def hlmoft(P, Lmax=2):
 
     The linked list will contain all modes with l <= Lmax
     and all values of m for these l.
+
+    nr_polarization_convention : apply a factor -1 to all modes provided by lalsuite
     """
     assert Lmax >= 2
 
-#    if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
-#        hlm_out = hlmoft_SEOB_dict(P)
-#        if True: #P.taper:
-#            ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
-#            vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
-#            for key in hlm_out.keys():
-#                # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
-#                hlm_out[key].data.data[:ntaper]*=vectaper
-#        return hlm_out
-    if P.approx == lalsim.SEOBNRv3:
+    sign_factor = 1
+    if nr_polarization_convention:
+        sign_factor = -1
+
+    if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
+        hlm_out = hlmoft_SEOB_dict(P)
+        if True: #P.taper:
+            ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
+            vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+            for key in hlm_out.keys():
+                hlm_out[key].data.data *= sign_factor
+                # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
+                hlm_out[key].data.data[:ntaper]*=vectaper
+        return hlm_out
+    elif P.approx == lalsim.SEOBNRv3:
         hlm_out = hlmoft_SEOBv3_dict(P)
         if not hlm_out:
             print " Failed generation: SEOBNRv3 "
@@ -2466,6 +2497,7 @@ def hlmoft(P, Lmax=2):
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             for key in hlm_out.keys():
                 # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
+                hlm_out[key].data.data *= sign_factor
                 hlm_out[key].data.data[:ntaper]*=vectaper
         return hlm_out
 
@@ -2480,11 +2512,12 @@ def hlmoft(P, Lmax=2):
              Lmax, P.approx)
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
         extra_params = P.to_lal_dict()
+        # Format about to change: should not have several of these parameters
         hlms = lalsim.SimInspiralTDModesFromPolarizations( \
             P.m1, P.m2, \
             P.s1x, P.s1y, P.s1z, \
             P.s2x, P.s2y, P.s2z, \
-            P.dist, P.incl, P.phiref,  \
+            P.dist, P.phiref,  \
             P.psi, P.eccentricity, P.meanPerAno, \
             P.deltaT, P.fmin, P.fref, \
             extra_params, P.approx)
@@ -2499,8 +2532,12 @@ def hlmoft(P, Lmax=2):
         assert TDlen >= hxx.data.length
         hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
 
+    hlm_dict = SphHarmTimeSeries_to_dict(hlms,Lmax)
 
-    return hlms   # note data type is different than with SEOB; need to finish port to pure dictionary
+    for key in hlm_dict:
+        hlm_dict[key].data.data *= sign_factor
+
+    return hlm_dict   # note data type is different than with SEOB; need to finish port to pure dictionary
 
 def hlmoft_FromFD_dict(P,Lmax=2):
     """
@@ -2516,6 +2553,8 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a dictionary of modes.
     A hack for SEOBNRv3, because there's not a natural dictionary output
+
+    Will NOT perform the -1 factor correction
     """
 
     ampFac = (P.m1 + P.m2)/lal.MSUN_SI * lal.MRSUN_SI / P.dist
@@ -2548,6 +2587,32 @@ def hlmoft_SEOB_dict(P,Lmax=2):
     A hack.
     Works for any aligned-spin time-domain waveform with only (2,\pm 2) modes though.
     """
+
+    if P.approx == lalSEOBNRv4HM:
+        extra_params = P.to_lal_dict()        
+        nqcCoeffsInput=lal.CreateREAL8Vector(10)
+        hlm_struct, dyn, dynHi = lalsim.SimIMRSpinAlignedEOBModes(P.deltaT, P.m1, P.m2, P.fmin, P.dist, P.s1z, P.s2z,41, 0., 0., 0.,0.,0.,0.,0.,0.,1.,1.,nqcCoeffsInput, 0)
+
+        hlms = SphHarmTimeSeries_to_dict(hlm_struct,Lmax)
+        mode_list_orig = hlms.keys()
+        for mode in mode_list_orig:
+            # Add zero padding if requested time period too short
+            if not (P.deltaF is None):
+                TDlen = int(1./P.deltaF * 1./P.deltaT)
+                if TDlen > hlms[mode].data.length:
+                    hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlms[mode],0,TDlen)
+
+            # Should only populate positive modes; create negative modes
+            mode_conj = (mode[0],-mode[1])
+            if not mode_conj in hlms:
+                hC = hlms[mode]
+                hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0, 
+                                                    hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
+                hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
+#                hT = hlms[mode].copy() # hopefully this works
+#                hT.data.data = np.conj(hT.data.data)
+                hlms[mode_conj] = hC2
+        return hlms
 
     if not (P.approx == lalsim.SEOBNRv2 or P.approx==lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx==lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
         return None
@@ -2608,6 +2673,12 @@ def hlmoff(P, Lmax=2):
 
 def conj_hlmoff(P, Lmax=2):
     hlms = hlmoft(P, Lmax)
+    if isinstance(hlms,dict):
+        hlmsF = {}
+        for mode in hlms:
+            hlms[mode].data.data = np.conj(hlms[mode].data.data)
+            hlmsF[mode] = DataFourier(hlms[mode])
+        return hlmsF
     hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
     if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
         TDlen = nextPow2(hxx.data.length)
@@ -2684,7 +2755,7 @@ def complex_hoft(P, sgn=-1):
     #         P.ampO, P.phaseO, P.approx)
     extra_params = P.to_lal_dict()
     hp, hc = lalsim.SimInspiralChooseTDWaveform( P.m1, P.m2, 
-            P.s1x, P.s1y, P.s1z, P.spin2x, P.spin2y, P.spin2z, 
+            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
             P.dist, P.incl, P.phiref,  \
             P.psi, P.eccentricity, P.meanPerAno, \
             P.deltaT, P.fmin, P.fref, \
@@ -3133,15 +3204,16 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
         print " ++ Loading from cache ", fname, channel
     with open(fname) as cfile:
         cachef = Cache.fromfile(cfile)
-    for i in range(len(cachef))[::-1]:
-        # FIXME: HACKHACKHACK
-        if cachef[i].observatory != channel[0]:
-            del cachef[i]
+    cachef=cachef.sieve(ifos=channel[:1])
+    # for i in range(len(cachef))[::-1]:
+    #     # FIXME: HACKHACKHACK
+    #     if cachef[i].observatory != channel[0]:
+    #         del cachef[i]
     if verbose:
         print cachef.to_segmentlistdict()
         
     duration = stop - start if None not in (start, stop) else None
-    tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose) #,datatype='REAL8')
+    tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose,datatype='REAL8')
     # Window the data - N.B. default is identity (no windowing)
     hoft_window = lal.CreateTukeyREAL8Window(tmp.data.length, window_shape)
     tmp.data.data *= hoft_window.data.data
@@ -3713,9 +3785,9 @@ def symmetry_sign_exchange(coord_names):
         # LAL spin convention!  Assumes spins do not rotate with phiref
         phiref = P.phiref
         m1,s1x,s1y,s1z = [P.m1,P.s1x,P.s1y,P.s1z]
-        m2,s2x,s2y,s2z = [P.m2,P.spin2x,P.spin2y,P.spin2z]
+        m2,s2x,s2y,s2z = [P.m2,P.s2x,P.s2y,P.s2z]
         P.m1,P.s1x,P.s1y,P.s1z = [m2,s2x,s2y,s2z]
-        P.m2,P.spin2x,P.spin2y,P.spin2z = [m1,s1x,s1y,s1z]
+        P.m2,P.s2x,P.s2y,P.s2z = [m1,s1x,s1y,s1z]
         
         lambda1,lambda2 = [P.lambda1,P.lambda2]
         P.lambda1,P.lambda2= [lambda2,lambda1]

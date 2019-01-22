@@ -26,7 +26,7 @@
 #          event time
 #    - Inputs
 #         args_cip.txt   # no --fname, --fname-output-...  (overrridden)
-#         args_ile.txt    # no --sim-xml,  --event (overrridden)
+#         args_ile.txt    # no --sim-xml,  --event (overrridden)      ... though you may want to add them for command-single.sh to run properly
 #    - Workspaces
 #          Creates one directory for each task, for each iteration
 #          Main directory:
@@ -36,6 +36,12 @@
 #   
 # EXAMPLES
 #    python create_event_parameter_pipeline_BasicIteration.py --ile-args args_ile.txt --cip-args args.txt 
+#
+# TEST SEQUENCE
+#        unixhome/Projects/LIGO-ILE-Applications/communications/20180806-Me-PipelineDevelopment
+#    * Trivial iteration, fitting a constant likelihood at each step: 
+#           rm -rf test_workflow_trivial; make test_workflow_trivial
+#         
 
 
 
@@ -62,9 +68,17 @@ parser.add_argument("--input-grid",default="overlap-grid.xml.gz")
 parser.add_argument("--cip-args",default=None,help="filename of args_cip.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
-parser.add_argument("--cip-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
+parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
+parser.add_argument("--test-exe",default=None,help="filename of test code or equivalent executable.  Must have a --test-output <fname> argument.  Used for convergence testing or other termination. NOT ACTIVE; see 'convergence_test_samples.py' for example")
+parser.add_argument("--plot-exe",default=None,help="filename of plot code or equivalent executable.  Will default to `which plot_posterior_corner.py`.  Default is to plot last set of samples")
+parser.add_argument("--gridinit-exe",default=None,help="filename of initial grid creation or equivalent executable.  Will default to `which util_ManualOverlapGrid.py`.  Must create overlap-grid-0.xml.gz")
+parser.add_argument("--test-args",default=None,help="filename of args_test.txt, which holds test arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments")
+parser.add_argument("--convert-args",default=None,help="filename of args_convert.txt, which holds arguments to the convert function. Needed if you plan to export tide informaton")
+parser.add_argument("--plot-args",default=None,help="filename of args_plot.txt, which holds plot arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments.  To create the posterior samples file, you probably need to run the convert job (e.g., via the tests)")
+parser.add_argument("--gridinit-args",default=None,help="arguments for grid creation or equivalent executable.  If empty, will attempt to use the --input-grid argument")
 parser.add_argument("--ile-batch",action='store_true',help="Different workflow: the ILE job is assumed to create a .composite file directly in the current working directory. Designed for fake ILE sets and long-term batch workflow. NOT IMPLEMENTED ")
 parser.add_argument("--transfer-file-list",default=None,help="File containing list of *input* filenames to transfer, one name per file. Copied into transfer_files for condor directly.  If provided, also enables attempts to deduce files that need to be transferred for the pipeline to operate, as needed for OSG, etc")
+parser.add_argument("--request-memory-ILE",default=4096,type=int,help="Memory request for condor (in Mb) for ILE jobs.")
 parser.add_argument("--request-memory-CIP",default=16384,type=int,help="Memory request for condor (in Mb) for fitting jobs.")
 parser.add_argument('--n-copies',default=2,type=int,help="Number of duplicates of each ILE job, for redundant Monte Carlo")
 parser.add_argument('--n-iterations',default=3,type=int,help="Number of iterations to perform")
@@ -103,9 +117,62 @@ ile_args=ile_args.rstrip()
 #ile_args += ' --soft-fail-event-range '  #important in case event is out of range. Simply exit NO ...not backwards compatible
 print "ILE", ile_args
 
+test_args=None
+if opts.test_args:
+    # Load args.txt. Remove first item.  Store
+    with open(opts.test_args) as f:
+        test_args_list = f.readlines()
+    test_args = ' '.join( map( lambda x: x.replace('\\',''),test_args_list) )
+    test_args = ' '.join(test_args.split(' ')[1:])
+# Some argument protection for later
+    test_args = test_args.replace('[', ' \'[')
+    test_args = test_args.replace(']', ']\'')
+    test_args=test_args.rstrip()
+    print "CONVERGE", test_args
+
+plot_args=None
+if opts.plot_args:
+    # Load args.txt. Remove first item.  Store
+    with open(opts.plot_args) as f:
+        plot_args_list = f.readlines()
+    plot_args = ' '.join( map( lambda x: x.replace('\\',''),plot_args_list) )
+    plot_args = ' '.join(plot_args.split(' ')[1:])
+# Some argument protection for later
+    plot_args = plot_args.replace('[', ' \'[')
+    plot_args = plot_args.replace(']', ']\'')
+    plot_args=plot_args.rstrip()
+    print "PLOT", plot_args
+
+convert_args=None
+if opts.convert_args:
+    # Load args.txt. Remove first item.  Store
+    with open(opts.convert_args) as f:
+        convert_args_list = f.readlines()
+    convert_args = ' '.join( map( lambda x: x.replace('\\',''),convert_args_list) )
+    convert_args = ' '.join(convert_args.split(' ')[1:])
+# Some argument protection for later
+    convert_args = convert_args.replace('[', ' \'[')
+    convert_args = convert_args.replace(']', ']\'')
+    convert_args=convert_args.rstrip()
+    print "CONVERT", convert_args
+
+gridinit_args=None
+if opts.gridinit_args:
+    # Load args.txt. Remove first item.  Store
+    with open(opts.gridinit_args) as f:
+        gridinit_args_list = f.readlines()
+    gridinit_args = ' '.join( map( lambda x: x.replace('\\',''),gridinit_args_list) )
+    gridinit_args = ' '.join(gridinit_args.split(' ')[1:])
+# Some argument protection for later
+    gridinit_args = gridinit_args.replace('[', ' \'[')
+    gridinit_args = gridinit_args.replace(']', ']\'')
+    gridinit_args=gridinit_args.rstrip()
+    print "GRIDINIT", gridinit_args
+
+
 # Copy seed grid into place as overlap-grid-0.xml.gz
 it_start = opts.start_iteration
-if it_start is 0:
+if (it_start is 0) and not gridinit_args:
     shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
 
 
@@ -162,10 +229,20 @@ for indx in np.arange(it_start,opts.n_iterations):
     ile_dir = opts.working_directory+"/iteration_"+str(indx)+"_ile"
     cip_dir = opts.working_directory+"/iteration_"+str(indx)+"_cip"
     consolidate_dir = opts.working_directory+"/iteration_"+str(indx)+"_con"
-
+#    convert_dir = opts.working_directory+"/iteration_"+str(indx)+"_change"
     mkdir(ile_dir); mkdir(ile_dir+"/logs")
     mkdir(cip_dir);  mkdir(cip_dir+"/logs")
     mkdir(consolidate_dir); mkdir(consolidate_dir+"/logs")
+#    mkdir(change_dir); mkdir(change_dir+"/logs")
+
+    if opts.test_args:
+        test_dir = opts.working_directory+"/iteration_"+str(indx)+"_test"
+        mkdir(test_dir); mkdir(test_dir+'/logs')
+        
+    if opts.plot_args:  # Overkill: currently only making plots on last iteration
+        plot_dir = opts.working_directory+"/iteration_"+str(indx)+"_plot"
+        mkdir(plot_dir); mkdir(plot_dir+'/logs')
+
 
 
 # ++++
@@ -174,7 +251,7 @@ for indx in np.arange(it_start,opts.n_iterations):
 
 ##   ILE job
 
-ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=opts.ile_exe,transfer_files=transfer_file_names)
+ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=opts.ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE)
 # Modify: create macro for iteration 
 #   - added on a per-node basis
 # Modify: add macro argument for overlap grid to be used (kept in top-level directory)
@@ -220,6 +297,45 @@ cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip
 cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
 cip_job.write_sub_file()
 
+
+
+##   Test job (terminate, convergence
+if opts.test_args:
+    ##  Convert job : make results accessible after every iteration.  (Only performed if the tests are active, to make my life easier)
+    convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe)
+    convert_job.add_condor_cmd("initialdir",opts.working_directory)
+    convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/convert-$(cluster)-$(process).log")
+    convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/convert-$(cluster)-$(process).err")
+    convert_job.write_sub_file()
+
+
+    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[ opts.working_directory+'/posterior_samples-$(macroiteration).dat', opts.working_directory+'/posterior_samples-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.test_exe)
+    # Modify: set 'initialdir'
+    test_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_test")
+    # Modify output argument: change logs and working directory to be subdirectory for the run
+    test_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).log")
+    test_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).err")
+    test_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).out")
+    test_job.write_sub_file()
+
+
+if opts.plot_args and opts.test_args:
+    # default: last two iterations
+    plot_job, plot_job_name = dag_utils.write_plot_sub(tag='plot',log_dir=None,arg_str=plot_args,samples_files=['posterior_samples-$(macroiteration).dat','posterior_samples-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.plot_exe)
+    plot_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).log")
+    plot_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).err")
+    plot_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).out")
+    plot_job.write_sub_file()
+
+
+if opts.gridinit_args:
+    gridinit_job, gridinit_job_name = dag_utils.write_init_sub(tag='grid',log_dir=None,arg_str=gridinit_args,out_dir=opts.working_directory,exe=opts.gridinit_exe)
+    gridinit_job.set_log_file(opts.working_directory+"/init-$(cluster)-$(process).log")
+    gridinit_job.set_stderr_file(opts.working_directory+"init--$(cluster)-$(process).err")
+    gridinit_job.set_stdout_file(opts.working_directory+"/init-$(cluster)-$(process).out")
+    gridinit_job.write_sub_file()
+
+
 ##   Convert job(s)
 #    - relocate input grid to correct location.  (MAKE TRIVIAL: do via output arguments in previous stage!)
 ##   Assessment job (no-op for now)
@@ -232,6 +348,7 @@ cip_job.write_sub_file()
 # ++++
 
 # Create workflow
+#   - Create grid node as needed
 #   - Loop over iterations
 #      - if iteration0, use seed grid (should already be copied in place)
 #      - if not iteration 0, grid should be in place (from previous stage)
@@ -241,6 +358,13 @@ cip_job.write_sub_file()
 #    
 
 parent_fit_node = None
+
+if opts.gridinit_args:
+   grid_node = pipeline.CondorDAGNode(gridinit_job) 
+   dag.add_node(grid_node)
+   parent_fit_node = grid_node  # this must happen before the first ILE jobs
+
+
 for it in np.arange(it_start,opts.n_iterations):
     consolidate_now = None
     fit_node_now = None
@@ -254,11 +378,11 @@ for it in np.arange(it_start,opts.n_iterations):
     unify_node.add_parent(con_node)
     
     # Create one node per job
-    for i in np.arange(opts.n_samples_per_job):
+    for event in np.arange(opts.n_samples_per_job):
         # Add task per ILE operation
         ile_node = pipeline.CondorDAGNode(ile_job)
 #        ile_node.set_priority(JOB_PRIORITIES["ILE"])
-        ile_node.add_macro("macroevent", i)
+        ile_node.add_macro("macroevent", event)
         ile_node.add_macro("macroiteration", it)
         if not(parent_fit_node is None):
             ile_node.add_parent(parent_fit_node)
@@ -279,6 +403,39 @@ for it in np.arange(it_start,opts.n_iterations):
 
     parent_fit_node = fit_node
 
+    # Create convert node, which depends on fit node, *if* tests are being performed
+    if opts.test_args:
+        convert_node=pipeline.CondorDAGNode(convert_job)
+        convert_node.add_macro("macroiteration", it)
+        convert_node.add_parent(parent_fit_node)
+        convert_node.set_category("CONVERT")
+        dag.add_node(convert_node)
+
+        parent_fit_node = convert_node
+
+
+
+    if opts.test_args and it>0:
+        # Cannot run test on first iteration
+        test_node = pipeline.CondorDAGNode(test_job)
+        test_node.add_macro("macroiteration", it)
+        test_node.add_macro("macroiterationlast", it-1)
+        test_node.add_parent(parent_fit_node)
+        test_node.set_category("CONVERGE")
+        dag.add_node(test_node)
+
+        parent_fit_node=test_node
+
+
+# Create final node for overall plots.  (Note: default setup is designed to enable plots of the last two iterations *at each step* but this seems like overkill)
+if plot_args:
+        # Cannot run test on first iteration
+        plot_node = pipeline.CondorDAGNode(plot_job)
+        plot_node.add_macro("macroiteration", it)
+        plot_node.add_macro("macroiterationlast", it-1)
+        plot_node.add_parent(parent_fit_node)
+        plot_node.set_category("PLOT")
+        dag.add_node(plot_node)
 
 dag_name="marginalize_intrinsic_parameters_BasicIterationWorkflow"
 dag.set_dag_file(dag_name)

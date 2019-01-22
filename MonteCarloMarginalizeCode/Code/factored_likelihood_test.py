@@ -305,6 +305,89 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         if bSavePlots:
             plt.savefig("FLT-lnL."+fExtensionLowDensity)
 
+    # lnLdata (plot), using vectorized packing
+    if TestDictionary["lnLDataPlotAlt"] and not bNoMatplotlib:
+        lookupNKDict = {}
+        lookupKNDict={}
+        lookupKNconjDict={}
+        ctUArrayDict = {}
+        ctVArrayDict={}
+        rholmArrayDict={}
+        rholms_intpArrayDict={}
+        epochDict={}
+
+        for det in rholms_intp.keys():
+                lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det],crossTermsV[det])
+
+        # Plot the interpolated lnLData versus *time*
+        print " ======= lnLdata timeseries at the injection parameters =========="
+        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],fSample*(tWindowExplore[1]-tWindowExplore[0]))
+        for det in detectors:
+            lnLData = map( lambda x: factored_likelihood.SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, det), tvals)
+            lnLDataEstimate = np.ones(len(tvals))*rhoExpected[det]*rhoExpected[det]
+            plt.figure(1)
+            plt.xlabel('t(s) [geocentered]relative to '+lalsimutils.stringGPSNice(theEpochFiducial))
+            plt.ylabel('lnLdata')
+            plt.title("lnLdata (interpolated) vs narrow time interval")
+            indx = [k for  k,value in enumerate((tvals>tWindowExplore[0])  * (tvals<tWindowExplore[1])) if value] # gets results if true
+            lnLfac = 4*np.max([np.abs(lnLData[k]) for k in indx])  # Max in window
+            if lnLfac < 100:
+                lnLfac = 100
+            plt.ylim(-lnLfac,lnLfac)   # sometimes we get yanked off the edges.  Larger than this isn't likely
+            tvalsPlot = tvals 
+            plt.plot(tvalsPlot, lnLData,label='Ldata(t)+'+det)
+            plt.plot(tvalsPlot, lnLDataEstimate,label="$rho^2("+det+")$")
+            nBinsDiscrete =  len(data_dict[det].data.data)#int(fSample*1)                      # plot all of data, straight up!
+            tStartOffsetDiscrete = 0 #tWindowExplore[0]-0.5   # timeshift correction *should* already performed by DiscreteSingleDetectorLogLikelihood
+            tvalsDiscrete = tStartOffsetDiscrete +np.arange(nBinsDiscrete) *1.0/fSample
+            lnLDataDiscrete = factored_likelihood.DiscreteSingleDetectorLogLikelihoodDataViaArray(tvalsPlot,Psig, lookupNKDict, rholmArrayDict, Lmax=Lmax,det=det)
+            tvalsDiscrete = tvalsDiscrete[:len(lnLDataDiscrete)]
+            plt.figure(2)
+            plt.xlabel('t(s) [not geocentered] relative to '+lalsimutils.stringGPSNice(theEpochFiducial))
+            plt.ylabel('lnLdata')
+            nSkip = 1 # len(tvalsDiscrete)/4096   # Go to fixed number of points
+            lnLDataEstimate = np.ones(len(tvalsDiscrete))*rhoExpected[det]*rhoExpected[det]
+            plt.plot(tvalsDiscrete, lnLDataEstimate,label="$rho^2("+det+")$")
+            plt.plot(tvalsDiscrete[::nSkip], lnLDataDiscrete[::nSkip],label='Ldata(t):discrete+'+det)
+            plt.title('lnLdata(t) discrete, NO TIME SHIFTS')
+            plt.legend()
+        tEventRelative =float( Psig.tref - theEpochFiducial)
+        print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is ", tEventRelative
+        plt.figure(1)
+        plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
+        plt.title("lnLdata (interpolated) vs narrow time interval")
+        plt.xlim(-0.05,0.05)
+        if bSavePlots:
+            plt.savefig("FLT-lnLaltData."+fExtensionLowDensity)
+
+        print " ======= rholm test: Plot the lnL timeseries at the injection parameters =========="
+        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],fSample*(tWindowExplore[1]-tWindowExplore[0]))
+        print "  ... plotting over range ", [min(tvals), max(tvals)], " with npts = ", len(tvals)
+        P = Psig.copy()
+        lnL = np.zeros(len(tvals))
+        for indx in np.arange(len(tvals)):
+            P.tref =  theEpochFiducial+tvals[indx]
+            lnL[indx] =  factored_likelihood.FactoredLogLikelihood(P, rholms,  rholms_intp, crossTerms,crossTermsV, Lmax)
+        lnLEstimate = np.ones(len(tvals))*rho2Net/2
+        plt.figure(1)
+        tvalsPlot = tvals 
+        plt.plot(tvalsPlot, lnL,label='lnL(t)')
+        plt.plot(tvalsPlot, lnLEstimate,label="$rho^2/2(net)$")
+
+        indx = [k for  k,value in enumerate((tvals>tWindowExplore[0])  * (tvals<tWindowExplore[1])) if value] # gets results if true
+        lnLfac = 4*np.max([np.abs(lnL[k]) for k in indx])  # Max in window
+        if lnLfac < 100:
+            lnLfac = 100
+        plt.ylim(-lnLfac,lnLfac)   # sometimes we get yanked off the edges.  Larger than this isn't likely
+        tEventRelative =float( Psig.tref - theEpochFiducial)
+        print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
+        plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
+        plt.title("lnL (interpolated) vs narrow time interval")
+        plt.xlim(-0.05,0.05)
+        plt.legend()
+        if bSavePlots:
+            plt.savefig("FLT-lnL_alt."+fExtensionLowDensity)
+
     # lnLdata (plot)
     if TestDictionary["lnLDataPlotVersusPsi"] and not bNoMatplotlib:
         print " ======= Code test: Plot the lnL versus psi, at the injection parameters =========="

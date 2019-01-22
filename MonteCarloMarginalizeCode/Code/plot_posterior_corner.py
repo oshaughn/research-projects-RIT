@@ -338,8 +338,17 @@ if opts.posterior_file:
         samples = add_field(samples, [('eta', float)]); samples['eta'] = eta_here
         samples = add_field(samples, [('m1', float)]); samples['m1'] = m1_here
         samples = add_field(samples, [('m2', float)]); samples['m2'] = mtot_here * q_here/(1+q_here)
+
+    if (not 'theta1' in samples.dtype.names)  and ('a1x' in samples.dtype.names):  # probably does not have polar coordinates
+        chiperp_here = np.sqrt( samples['a1x']**2+ samples['a1y']**2)
+        chi1_here = np.sqrt( samples['a1z']**2 + chiperp_here**2)
+        theta1_here = np.arctan( samples['a1z']/chiperp_here)
+        phi1_here = np.angle(samples['a1x']+1j*samples['a1y'])
+        samples = add_field(samples, [('chi1', float)]); samples['chi1'] = chi1_here
+        samples = add_field(samples, [('theta1', float)]); samples['theta1'] = theta1_here
+        samples = add_field(samples, [('phi1', float)]); samples['phi1'] = phi1_here
         
-    if "theta1" in samples.dtype.names:
+    elif "theta1" in samples.dtype.names:
         a1x_dat = samples["a1"]*np.sin(samples["theta1"])*np.cos(samples["phi1"])
         a1y_dat = samples["a1"]*np.sin(samples["theta1"])*np.sin(samples["phi1"])
         chi1_perp = samples["a1"]*np.sin(samples["theta1"])
