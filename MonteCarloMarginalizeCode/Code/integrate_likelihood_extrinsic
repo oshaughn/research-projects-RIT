@@ -12,6 +12,20 @@ import functools
 from optparse import OptionParser, OptionGroup
 
 import numpy
+import numpy as np
+try:
+  import cupy
+  xpy_default=cupy
+  identity_convert = cupy.asnumpy
+except:
+  print ' no cupy'
+  import numpy as cupy  # will automatically replace cupy calls with numpy!
+  optimized_gpu_tools=None
+  Q_inner_product=None
+  xpy_default=numpy  # just in case, to make replacement clear and to enable override
+  identity_convert = lambda x: x  # trivial return itself
+
+
 
 import lal
 from glue.ligolw import utils, lsctables, table, ligolw
@@ -91,6 +105,7 @@ optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Tim
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
+optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
@@ -930,7 +945,14 @@ else: # Sum over time for every point in other extrinsic params
     for det in rholms_intp.keys():
         print " Packing ", det
         lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], cross_terms[det],cross_terms_V[det])
-    def likelihood_function(right_ascension, declination, phi_orb, inclination,
+        if opts.gpu and xpy_default==cupy:
+            lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
+            rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
+            ctUArrayDict[det] = cupy.asarray(ctUArrayDict[det])
+            ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
+            epochDict[det] = cupy.asarray(epochDict[det])
+    if (not opts.gpu):
+      def likelihood_function(right_ascension, declination, phi_orb, inclination,
             psi, distance):
         global nEvals
         tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
@@ -948,6 +970,24 @@ else: # Sum over time for every point in other extrinsic params
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
         nEvals +=len(right_ascension)
         return numpy.exp(lnL-manual_avoid_overflow_logarithm)
+    else:
+        print " Using CUDA GPU likelihood, if cupy available "
+        def likelihood_function(right_ascension, declination, phi_orb, inclination,
+            psi, distance):
+            global nEvals
+            tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+            P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+            P.theta = xpy_default.asarray(declination.astype,dtype=np.float64)
+            P.tref = float(fiducial_epoch)
+            P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
+            P.incl = xpy_default.asarray(inclination, dtype=np.float64)
+            P.psi = xpy_default.asarray(psi, dtype=np.float64)
+            P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+
+            lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoops(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
+            nEvals +=len(right_ascension)
+            return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
     args = likelihood_function.func_code.co_varnames[:likelihood_function.func_code.co_argcount]
     print " --------> Arguments ", args
