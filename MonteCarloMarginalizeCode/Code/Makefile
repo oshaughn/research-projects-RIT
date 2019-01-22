@@ -1,20 +1,39 @@
-setup:
-# Retrieve Pankow 'blind injection challenge'
-	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/richard_mdc/signal_hoft .
-	gsiscp -r ldas-grid.ligo.caltech.edu:/home/pankow/richard_mdc/signal_hoft_no_noise .
-	gsiscp  ldas-grid.ligo.caltech.edu:/home/pankow/richard_mdc/mdc.xml.gz .
-	find -L signal_hoft -name '*.gwf' -print | lalapps_path2cache > test1.cache
-	find -L signal_hoft_no_noise -name '*.gwf' -print | lalapps_path2cache > test1-0noise.cache
+
+build_gpu:
+# Default configuration
+#   - cuda10
+#   - tesla P40/P100  [head nodes] or K10   https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/index.html#virtual-architecture-feature-list
+#      -arch=sm_60  # ldas-pcdev13 architecture  (GTX 10 series also pascal-powered, should work for all)
+# Check configuraito with
+#   nvidia-smi   # prints available machines
+	nvcc -arch=sm_60 -cubin -o cuda_Q_inner_product.cubin cuda_Q_inner_product.cu 
 
 
-# iLIGO noise
-test-fiducial-data:
-	python test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file test1-0noise.cache --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --channel-name V1=FAKE-STRAIN --force-read-full-frames --show-psd --show-likelihood-versus-time --show-sampler-inputs --show-sampler-results --Niter 1000000 --save-sampler-file fiducial-0noise --save-threshold-fraction 0.95
+# AVAILABLE GPU MACHINES (2019-01 edition)
+# CIT:
+# 560 nodes with single GTX 1050 Ti
+# 32 nodes with dual K10 PCI cards (shows up as 4 GPU devices) and dual GTX 750 Ti
+# 16 nodes with dual GTX 750 Ti (and dual Xeon Phi co-processor)
 
-# iLIGO noise
-test-fiducial-data-noisy:
-	python test_like_and_samp.py --inj-xml mdc.xml.gz   --cache-file test1.cache --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --channel-name V1=FAKE-STRAIN --force-read-full-frames --show-psd --show-likelihood-versus-time --show-sampler-inputs --show-sampler-results --Niter 1000000 --save-sampler-file fiducial-0noise --save-threshold-fraction 0.95
+# LHO and LLO each:
+# 40 nodes with GTX 1050 Ti
+# single DGX-1 system with 8 tightly coupled V100
 
+# And all 3 sites advertise the login/head node GPU devices in their MOTD.
+
+
+# In general, you can use condor_status to query all the machine in a local Condor pool to see what resources are being advertised as available to run jobs. This includes information about GPUs when available. For example, the CIT cluster is currently advertising 872 Condor slots with CUDA 9.2,
+
+# ldas-grid:~> condor_status -af CUDADeviceName -constraint "DynamicSlot =!= True" | sort | uniq -c
+#     549 GeForce GTX 1050 Ti
+#      16 GeForce GTX 750 Ti
+#    1911 undefined
+
+# ldas-grid:~> condor_status -af CUDA0DeviceName -constraint "DynamicSlot =!= True" | sort | uniq -c
+#      30 GeForce GTX 750 Ti
+#       2 Tesla K10.G2.8GB
+#       1 Tesla K80
+#    2442 undefined
 
 test:
 # test hlm generation, overlaps
@@ -34,10 +53,3 @@ test:
 
 
 
-injection-info:
-# Parameters
-	ligolw_print mdc.xml.gz -t sim_inspiral -c mass1 -c mass2 -c longitude -c latitude
-# Frame files
-	FrDump -i signal_hoft/H-ER_signal_hoft-10000/H-ER_signal_hoft-1000000000-64.gwf 
-	FrDump -i signal_hoft/L-ER_signal_hoft-10000/L-ER_signal_hoft-1000000000-64.gwf 
-	FrDump -i signal_hoft/V-ER_signal_hoft-10000/V-ER_signal_hoft-1000000000-64.gwf 
