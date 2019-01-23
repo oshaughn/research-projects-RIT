@@ -1713,13 +1713,11 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
             Qlms.shape,
             )
-          print("FY_dummy_t:", FY_dummy_t.shape)
 
           Q_prod_result =  np.einsum(
             "...i,...i",
             np.conj(FY_dummy_t), Qlms,
             ).real 
-          print("Q_prod_result:", Q_prod_result.shape)
 
         lnL_t_accum += Q_prod_result * (distMpcRef/distMpc)[...,None]
 
