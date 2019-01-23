@@ -913,7 +913,7 @@ elif opts.LikelihoodType_vectorized_noloops:
             epochDict[det],
         ) = factored_likelihood.PackLikelihoodDataStructuresAsArrays(
             rholms[det].keys(), rholms_intp[det], rholms[det],
-            crossTerms[det],
+            crossTerms[det], crossTermsV[det]
         )
 
         lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
