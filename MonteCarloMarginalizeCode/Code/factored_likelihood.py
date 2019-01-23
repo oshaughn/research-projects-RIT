@@ -1653,7 +1653,6 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopOrig(tvals, P_vec, lookupN
             np.conj(FY_dummy_t), Qlms,
         ).real * (distMpcRef/distMpc)[...,None]
 
-
         # Accumulate term2 into the time-dependent log likelihood.
         # Have to create a view with an extra axis so they broadcast.
         lnL_t_accum += term2[..., np.newaxis]
@@ -1819,7 +1818,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             ).real
         else:
           # Use old code completely unchanged ... very wasteful.
-          Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=complex)
+          Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
           for i in range(npts_extrinsic):
               Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:(ifirst[i]+npts)].T
 
@@ -1851,8 +1850,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
 
     # Take exponential of the log likelihood in-place.
-    lnLmax  = np.max(lnL_t_accum)
-    L_t = xpy.exp(lnL_t_accum - lnL_t_accum, out=lnL_t_accum)
+    lnLmax  = xpy.max(lnL_t_accum)
+    L_t = xpy.exp(lnL_t_accum - lnLmax, out=lnL_t_accum)
 
     L = simps(L_t, dx=deltaT, axis=-1)
 
