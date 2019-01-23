@@ -19,7 +19,7 @@ try:
   identity_convert = cupy.asnumpy
 except:
   print ' no cupy'
-  import numpy as cupy  # will automatically replace cupy calls with numpy!
+#  import numpy as cupy  # will automatically replace cupy calls with numpy!
   optimized_gpu_tools=None
   Q_inner_product=None
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
@@ -953,7 +953,7 @@ else: # Sum over time for every point in other extrinsic params
     for det in rholms_intp.keys():
         print " Packing ", det
         lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], cross_terms[det],cross_terms_V[det])
-        if opts.gpu and xpy_default==cupy:
+        if opts.gpu and (not xpy_default is np):
             lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
             rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
             ctUArrayDict[det] = cupy.asarray(ctUArrayDict[det])
