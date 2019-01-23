@@ -1556,6 +1556,120 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
 
     return lnLmargOut
 
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopOrig(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False):
+    """
+    DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
+    either as an array vs time *or* marginalized in time. 
+    This generally is marginally faster, particularly if Lmax is large.
+    The timeseries quantities are computed via discrete shifts of an existing grid
+    Note 'P' must have the *sampling rate* set to correctly interpret the event time.
+     Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have 'Vector' postfix
+    """
+    global distMpcRef
+
+    detectors = rholmsArrayDict.keys()
+    npts = len(tvals)
+    npts_extrinsic = len(P_vec.phi)
+
+    # All arrays of length `npts_extrinsic`, except for `tref` which is a scalar
+    RA = P_vec.phi
+    DEC =  P_vec.theta
+    tref = P_vec.tref # geocenter time, stored as a scalar
+    phiref = P_vec.phiref
+    incl = P_vec.incl
+    psi = P_vec.psi
+    dist = P_vec.dist
+    distMpc = dist/(lal.PC_SI*1e6)
+    invDistMpc = distMpcRef/distMpc
+
+
+    deltaT = P_vec.deltaT # this is stored as a scalar
+
+    # Array to use for work
+    lnL = np.zeros(npts,dtype=np.float64)
+    lnL_t_accum = np.zeros((npts_extrinsic,npts),dtype=np.float64)
+
+    for det in detectors:  # strings right now - need to change to make ufunc-able
+        # These do not depend on extrinsic params.
+        # Arrays of shape (n_lms, n_lms).
+        # Axis 0 corresponds to (l,m), and axis 1 corresponds to (l',m').
+        U = ctUArrayDict[det]
+        V = ctVArrayDict[det]
+
+        n_lms = len(U)
+
+        # These do depend on extrinsic params
+        # Array of shape (npts_extrinsic, n_lms,)
+        Ylms_vec = ComputeYlmsArrayVector(lookupNKDict[det], incl, -phiref).T
+        # Array of shape (npts_extrinsic,)
+        F_vec = lalF(det, RA, DEC, psi, tref)
+        # Array of shape (npts_extrinsic,)
+        invDistMpc = distMpcRef/distMpc
+
+        # Scalar -- is constant for each IFO
+        t_ref = epochDict[det]
+
+        # This is the GPS time at the detector, an array of shape (npts_extrinsic,)
+        t_det = lalT(det, RA, DEC, tref)
+
+        tfirst = t_det + tvals[0]
+
+        ifirst = (np.round((tfirst-t_ref) / P_vec.deltaT) + 0.5).astype(int)
+        ilast = ifirst + npts
+
+        # Note: Very inefficient, need to avoid making `Qlms` by doing the
+        # inner product in a CUDA kernel.
+        det_rholms = rholmsArrayDict[det]
+        Qlms = np.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
+        for i in range(npts_extrinsic):
+            Qlms[i] = det_rholms[..., ifirst[i]:ilast[i]].T
+
+        # Has shape (npts_extrinsic,)
+        term2 = ( (F_vec*np.conj(F_vec)).real *np.einsum(
+                "...i,...j,ij",
+                np.conj(Ylms_vec), Ylms_vec, U,
+            ).real )
+        term2 += (np.square(F_vec) *
+            np.einsum(
+                "...i,...j,ij",
+                Ylms_vec, Ylms_vec, V,
+            )
+        ).real
+        term2 *= -0.25 * np.square(distMpcRef / distMpc)
+
+       # Has shape (npts_extrinsic, npts).
+        # Starts as term1, and accumulates term2 after.
+
+        # View into F with shape (npts_extrinsic, n_lms)
+        F_vec_dummy_lm = F_vec[..., np.newaxis]
+        # View into F * Ylm with shape (npts_extrinsic, npts, n_lms)
+        FY_dummy_t = np.broadcast_to(
+            (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
+            Qlms.shape,
+        )
+
+        lnL_t_accum += np.einsum(
+            "...i,...i",
+            np.conj(FY_dummy_t), Qlms,
+        ).real * (distMpcRef/distMpc)[...,None]
+
+
+        # Accumulate term2 into the time-dependent log likelihood.
+        # Have to create a view with an extra axis so they broadcast.
+        lnL_t_accum += term2[..., np.newaxis]
+
+    # Take exponential of the log likelihood in-place.
+    lnLmax  = np.max(lnL_t_accum)
+    L_t = np.exp(lnL_t_accum - lnLmax, out=lnL_t_accum)
+        
+    # Integrate out the time dimension.  We now have an array of shape
+    # (npts_extrinsic,)
+    L = integrate.simps(L_t, dx=deltaT, axis=-1)
+    # Compute log likelihood in-place.
+    lnL = lnLmax+ np.log(L, out=L)
+
+
+    return lnL
 
 def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np):
     """
