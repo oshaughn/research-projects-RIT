@@ -1460,15 +1460,13 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
             term1 = np.dot(np.conj(F*Ylms),det_rholms)   # be very careful re how this multiplication is done: suitable to use this form of multiply
             term1 = np.real(term1) / (distMpc/distMpcRef)
 
+            lnL+= term1+term2
 
     if  array_output:  # return the raw array
-        return term1+term2
+        return lnL
     else:  # return the marginalized lnL in time
-        lnLArray = np.zeros(npts,dtype=np.complex128)   # avoid nan's
-        lnLArray = term1+term2
-#        lnLmargT = np.log(deltaT*np.sum(np.exp(lnLArray))/Twindow)
-        lnLmax = np.max(lnLArray)
-        lnLmargT = np.log(integrate.simps(np.exp(lnLArray-lnLmax), dx=deltaT)) + lnLmax
+        lnLmax = np.max(lnL)
+        lnLmargT = np.log(integrate.simps(np.exp(lnL-lnLmax), dx=deltaT)) + lnLmax
         return lnLmargT
 
 def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=xpy_default):
