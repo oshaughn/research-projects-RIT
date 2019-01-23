@@ -36,7 +36,7 @@ except:
   import numpy as cupy
   optimized_gpu_tools=None
   Q_inner_product=None
-  xpy_default=numpy
+  xpy_default=np
 
 from scipy import interpolate, integrate
 from scipy import special
@@ -1471,7 +1471,6 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
         lnLmargT = np.log(integrate.simps(np.exp(lnLArray-lnLmax), dx=deltaT)) + lnLmax
         return lnLmargT
 
-@profile
 def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=xpy_default):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
@@ -1490,9 +1489,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     # All arrays of length `npts_extrinsic`, except for `tref` which is a scalar
     RA = P_vec.phi
     DEC = P_vec.theta
-
-    # geocenter time, stored as a scalar
-    tref = P_vec.tref
+    tref = P_vec.tref  # geocenter time, stored as a scalar
     phiref = P_vec.phiref
     incl = P_vec.incl
     psi = P_vec.psi
@@ -1607,7 +1604,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
     if xpy is np:
         simps = integrate.simps
-    elif xpy is cupy:
+    elif not (xpy is np):
         simps = optimized_gpu_tools.simps
     else:
         raise NotImplementedError("Backend not supported: {}".format(xpy))
@@ -1703,8 +1700,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
         FY_conj = xpy.conj(F_vec_dummy_lm * Ylms_vec)
 
-        Q_prod_result = None
-        if xpy is cupy:
+        if not (xpy is np):
           Q_prod_result = Q_inner_product.Q_inner_product_cupy(
             Q, FY_conj,
             ifirst, npts,
@@ -1713,17 +1709,19 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
           # Use old code completely unchanged ... very wasteful.
           Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=complex)
           for i in range(npts_extrinsic):
-              Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:ifirst[i]+npts].T
+              Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:(ifirst[i]+npts)].T
 
           FY_dummy_t = np.broadcast_to(
             (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
             Qlms.shape,
             )
+          print("FY_dummy_t:", FY_dummy_t.shape)
 
           Q_prod_result =  np.einsum(
             "...i,...i",
             np.conj(FY_dummy_t), Qlms,
             ).real 
+          print("Q_prod_result:", Q_prod_result.shape)
 
         lnL_t_accum += Q_prod_result * (distMpcRef/distMpc)[...,None]
 
