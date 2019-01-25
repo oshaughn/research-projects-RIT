@@ -1684,6 +1684,9 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     detectors = rholmsArrayDict.keys()
     npts = len(tvals)
     npts_extrinsic = len(P_vec.phi)
+    # npts_full = len(rholmsArrayDict[detectors[0]][0]) # all have same size
+    # print " npts :", npts
+    # print " npts_full:", npts_full
 
     # All arrays of length `npts_extrinsic`, except for `tref` which is a scalar
     RA = P_vec.phi
@@ -1812,12 +1815,15 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         FY_conj = xpy.conj(F_vec_dummy_lm * Ylms_vec)
 
         if not (xpy is np):
+          # Shape Q = (npts_time_full, nlms)
+          # Shape A=FY_conj = (npts_extrinsic, nlms)
+          # shape result = (npts_extrinsic, npts_time_*window* = npts)
           Q_prod_result = Q_inner_product.Q_inner_product_cupy(
             Q, FY_conj,
             ifirst, npts,
             ).real
         else:
-          # Use old code completely unchanged ... very wasteful.
+          # Use old code completely unchanged ... very wasteful on memory management!
           Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
           for i in range(npts_extrinsic):
               Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:(ifirst[i]+npts)].T
