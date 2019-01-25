@@ -1812,9 +1812,9 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         #     xpy.conj(FY_dummy_t), Qlms,
         # ).real * (distMpcRef/distMpc)[...,None]
 
-        FY_conj = xpy.conj(F_vec_dummy_lm * Ylms_vec)
 
         if not (xpy is np):
+          FY_conj = xpy.conj(F_vec_dummy_lm * Ylms_vec)
           # Shape Q = (npts_time_full, nlms)
           # Shape A=FY_conj = (npts_extrinsic, nlms)
           # shape result = (npts_extrinsic, npts_time_*window* = npts)
