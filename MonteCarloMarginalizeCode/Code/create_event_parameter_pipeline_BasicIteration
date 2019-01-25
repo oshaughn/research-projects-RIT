@@ -66,6 +66,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--working-directory",default="./")
 parser.add_argument("--input-grid",default="overlap-grid.xml.gz")
 parser.add_argument("--cip-args",default=None,help="filename of args_cip.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
+parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
@@ -172,9 +173,10 @@ if opts.gridinit_args:
 
 # Copy seed grid into place as overlap-grid-0.xml.gz
 it_start = opts.start_iteration
+n_initial = opts.n_samples_per_job
 if (it_start is 0) and not gridinit_args:
     shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
-
+    n_initial = len(lalsimutils.xml_to_ChooseWaveformParams_array("overlap-grid-0.xml.gz"))
 
 transfer_file_names = None
 if not (opts.transfer_file_list is None):
@@ -378,7 +380,10 @@ for it in np.arange(it_start,opts.n_iterations):
     unify_node.add_parent(con_node)
     
     # Create one node per job
-    for event in np.arange(opts.n_samples_per_job):
+    n_jobs_this_time = opts.n_samples_per_job
+    if it ==it_start:
+        n_jobs_this_time = n_initial
+    for event in np.arange(n_jobs_this_time):
         # Add task per ILE operation
         ile_node = pipeline.CondorDAGNode(ile_job)
 #        ile_node.set_priority(JOB_PRIORITIES["ILE"])
