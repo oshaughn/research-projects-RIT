@@ -10,7 +10,7 @@ from scipy.interpolate import interp1d
 
 
 rosDebug=True
-from matplotlib import pyplot as plt
+#from matplotlib import pyplot as plt
 
 def FisherProject(mtx,indx_list_preserve):
     """
