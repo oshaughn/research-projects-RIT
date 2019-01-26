@@ -3,6 +3,8 @@ import cupy
 import os
 
 #ILE_base = os.environ["ILE_CODE_PATH"]  # default: store code inside main repo. Maintainer controls.
+cuda_code = None
+
 
 def Q_inner_product_cupy(Q, A, start_indices, window_size):
     num_time_points, num_lms = Q.shape
@@ -17,12 +19,14 @@ def Q_inner_product_cupy(Q, A, start_indices, window_size):
         order="C",
     )
 
-    # it's assumed that cuda_Q_inner_product.cu is placed in the same folder as this code
-    path = os.path.join(os.path.dirname(__file__), 'cuda_Q_inner_product.cu')
-    with open('cuda_Q_inner_product.cu', 'r') as f:
-        code = f.read()
-        # actual compilation will happen only once, and after that RawKernel looks for cache first 
-        Q_prod_fn = cupy.RawKernel(code, "Q_inner")
+    if cuda_code is None:
+        # it's assumed that cuda_Q_inner_product.cu is placed in the same folder as this code
+        path = os.path.join(os.path.dirname(__file__), 'cuda_Q_inner_product.cu')
+        with open('cuda_Q_inner_product.cu', 'r') as f:
+            cuda_code = f.read()
+            Q_prod_fn = cupy.RawKernel(cuda_code, "Q_inner")
+    else:
+        Q_prod_fn = cupy.RawKernel(cuda_code, "Q_inner")
 
     float_prec = 16
     num_threads_x = 4
