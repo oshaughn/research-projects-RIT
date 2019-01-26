@@ -678,7 +678,7 @@ pinned_params.update({
 })
 
 def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
-
+    nEvals=0
     P = P_list[indx_event]
     # Precompute
     t_window = 0.15
@@ -697,7 +697,6 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         rholmArrayDict={}
         rholms_intpArrayDict={}
         epochDict={}
-        nEvals=0
         for det in rholms_intp.keys():
             print " Packing ", det
             lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], cross_terms[det],cross_terms_V[det])
@@ -785,7 +784,6 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         rholmArrayDict={}
         rholms_intpArrayDict={}
         epochDict={}
-        nEvals=0
 
         for det in rholms_intp.keys():
             print " Packing ", det
