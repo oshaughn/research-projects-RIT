@@ -992,7 +992,7 @@ else: # Sum over time for every point in other extrinsic params
             P.psi = xpy_default.asarray(psi, dtype=np.float64)
             P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
 
-            lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoops(tvals,
+            lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
             nEvals +=len(right_ascension)
             return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
