@@ -94,7 +94,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,quiet=False,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None):
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -396,7 +396,10 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                     (float(rho_epoch + N_shift * P.deltaT))
         # The minus N_shift indicates we need to roll left
         # to bring the desired samples to the front of the array
-        rholms_intp[det] =  InterpolateRholms(rholms[det], t,verbose=verbose)
+        if not skip_interpolation:
+          rholms_intp[det] =  InterpolateRholms(rholms[det], t,verbose=verbose)
+        else:
+          rholms_intp[det] = None
 
     if not ROM_use_basis:
             return rholms_intp, crossTerms, crossTermsV,  rholms, None
