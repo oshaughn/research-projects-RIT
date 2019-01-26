@@ -12,6 +12,17 @@ import functools
 from optparse import OptionParser, OptionGroup
 
 import numpy
+import numpy as np
+try:
+  import cupy
+  xpy_default=cupy
+  identity_convert = cupy.asnumpy
+except:
+  print ' no cupy'
+#  import numpy as cupy  # will automatically replace cupy calls with numpy!
+  xpy_default=numpy  # just in case, to make replacement clear and to enable override
+  identity_convert = lambda x: x  # trivial return itself
+
 
 import lal
 from glue.ligolw import utils, lsctables, table, ligolw
