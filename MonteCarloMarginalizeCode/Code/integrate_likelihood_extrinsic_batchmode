@@ -686,7 +686,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
             False, inv_spec_trunc_Q, T_spec,
             NR_group=NR_template_group,NR_param=NR_template_param,
-            use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=not opts.rom_integrate_intrinsic,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory)
+            use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=not opts.rom_integrate_intrinsic,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized)
 
     if opts.vectorized:
         lookupNKDict = {}
@@ -779,7 +779,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         if (not opts.gpu):
           def likelihood_function(right_ascension, declination, phi_orb, inclination,
                 psi, distance):
-            global nEvals
+#            global nEvals
             tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
             # use EXTREMELY many bits
             lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
@@ -793,13 +793,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
             lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
-            nEvals +=len(right_ascension)
+#            nEvals +=len(right_ascension)
             return numpy.exp(lnL-manual_avoid_overflow_logarithm)
         else:
             print " Using CUDA GPU likelihood, if cupy available "
             def likelihood_function(right_ascension, declination, phi_orb, inclination,
                 psi, distance):
-                global nEvals
+#                global nEvals
                 tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
                 P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
                 P.theta = xpy_default.asarray(declination,dtype=np.float64)
@@ -811,7 +811,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
-                nEvals +=len(right_ascension)
+#                nEvals +=len(right_ascension)
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
      else: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
@@ -825,11 +825,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 incl = numpy.arccos(incl)
 
             lnL = numpy.zeros(len(right_ascension),dtype=numpy.float128)
-            i = 0
+#            i = 0
             tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
 
 
-            t_start =lal.GPSTimeNow() 
+#            t_start =lal.GPSTimeNow() 
             for ph, th, phr, ic, ps, di,qi in zip(right_ascension, dec,
                     phi_orb, inclination, psi, distance,q):
                  # Reconstruct U,V using ROM fits.  PROBABLY should do this once for every q, rather than deep on the loop
@@ -851,9 +851,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 if numpy.isnan(lnL[i]) or lnL[i]<-200:
                     lnL[i] = -200   # regularize  : a hack, for now, to deal with rare ROM problems. Only on the ROM logic fork
                 i+=1
-            t_end =lal.GPSTimeNow() 
-            print " Cost per evaluation ", (t_end - t_start)/len(q)
-            print " Max lnL for this iteration ", numpy.max(lnL)
+#            t_end =lal.GPSTimeNow() 
+#            print " Cost per evaluation ", (t_end - t_start)/len(q)
+#            print " Max lnL for this iteration ", numpy.max(lnL)
             return numpy.exp(lnL - manual_avoid_overflow_logarithm)
 
     # Integrate
