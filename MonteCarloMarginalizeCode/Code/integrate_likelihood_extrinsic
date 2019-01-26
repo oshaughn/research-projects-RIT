@@ -20,8 +20,6 @@ try:
 except:
   print ' no cupy'
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
-  optimized_gpu_tools=None
-  Q_inner_product=None
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
 
@@ -993,7 +991,7 @@ else: # Sum over time for every point in other extrinsic params
             P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
 
             lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
             nEvals +=len(right_ascension)
             return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
