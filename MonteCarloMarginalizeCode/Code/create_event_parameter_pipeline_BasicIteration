@@ -69,6 +69,7 @@ parser.add_argument("--cip-args",default=None,help="filename of args_cip.txt fil
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
+parser.add_argument("--ile-n-events-to-analyze",default=1,type=int,help="If >1, you are using ILE_batchmode.  Structures the DAG correctly to account for batch cadence")
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
 parser.add_argument("--test-exe",default=None,help="filename of test code or equivalent executable.  Must have a --test-output <fname> argument.  Used for convergence testing or other termination. NOT ACTIVE; see 'convergence_test_samples.py' for example")
 parser.add_argument("--plot-exe",default=None,help="filename of plot code or equivalent executable.  Will default to `which plot_posterior_corner.py`.  Default is to plot last set of samples")
@@ -118,6 +119,8 @@ ile_args = ile_args.replace(']', ']\'')
 ile_args=ile_args.rstrip()
 if opts.request_gpu_ILE:
     ile_args+=" --vectorized --gpu "  # append this
+if opts.ile_n_events_to_analyze > 1:
+    ile_args+= " --n-events-to-analyze " + str(opts.ile_n_events_to_analyze)
 #ile_args += ' --soft-fail-event-range '  #important in case event is out of range. Simply exit NO ...not backwards compatible
 print "ILE", ile_args
 
@@ -209,6 +212,8 @@ cmdname="%s/command-single.sh" % opts.working_directory
 cmd = open(cmdname, 'w')
 arg_list = ile_args
 exe = dag_utils.which("integrate_likelihood_extrinsic")
+if opts.ile_n_events_to_analyze:
+    exe = dag_utils.which("integrate_likelihood_extrinsic_batchmode")
 cmd.write('#!/usr/bin/env bash\n')
 cmd.write('# (run me only in working directories)\n')
 cmd.write(exe + ' ' + arg_list + " --sim-xml overlap-grid-0.xml.gz")  # make it concrete, so I can test it
@@ -386,11 +391,15 @@ for it in np.arange(it_start,opts.n_iterations):
     n_jobs_this_time = opts.n_samples_per_job
     if it ==it_start:
         n_jobs_this_time = n_initial
-    for event in np.arange(n_jobs_this_time):
+    n_group = opts.ile_n_events_to_analyze
+    indx_max = int((1.0*n_jobs_this_time)/n_group)
+    if indx_max*n_jobs_this_time < n_group:
+        indx_max+=1
+    for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
         # Add task per ILE operation
         ile_node = pipeline.CondorDAGNode(ile_job)
 #        ile_node.set_priority(JOB_PRIORITIES["ILE"])
-        ile_node.add_macro("macroevent", event)
+        ile_node.add_macro("macroevent", event*n_group)
         ile_node.add_macro("macroiteration", it)
         if not(parent_fit_node is None):
             ile_node.add_parent(parent_fit_node)
