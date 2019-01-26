@@ -401,6 +401,9 @@ if sorted(psd_dict.keys()) != sorted(data_dict.keys()):
 # Therefore 1/(data.length*deltaF) = T/Nsamples = deltaT
 P.deltaT = 1./ (data_dict[data_dict.keys()[0]].data.length * deltaF)
 P.deltaF = deltaF
+for Psig in P_list:
+  Psig.deltaT = P.deltaT
+  Psig.deltaf = P.deltaF
 
 
 
