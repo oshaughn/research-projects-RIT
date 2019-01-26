@@ -261,7 +261,10 @@ for indx in np.arange(it_start,opts.n_iterations):
 
 ##   ILE job
 
-ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=opts.ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE)
+ile_exe =opts.ile_exe
+if (opts.ile_n_events_to_analyze > 1) and (exe is None):
+    ile_exe = dag_utils.which("integrate_likelihood_extrinsic_batchmode")
+ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE)
 # Modify: create macro for iteration 
 #   - added on a per-node basis
 # Modify: add macro argument for overlap grid to be used (kept in top-level directory)
