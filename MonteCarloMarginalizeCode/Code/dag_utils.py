@@ -469,7 +469,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     return ile_job, ile_sub_name
 
 
-def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None, **kwargs):
+def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,arg_vals=None, transfer_files=None, **kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -548,6 +548,10 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
 
     ile_job.add_condor_cmd('getenv', 'True')
     ile_job.add_condor_cmd('request_memory', str(request_memory)) 
+    nGPUs =0
+    if request_gpu:
+        nGPUs=1
+    ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
     # To change interactively:
     #   condor_qedit
     # for example: 
