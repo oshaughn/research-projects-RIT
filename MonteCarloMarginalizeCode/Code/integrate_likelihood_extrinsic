@@ -985,7 +985,7 @@ else: # Sum over time for every point in other extrinsic params
             global nEvals
             tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
             P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
-            P.theta = xpy_default.asarray(declination.astype,dtype=np.float64)
+            P.theta = xpy_default.asarray(declination,dtype=np.float64)
             P.tref = float(fiducial_epoch)
             P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
             P.incl = xpy_default.asarray(inclination, dtype=np.float64)
