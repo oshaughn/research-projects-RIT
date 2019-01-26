@@ -776,24 +776,6 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             return numpy.exp(lnL -manual_avoid_overflow_logarithm)
 
      elif opts.vectorized: # use array-based multiplications, fewer for loops
-        lookupNKDict = {}
-        lookupKNDict={}
-        lookupKNconjDict={}
-        ctUArrayDict = {}
-        ctVArrayDict={}
-        rholmArrayDict={}
-        rholms_intpArrayDict={}
-        epochDict={}
-
-        for det in rholms_intp.keys():
-            print " Packing ", det
-            lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], cross_terms[det],cross_terms_V[det])
-            if opts.gpu and (not xpy_default is np):
-                lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
-                rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
-                ctUArrayDict[det] = cupy.asarray(ctUArrayDict[det])
-                ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
-                epochDict[det] = cupy.asarray(epochDict[det])
         if (not opts.gpu):
           def likelihood_function(right_ascension, declination, phi_orb, inclination,
                 psi, distance):
