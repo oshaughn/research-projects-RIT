@@ -1702,7 +1702,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     invDistMpc = distMpcRef/distMpc
 
 
-    deltaT = P_vec.deltaT # this is stored as a scalar
+    deltaT = float(P_vec.deltaT) # this is stored as a scalar
 
 
     # Convert tref to greenwich mean sidereal time
@@ -1759,15 +1759,17 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         t_ref = epochDict[det]
 
         # This is the GPS time at the detector,
+        # Note that to save on precision compared to ...NoLoopOrig, we CHANGE the t_det definition to be relative to the IFO statt time t_ref
+        #    ... this means we don't keep a 1e9 out in front, so we have more significant digits in the event time (and can if needed reduce precision in GPU ops)
         # an array of shape (npts_extrinsic,)
-        t_det = float(tref) + vectorized_lal_tools.TimeDelayFromEarthCenter(
+        t_det = float(tref - float(t_ref)) + vectorized_lal_tools.TimeDelayFromEarthCenter(
             detector_location, RA, DEC,
             float(greenwich_mean_sidereal_time_tref),
             xpy=xpy
         )
         tfirst = t_det + tvals[0]
 
-        ifirst = (xpy.rint((tfirst-t_ref) / deltaT) + 0.5).astype(int)
+        ifirst = (xpy.rint((tfirst) / deltaT) + 0.5).astype(np.int32)  # C uses 32 bit integers : be careful
 #        ilast = ifirst + npts
 
         Q = xpy.ascontiguousarray(rholmsArrayDict[det].T)
