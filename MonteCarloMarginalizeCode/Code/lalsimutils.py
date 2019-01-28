@@ -3448,7 +3448,7 @@ def load_resample_and_clean_psd(psd_fname, det, deltaF,verbose=False):
     if verbose:
         print "Sanity check reporting : pre-extension, min is ", np.min(tmp), " and maximum is ", np.max(tmp)
     fmin = psd_here.f0
-    fmax = fmin + psd_here.deltaF*len(psd_here.data)-deltaF
+    fmax = fmin + psd_here.deltaF*len(psd_here.data.data)-deltaF
     if verbose:
         print "PSD deltaF before interpolation %f" % psd_here.deltaF
     psd_here = resample_psd_series(psd_here, deltaF)
