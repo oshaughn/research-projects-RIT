@@ -3186,7 +3186,7 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
     return tmp
 
 def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
-        verbose=True):
+        verbose=True,deltaT=None):
     """
     Function to read in data in the frame format and convert it to 
     a REAL8TimeSeries. fname is the path to a LIGO cache file.
@@ -3217,6 +3217,11 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
     # Window the data - N.B. default is identity (no windowing)
     hoft_window = lal.CreateTukeyREAL8Window(tmp.data.length, window_shape)
     tmp.data.data *= hoft_window.data.data
+
+    # Resample the timeries as requested
+    if not (fSample is None):
+        tmp2 = lal.ResampleREAL8TimeSeries(tmp,deltaT)
+        tmp=tmp2
 
     return tmp
 
@@ -3261,7 +3266,7 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
 
 
 def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
-        window_shape=0., verbose=True):
+        window_shape=0., verbose=True,deltaT=None):
     """
     Function to read in data in the frame format
     and convert it to a COMPLEX16FrequencySeries 
@@ -3279,7 +3284,7 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
-    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose)
+    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,deltaT=deltaT)
 
     tmplen = ht.data.length
     if TDlen == -1:
