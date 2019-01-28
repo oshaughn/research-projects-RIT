@@ -159,12 +159,6 @@ intrinsic_int_params.add_option("--adapt-intrinsic",action='store_true')
 optp.add_option_group(intrinsic_int_params)
 
 
-deltaT = None
-fSample= opts.srate # change sampling rate
-if not(fSample is None):
-  deltaT =1./fSample
-
-
 #
 # Add the pinnable parameters
 #
@@ -184,6 +178,11 @@ if opts.gpu and xpy_default is numpy:
 
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
+
+deltaT = None
+fSample= opts.srate # change sampling rate
+if not(fSample is None):
+  deltaT =1./fSample
 
 
 # Load in restricted mode set, if available
