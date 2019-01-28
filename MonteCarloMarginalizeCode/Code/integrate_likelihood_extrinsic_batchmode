@@ -98,6 +98,7 @@ optp.add_option("--l-max", type=int, default=2, help="Include all (l,m) modes wi
 optp.add_option("-s", "--data-start-time", type=float, default=None, help="GPS start time of data segment. If given, must also give --data-end-time. If not given, sane start and end time will automatically be chosen.")
 optp.add_option("-e", "--data-end-time", type=float, default=None, help="GPS end time of data segment. If given, must also give --data-start-time. If not given, sane start and end time will automatically be chosen.")
 optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
+optp.add_option("--srate",default=16384,type=int,help="Sampling rate. Change ONLY IF YOU ARE ABSOLUTELY SURE YOU KNOW WHAT YOU ARE DOING.")
 optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
 optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Timescale of inverse spectrum truncation in seconds (Default is 8 - give 0 for no truncation)")
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
@@ -156,6 +157,12 @@ intrinsic_int_params.add_option("--parameter",action='append')
 intrinsic_int_params.add_option("--parameter-range",action='append',type=str)
 intrinsic_int_params.add_option("--adapt-intrinsic",action='store_true')
 optp.add_option_group(intrinsic_int_params)
+
+
+deltaT = None
+fSample= opts.srate # change sampling rate
+if not(fSample is None):
+  deltaT =1./fSample
 
 
 #
@@ -340,7 +347,7 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
     data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
             inst+":"+chan, start=start_time, stop=end_time,
-            window_shape=opts.window_shape)
+            window_shape=opts.window_shape,deltaT=deltaT)
     print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
             data_dict[inst].data.length)
 
