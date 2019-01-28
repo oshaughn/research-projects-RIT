@@ -3220,8 +3220,7 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
 
     # Resample the timeries as requested
     if not (deltaT is None):
-        tmp2 = lal.ResampleREAL8TimeSeries(tmp,deltaT)
-        tmp=tmp2
+        lal.ResampleREAL8TimeSeries(tmp,deltaT)
 
     return tmp
 
