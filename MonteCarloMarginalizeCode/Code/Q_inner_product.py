@@ -19,6 +19,7 @@ def Q_inner_product_cupy(Q, A, start_indices, window_size):
         order="C",
     )
 
+    global _cuda_code
     if _cuda_code is None:
         # it's assumed that cuda_Q_inner_product.cu is placed in the same folder as this code
         path = os.path.join(os.path.dirname(__file__), 'cuda_Q_inner_product.cu')
