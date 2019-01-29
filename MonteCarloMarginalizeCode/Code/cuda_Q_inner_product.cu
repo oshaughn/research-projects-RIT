@@ -1,17 +1,17 @@
-#include <cuComplex.h>
+#include <cupy/complex.cuh>
 
 extern "C" {
 
   __global__ void Q_inner(
-    cuDoubleComplex * Q, cuDoubleComplex * A,
-    int * index_start,
+    const complex<double> * Q, const complex<double> * A,
+    const int * index_start,
     int window_size,
     int num_time_points,
     int num_extrinsic_samples,
     int num_lms,
-    cuDoubleComplex * out
+    complex<double> * out
   ){
-    extern __shared__ cuDoubleComplex A_sample[];
+    extern __shared__ complex<double> A_sample[];
 
     /* Figure out which extrinsic sample number we're on. */
     size_t sample_idx = threadIdx.x + blockDim.x*blockIdx.x;
@@ -34,19 +34,17 @@ extern "C" {
         /* Determine the index we're going to output to. */
         size_t i_output = sample_idx*window_size + i_time;
 
-        /* Ensure the output is initialized to zero. */
-        cuDoubleComplex out_tmp = make_cuDoubleComplex(0.0, 0.0);
+        complex<double> out_tmp = 0.;
 
         /* Take the outer product over the lm axis. */
         for (size_t i_lm = 0; i_lm < num_lms; ++i_lm) {
-          out_tmp = cuCadd(out_tmp, cuCmul(
-            A_sample[threadIdx.x*num_lms + i_lm],
-            Q[(i_first_time+i_time)*num_lms + i_lm]
-                                                       ));
+          out_tmp += 
+            A_sample[threadIdx.x*num_lms + i_lm] *
+            Q[(i_first_time+i_time)*num_lms + i_lm];
         }
 
         out[i_output] = out_tmp;
       }
-    }
-  }
-}
+    } // if
+  } // Q_inner
+} // extern
