@@ -124,6 +124,7 @@ integration_params.add_option("--convergence-tests-on",default=False,action='sto
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
 integration_params.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
 integration_params.add_option("--no-adapt-distance", action="store_true", help="Turn off adaptive sampling, just for distance. Adaptive sampling is on by default.")
+integration_params.add_option("--no-adapt-after-first",action='store_true',help="Disables adaptation after first iteration with significant lnL")
 integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
 integration_params.add_option("--adapt-floor-level", type=float, default=0.1, help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.1 (no floor)")
 integration_params.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
@@ -894,7 +895,16 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     if opts.declination_cosine_sampler:
         sampler._rvs["declination"] = numpy.pi/2 - numpy.arccos(sampler._rvs["declination"].astype(numpy.float64))
 
+    return res
 
 
+lnL_sofar = -np.inf
+no_adapt_sky = False
 for indx in numpy.arange(len(P_list)):
-    analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
+  res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
+  if opts.no_adapt_after_first and (not no_adapt_sky):
+    if lnL_sofar > 20:  # Use absolute threshold.  Expect this will give modest sky localization.
+      # remove right_ascension, declination from adaptive parameters
+      params_adapt = sampler.adaptive
+      params_adapt  = list(set(params_adapt) - set(['right_ascension','declination']))
+      sampler.adaptive = params_adapt
