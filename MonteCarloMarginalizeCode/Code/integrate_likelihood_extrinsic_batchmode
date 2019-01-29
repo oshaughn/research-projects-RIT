@@ -902,6 +902,7 @@ lnL_sofar = -np.inf
 no_adapt_sky = False
 for indx in numpy.arange(len(P_list)):
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
+  lnL_sofar = np.max([lnL_sofar,res])
   if opts.no_adapt_after_first and (not no_adapt_sky):
     if lnL_sofar > 20:  # Use absolute threshold.  Expect this will give modest sky localization.
       # remove right_ascension, declination from adaptive parameters
