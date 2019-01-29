@@ -859,8 +859,8 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
 
     if not (hypercube_rescale):
         # These parameters have been hand-tuned by experience to try to set to levels comparable to typical lnL Monte Carlo error
-        kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
-        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=8)
+        kernel = WhiteKernel(noise_level=np.mean(np.abs(y_errors)),noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
+        gp = GaussianProcessRegressor(kernel=kernel, alpha=np.abs(y_errors)**2,n_restarts_optimizer=8)
 
         gp.fit(x,y)
 
