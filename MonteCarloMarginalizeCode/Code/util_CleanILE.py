@@ -29,7 +29,10 @@ col_intrinsic = 9
 for fname in sys.argv[1:]:
     sys.stderr.write(fname)
     data = np.loadtxt(fname)  # this will FAIL if we have a heterogeneous data source!  BE CAREFUL
+    if len(data.shape) ==1:
+        data = np.array([data]) # force proper treatment for single-line file
     for line in data:
+      try:
         line = np.around(line, decimals=my_digits)
         lambda1=lambda2=0
         if len(line) == 13 and (not tides_on) and (not distance_on):  # strip lines with the wrong length
@@ -50,6 +53,8 @@ for fname in sys.argv[1:]:
         else:
 #            print " new key ", line[1:9]
             data_at_intrinsic[tuple(line[1:col_intrinsic])] = [line[col_intrinsic:]]
+      except:
+          continue
 
 for key in data_at_intrinsic:
     lnL, sigmaOverL, ntot,neff =   np.transpose(data_at_intrinsic[key])
