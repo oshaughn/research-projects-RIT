@@ -13,7 +13,7 @@ try:
 except:
     print " - No healpy - "
 
-from statutils import cumvar
+from statutils import cumvar, welford
 
 from multiprocessing import Pool
 
@@ -538,7 +538,8 @@ class MCSampler(object):
                 maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
             # running variance
-            var = cumvar(int_val, mean, var, int(self.ntotal))[-1]
+#            var = cumvar(int_val, mean, var, int(self.ntotal))[-1]
+            var = welford(int_val, mean, var, int(self.ntotal))
             # running integral
             int_val1 += int_val.sum()
             # running number of evaluations

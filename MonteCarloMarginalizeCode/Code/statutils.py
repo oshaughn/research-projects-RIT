@@ -5,6 +5,29 @@ __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 #
 # Stat utilities
 #
+
+def welford(x_array, mean=None,var=None,n=0):
+    """
+    https://www.embeddedrelated.com/showarticle/785.php
+    see also https://brenocon.com/blog/2008/11/calculating-running-variance-in-python-and-c/
+
+    No reallocations, unlike 'cumvar' below!
+    """
+    k = 0 
+    M = 0
+    S = 0
+    if mean and var:
+            k+=1+n
+            M=mean
+            S=var*(n-1)
+    for x in x_array:
+        k += 1
+        Mnext = M + (x - M) / k
+        S = S + (x - M)*(x - Mnext)
+        M = Mnext
+#    return (M, S/(k-1))
+    return S/(k-1)
+
 def cumvar(arr, mean=None, var=None, n=0):
 	"""
 	Numerically stable running sample variance measure. If mean and var are supplied, they will be used as the history values. See 
