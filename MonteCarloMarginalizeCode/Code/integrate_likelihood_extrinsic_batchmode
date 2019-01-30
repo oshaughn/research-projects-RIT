@@ -875,6 +875,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # Report results
     if opts.output_file:
         fname_output_txt = opts.output_file +"_"+str(indx_event)+"_" + ".dat"
+        m1 =P.m1/lal.MSUN_SI
+        m2 =P.m2/lal.MSUN_SI
         if opts.sim_xml: 
             event_id = opts.event
         else:
@@ -887,12 +889,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # Alternative output format if lambda is active
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
 
-
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
-    if opts.inclination_cosine_sampler:
+    if opts.save_samples:
+      if opts.inclination_cosine_sampler:
         sampler._rvs["inclination"] = numpy.arccos(sampler._rvs["inclination"].astype(numpy.float64))
-    if opts.declination_cosine_sampler:
+      if opts.declination_cosine_sampler:
         sampler._rvs["declination"] = numpy.pi/2 - numpy.arccos(sampler._rvs["declination"].astype(numpy.float64))
 
     return res
