@@ -412,6 +412,10 @@ if opts.posterior_file:
         P.s2x = samples["a2x"][indx]
         P.s2y = samples["a2y"][indx]
         P.s2z = samples["a2z"][indx]
+        if "lnL" in samples.keys():
+            P.lnL = samples["lnL"][indx]   # creates a new field !
+        else:
+            P.lnL = -1
         # Populate other parameters as needed ...
         P_list.append(P)
     posteriorP_list.append(P_list)
