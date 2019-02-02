@@ -2557,7 +2557,7 @@ def hlmoft_FromFD_dict(P,Lmax=2):
             extra_params, P.approx)
 
 
-    return hlm_struct
+    return hlms
 
 def hlmoft_SEOBv3_dict(P,Lmax=2):
     """
