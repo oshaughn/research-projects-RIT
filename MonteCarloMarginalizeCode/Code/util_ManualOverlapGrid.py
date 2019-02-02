@@ -177,6 +177,7 @@ parser = argparse.ArgumentParser()
 # Parameters
 parser.add_argument("--parameter", action='append')
 parser.add_argument("--parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used")
+parser.add_argument("--amplitude-order",default=-1,type=int,help="Set ampO for grid. Used in PN")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--parameter-value-list", action='append', type=str,help="Add an explicit list of parameter choices to use. ONLY those values will be used. Intended for NR simulations (e.g., q, a1, a2)")
@@ -426,7 +427,7 @@ else:
             Psig.lambda2 = lambda2
 
     P.fmin=opts.fmin   # Just for comparison!  Obviously only good for iLIGO
-    P.ampO=-1  # include 'full physics'
+    P.ampO=opts.amplitude_order  # include 'full physics'
     if opts.approx:
         P.approx = lalsim.GetApproximantFromString(opts.approx)
         if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
@@ -554,6 +555,8 @@ else:
             # Use range so limited to smaller body > 1 Msun: HARDCODED
             eta_min = lalsimutils.eta_crit(mcval, 1)
             param_ranges.append( [eta_min, 0.25])
+        elif param == 'delta_mc':
+            param_ranges.append( [0, 1])
         # FIXME: Implement more parameter ranges, using a lookup-based method
         elif param == 'LambdaTilde':
             #val_center = P.extract_param(param)
