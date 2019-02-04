@@ -426,7 +426,7 @@ for it in np.arange(it_start,opts.n_iterations):
     # Create convert node, which depends on fit node, *if* tests are being performed
     if opts.test_args:
         convert_node=pipeline.CondorDAGNode(convert_job)
-        convert_node.add_macro("macroiteration", it)
+        convert_node.add_macro("macroiteration", it+1)  # convert the NEWLY-PRODUCED iteration
         convert_node.add_parent(parent_fit_node)
         convert_node.set_category("CONVERT")
         dag.add_node(convert_node)
@@ -438,8 +438,8 @@ for it in np.arange(it_start,opts.n_iterations):
     if opts.test_args and it>0:
         # Cannot run test on first iteration
         test_node = pipeline.CondorDAGNode(test_job)
-        test_node.add_macro("macroiteration", it)
-        test_node.add_macro("macroiterationlast", it-1)
+        test_node.add_macro("macroiteration", it+1)   # test the NEWLY-PRODUCED iteration against the old
+        test_node.add_macro("macroiterationlast", it)
         test_node.add_parent(parent_fit_node)
         test_node.set_category("CONVERGE")
         dag.add_node(test_node)
