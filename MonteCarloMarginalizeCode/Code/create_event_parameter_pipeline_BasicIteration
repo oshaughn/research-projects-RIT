@@ -65,7 +65,8 @@ from dag_utils import which
 parser = argparse.ArgumentParser()
 parser.add_argument("--working-directory",default="./")
 parser.add_argument("--input-grid",default="overlap-grid.xml.gz")
-parser.add_argument("--cip-args",default=None,help="filename of args_cip.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
+parser.add_argument("--cip-args",default=None,help="filename of args_cip.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified. ")
+parser.add_argument("--cip-args-list",default=None,help="filename of args_cip_list.file, which holds CIP arguments.  Overrides cip-args if present. One CIP_n.sub file is created for each line in the file, which is used for an integer m iterations, where m is the first item of each line (normally 'X' in CIP)")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
@@ -92,21 +93,36 @@ parser.add_argument("--workflow",default='single',help="[single|fit+posterior|fu
 parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior jobs. Used in posterior and fit+posterior workflows")
 opts=  parser.parse_args()
 
-if opts.cip_args is None:
+if (opts.cip_args is None) and (opts.cip_args_list is None):
     print " No arguments provided for low-level job"
     sys.exit(0)
 
 # Load args.txt. Remove first item.  Store
-with open(opts.cip_args) as f:
-    cip_args_list = f.readlines()
-cip_args = ' '.join( map( lambda x: x.replace('\\',''),cip_args_list) )
-cip_args = ' '.join(cip_args.split(' ')[1:])
-# Some argument protection for later
-cip_args = cip_args.replace('[', ' \'[')
-cip_args = cip_args.replace(']', ']\'')
-cip_args=cip_args.rstrip()
-cip_args += ' --no-plots '  
-print "CIP", cip_args
+if not (opts.cip_args is None):
+    with open(opts.cip_args) as f:
+        cip_args_list = f.readlines()
+    cip_args = ' '.join( map( lambda x: x.replace('\\',''),cip_args_list) )
+    cip_args = ' '.join(cip_args.split(' ')[1:])
+    # Some argument protection for later
+    cip_args = cip_args.replace('[', ' \'[')
+    cip_args = cip_args.replace(']', ']\'')
+    cip_args=cip_args.rstrip()
+    cip_args += ' --no-plots '  
+    print "CIP", cip_args
+
+cip_args_lines = None
+if not (opts.cip_args_list is None):
+    with open(opts.cip_args_list) as f:
+        cip_args_lines = f.readlines()
+    cip_args_n = map(lambda x: int(x.split(' ')[0]), cip_args_lines)  # Pull off the integer
+    cip_args_lines = map(lambda x: ' '.join(x.split(' ')[1:]), cip_args_lines)
+    cip_args_lines = map( lambda x : x.replace('[', ' \'[').replace(']', ']\'').rstrip(), cip_args_lines)
+    for line in cip_args_lines:
+        print " CIP ", line
+
+    if np.sum(cip_args_n) < opts.n_iterations:
+        print " Not enough CIP versions to complete all requested iterations; extending "
+        cip_args_n[-1]  = opts.n_iterations - np.sum(cip_args_n)
 
 # Load args.txt. Remove first item.  Store
 with open(opts.ile_args) as f:
@@ -197,6 +213,8 @@ if not (opts.transfer_file_list is None):
 ###
 ### Fiducial fit job (=sanity check that code will run)
 ###
+if (opts.cip_args is None):
+    cip_args = cip_args_lines[0]
 cmdname="%s/command-single_fit.sh" % opts.working_directory
 cmd = open(cmdname, 'w')
 arg_list = cip_args
@@ -300,7 +318,7 @@ unify_job.write_sub_file()
 
 
 
-##   Fit job
+##   Fit job: default case
 cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.cip_exe)
 # Modify: set 'initialdir'
 cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
@@ -310,7 +328,26 @@ cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip
 cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
 cip_job.write_sub_file()
 
+cip_job_list = None
+if  (cip_args_lines is None):
+    # Write the default cip_job into cip_job_list n times
+    cip_job_list =opts.n_iterations* [cip_job ]
+else:  
+    # we have different cip jobs for different iteration numbers
+    cip_job_list = []
+    for indx in np.arange(len(cip_args_lines)):
+       # Write the appropriate CIP jobs. [note only one CIP per iteration, so unique
+       cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP_'+str(indx),log_dir=None,arg_str=cip_args_lines[indx],request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.cip_exe)
+        # Modify: set 'initialdir'
+       cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
+        # Modify output argument: change logs and working directory to be subdirectory for the run
+       cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
+       cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
+       cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
+       cip_job.write_sub_file()
 
+       # augment the CIP job list
+       cip_job_list = cip_job_list + cip_args_n[indx]*[cip_job]
 
 ##   Test job (terminate, convergence
 if opts.test_args:
@@ -414,6 +451,7 @@ for it in np.arange(it_start,opts.n_iterations):
     dag.add_node(unify_node)
 
     # Create fit node, which depends on consolidate node
+    cip_job = cip_job_list[it]
     fit_node = pipeline.CondorDAGNode(cip_job)
     fit_node.add_macro("macroiteration", it)
     fit_node.add_macro("macroiterationnext", it+1)
