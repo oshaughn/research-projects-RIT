@@ -67,6 +67,9 @@ parser.add_argument("--working-directory",default="./")
 parser.add_argument("--input-grid",default="overlap-grid.xml.gz")
 parser.add_argument("--cip-args",default=None,help="filename of args_cip.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified. ")
 parser.add_argument("--cip-args-list",default=None,help="filename of args_cip_list.file, which holds CIP arguments.  Overrides cip-args if present. One CIP_n.sub file is created for each line in the file, which is used for an integer m iterations, where m is the first item of each line (normally 'X' in CIP)")
+parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball")
+parser.add_argument("--puff-args",default=None,help="util_ParameterPuffball arguments.  If not specified, puffball will not be performed  ")
+parser.add_argument("--puff-cadence",default=None,type=int,help="Every n iterations (not including 0), the puffball code will be applied.  Puffball points will be done *in addition* to the usual results from the DAG.  (The puffball is based on perturbing points from that iteration, and this will roughly double that iteration in ILE job size).  Proposed value 2 (i.e., puff overlap-grid-2, ...-4, ...-6.  If not specified, puffball will not be performed ")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
@@ -139,6 +142,23 @@ if opts.ile_n_events_to_analyze > 1:
     ile_args+= " --n-events-to-analyze " + str(opts.ile_n_events_to_analyze)
 #ile_args += ' --soft-fail-event-range '  #important in case event is out of range. Simply exit NO ...not backwards compatible
 print "ILE", ile_args
+
+puff_args=None
+puff_cadence = None
+if opts.puff_args and opts.puff_cadence:
+    puff_cadence = opts.puff_cadence
+    # Load args.txt. Remove first item.  Store
+    with open(opts.puff_args) as f:
+        puff_args_list = f.readlines()
+    puff_args = ' '.join( map( lambda x: x.replace('\\',''),puff_args_list) )
+    puff_args = ' '.join(puff_args.split(' ')[1:])
+# Some argument protection for later
+    puff_args = puff_args.replace('[', ' \'[')
+    puff_args = puff_args.replace(']', ']\'')
+    puff_args=puff_args.rstrip()
+    print "PUFF", puff_args
+    print "PUFF CADENCE", puff_cadence
+
 
 test_args=None
 if opts.test_args:
@@ -242,7 +262,9 @@ os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 # Add argument to ile_args.txt to 
 #    identify overlap grid input
 #    identify output file names (?)
+ile_args_orig = ile_args  # provides ability to strip out the output and replace it with alternate
 ile_args+= ' --sim-xml ' + opts.working_directory + '/overlap-grid-$(macroiteration).xml.gz '
+ile_args_forpuff= ile_args_orig + ' --sim-xml ' + opts.working_directory + '/puffball-$(macroiteration).xml.gz '
 
 
 ###
@@ -295,6 +317,17 @@ ile_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile
 ile_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macromass)-$(cluster)-$(process).out")
 ile_job.write_sub_file()
 
+if not (opts.puff_args is None):
+    # Write a version of the ILE job that uses puffball inputs ... IDENTICAL to code above for standard ILE case,just different argument for input
+    # Yes, it would logically be simpler to make overlap-grid.xml.gz larger ... but I want to keep 'real samples' and 'puffed samples' seperate.
+    ilePuff_job, ilePuff_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_puff',log_dir=None,arg_str=ile_args_forpuff,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE)
+    ilePuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
+    ilePuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macromass)-$(cluster)-$(process).log")
+    ilePuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macromass)-$(cluster)-$(process).err")
+    ilePuff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macromass)-$(cluster)-$(process).out")
+    ilePuff_job.write_sub_file()
+
+
 ##   Consolidate job(s)
 #   - consolidate output of single previous job
 con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str='',base=opts.working_directory+"/iteration_$(macroiteration)_ile", target=opts.working_directory+'/consolidated_$(macroiteration)')
@@ -327,6 +360,19 @@ cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/lo
 cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
 cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
 cip_job.write_sub_file()
+
+
+##   puffball job: default case
+puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext)',output='puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe)
+# Modify: set 'initialdir' to CIP WORKING DIR 
+puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
+# Modify output argument: change logs and working directory to be subdirectory for the run
+puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
+puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
+puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
+puff_job.write_sub_file()
+
+
 
 cip_job_list = None
 if  (cip_args_lines is None):
@@ -446,6 +492,17 @@ for it in np.arange(it_start,opts.n_iterations):
         con_node.add_parent(ile_node) # consolidate depends on all of the individual jobs
         dag.add_node(ile_node)
 
+    if it>1 and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
+        print " ILE jobs for puffball on iteration ", it
+        for event in np.arange(indx_max):
+            ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
+            ile_node.add_macro("macroevent", event*n_group)
+            ile_node.add_macro("macroiteration", it)
+            if not(parent_fit_node is None):
+                ile_node.add_parent(parent_fit_node)
+            con_node.add_parent(ile_node) # consolidate depends on all of the individual jobs
+            dag.add_node(ile_node)
+
     # add con job
     dag.add_node(con_node)
     dag.add_node(unify_node)
@@ -460,6 +517,20 @@ for it in np.arange(it_start,opts.n_iterations):
     dag.add_node(fit_node) 
 
     parent_fit_node = fit_node
+
+    # Check if puffball being created, and if so create it *immediately* after CIP job creates the overlap-grid file
+    if it > 0 and it%puff_cadence ==0:
+        print " Puffball for iteration ", it
+        puff_node = pipeline.CondorDAGNode(puff_job)
+        puff_node.add_macro("macroiteration", it)
+        puff_node.add_macro("macroiterationnext", it+1)
+        puff_node.set_category("PUFF")
+        puff_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
+        dag.add_node(puff_node) 
+        
+        parent_fit_node = puff_node
+
+        
 
     # Create convert node, which depends on fit node, *if* tests are being performed
     if opts.test_args:
