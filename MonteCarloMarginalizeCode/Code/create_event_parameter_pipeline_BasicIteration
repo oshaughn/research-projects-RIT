@@ -363,14 +363,15 @@ cip_job.write_sub_file()
 
 
 ##   puffball job: default case
-puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext)',output='puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe)
-# Modify: set 'initialdir' to CIP WORKING DIR 
-puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
-# Modify output argument: change logs and working directory to be subdirectory for the run
-puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
-puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
-puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
-puff_job.write_sub_file()
+if puff_args and puff_cadence:
+    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext)',output='puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe)
+    # Modify: set 'initialdir' to CIP WORKING DIR 
+    puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
+    # Modify output argument: change logs and working directory to be subdirectory for the run
+    puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
+    puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
+    puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
+    puff_job.write_sub_file()
 
 
 
@@ -492,7 +493,8 @@ for it in np.arange(it_start,opts.n_iterations):
         con_node.add_parent(ile_node) # consolidate depends on all of the individual jobs
         dag.add_node(ile_node)
 
-    if it>1 and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
+    if puff_args and puff_cadence:
+     if it>1 and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
         print " ILE jobs for puffball on iteration ", it
         for event in np.arange(indx_max):
             ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
@@ -519,7 +521,8 @@ for it in np.arange(it_start,opts.n_iterations):
     parent_fit_node = fit_node
 
     # Check if puffball being created, and if so create it *immediately* after CIP job creates the overlap-grid file
-    if it > 0 and it%puff_cadence ==0:
+    if puff_args and puff_cadence:
+      if it > 0 and it%puff_cadence ==0:
         print " Puffball for iteration ", it
         puff_node = pipeline.CondorDAGNode(puff_job)
         puff_node.add_macro("macroiteration", it)
