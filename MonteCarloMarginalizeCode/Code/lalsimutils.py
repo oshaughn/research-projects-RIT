@@ -2582,7 +2582,7 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
     PrecEOBversion=300 # use opt
     hplus, hcross, dynHi, hlmPTS, hlmPTSHi, hIMRlmJTSHi, hLM, attachP = lalsim.SimIMRSpinEOBWaveformAll(0, P.deltaT, \
                                             P.m1, P.m1, P.fmin, P.dist, 0, \
-                                            P.s1x, P.s1y, P.s1z, P.spin2x, P.spin2y, P.spin2z, PrecEOBversion)
+                                            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, PrecEOBversion)
     hlm_dict = SphHarmTimeSeries_to_dict(hLM,2)
     # for j in range(5):
     #     m = hLM.m
