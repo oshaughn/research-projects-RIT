@@ -469,6 +469,70 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     return ile_job, ile_sub_name
 
 
+def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, **kwargs):
+    """
+    Perform puffball calculation 
+    Inputs:
+    Outputs:
+        - An instance of the CondorDAGJob that was generated for ILE
+    """
+
+    exe = exe or which("util_ParameterPuffball.py")
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+ 
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    #
+    # Add options en mass, by brute force
+    #
+    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+
+    ile_job.add_opt("inj-file", input_net)
+    ile_job.add_opt("inj-fie-out", output)
+
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(macroevent)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    #
+    # Add normal arguments
+    # FIXME: Get valid options from a module
+    #
+    for opt, param in kwargs.iteritems():
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
+    # To change interactively:
+    #   condor_qedit
+    # for example: 
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        
+    
+    return ile_job, ile_sub_name
+
+
 def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,arg_vals=None, transfer_files=None, **kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
