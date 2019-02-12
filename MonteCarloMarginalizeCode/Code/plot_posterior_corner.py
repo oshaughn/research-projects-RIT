@@ -300,6 +300,8 @@ param_list = opts.parameter
 color_list=['black', 'red', 'green', 'blue','yellow']
 if opts.posterior_color:
     color_list  =opts.posterior_color + color_list
+else:
+    color_list += len(opts.posterior_file)*['black']
 linestyle_list = ['-' for k in color_list]
 if opts.posterior_linestyle:
     linestyle_list = opts.posterior_linestyle + linestyle_list
