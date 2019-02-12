@@ -347,6 +347,7 @@ if opts.posterior_file:
         samples = add_field(samples, [('chi1', float)]); samples['chi1'] = chi1_here
         samples = add_field(samples, [('theta1', float)]); samples['theta1'] = theta1_here
         samples = add_field(samples, [('phi1', float)]); samples['phi1'] = phi1_here
+        samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
         
     elif "theta1" in samples.dtype.names:
         a1x_dat = samples["a1"]*np.sin(samples["theta1"])*np.cos(samples["phi1"])
