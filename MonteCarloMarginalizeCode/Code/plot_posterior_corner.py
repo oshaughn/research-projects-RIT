@@ -347,7 +347,12 @@ if opts.posterior_file:
         samples = add_field(samples, [('chi1', float)]); samples['chi1'] = chi1_here
         samples = add_field(samples, [('theta1', float)]); samples['theta1'] = theta1_here
         samples = add_field(samples, [('phi1', float)]); samples['phi1'] = phi1_here
-        samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] =chiperp_here
+        
+        # we almost certainly use standard
+        chi1_perp = np.sqrt(samples['a1x']**2 + samples['a1y']**2)
+        chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
+        samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
+        samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
         
     elif "theta1" in samples.dtype.names:
         a1x_dat = samples["a1"]*np.sin(samples["theta1"])*np.cos(samples["phi1"])
