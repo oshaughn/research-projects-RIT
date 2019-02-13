@@ -746,6 +746,7 @@ TestDictionary["lnLDataAtKnownPlusOptimalTimePhase"] = False
 TestDictionary["lnLAtKnown"]           = True
 TestDictionary["lnLAtKnownMarginalizeTime"]  = False  # cluster python has problems with integrate.quad
 TestDictionary["lnLDataPlot"]            = opts.plot_ShowLikelihoodVersusTime
+TestDictionary["lnLDataPlotAlt"]            = False
 TestDictionary["lnLDataPlotVersusPsi"]            = False # opts.plot_ShowLikelihoodVersusTime
 TestDictionary["lnLDataPlotVersusPhi"]            = False # opts.plot_ShowLikelihoodVersusTime
 TestDictionary["lnLDataPlotVersusPhiPsi"]            = False # opts.plot_ShowLikelihoodVersusTime
@@ -829,10 +830,10 @@ if  opts.LikelihoodType_raw:
         nEvals+=i 
         return np.exp(lnLOffsetValue)*np.exp(lnL - lnLOffsetValue)
 elif opts.LikelihoodType_MargTdisc_array_vector:
-    print " Vectorized array"
+    print " Vectorized array multiplications"
     # Pack operation does it for each detector, so I need a loop
     for det in rholms_intp.keys():
-        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det])
+        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det], crossTermsV[det])
         print det, lookupKNDict[det]
 
     def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
@@ -870,6 +871,38 @@ elif opts.LikelihoodType_MargTdisc_array_vector:
         nEvals +=i # len(tvals)  # go forward using length of tvals
         return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
 elif opts.LikelihoodType_vectorized:
+    print " Vectorized array multiplications"
+    # Pack operation does it for each detector, so I need a loop
+    for det in rholms_intp.keys():
+        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det], crossTermsV[det])
+        print det, lookupKNDict[det]
+
+    def likelihood_function(right_ascension, declination,t_ref, phi_orb, inclination,
+            psi, distance):
+        global nEvals
+        global lnLOffsetValue
+        # use EXTREMELY many bits
+        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
+        i = 0
+#        if opts.rotate_sky_coordinates:
+#            print "   -Sky ring width ", np.std(declination), " note contribution from floor is of order p_floor*(pi)/sqrt(12) ~ 0.9 pfloor"
+#            print "   -RA width", np.std(right_ascension)
+#            print "   -Distance width", np.std(distance)
+
+        tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],int((tWindowExplore[1]-tWindowExplore[0])/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+        P.phi = np.asarray(right_ascension,dtype=float) # right ascension
+        P.theta = np.asarray(declination,dtype=float) # declination
+        P.tref = float(theEpochFiducial)  # see 'tvals', above
+        P.phiref = np.asarray(phi_orb, dtype=float) # ref. orbital phase
+        P.incl = np.asarray(inclination,dtype=float) # inclination
+        P.psi = np.asarray(psi, dtype=float) # polarization angle
+        P.dist = np.asarray(distance,dtype=float)* 1.e6 * lalsimutils.lsu_PC # luminosity distance
+
+        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=Lmax)
+        nEvals +=len(right_ascension) # len(tvals)  # go forward using length of tvals
+        return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
+elif opts.LikelihoodType_vectorized_noloops:
     print " Using CUDA"
     # Pack operation does it for each detector, so I need a loop
     for det in rholms_intp.keys():
@@ -880,7 +913,7 @@ elif opts.LikelihoodType_vectorized:
             epochDict[det],
         ) = factored_likelihood.PackLikelihoodDataStructuresAsArrays(
             rholms[det].keys(), rholms_intp[det], rholms[det],
-            crossTerms[det],
+            crossTerms[det], crossTermsV[det]
         )
 
         lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
@@ -911,7 +944,7 @@ elif opts.LikelihoodType_vectorized:
             dtype=np.float64,
         )#.astype(float) # luminosity distance
 
-        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(
+        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoops(
             tvals,
             P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,
             epochDict, Lmax=Lmax,

@@ -36,7 +36,13 @@ except:
   import numpy as cupy
   optimized_gpu_tools=None
   Q_inner_product=None
-  xpy_default=numpy
+  xpy_default=np
+
+# Old code
+#from SphericalHarmonics_gpu_orig import SphericalHarmonicsVectorized_orig as SphericalHarmonicsVectorized
+# New code
+from SphericalHarmonics_gpu import SphericalHarmonicsVectorized
+
 
 from scipy import interpolate, integrate
 from scipy import special
@@ -94,7 +100,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,quiet=False,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None):
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -396,7 +402,10 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                     (float(rho_epoch + N_shift * P.deltaT))
         # The minus N_shift indicates we need to roll left
         # to bring the desired samples to the front of the array
-        rholms_intp[det] =  InterpolateRholms(rholms[det], t,verbose=verbose)
+        if not skip_interpolation:
+          rholms_intp[det] =  InterpolateRholms(rholms[det], t,verbose=verbose)
+        else:
+          rholms_intp[det] = None
 
     if not ROM_use_basis:
             return rholms_intp, crossTerms, crossTermsV,  rholms, None
@@ -1460,18 +1469,15 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
             term1 = np.dot(np.conj(F*Ylms),det_rholms)   # be very careful re how this multiplication is done: suitable to use this form of multiply
             term1 = np.real(term1) / (distMpc/distMpcRef)
 
+            lnL+= term1+term2
 
     if  array_output:  # return the raw array
-        return term1+term2
+        return lnL
     else:  # return the marginalized lnL in time
-        lnLArray = np.zeros(npts,dtype=np.complex128)   # avoid nan's
-        lnLArray = term1+term2
-#        lnLmargT = np.log(deltaT*np.sum(np.exp(lnLArray))/Twindow)
-        lnLmax = np.max(lnLArray)
-        lnLmargT = np.log(integrate.simps(np.exp(lnLArray-lnLmax), dx=deltaT)) + lnLmax
+        lnLmax = np.max(lnL)
+        lnLmargT = np.log(integrate.simps(np.exp(lnL-lnLmax), dx=deltaT)) + lnLmax
         return lnLmargT
 
-@profile
 def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=xpy_default):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
@@ -1490,9 +1496,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     # All arrays of length `npts_extrinsic`, except for `tref` which is a scalar
     RA = P_vec.phi
     DEC = P_vec.theta
-
-    # geocenter time, stored as a scalar
-    tref = P_vec.tref
+    tref = P_vec.tref  # geocenter time, stored as a scalar
     phiref = P_vec.phiref
     incl = P_vec.incl
     psi = P_vec.psi
@@ -1561,8 +1565,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
 
     return lnLmargOut
 
-
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopOrig(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time. 
@@ -1579,6 +1582,123 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
     # All arrays of length `npts_extrinsic`, except for `tref` which is a scalar
     RA = P_vec.phi
+    DEC =  P_vec.theta
+    tref = P_vec.tref # geocenter time, stored as a scalar
+    phiref = P_vec.phiref
+    incl = P_vec.incl
+    psi = P_vec.psi
+    dist = P_vec.dist
+    distMpc = dist/(lal.PC_SI*1e6)
+    invDistMpc = distMpcRef/distMpc
+
+
+    deltaT = P_vec.deltaT # this is stored as a scalar
+
+    # Array to use for work
+    lnL = np.zeros(npts,dtype=np.float64)
+    lnL_t_accum = np.zeros((npts_extrinsic,npts),dtype=np.float64)
+
+    for det in detectors:  # strings right now - need to change to make ufunc-able
+        # These do not depend on extrinsic params.
+        # Arrays of shape (n_lms, n_lms).
+        # Axis 0 corresponds to (l,m), and axis 1 corresponds to (l',m').
+        U = ctUArrayDict[det]
+        V = ctVArrayDict[det]
+
+        n_lms = len(U)
+
+        # These do depend on extrinsic params
+        # Array of shape (npts_extrinsic, n_lms,)
+        Ylms_vec = ComputeYlmsArrayVector(lookupNKDict[det], incl, -phiref).T
+        # Array of shape (npts_extrinsic,)
+        F_vec = lalF(det, RA, DEC, psi, tref)
+        # Array of shape (npts_extrinsic,)
+        invDistMpc = distMpcRef/distMpc
+
+        # Scalar -- is constant for each IFO
+        t_ref = epochDict[det]
+
+        # This is the GPS time at the detector, an array of shape (npts_extrinsic,)
+        t_det = lalT(det, RA, DEC, tref)
+
+        tfirst = t_det + tvals[0]
+
+        ifirst = (np.round((tfirst-t_ref) / P_vec.deltaT) + 0.5).astype(int)
+        ilast = ifirst + npts
+
+        # Note: Very inefficient, need to avoid making `Qlms` by doing the
+        # inner product in a CUDA kernel.
+        det_rholms = rholmsArrayDict[det]
+        Qlms = np.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
+        for i in range(npts_extrinsic):
+            Qlms[i] = det_rholms[..., ifirst[i]:ilast[i]].T
+
+        # Has shape (npts_extrinsic,)
+        term2 = ( (F_vec*np.conj(F_vec)).real *np.einsum(
+                "...i,...j,ij",
+                np.conj(Ylms_vec), Ylms_vec, U,
+            ).real )
+        term2 += (np.square(F_vec) *
+            np.einsum(
+                "...i,...j,ij",
+                Ylms_vec, Ylms_vec, V,
+            )
+        ).real
+        term2 *= -0.25 * np.square(distMpcRef / distMpc)
+
+       # Has shape (npts_extrinsic, npts).
+        # Starts as term1, and accumulates term2 after.
+
+        # View into F with shape (npts_extrinsic, n_lms)
+        F_vec_dummy_lm = F_vec[..., np.newaxis]
+        # View into F * Ylm with shape (npts_extrinsic, npts, n_lms)
+        FY_dummy_t = np.broadcast_to(
+            (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
+            Qlms.shape,
+        )
+
+        lnL_t_accum += np.einsum(
+            "...i,...i",
+            np.conj(FY_dummy_t), Qlms,
+        ).real * (distMpcRef/distMpc)[...,None]
+
+        # Accumulate term2 into the time-dependent log likelihood.
+        # Have to create a view with an extra axis so they broadcast.
+        lnL_t_accum += term2[..., np.newaxis]
+
+    # Take exponential of the log likelihood in-place.
+    lnLmax  = np.max(lnL_t_accum)
+    L_t = np.exp(lnL_t_accum - lnLmax, out=lnL_t_accum)
+        
+    # Integrate out the time dimension.  We now have an array of shape
+    # (npts_extrinsic,)
+    L = integrate.simps(L_t, dx=deltaT, axis=-1)
+    # Compute log likelihood in-place.
+    lnL = lnLmax+ np.log(L, out=L)
+
+
+    return lnL
+
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np):
+    """
+    DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
+    either as an array vs time *or* marginalized in time. 
+    This generally is marginally faster, particularly if Lmax is large.
+    The timeseries quantities are computed via discrete shifts of an existing grid
+    Note 'P' must have the *sampling rate* set to correctly interpret the event time.
+     Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have 'Vector' postfix
+    """
+    global distMpcRef
+
+    detectors = rholmsArrayDict.keys()
+    npts = len(tvals)
+    npts_extrinsic = len(P_vec.phi)
+    # npts_full = len(rholmsArrayDict[detectors[0]][0]) # all have same size
+    # print " npts :", npts
+    # print " npts_full:", npts_full
+
+    # All arrays of length `npts_extrinsic`, except for `tref` which is a scalar
+    RA = P_vec.phi
     DEC = P_vec.theta
 
     # geocenter time, stored as a scalar
@@ -1591,7 +1711,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     invDistMpc = distMpcRef/distMpc
 
 
-    deltaT = P_vec.deltaT # this is stored as a scalar
+    deltaT = float(P_vec.deltaT) # this is stored as a scalar
 
 
     # Convert tref to greenwich mean sidereal time
@@ -1607,7 +1727,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
     if xpy is np:
         simps = integrate.simps
-    elif xpy is cupy:
+    elif not (xpy is np):
         simps = optimized_gpu_tools.simps
     else:
         raise NotImplementedError("Backend not supported: {}".format(xpy))
@@ -1633,6 +1753,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         Ylms_vec = SphericalHarmonicsVectorized(
             lms, incl, -phiref,
             xpy=xpy,
+            l_max=Lmax,
         )
 
         # Array of shape (npts_extrinsic,)
@@ -1648,15 +1769,17 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         t_ref = epochDict[det]
 
         # This is the GPS time at the detector,
+        # Note that to save on precision compared to ...NoLoopOrig, we CHANGE the t_det definition to be relative to the IFO statt time t_ref
+        #    ... this means we don't keep a 1e9 out in front, so we have more significant digits in the event time (and can if needed reduce precision in GPU ops)
         # an array of shape (npts_extrinsic,)
-        t_det = float(tref) + vectorized_lal_tools.TimeDelayFromEarthCenter(
+        t_det = float(tref - float(t_ref)) + vectorized_lal_tools.TimeDelayFromEarthCenter(
             detector_location, RA, DEC,
             float(greenwich_mean_sidereal_time_tref),
             xpy=xpy
         )
         tfirst = t_det + tvals[0]
 
-        ifirst = (xpy.rint((tfirst-t_ref) / deltaT) + 0.5).astype(int)
+        ifirst = (xpy.rint((tfirst) / deltaT) + 0.5).astype(np.int32)  # C uses 32 bit integers : be careful
 #        ilast = ifirst + npts
 
         Q = xpy.ascontiguousarray(rholmsArrayDict[det].T)
@@ -1701,19 +1824,21 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         #     xpy.conj(FY_dummy_t), Qlms,
         # ).real * (distMpcRef/distMpc)[...,None]
 
-        FY_conj = xpy.conj(F_vec_dummy_lm * Ylms_vec)
 
-        Q_prod_result = None
-        if xpy is cupy:
+        if not (xpy is np):
+          FY_conj = xpy.conj(F_vec_dummy_lm * Ylms_vec)
+          # Shape Q = (npts_time_full, nlms)
+          # Shape A=FY_conj = (npts_extrinsic, nlms)
+          # shape result = (npts_extrinsic, npts_time_*window* = npts)
           Q_prod_result = Q_inner_product.Q_inner_product_cupy(
             Q, FY_conj,
             ifirst, npts,
             ).real
         else:
-          # Use old code completely unchanged ... very wasteful.
-          Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=complex)
+          # Use old code completely unchanged ... very wasteful on memory management!
+          Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
           for i in range(npts_extrinsic):
-              Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:ifirst[i]+npts].T
+              Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:(ifirst[i]+npts)].T
 
           FY_dummy_t = np.broadcast_to(
             (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
@@ -1743,8 +1868,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
 
     # Take exponential of the log likelihood in-place.
-    lnLmax  = np.max(lnL_t_accum)
-    L_t = xpy.exp(lnL_t_accum - lnL_t_accum, out=lnL_t_accum)
+    lnLmax  = xpy.max(lnL_t_accum)
+    L_t = xpy.exp(lnL_t_accum - lnLmax, out=lnL_t_accum)
 
     L = simps(L_t, dx=deltaT, axis=-1)
 
@@ -1855,159 +1980,3 @@ def ComputeYlmsArrayVector(lookupNK, theta, phi):
     return Ylms
 
 
-
-_coeff2m2 = math.sqrt(5.0 / (64.0 * math.pi))
-_coeff2m1 = math.sqrt(5.0 / (16.0 * math.pi))
-_coeff20 = math.sqrt(15.0 / (32.0 * math.pi))
-_coeff2p1 = math.sqrt(5.0 / (16.0 * math.pi))
-_coeff2p2 = math.sqrt(5.0 / (64.0 * math.pi))
-
-def SphericalHarmonicsVectorized(
-        lm,
-        theta, phi,
-        xpy=cupy, dtype=np.complex128,
-    ):
-    """
-    Compute spherical harmonics Y_{lm}(theta, phi) for a given set of lm's,
-    thetas, and phis.
-
-    Parameters
-    ----------
-    lm : array_like, shape = (n_indices, 2)
-
-    theta : array_like, shape = (n_params,)
-
-    phi : array_like, shape = (n_params,)
-
-    Returns
-    -------
-    Ylm : array_like, shape = (n_params, n_indices)
-    """
-    l, m = lm.T
-
-    n_indices = l.size
-    n_params = theta.size
-
-    Ylm = xpy.empty((n_params, n_indices), dtype=dtype)
-
-    # Ensure coefficients are on the board if using cupy.
-    c2m2 = xpy.asarray(_coeff2m2)
-    c2m1 = xpy.asarray(_coeff2m1)
-    c20 = xpy.asarray(_coeff20)
-    c2p1 = xpy.asarray(_coeff2p1)
-    c2p2 = xpy.asarray(_coeff2p2)
-    imag = xpy.asarray(1.0j)
-
-    # Precompute 1 +/- cos(theta).
-    cos_theta = xpy.cos(theta)
-    one_minus_cos_theta = (1.0 - cos_theta)
-    one_plus_cos_theta = xpy.add(1.0, cos_theta, out=cos_theta)
-    del cos_theta
-
-    # Precompute sin(theta).
-    sin_theta = xpy.sin(theta)
-
-    for i, m_i in enumerate(m):
-        if m_i == -2:
-            Ylm[...,i] = (
-                c2m2 *
-                xpy.square(one_minus_cos_theta) *
-                xpy.exp(imag * m_i * phi)
-            )
-        elif m_i == -1:
-            Ylm[...,i] = (
-                c2m1 *
-                xpy.multiply(sin_theta, one_minus_cos_theta) *
-                xpy.exp(imag * m_i * phi)
-            )
-        elif m_i == 0:
-            Ylm[...,i] = (
-                c20 *
-                xpy.square(sin_theta)
-            )
-        elif m_i == +1:
-            Ylm[...,i] = (
-                c2p1 *
-                xpy.multiply(sin_theta, one_plus_cos_theta) *
-                xpy.exp(imag * m_i * phi)
-            )
-        elif m_i == +2:
-            Ylm[...,i] = (
-                c2p2 *
-                xpy.square(one_plus_cos_theta) *
-                xpy.exp(imag * m_i * phi)
-            )
-        else:
-            Ylm[...,i] = xpy.nan
-
-    return Ylm
-
-    # # Pre-allocate an index array for picking the `m` index.
-    # m_index = xpy.empty(n_indices, dtype=bool)
-    # m_index_view = m_index[None,...]
-
-    # ## Will need when l!=2 supported
-    # # lmax = xpy.max(l)
-
-
-    # ## m = -2 case ##
-    # # Set index array
-    # xpy.equal(xpy.asarray(-2), m, out=m_index)
-
-    # # Overwrite output with (1 - cos(theta))**2
-    # xpy.square(one_minus_cos_theta, out=Ylm, where=m_index_view)
-    # # Multiply output with coefficient.
-    # xpy.multiply(xpy.asarray(_coeff2m2), Ylm, out=Ylm, where=m_index_view)
-
-    # ## m = -1 case ##
-    # # Set index array
-    # xpy.equal(xpy.asarray(-1), m, out=m_index)
-
-    # # Overwrite output with sin(theta) * (1 - cos(theta))
-    # xpy.multiply(sin_theta, one_minus_cos_theta, out=Ylm, where=m_index_view)
-    # # Multiply with coefficient
-    # xpy.multiply(xpy.asarray(_coeff2m1), Ylm, out=Ylm, where=m_index_view)
-
-    # # Skip m = 0 case until the end.
-
-    # ## m = +1 case ##
-    # # Set index array
-    # xpy.equal(xpy.asarray(+1), m, out=m_index)
-
-    # # Overwrite output with sin(theta) * (1 + cos(theta))
-    # xpy.multiply(sin_theta, one_plus_cos_theta, out=Ylm, where=m_index_view)
-    # # Multiply with coefficient
-    # xpy.multiply(xpy.asarray(_coeff2p1), Ylm, out=Ylm, where=m_index_view)
-
-    # ## m = +2 case ##
-    # # Set index array
-    # xpy.equal(xpy.asarray(+2), m, out=m_index)
-
-    # # Overwrite output with (1 + cos(theta))**2
-    # xpy.square(one_plus_cos_theta, out=Ylm, where=m_index_view)
-    # # Multiply with coefficient
-    # xpy.multiply(xpy.asarray(_coeff2p2), Ylm, out=Ylm, where=m_index_view)
-
-    # ## m = 0 case ##
-    # # Set index array
-    # xpy.equal(xpy.asarray(0), m, out=m_index)
-
-    # # Overwrite output with sin(theta)**2
-    # xpy.square(sin_theta, out=Ylm, where=m_index_view)
-    # # Multiply with coefficient
-    # xpy.multiply(xpy.asarray(_coeff20), Ylm, out=Ylm, where=m_index_view)
-
-    # ## m != 0 cases ##
-    # # Set index array
-    # xpy.invert(m_index, out=m_index)
-
-    # # Compute exp(i*m*phi), without allocating extra arrays, and only bothering
-    # # to compute it where m != 0.  We won't use the m == 0 cases.
-    # complex_term = xpy.outer(phi, m, where=m_index)
-    # xpy.multiply(1j, complex_term, out=complex_term, where=m_index)
-    # xpy.exp(complex_term, out=complex_term, where=m_index)
-
-    # # Multiply exp(i*m*phi) onto the result, but only where m == 0.
-    # xpy.multiply(Ylm, complex_term, out=Ylm, where=m_index)
-
-    # return Ylm

@@ -282,7 +282,7 @@ special_param_ranges = {
   'eta':[0,0.25],
   'a1z':[-opts.chi_max,opts.chi_max],
   'a2z':[-opts.chi_max,opts.chi_max],
-#  'chi_eff': [-1,1],  # this can backfire for very narrow constraints
+  'chi_eff': [-opts.chi_max,opts.chi_max],  # this can backfire for very narrow constraints
   'lambda1':[0,4000],
   'lambda2':[0,4000],
   'lambdat':[0,4000]
@@ -300,6 +300,8 @@ param_list = opts.parameter
 color_list=['black', 'red', 'green', 'blue','yellow']
 if opts.posterior_color:
     color_list  =opts.posterior_color + color_list
+else:
+    color_list += len(opts.posterior_file)*['black']
 linestyle_list = ['-' for k in color_list]
 if opts.posterior_linestyle:
     linestyle_list = opts.posterior_linestyle + linestyle_list
@@ -347,6 +349,12 @@ if opts.posterior_file:
         samples = add_field(samples, [('chi1', float)]); samples['chi1'] = chi1_here
         samples = add_field(samples, [('theta1', float)]); samples['theta1'] = theta1_here
         samples = add_field(samples, [('phi1', float)]); samples['phi1'] = phi1_here
+        
+        # we almost certainly use standard
+        chi1_perp = np.sqrt(samples['a1x']**2 + samples['a1y']**2)
+        chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
+        samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
+        samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
         
     elif "theta1" in samples.dtype.names:
         a1x_dat = samples["a1"]*np.sin(samples["theta1"])*np.cos(samples["phi1"])
@@ -412,6 +420,10 @@ if opts.posterior_file:
         P.s2x = samples["a2x"][indx]
         P.s2y = samples["a2y"][indx]
         P.s2z = samples["a2z"][indx]
+        if "lnL" in samples.keys():
+            P.lnL = samples["lnL"][indx]   # creates a new field !
+        else:
+            P.lnL = -1
         # Populate other parameters as needed ...
         P_list.append(P)
     posteriorP_list.append(P_list)

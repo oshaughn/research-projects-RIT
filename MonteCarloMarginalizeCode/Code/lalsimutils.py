@@ -1172,7 +1172,15 @@ class ChooseWaveformParams:
             self.phaseO = lalsim.GetOrderFromString(str(row.waveform))
         else:
             self.phaseO = -1
-        self.approx = lalsim.GetApproximantFromString(str(row.waveform))
+        self.approx = lalsim.GetApproximantFromString(str(row.waveform))  # this is buggy for SEOB waveforms, adding irrelevant PN terms
+        if row.waveform == lalsim.SEOBNRv3:
+            self.approx = 'SEOBNRv3'
+        if row.waveform == lalsim.SEOBNRv2:
+            self.approx = 'SEOBNRv2'
+        if row.waveform == lalTEOBv4:
+            self.approx = 'SEOBNRv4T'
+        if row.waveform == lalSEOBNRv4HM  and lalSEOBNR4HM > 0 :
+            self.approx = 'SEOBNRv4HM'
         if rosDebugMessagesContainer[0]:
             print " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform
         self.theta = row.latitude # Declination
@@ -2544,9 +2552,20 @@ def hlmoft_FromFD_dict(P,Lmax=2):
     Uses Chris Pankow's interface in lalsuite
     Do not redshift the source
     """
-    hlm_struct = lalsim.SimInspiralTDModesFromPolarizations(P.deltaT, P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.spin2x, P.spin2y, P.spin2z, P.fmin, P.fref, P.dist, 0., P.lambda1, P.lambda2, P.waveFlags, None, P.ampO, P.phaseO, P.approx)
+#    hlm_struct = lalsim.SimInspiralTDModesFromPolarizations(P.deltaT, P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 0., P.lambda1, P.lambda2, P.waveFlags, None, P.ampO, P.phaseO, P.approx)
+    extra_params = P.to_lal_dict()
+        # Format about to change: should not have several of these parameters
+    hlms = lalsim.SimInspiralTDModesFromPolarizations( \
+            P.m1, P.m2, \
+            P.s1x, P.s1y, P.s1z, \
+            P.s2x, P.s2y, P.s2z, \
+            P.dist, P.phiref,  \
+            P.psi, P.eccentricity, P.meanPerAno, \
+            P.deltaT, P.fmin, P.fref, \
+            extra_params, P.approx)
 
-    return hlm_struct
+
+    return hlms
 
 def hlmoft_SEOBv3_dict(P,Lmax=2):
     """
@@ -2563,7 +2582,7 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
     PrecEOBversion=300 # use opt
     hplus, hcross, dynHi, hlmPTS, hlmPTSHi, hIMRlmJTSHi, hLM, attachP = lalsim.SimIMRSpinEOBWaveformAll(0, P.deltaT, \
                                             P.m1, P.m1, P.fmin, P.dist, 0, \
-                                            P.s1x, P.s1y, P.s1z, P.spin2x, P.spin2y, P.spin2z, PrecEOBversion)
+                                            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, PrecEOBversion)
     hlm_dict = SphHarmTimeSeries_to_dict(hLM,2)
     # for j in range(5):
     #     m = hLM.m
@@ -3186,7 +3205,7 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
     return tmp
 
 def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
-        verbose=True):
+        verbose=True,deltaT=None):
     """
     Function to read in data in the frame format and convert it to 
     a REAL8TimeSeries. fname is the path to a LIGO cache file.
@@ -3217,6 +3236,10 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
     # Window the data - N.B. default is identity (no windowing)
     hoft_window = lal.CreateTukeyREAL8Window(tmp.data.length, window_shape)
     tmp.data.data *= hoft_window.data.data
+
+    # Resample the timeries as requested
+    if (not (deltaT is None)) and deltaT > tmp.deltaT:
+        lal.ResampleREAL8TimeSeries(tmp,deltaT)
 
     return tmp
 
@@ -3261,7 +3284,7 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
 
 
 def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
-        window_shape=0., verbose=True):
+        window_shape=0., verbose=True,deltaT=None):
     """
     Function to read in data in the frame format
     and convert it to a COMPLEX16FrequencySeries 
@@ -3279,7 +3302,7 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
-    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose)
+    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,deltaT=deltaT)
 
     tmplen = ht.data.length
     if TDlen == -1:
@@ -3448,7 +3471,7 @@ def load_resample_and_clean_psd(psd_fname, det, deltaF,verbose=False):
     if verbose:
         print "Sanity check reporting : pre-extension, min is ", np.min(tmp), " and maximum is ", np.max(tmp)
     fmin = psd_here.f0
-    fmax = fmin + psd_here.deltaF*len(psd_here.data)-deltaF
+    fmax = fmin + psd_here.deltaF*len(psd_here.data.data)-deltaF
     if verbose:
         print "PSD deltaF before interpolation %f" % psd_here.deltaF
     psd_here = resample_psd_series(psd_here, deltaF)

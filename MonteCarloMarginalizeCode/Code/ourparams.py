@@ -53,7 +53,7 @@ def ParseStandardArguments():
     parser.add_argument("--LikelihoodType_MargTdisc_array",default=True,action='store_true',help="Default")
     parser.add_argument("--LikelihoodType_MargTdisc_array_vector",default=False,action='store_true',help="Use matrix operations to compute likelihood. Discrete....ViaArray is called. Inputs are scalars")
     parser.add_argument("--LikelihoodType_vectorized",default=False,action='store_true',help="Use matrix operations to compute likelihood. Discrete....ViaArrayVector is called. Inputs are vectors")
-    parser.add_argument("--LikelihoodType_vectorized_noloops",default=False,action='store_true',help="Use matrix operations to compute likelihood. Discrete....ViaArrayVectorNoLoop is called. Inputs are vectors")
+    parser.add_argument("--LikelihoodType_vectorized_noloops",default=False,action='store_true',help="Use matrix operations to compute likelihood. Discrete....ViaArrayVectorNoLoop is called. Inputs are vectors.  GPU version on this branch")
     parser.add_argument("--adapt-parameter", action='append',help = "Adapt in this parameter (ra, dec, tref, incl,dist,phi,psi)")
     parser.add_argument( "--adapt-beta", type=float,default=1)
     parser.add_argument("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")

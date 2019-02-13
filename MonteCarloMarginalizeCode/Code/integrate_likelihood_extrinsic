@@ -19,9 +19,7 @@ try:
   identity_convert = cupy.asnumpy
 except:
   print ' no cupy'
-  import numpy as cupy  # will automatically replace cupy calls with numpy!
-  optimized_gpu_tools=None
-  Q_inner_product=None
+#  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
 
@@ -106,6 +104,7 @@ optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tu
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
+optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
@@ -120,7 +119,7 @@ integration_params = OptionGroup(optp, "Integration Parameters", "Control the in
 # Default is actually None, but that tells the integrator to go forever or until n_eff is hit.
 integration_params.add_option("--n-max", type=int, help="Total number of samples points to draw. If this number is hit before n_eff, then the integration will terminate. Default is 'infinite'.",default=1e7)
 integration_params.add_option("--n-eff", type=int, default=100, help="Total number of effective samples points to calculate before the integration will terminate. Default is 100")
-integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=100)
+integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=10000)
 integration_params.add_option("--convergence-tests-on",default=False,action='store_true')
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
 integration_params.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
@@ -171,6 +170,13 @@ for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
 optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
+
+if opts.gpu and xpy_default is numpy:
+    print " Override --gpu  (not available);  use --force-xpy to require the identical code path is used (with xpy =[np|cupy]"
+    opts.gpu=False
+    if opts.force_xpy:
+        opts.gpu=True
+
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 
@@ -486,7 +492,7 @@ rholms_intp, cross_terms, cross_terms_V,  rholms, rest=factored_likelihood.Preco
         fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
         False, inv_spec_trunc_Q, T_spec,
         NR_group=NR_template_group,NR_param=NR_template_param,
-        use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=not opts.rom_integrate_intrinsic,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory)
+        use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=not opts.rom_integrate_intrinsic,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized)
 
 ### DEBUGGING CHECK: what keys are used (for rom)
 if opts.rom_use_basis:
@@ -945,7 +951,7 @@ else: # Sum over time for every point in other extrinsic params
     for det in rholms_intp.keys():
         print " Packing ", det
         lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], cross_terms[det],cross_terms_V[det])
-        if opts.gpu and xpy_default==cupy:
+        if opts.gpu and (not xpy_default is np):
             lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
             rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
             ctUArrayDict[det] = cupy.asarray(ctUArrayDict[det])
@@ -977,15 +983,15 @@ else: # Sum over time for every point in other extrinsic params
             global nEvals
             tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
             P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
-            P.theta = xpy_default.asarray(declination.astype,dtype=np.float64)
+            P.theta = xpy_default.asarray(declination,dtype=np.float64)
             P.tref = float(fiducial_epoch)
             P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
             P.incl = xpy_default.asarray(inclination, dtype=np.float64)
             P.psi = xpy_default.asarray(psi, dtype=np.float64)
             P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
 
-            lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoops(tvals,
-                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
+            lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
             nEvals +=len(right_ascension)
             return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 

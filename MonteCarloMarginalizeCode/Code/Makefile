@@ -6,7 +6,7 @@ build_gpu:
 #      -arch=sm_60  # ldas-pcdev13 architecture  (GTX 10 series also pascal-powered, should work for all)
 # Check configuraito with
 #   nvidia-smi   # prints available machines
-	nvcc -arch=sm_60 -cubin -o cuda_Q_inner_product.cubin cuda_Q_inner_product.cu 
+	nvcc -arch=sm_70 -cubin -o cuda_Q_inner_product.cubin cuda_Q_inner_product.cu 
 
 
 # AVAILABLE GPU MACHINES (2019-01 edition)
