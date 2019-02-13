@@ -37,11 +37,9 @@ import lalsimulation as lalsim
 #import lalinspiral
 import lalmetaio
 
-from pylal import frutils
-from pylal import series
-from pylal.series import read_psd_xmldoc
-#from lal.series import read_psd_xmldoc
-import pylal
+#from pylal import seriesutils as series
+from lal.series import read_psd_xmldoc
+from lalframe import frread
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -121,8 +119,8 @@ except:
     lalIMRPhenomD = -2
 
 try:
-    lalTEOBv2 = lalsim.TEOBv2
-    lalTEOBv4 = lalsim.TEOBv4
+    lalTEOBv2 = -3 # not implemented
+    lalTEOBv4 = lalsim.SEOBNRv4T
 except:
     lalTEOBv2 = -3
     lalTEOBv4 = -4
@@ -160,7 +158,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO"]
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -266,12 +264,28 @@ class ChooseWaveformParams:
         self.theta = theta     # DEC.  DEC =0 on the equator; the south pole has DEC = - pi/2
         self.phi = phi         # RA.   
         self.psi = psi
+        self.meanPerAno = 0.0  # port 
+        self.longAscNodes = self.psi # port to master
+        self.eccentricity=0
         self.tref = tref
         self.radec = radec
         self.detector = "H1"
         self.deltaF=deltaF
         self.fmax=fmax
         self.taper = taper
+
+    # From Pankow/master
+    _LAL_DICT_PARAMS = {"Lambda1": "lambda1", "Lambda2": "lambda2", "ampO": "ampO", "phaseO": "phaseO"}
+    _LAL_DICT_PTYPE = {"Lambda1": lal.DictInsertREAL8Value, "Lambda2": lal.DictInsertREAL8Value, "ampO": lal.DictInsertINT4Value, "phaseO": lal.DictInsertINT4Value}
+    def to_lal_dict(self):
+        extra_params = lal.CreateDict()
+        for k, p in ChooseWaveformParams._LAL_DICT_PARAMS.iteritems():
+            typfunc = ChooseWaveformParams._LAL_DICT_PTYPE[k]
+            typfunc(extra_params, k, getattr(self, p))
+        # Properly add tidal parammeters
+        lalsim.SimInspiralWaveformParamsInsertTidalLambda1(extra_params, self.lambda1)
+        lalsim.SimInspiralWaveformParamsInsertTidalLambda2(extra_params, self.lambda2)
+        return extra_params
 
     def manual_copy(self):
         P=self.copy()
@@ -1237,7 +1251,9 @@ class ChooseWaveformParams:
         # Convert from lsctables.SimInspiral --> lalmetaio.SimInspiral
         swigrow = lalmetaio.SimInspiralTable()
         for simattr in lsctables.SimInspiralTable.validcolumns.keys():
-            if simattr in ["waveform", "source", "numrel_data", "taper"]:
+            if simattr in ['process_id','simulation_id']:
+                setattr(swigrow, simattr,0)
+            elif simattr in ["waveform", "source", "numrel_data", "taper","process_id"]:
                 # unicode -> char* doesn't work
                 setattr( swigrow, simattr, str(getattr(row, simattr)) )
             else:
@@ -2193,10 +2209,26 @@ def hoft(P, Fp=None, Fc=None):
 #        print " Using ridiculous tweak for equal-mass line EOB"
         P.m2 = P.m1*(1-1e-6)
 
-    hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
-            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
-            P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
-            P.ampO, P.phaseO, P.approx)
+    extra_params = P.to_lal_dict()
+#Compatible with master
+    hp, hc = lalsim.SimInspiralTD( \
+            P.m1, P.m2, \
+            P.s1x, P.s1y, P.s1z, \
+            P.s2x, P.s2y, P.s2z, \
+            P.dist, P.incl, P.phiref,  \
+            P.psi, P.eccentricity, P.meanPerAno, \
+            P.deltaT, P.fmin, P.fref, \
+            extra_params, P.approx)
+
+# O2 branch
+#    hp, hc = lalsim.SimInspiralTD( \
+#            P.m1, P.m2, \
+#            P.s1x, P.s1y, P.s1z, \
+#            P.s2x, P.s2y, P.s2z, \
+#            P.dist, P.incl, P.phiref,  \
+#            P.psi, P.eccentricity, P.meanPerAno, \
+#            P.deltaT, P.fmin, P.fref, \
+#            extra_params, P.approx)
 
     if Fp!=None and Fc!=None:
         hp.data.data *= Fp
@@ -2423,6 +2455,10 @@ def non_herm_hoff(P):
 
 
 
+## Version protection
+#   Pull out arguments of the ModesFromPolarizations function
+#argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
+
 
 def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
     """
@@ -2467,10 +2503,25 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
 
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
-    else:
-      hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
-            P.fmin, P.fref, P.dist, P.lambda1, P.lambda2, P.waveFlags,
-            P.nonGRparams, P.ampO, P.phaseO, Lmax, P.approx)
+    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2):
+        extra_params = P.to_lal_dict()
+        hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
+	    P.s1x, P.s1y, P.s1z, \
+	    P.s2x, P.s2y, P.s2z, \
+            P.fmin, P.fref, P.dist, extra_params, \
+             Lmax, P.approx)
+    else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
+        extra_params = P.to_lal_dict()
+        # Format about to change: should not have several of these parameters
+        hlms = lalsim.SimInspiralTDModesFromPolarizations( \
+            P.m1, P.m2, \
+            P.s1x, P.s1y, P.s1z, \
+            P.s2x, P.s2y, P.s2z, \
+            P.dist, P.phiref,  \
+            P.psi, P.eccentricity, P.meanPerAno, \
+            P.deltaT, P.fmin, P.fref, \
+            extra_params, P.approx)
+
     # FIXME: Add ability to taper
     # COMMENT: Add ability to generate hlmoft at a nonzero GPS time directly.
     #      USUALLY we will use the hlms in template-generation mode, so will want the event at zero GPS time
@@ -2493,7 +2544,7 @@ def hlmoft_FromFD_dict(P,Lmax=2):
     Uses Chris Pankow's interface in lalsuite
     Do not redshift the source
     """
-    hlm_struct = lalsim.SimInspiralTDModesFromPolarizations(P.deltaT, P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 0., P.lambda1, P.lambda2, P.waveFlags, None, P.ampO, P.phaseO, P.approx)
+    hlm_struct = lalsim.SimInspiralTDModesFromPolarizations(P.deltaT, P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.spin2x, P.spin2y, P.spin2z, P.fmin, P.fref, P.dist, 0., P.lambda1, P.lambda2, P.waveFlags, None, P.ampO, P.phaseO, P.approx)
 
     return hlm_struct
 
@@ -2509,9 +2560,10 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
     ampFac = (P.m1 + P.m2)/lal.MSUN_SI * lal.MRSUN_SI / P.dist
 
     # inc is not consistent with the modern convention I will be reading in (spins aligned with L, hlm in the L frame)
+    PrecEOBversion=300 # use opt
     hplus, hcross, dynHi, hlmPTS, hlmPTSHi, hIMRlmJTSHi, hLM, attachP = lalsim.SimIMRSpinEOBWaveformAll(0, P.deltaT, \
-                                            P.m1, P.m2, P.fmin, P.dist, 0, \
-                                            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z)
+                                            P.m1, P.m1, P.fmin, P.dist, 0, \
+                                            P.s1x, P.s1y, P.s1z, P.spin2x, P.spin2y, P.spin2z, PrecEOBversion)
     hlm_dict = SphHarmTimeSeries_to_dict(hLM,2)
     # for j in range(5):
     #     m = hLM.m
@@ -2535,6 +2587,32 @@ def hlmoft_SEOB_dict(P,Lmax=2):
     A hack.
     Works for any aligned-spin time-domain waveform with only (2,\pm 2) modes though.
     """
+
+    if P.approx == lalSEOBNRv4HM:
+        extra_params = P.to_lal_dict()        
+        nqcCoeffsInput=lal.CreateREAL8Vector(10)
+        hlm_struct, dyn, dynHi = lalsim.SimIMRSpinAlignedEOBModes(P.deltaT, P.m1, P.m2, P.fmin, P.dist, P.s1z, P.s2z,41, 0., 0., 0.,0.,0.,0.,0.,0.,1.,1.,nqcCoeffsInput, 0)
+
+        hlms = SphHarmTimeSeries_to_dict(hlm_struct,Lmax)
+        mode_list_orig = hlms.keys()
+        for mode in mode_list_orig:
+            # Add zero padding if requested time period too short
+            if not (P.deltaF is None):
+                TDlen = int(1./P.deltaF * 1./P.deltaT)
+                if TDlen > hlms[mode].data.length:
+                    hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlms[mode],0,TDlen)
+
+            # Should only populate positive modes; create negative modes
+            mode_conj = (mode[0],-mode[1])
+            if not mode_conj in hlms:
+                hC = hlms[mode]
+                hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0, 
+                                                    hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
+                hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
+#                hT = hlms[mode].copy() # hopefully this works
+#                hT.data.data = np.conj(hT.data.data)
+                hlms[mode_conj] = hC2
+        return hlms
 
     if not (P.approx == lalsim.SEOBNRv2 or P.approx==lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx==lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
         return None
@@ -2672,13 +2750,16 @@ def complex_hoft(P, sgn=-1):
     """
     assert sgn == 1 or sgn == -1
     # hp, hc = lalsim.SimInspiralTD(P.phiref, P.deltaT, P.m1, P.m2, 
-    #         P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
+    #         P.s1x, P.s1y, P.s1z, P.spin2x, P.spin2y, P.spin2z, P.fmin, P.fref, P.dist, 
     #         P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
     #         P.ampO, P.phaseO, P.approx)
-    hp, hc = lalsim.SimInspiralChooseTDWaveform(P.phiref, P.deltaT, P.m1, P.m2, 
-            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin, P.fref, P.dist, 
-            P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
-            P.ampO, P.phaseO, P.approx)
+    extra_params = P.to_lal_dict()
+    hp, hc = lalsim.SimInspiralChooseTDWaveform( P.m1, P.m2, 
+            P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
+            P.dist, P.incl, P.phiref,  \
+            P.psi, P.eccentricity, P.meanPerAno, \
+            P.deltaT, P.fmin, P.fref, \
+            extra_params, P.approx)
     if P.taper != lsu_TAPER_NONE: # Taper if requested
         lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
         lalsim.SimInspiralREAL8WaveTaper(hc.data, P.taper)
@@ -2723,7 +2804,7 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
         elif TDlen!=0: # Set values of P.deltaF from TDlen, P.deltaT
             P.deltaF = 1./P.deltaT/TDlen
         hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(P.phiref, P.deltaF,
-            P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin,
+            P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.spin2x, P.spin2y, P.spin2z, P.fmin,
             P.fmax, P.fref, P.dist, P.incl, P.lambda1, P.lambda2, P.waveFlags,
             P.nonGRparams, P.ampO, P.phaseO, P.approx)
 
@@ -3050,7 +3131,7 @@ def hoft_to_frame_data(fname, channel, hoft):
     return True
 
 
-def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
+def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0.,
         verbose=True):
     """
     Function to read in data in the frame format and convert it to 
@@ -3103,6 +3184,42 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
     tmp.data.data *= hoft_window.data.data
 
     return tmp
+
+def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
+        verbose=True):
+    """
+    Function to read in data in the frame format and convert it to 
+    a REAL8TimeSeries. fname is the path to a LIGO cache file.
+
+    Applies a Tukey window to the data with shape parameter 'window_shape'.
+    N.B. if window_shape=0, the window is the identity function
+         if window_shape=1, the window becomes a Hann window
+         if 0<window_shape<1, the data will transition from zero to full
+            strength over that fraction of each end of the data segment.
+
+    Modified to rely on the lalframe read_timeseries function
+      https://github.com/lscsoft/lalsuite/blob/master/lalframe/python/lalframe/frread.py
+    """
+    if verbose:
+        print " ++ Loading from cache ", fname, channel
+    with open(fname) as cfile:
+        cachef = Cache.fromfile(cfile)
+    cachef=cachef.sieve(ifos=channel[:1])
+    # for i in range(len(cachef))[::-1]:
+    #     # FIXME: HACKHACKHACK
+    #     if cachef[i].observatory != channel[0]:
+    #         del cachef[i]
+    if verbose:
+        print cachef.to_segmentlistdict()
+        
+    duration = stop - start if None not in (start, stop) else None
+    tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose,datatype='REAL8')
+    # Window the data - N.B. default is identity (no windowing)
+    hoft_window = lal.CreateTukeyREAL8Window(tmp.data.length, window_shape)
+    tmp.data.data *= hoft_window.data.data
+
+    return tmp
+
 
 def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
         window_shape=0., verbose=True):
@@ -3264,9 +3381,20 @@ def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqReq
 #    psdNew.data.data = (np.array([raw_psd.data.data for j in np.arange(facStretch)])).transpose().flatten()  # a bit too large, but that's fine for our purposes
     return psdNew
 
-def get_psd_series_from_xmldoc(fname, inst):
-   # return read_psd_xmldoc(utils.load_filename(fname, contenthandler=series.LIGOLWContentHandler ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
-    return read_psd_xmldoc(utils.load_filename(fname ))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+
+my_content=lal.series.PSDContentHandler
+
+try:
+    my_content = lal.series.PSDContentHandler
+
+    def get_psd_series_from_xmldoc(fname, inst):
+        return read_psd_xmldoc(utils.load_filename(fname ,contenthandler = my_content))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+except:
+    def get_psd_series_from_xmldoc(fname, inst):
+        return read_psd_xmldoc(utils.load_filename(fname))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+
+
+
 
 def get_intp_psd_series_from_xmldoc(fname, inst):
     psd = get_psd_series_from_xmldoc(fname, inst)
@@ -3274,11 +3402,11 @@ def get_intp_psd_series_from_xmldoc(fname, inst):
 
 def resample_psd_series(psd, df=None, fmin=None, fmax=None):
     # handle pylal REAL8FrequencySeries
-    if isinstance(psd, pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
-        psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data), psd.deltaF, psd.data
-        fvals_orig = psd.f0 + np.arange(len(psd.data))*psd.deltaF
+    #if isinstance(psd, pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
+    #    psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data), psd.deltaF, psd.data
+    #    fvals_orig = psd.f0 + np.arange(len(psd.data))*psd.deltaF
     # handle SWIG REAL8FrequencySeries
-    elif isinstance(psd, lal.REAL8FrequencySeries):
+    if isinstance(psd, lal.REAL8FrequencySeries):
         psd_fmin, psd_fmax, psd_df, data = psd.f0, psd.f0 + psd.deltaF*len(psd.data.data), psd.deltaF, psd.data.data
         fvals_orig = psd.f0 + np.arange(psd.data.length)*psd_df
     # die horribly

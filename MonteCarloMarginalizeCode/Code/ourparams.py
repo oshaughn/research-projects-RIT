@@ -178,6 +178,7 @@ def ParseStandardArguments():
     # Unused: To suck up parameters by letting me do search/replace on text files
     parser.add_argument("--unused-argument", default=None, help="Used to sop up arguments I want to replace")
 
+    parser.add_argument("--save-no-samples",action='store_true')
 
     args = parser.parse_args()
     # Connect debugging options to argument parsing

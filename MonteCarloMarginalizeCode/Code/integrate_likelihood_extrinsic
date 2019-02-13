@@ -12,12 +12,26 @@ import functools
 from optparse import OptionParser, OptionGroup
 
 import numpy
+import numpy as np
+try:
+  import cupy
+  xpy_default=cupy
+  identity_convert = cupy.asnumpy
+except:
+  print ' no cupy'
+  import numpy as cupy  # will automatically replace cupy calls with numpy!
+  optimized_gpu_tools=None
+  Q_inner_product=None
+  xpy_default=numpy  # just in case, to make replacement clear and to enable override
+  identity_convert = lambda x: x  # trivial return itself
+
+
 
 import lal
 from glue.ligolw import utils, lsctables, table, ligolw
 from glue.ligolw.utils import process
 import glue.lal
-import pylal
+#import pylal
 
 import lalsimutils
 import factored_likelihood
@@ -91,11 +105,14 @@ optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --
 optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Timescale of inverse spectrum truncation in seconds (Default is 8 - give 0 for no truncation)")
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
+optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
+optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
+optp.add_option("--verbose",action='store_true')
 
 #
 # Add the integration options
@@ -395,8 +412,9 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
     data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
             inst+":"+chan, start=start_time, stop=end_time,
-            window_shape=opts.window_shape)
-    print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
+            window_shape=opts.window_shape,verbose=opts.verbose)
+    if opts.verbose:
+        print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
             data_dict[inst].data.length)
 
 flow_ifo_dict = {}
@@ -419,18 +437,21 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
         if isinstance(psd_dict[inst], lal.REAL8FrequencySeries):
             psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(psd_dict[inst].data.length)
             psd_dict[inst].data.data[ psd_fvals < flow_ifo_dict[inst]] = 0 # 
-        elif isinstance(psd_dict[inst], pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):  # for backward compatibility
-            psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(len(psd_dict[inst].data))
-            psd_dict[inst].data[psd_fvals < ifo_dict[inst]] =0
+        else:
+            print 'FAIL'
+            sys.exit(0)
+#        elif isinstance(psd_dict[inst], pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):  # for backward compatibility
+#            psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(len(psd_dict[inst].data))
+#            psd_dict[inst].data[psd_fvals < ifo_dict[inst]] =0
 
 
     assert psd_dict[inst].deltaF == deltaF
 
     # Highest freq. at which PSD is defined
-    if isinstance(psd_dict[inst],
-            pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
-        fmax = psd_dict[inst].f0 + deltaF * (len(psd_dict[inst].data) - 1)
-    elif isinstance(psd_dict[inst], lal.REAL8FrequencySeries):
+    #if isinstance(psd_dict[inst],
+    #        pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):
+    #    fmax = psd_dict[inst].f0 + deltaF * (len(psd_dict[inst].data) - 1)
+    if isinstance(psd_dict[inst], lal.REAL8FrequencySeries):
         fmax = psd_dict[inst].f0 + deltaF * (psd_dict[inst].data.length - 1)
 
     # Assert upper limit of IP integral does not go past where PSD defined
@@ -881,7 +902,7 @@ if not opts.time_marginalization:
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 else: # Sum over time for every point in other extrinsic params
- if not opts.rom_integrate_intrinsic:
+ if not (opts.rom_integrate_intrinsic or opts.vectorized) :
     def likelihood_function(right_ascension, declination, phi_orb, inclination,
             psi, distance):
         dec = numpy.copy(declination).astype(numpy.float64)  # get rid of 'object', and allocate space
@@ -913,6 +934,67 @@ else: # Sum over time for every point in other extrinsic params
             i+=1
     
         return numpy.exp(lnL -manual_avoid_overflow_logarithm)
+
+    args = likelihood_function.func_code.co_varnames[:likelihood_function.func_code.co_argcount]
+    print " --------> Arguments ", args
+    res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+ elif opts.vectorized: # use array-based multiplications, fewer for loops
+    lookupNKDict = {}
+    lookupKNDict={}
+    lookupKNconjDict={}
+    ctUArrayDict = {}
+    ctVArrayDict={}
+    rholmArrayDict={}
+    rholms_intpArrayDict={}
+    epochDict={}
+    nEvals=0
+
+    for det in rholms_intp.keys():
+        print " Packing ", det
+        lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], cross_terms[det],cross_terms_V[det])
+        if opts.gpu and xpy_default==cupy:
+            lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
+            rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
+            ctUArrayDict[det] = cupy.asarray(ctUArrayDict[det])
+            ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
+            epochDict[det] = cupy.asarray(epochDict[det])
+    if (not opts.gpu):
+      def likelihood_function(right_ascension, declination, phi_orb, inclination,
+            psi, distance):
+        global nEvals
+        tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+        # use EXTREMELY many bits
+        lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
+        P.phi = right_ascension.astype(float)  # cast to float
+        P.theta = declination.astype(float)
+        P.tref = float(fiducial_epoch)
+        P.phiref = phi_orb.astype(float)
+        P.incl = inclination.astype(float)
+        P.psi = psi.astype(float)
+        P.dist = (distance* 1.e6 * lalsimutils.lsu_PC).astype(float) # luminosity distance
+
+        lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
+        nEvals +=len(right_ascension)
+        return numpy.exp(lnL-manual_avoid_overflow_logarithm)
+    else:
+        print " Using CUDA GPU likelihood, if cupy available "
+        def likelihood_function(right_ascension, declination, phi_orb, inclination,
+            psi, distance):
+            global nEvals
+            tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+            P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+            P.theta = xpy_default.asarray(declination.astype,dtype=np.float64)
+            P.tref = float(fiducial_epoch)
+            P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
+            P.incl = xpy_default.asarray(inclination, dtype=np.float64)
+            P.psi = xpy_default.asarray(psi, dtype=np.float64)
+            P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+
+            lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoops(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
+            nEvals +=len(right_ascension)
+            return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
     args = likelihood_function.func_code.co_varnames[:likelihood_function.func_code.co_argcount]
     print " --------> Arguments ", args
