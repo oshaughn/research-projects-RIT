@@ -41,7 +41,7 @@ except:
 # Old code
 #from SphericalHarmonics_gpu_orig import SphericalHarmonicsVectorized_orig as SphericalHarmonicsVectorized
 # New code
-from SphericalHarmonics_gpu import SphericalHarmonicsVectorized as SphericalHarmonicsVectorized
+from SphericalHarmonics_gpu import SphericalHarmonicsVectorized
 
 
 from scipy import interpolate, integrate
@@ -1753,6 +1753,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         Ylms_vec = SphericalHarmonicsVectorized(
             lms, incl, -phiref,
             xpy=xpy,
+            l_max=Lmax,
         )
 
         # Array of shape (npts_extrinsic,)
