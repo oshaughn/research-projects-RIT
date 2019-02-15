@@ -2486,7 +2486,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
         sign_factor = -1
 
     if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4 or P.approx == lalSEOBNRv4HM):
-        hlm_out = hlmoft_SEOB_dict(P)
+        hlm_out = hlmoft_SEOB_dict(P,Lmax=Lmax)
         if True: #P.taper:
             ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
