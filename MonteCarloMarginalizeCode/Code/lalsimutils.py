@@ -125,7 +125,7 @@ except:
     lalTEOBv2 = -3
     lalTEOBv4 = -4
 try:
-    lalSEOBv4HM = lalsim.SEOBNRv4HM
+    lalSEOBNRv4HM = lalsim.SEOBNRv4HM
 except:
     lalSEOBNRv4HM = -5
 
