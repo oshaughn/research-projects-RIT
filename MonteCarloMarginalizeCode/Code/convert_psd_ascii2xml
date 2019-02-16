@@ -4,7 +4,8 @@
 
 import numpy as np
 #from pylal.series import make_psd_xmldoc
-import pylal.series
+#import pylal.series
+import lal.series
 import lal
 
 class Object(object):
@@ -51,7 +52,7 @@ dat_wrapper.name = opts.ifo
 
 psd_dict = {opts.ifo: dat_wrapper}
 
-xmldoc = pylal.series.make_psd_xmldoc(psd_dict)
+xmldoc = lal.series.make_psd_xmldoc(psd_dict)
 # Manually set the name
 xmldoc.childNodes[0].attributes._attrs  = {"Name": "psd"}
 
