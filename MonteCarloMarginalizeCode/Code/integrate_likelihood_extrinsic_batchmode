@@ -97,6 +97,7 @@ optp.add_option("-A", "--amp-order", type=int, default=0, help="Include amplitud
 optp.add_option("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")
 optp.add_option("-s", "--data-start-time", type=float, default=None, help="GPS start time of data segment. If given, must also give --data-end-time. If not given, sane start and end time will automatically be chosen.")
 optp.add_option("-e", "--data-end-time", type=float, default=None, help="GPS end time of data segment. If given, must also give --data-start-time. If not given, sane start and end time will automatically be chosen.")
+optp.add_option("--data-integration-window-half",default=50*1e-3,type=float,help="Only change this window size if you are an expert. The window for time integration is -/+ this quantity around the event time")
 optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
 optp.add_option("--srate",default=16384,type=int,help="Sampling rate. Change ONLY IF YOU ARE ABSOLUTELY SURE YOU KNOW WHAT YOU ARE DOING.")
 optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
@@ -237,7 +238,8 @@ if opts.nr_group and opts.nr_param:
 # Hardcoded variables
 #
 template_min_freq = opts.fmin_template # minimum frequency of template
-t_ref_wind = 50e-3 # Interpolate in a window +/- this width about event time. 
+#t_ref_wind = 50e-3 # Interpolate in a window +/- this width about event time. 
+t_ref_wind = opts.data_integration_window_half
 T_safety = 2. # Safety buffer (in sec) for wraparound corruption
 
 #
