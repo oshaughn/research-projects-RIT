@@ -13,6 +13,7 @@ class Object(object):
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname-psd-ascii",default=None)
+parser.add_argument("--prefix-out",default="",type=str)
 parser.add_argument("--ifo",default="H1")
 parser.add_argument("--asd",action='store_true', help="If specified, the input is an ASD. Square it.")
 opts=  parser.parse_args()
@@ -56,4 +57,4 @@ xmldoc = pylal.series.make_psd_xmldoc(psd_dict)
 xmldoc.childNodes[0].attributes._attrs  = {"Name": "psd"}
 
 from glue.ligolw import utils
-utils.write_filename(xmldoc, opts.ifo+"_fromascii_psd.xml.gz", gz=True)
+utils.write_filename(xmldoc, opts.ifo+opts.prefix_out+"_fromascii_psd.xml.gz", gz=True)
