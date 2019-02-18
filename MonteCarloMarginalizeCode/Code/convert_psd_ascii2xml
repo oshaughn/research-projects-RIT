@@ -4,7 +4,8 @@
 
 import numpy as np
 #from pylal.series import make_psd_xmldoc
-import pylal.series
+#import pylal.series
+import lal.series
 import lal
 
 class Object(object):
@@ -40,19 +41,23 @@ if dat[0,0] > 0:
     dat = dat_new 
 
 
-dat_wrapper = Object()
-dat_wrapper.epoch = 0
-dat_wrapper.f0 = 0.0
-dat_wrapper.sampleUnits = "s strain^2"
-dat_wrapper.deltaF = dat[1,0] - dat[0,0]
-dat_wrapper.data = dat[:,1]
-dat_wrapper.name = opts.ifo
+# dat_wrapper = Object()
+# dat_wrapper.epoch = 0
+# dat_wrapper.f0 = 0.0
+# dat_wrapper.sampleUnits = "s strain^2"
+# dat_wrapper.deltaF = dat[1,0] - dat[0,0]
+# dat_wrapper.data = dat[:,1]
+# dat_wrapper.name = opts.ifo
 
 # convert structure to appropriate 
+df = dat[1,0]-dat[0,0]
+epoch = lal.LIGOTimeGPS(0.0)
+psd_s = lal.CreateREAL8FrequencySeries(name=opts.ifo, epoch=epoch, f0=dat[0,0], deltaF=df, sampleUnits="s", length=len(dat))
 
-psd_dict = {opts.ifo: dat_wrapper}
 
-xmldoc = pylal.series.make_psd_xmldoc(psd_dict)
+psd_dict = {opts.ifo: psd_s}
+
+xmldoc = lal.series.make_psd_xmldoc(psd_dict)
 # Manually set the name
 xmldoc.childNodes[0].attributes._attrs  = {"Name": "psd"}
 
