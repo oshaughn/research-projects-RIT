@@ -218,12 +218,26 @@ helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
 helper_ile_args += " --fmin " + str(opts.fmin)
 
+if opts.propose_ile_convergence_options:
+    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler  --srate 4096 --n-max 2000000 --n-eff 50 "
+    # Modify someday to use the SNR to adjust some settings
+    # Proposed option will use GPUs
+    helper_ile_args += " --vectorized --gpu --n-events-to-analyze 20 "
+
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
-
+print " helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max "
 
 
 helper_cip_args = ""
-
+if opts.propose_fit_strategy:
+    print " Fit strategy NOT IMPLEMENTED -- currently just provides basic parameterization options. Need to work in real strategies (e.g., cip-arg-list)"
+    helper_cip_args += ' --no-plots --fit-method gp  --parameter mc --parameter delta_mc '
+    if not opts.assume_nospin:
+        helper_cip_args += ' --parameter-implied chi_eff --parameter-implied chiMinus --parameter-nofit s1x --parameter-nofit s2z '
+        if opts.assume_precessing_spin:
+            helper_cip_args += ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y '
+    if opts.assume_matter:
+        helper_cip_args += " --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
 with open("helper_cip_args.txt",'w') as f:
     f.write(helper_ile_args)
