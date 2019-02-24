@@ -39,7 +39,7 @@ def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_d
             lines = map(lambda x: str(CacheEntry.from_T050017(x)), lines)
         with open(fname_out,'w') as f:
             for line in lines:
-                f.write(line+"\n")
+                f.write(line)
 
     else:
         print " Trying to transfer files necessary from ", machine_with_files
