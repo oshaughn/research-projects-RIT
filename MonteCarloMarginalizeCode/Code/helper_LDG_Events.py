@@ -151,7 +151,7 @@ if True: #use_gracedb_event:
     # Read in event parameters. Use masses as quick estimate
     cmd_event = gracedb_exe + " download " + opts.gracedb_id + " coinc.xml"
     os.system(cmd_event)
-    samples = table.get_table(utils.load_filename("coinc.xml"), lsctables.SnglInspiralTable.tableName)
+    samples = table.get_table(utils.load_filename("coinc.xml",contenthandler=lalsimutils.cthdler), lsctables.SnglInspiralTable.tableName)
     for row in samples:
         m1 = row.mass1
         m2 = row.mass2
