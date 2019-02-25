@@ -280,7 +280,7 @@ if opts.propose_fit_strategy:
     helper_cip_args += ' --cap-points 12000 --no-plots --fit-method gp  --parameter mc --parameter delta_mc '
     helper_cip_args += mc_range_str + eta_range_str
     if not opts.assume_nospin:
-        helper_cip_args += ' --parameter-implied chi_eff --parameter-implied chiMinus --parameter-nofit s1x --parameter-nofit s2z '
+        helper_cip_args += ' --parameter-implied chi_eff  --parameter-nofit s1x --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
         if opts.assume_precessing_spin:
             helper_cip_args += ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
     if opts.assume_matter:
