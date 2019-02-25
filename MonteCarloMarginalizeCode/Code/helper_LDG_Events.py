@@ -93,12 +93,15 @@ gracedb_exe = opts.gracedb_exe
 datafind_server = None
 try:
    datafind_server = os.environ['LIGO_DATAFIND_SERVER']
+   print " LIGO_DATAFIND_SERVER ", datafind_server
 except:
   print " No LIGO_DATAFIND_SERVER "
 if opts.datafind_server:
     datafind_server = opts.datafind_server
-else:
-    datafind_server="ldr.ldas.cit:80"
+if (datafind_server is None) and not (opts.fake_data):
+    print " FAIL: No data !"
+
+
 use_gracedb_event = False
 if not(opts.gracedb_id is None):
     use_gracedb_event = True
