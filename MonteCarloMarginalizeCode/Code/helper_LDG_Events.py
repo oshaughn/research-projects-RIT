@@ -227,8 +227,8 @@ mc_center = event_dict["MChirp"]
 v_PN_param = (np.pi* mc_center*opts.fmin*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
 v_PN_param = np.min([v_PN_param,1])
 ln_mc_error_pseudo_fisher = 0.3*(v_PN_param/0.2)**3  # this ignores range due to redshift / distance, based on a low-order estimate
-mc_min = ln_mc_error*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
-mc_max=ln_mc_error*mc_center   # conservative ! 
+mc_min = ln_mc_error_pseudo_fisher*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
+mc_max=ln_mc_error_pseudo_fisher*mc_center   # conservative ! 
 
 eta_min = 0.1  # default for now, will fix this later
 
