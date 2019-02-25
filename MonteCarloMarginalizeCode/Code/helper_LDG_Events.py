@@ -158,6 +158,11 @@ if True: #use_gracedb_event:
         event_duration = row.event_duration
     event_dict["m1"] = row.mass1
     event_dict["m2"] = row.mass2
+    event_dict["s1z"] = row.spin1z
+    event_dict["s2z"] = row.spin2z
+    P=lalsimutils.ChooseWaveformParams()
+    P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
+    event_dict["P"] = P
     event_dict["epoch"]  = event_duration
 
     # Get PSD
@@ -172,10 +177,17 @@ if True: #use_gracedb_event:
 ### General logic 
 ###
 
+if "SNR" in event_dict.keys:
+    lnLmax_true = event_dict['SNR']**2 / 2.
+    lnLoffset_early = 0.1*lnLmax_true  # default value early on : should be good enough
+else:
+    lnLoffset_early = 150  # a fiducial value, good enough for a wide range of SNRs 
+
 # Estimate signal duration
 t_event = event_dict["tref"]
-P=lalsimutils.ChooseWaveformParams()
-P.m1= event_dict['m1']*lal.MSUN_SI;  P.m2= event_dict['m2']*lal.MSUN_SI; 
+P=event_dict["P"]
+#lalsimutils.ChooseWaveformParams()
+#P.m1= event_dict['m1']*lal.MSUN_SI;  P.m2= event_dict['m2']*lal.MSUN_SI; 
 t_duration  = np.max([ event_dict["epoch"], lalsimutils.estimateWaveformDuration(P)])
 t_before = np.max([4,t_duration])*1.1+8+2  # buffer for inverse spectrum truncation
 data_start_time = t_event - int(t_before)
@@ -206,10 +218,32 @@ ldg_make_cache()
 # If needed, build PSDs
 print " PSD construction not yet implemented ... must use GraceDB-provided PSDs"
 
+# Estimate mc range, eta range
+
+mc_center = event_grid["MChirp"]
+v_PN_param = (np.pi* mc_center*opts.fmin*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
+v_PN_param = np.min([v_PN_param,1])
+ln_mc_error_pseudo_fisher = 0.3*(v_PN_param/0.2)**3  # this ignores range due to redshift / distance, based on a low-order estimate
+mc_min = ln_mc_error*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
+mc_max=ln_mc_error*mc_center   # conservative ! 
+
+eta_min = 0.1  # default for now, will fix this later
+
+chieff_center = P.extract_param('xi')
+chieff_min = np.max([chieff_center -0.3,-1])
+chieff_max = np.max([chieff_center +0.3,1])
+
+mc_range_str = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
+eta_range_str = " --eta-range ["+str(eta_min)+",0.249999]"  # default will include  1, as we work with BBHs
+
+
 ###
 ### Write arguments
 ###
 helper_ile_args =""
+helper_cip_args = ""
+
+
 helper_ile_args += " --cache " + opts.working_directory+ "/local.cache"
 for ifo in ifos:
     helper_ile_args += " --channel-name "+ifo+"="+channel_names[ifo]
@@ -218,26 +252,38 @@ helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
 helper_ile_args += " --fmin " + str(opts.fmin)
 
+if opts.propose_initial_grid:
+    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[0.0,0.5]'  "
+    if opts.assume_nospin:
+        cmd += " --grid-cartesian-npts 500 " 
+    else:
+        cmd += " --parameter chieff_aligned --parameter-range    ["+str(chieff_min)+","+str(chieff_max)+"]  --grid-cartesian-npts 2000 "
+    print " Executing grid command ", cmd
+    os.system(cmd)
+    
+    
+
 if opts.propose_ile_convergence_options:
-    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler  --srate 4096 --n-max 2000000 --n-eff 50 "
+    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler   --n-max 2000000 --n-eff 50 "
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs
-    helper_ile_args += " --vectorized --gpu --n-events-to-analyze 20 "
+    helper_ile_args += " --vectorized --gpu --n-events-to-analyze 20 --no-adapt-after-first --no-adapt-distance --srate 4096 "
 
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
 print " helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max "
 
 
-helper_cip_args = ""
 if opts.propose_fit_strategy:
     print " Fit strategy NOT IMPLEMENTED -- currently just provides basic parameterization options. Need to work in real strategies (e.g., cip-arg-list)"
-    helper_cip_args += ' --no-plots --fit-method gp  --parameter mc --parameter delta_mc '
+    helper_cip_args += " --lnL-offset " + str(lnLoffset_early)
+    helper_cip_args += ' --cap-points 12000 --no-plots --fit-method gp  --parameter mc --parameter delta_mc '
+    helper_cip_args += mc_range_str + eta_range_str
     if not opts.assume_nospin:
         helper_cip_args += ' --parameter-implied chi_eff --parameter-implied chiMinus --parameter-nofit s1x --parameter-nofit s2z '
         if opts.assume_precessing_spin:
-            helper_cip_args += ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y '
+            helper_cip_args += ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
     if opts.assume_matter:
-        helper_cip_args += " --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
+        helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
 with open("helper_cip_args.txt",'w') as f:
     f.write(helper_ile_args)
