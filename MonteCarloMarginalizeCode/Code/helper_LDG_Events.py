@@ -223,7 +223,7 @@ print " PSD construction not yet implemented ... must use GraceDB-provided PSDs"
 
 # Estimate mc range, eta range
 
-mc_center = event_grid["MChirp"]
+mc_center = event_dict["MChirp"]
 v_PN_param = (np.pi* mc_center*opts.fmin*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
 v_PN_param = np.min([v_PN_param,1])
 ln_mc_error_pseudo_fisher = 0.3*(v_PN_param/0.2)**3  # this ignores range due to redshift / distance, based on a low-order estimate
