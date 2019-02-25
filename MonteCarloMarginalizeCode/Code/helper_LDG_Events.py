@@ -84,6 +84,7 @@ parser.add_argument("--assume-precessing-spin",action='store_true',help="If pres
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects")
+parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
 datafind_exe = opts.datafind_exe
@@ -117,7 +118,8 @@ for cal in cal_versions:
             standard_channel_names["O2"][(cal,ifo)] = "GDS-CALIB_STRAIN_"+cal
         else:
             standard_channel_names["O2"][(cal,ifo)] = "DCS-CALIB_STRAIN_"+cal
-print standard_channel_names["O2"]
+if opts.verbose:
+    print standard_channel_names["O2"]
 
 
 fmax = 1700 # default
@@ -138,7 +140,8 @@ if True: #use_gracedb_event:
         for  line  in lines:
             line = line.split(':')
             param = line[0]
-            print " Parsing line ", line
+            if opts.verbose:
+                print " Parsing line ", line
             if param in ['MChirp', 'MTot', "SNR"]:
                 event_dict[ line[0]]  = float(line[1])
             elif 'ime' in param: # event time
@@ -177,7 +180,7 @@ if True: #use_gracedb_event:
 ### General logic 
 ###
 
-if "SNR" in event_dict.keys:
+if "SNR" in event_dict.keys():
     lnLmax_true = event_dict['SNR']**2 / 2.
     lnLoffset_early = 0.1*lnLmax_true  # default value early on : should be good enough
 else:
@@ -240,8 +243,8 @@ eta_range_str = " --eta-range ["+str(eta_min)+",0.249999]"  # default will inclu
 ###
 ### Write arguments
 ###
-helper_ile_args =""
-helper_cip_args = ""
+helper_ile_args ="X "
+helper_cip_args = "X "
 
 
 helper_ile_args += " --cache " + opts.working_directory+ "/local.cache"
@@ -275,15 +278,28 @@ print " helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max 
 
 
 if opts.propose_fit_strategy:
+    # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
     print " Fit strategy NOT IMPLEMENTED -- currently just provides basic parameterization options. Need to work in real strategies (e.g., cip-arg-list)"
     helper_cip_args += " --lnL-offset " + str(lnLoffset_early)
     helper_cip_args += ' --cap-points 12000 --no-plots --fit-method gp  --parameter mc --parameter delta_mc '
     helper_cip_args += mc_range_str + eta_range_str
+
+    helper_cip_arg_list_common = ' ' +  str(helper_cip_args)
+    helper_cip_arg_list = [" 2" + helper_cip_arg_list_common, " 4 " +  helper_cip_arg_list_common]
     if not opts.assume_nospin:
         helper_cip_args += ' --parameter-implied chi_eff  --parameter-nofit s1x --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
+        helper_cip_arg_list[0] +=  ' --parameter-implied chi_eff  --parameter-nofit s1x --parameter-nofit s2z ' 
+        helper_cip_arg_list[1] += ' --parameter-implied chi_eff  --parameter-implied chiMinus --parameter-nofit s1x --parameter-nofit s2z ' 
+        
         if opts.assume_precessing_spin:
-            helper_cip_args += ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
+            helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
+            helper_cip_arg_list[0] +=   ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
+            helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
     if opts.assume_matter:
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
+
 with open("helper_cip_args.txt",'w') as f:
     f.write(helper_ile_args)
+
+with open("helper_cip_arg_list.txt",'w') as f:
+    f.write("\n".join(helper_cip_args))
