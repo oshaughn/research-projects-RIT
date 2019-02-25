@@ -66,8 +66,8 @@ parser.add_argument("--event-time",default=None)
 parser.add_argument("--observing-run",default="O2",help="Use the observing run settings to choose defaults for channel names, etc. Not yet implemented using lookup from event time")
 parser.add_argument("--calibration-version",default="C02",help="Calibration version to be used.")
 parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER (will override environment variable, which is used as default)")
-parser.add_argument("--fmin",default=20,type=float,help="Minimum frequency for integration. Used to estimate signal duration")
-parser.add_argument("--fmin-template",default=20,type=float,help="Minimum frequency for template. Used to estimate signal duration")
+parser.add_argument("--fmin",default=None,type=float,help="Minimum frequency for integration. Used to estimate signal duration")
+parser.add_argument("--fmin-template",default=20,type=float,help="Minimum frequency for template. Used to estimate signal duration. If fmin not specified, also the minimum frequency for integration")
 parser.add_argument("--fmax",default=None,type=float,help="fmax. Use this ONLY if you want to override the default settings, which are set based on the PSD used")
 parser.add_argument("--data-start-time",default=None)
 parser.add_argument("--data-end-time",default=None,help="If both data-start-time and data-end-time are provided, this interval will be used.")
@@ -248,12 +248,14 @@ helper_cip_args = "X "
 
 
 helper_ile_args += " --cache " + opts.working_directory+ "/local.cache"
+helper_ile_args += " --event-time " + str(event_dict["tref"])
 for ifo in ifos:
     helper_ile_args += " --channel-name "+ifo+"="+channel_names[ifo]
     helper_ile_args += " --psd-file "+ifo+"="+psd_names[ifo]
+    if not (opts.fmin is None):
+        helper_ile_args += " --fmin-ifo "+ifo+"="+str(opts.fmin)
 helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
-helper_ile_args += " --fmin " + str(opts.fmin)
 
 if opts.propose_initial_grid:
     cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[0.0,0.5]'  "
