@@ -183,6 +183,7 @@ if True: #use_gracedb_event:
     P=lalsimutils.ChooseWaveformParams()
     P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     P.fmin = opts.fmin_template  #  fmin we will use internally
+    P.tref = event_dict["tref"]
     event_dict["P"] = P
     event_dict["epoch"]  = event_duration
 
@@ -191,7 +192,6 @@ if True: #use_gracedb_event:
     cmd_event = gracedb_exe + " download " + opts.gracedb_id + " psd.xml.gz"
     os.system(cmd_event)
     if opts.use_online_psd:
-        cmd = 'gracedb download "
         for ifo in event_dict["IFOs"]:
             psd_names[ifo] = opts.working_directory+"/psd.xml.gz"
 
@@ -297,8 +297,14 @@ if opts.lowlatency_propose_approximant:
     # Also choose d-max. Relies on archival and fixed network sensitvity estimates.
     dmax_guess = 2.5*2.26*typical_bns_range_Mpc[opts.observing_run]* (mc_Msun/1.2)**(5./6.)
     dmax_guess = np.min([dmax_guess,10000]) # place ceiling
-
     helper_ile_args +=  " --d-max " + str(int(dmax_guess))
+
+    # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
+    T_window_raw = 2./lalsimutils.estimateDeltaF(P)  # includes going to next power of 2, AND a bonus factor of 2
+    T_window_raw = np.max([T_window_raw,4])  # can't be less than 4 seconds long
+    data_start_time = int(P.tref - T_window_raw +2 )
+    data_end_time = int(P.tref + 2)
+    helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-truc-time 0 --window-shape 0.01"
 
 if opts.propose_initial_grid:
     cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[0.0,0.5]'  "
