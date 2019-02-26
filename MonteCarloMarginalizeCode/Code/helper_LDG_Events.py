@@ -283,7 +283,7 @@ for ifo in ifos:
         helper_ile_args += " --fmin-ifo "+ifo+"="+str(opts.fmin)
 helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
-if opts.lowlatency_propose_approx:
+if opts.lowlatency_propose_approximant:
     approx  = lalsim.TaylorF2
     approx_str = "TaylorF2"
     mc_Msun = P.extract_param('mc')/lal.MSUN_SI
@@ -317,7 +317,7 @@ if opts.propose_ile_convergence_options:
 
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
-if not opts.lowlatency_propose_approx:
+if not opts.lowlatency_propose_approximant:
     print " helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max "
 
 
