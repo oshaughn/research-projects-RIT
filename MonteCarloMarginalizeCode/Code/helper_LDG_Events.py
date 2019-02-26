@@ -192,8 +192,12 @@ if True: #use_gracedb_event:
     cmd_event = gracedb_exe + " download " + opts.gracedb_id + " psd.xml.gz"
     os.system(cmd_event)
     if opts.use_online_psd:
+        cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
+        # Convert PSD to a useful format
         for ifo in event_dict["IFOs"]:
-            psd_names[ifo] = opts.working_directory+"/psd.xml.gz"
+            psd_names[ifo] = opts.working_directory+"/"+ifo+"-psd.xml.gz"
+            cmd += " --ifo " + ifo
+        os.system(cmd)
 
 
 ###
