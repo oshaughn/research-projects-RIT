@@ -306,6 +306,7 @@ if opts.lowlatency_propose_approximant:
     # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
     T_window_raw = 2./lalsimutils.estimateDeltaF(P)  # includes going to next power of 2, AND a bonus factor of 2
     T_window_raw = np.max([T_window_raw,4])  # can't be less than 4 seconds long
+    print " Time window : ", T_window_raw, " based on fmin  = ", P.fmin
     data_start_time = int(P.tref - T_window_raw +2 )
     data_end_time = int(P.tref + 2)
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
