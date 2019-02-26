@@ -59,6 +59,15 @@ def ldg_make_cache(retrieve=False):
         os.system("cat *_local.cache > local.cache")
     return True
 
+def ldg_make_psd(ifo, channel_name,psd_start_time,psd_end_time,srate=4096,use_gwpy=False, force_regenerate=False,working_directory="."):
+    psd_fname = ifo + "-psd.xml.gz"
+    if (not force_regenerate) and os.path.isfile(working_directory+"/"+psd_fname):
+        print " File exists : ", psd_fname
+        return True
+    cmd = "gstlal_reference_psd --verbose --channel-name " + ifo + "=" + channel_name + " --gps-start-time " + str(psd_start_time) + " --gps-end-time " + str(psd_end_time) + " --write-psd " + psd_fname + " --data-source -frames --frame-cache local.cache --srate " + str(srate)
+    os.system(cmd)
+    return True
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
@@ -82,8 +91,9 @@ parser.add_argument("--assume-matter",action='store_true',help="If present, the 
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
+parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
-parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects")
+parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
@@ -113,6 +123,10 @@ standard_channel_names = {}
 # Initialize O2
 data_types["O2"] = {}
 standard_channel_names["O2"] = {}
+typical_bns_range_Mpc = {}
+typical_bns_range_Mpc["O1"] = 100 
+typical_bns_range_Mpc["O2"] = 100 
+typical_bns_range_Mpc["O3"] = 130
 cal_versions = {"C00", "C01", "C02"}
 for cal in cal_versions:
     for ifo in "H1", "L1":
@@ -168,6 +182,7 @@ if True: #use_gracedb_event:
     event_dict["s2z"] = row.spin2z
     P=lalsimutils.ChooseWaveformParams()
     P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
+    P.fmin = opts.fmin_template  #  fmin we will use internally
     event_dict["P"] = P
     event_dict["epoch"]  = event_duration
 
@@ -222,7 +237,16 @@ for ifo in ifos:
 ldg_make_cache()
 
 # If needed, build PSDs
-print " PSD construction not yet implemented ... must use GraceDB-provided PSDs"
+if not opts.use_online_psd:
+    print " PSD construction "
+    for ifo in event_dict["IFOs"]:
+        print " Building PSD  for ", ifo
+        try:
+            ldg_make_psd(ifo, channel_names[ifo], psd_start_time, psd_end_time, working_directory=opts.working_directory)
+            psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+        except:
+            print "  ... PSD generation failed! "
+            sys.exit(1)
 
 # Estimate mc range, eta range
 
@@ -259,6 +283,20 @@ for ifo in ifos:
         helper_ile_args += " --fmin-ifo "+ifo+"="+str(opts.fmin)
 helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
+if opts.lowlatency_propose_approx:
+    approx  = lalsim.TaylorF2
+    approx_str = "TaylorF2"
+    mc_Msun = P.extract_param('mc')/lal.MSUN_SI
+    if mc_Msun > 6:
+        approx = lalsim.SEOBNRv4_ROM
+        approx_str = "SEOBNRv4_ROM"
+    helper_ile_args += " --approx " + approx_str
+
+    # Also choose d-max. Relies on archival and fixed network sensitvity estimates.
+    dmax_guess = 2.5*2.26*typical_bns_range_Mpc[opts.observing_run]* (mc_Msun/1.2)**(5./6.)
+    dmax_guess = np.min([dmax_guess,10000]) # place ceiling
+
+    helper_ile_args +=  " --d-max " + str(int(dmax_guess))
 
 if opts.propose_initial_grid:
     cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[0.0,0.5]'  "
@@ -279,7 +317,8 @@ if opts.propose_ile_convergence_options:
 
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
-print " helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max "
+if not opts.lowlatency_propose_approx:
+    print " helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max "
 
 
 if opts.propose_fit_strategy:
