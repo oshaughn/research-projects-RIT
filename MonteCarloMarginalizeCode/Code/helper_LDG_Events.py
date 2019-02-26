@@ -217,7 +217,7 @@ P=event_dict["P"]
 #P.m1= event_dict['m1']*lal.MSUN_SI;  P.m2= event_dict['m2']*lal.MSUN_SI; 
 t_duration  = np.max([ event_dict["epoch"], lalsimutils.estimateWaveformDuration(P)])
 t_before = np.max([4,t_duration])*1.1+8+2  # buffer for inverse spectrum truncation
-data_start_time = t_event - int(t_before)
+data_start_time_orig = data_start_time = t_event - int(t_before)
 data_end_time = t_event + int(t_before) # for inverse spectrum truncation. Overkill
 
 # Estimate data needed for PSD
@@ -304,10 +304,11 @@ if opts.lowlatency_propose_approximant:
     helper_ile_args +=  " --d-max " + str(int(dmax_guess))
 
     # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
-    T_window_raw = 2./lalsimutils.estimateDeltaF(P)  # includes going to next power of 2, AND a bonus factor of 2
+    #   ... note that data_start_time was defined BEFORE with the datafind job
+    T_window_raw = 1.1./lalsimutils.estimateDeltaF(P)  # includes going to next power of 2, AND a bonus factor of a few
     T_window_raw = np.max([T_window_raw,4])  # can't be less than 4 seconds long
     print " Time window : ", T_window_raw, " based on fmin  = ", P.fmin
-    data_start_time = int(P.tref - T_window_raw +2 )
+    data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
     data_end_time = int(P.tref + 2)
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
 
