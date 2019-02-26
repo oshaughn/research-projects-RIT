@@ -189,7 +189,9 @@ if True: #use_gracedb_event:
     # Get PSD
     fmax = 1000.
     cmd_event = gracedb_exe + " download " + opts.gracedb_id + " psd.xml.gz"
+    os.system(cmd_event)
     if opts.use_online_psd:
+        cmd = 'gracedb download "
         for ifo in event_dict["IFOs"]:
             psd_names[ifo] = opts.working_directory+"/psd.xml.gz"
 
