@@ -1,4 +1,4 @@
-#! /usr/bin/bash python
+#! /usr/bin/env python
 #
 # GOAL
 #   Online PSDs do not start at f0=0
