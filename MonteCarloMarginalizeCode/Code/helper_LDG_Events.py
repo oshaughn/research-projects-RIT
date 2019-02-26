@@ -305,7 +305,7 @@ if opts.lowlatency_propose_approximant:
 
     # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
     #   ... note that data_start_time was defined BEFORE with the datafind job
-    T_window_raw = 1.1./lalsimutils.estimateDeltaF(P)  # includes going to next power of 2, AND a bonus factor of a few
+    T_window_raw = 1.1/lalsimutils.estimateDeltaF(P)  # includes going to next power of 2, AND a bonus factor of a few
     T_window_raw = np.max([T_window_raw,4])  # can't be less than 4 seconds long
     print " Time window : ", T_window_raw, " based on fmin  = ", P.fmin
     data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
