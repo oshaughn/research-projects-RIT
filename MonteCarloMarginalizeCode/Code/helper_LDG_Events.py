@@ -308,7 +308,7 @@ if opts.lowlatency_propose_approximant:
     T_window_raw = np.max([T_window_raw,4])  # can't be less than 4 seconds long
     data_start_time = int(P.tref - T_window_raw +2 )
     data_end_time = int(P.tref + 2)
-    helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-truc-time 0 --window-shape 0.01"
+    helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
 
 if opts.propose_initial_grid:
     cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[0.0,0.5]'  "
