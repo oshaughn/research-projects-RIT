@@ -36,12 +36,12 @@ npts_orig = None
 for ifo in opts.ifo:
     print  " Reading ", opts.psd_file, " for ", ifo
     psd_dict_raw[ifo] = lalsimutils.get_psd_series_from_xmldoc(opts.psd_file,ifo)
-    npts_orig   = len(psd_dict_raw[ifo].data)
+    npts_orig   = len(psd_dict_raw[ifo].data.data)
     df = psd_dict_raw[ifo].deltaF
     f0 = psd_dict_raw[ifo].f0
-    nyquist = int (len(psd_dict_raw[ifo].data)*df+f0 )
+    nyquist = int (len(psd_dict_raw[ifo].data.data)*df+f0 )
     epoch = psd_dict_raw[ifo].epoch
-    print ifo, len(psd_dict_raw[ifo].data) , 1./psd_dict_raw[ifo].deltaF, nyquist
+    print ifo, len(psd_dict_raw[ifo].data.data) , 1./psd_dict_raw[ifo].deltaF, nyquist
 
 
 
@@ -51,7 +51,7 @@ indx_start = int(f0/df + 0.5)
 # Loop
 for ifo in ifos:
     print  " Writing  for ", ifo
-    dat_here = psd_dict_raw[ifo].data
+    dat_here = psd_dict_raw[ifo].data.data
     psddict  = {}
     psd_s = lal.CreateREAL8FrequencySeries(name=ifo, epoch=epoch, f0=0, deltaF=df, sampleUnits="s", length=npts_desired)
     psd_s.data.data[indx_start:indx_start+npts_orig] = dat_here[:npts_orig-1]
