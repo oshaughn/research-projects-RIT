@@ -321,7 +321,10 @@ eta_range_str = " --eta-range ["+str(eta_min)+",0.249999]"  # default will inclu
 ### Write arguments
 ###
 helper_ile_args ="X "
+helper_test_args="X "
 helper_cip_args = "X "
+
+helper_test_args += " --always-succeed --method lame  --parameter mc"
 
 helper_ile_args += " --save-P 0.1 "   # truncate internal data structures (should do better memory management/avoid need for this if --save-samples is not on)
 
@@ -342,6 +345,7 @@ if opts.lowlatency_propose_approximant:
 #        approx = lalsim.SEOBNRv4_ROM
         approx_str = "SEOBNRv4"
     helper_ile_args += " --approx " + approx_str
+    helper_cip_args += " --approx-output " + approx_str  # insure the two codes are talking about the same approximant. Avoid silly things.
 
     # Also choose d-max. Relies on archival and fixed network sensitvity estimates.
     dmax_guess = 2.5*2.26*typical_bns_range_Mpc[opts.observing_run]* (mc_Msun/1.2)**(5./6.)
@@ -396,6 +400,8 @@ if opts.propose_fit_strategy:
         helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1x --parameter-nofit s2z ' 
         
         if opts.assume_precessing_spin:
+            # Use cartesian coordinates for now.  Polar is more flexible
+            # Default prior is *volumetric*
             helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
             helper_cip_arg_list[0] +=   ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
             helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
@@ -407,3 +413,6 @@ with open("helper_cip_args.txt",'w') as f:
 
 with open("helper_cip_arg_list.txt",'w') as f:
     f.write("\n".join(helper_cip_arg_list))
+
+with open("helper_test_args.txt",'w') as f:
+    f.write(helper_test_args)
