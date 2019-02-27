@@ -323,6 +323,7 @@ eta_range_str = " --eta-range ["+str(eta_min)+",0.249999]"  # default will inclu
 helper_ile_args ="X "
 helper_cip_args = "X "
 
+helper_ile_args += " --save-P 0.1 "   # truncate internal data structures (should do better memory management/avoid need for this if --save-samples is not on)
 
 helper_ile_args += " --cache " + opts.working_directory+ "/local.cache"
 helper_ile_args += " --event-time " + str(event_dict["tref"])
@@ -402,7 +403,7 @@ if opts.propose_fit_strategy:
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
 
 with open("helper_cip_args.txt",'w') as f:
-    f.write(helper_ile_args)
+    f.write(helper_cip_args)
 
 with open("helper_cip_arg_list.txt",'w') as f:
-    f.write("\n".join(helper_cip_args))
+    f.write("\n".join(helper_cip_arg_list))
