@@ -290,12 +290,12 @@ for ifo in ifos:
 helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
 if opts.lowlatency_propose_approximant:
-    approx  = lalsim.TaylorF2
-    approx_str = "TaylorF2"
+#    approx  = lalsim.TaylorF2
+    approx_str = "SpinTaylorT4"
     mc_Msun = P.extract_param('mc')/lal.MSUN_SI
     if mc_Msun > 6:
-        approx = lalsim.SEOBNRv4_ROM
-        approx_str = "SEOBNRv4_ROM"
+#        approx = lalsim.SEOBNRv4_ROM
+        approx_str = "SEOBNRv4"
     helper_ile_args += " --approx " + approx_str
 
     # Also choose d-max. Relies on archival and fixed network sensitvity estimates.
