@@ -81,6 +81,53 @@ Key features of this command
 Some other things to note
   * **Exploiting previous work**: Don't waste effort.  If you already have *.composite files from previous analyses with exactly the same settings, join them together and copy them into this directory as ```extra_input.composite```.  The workflow will automatically use this information.  (Alternatively, you can build a workflow that extends a previous workflow, starting at the last iteration from before.)
 
+### Visualizing your results
+
+You can and should use standard PE-compatible tools to manipulate ``posterior-samples-N.dat``.  However, for a quick look, the program ``plot_posterior_corner.py`` can make simple corner plots; the syntax is
+
+``
+   plot_posterior_corner.py --posterior-file posterior-samples-5.dat --parameter mc --praameter eta 
+``
+For the data products made in this example, I  recommend adding the following options
+``
+ --plot-1d-extra --ci-list  '[0.9]'  --composite-file all.net --quantiles None  --use-legend 
+``
+
+Because we produce multiple iterations, you probably want to compare those iterations.  To make the process less laborious, in the ``demos`` directory you will find a script called ``plot_last_iterations_with.sh``.  This will identify all the ``posterior-samples-N.dat`` files and make corner plots of *all* of them, superimposed, with the options you request.  Syntax is the same as plot_posterior_corner.py, except you don't need to specify all the individual files.
+
 ## Walkthrough of an example on a GraceDB event  (Feb 2019 edition)
 
-IN PROGRESS
+PLACEHOLDER
+
+We'll have something working through gwcelery and with a configparser soon.
+
+For now, you can do the following (experimental), which for simplicity uses online PSDs and auto-configured settings to provide a quick estimate using nonprecessing models.   (Warning: will likely modify this soon to use ``--cip-args-list`` rather than ``--cip-args``, to give  flexibility to handle precessing systems with a multi-stage workflow.)
+
+If you want to use this yourself, **please use the ``--observing-run`` ** argument, to prime the auto-selected arguments (channels, etc) to be appropriate to your analysis.
+
+### Generation script
+Make the following driver script and call it ``setup_bbh_event.sh``.
+``
+mkdir ${1}_analysis_lowlatency
+cd ${1}_analysis_lowlatency
+helper_LDG_Events.py --gracedb-id $1 --use-online-psd --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid --fmin 20 --fmin-template 20 --working-directory `pwd` --lowlatency-propose-approximant
+
+echo  `cat helper_ile_args.txt`   > args_ile.txt
+echo `cat helper_cip_args.txt`  --n-output-samples 5000 --n-eff 5000 --lnL-offset 50 > args_cip.txt
+
+create_event_parameter_pipeline_BasicIteration --request-gpu-ILE --ile-n-events-to-analyze 20 --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args args_cip.txt --request-memory-CIP 30000 --request-memory-ILE 4096 --n-samples-per-job 500 --working-directory `pwd` --n-iterations 5 --n-copies 1
+``
+
+### Analysis examples
+
+VERIFY OUTPUT CORRECT, adjust number of iterations to be more reasonable.
+
+Try this, for GW170814 (an example of a triple event, but the coinc.xml/helper is currently only identifying it as an LV double: FIXME)
+``
+./setup_bbh_event.sh G298172
+``
+
+or this, for GW170823 (an example of an HL double event)
+``
+./setup_bbh_event.sh G298936
+``
