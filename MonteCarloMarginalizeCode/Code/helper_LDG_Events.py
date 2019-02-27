@@ -98,6 +98,9 @@ parser.add_argument("--propose-fit-strategy",action='store_true',help="If presen
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
+if opts.online:
+    opts.calibration_version = "C00"  # will define online variants of C00
+
 datafind_exe = opts.datafind_exe
 gracedb_exe = opts.gracedb_exe
 
@@ -146,8 +149,8 @@ for cal in cal_versions:
         else:
             standard_channel_names["O2"][(cal,ifo)] = "DCS-CALIB_STRAIN_"+cal 
 #Virgo
-data_types["O2"][("CO0", "V1")] = "V1Online"
-standard_channel_names["O2"][("CO2", "V1")] = "Hrec_hoft_V1O2Repro2A_16384Hz"
+data_types["O2"][("C02", "V1")] = "V1Online"
+standard_channel_names["O2"][("C02", "V1")] = "Hrec_hoft_V1O2Repro2A_16384Hz"
 if opts.verbose:
     print standard_channel_names["O2"]
 
