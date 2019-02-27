@@ -92,6 +92,7 @@ parser.add_argument("--assume-nospin",action='store_true',help="If present, the 
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
+parser.add_argument("--online", action='store_true', action="Use online settings")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
 parser.add_argument("--verbose",action='store_true')
@@ -127,16 +128,49 @@ typical_bns_range_Mpc = {}
 typical_bns_range_Mpc["O1"] = 100 
 typical_bns_range_Mpc["O2"] = 100 
 typical_bns_range_Mpc["O3"] = 130
+
+## O2 definitions
 cal_versions = {"C00", "C01", "C02"}
 for cal in cal_versions:
     for ifo in "H1", "L1":
         data_types["O2"][(cal,ifo)] = ifo+"_HOFT_" + cal
         if cal is "C00":
-            standard_channel_names["O2"][(cal,ifo)] = "GDS-CALIB_STRAIN_"+cal
+            standard_channel_names["O2"][(cal,ifo)] = "GDS-CALIB_STRAIN" # _"+cal
+        elif cal is "C02":
+            standard_channel_names["O2"][(cal,ifo)] = "DCH-CLEAN_STRAIN_C02"
         else:
-            standard_channel_names["O2"][(cal,ifo)] = "DCS-CALIB_STRAIN_"+cal
+            standard_channel_names["O2"][(cal,ifo)] = "DCS-CALIB_STRAIN_"+cal 
+#Virgo
+data_types["O2"][("CO0", "V1")] = "V1Online"
+standard_channel_names["O2"][("CO2", "V1")] = "Hrec_hoft_V1O2Repro2A_16384Hz"
 if opts.verbose:
     print standard_channel_names["O2"]
+
+## O3 definition (see Gregg Mendell email)
+# https://github.com/lpsinger/gwcelery/blob/master/gwcelery/conf/production.py
+#  - note that in exceptional circumstances we may want to use gated strain
+# [H1|L1]:GDS-CALIB_STRAIN
+# [H1|L1]:GDS-CALIB_STRAIN_CLEAN
+# [H1|L1]:GDS-GATED_STRAIN
+# https://github.com/lpsinger/gwcelery/blob/master/gwcelery/conf/production.py
+cal_versions = {"C00"}
+for cal in cal_versions:
+    for ifo in "H1", "L1":
+        data_types["O2"][(cal,ifo)] = ifo+"_HOFT_" + cal
+        if opts.online:
+            data_types["O2"][(cal,ifo)] = ifo+"_llhoft"
+        if cal is "C00":
+            standard_channel_names["O2"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN" 
+            if opts.online:
+                standard_channel_names["O2"][(cal,ifo)] = "GDS-CALIB_STRAIN" # Do not assume cleaning is available in low latency
+data_types["O3"][("C00", "V1")] = "V1Online"
+standard_channel_names["O2"][("C00", "V1")] = "Hrec_hoft_16384Hz"
+if opts.online:
+    data_types["O3"][("C00", "V1")] = "V1_llhoft"
+    standard_channel_names["O2"][("C00", "V1")] = "Hrec_hoft_16384Hz"
+
+if opts.verbose:
+    print standard_channel_names["O3"]
 
 
 fmax = 1700 # default
@@ -327,7 +361,8 @@ if opts.propose_ile_convergence_options:
     helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler   --n-max 2000000 --n-eff 50 "
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs
-    helper_ile_args += " --vectorized --gpu --n-events-to-analyze 20 --no-adapt-after-first --no-adapt-distance --srate 4096 "
+    # Note that number of events to analyze is controlled by a different part of the workflow !
+    helper_ile_args += " --vectorized --gpu  --no-adapt-after-first --no-adapt-distance --srate 4096 "
 
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
