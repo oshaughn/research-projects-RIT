@@ -107,7 +107,7 @@ If you want to use this yourself, **please use the ``--observing-run`` ** argume
 
 ### Generation script
 Make the following driver script and call it ``setup_bbh_event.sh``.
-``
+```
 mkdir ${1}_analysis_lowlatency
 cd ${1}_analysis_lowlatency
 helper_LDG_Events.py --gracedb-id $1 --use-online-psd --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid --fmin 20 --fmin-template 20 --working-directory `pwd` --lowlatency-propose-approximant
@@ -116,7 +116,7 @@ echo  `cat helper_ile_args.txt`   > args_ile.txt
 echo `cat helper_cip_args.txt`  --n-output-samples 5000 --n-eff 5000 --lnL-offset 50 > args_cip.txt
 
 create_event_parameter_pipeline_BasicIteration --request-gpu-ILE --ile-n-events-to-analyze 20 --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args args_cip.txt --request-memory-CIP 30000 --request-memory-ILE 4096 --n-samples-per-job 500 --working-directory `pwd` --n-iterations 5 --n-copies 1
-``
+```
 
 ### Analysis examples
 
