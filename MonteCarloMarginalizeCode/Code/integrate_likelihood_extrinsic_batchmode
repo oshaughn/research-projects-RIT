@@ -111,7 +111,7 @@ optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
-optp.add_option("-P", "--save-P", type=float,default=0, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
+optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("--verbose",action='store_true')
 #
 # Add the integration options
