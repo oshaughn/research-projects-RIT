@@ -395,9 +395,9 @@ if opts.propose_fit_strategy:
     helper_cip_arg_list_common = ' ' +  str(helper_cip_args)
     helper_cip_arg_list = [" 2" + helper_cip_arg_list_common, " 4 " +  helper_cip_arg_list_common]
     if not opts.assume_nospin:
-        helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1x --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
-        helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1x --parameter-nofit s2z ' 
-        helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1x --parameter-nofit s2z ' 
+        helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
+        helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
+        helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
         
         if opts.assume_precessing_spin:
             # Use cartesian coordinates for now.  Polar is more flexible
