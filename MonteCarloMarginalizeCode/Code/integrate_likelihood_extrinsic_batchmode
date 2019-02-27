@@ -120,7 +120,7 @@ integration_params = OptionGroup(optp, "Integration Parameters", "Control the in
 # Default is actually None, but that tells the integrator to go forever or until n_eff is hit.
 integration_params.add_option("--n-max", type=int, help="Total number of samples points to draw. If this number is hit before n_eff, then the integration will terminate. Default is 'infinite'.",default=1e7)
 integration_params.add_option("--n-eff", type=int, default=100, help="Total number of effective samples points to calculate before the integration will terminate. Default is 100")
-integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=100)
+integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=10000)
 integration_params.add_option("--convergence-tests-on",default=False,action='store_true')
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
 integration_params.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
