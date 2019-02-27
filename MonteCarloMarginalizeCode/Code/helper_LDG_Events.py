@@ -124,6 +124,11 @@ standard_channel_names = {}
 # Initialize O2
 data_types["O2"] = {}
 standard_channel_names["O2"] = {}
+# Initialize O3
+data_types["O3"] = {}
+standard_channel_names["O3"] = {}
+
+
 typical_bns_range_Mpc = {}
 typical_bns_range_Mpc["O1"] = 100 
 typical_bns_range_Mpc["O2"] = 100 
