@@ -146,10 +146,12 @@ for cal in cal_versions:
             standard_channel_names["O2"][(cal,ifo)] = "GDS-CALIB_STRAIN" # _"+cal
         elif cal is "C02":
             standard_channel_names["O2"][(cal,ifo)] = "DCH-CLEAN_STRAIN_C02"
+            data_types["O2"][(cal,ifo)] = ifo+"_CLEANED_HOFT_C02"
         else:
             standard_channel_names["O2"][(cal,ifo)] = "DCS-CALIB_STRAIN_"+cal 
 #Virgo
-data_types["O2"][("C02", "V1")] = "V1Online"
+data_types["O2"][("C00", "V1")] = "V1Online"
+data_types["O2"][("C02", "V1")] = "V1O2Repro2A"
 standard_channel_names["O2"][("C02", "V1")] = "Hrec_hoft_V1O2Repro2A_16384Hz"
 if opts.verbose:
     print standard_channel_names["O2"]
