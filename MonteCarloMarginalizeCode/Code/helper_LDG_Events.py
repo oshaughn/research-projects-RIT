@@ -136,6 +136,7 @@ elif opts.sim_xml:  # right now, configured to do synthetic data only...should b
     event_dict["tref"]=P.tref = opts.event_time
     event_dict["m1"] = P.m1/lal.MSUN_SI
     event_dict["m2"] = P.m2/lal.MSUN_SI
+    event_dict["MChirp"] = P.extract_param('mc')/lal.MSUN_SI  # used in strategy downselection
     event_dict["s1z"] = P.s1z
     event_dict["s2z"] = P.s2z
     event_dict["P"] = P
