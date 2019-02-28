@@ -127,7 +127,7 @@ if (datafind_server is None) and not (opts.fake_data):
 use_gracedb_event = False
 if not(opts.gracedb_id is None):
     use_gracedb_event = True
-elif opts.sim_xml:
+elif opts.sim_xml:  # right now, configured to do synthetic data only...should be able to mix/match
     print "====Loading injection XML:", opts.sim_xml, opts.event, " ======="
     P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))[opts.event]
     P.radec =False  # do NOT propagate the epoch later
@@ -142,10 +142,12 @@ elif opts.sim_xml:
     event_dict["epoch"]  = 0 # no estimate for now
 
     # PSDs must be provided by hand, IF this is done by this code!
+    ifo_list=[]
     if not (opts.psd_file is None):
         for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
             psd_names[inst] = psdf
-
+            ifo_list.append(inst)
+    event_dict["IFOs"] = ifo_list
 
 
 
