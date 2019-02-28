@@ -53,7 +53,7 @@ def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_d
     return True
 
 def ldg_make_cache(retrieve=False):
-    if retrieve:
+    if not retrieve:
         os.system("find frames -name '*.gwf' | lalapps_path2cache > local.cache")
     else:
         os.system("cat *_local.cache > local.cache")
