@@ -72,6 +72,8 @@ def ldg_make_psd(ifo, channel_name,psd_start_time,psd_end_time,srate=4096,use_gw
 parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
 parser.add_argument("--event-time",default=None)
+parser.add_argument("--sim-xml",default=None)
+parser.add_argument("--event",default=None)
 parser.add_argument("--observing-run",default="O2",help="Use the observing run settings to choose defaults for channel names, etc. Not yet implemented using lookup from event time")
 parser.add_argument("--calibration-version",default="C02",help="Calibration version to be used.")
 parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER (will override environment variable, which is used as default)")
@@ -98,6 +100,12 @@ parser.add_argument("--propose-fit-strategy",action='store_true',help="If presen
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
+
+fmax = 1700 # default
+psd_names = {}
+event_dict = {}
+
+
 if opts.online:
     opts.calibration_version = "C00"  # will define online variants of C00
 
@@ -119,6 +127,26 @@ if (datafind_server is None) and not (opts.fake_data):
 use_gracedb_event = False
 if not(opts.gracedb_id is None):
     use_gracedb_event = True
+elif opts.sim_xml:
+    print "====Loading injection XML:", opts.sim_xml, opts.event, " ======="
+    P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))[opts.event]
+    P.radec =False  # do NOT propagate the epoch later
+    P.fref = opts.fmin_template
+    P.fmin = opts.fmin_template
+    event_dict["tref"]=P.tref = opts.event_time
+    event_dict["m1"] = P.m1/lal.MSUN_SI
+    event_dict["m2"] = P.m2/lal.MSUN_SI
+    event_dict["s1z"] = P.s1z
+    event_dict["s2z"] = P.s2z
+    event_dict["P"] = P
+    event_dict["epoch"]  = 0 # no estimate for now
+
+    # PSDs must be provided by hand, IF this is done by this code!
+    if not (opts.psd_file is None):
+        for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
+            psd_names[inst] = psdf
+
+
 
 
 data_types = {}
@@ -183,16 +211,12 @@ if opts.verbose:
     print standard_channel_names["O3"]
 
 
-fmax = 1700 # default
-psd_names = {}
-event_dict = {}
-
 
 ###
 ### GraceDB branch
 ###
 
-if True: #use_gracedb_event:
+if use_gracedb_event:
     cmd_event = gracedb_exe + " download " + opts.gracedb_id + " event.log"
     os.system(cmd_event)
     # Parse gracedb. Note very annoying heterogeneity in event.log files
@@ -250,9 +274,9 @@ if True: #use_gracedb_event:
 
 if "SNR" in event_dict.keys():
     lnLmax_true = event_dict['SNR']**2 / 2.
-    lnLoffset_early = 0.1*lnLmax_true  # default value early on : should be good enough
+    lnLoffset_early = 0.5*lnLmax_true  # default value early on : should be good enough
 else:
-    lnLoffset_early = 150  # a fiducial value, good enough for a wide range of SNRs 
+    lnLoffset_early = 500  # a fiducial value, good enough for a wide range of SNRs 
 
 # Estimate signal duration
 t_event = event_dict["tref"]
@@ -268,7 +292,7 @@ data_end_time = t_event + int(t_before) # for inverse spectrum truncation. Overk
 psd_data_start_time = t_event - 2048 - t_before
 psd_data_end_time = t_event - 1024 - t_before
 # set the start time to be the time needed for the PSD, if we are generating a PSD
-if use_gracedb_event and not opts.use_online_psd:
+if (opts.psd_file is None) and  use_gracedb_event and not opts.use_online_psd:
     data_start_time = psd_data_start_time
 
 # define channel names
@@ -280,14 +304,15 @@ for ifo in ifos:
     else:
         channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo)]
 
-# Set up, perform datafind 
-for ifo in ifos:
-    data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
-    ldg_datafind(ifo, data_type_here, datafind_server,data_start_time, data_end_time, datafind_exe=datafind_exe)
+# Set up, perform datafind (if not fake data)
+if not (opts.fake_strain):
+    for ifo in ifos:
+        data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
+        ldg_datafind(ifo, data_type_here, datafind_server,data_start_time, data_end_time, datafind_exe=datafind_exe)
 ldg_make_cache()
 
 # If needed, build PSDs
-if not opts.use_online_psd:
+if (opts.psd_file is None) and not opts.use_online_psd:
     print " PSD construction "
     for ifo in event_dict["IFOs"]:
         print " Building PSD  for ", ifo
