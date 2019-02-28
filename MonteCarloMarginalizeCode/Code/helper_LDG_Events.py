@@ -307,7 +307,7 @@ for ifo in ifos:
         channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo)]
 
 # Set up, perform datafind (if not fake data)
-if not (opts.fake_strain):
+if not (opts.fake_data):
     for ifo in ifos:
         data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
         ldg_datafind(ifo, data_type_here, datafind_server,data_start_time, data_end_time, datafind_exe=datafind_exe)
