@@ -71,9 +71,9 @@ def ldg_make_psd(ifo, channel_name,psd_start_time,psd_end_time,srate=4096,use_gw
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
-parser.add_argument("--event-time",default=None)
+parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
-parser.add_argument("--event",default=None)
+parser.add_argument("--event",type=int,default=None)
 parser.add_argument("--observing-run",default="O2",help="Use the observing run settings to choose defaults for channel names, etc. Not yet implemented using lookup from event time")
 parser.add_argument("--calibration-version",default="C02",help="Calibration version to be used.")
 parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER (will override environment variable, which is used as default)")
