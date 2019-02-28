@@ -122,7 +122,7 @@ create_event_parameter_pipeline_BasicIteration --request-gpu-ILE --ile-n-events-
 
 VERIFY OUTPUT CORRECT, adjust number of iterations to be more reasonable.
 
-Try this, for GW170814 (an example of a triple event, but the coinc.xml/helper is currently only identifying it as an LV double: FIXME)
+__A single event__ :Try this, for GW170814 (an example of a triple event, but the coinc.xml/helper is currently only identifying it as an LV double: FIXME)
 ``
 ./setup_bbh_event.sh G298172
 ``
@@ -131,3 +131,18 @@ or this, for GW170823 (an example of an HL double event)
 ``
 ./setup_bbh_event.sh G298936
 ``
+
+
+__Multiple events__ : So long as events are in GraceDB, you can launch an analysis of multiple events in parallel:
+
+``
+mkdir my_work; cd my_work
+for id in G298172 G298936;
+do
+ ../setup_bbh_event.sh $i
+done
+util_ConsolidateDAGsUnderMaster.sh G* 
+condor_submit_dag master.dag
+``
+
+A similar trick will work with synthetic events.  (You will need to have an XML file with synthetic event parameters, so the helper can target the grid ;and you'll need to modify ``setup_bbh_events.sh`` to use -``-sim-xml`` and ``--event`` instead of `--gracedb-id``.)
