@@ -404,8 +404,8 @@ if opts.test_args:
     ##  Convert job : make results accessible after every iteration.  (Only performed if the tests are active, to make my life easier)
     convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe)
     convert_job.add_condor_cmd("initialdir",opts.working_directory)
-    convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/convert-$(cluster)-$(process).log")
-    convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/convert-$(cluster)-$(process).err")
+    convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).log")
+    convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).err")
     convert_job.write_sub_file()
 
 
@@ -543,6 +543,7 @@ for it in np.arange(it_start,opts.n_iterations):
     if opts.test_args:
         convert_node=pipeline.CondorDAGNode(convert_job)
         convert_node.add_macro("macroiteration", it+1)  # convert the NEWLY-PRODUCED iteration
+        convert_node.add_macro("macroiterationlast", it)  # use log files in the previous directory
         convert_node.add_parent(parent_fit_node)
         convert_node.set_category("CONVERT")
         dag.add_node(convert_node)
