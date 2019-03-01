@@ -28,6 +28,9 @@ If you are working with this development repository, please try to add your name
  3. If you are using a GPU-optimized version, please acknowledge
      4.  Wysocki, O'Shaughnessy,  Fong, Lange [paper](https://arxiv.org/abs/1902.04934)
 
+ 4. If you are doing EM-based PE, please acknowledge
+     5.  Champion et al (in prep)
+
 
 ## Authorlists: Opt-in model
 Several aspects of this code are very actively developed.  We encourage  close collaboration with the lead developers (O'Shaughnessy and Lange) to produce the best possible results, particularly given comparatively rapid changes to the interface and pipeline in the past and planned for the future as the user- and developer-base expands.
@@ -42,7 +45,7 @@ The following authors should be contacted
   * O'Shaughnessy and Lange: Iterative pipeline, fitting and posterior generation code, external interfaces (EOB, surrogates)
   * Field, O'Shaughnessy, Blackman: Surrogate basis method 
   * Wysocki, O'Shaughnessy,  Fong, Lange: GPU optimizations
-  * ...
+  * Champion, Birnholz, O'Shaughnessy, ... : EM PE, EM+GW PE
 
 ## Relationship to version of rapid_pe in lalsuite
 Chris Pankow has also been maintaining a [port of the original rapid_pe as part of lalsuite](https://github.com/lscsoft/lalsuite/tree/master/lalinference/python/lalinference/rapid_pe). While this code is unreviewed and has many API and workflow differences, the underlying likelihood evaluation procedure has been the same (until the recent GPU rewrite).  We hope to eventually merge the codebases, likely by modernizing the version in lalsuite and/or by ports of rapid_pe techniques to next-generation PE codes.
