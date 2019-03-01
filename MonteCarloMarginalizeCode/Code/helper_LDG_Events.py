@@ -97,6 +97,7 @@ parser.add_argument("--lowlatency-propose-approximant",action='store_true', help
 parser.add_argument("--online", action='store_true', help="Use online settings")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
+parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
@@ -418,7 +419,8 @@ if opts.propose_fit_strategy:
     print " Fit strategy NOT IMPLEMENTED -- currently just provides basic parameterization options. Need to work in real strategies (e.g., cip-arg-list)"
     helper_cip_args += " --lnL-offset " + str(lnLoffset_early)
     helper_cip_args += ' --cap-points 12000 --no-plots --fit-method gp  --parameter mc --parameter delta_mc '
-    helper_cip_args += mc_range_str + eta_range_str
+    if not opts.no_propose_limits:
+        helper_cip_args += mc_range_str + eta_range_str
 
     helper_cip_arg_list_common = ' ' +  str(helper_cip_args)
     helper_cip_arg_list = [" 2" + helper_cip_arg_list_common, " 4 " +  helper_cip_arg_list_common]
