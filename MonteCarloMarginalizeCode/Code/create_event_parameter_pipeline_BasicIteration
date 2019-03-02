@@ -120,8 +120,9 @@ if not (opts.cip_args_list is None):
     with open(opts.cip_args_list) as f:
         cip_args_lines = f.readlines()
     cip_args_n = map(lambda x: int(x.split(' ')[0]), cip_args_lines)  # Pull off the integer
-    cip_args_lines = map(lambda x: ' '.join(x.split(' ')[1:]), cip_args_lines)
+    cip_args_lines = map(lambda x: ' '.join(x.split(' ')[1:]), cip_args_lines) # pull off the integer
     cip_args_lines = map( lambda x : x.replace('[', ' \'[').replace(']', ']\'').rstrip(), cip_args_lines)
+    cip_args_lines = map( lambda x: x.lstrip() ) # remove leading whitespace
     for line in cip_args_lines:
         print " CIP ", line
 
