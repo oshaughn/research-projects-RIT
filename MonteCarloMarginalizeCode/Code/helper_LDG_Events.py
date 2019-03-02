@@ -289,7 +289,7 @@ if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
 
 if "SNR" in event_dict.keys():
     lnLmax_true = event_dict['SNR']**2 / 2.
-    lnLoffset_early = 0.5*lnLmax_true  # default value early on : should be good enough
+    lnLoffset_early = lnLmax_true  # default value early on : should be good enough
 else:
     lnLoffset_early = 500  # a fiducial value, good enough for a wide range of SNRs 
 
