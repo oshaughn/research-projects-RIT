@@ -402,11 +402,23 @@ if opts.lowlatency_propose_approximant:
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
 
 if opts.propose_initial_grid:
+    # add basic mass parameters
     cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[0.0,0.5]'  "
+    # Add standard downselects : do not have m1, m2 be less than 1
+    cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
     if opts.assume_nospin:
         cmd += " --grid-cartesian-npts 500 " 
     else:
-        cmd += " --parameter chieff_aligned --parameter-range    ["+str(chieff_min)+","+str(chieff_max)+"]  --grid-cartesian-npts 2000 "
+        chieff_range = str([chieff_min,chieff_max]).replace(' ', '')   # assumes all chieff are possible
+        if opts.propose_fit_strategy:
+            # If we don't have a fit plan, use the NS spin maximum as the default
+            if (P.extract_param('mc')/lal.MSUN_SI < 2.6):   # assume a maximum NS mass of 3 Msun
+                chi_max = 0.05   # propose a maximum NS spin
+                chi_range = str([-chi_max,chi_max]).replace(' ','')
+                chieff_range = chi_range  # force to be smaller
+                cmd += " --downselect-parameter s1z --dowselect-parameter-range " + chi_range + "   --downselect-parameter s2z --dowselect-parameter-range " + chi_range 
+
+        cmd += " --parameter chieff_aligned  --parameter-range " + chieff_range+  " --grid-cartesian-npts 2000 "
     print " Executing grid command ", cmd
     os.system(cmd)
     
