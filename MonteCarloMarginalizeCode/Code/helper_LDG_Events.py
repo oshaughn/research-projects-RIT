@@ -383,7 +383,7 @@ for ifo in ifos:
         helper_ile_args += " --fmin-ifo "+ifo+"="+str(opts.fmin)
 helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
-helper_ile_args += " --reference-frequency " + str(opts.fmin_template)  # in case we are using a code which allows this to be specified
+helper_ile_args += " --reference-freq " + str(opts.fmin_template)  # in case we are using a code which allows this to be specified
 if opts.lowlatency_propose_approximant:
 #    approx  = lalsim.TaylorF2
     approx_str = "SpinTaylorT4"
