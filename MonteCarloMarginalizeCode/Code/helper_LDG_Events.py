@@ -383,6 +383,7 @@ for ifo in ifos:
         helper_ile_args += " --fmin-ifo "+ifo+"="+str(opts.fmin)
 helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
+helper_ile_args += " --reference-frequency " + str(opts.fmin_template)  # in case we are using a code which allows this to be specified
 if opts.lowlatency_propose_approximant:
 #    approx  = lalsim.TaylorF2
     approx_str = "SpinTaylorT4"
@@ -451,8 +452,8 @@ if opts.propose_fit_strategy:
     if not opts.no_propose_limits:
         helper_cip_args += mc_range_str + eta_range_str
 
-    helper_cip_arg_list_common = str(helper_cip_args)
-    helper_cip_arg_list = ["2 " + helper_cip_arg_list_common[1:], "4 " +  helper_cip_arg_list_common[1:] ] # drop 'X'
+    helper_cip_arg_list_common = str(helper_cip_args)[1:] # drop X
+    helper_cip_arg_list = ["2 " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
     if not opts.assume_nospin:
         helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
         helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
