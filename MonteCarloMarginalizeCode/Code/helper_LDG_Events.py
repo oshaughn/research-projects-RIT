@@ -422,7 +422,7 @@ if opts.propose_initial_grid:
                 chi_max = 0.05   # propose a maximum NS spin
                 chi_range = str([-chi_max,chi_max]).replace(' ','')
                 chieff_range = chi_range  # force to be smaller
-                cmd += " --downselect-parameter s1z --dowselect-parameter-range " + chi_range + "   --downselect-parameter s2z --dowselect-parameter-range " + chi_range 
+                cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
         cmd += " --parameter chieff_aligned  --parameter-range " + chieff_range+  " --grid-cartesian-npts 2000 "
     print " Executing grid command ", cmd
