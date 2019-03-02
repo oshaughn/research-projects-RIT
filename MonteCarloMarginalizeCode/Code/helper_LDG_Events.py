@@ -451,8 +451,8 @@ if opts.propose_fit_strategy:
     if not opts.no_propose_limits:
         helper_cip_args += mc_range_str + eta_range_str
 
-    helper_cip_arg_list_common = ' ' +  str(helper_cip_args)
-    helper_cip_arg_list = ["2" + helper_cip_arg_list_common[1:], "4 " +  helper_cip_arg_list_common[1:] ] # drop 'X'
+    helper_cip_arg_list_common = str(helper_cip_args)
+    helper_cip_arg_list = ["2 " + helper_cip_arg_list_common[1:], "4 " +  helper_cip_arg_list_common[1:] ] # drop 'X'
     if not opts.assume_nospin:
         helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
         helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
