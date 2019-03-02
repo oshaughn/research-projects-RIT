@@ -323,7 +323,7 @@ for ifo in ifos:
 if not (opts.fake_data):
     for ifo in ifos:
         data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
-        ldg_datafind(ifo, data_type_here, datafind_server,data_start_time, data_end_time, datafind_exe=datafind_exe)
+        ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
 ldg_make_cache()
 
 # If needed, build PSDs
