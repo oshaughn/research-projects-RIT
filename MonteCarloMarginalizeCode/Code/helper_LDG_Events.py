@@ -71,6 +71,7 @@ def ldg_make_psd(ifo, channel_name,psd_start_time,psd_end_time,srate=4096,use_gw
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
+parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
 parser.add_argument("--event",type=int,default=None)
@@ -113,6 +114,11 @@ if opts.online:
 
 datafind_exe = opts.datafind_exe
 gracedb_exe = opts.gracedb_exe
+download_request = " get file "
+if opts.legacy_gracedb:
+    gracedb_exe = "gracedb_legacy"
+    download_request = " download "
+
 
 datafind_server = None
 try:
@@ -222,7 +228,7 @@ if opts.verbose:
 ###
 
 if use_gracedb_event:
-    cmd_event = gracedb_exe + " download " + opts.gracedb_id + " event.log"
+    cmd_event = gracedb_exe + download_request + opts.gracedb_id + " event.log"
     os.system(cmd_event)
     # Parse gracedb. Note very annoying heterogeneity in event.log files
     with open("event.log",'r') as f:
@@ -242,7 +248,7 @@ if use_gracedb_event:
                 event_dict["IFOs"] = ifo_list
 
     # Read in event parameters. Use masses as quick estimate
-    cmd_event = gracedb_exe + " download " + opts.gracedb_id + " coinc.xml"
+    cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
     os.system(cmd_event)
     samples = table.get_table(utils.load_filename("coinc.xml",contenthandler=lalsimutils.cthdler), lsctables.SnglInspiralTable.tableName)
     for row in samples:
@@ -262,7 +268,7 @@ if use_gracedb_event:
 
     # Get PSD
     fmax = 1000.
-    cmd_event = gracedb_exe + " download " + opts.gracedb_id + " psd.xml.gz"
+    cmd_event = gracedb_exe + download_request + opts.gracedb_id + " psd.xml.gz"
     os.system(cmd_event)
     if opts.use_online_psd:
         cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
