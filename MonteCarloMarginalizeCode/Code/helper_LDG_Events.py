@@ -324,7 +324,7 @@ if not (opts.fake_data):
     for ifo in ifos:
         data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
-ldg_make_cache()
+ldg_make_cache(retrieve=not (opts.gracedb_id is None)) # we are using the ifo_local.cache files
 
 # If needed, build PSDs
 if (opts.psd_file is None) and not opts.use_online_psd:
