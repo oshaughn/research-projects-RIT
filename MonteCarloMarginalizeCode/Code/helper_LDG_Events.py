@@ -115,7 +115,7 @@ if opts.online:
 datafind_exe = opts.datafind_exe
 gracedb_exe = opts.gracedb_exe
 download_request = " get file "
-if opts.legacy_gracedb:
+if opts.use_legacy_gracedb:
     gracedb_exe = "gracedb_legacy"
     download_request = " download "
 
