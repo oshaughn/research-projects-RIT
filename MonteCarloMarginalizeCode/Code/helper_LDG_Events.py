@@ -460,7 +460,7 @@ if opts.propose_fit_strategy:
         helper_cip_args += mc_range_str + eta_range_str
 
     helper_cip_arg_list_common = str(helper_cip_args)[1:] # drop X
-    helper_cip_arg_list = ["2 " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
+    helper_cip_arg_list = ["3 " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
     if not opts.assume_nospin:
         helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
         helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
@@ -474,6 +474,13 @@ if opts.propose_fit_strategy:
             helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
     if opts.assume_matter:
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
+        helper_arg_list = helper_cip_arg_list.append(helper_cip_arg_list[-1]) # add two lines with the same parameters as the last line
+        helper_arg_list = helper_cip_arg_list.append(helper_cip_arg_list[-1]) 
+        # Make the second to last line include tides
+        #    - first iterations add lambdatilde
+        #    - second iterations add deltalambda
+        helper_arg_list[-2] +=  " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
+        helper_arg_list[-1] +=  " --input-tides --parameter-implied LambdaTilde --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
 
 with open("helper_cip_args.txt",'w') as f:
     f.write(helper_cip_args)
