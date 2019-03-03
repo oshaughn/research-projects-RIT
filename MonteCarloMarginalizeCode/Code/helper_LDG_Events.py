@@ -287,9 +287,11 @@ if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
 ### General logic 
 ###
 
+snr_fac = 1
 if "SNR" in event_dict.keys():
     lnLmax_true = event_dict['SNR']**2 / 2.
     lnLoffset_early = lnLmax_true  # default value early on : should be good enough
+    snr_fac = event_dict["SNR"]/15.  # scale down regions accordingly
 else:
     lnLoffset_early = 500  # a fiducial value, good enough for a wide range of SNRs 
 
@@ -339,19 +341,24 @@ if (opts.psd_file is None) and not opts.use_online_psd:
             sys.exit(1)
 
 # Estimate mc range, eta range
+#   - UPDATE: need to add scaling with SNR too
 
 mc_center = event_dict["MChirp"]
 v_PN_param = (np.pi* mc_center*opts.fmin*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
 v_PN_param = np.min([v_PN_param,1])
-ln_mc_error_pseudo_fisher = 0.3*(v_PN_param/0.2)**(6.)  # this ignores range due to redshift / distance, based on a low-order estimate
+ln_mc_error_pseudo_fisher = 0.3*(v_PN_param/0.2)**(8.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
 mc_min = (1-ln_mc_error_pseudo_fisher)*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
 mc_max=(1+ln_mc_error_pseudo_fisher)*mc_center   # conservative ! 
 
 eta_min = 0.1  # default for now, will fix this later
+delta_max =0.5
+if mc_center < 2.6 and opts.proropse_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
+    eta_min = lalsimutils.symRatio(3,1.)
+    delta_max = (3.-1.)/(4.)
 
 chieff_center = P.extract_param('xi')
-chieff_min = np.max([chieff_center -0.3,-1])
-chieff_max = np.max([chieff_center +0.3,1])
+chieff_min = np.max([chieff_center -0.3,-1])/snr_fac
+chieff_max = np.max([chieff_center +0.3,1])/snr_fac
 
 mc_range_str = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 eta_range_str = " --eta-range ["+str(eta_min)+",0.249999]"  # default will include  1, as we work with BBHs
@@ -425,7 +432,7 @@ if opts.propose_initial_grid:
                 chieff_range = chi_range  # force to be smaller
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
-        cmd += " --parameter chieff_aligned  --parameter-range " + chieff_range+  " --grid-cartesian-npts 2000 "
+        cmd += " --parameter chieff_aligned  --parameter-range " + chieff_range+  " --grid-cartesian-npts 3000 "
     print " Executing grid command ", cmd
     os.system(cmd)
     
