@@ -352,7 +352,7 @@ mc_max=(1+ln_mc_error_pseudo_fisher)*mc_center   # conservative !
 
 eta_min = 0.1  # default for now, will fix this later
 delta_max =0.5
-if mc_center < 2.6 and opts.proropse_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
+if mc_center < 2.6 and opts.proopse_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
     eta_min = lalsimutils.symRatio(3,1.)
     delta_max = (3.-1.)/(4.)
 
