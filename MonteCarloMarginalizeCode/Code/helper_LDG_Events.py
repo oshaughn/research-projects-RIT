@@ -346,7 +346,7 @@ if (opts.psd_file is None) and not opts.use_online_psd:
 mc_center = event_dict["MChirp"]
 v_PN_param = (np.pi* mc_center*opts.fmin*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
 v_PN_param = np.min([v_PN_param,1])
-ln_mc_error_pseudo_fisher = 0.3*(v_PN_param/0.2)**(8.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
+ln_mc_error_pseudo_fisher = 0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
 mc_min = (1-ln_mc_error_pseudo_fisher)*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
 mc_max=(1+ln_mc_error_pseudo_fisher)*mc_center   # conservative ! 
 
@@ -417,7 +417,7 @@ if opts.lowlatency_propose_approximant:
 
 if opts.propose_initial_grid:
     # add basic mass parameters
-    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[0.0,0.5]'  "
+    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[0.0," + str(delta_max) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
     cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
     if opts.assume_nospin:
