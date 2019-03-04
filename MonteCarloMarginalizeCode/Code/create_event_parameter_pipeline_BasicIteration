@@ -44,6 +44,16 @@
 #         
 
 
+###
+###  PLANS FOR IMPROVEMENT
+###
+#
+# * Stress-testing final fit
+#       - single-iteration runs which change lnL and/or coordinates
+#       - note this can be done with a DRIVER, does not need to be hardcoded?
+# * BCR/BCI (single-ifo vs multi-ifo run)
+#       - runs which do PE on single IFOs and 
+#       - again, this can be done with a DRIVER
 
 import argparse
 import sys
