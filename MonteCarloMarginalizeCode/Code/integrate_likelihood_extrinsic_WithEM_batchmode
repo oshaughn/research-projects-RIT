@@ -427,11 +427,10 @@ for Psig in P_list:
 # Load in EM data
 #
 
-t_julian_date = some_function_of(event_time)
 
 # Parse data and store in internal format in our working directory
-em_pe.parser.parse_json.parse_json(t_julian_date, opts.em_data_json, opts.em_data_band,
-                      opts.em_data_workingdir, tmax=optp.em_data_tmax_days)  # change this as need
+em_pe.parser.parse_json.parse_json(event_time, opts.em_data_json, opts.em_data_band,
+                      opts.em_data_workingdir, tmax=optp.em_data_tmax_days,gps_time=True)  # change this as need
 
 
 #
