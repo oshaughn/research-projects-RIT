@@ -290,8 +290,8 @@ if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
 snr_fac = 1
 if "SNR" in event_dict.keys():
     lnLmax_true = event_dict['SNR']**2 / 2.
-    lnLoffset_early = lnLmax_true  # default value early on : should be good enough
-    snr_fac = event_dict["SNR"]/15.  # scale down regions accordingly
+    lnLoffset_early = 0.8*lnLmax_true  # default value early on : should be good enough
+    snr_fac = np.max([snr_fac, event_dict["SNR"]/15.])  # scale down regions accordingly
 else:
     lnLoffset_early = 500  # a fiducial value, good enough for a wide range of SNRs 
 
@@ -353,8 +353,14 @@ mc_max=(1+ln_mc_error_pseudo_fisher)*mc_center   # conservative !
 eta_min = 0.1  # default for now, will fix this later
 delta_max =0.5
 if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
-    eta_min = lalsimutils.symRatio(3,1.)
-    delta_max = (3.-1.)/(4.)
+    import scipy.optimize.root_scalar
+    # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
+    def crit_m2(delta):
+        eta_val = 0.25*(1-delta*delta)
+        return 0.5*mc_center*(eta_val**(-3./5.))*delta - 1
+    res = scipy.optimize.brentq(crit_m2, 0.001,0.999) # critical value of delta: largest possible for this mc value
+    delta_max =1.1*res
+    eta_min = 0.25*(1-delta_max*delta_max)
 
 chieff_center = P.extract_param('xi')
 chieff_min = np.max([chieff_center -0.3,-1])/snr_fac
