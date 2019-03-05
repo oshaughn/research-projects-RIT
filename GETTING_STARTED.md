@@ -97,7 +97,7 @@ Because we produce multiple iterations, you probably want to compare those itera
 
 ## Walkthrough of an example on a GraceDB event  (Feb 2019 edition)
 
-PLACEHOLDER
+PLACEHOLDER: Not the best convergence options
 
 We'll have something working through gwcelery and with a configparser soon.
 
@@ -110,7 +110,7 @@ Make the following driver script and call it ``setup_bbh_event.sh``.
 ```
 mkdir ${1}_analysis_lowlatency
 cd ${1}_analysis_lowlatency
-helper_LDG_Events.py --gracedb-id $1 --use-online-psd --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid --fmin 20 --fmin-template 20 --working-directory `pwd` --lowlatency-propose-approximant
+helper_LDG_Events.py --use-legacy-gracedb --gracedb-id $1 --use-online-psd --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid --fmin 20 --fmin-template 20 --working-directory `pwd` --lowlatency-propose-approximant
 
 echo  `cat helper_ile_args.txt`   > args_ile.txt
 echo `cat helper_cip_args.txt`  --n-output-samples 5000 --n-eff 5000 --lnL-offset 50 > args_cip.txt
@@ -145,4 +145,69 @@ util_ConsolidateDAGsUnderMaster.sh G*
 condor_submit_dag master.dag
 ``
 
-A similar trick will work with synthetic events.  (You will need to have an XML file with synthetic event parameters, so the helper can target the grid ;and you'll need to modify ``setup_bbh_events.sh`` to use -``-sim-xml`` and ``--event`` instead of `--gracedb-id``.)
+A similar trick will work with synthetic events; see below
+
+## Walkthrough of an example which generates synthetic zero-noise data (Mar 2019 edition)
+Suppose you have a file ``my_injections.xml.gz` of binary neutron star injections.
+The following script will generate fake (zero-noise) data and an analysis configuration for it, with the command
+```
+ ./setup_synthetic_bns_analysis.sh `pwd`/my_injections.xml.gz 0
+```
+and similarly for any specific event of interest.
+
+
+```
+HERE=`pwd`
+
+INJ_XML=$1
+EVENT_ID=$2
+
+# Generate PSDs
+if [ ! -e ${HERE}/HLV-aLIGO_PSD.xml.gz  ]; then
+  ${HERE}/generate_aligo_psd
+fi
+
+mkdir synthetic_analysis_bns_event_${EVENT_ID}
+cd synthetic_analysis_bns_event_${EVENT_ID}
+
+# Write frame files
+START=999999000
+STOP=1000000200
+EVENT_TIME=1000000000
+APPROX=SpinTaylorT4
+
+if [ ! -e local.cache ]; then
+ mkdir frames;
+ for ifo in H1 L1 V1
+ do
+ (cd frames;
+  util_LALWriteFrame.py --inj  ${INJ_XML} --event ${EVENT_ID} --start ${START} --stop ${STOP} --instrument ${ifo} --approx ${APPROX} #--verbose
+ );
+ done;
+fi
+/bin/find frames/ -name '*.gwf' | lalapps_path2cache > local.cache
+
+# Compute SNR (zero noise realization)
+if [ ! -e snr_report.txt ]; then 
+   util_FrameZeroNoiseSNR.py --cache local.cache --psd-file H1=${HERE}/HLV-aLIGO_PSD.xml.gz --psd-file L1=${HERE}/HLV-aLIGO_PSD.xml.gz  --psd-file V1=${HERE}/HLV-aLIGO_PSD.xml.gz --fmin-snr 20 --fmax-snr 1700 > snr_report.txt
+fi 
+
+# extract SNR for file.  Hint used below, so we can be intelligent for very high SNR events
+SNR_HERE=`tail -n 1 snr_report.txt | awk '{print $4}' | tr ',' ' '  `
+
+# set up prototype command lines
+helper_LDG_Events.py --sim-xml $1 --event $2 --event-time ${EVENT_TIME} --fake-data  --propose-initial-grid --propose-fit-strategy --propose-ile-convergence-options   --fmin 20 --fmin-template 20 --working-directory `pwd` --lowlatency-propose-approximant --psd-file H1=${HERE}/HLV-aLIGO_PSD.xml.gz --psd-file L1=${HERE}/HLV-aLIGO_PSD.xml.gz  --psd-file V1=${HERE}/HLV-aLIGO_PSD.xml.gz  --hint-snr ${SNR_HERE}
+
+
+echo  `cat helper_ile_args.txt`   > args_ile.txt
+echo `cat helper_test_args.txt`   > args_test.txt
+# Loop over all helper lines, append this to it
+for i in `seq 1 2`  
+do 
+  echo  --n-output-samples 10000 --n-eff 10000 --n-max 10000000   --downselect-parameter m2 --downselect-parameter-range [1,1000]  --chi-max 0.05
+done  > tmp.txt
+cat helper_cip_arg_list.txt | paste -d ' ' - tmp.txt  > args_cip_list.txt
+
+create_event_parameter_pipeline_BasicIteration --request-gpu-ILE --ile-n-events-to-analyze 50 --input-grid `pwd`/proposed-grid.xml.gz  --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt  --test-args args_test.txt --request-memory-CIP 30000 --request-memory-ILE 4096 --n-samples-per-job 1000 --working-directory `pwd` --n-iterations 5 --n-copies 2
+```
+
