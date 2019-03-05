@@ -451,6 +451,11 @@ if opts.propose_ile_convergence_options:
     # Note that number of events to analyze is controlled by a different part of the workflow !
     helper_ile_args += " --vectorized --gpu  --no-adapt-after-first --no-adapt-distance --srate 4096 "
 
+    if snr_fac > 1.5:  # this is a pretty loud signal, so we need to tune the adaptive exponent too!
+        helper_ile_args += " --adapt-weight-exponent " + str(0.3/np.power(snr_fac/1.5,2))
+    else:
+        helper_ile_args += " --adapt-weight-exponent  0.3 "  # typical value
+
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
 if not opts.lowlatency_propose_approximant:
