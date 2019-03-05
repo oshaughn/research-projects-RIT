@@ -353,7 +353,7 @@ mc_max=(1+ln_mc_error_pseudo_fisher)*mc_center   # conservative !
 eta_min = 0.1  # default for now, will fix this later
 delta_max =0.5
 if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
-    import scipy.optimize.root_scalar
+    import scipy.optimize
     # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
     def crit_m2(delta):
         eta_val = 0.25*(1-delta*delta)
