@@ -408,7 +408,7 @@ if opts.lowlatency_propose_approximant:
     helper_cip_args += " --approx-output " + approx_str  # insure the two codes are talking about the same approximant. Avoid silly things.
 
     # Also choose d-max. Relies on archival and fixed network sensitvity estimates.
-    dmax_guess = 2.5*2.26*typical_bns_range_Mpc[opts.observing_run]* (mc_Msun/1.2)**(5./6.)
+    dmax_guess =(12/snr_fac)* 2.5*2.26*typical_bns_range_Mpc[opts.observing_run]* (mc_Msun/1.2)**(5./6.)
     dmax_guess = np.min([dmax_guess,10000]) # place ceiling
     helper_ile_args +=  " --d-max " + str(int(dmax_guess))
 
