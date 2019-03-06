@@ -147,13 +147,13 @@ condor_submit_dag master.dag
 
 A similar trick will work with synthetic events; see below
 
-## Walkthrough of an example which generates synthetic zero-noise data (Mar 2019 edition)
+## Walkthrough of an example which generates synthetic zero-noise nonprecessing BNS (Mar 2019 edition)
 Suppose you have a file ``my_injections.xml.gz` of binary neutron star injections.
-The following script will generate fake (zero-noise) data and an analysis configuration for it, with the command
+The following script will generate fake (zero-noise) data and an analysis configuration for it.  The analysis will use SpinTaylorT4 starting at 20 Hz, and assume the binaries don't precess.  Assuming you put the script in the corresponding file, the script will generate one analysis setup with the command
 ```
  ./setup_synthetic_bns_analysis.sh `pwd`/my_injections.xml.gz 0
 ```
-and similarly for any specific event of interest.
+and similarly for any specific event of interest.  You can loop over several events if you want to perform a large-scale study. 
 
 
 ```
