@@ -154,7 +154,7 @@ def extract_combination_from_LI(samples_LI, p):
        if remap_ILE_2_LI[p] in samples_LI.dtype.names:
          return samples_LI[ remap_ILE_2_LI[p] ]
     # Return cartesian components of spin1, spin2.  NOTE: I may already populate these quantities in 'Add important quantities'
-    if p == 'chi_eff' and 'a1z' in samples_LI.dtype.names:
+    if (p =='xi' or p == 'chi_eff') and 'a1z' in samples_LI.dtype.names:
         m1 = samples_LI['m1']
         m2 = samples_LI['m2']
         a1z = samples_LI['a1z']
