@@ -211,3 +211,13 @@ cat helper_cip_arg_list.txt | paste -d ' ' - tmp.txt  > args_cip_list.txt
 create_event_parameter_pipeline_BasicIteration --request-gpu-ILE --ile-n-events-to-analyze 50 --input-grid `pwd`/proposed-grid.xml.gz  --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt  --test-args args_test.txt --request-memory-CIP 30000 --request-memory-ILE 4096 --n-samples-per-job 1000 --working-directory `pwd` --n-iterations 5 --n-copies 2
 ```
 
+
+
+## Walkthrough of an open-data example (in progress, Mar 2019)
+
+RIFT natively works with standard LIGO frame files.  To analyze open data, we propose you retrieve open data with [gwpy](https://gwpy.github.io/docs/latest/examples/timeseries/public.html), and then [output the data in a frame format](https://gwpy.github.io/docs/stable/timeseries/io.html).  Once you have frame files, you can create ```*.cache``` index files as in the synthetic data example above.
+
+We will post a concrete driver script which performs these steps shortly.   In the meantime, we recommend you propose using FAKE-STRAIN as the channel name, and use --fake-strain as an argument to the helper_LDG_Events script, so the code will correctly match proposed channel names to your frame files.
+
+
+FINISH WITH CONCRETE DRIVER SCRIPT
