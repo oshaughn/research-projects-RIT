@@ -1,5 +1,4 @@
 
-
 In this document, we'll walk you through the bare minimum needed to get RIFT up and running.  We won't explain all the settings, but you will get a realistic analysis working.   You can find a more comprehensive and pedagogical tutorial at
 ```
 https://git.ligo.org/pe/tutorials/blob/master/offline_RIFT.md
@@ -32,7 +31,7 @@ While it is not necessary, we recommend you log in to a machine with a GPU (e.g.
 
 
 ### Setting up and understanding the analysis
-The following commands set up the workflow.  
+The following commands set up the workflow. 
 ```
 git  clone https://github.com/oshaughn/ILE-GPU-Paper.git
 cd ILE-GPU-Paper/demos/
@@ -47,6 +46,7 @@ Before you submit a workflow, however, we recommend you first confirm you've set
 ```
 ./command-single.sh
 ```
+(This command will run anywhere; however, it will only test the GPU configuration if you run it on a machine with a GPU, like pcdev13 or pcdev11 at CIT)
 
 The workflow loosely consists of two parts: worker ILE jobs, which evaluate the marginalized likelihood; and fitting/posterior jobs, which fit the marginalized likelihood and estimate the posterior distribution.  Other nodes help group the output of individual jobs and iterations together.  Unless otherwise noted, all quantities provided are detector-frame;  we haven't added automation for source-frame yet.
 
