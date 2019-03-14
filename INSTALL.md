@@ -1,4 +1,3 @@
-
 We are working on refactoring the code to make it a properly-install-able package.
 
 Right now, however, you install the code by downloading the source,
@@ -19,7 +18,7 @@ putting the following directory in your PATH and PYTHONPATH
 
 and making sure you have installed the necessary dependencies.  The following command will at least insure that these dependencies are up to date 
 ```
-  python setup.py install 
+  python setup.py install --user
 ```
 
 ## lalsuite
