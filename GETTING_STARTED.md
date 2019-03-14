@@ -23,6 +23,15 @@ hlmT = lalsimutils.hlmoft(P)  # Make hlm modes. Confirms you have a version of l
 lalsimutils.ChooseWaveformParams_array_to_xml([P], "outfile") # write P parameters to xml file. Confirms XML i/o working (glue/ligolw, etc)
 ```
 
+## TEMPORARY WORKAROUND (Mar 2019)
+
+The permissions of some executables are not correctly set.
+If you get an error that a command is not found, please set the execute bit accordingly.
+We'll fix this shortly.
+
+```
+chmod a+x research-projects-RIT/MonteCarloMarginalizeCode/Code/util_WriteInjectionFile.py
+```
 
 ## Walkthrough of an example on synthetic data  (Feb 2019 edition)
 
