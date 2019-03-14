@@ -24,6 +24,7 @@ import ROMWaveformManager as romwf
 parser = argparse.ArgumentParser()
 parser.add_argument("--group", default="my_surrogates/nr_surrogates/",help="Surrogate example tutorial/TutorialSurrogate")
 parser.add_argument("--param", default='/SpEC_q1_9_NoSpin_SingleModes_REF.h5',help="Parameter value:  /SpEC_q1_10_NoSpin_nu5thDegPoly_exclude_2_0_FastSplined.h5, ...")
+parser.add_argument("--lmax", type=int, default=2,help="Set max modes")
 parser.add_argument("--fname", default=None, help = "Base name for output frame file. Otherwise auto-generated ")
 parser.add_argument("--instrument", default="H1",help="Use H1, L1,V1")
 parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing injection information.")
@@ -61,7 +62,7 @@ else:
 
     filename = opts.inj
     event = opts.event_id
-    xmldoc = utils.load_filename(filename, verbose = True)
+    xmldoc = utils.load_filename(filename, verbose = True, contenthandler =lalsimutils.cthdler)
     sim_inspiral_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
     P.copy_sim_inspiral(sim_inspiral_table[int(event)])
     if opts.approx:
@@ -80,7 +81,7 @@ if T_est < opts.seglen:
     print " Buffer length too short, automating retuning forced "
 
 # Generate ROM
-acatHere = romwf.WaveformModeCatalog(opts.group, opts.param)
+acatHere = romwf.WaveformModeCatalog(opts.group, opts.param, opts.lmax)
 
 # Generate signal
 hoft = acatHere.real_hoft(P)   # include translation of source, but NOT interpolation onto regular time grid
@@ -119,6 +120,7 @@ lalsimutils.hoft_to_frame_data(fname,channel,hoft)
 if opts.verbose:
     import os
     from matplotlib import pyplot as plt
+    plt.switch_backend('agg')  # fix backend
     # First must create corresponding cache file
     os.system("echo "+ fname+ " | lalapps_path2cache   > test.cache")
     # Now I can read it
