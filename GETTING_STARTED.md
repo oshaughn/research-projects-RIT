@@ -111,7 +111,7 @@ For now, you can do the following (experimental), which for simplicity uses onli
 If you want to use this yourself, **please use the ``--observing-run`` ** argument, to prime the auto-selected arguments (channels, etc) to be appropriate to your analysis.
 
 ### Generation script
-Make the following driver script and call it ``setup_bbh_event.sh``.
+Make the following driver script and call it ``setup_bbh_event.sh``, then do ``chmod a+x setup_bbh_event.sh``
 ```
 mkdir ${1}_analysis_lowlatency
 cd ${1}_analysis_lowlatency
