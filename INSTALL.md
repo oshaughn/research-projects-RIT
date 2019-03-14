@@ -1,12 +1,11 @@
 
-
 We are working on refactoring the code to make it a properly-install-able package.
 
 Right now, however, you install the code by downloading the source,
 ```
 git clone https://github.com/oshaughn/research-projects-RIT.git
-git checkout temp-RIT-Tides-GPUHackathon   
 cd research-projects-RIT
+git checkout temp-RIT-Tides-port_master-GPUIntegration   
 export INSTALL_DIR=`pwd`
 ```
 
