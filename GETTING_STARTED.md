@@ -99,15 +99,61 @@ Some other things to note
 
 You can and should use standard PE-compatible tools to manipulate ``posterior-samples-N.dat``.  However, for a quick look, the program ``plot_posterior_corner.py`` can make simple corner plots; the syntax is
 
-``
-   plot_posterior_corner.py --posterior-file posterior-samples-5.dat --parameter mc --praameter eta 
-``
+```
+   plot_posterior_corner.py --posterior-file posterior-samples-5.dat --parameter mc --parameter eta 
+```
 For the data products made in this example, I  recommend adding the following options
-``
+
+```
  --plot-1d-extra --ci-list  '[0.9]'  --composite-file all.net --quantiles None  --use-legend 
-``
+```
 
 Because we produce multiple iterations, you probably want to compare those iterations.  To make the process less laborious, in the ``demos`` directory you will find a script called ``plot_last_iterations_with.sh``.  This will identify all the ``posterior-samples-N.dat`` files and make corner plots of *all* of them, superimposed, with the options you request.  Syntax is the same as plot_posterior_corner.py, except you don't need to specify all the individual files.
+
+### Understanding what just happened
+A more thorough discussion of ILE and CIP will be soon found in the main [RIFT LDG tutorial page](https://git.ligo.org/pe/tutorials/blob/master/offline_RIFT.md).
+
+In brief,  the arguments ``--ile-args`` and ``--cip-args`` are most of the arguments to two programs, ```integrate_likelihood_extrinsic_batchmode`` and ``util_ConstructIntrinsicPosterior_GenericCoordinates.py``, called in ILE.sub and CIP.sub.  Let's look at each submit file for this example, and then think about their arguments
+
+#### ILE.sub
+After some reformatting for readbility, the submit file should look something like this
+```
+
+arguments = " --output-file CME_out-$(macromassid)-$(cluster)-$(process).xml \
+   --event $(macroevent) --n-chunk 10000 \
+   --time-marginalization --sim-xml overlap-grid.xml.gz --reference-freq 100.0 --adapt-weight-exponent 0.1 \
+  --event-time 1000000014.236547946 --save-P 0.1 
+    --cache-file SOME_DIR/zero_noise.cache \
+     --fmin-template 10 --n-max 2000000 --fmax 1700.0 
+      --save-deltalnL inf --l-max 2 --n-eff 50 --approximant SEOBNRv4 
+       --adapt-floor-level 0.1 --maximize-only --d-max 1000 -
+        -psd-file H1=SOME_DIR/HLV-ILIGO_PSD.xml.gz --psd-file L1=SOME_DIR/HLV-ILIGO_PSD.xml.gz \
+         --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN \
+ --inclination-cosine-sampler --declination-cosine-sampler \
+--data-start-time 1000000008 --data-end-time 1000000016 --inv-spec-trunc-time 0 \
+--no-adapt-after-first --no-adapt-distance --srate 4096 --vectorized --gpu  
+ --n-events-to-analyze 20 --sim-xml SOME_DIR/overlap-grid-$(macroiteration).xml.gz  "
+request_memory = 2048
+request_GPUs = 1
+
+```
+
+The arguments that are most important to understand are as follows:
+
+* `` --fmin-template 10 --fmax 1700.0 ``: The signal starting frequency and the maximum frequency used in the likleihood.  By default, the template starting frequency is equal to the smallest frequency used in integration.
+* `` --l-max 2 --approximant SEOBNRv4 ``: Set the modes you are using, and the approximant.
+* ``--cache-file ...  --psd-file ... --channel-name ... ``: These arguments specify the specific files identifying the data to analyze and the associated PSD estimates.   
+* ``--n-eff 50 --n-max ...``: This sets the termination condition: the code will  stop when it reaches a fixed number of steps, unless the "effective number of samples" n-eff is greater than 50.  (The latter number is roughly 1/(monte carlo error)^2.)
+
+A few arguments are interesting, but you probably don't need to change them.  We have tools that will select this for you automatically:
+* ``--data-start-time 1000000008 --data-end-time 1000000016 --inv-spec-trunc-time 0 ``: These determine how much data you will analyze.  You don't have to specify these arguments: the code will pick an amount of data based on the templates being used.  However, using less data  will make the code run a little bit faster.
+
+Finally, we have a bunch of arguments you will almost never change
+* ``--save-P 0.1``: Only important with ``--save-samples``, which you should not do yourself.  Only useful for extracting extrinsic parameter information (distance, inclination, etc).  Do not change.
+* `` --time-marginalization ``: You must always do this.  It should be a default.
+* ``  --inclination-cosine-sampler --declination-cosine-sampler``: You should always do this.  It insures sampling is in cos theta and cos inclination.
+* ``   --no-adapt-after-first --no-adapt-distance --srate 4096`` : You should almost always use these arguments.  The last argument sets the sampling rate.  The next two argument insure the adaptive MC integrator  only adjusts its sampling prior for the first point, and only  does so for the two sky location coordinates. 
+* `` --adapt-floor-level 0.1 --adapt-weight-exponent 0.1``: You should usually let the expert code choose these for you.  But if you aren't using a very high SNR source, these are good choices.  They change the way the adaptive sampler works.
 
 ## Walkthrough of an example on a GraceDB event  (Feb 2019 edition)
 
