@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 
 REQUIREMENTS = {
-  "install" : ["numpy>=1.14.0","scipy>=1.0.1"]
+  "install" : ["numpy>=1.14.0","scipy>=1.0.1","h5py", "corner", "numba", "scikit-learn<=0.20"]
 
  }
 

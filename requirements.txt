@@ -1,0 +1,6 @@
+numpy>=1.14.0
+scipy>=1.0.1
+numba
+h5py
+corner
+scikit-learn<=0.20
