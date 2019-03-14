@@ -129,6 +129,7 @@ VERIFY OUTPUT CORRECT, adjust number of iterations to be more reasonable.
 
 __A single event__ :Try this, for GW170814 (an example of a triple event, but the coinc.xml/helper is currently only identifying it as an LV double: FIXME)
 ``
+ligo_proxy_init albert.einstein # yes, for some reason you need to do this even on LDG machines
 ./setup_bbh_event.sh G298172
 ``
 
