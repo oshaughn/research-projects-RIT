@@ -2,12 +2,20 @@
 
 We are working on refactoring the code to make it a properly-install-able package.
 
-Right now, however, you install the code by downloading the source,  putting the following directory in your PATH and PYTHONPATH
+Right now, however, you install the code by downloading the source,
+```
+git clone https://github.com/oshaughn/research-projects-RIT.git
+git checkout temp-RIT-Tides-GPUHackathon   
+cd research-projects-RIT
+export INSTALL_DIR=`pwd`
+```
+
+putting the following directory in your PATH and PYTHONPATH
 
 ```
-   export ILE_CODE_DIR=${INSTALL_DIR}/MonteCarloMarginalizeCode/Code
-   exporth PATH=${PATH}:${ILE_DIR}
-   exporth PYTHONPATH=${PYTHONPATH}:${ILE_DIR}
+   export ILE_DIR=${INSTALL_DIR}/MonteCarloMarginalizeCode/Code
+   export PATH=${PATH}:${ILE_DIR}
+   export PYTHONPATH=${PYTHONPATH}:${ILE_DIR}
 ```
 
 and making sure you have installed the necessary dependencies.  The following command will at least insure that these dependencies are up to date 
