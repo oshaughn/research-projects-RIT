@@ -5,9 +5,14 @@ In this document, we'll walk you through the bare minimum needed to get RIFT up 
 https://git.ligo.org/pe/tutorials/blob/master/offline_RIFT.md
 ```
 
-## Installation
+## Installation and setup
 
-See [INSTALL.md](INSTALL.md)
+See [INSTALL.md](INSTALL.md).  Remember, if you run on an LDG cluster, you need accounting flags:
+
+```
+export LIGO_USER_NAME=albert.einstein  # replace as appropriate
+export LIGO_ACCOUNTING=ligo.dev.o3.cbc.pe.lalinferencerapid
+```
 
 ### Confirming your installation works
 
@@ -23,11 +28,11 @@ hlmT = lalsimutils.hlmoft(P)  # Make hlm modes. Confirms you have a version of l
 lalsimutils.ChooseWaveformParams_array_to_xml([P], "outfile") # write P parameters to xml file. Confirms XML i/o working (glue/ligolw, etc)
 ```
 
-## TEMPORARY WORKAROUND (Mar 2019)
+### Possible workarounds (Mar 2019)
 
-The permissions of some executables are not correctly set.
+The permissions of some executables may not be correctly set. 
 If you get an error that a command is not found, please set the execute bit accordingly.
-We'll fix this shortly.
+We'll fix this shortly.  For example:
 
 ```
 chmod a+x research-projects-RIT/MonteCarloMarginalizeCode/Code/util_WriteInjectionFile.py
