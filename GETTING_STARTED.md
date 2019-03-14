@@ -1,4 +1,3 @@
-
 In this document, we'll walk you through the bare minimum needed to get RIFT up and running.  We won't explain all the settings, but you will get a realistic analysis working.   You can find a more comprehensive and pedagogical tutorial at
 ```
 https://git.ligo.org/pe/tutorials/blob/master/offline_RIFT.md
@@ -20,6 +19,12 @@ P.m2 = 0.6*P.m1
 P.approx = lalsim.SEOBNRv4
 hlmT = lalsimutils.hlmoft(P)  # Make hlm modes. Confirms you have a version of lalsuite with a compatible waveform interface
 lalsimutils.ChooseWaveformParams_array_to_xml([P], "outfile") # write P parameters to xml file. Confirms XML i/o working (glue/ligolw, etc)
+```
+
+Before getting started, make sure you set 
+```
+export LIGO_ACCOUNTING=ligo.dev.o3.cbc.pe.lalinferencerapid
+export LIGO_USER_NAME=albert.einstein # your own username as appropriate
 ```
 
 
