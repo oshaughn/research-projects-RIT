@@ -12,6 +12,7 @@ source virtualenvs/rapidpe_gpu_clean/bin/activate
 cd ${ILE_DIR}
 pip install matploblib==2.2.4  # fixme, should be in setup
 python setup.py install 
+pip install lalsuite
 pip install cupy   # must run on GPU-enabled machine
 ```
 
