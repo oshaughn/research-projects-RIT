@@ -132,6 +132,7 @@ integration_params.add_option("--adapt-adapt",action='store_true',help="Adapt th
 integration_params.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
 integration_params.add_option("--interpolate-time", default=False,help="If using time marginalization, compute using a continuously-interpolated array. (Default=false)")
 integration_params.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
+integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
 integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
@@ -421,7 +422,7 @@ for Psig in P_list:
 #
 
 # PROBLEM: if too large, you can MISS a source. Does NOT need to be fixed for all masses *IF* the problem really has strong support
-dmin = 1.    # min distance
+dmin = opts.d_min    # min distance
 dmax = opts.d_max  # max distance FOR ANY SOURCE EVER. EUCLIDEAN
 
 
