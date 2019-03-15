@@ -43,5 +43,5 @@ If you run on an LDG cluster, you need accounting flags
 
 ```
 export LIGO_USER_NAME=albert.einstein
-export LIGO_ACCOUNTING=
+export LIGO_ACCOUNTING=ligo.dev.o3.cbc.pe.lalinferencerapid
 ```
