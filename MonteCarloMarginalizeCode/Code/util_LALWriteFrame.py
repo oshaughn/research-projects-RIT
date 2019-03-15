@@ -23,6 +23,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--fname", default=None, help = "Base name for output frame file. Otherwise auto-generated ")
 parser.add_argument("--background-cache",default=None,help="If nonzero, loads a frame cache, and overlays with result. Used to add noise. Must specify background-channel ")
 parser.add_argument("--background-channel",default=None,help="If nonzero, loads a frame cache, and overlays with result. Used to add noise. Must specify background-cache ")
+parser.add_argument("--background-add-from-gaussian-psd",action="store_true",help="Adds recolored gaussian noise, based on a specific PSD file")
+parser.add_argument("--psd-file",action='append')
 parser.add_argument("--instrument", default="H1",help="Use H1, L1,V1")
 parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing injection information.")
 parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
@@ -90,9 +92,10 @@ if opts.seglen/hoft.deltaT > hoft.data.length:
 # zero pad some more on either side, to make sure the segment covers start to stop
 if opts.start and hoft.epoch > opts.start:
     nToAddBefore = int((float(hoft.epoch)-opts.start)/hoft.deltaT)
+    # hoft.epoch - nToAddBefore*hoft.deltaT  # this is close to the epoch, but not quite ... we are adjusting it to be within 1 time sample
     print nToAddBefore, hoft.data.length
     ht = lal.CreateREAL8TimeSeries("Template h(t)", 
-            hoft.epoch - nToAddBefore*hoft.deltaT, 0, hoft.deltaT, lalsimutils.lsu_DimensionlessUnit, 
+            opts.start , 0, hoft.deltaT, lalsimutils.lsu_DimensionlessUnit, 
             hoft.data.length+nToAddBefore)
     ht.data.data = np.zeros(ht.data.length)  # clear
     ht.data.data[nToAddBefore:nToAddBefore+hoft.data.length] = hoft.data.data
@@ -110,6 +113,23 @@ if not ( opts.background_cache is None  or opts.background_channel is None and o
     stop = opts.stop
     hoft_bg = lalsimutils.frame_data_to_hoft(opts.background_cache,opts.background_channel,start,stop)
     hoft.data.data += hoft_bg.data.data  # add noise
+# elif opts.background_add_from_gaussian_psd:
+#     # Retrieve PSDs
+#     psd_here=None
+#     for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
+#         if inst == opts.instrument:
+#             print "Reading PSD for instrument %s from %s" % (inst, psdf)
+#             psd_here = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
+
+#     # Generate white noise
+#     ht_noise = lal.CreateREAL8TimeSeries("Template h(t)", 
+#             hoft.epoch, 0, hoft.deltaT, lalsimutils.lsu_DimensionlessUnit, 
+#             hoft.data.length)
+#     ht_noise.data.data = np.random.normal(0,1,size=ht_noise.data.length)
+
+#     # Fourier transform
+#     hF_noise = lalsimutils.DataFourierREAL8(ht_noise)
+
 
 channel = opts.instrument+":FAKE-STRAIN"
 

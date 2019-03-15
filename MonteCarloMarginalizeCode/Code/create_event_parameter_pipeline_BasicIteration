@@ -44,6 +44,16 @@
 #         
 
 
+###
+###  PLANS FOR IMPROVEMENT
+###
+#
+# * Stress-testing final fit
+#       - single-iteration runs which change lnL and/or coordinates
+#       - note this can be done with a DRIVER, does not need to be hardcoded?
+# * BCR/BCI (single-ifo vs multi-ifo run)
+#       - runs which do PE on single IFOs and 
+#       - again, this can be done with a DRIVER
 
 import argparse
 import sys
@@ -70,6 +80,7 @@ parser.add_argument("--cip-args-list",default=None,help="filename of args_cip_li
 parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball")
 parser.add_argument("--puff-args",default=None,help="util_ParameterPuffball arguments.  If not specified, puffball will not be performed  ")
 parser.add_argument("--puff-cadence",default=None,type=int,help="Every n iterations (not including 0), the puffball code will be applied.  Puffball points will be done *in addition* to the usual results from the DAG.  (The puffball is based on perturbing points from that iteration, and this will roughly double that iteration in ILE job size).  Proposed value 2 (i.e., puff overlap-grid-2, ...-4, ...-6.  If not specified, puffball will not be performed ")
+parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
@@ -119,8 +130,9 @@ if not (opts.cip_args_list is None):
     with open(opts.cip_args_list) as f:
         cip_args_lines = f.readlines()
     cip_args_n = map(lambda x: int(x.split(' ')[0]), cip_args_lines)  # Pull off the integer
-    cip_args_lines = map(lambda x: ' '.join(x.split(' ')[1:]), cip_args_lines)
+    cip_args_lines = map(lambda x: ' '.join(x.split(' ')[1:]), cip_args_lines) # pull off the integer
     cip_args_lines = map( lambda x : x.replace('[', ' \'[').replace(']', ']\'').rstrip(), cip_args_lines)
+    cip_args_lines = map( lambda x: x.lstrip(), cip_args_lines ) # remove leading whitespace
     for line in cip_args_lines:
         print " CIP ", line
 
@@ -146,6 +158,7 @@ print "ILE", ile_args
 
 puff_args=None
 puff_cadence = None
+puff_max_it = opts.puff_max_it
 if opts.puff_args and opts.puff_cadence:
     puff_cadence = opts.puff_cadence
     # Load args.txt. Remove first item.  Store
@@ -402,8 +415,8 @@ if opts.test_args:
     ##  Convert job : make results accessible after every iteration.  (Only performed if the tests are active, to make my life easier)
     convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe)
     convert_job.add_condor_cmd("initialdir",opts.working_directory)
-    convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/convert-$(cluster)-$(process).log")
-    convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/convert-$(cluster)-$(process).err")
+    convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).log")
+    convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).err")
     convert_job.write_sub_file()
 
 
@@ -496,7 +509,7 @@ for it in np.arange(it_start,opts.n_iterations):
         dag.add_node(ile_node)
 
     if puff_args and puff_cadence:
-     if it>1 and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
+     if it>1 and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
         print " ILE jobs for puffball on iteration ", it
         for event in np.arange(indx_max):
             ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
@@ -524,7 +537,7 @@ for it in np.arange(it_start,opts.n_iterations):
 
     # Check if puffball being created, and if so create it *immediately* after CIP job creates the overlap-grid file
     if puff_args and puff_cadence:
-      if it > 0 and it%puff_cadence ==0:
+      if it > 0 and it <= puff_max_it and it%puff_cadence ==0:
         print " Puffball for iteration ", it
         puff_node = pipeline.CondorDAGNode(puff_job)
         puff_node.add_macro("macroiteration", it)
@@ -541,6 +554,7 @@ for it in np.arange(it_start,opts.n_iterations):
     if opts.test_args:
         convert_node=pipeline.CondorDAGNode(convert_job)
         convert_node.add_macro("macroiteration", it+1)  # convert the NEWLY-PRODUCED iteration
+        convert_node.add_macro("macroiterationlast", it)  # use log files in the previous directory
         convert_node.add_parent(parent_fit_node)
         convert_node.set_category("CONVERT")
         dag.add_node(convert_node)

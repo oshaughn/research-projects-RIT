@@ -27,12 +27,16 @@ if opts.psd_file:
         psd_name[inst] = psdf
 
 
+ifo_list = ["H1", "L1", "V1"]
+if opts.psd_file:
+    ifo_list = psd_name.keys()
 
 data_dict ={}
 rho_dict ={}
 rho2Net =0
 analyticPSD_Q=True
-for ifo in ['H1','L1']: #, 'V1']:
+for ifo in ifo_list:
+  try:
     channel = ifo+":FAKE-STRAIN"
     data_dict[ifo] =  lalsimutils.frame_data_to_non_herm_hoff(opts.cache,channel)
     fSample = len(data_dict[ifo].data.data)*data_dict[ifo].deltaF
@@ -51,14 +55,16 @@ for ifo in ['H1','L1']: #, 'V1']:
     rho2Net += rhoDet*rhoDet
     if opts.plot_sanity:
         fvals = lalsimutils.evaluate_fvals(data_dict[ifo])
-        plt.plot(fvals, np.power(np.abs(data_dict[ifo].data.data),2) *IP.longweights)
+        plt.plot(fvals, np.power(np.abs(data_dict[ifo].data.data),2) *IP.weights2side)
         plt.xlim(-5000,5000)
         plt.figure(1)
         plt.savefig("frameplot_power_"+ifo+".png"); plt.clf()
         plt.figure(2)
-        plt.plot(np.log10(fvals), np.log10(1./IP.longweights)/2)
+        plt.plot(np.log10(fvals), np.log10(1./IP.weights2side)/2)
         plt. savefig("frameplot_psd_"+ifo+".png"); plt.clf()
     data_dict[ifo] = None  # clear it
+  except:
+      print " No IFO ", ifo
 rho_dict['Network']=    np.sqrt(rho2Net )
 
 print rho_dict
