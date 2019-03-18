@@ -4,3 +4,4 @@ numba
 h5py
 corner
 scikit-learn<=0.20
+matplotlib<=2.2.4
