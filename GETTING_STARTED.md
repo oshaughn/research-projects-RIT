@@ -116,7 +116,7 @@ A more thorough discussion of ILE and CIP will be soon found in the main [RIFT L
 In brief,  the arguments ``--ile-args`` and ``--cip-args`` are most of the arguments to two programs, ```integrate_likelihood_extrinsic_batchmode`` and ``util_ConstructIntrinsicPosterior_GenericCoordinates.py``, called in ILE.sub and CIP.sub.  Let's look at each submit file for this example, and then think about their arguments
 
 #### ILE.sub
-After some reformatting for readbility, the submit file should look something like this
+After some reformatting for readbility, the submit file for ILE should look something like this
 ```
 
 arguments = " --output-file CME_out-$(macromassid)-$(cluster)-$(process).xml \
@@ -154,6 +154,37 @@ Finally, we have a bunch of arguments you will almost never change
 * ``  --inclination-cosine-sampler --declination-cosine-sampler``: You should always do this.  It insures sampling is in cos theta and cos inclination.
 * ``   --no-adapt-after-first --no-adapt-distance --srate 4096`` : You should almost always use these arguments.  The last argument sets the sampling rate.  The next two argument insure the adaptive MC integrator  only adjusts its sampling prior for the first point, and only  does so for the two sky location coordinates. 
 * `` --adapt-floor-level 0.1 --adapt-weight-exponent 0.1``: You should usually let the expert code choose these for you.  But if you aren't using a very high SNR source, these are good choices.  They change the way the adaptive sampler works.
+
+### CIP.sub
+After some reformatting for readbility, the submit file for CIP should look something like this
+
+```
+arguments = "  --fname-output-samples HERE/overlap-grid-$(macroiterationnext) \
+ --mc-range  '[23,35]' --eta-range  '[0.20,0.24999]' \
+   --parameter mc --parameter-implied eta --parameter-nofit delta_mc \
+    --fit-method gp --verbose --lnL-offset 120 --cap-points 12000 \
+     --n-output-samples 10000 --no-plots --n-eff 10000 --no-plots  \
+      --fname HERE/all.net --fname-output-integral HEREy/overlap-grid-$(macroiterationnext)"
+```
+
+The most critical argument 
+* ``--fname ...`` : The filename containing ILE output, one evaluation point per line.  
+
+The next most important options control the coordinate charts in which fitting and MC integration occurs.  Note that because you can perform *dimensional reduction* and use a fitting chart with fewer DOF than your actual problem, you can construct very interesting hierarchical workflows which gradually increase the complexity of your fitting model to address problems with modestly-significant dimensions, or to demonstrate that some DOF explicitly have no impact on results.
+* ``--parameter mc --parameter-implied eta`` : The list of ``parameter`` and ``parameter-implied`` describe the coordinate chart used for GP fitting of the evaluation points provided by ILE.  The use of ``parameter-implied'' means that this parameter is derived from another (set of) parameters via a known coordinate chart.
+
+
+
+A few options control the Monte Carlo integration, and how many samples you will produce at the end
+* ``--parameter mc --parameter-nofit delta_mc``: The list of ``parameter`` and ``parameter-nofit`` describe the coordinate chart used for Monte Carlo integration.  Without exception, the prior must be seperable in this coordinate system (modulo cuts applied at the end to the set of samples).
+* ``--n-output-samples``: How many posterior samples the code will try to generate, from the weighted MC samples
+* ``--n-eff``: Roughly how many independent samples will exist among the weighted MC samples.  Actually sets the MC error threshold.
+
+A few options control the fitting method
+* ``--fit-method gp``: You should almost always do this.
+  * ``--lnL-offset``: Remove points with lnL smaller than the maximum value minus lnL-offset, before performing any fitting.  If you have a very, very large number of samples, you can and should adjust this.  If you do, you must insure your result doesn't depend on your choice.
+  * ``--cap-points``: If present, and ``fname`` contains more than ``cap-points`` points which satisfy the condition above, then randomly select 
+
 
 ## Walkthrough of an example on a GraceDB event  (Feb 2019 edition)
 
