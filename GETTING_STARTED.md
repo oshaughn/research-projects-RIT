@@ -155,7 +155,7 @@ Finally, we have a bunch of arguments you will almost never change
 * ``   --no-adapt-after-first --no-adapt-distance --srate 4096`` : You should almost always use these arguments.  The last argument sets the sampling rate.  The next two argument insure the adaptive MC integrator  only adjusts its sampling prior for the first point, and only  does so for the two sky location coordinates. 
 * `` --adapt-floor-level 0.1 --adapt-weight-exponent 0.1``: You should usually let the expert code choose these for you.  But if you aren't using a very high SNR source, these are good choices.  They change the way the adaptive sampler works.
 
-### CIP.sub
+#### CIP.sub
 After some reformatting for readbility, the submit file for CIP should look something like this
 
 ```
@@ -168,7 +168,7 @@ arguments = "  --fname-output-samples HERE/overlap-grid-$(macroiterationnext) \
 ```
 
 The most critical argument 
-* ``--fname ...`` : The filename containing ILE output, one evaluation point per line.  
+* ``--fname all.net`` : The filename containing ILE output, one evaluation point per line.  Your workflow will regularly assemble this file, from the output of each iteration.
 
 The next most important options control the coordinate charts in which fitting and MC integration occurs.  Note that because you can perform *dimensional reduction* and use a fitting chart with fewer DOF than your actual problem, you can construct very interesting hierarchical workflows which gradually increase the complexity of your fitting model to address problems with modestly-significant dimensions, or to demonstrate that some DOF explicitly have no impact on results.
 * ``--parameter mc --parameter-implied eta`` : The list of ``parameter`` and ``parameter-implied`` describe the coordinate chart used for GP fitting of the evaluation points provided by ILE.  The use of ``parameter-implied'' means that this parameter is derived from another (set of) parameters via a known coordinate chart.
