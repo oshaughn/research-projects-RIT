@@ -6,7 +6,7 @@ import lalsimulation as lalsim
 import lalframe
 import lal
 
-from matplotlib import pyplot as plt
+#from matplotlib import pyplot as plt
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--cache", default="zero_noise.cache")
