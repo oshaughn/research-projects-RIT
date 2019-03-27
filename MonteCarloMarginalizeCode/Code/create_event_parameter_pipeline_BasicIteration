@@ -378,13 +378,13 @@ cip_job.write_sub_file()
 
 ##   puffball job: default case
 if puff_args and puff_cadence:
-    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext)',output='puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe)
+    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_ILE,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext)',output='puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe)
     # Modify: set 'initialdir' to CIP WORKING DIR 
     puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
-    puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
-    puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
-    puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
+    puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).log")
+    puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).err")
+    puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).out")
     puff_job.write_sub_file()
 
 
