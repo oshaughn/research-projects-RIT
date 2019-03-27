@@ -1,5 +1,3 @@
-
-
 In this document, we'll walk you through the bare minimum needed to get RIFT up and running.  We won't explain all the settings, but you will get a realistic analysis working.   You can find a more comprehensive and pedagogical tutorial at
 ```
 https://git.ligo.org/pe/tutorials/blob/master/offline_RIFT.md
@@ -28,6 +26,13 @@ hlmT = lalsimutils.hlmoft(P)  # Make hlm modes. Confirms you have a version of l
 lalsimutils.ChooseWaveformParams_array_to_xml([P], "outfile") # write P parameters to xml file. Confirms XML i/o working (glue/ligolw, etc)
 ```
 
+
+Before getting started, make sure you set 
+```
+export LIGO_ACCOUNTING=ligo.dev.o3.cbc.pe.lalinferencerapid
+export LIGO_USER_NAME=albert.einstein # your own username as appropriate
+```
+
 ### Possible workarounds (Mar 2019)
 
 The permissions of some executables may not be correctly set. 
@@ -46,7 +51,7 @@ While it is not necessary, we recommend you log in to a machine with a GPU (e.g.
 
 
 ### Setting up and understanding the analysis
-The following commands set up the workflow.  
+The following commands set up the workflow. 
 ```
 git  clone https://github.com/oshaughn/ILE-GPU-Paper.git
 cd ILE-GPU-Paper/demos/
@@ -61,6 +66,7 @@ Before you submit a workflow, however, we recommend you first confirm you've set
 ```
 ./command-single.sh
 ```
+(This command will run anywhere; however, it will only test the GPU configuration if you run it on a machine with a GPU, like pcdev13 or pcdev11 at CIT)
 
 The workflow loosely consists of two parts: worker ILE jobs, which evaluate the marginalized likelihood; and fitting/posterior jobs, which fit the marginalized likelihood and estimate the posterior distribution.  Other nodes help group the output of individual jobs and iterations together.  Unless otherwise noted, all quantities provided are detector-frame;  we haven't added automation for source-frame yet.
 
@@ -99,9 +105,15 @@ Some other things to note
 
 You can and should use standard PE-compatible tools to manipulate ``posterior-samples-N.dat``.  However, for a quick look, the program ``plot_posterior_corner.py`` can make simple corner plots; the syntax is
 
+<<<<<<< HEAD
 ```
    plot_posterior_corner.py --posterior-file posterior-samples-5.dat --parameter mc --parameter eta 
 ```
+=======
+``
+   plot_posterior_corner.py --posterior-file posterior-samples-5.dat --parameter mc --parameter eta 
+``
+>>>>>>> 9df43eade8e53c08ce4caa7687d23dd77271d841
 For the data products made in this example, I  recommend adding the following options
 
 ```
@@ -116,7 +128,7 @@ A more thorough discussion of ILE and CIP will be soon found in the main [RIFT L
 In brief,  the arguments ``--ile-args`` and ``--cip-args`` are most of the arguments to two programs, ```integrate_likelihood_extrinsic_batchmode`` and ``util_ConstructIntrinsicPosterior_GenericCoordinates.py``, called in ILE.sub and CIP.sub.  Let's look at each submit file for this example, and then think about their arguments
 
 #### ILE.sub
-After some reformatting for readbility, the submit file should look something like this
+After some reformatting for readbility, the submit file for ILE should look something like this
 ```
 
 arguments = " --output-file CME_out-$(macromassid)-$(cluster)-$(process).xml \
@@ -155,6 +167,37 @@ Finally, we have a bunch of arguments you will almost never change
 * ``   --no-adapt-after-first --no-adapt-distance --srate 4096`` : You should almost always use these arguments.  The last argument sets the sampling rate.  The next two argument insure the adaptive MC integrator  only adjusts its sampling prior for the first point, and only  does so for the two sky location coordinates. 
 * `` --adapt-floor-level 0.1 --adapt-weight-exponent 0.1``: You should usually let the expert code choose these for you.  But if you aren't using a very high SNR source, these are good choices.  They change the way the adaptive sampler works.
 
+#### CIP.sub
+After some reformatting for readbility, the submit file for CIP should look something like this
+
+```
+arguments = "  --fname-output-samples HERE/overlap-grid-$(macroiterationnext) \
+ --mc-range  '[23,35]' --eta-range  '[0.20,0.24999]' \
+   --parameter mc --parameter-implied eta --parameter-nofit delta_mc \
+    --fit-method gp --verbose --lnL-offset 120 --cap-points 12000 \
+     --n-output-samples 10000 --no-plots --n-eff 10000 --no-plots  \
+      --fname HERE/all.net --fname-output-integral HEREy/overlap-grid-$(macroiterationnext)"
+```
+
+The most critical argument 
+* ``--fname all.net`` : The filename containing ILE output, one evaluation point per line.  Your workflow will regularly assemble this file, from the output of each iteration.
+
+The next most important options control the coordinate charts in which fitting and MC integration occurs.  Note that because you can perform *dimensional reduction* and use a fitting chart with fewer DOF than your actual problem, you can construct very interesting hierarchical workflows which gradually increase the complexity of your fitting model to address problems with modestly-significant dimensions, or to demonstrate that some DOF explicitly have no impact on results.
+* ``--parameter mc --parameter-implied eta`` : The list of ``parameter`` and ``parameter-implied`` describe the coordinate chart used for GP fitting of the evaluation points provided by ILE.  The use of ``parameter-implied'' means that this parameter is derived from another (set of) parameters via a known coordinate chart.
+
+
+
+A few options control the Monte Carlo integration, and how many samples you will produce at the end
+* ``--parameter mc --parameter-nofit delta_mc``: The list of ``parameter`` and ``parameter-nofit`` describe the coordinate chart used for Monte Carlo integration.  Without exception, the prior must be seperable in this coordinate system (modulo cuts applied at the end to the set of samples).
+* ``--n-output-samples``: How many posterior samples the code will try to generate, from the weighted MC samples
+* ``--n-eff``: Roughly how many independent samples will exist among the weighted MC samples.  Actually sets the MC error threshold.
+
+A few options control the fitting method
+* ``--fit-method gp``: You should almost always do this.
+  * ``--lnL-offset``: Remove points with lnL smaller than the maximum value minus lnL-offset, before performing any fitting.  If you have a very, very large number of samples, you can and should adjust this.  If you do, you must insure your result doesn't depend on your choice.
+  * ``--cap-points``: If present, and ``fname`` contains more than ``cap-points`` points which satisfy the condition above, then randomly select 
+
+
 ## Walkthrough of an example on a GraceDB event  (Feb 2019 edition)
 
 PLACEHOLDER: Not the best convergence options
@@ -166,7 +209,7 @@ For now, you can do the following (experimental), which for simplicity uses onli
 If you want to use this yourself, **please use the ``--observing-run`` ** argument, to prime the auto-selected arguments (channels, etc) to be appropriate to your analysis.
 
 ### Generation script
-Make the following driver script and call it ``setup_bbh_event.sh``.
+Make the following driver script and call it ``setup_bbh_event.sh``, then do ``chmod a+x setup_bbh_event.sh``
 ```
 mkdir ${1}_analysis_lowlatency
 cd ${1}_analysis_lowlatency
@@ -184,6 +227,7 @@ VERIFY OUTPUT CORRECT, adjust number of iterations to be more reasonable.
 
 __A single event__ :Try this, for GW170814 (an example of a triple event, but the coinc.xml/helper is currently only identifying it as an LV double: FIXME)
 ``
+ligo_proxy_init albert.einstein # yes, for some reason you need to do this even on LDG machines
 ./setup_bbh_event.sh G298172
 ``
 
