@@ -489,7 +489,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     ile_job.add_opt("inj-file", input_net)
-    ile_job.add_opt("inj-fie-out", output)
+    ile_job.add_opt("inj-file-out", output)
 
 
     #
