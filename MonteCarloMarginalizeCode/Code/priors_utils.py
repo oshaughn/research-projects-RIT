@@ -13,16 +13,18 @@ except:
     numba_on = False
     print " Numba off (priors_utils) "
 
-will_cosmo_const = np.array([1.05491298, 0.855908921, 0.170816006, 0.0109350381, 0.000343230488])
+# https://git.ligo.org/RatesAndPopulations/lalinfsamplereweighting/blob/approx-prior/approxprior.py
+will_cosmo_const = np.array( [ 1.012306, 1.136740, 0.262462, 0.016732, 0.000387 ])
 def dist_prior_pseudo_cosmo(dL,nm=1):
     """
-    dist_prior_pseudo_cosmo
+    dist_prior_pseudo_cosmo.  dL needs to be in Gpc for the polynomial.
+    By default, our code works with distances in Mpc.  So we divide by 1e3
 
      Will Farr's simplified distance prior on d_L, out to z~ 4
      note it is not normalized, and the normalization depends on the d_max of interest 
     
     """
-    return nm*4* np.pi * dL**2 / np.polyval( will_cosmo_const[::-1],dL)
+    return nm*4* np.pi * dL**2 / np.polyval( will_cosmo_const[::-1],dL/1e3)
 
 
 def dist_prior_pseudo_cosmo_eval_norm(dLmin,dLmax):
