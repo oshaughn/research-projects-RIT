@@ -278,7 +278,6 @@ if use_gracedb_event:
             cmd += " --ifo " + ifo
         os.system(cmd)
 
-
 if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
 
@@ -352,6 +351,7 @@ mc_max=(1+ln_mc_error_pseudo_fisher)*mc_center   # conservative !
 
 eta_min = 0.1  # default for now, will fix this later
 delta_max =0.5
+delta_min =0
 if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
     import scipy.optimize
     # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
@@ -362,12 +362,23 @@ if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constrai
     delta_max =1.1*res
     eta_min = 0.25*(1-delta_max*delta_max)
 
+eta_max = 0.249999
+eta_val =P.extract_param('eta')
+tune_grid = False
+# High mass ratio configuration.  PROTOTYPE, NEEDS LOTS OF WORK FOR BH-NS, should restore use of  fisher grid!
+if opts.propose_initial_grid and eta_val < 0.1:
+    eta_min =0.25*eta_val
+    eta_max= np.min([0.249999,4*eta_val])
+    delta_max = np.sqrt(1. - 4*eta_min)
+    delta_min = np.sqrt(1. - 4*eta_max)
+    tune_grid = True
+
 chieff_center = P.extract_param('xi')
 chieff_min = np.max([chieff_center -0.3,-1])/snr_fac
 chieff_max = np.max([chieff_center +0.3,1])/snr_fac
 
 mc_range_str = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
-eta_range_str = " --eta-range ["+str(eta_min)+",0.249999]"  # default will include  1, as we work with BBHs
+eta_range_str = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
 
 
 ###
@@ -397,6 +408,7 @@ for ifo in ifos:
 helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
 helper_ile_args += " --reference-freq " + str(opts.fmin_template)  # in case we are using a code which allows this to be specified
+approx_str= "SEOBNRv4"  # default, should not be used.  See also cases where grid is tuned
 if opts.lowlatency_propose_approximant:
 #    approx  = lalsim.TaylorF2
     approx_str = "SpinTaylorT4"
@@ -423,9 +435,11 @@ if opts.lowlatency_propose_approximant:
 
 if opts.propose_initial_grid:
     # add basic mass parameters
-    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[0.0," + str(delta_max) + "]'  "
+    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[" + str(delta_min) +"," + str(delta_max) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
     cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
+    if tune_grid:
+        cmd += " --reset-grid-via-match --match-value 0.85 --use-fisher  --use-fisher-resampling --approx  " + approx_str # ow, but useful
     if opts.assume_nospin:
         cmd += " --grid-cartesian-npts 500 " 
     else:
