@@ -2145,21 +2145,22 @@ def findDeltaF(P):
     h = hoft(P)
     return 1./(nextPow2(h.data.length) * P.deltaT)
 
-def estimateWaveformDuration(P):
+def estimateWaveformDuration(P,LmaxEff=2):
     """
     Input:  P
     Output:estimated duration (in s) based on Newtonian inspiral from P.fmin to infinite frequency
     """
     fM  = P.fmin*(P.m1+P.m2)*lsu_G / lsu_C**3
+    fM *= 2/LmaxEff  # if we use higher modes, lower the effective frequency, so HM start in band
     eta = symRatio(P.m1,P.m2)
     Msec = (P.m1+P.m2)*lsu_G / lsu_C**3
     return Msec*5./256. / eta* np.power((lsu_PI*fM),-8./3.)
-def estimateDeltaF(P):
+def estimateDeltaF(P,LmaxEff=2):
     """
     Input:  P
     Output:estimated duration (in s) based on Newtonian inspiral from P.fmin to infinite frequency
     """
-    T = estimateWaveformDuration(P)+0.1  # buffer for merger
+    T = estimateWaveformDuration(P,LmaxEff=2)+0.1  # buffer for merger
     return 1./(P.deltaT*nextPow2(T/P.deltaT))
     
 

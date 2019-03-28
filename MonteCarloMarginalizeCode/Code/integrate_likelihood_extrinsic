@@ -72,7 +72,8 @@ optp.add_option("-I", "--sim-xml", help="XML file containing mass grid to be eva
 optp.add_option("-E", "--event", default=0,type=int, help="Event number used for this run")
 optp.add_option("--soft-fail-event-range",action='store_true',help='Soft failure (exit 0) if event ID is out of range. This happens in pipelines, if we have pre-built a DAG attempting to analyze more points than we really have')
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
-optp.add_option("--fmin-template", dest='fmin_template', type=float, default=40, help="Waveform starting frequency.  Default is 40 Hz. Also equal to starting frequency for integration") 
+optp.add_option("--fmin-template", dest='fmin_template', type=float, default=40, help="Waveform starting frequency (for 22 mode).  Default is 40 Hz. Also equal to starting frequency for integration") 
+optp.add_option("--fmin-template-correct-for-lmax",action='store_true',help="Modify amount of data selected, waveform starting frequency to account for l-max, to better insure all requested modes start within the targeted band")
 optp.add_option("--fmin-ifo", action='append' , help="Minimum frequency for each IFO. Implemented by setting the PSD=0 below this cutoff. Use with care.") 
 #optp.add_option("--nr-params",default=None, help="List of specific NR parameters and groups (and masses?) to use for the grid.")
 #optp.add_option("--nr-index",type=int,default=-1,help="Index of specific NR simulation to use [integer]. Mass used: mtot= m1+m2")
@@ -387,7 +388,10 @@ if not (opts.data_start_time == None) and  not (opts.data_end_time == None):
 # FIXME: Use estimate, instead of painful full waveform generation call here.
 else:
     approxTmp = P.approx
-    T_tmplt = lalsimutils.estimateWaveformDuration(P) + 4  # Much more robust than the previous (slow, prone-to-crash approach)
+    LmaxEff = 2
+    if opts.fmin_template_correct_for_lmax:
+      LmaxEff=opts.l_max
+    T_tmplt = lalsimutils.estimateWaveformDuration(P,LmaxEff) + 4  # Much more robust than the previous (slow, prone-to-crash approach)
 #     if (m1+m2)<30:
 #         P.approx = lalsimutils.lalsim.TaylorT4  # should not impact length much.  IMPORTANT because EOB calls will fail at the default sampling rate
 #         htmplt = lalsimutils.hoft(P)   # Horribly wasteful waveform gneeration solely to estimate duration.  Will also crash if spins are used.
