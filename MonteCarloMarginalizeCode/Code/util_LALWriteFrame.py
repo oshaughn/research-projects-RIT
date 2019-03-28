@@ -91,7 +91,9 @@ if opts.seglen/hoft.deltaT > hoft.data.length:
 
 # zero pad some more on either side, to make sure the segment covers start to stop
 if opts.start and hoft.epoch > opts.start:
+    print "Doing zero padding"
     nToAddBefore = int((float(hoft.epoch)-opts.start)/hoft.deltaT)
+#    hoft.epoch = opts.start
     # hoft.epoch - nToAddBefore*hoft.deltaT  # this is close to the epoch, but not quite ... we are adjusting it to be within 1 time sample
     print nToAddBefore, hoft.data.length
     ht = lal.CreateREAL8TimeSeries("Template h(t)", 
@@ -100,12 +102,16 @@ if opts.start and hoft.epoch > opts.start:
     ht.data.data = np.zeros(ht.data.length)  # clear
     ht.data.data[nToAddBefore:nToAddBefore+hoft.data.length] = hoft.data.data
     hoft = ht
-
+    print "Epoch: ",hoft.epoch ,"Start: ", opts.start
 if opts.stop and hoft.epoch+hoft.data.length*hoft.deltaT < opts.stop:
     nToAddAtEnd = int( (-(hoft.epoch+hoft.data.length*hoft.deltaT)+opts.stop)/hoft.deltaT)
+    nToAddTrue = int((opts.stop-opts.start)/hoft.deltaT)
+    nToAddMore = nToAddTrue-hoft.data.length
+    print "True end padding: ", nToAddTrue, "Difference: ",nToAddMore
     print "Padding end ", nToAddAtEnd, hoft.data.length
-    hoft = lal.ResizeREAL8TimeSeries(hoft,0, int(hoft.data.length+nToAddAtEnd))
-
+#    hoft = lal.ResizeREAL8TimeSeries(hoft,0, int(hoft.data.length+nToAddAtEnd))
+    hoft = lal.ResizeREAL8TimeSeries(hoft,0, int(hoft.data.length+nToAddMore))
+    print hoft.data.length * hoft.deltaT
 # Import background data, if needed, and add it
 if not ( opts.background_cache is None  or opts.background_channel is None and opts.start is None and opts.stop is None):
     # Don't use specific times
