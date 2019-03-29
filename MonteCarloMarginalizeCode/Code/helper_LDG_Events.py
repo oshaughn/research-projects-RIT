@@ -150,10 +150,10 @@ elif opts.sim_xml:  # right now, configured to do synthetic data only...should b
     event_dict["P"] = P
     event_dict["epoch"]  = 0 # no estimate for now
 
-    # PSDs must be provided by hand, IF this is done by this code!
-    ifo_list=[]
-    if not (opts.psd_file is None):
-        for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
+# PSDs must be provided by hand, IF this is done by this code!
+ifo_list=[]
+if not (opts.psd_file is None):
+    for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
             psd_names[inst] = psdf
             ifo_list.append(inst)
     event_dict["IFOs"] = ifo_list
