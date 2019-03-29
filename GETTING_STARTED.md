@@ -105,15 +105,10 @@ Some other things to note
 
 You can and should use standard PE-compatible tools to manipulate ``posterior-samples-N.dat``.  However, for a quick look, the program ``plot_posterior_corner.py`` can make simple corner plots; the syntax is
 
-<<<<<<< HEAD
 ```
    plot_posterior_corner.py --posterior-file posterior-samples-5.dat --parameter mc --parameter eta 
 ```
-=======
-``
-   plot_posterior_corner.py --posterior-file posterior-samples-5.dat --parameter mc --parameter eta 
-``
->>>>>>> 9df43eade8e53c08ce4caa7687d23dd77271d841
+
 For the data products made in this example, I  recommend adding the following options
 
 ```
