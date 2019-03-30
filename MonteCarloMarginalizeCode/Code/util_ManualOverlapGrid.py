@@ -730,7 +730,10 @@ elif opts.use_eos!=None:
        if m2/lal.MSUN_SI < anEOS.mMaxMsun:
            grid_tmp[i,lam2_indx]= anEOS.lambda_from_m(m2)  #calc_lambda_from_m(m2,eos_fam)
 
-   grid=grid_tmp
+   # Remove points with zero lambda1 or lambda2?  
+   #     Not necessarily ... think about it ... but require both for now
+   indx_ok  = np.logical_and(grid_tmp[:,lam1_indx]>0 ,grid_tmp[:,lam2_indx]>0 )
+   grid=grid_tmp[indx_ok]
 
 
 grid_out, P_list = evaluate_overlap_on_grid(hfBase, param_names, grid)
