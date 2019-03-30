@@ -697,13 +697,15 @@ if opts.external_grid_txt:
 
 #if using an external EOS add lambda to grid (Richard, you may want to fix this to be more general)
 elif opts.use_eos!=None:
-   from gwemlightcurves.KNModels import table 
- 
+#   from gwemlightcurves.KNModels import table 
+   import EOSManager
+
    grid_tmp=np.zeros((len(grid[:,0]), len(grid[0,:])+2))
    print grid_tmp   
+   anEOS = EOSManager.EOSLALSimulation(opts.use_eos)
+#   eos,eos_fam=table.get_lalsim_eos(opts.use_eos)
+   eos_fam = anEOS.eos_fam
 
-   eos,eos_fam=table.get_lalsim_eos(opts.use_eos)
-   
    for i in range(0,len(grid[0,:])):
        grid_tmp[:,i]=grid[:,i]
 
@@ -718,8 +720,8 @@ elif opts.use_eos!=None:
    for i in range(0,len(grid[:,mc_indx])):
        m1=lalsimutils.mass1(grid[i,mc_indx],grid[i,eta_indx])
        m2=lalsimutils.mass2(grid[i,mc_indx],grid[i,eta_indx])
-       grid_tmp[i,lam1_indx]=calc_lambda_from_m(m1,eos_fam)
-       grid_tmp[i,lam2_indx]=calc_lambda_from_m(m2,eos_fam)
+       grid_tmp[i,lam1_indx]= anEOS.lambda_from_m(m1)  # calc_lambda_from_m(m1,eos_fam)
+       grid_tmp[i,lam2_indx]= anEOS.lambda_from_m(m2)  #calc_lambda_from_m(m2,eos_fam)
 
    grid=grid_tmp
 
