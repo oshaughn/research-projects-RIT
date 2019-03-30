@@ -456,6 +456,7 @@ if opts.propose_initial_grid:
     # add basic mass parameters
     cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[" + str(delta_min) +"," + str(delta_max) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
+    cmd += " --fmin " + str(opts.fmin_template)
     cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
     if tune_grid:
         cmd += " --reset-grid-via-match --match-value 0.85 --use-fisher  --use-fisher-resampling --approx  " + approx_str # ow, but useful
