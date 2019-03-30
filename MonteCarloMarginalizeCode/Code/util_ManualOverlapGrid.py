@@ -713,13 +713,18 @@ elif opts.use_eos!=None:
    param_names.append('lambda2')
 
    mc_indx=param_names.index('mc')
-   eta_indx=param_names.index('eta')
+   my_transform = lambda x: x
+   if 'eta' in param_names:
+       eta_indx=param_names.index('eta')
+   else:
+       eta_indx = param_names.index('delta_mc')
+       my_transform = lambda x: 0.25*(1.-x*x)
    lam1_indx=param_names.index('lambda1')
    lam2_indx=param_names.index('lambda2')
 
-   for i in range(0,len(grid[:,mc_indx])):
-       m1=lalsimutils.mass1(grid[i,mc_indx],grid[i,eta_indx])
-       m2=lalsimutils.mass2(grid[i,mc_indx],grid[i,eta_indx])
+   for i in range(0,len(grid[:,mc_indx])): # Ridiculously inefficient
+       m1=lalsimutils.mass1(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
+       m2=lalsimutils.mass2(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
        grid_tmp[i,lam1_indx]= anEOS.lambda_from_m(m1)  # calc_lambda_from_m(m1,eos_fam)
        grid_tmp[i,lam2_indx]= anEOS.lambda_from_m(m2)  #calc_lambda_from_m(m2,eos_fam)
 
