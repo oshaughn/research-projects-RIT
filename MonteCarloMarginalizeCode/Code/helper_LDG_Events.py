@@ -519,8 +519,8 @@ if opts.propose_fit_strategy:
             helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
     if opts.assume_matter:
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
-        helper_arg_list = helper_cip_arg_list.append(helper_cip_arg_list[-1]) # add two lines with the same parameters as the last line
-        helper_arg_list = helper_cip_arg_list.append(helper_cip_arg_list[-1]) 
+        helper_cip_arg_list.append(helper_cip_arg_list[-1]) # add two lines with the same parameters as the last line
+        helper_cip_arg_list.append(helper_cip_arg_list[-1]) 
         # Make the second to last line include tides
         #    - first iterations add lambdatilde
         #    - second iterations add deltalambda
