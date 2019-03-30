@@ -697,7 +697,7 @@ class WaveformModeCatalog:
                 fM_start_22_mode = gwtools.find_instant_freq(np.real(hlmT_dimensionless_narrow[(2,2)]),\
                     np.imag(hlmT_dimensionless_narrow[(2,2)]),tvals_dimensionless[indx_ok])
                 taper_start_duration = (2.0 * np.pi) / np.abs(fM_start_22_mode) # about (2pi)^2 radians from 22 mode
-                taper_window_start = gwtools.gwutils.window(tvals_dimensionless[indx_ok],\
+                taper_start_window = gwtools.gwutils.window(tvals_dimensionless[indx_ok],\
                     tvals_dimensionless[indx_ok][0], tvals_dimensionless[indx_ok][0]+taper_start_duration,\
                     rolloff=0, windowType='planck')
                 taper_fraction = taper_start_duration/(tvals_dimensionless[indx_ok][-1] - tvals_dimensionless[indx_ok][0])
