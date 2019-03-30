@@ -473,6 +473,12 @@ if opts.propose_initial_grid:
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
         cmd += " --parameter chieff_aligned  --parameter-range " + chieff_range+  " --grid-cartesian-npts 3000 "
+
+    if opts.assume_matter:
+        # Do the initial grid assuming matter, with tidal parameters set by the AP4 EOS provided by lalsuite
+        # We will leverage working off this to find the lambdaTilde dependence
+        cmd += " --use-eos AP4 "  
+
     print " Executing grid command ", cmd
     os.system(cmd)
     
@@ -519,12 +525,15 @@ if opts.propose_fit_strategy:
             helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
     if opts.assume_matter:
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
-        helper_cip_arg_list.append(helper_cip_arg_list[-1]) # add two lines with the same parameters as the last line
+        # Add LambdaTilde on top of the aligned spin runs
+        for indx in np.arange(len(helper_cip_arg_list)):
+            helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " 
+        # Add one line with deltaLambdaTilde
         helper_cip_arg_list.append(helper_cip_arg_list[-1]) 
         # Make the second to last line include tides
         #    - first iterations add lambdatilde
         #    - second iterations add deltalambda
-        helper_arg_list[-2] +=  " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
+#        helper_arg_list[-2] +=  " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
         helper_arg_list[-1] +=  " --input-tides --parameter-implied LambdaTilde --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
 
 with open("helper_cip_args.txt",'w') as f:
