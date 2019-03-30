@@ -6,8 +6,13 @@ rosDebug = False
 
 import numpy as np
 import os, sys
-import gwsurrogate as gws
-print "  gwsurrogate: ",  gws.__file__
+try:
+    import gwtools
+    import gwsurrogate as gws
+    print "  gwsurrogate: ",  gws.__file__
+    print "  gwtools: ",  gwtools.__file__
+except:
+    print " - no gwsurrogate - (almost everything from ROMWaveformManager will hard fail if you use it) "
 try:
     import NRSur7dq2
     print "  NRSur7dq2: ", NRSur7dq2.__version__, NRSur7dq2.__file__
@@ -686,7 +691,6 @@ class WaveformModeCatalog:
             taper_start_window = np.ones(len(hlmT_dimensionless_narrow[(2,2)]))
             if rom_taper_start or P.taper  != lalsimutils.lsu_TAPER_NONE:
                 print " HybSur: Preparing manual tapering for first ~ 12 cycles "
-                import gwtools  # Danger!  Not top-level dependency.  Should use local routine.
                 # Taper the start of the waveform by considering a fixed number of cyles for 2,2 mode
                 # Taper window must be applied later on, as we want to measure the starting frequency
                 # mode-by-mode
