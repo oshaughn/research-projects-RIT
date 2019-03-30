@@ -534,13 +534,13 @@ if opts.propose_fit_strategy:
         #    - first iterations add lambdatilde
         #    - second iterations add deltalambda
 #        helper_arg_list[-2] +=  " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
-        helper_arg_list[-1] +=  " --input-tides --parameter-implied LambdaTilde --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
+        helper_cip_arg_list[-1] +=  " --input-tides --parameter-implied LambdaTilde --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
 
 with open("helper_cip_args.txt",'w') as f:
     f.write(helper_cip_args)
 
-with open("helper_cip_arg_list.txt",'w') as f:
+with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))
 
-with open("helper_test_args.txt",'w') as f:
+with open("helper_test_args.txt",'w+') as f:
     f.write(helper_test_args)
