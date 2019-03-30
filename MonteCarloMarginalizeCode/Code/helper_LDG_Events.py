@@ -83,6 +83,7 @@ parser.add_argument("--fmin-template",default=20,type=float,help="Minimum freque
 parser.add_argument("--fmax",default=None,type=float,help="fmax. Use this ONLY if you want to override the default settings, which are set based on the PSD used")
 parser.add_argument("--data-start-time",default=None)
 parser.add_argument("--data-end-time",default=None,help="If both data-start-time and data-end-time are provided, this interval will be used.")
+parser.add_argument("--data-LI-seglen",default=None,help="If provided, use a buffer this long, placing the signal 2s after this, and try to use 0.4s tukey windowing on each side, to be consistent with LI.  ")
 parser.add_argument("--working-directory",default=".")
 parser.add_argument("--datafind-exe",default="gw_data_find")
 parser.add_argument("--gracedb-exe",default="gracedb")
@@ -351,7 +352,7 @@ mc_max=(1+ln_mc_error_pseudo_fisher)*mc_center   # conservative !
 
 eta_min = 0.1  # default for now, will fix this later
 delta_max =0.5
-delta_min =0
+delta_min =1e-4  # Some approximants like SEOBNRv3 can hard fail if m1=m2
 if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
     import scipy.optimize
     # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
@@ -424,14 +425,31 @@ if opts.lowlatency_propose_approximant:
     dmax_guess = np.min([dmax_guess,10000]) # place ceiling
     helper_ile_args +=  " --d-max " + str(int(dmax_guess))
 
-    # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
-    #   ... note that data_start_time was defined BEFORE with the datafind job
-    T_window_raw = 1.1/lalsimutils.estimateDeltaF(P)  # includes going to next power of 2, AND a bonus factor of a few
-    T_window_raw = np.max([T_window_raw,4])  # can't be less than 4 seconds long
-    print " Time window : ", T_window_raw, " based on fmin  = ", P.fmin
-    data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
-    data_end_time = int(P.tref + 2)
-    helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
+    if (opts.data_LI_seglen is None) and  (opts.data_start_time is None):
+        # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
+        #   ... note that data_start_time was defined BEFORE with the datafind job
+        T_window_raw = 1.1/lalsimutils.estimateDeltaF(P)  # includes going to next power of 2, AND a bonus factor of a few
+        T_window_raw = np.max([T_window_raw,4])  # can't be less than 4 seconds long
+        print " Time window : ", T_window_raw, " based on fmin  = ", P.fmin
+        data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
+        data_end_time = int(P.tref + 2)
+        helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
+
+if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
+    # Manually set the data start and end time.
+    T_window = opts.data_end_time - opts.data_start_time
+    # Use LI-style tukey windowing
+    window_shape = 0.4*2/T_window
+    data_start_time =opts.data_start_time
+    data_end_time =opts.data_end_time
+    helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape " + str(window_shape)
+elif opts.data_LI_seglen:
+    # Use LI-style positioning of trigger relative to 2s before end of buffer
+    # Use LI-style tukey windowing
+    window_shape = 0.4*2/opts.data_LI_seglen
+    data_end_time = event_dict["tref"]+2
+    data_start_time = event_dict["tref"] +2 - seglen
+    helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0  --window-shape " + str(window_shape)
 
 if opts.propose_initial_grid:
     # add basic mass parameters
