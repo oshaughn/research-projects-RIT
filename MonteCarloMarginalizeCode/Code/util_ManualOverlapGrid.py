@@ -701,7 +701,6 @@ elif opts.use_eos!=None:
    import EOSManager
 
    grid_tmp=np.zeros((len(grid[:,0]), len(grid[0,:])+2))
-   print grid_tmp   
    anEOS = EOSManager.EOSLALSimulation(opts.use_eos)
 #   eos,eos_fam=table.get_lalsim_eos(opts.use_eos)
    eos_fam = anEOS.eos_fam
@@ -723,10 +722,13 @@ elif opts.use_eos!=None:
    lam2_indx=param_names.index('lambda2')
 
    for i in range(0,len(grid[:,mc_indx])): # Ridiculously inefficient
+       # fail to assign anything if m1 or m2 is out of range
        m1=lalsimutils.mass1(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
+       if m1/lal.MSUN_SI < anEOS.mMaxMsun:
+           grid_tmp[i,lam1_indx]= anEOS.lambda_from_m(m1)  # calc_lambda_from_m(m1,eos_fam)
        m2=lalsimutils.mass2(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
-       grid_tmp[i,lam1_indx]= anEOS.lambda_from_m(m1)  # calc_lambda_from_m(m1,eos_fam)
-       grid_tmp[i,lam2_indx]= anEOS.lambda_from_m(m2)  #calc_lambda_from_m(m2,eos_fam)
+       if m2/lal.MSUN_SI < anEOS.mMaxMsun:
+           grid_tmp[i,lam2_indx]= anEOS.lambda_from_m(m2)  #calc_lambda_from_m(m2,eos_fam)
 
    grid=grid_tmp
 
