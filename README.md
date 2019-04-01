@@ -28,6 +28,11 @@ If you are working with this development repository, please try to add your name
  3. If you are using a GPU-optimized version, please acknowledge
      4.  Wysocki, O'Shaughnessy,  Fong, Lange [paper](https://arxiv.org/abs/1902.04934)
 
+ 4. If you are using a non-lalsuite waveform interface, please acknowledge
+     a.  gwsurrogate interface: (a) O'Shaughnessy, Blackman, Field 2017 [paper](http://adsabs.harvard.edu/abs/2017CQGra..34n4002O); (b) F. Shaik et al (in prep)
+     b.  TEOBResumS interface:  Lange et al 2018 RIFT paper
+     c.  NR interface (parts inside ILE): Lange et al 2017 PRD 96, 404 [NR comparison methods paper](http://adsabs.harvard.edu/abs/2017PhRvD..96j4041L)
+     d.  NRSur7dq2 interface: Lange et al 2018 (RIFT) [paper](https://arxiv.org/abs/1805.10457), and ...
 
 ## Authorlists: Opt-in model
 Several aspects of this code are very actively developed.  We encourage  close collaboration with the lead developers (O'Shaughnessy and Lange) to produce the best possible results, particularly given comparatively rapid changes to the interface and pipeline in the past and planned for the future as the user- and developer-base expands.
