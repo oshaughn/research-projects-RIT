@@ -297,14 +297,16 @@ if opts.mc_range:
 param_list = opts.parameter
 
 # Legend
-color_list=['black', 'red', 'green', 'blue','yellow']
+color_list=['black', 'red',  'blue','yellow','C0', 'C1', 'C2'] + ['k']*len(opts.posterior_file)
 if opts.posterior_color:
-    color_list  =opts.posterior_color + color_list
+    color_list  =opts.posterior_color + color_list 
 linestyle_list = ['-' for k in color_list]
 if opts.posterior_linestyle:
     linestyle_list = opts.posterior_linestyle + linestyle_list
 #linestyle_remap_contour  = {":", 'dotted', '-'
-    
+
+print color_list, linestyle_list    
+
 line_handles = []
 corner_legend_location=None; corner_legend_prop=None
 if opts.use_legend and opts.posterior_label:
