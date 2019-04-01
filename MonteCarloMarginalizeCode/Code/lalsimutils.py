@@ -275,8 +275,11 @@ class ChooseWaveformParams:
         self.taper = taper
 
     # From Pankow/master
-    _LAL_DICT_PARAMS = {"Lambda1": "lambda1", "Lambda2": "lambda2", "ampO": "ampO", "phaseO": "phaseO"}
-    _LAL_DICT_PTYPE = {"Lambda1": lal.DictInsertREAL8Value, "Lambda2": lal.DictInsertREAL8Value, "ampO": lal.DictInsertINT4Value, "phaseO": lal.DictInsertINT4Value}
+    try:
+        _LAL_DICT_PARAMS = {"Lambda1": "lambda1", "Lambda2": "lambda2", "ampO": "ampO", "phaseO": "phaseO"}
+        _LAL_DICT_PTYPE = {"Lambda1": lal.DictInsertREAL8Value, "Lambda2": lal.DictInsertREAL8Value, "ampO": lal.DictInsertINT4Value, "phaseO": lal.DictInsertINT4Value}
+    except:
+        print " lalsimutils: Warning: Running with non-master version of lal ! "
     def to_lal_dict(self):
         extra_params = lal.CreateDict()
         for k, p in ChooseWaveformParams._LAL_DICT_PARAMS.iteritems():
