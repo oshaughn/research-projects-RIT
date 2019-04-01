@@ -88,7 +88,7 @@ parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
 parser.add_argument("--event",type=int,default=None)
 parser.add_argument("--observing-run",default=None,help="Use the observing run settings to choose defaults for channel names, etc. Not yet implemented using lookup from event time")
-parser.add_argument("--calibration-version",default="C02",help="Calibration version to be used.")
+parser.add_argument("--calibration-version",default=None,help="Calibration version to be used.")
 parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER (will override environment variable, which is used as default)")
 parser.add_argument("--fmin",default=None,type=float,help="Minimum frequency for integration. Used to estimate signal duration")
 parser.add_argument("--fmin-template",default=20,type=float,help="Minimum frequency for template. Used to estimate signal duration. If fmin not specified, also the minimum frequency for integration")
@@ -140,6 +140,9 @@ data_types = {}
 standard_channel_names = {}
 
 # Initialize O2
+data_types["O1"] = {}
+standard_channel_names["O1"] = {}
+# Initialize O2
 data_types["O2"] = {}
 standard_channel_names["O2"] = {}
 # Initialize O3
@@ -151,6 +154,17 @@ typical_bns_range_Mpc = {}
 typical_bns_range_Mpc["O1"] = 100 
 typical_bns_range_Mpc["O2"] = 100 
 typical_bns_range_Mpc["O3"] = 130
+
+## O1 definitions
+cal_versions = {"C00", "C01", "C02"}
+for cal in cal_versions:
+    for ifo in "H1", "L1":
+        if cal is "C00":
+            standard_channel_names["O1"][(cal,ifo)] = "GDS-CALIB_STRAIN" # _"+cal
+            data_types["O1"][(cal,ifo)] = ifo+"_HOFT"
+        else:
+            standard_channel_names["O1"][(cal,ifo)] = "DCS-CALIB_STRAIN_"+cal 
+            data_types["O1"][(cal,ifo)] = ifo+"_HOFT_" + cal
 
 ## O2 definitions
 cal_versions = {"C00", "C01", "C02"}
@@ -181,13 +195,13 @@ if opts.verbose:
 cal_versions = {"C00"}
 for cal in cal_versions:
     for ifo in "H1", "L1":
-        data_types["O2"][(cal,ifo)] = ifo+"_HOFT_" + cal
+        data_types["O3"][(cal,ifo)] = ifo+"_HOFT_" + cal
         if opts.online:
-            data_types["O2"][(cal,ifo)] = ifo+"_llhoft"
+            data_types["O3"][(cal,ifo)] = ifo+"_llhoft"
         if cal is "C00":
-            standard_channel_names["O2"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN" 
+            standard_channel_names["O3"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN" 
             if opts.online:
-                standard_channel_names["O2"][(cal,ifo)] = "GDS-CALIB_STRAIN" # Do not assume cleaning is available in low latency
+                standard_channel_names["O3"][(cal,ifo)] = "GDS-CALIB_STRAIN" # Do not assume cleaning is available in low latency
 data_types["O3"][("C00", "V1")] = "V1Online"
 standard_channel_names["O2"][("C00", "V1")] = "Hrec_hoft_16384Hz"
 if opts.online:
@@ -299,12 +313,22 @@ if use_gracedb_event:
 if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
 
+print " Event analysis ", event_dict
+print " == candidate event parameters (as passed to helper) == "
+event_dict["P"].print_params()
 
-# Use event GPS time to set observing run, if not provided
+# Use event GPS time to set observing run, if not provided.  Insures automated operation with a trivial settings file does good things.
 if (opts.observing_run is None) and not opts.fake_data:
     tref = event_dict["tref"]
     opts.observing_run = get_observing_run(tref)
-
+    if opts.calibration_version is None:
+        # This should be a dictionary lookup.
+        if opts.observing_run is "O2":
+            opts.calibration_version = "C02"
+        if opts.observing_run is "O1":
+            opts.calibration_version = "C02"
+        if opts.observing_run is "O3":
+            opts.calibration_version = "C00"   # for now! change as needed
 
 
 
@@ -413,6 +437,7 @@ eta_range_str = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default w
 helper_ile_args ="X "
 helper_test_args="X "
 helper_cip_args = "X "
+helper_cip_arg_list = []
 
 helper_test_args += " --always-succeed --method lame  --parameter mc"
 
