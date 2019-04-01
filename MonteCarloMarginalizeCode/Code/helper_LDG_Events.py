@@ -474,6 +474,10 @@ if opts.propose_initial_grid:
 
         cmd += " --parameter chieff_aligned  --parameter-range " + chieff_range+  " --grid-cartesian-npts 3000 "
 
+        if opts.assume_precessing_spin:
+            # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
+            cmd += " --parameter s1x --parameter-range [0.01,0.03] "
+
     if opts.assume_matter:
         # Do the initial grid assuming matter, with tidal parameters set by the AP4 EOS provided by lalsuite
         # We will leverage working off this to find the lambdaTilde dependence
