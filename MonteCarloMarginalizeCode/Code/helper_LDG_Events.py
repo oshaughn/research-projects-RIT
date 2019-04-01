@@ -69,13 +69,25 @@ def ldg_make_psd(ifo, channel_name,psd_start_time,psd_end_time,srate=4096,use_gw
     return True
 
 
+observing_run_time ={}
+observing_run_time["O1"] = [1126051217,1137254417] # https://www.gw-openscience.org/O1/
+observing_run_time["O2"] = [1164556817,1187733618] # https://www.gw-openscience.org/O2/
+observing_run_time["O3"] = [1230000000,1430000000] # Completely made up boundaries, for now
+def get_observing_run(t):
+    for run in observing_run_time:
+        if  t > observing_run_time[run][0] and t < observing_run_time[run][1]:
+            return run
+    print " No run available for time ", t, " in ", observing_run_time
+    return None
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
 parser.add_argument("--event",type=int,default=None)
-parser.add_argument("--observing-run",default="O2",help="Use the observing run settings to choose defaults for channel names, etc. Not yet implemented using lookup from event time")
+parser.add_argument("--observing-run",default=None,help="Use the observing run settings to choose defaults for channel names, etc. Not yet implemented using lookup from event time")
 parser.add_argument("--calibration-version",default="C02",help="Calibration version to be used.")
 parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER (will override environment variable, which is used as default)")
 parser.add_argument("--fmin",default=None,type=float,help="Minimum frequency for integration. Used to estimate signal duration")
@@ -120,46 +132,9 @@ if opts.use_legacy_gracedb:
     gracedb_exe = "gracedb_legacy"
     download_request = " download "
 
-
-datafind_server = None
-try:
-   datafind_server = os.environ['LIGO_DATAFIND_SERVER']
-   print " LIGO_DATAFIND_SERVER ", datafind_server
-except:
-  print " No LIGO_DATAFIND_SERVER "
-if opts.datafind_server:
-    datafind_server = opts.datafind_server
-if (datafind_server is None) and not (opts.fake_data):
-    print " FAIL: No data !"
-
-
-use_gracedb_event = False
-if not(opts.gracedb_id is None):
-    use_gracedb_event = True
-elif opts.sim_xml:  # right now, configured to do synthetic data only...should be able to mix/match
-    print "====Loading injection XML:", opts.sim_xml, opts.event, " ======="
-    P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))[opts.event]
-    P.radec =False  # do NOT propagate the epoch later
-    P.fref = opts.fmin_template
-    P.fmin = opts.fmin_template
-    event_dict["tref"]=P.tref = opts.event_time
-    event_dict["m1"] = P.m1/lal.MSUN_SI
-    event_dict["m2"] = P.m2/lal.MSUN_SI
-    event_dict["MChirp"] = P.extract_param('mc')/lal.MSUN_SI  # used in strategy downselection
-    event_dict["s1z"] = P.s1z
-    event_dict["s2z"] = P.s2z
-    event_dict["P"] = P
-    event_dict["epoch"]  = 0 # no estimate for now
-
-# PSDs must be provided by hand, IF this is done by this code!
-ifo_list=[]
-if not (opts.psd_file is None):
-    for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
-            psd_names[inst] = psdf
-            ifo_list.append(inst)
-    event_dict["IFOs"] = ifo_list
-
-
+###
+### Hardcoded lookup tables, for production data analysis 
+###
 
 data_types = {}
 standard_channel_names = {}
@@ -224,8 +199,50 @@ if opts.verbose:
 
 
 
+
+datafind_server = None
+try:
+   datafind_server = os.environ['LIGO_DATAFIND_SERVER']
+   print " LIGO_DATAFIND_SERVER ", datafind_server
+except:
+  print " No LIGO_DATAFIND_SERVER "
+if opts.datafind_server:
+    datafind_server = opts.datafind_server
+if (datafind_server is None) and not (opts.fake_data):
+    print " FAIL: No data !"
+
 ###
-### GraceDB branch
+### Import event and PSD: Manual branch
+###
+
+use_gracedb_event = False
+if not(opts.gracedb_id is None):
+    use_gracedb_event = True
+elif opts.sim_xml:  # right now, configured to do synthetic data only...should be able to mix/match
+    print "====Loading injection XML:", opts.sim_xml, opts.event, " ======="
+    P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))[opts.event]
+    P.radec =False  # do NOT propagate the epoch later
+    P.fref = opts.fmin_template
+    P.fmin = opts.fmin_template
+    event_dict["tref"]=P.tref = opts.event_time
+    event_dict["m1"] = P.m1/lal.MSUN_SI
+    event_dict["m2"] = P.m2/lal.MSUN_SI
+    event_dict["MChirp"] = P.extract_param('mc')/lal.MSUN_SI  # used in strategy downselection
+    event_dict["s1z"] = P.s1z
+    event_dict["s2z"] = P.s2z
+    event_dict["P"] = P
+    event_dict["epoch"]  = 0 # no estimate for now
+
+# PSDs must be provided by hand, IF this is done by this code!
+ifo_list=[]
+if not (opts.psd_file is None):
+    for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
+            psd_names[inst] = psdf
+            ifo_list.append(inst)
+    event_dict["IFOs"] = ifo_list
+
+###
+### Import event and PSD: GraceDB branch
 ###
 
 if use_gracedb_event:
@@ -281,6 +298,14 @@ if use_gracedb_event:
 
 if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
+
+
+# Use event GPS time to set observing run, if not provided
+if (opts.observing_run is None) and not opts.fake_data:
+    tref = event_dict["tref"]
+    opts.observing_run = get_observing_run(tref)
+
+
 
 
 ###
