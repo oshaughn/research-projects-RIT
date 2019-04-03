@@ -1043,6 +1043,7 @@ class ChooseWaveformParams:
         print "distance =", self.dist / 1.e+6 / lsu_PC, "(Mpc)"
         print "reference orbital phase =", self.phiref
         print "polarization angle =", self.psi
+        print "eccentricity = ", self.eccentricity
         print "time of coalescence =", float(self.tref),  " [GPS sec: ",  int(self.tref), ",  GPS ns ", (self.tref - int(self.tref))*1e9, "]"
         print "detector is:", self.detector
         if self.radec==False:
@@ -1195,6 +1196,7 @@ class ChooseWaveformParams:
         # FAKED COLUMNS (nonstandard)
         self.lambda1 = row.alpha5
         self.lambda2 = row.alpha6
+        self.eccentricity=row.alpha4
 
     def create_sim_inspiral(self):
         """
@@ -1239,6 +1241,7 @@ class ChooseWaveformParams:
         # NONSTANDARD
         row.alpha5 = self.lambda1
         row.alpha6 = self.lambda2
+        row.alpha4 = self.eccentricity
         # Debug: 
         if rosDebugMessagesContainer[0]:
             print " Constructing the following XML table "
