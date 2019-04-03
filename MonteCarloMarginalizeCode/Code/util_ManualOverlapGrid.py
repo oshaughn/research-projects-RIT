@@ -331,6 +331,9 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     grid_revised = []
     for line in grid:
         Pgrid = P.manual_copy()
+        Pgrid.ampO=opts.amplitude_order  # include 'full physics'
+        Pgrid.phaseO = opts.phase_order
+
         # Set attributes that are being changed as necessary, leaving all others fixed
         for indx in np.arange(len(param_names)):
             Pgrid.assign_param(param_names[indx], line[indx])
