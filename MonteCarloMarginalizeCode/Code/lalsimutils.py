@@ -1172,7 +1172,7 @@ class ChooseWaveformParams:
         self.dist = row.distance * lsu_PC * 1.e6
         self.incl = row.inclination
         self.ampO = row.amp_order
-        if not (str(row.waveform).find("Taylor") == -1 ):  # Not meaningful to have an order for EOB, etc
+        if not (str(row.waveform).find("Taylor") == -1 ) or ("Eccentric" in row.waveform):  # Not meaningful to have an order for EOB, etc
             self.phaseO = lalsim.GetOrderFromString(str(row.waveform))
         else:
             self.phaseO = -1
