@@ -1234,7 +1234,7 @@ class ChooseWaveformParams:
         row.amp_order = self.ampO
         # PROBLEM: This line is NOT ROBUST, because of type conversions
         row.waveform = lalsim.GetStringFromApproximant(self.approx)
-        if  ("Taylor" in row.waveform):   # we only have PN orders embedded in Taylor
+        if  ("Taylor" in row.waveform) or ("Eccentric" in row.waveform):   # we only have PN orders embedded in Taylor?
             row.waveform =row.waveform+lsu_StringFromPNOrder(self.phaseO)
         row.taper = "TAPER_NONE"
         row.f_lower =self.fmin
