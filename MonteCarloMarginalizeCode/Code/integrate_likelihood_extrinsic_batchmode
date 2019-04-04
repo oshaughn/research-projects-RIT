@@ -17,6 +17,7 @@ try:
   import cupy
   xpy_default=cupy
   identity_convert = cupy.asnumpy
+  junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
 except:
   print ' no cupy'
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
