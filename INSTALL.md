@@ -14,6 +14,7 @@ putting the following directory in your PATH and PYTHONPATH
    export ILE_DIR=${INSTALL_DIR}/MonteCarloMarginalizeCode/Code
    export PATH=${PATH}:${ILE_DIR}
    export PYTHONPATH=${PYTHONPATH}:${ILE_DIR}
+   export GW_SURROGATE=''
 ```
 
 and making sure you have installed the necessary dependencies.  The following command will at least insure that these dependencies are up to date 
@@ -43,3 +44,15 @@ If you run on an LDG cluster, you need accounting flags
 export LIGO_USER_NAME=albert.einstein
 export LIGO_ACCOUNTING=ligo.dev.o3.cbc.pe.lalinferencerapid
 ```
+
+
+
+
+### Alternative setup (singularity)
+If you would rather use a pre-packaged environment *and* you have access to singularity and CVMFS (e.g., on an LDG cluster), you can do the following to use a pre-packaged version :
+
+```
+singularity shell --writable  /cvmfs/ligo-containers.opensciencegrid.org/james-clark/research-projects-rit/rift/latest
+```
+
+You can use this setup for testing and job launching.

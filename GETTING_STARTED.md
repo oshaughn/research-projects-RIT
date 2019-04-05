@@ -12,6 +12,7 @@ export LIGO_USER_NAME=albert.einstein  # replace as appropriate
 export LIGO_ACCOUNTING=ligo.dev.o3.cbc.pe.lalinferencerapid
 ```
 
+
 ### Confirming your installation works
 
 The following short set of commands will confirm your installation is properly configured; please try in your python version of choice.
