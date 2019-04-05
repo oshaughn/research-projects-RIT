@@ -60,6 +60,10 @@ def generate_job_id():
     r = str( long( np.random.random() * 100000000000000000L ) )
     return md5(t + r).hexdigest()
 
+
+# From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+
+
 def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log_dir=None, ncopies=1, **kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over
@@ -533,7 +537,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     return ile_job, ile_sub_name
 
 
-def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,arg_vals=None, transfer_files=None, **kwargs):
+def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,arg_vals=None, transfer_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -541,8 +545,22 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     Outputs:
         - An instance of the CondorDAGJob that was generated for ILE
     """
+    if use_singularity and (singularity_image == None)  :
+        print " FAIL : Need to specify singularity_image to use singularity "
+        sys.exit(0)
+    if use_singularity and (frames_dir == None)  :
+        print " FAIL : Need to specify frames_dir to use singularity (at present - synthetic data only!) "
+        sys.exit(0)
+    if use_singularity and (transfer_files == None)  :
+        print " FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file "
+        sys.exit(0)
 
     exe = exe or which("integrate_likelihood_extrinsic")
+    if use_singularity:
+        path_split = exe.split("/")
+        print " Executable: name breakdown ", path_split, " from ", exe
+        exe=path_split[-1]
+        frames_local = frames_dir.split("/")[-1]
     ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
@@ -564,11 +582,8 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     if use_eos:
         ile_job.add_var_opt("using-eos")
 
-    if not transfer_files is None:
-        fname_str = ','.join(transfer_files)
-        fname_str=fname_str.strip()
-        ile_job.add_condor_cmd('transfer_input_files', fname_str)
 
+    requirements =[]
     #
     # Logging options
     #
@@ -608,6 +623,9 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         else:
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
+    if cache_file:
+        ile_job.add_opt("cache_file",cache_file)
+
     ile_job.add_var_opt("event")
 
     ile_job.add_condor_cmd('getenv', 'True')
@@ -616,17 +634,61 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     if request_gpu:
         nGPUs=1
     ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
+    if use_singularity:
+        # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+            ile_job.add_condor_cmd('request_CPUs', str(1))
+            ile_job.add_condor_cmd('transfer_executable', 'False')
+            ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
+            ile_job.add_condor_cmd('use_x509userproxy','True')
+            ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+            requirements = []
+            requirements.append("HAS_SINGULARITY=?=TRUE")
+            requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)")
+            #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
+
+            # Create prescript command
+            cmdname = 'ile_pre.sh'
+            transfer_files += ["../ile_pre.sh", frames_dir]  # assuming default working directory setup
+            with open(cmdname,'w') as f:
+                f.write("#! /bin/bash -xe \n")
+                f.write( "ls "+frames_local+" | lalapps_path2cache > local.cache \n")  # Danger: need user to correctly specify local.cache directory
+            
+            # Set up file transfer options
+            ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
+
+
+            # Stream log info
+            ile_job.add_condor_cmd("stream_error",'True')
+            ile_job.add_condor_cmd("stream_output",'True')
+
+    if use_osg:
+        ile_job.add_condor_cmd("+OpenScienceGrid",'True')
+        requirements.append("IS_GLIDEIN=?=TRUE)")
     # To change interactively:
     #   condor_qedit
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    # Write requirements
+    # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
         print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
-        
+
+    if not transfer_files is None:
+        if not isinstance(transfer_files, list):
+            fname_str=transfer_files
+        else:
+            fname_str = ','.join(transfer_files)
+        fname_str=fname_str.strip()
+        ile_job.add_condor_cmd('transfer_input_files', fname_str)
+        ile_job.add_condor_cmd('should_transfer_files','YES')
+
+    
     
 
     ###
