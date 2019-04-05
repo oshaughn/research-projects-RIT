@@ -12,7 +12,7 @@ try:
     xpy_default = cupy
     cupy_here = True
     junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
-except ImportError:
+except: # ImportError:
     print(" no cupy")
     cupy_here = False
     import numpy as cupy

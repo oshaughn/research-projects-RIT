@@ -31,6 +31,7 @@ try:
   import optimized_gpu_tools
   import Q_inner_product
   xpy_default=cupy
+  junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
 except:
   print ' no cupy'
   import numpy as cupy
