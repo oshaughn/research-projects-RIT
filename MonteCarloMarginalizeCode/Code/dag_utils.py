@@ -643,7 +643,7 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
             ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
             requirements = []
             requirements.append("HAS_SINGULARITY=?=TRUE")
-            requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)")
+            requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
             #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
 
             # Create prescript command
@@ -663,7 +663,7 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
 
     if use_osg:
         ile_job.add_condor_cmd("+OpenScienceGrid",'True')
-        requirements.append("IS_GLIDEIN=?=TRUE)")
+        requirements.append("IS_GLIDEIN=?=TRUE")
     # To change interactively:
     #   condor_qedit
     # for example: 
