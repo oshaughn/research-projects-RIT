@@ -548,8 +548,8 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     if use_singularity and (singularity_image == None)  :
         print " FAIL : Need to specify singularity_image to use singularity "
         sys.exit(0)
-    if use_singularity and (frames_dir == None)  :
-        print " FAIL : Need to specify frames_dir to use singularity (at present - synthetic data only!) "
+    if use_singularity and (frames_dir == None)  and (cache_file == None) :
+        print " FAIL : Need to specify frames_dir or cache_file to use singularity (at present) "
         sys.exit(0)
     if use_singularity and (transfer_files == None)  :
         print " FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file "
