@@ -556,11 +556,13 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         sys.exit(0)
 
     exe = exe or which("integrate_likelihood_extrinsic")
+    frmes_local = None
     if use_singularity:
         path_split = exe.split("/")
         print " Executable: name breakdown ", path_split, " from ", exe
         exe=path_split[-1]
-        frames_local = frames_dir.split("/")[-1]
+        if not(frames_dir is None):
+            frames_local = frames_dir.split("/")[-1]
     ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
@@ -646,13 +648,16 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
             requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
             #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
 
-            # Create prescript command
-            cmdname = 'ile_pre.sh'
-            transfer_files += ["../ile_pre.sh", frames_dir]  # assuming default working directory setup
-            with open(cmdname,'w') as f:
-                f.write("#! /bin/bash -xe \n")
-                f.write( "ls "+frames_local+" | lalapps_path2cache > local.cache \n")  # Danger: need user to correctly specify local.cache directory
-            
+            # Create prescript command to set up local.cache, only if frames are needed
+            if not(frames_local is None):
+                cmdname = 'ile_pre.sh'
+                transfer_files += ["../ile_pre.sh", frames_dir]  # assuming default working directory setup
+                with open(cmdname,'w') as f:
+                    f.write("#! /bin/bash -xe \n")
+                    f.write( "ls "+frames_local+" | lalapps_path2cache > local.cache \n")  # Danger: need user to correctly specify local.cache directory
+                ile_job.add_condor_cmd('+PreCmd ile_pre.sh')
+
+
             # Set up file transfer options
             ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
 
