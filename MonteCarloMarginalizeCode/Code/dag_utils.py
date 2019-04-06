@@ -556,7 +556,7 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         sys.exit(0)
 
     exe = exe or which("integrate_likelihood_extrinsic")
-    frmes_local = None
+    frames_local = None
     if use_singularity:
         path_split = exe.split("/")
         print " Executable: name breakdown ", path_split, " from ", exe
@@ -655,7 +655,7 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
                 with open(cmdname,'w') as f:
                     f.write("#! /bin/bash -xe \n")
                     f.write( "ls "+frames_local+" | lalapps_path2cache > local.cache \n")  # Danger: need user to correctly specify local.cache directory
-                ile_job.add_condor_cmd('+PreCmd ile_pre.sh')
+                ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
 
 
             # Set up file transfer options
