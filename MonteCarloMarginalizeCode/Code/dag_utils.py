@@ -560,7 +560,8 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     if use_singularity:
         path_split = exe.split("/")
         print " Executable: name breakdown ", path_split, " from ", exe
-        exe=path_split[-1]
+        singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
+        exe=singularity_base_exe_path + path_split[-1]
         if not(frames_dir is None):
             frames_local = frames_dir.split("/")[-1]
     ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
