@@ -651,10 +651,13 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
             # Create prescript command to set up local.cache, only if frames are needed
             if not(frames_local is None):
                 cmdname = 'ile_pre.sh'
+                if transfer_files is None:
+                    transfer_files = []
                 transfer_files += ["../ile_pre.sh", frames_dir]  # assuming default working directory setup
                 with open(cmdname,'w') as f:
                     f.write("#! /bin/bash -xe \n")
                     f.write( "ls "+frames_local+" | lalapps_path2cache > local.cache \n")  # Danger: need user to correctly specify local.cache directory
+                os.system("chmod a+x ile_pre.sh")
                 ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
 
 
