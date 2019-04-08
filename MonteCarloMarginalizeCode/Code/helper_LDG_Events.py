@@ -535,8 +535,16 @@ if opts.propose_initial_grid:
 
     print " Executing grid command ", cmd
     os.system(cmd)
-    
-    
+
+    if opts.assume_matter:
+        # Now perform a puffball in lambda1 and lambda2
+        cmd_puff = " util_ParameterPuffball.py --parameter lambda1 --parameter lambda2 --inj-file proposed-grid.xml.gz --inj-file-out proposed-grid_puff_lambda --downselect-parameter lambda1 --downselect-parameter-range [0.1,5000] --downselect-parameter lambda2 --downselect-parameter-range [0.1,5000]"
+        os.system(cmd_puff)
+        # Now add these two together
+        # ideally, ligolw_add will work... except it fails
+        P_A = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid.xml.gz")
+        P_B = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid_puff_lambda.xml.gz")
+        lalsimutils.ChooseWaveformParams_array_to_xml(P_A+P_B, "proposed-grid.xml.gz")
 
 if opts.propose_ile_convergence_options:
     helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler   --n-max 2000000 --n-eff 50 "
