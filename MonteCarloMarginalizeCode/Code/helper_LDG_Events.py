@@ -598,3 +598,8 @@ with open("helper_cip_arg_list.txt",'w+') as f:
 
 with open("helper_test_args.txt",'w+') as f:
     f.write(helper_test_args)
+
+
+if opts.assume_matter:
+    with open("helper_convert_args.txt",'w+') as f:
+        f.write(" --export-tides ")
