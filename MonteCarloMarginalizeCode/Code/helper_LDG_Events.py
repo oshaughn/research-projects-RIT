@@ -326,7 +326,7 @@ if not (opts.fake_data):
     for ifo in ifos:
         data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
-ldg_make_cache(retrieve=not (opts.gracedb_id is None)) # we are using the ifo_local.cache files
+#ldg_make_cache(retrieve=not (opts.gracedb_id is None)) # we are using the ifo_local.cache files
 
 # If needed, build PSDs
 if (opts.psd_file is None) and not opts.use_online_psd:
@@ -394,7 +394,7 @@ for ifo in ifos:
     helper_ile_args += " --psd-file "+ifo+"="+psd_names[ifo]
     if not (opts.fmin is None):
         helper_ile_args += " --fmin-ifo "+ifo+"="+str(opts.fmin)
-helper_ile_args += " --fmax " + str(fmax)
+helper_ile_args += " --fmax " + str(opts.fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
 helper_ile_args += " --reference-freq " + str(opts.fmin_template)  # in case we are using a code which allows this to be specified
 if opts.lowlatency_propose_approximant:
@@ -445,7 +445,7 @@ if opts.propose_initial_grid:
     
 
 if opts.propose_ile_convergence_options:
-    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler   --n-max 2000000 --n-eff 50 "
+    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler   --n-max 4000000 --n-eff 1000 "
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs
     # Note that number of events to analyze is controlled by a different part of the workflow !
