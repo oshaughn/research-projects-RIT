@@ -1,7 +1,10 @@
 numpy>=1.14.0
 scipy>=1.0.1
 numba
-h5py
+h5py>=2.9.0
 corner
 scikit-learn<=0.20
 matplotlib<=2.2.4
+gwsurrogate>=0.9.4
+lalsuite>=6.53
+ligo-segments>=1.2.0

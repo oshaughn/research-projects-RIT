@@ -181,6 +181,8 @@ parser.add_argument("--fname-lalinference",help="filename of posterior_samples.d
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
 parser.add_argument("--fname-output-integral",default="integral_result",help="output filename for integral result. Postfixes appended")
 parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
+parser.add_argument("--amplitude-order",default=-1,type=int,help="Set ampO for grid. Used in PN")
+parser.add_argument("--phase-order",default=7,type=int,help="Set phaseO for grid. Used in PN")
 parser.add_argument("--fref",default=20,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz)")
 parser.add_argument("--fmin",type=float,default=20)
 parser.add_argument("--fname-rom-samples",default=None,help="*.rom_composite output. Treated identically to set of posterior samples produced by mcsampler after constructing fit.")
@@ -1756,9 +1758,9 @@ for indx_here in indx_list:
                         print " Sample: Skipping " , line, ' due to ', p, val, downselect_dict[p]
 
         # Set some superfluous quantities, needed only for PN approximants, so the result is generated sensibly
-        Pgrid.phaseO =-1
-                        
-            
+        Pgrid.ampO =opts.amplitude_order
+        Pgrid.phaseO =opts.phase_order
+
         # Downselect.
         # for param in downselect_dict:
         #     if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:

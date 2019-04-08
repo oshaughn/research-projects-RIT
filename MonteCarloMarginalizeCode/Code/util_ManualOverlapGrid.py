@@ -178,6 +178,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--parameter", action='append')
 parser.add_argument("--parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used")
 parser.add_argument("--amplitude-order",default=-1,type=int,help="Set ampO for grid. Used in PN")
+parser.add_argument("--phase-order",default=7,type=int,help="Set phaseO for grid. Used in PN")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--parameter-value-list", action='append', type=str,help="Add an explicit list of parameter choices to use. ONLY those values will be used. Intended for NR simulations (e.g., q, a1, a2)")
@@ -330,6 +331,9 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     grid_revised = []
     for line in grid:
         Pgrid = P.manual_copy()
+        Pgrid.ampO=opts.amplitude_order  # include 'full physics'
+        Pgrid.phaseO = opts.phase_order
+
         # Set attributes that are being changed as necessary, leaving all others fixed
         for indx in np.arange(len(param_names)):
             Pgrid.assign_param(param_names[indx], line[indx])
@@ -428,6 +432,7 @@ else:
 
     P.fmin=opts.fmin   # Just for comparison!  Obviously only good for iLIGO
     P.ampO=opts.amplitude_order  # include 'full physics'
+    P.phaseO = opts.phase_order
     if opts.approx:
         P.approx = lalsim.GetApproximantFromString(opts.approx)
         if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
@@ -697,13 +702,14 @@ if opts.external_grid_txt:
 
 #if using an external EOS add lambda to grid (Richard, you may want to fix this to be more general)
 elif opts.use_eos!=None:
-   from gwemlightcurves.KNModels import table 
- 
-   grid_tmp=np.zeros((len(grid[:,0]), len(grid[0,:])+2))
-   print grid_tmp   
+#   from gwemlightcurves.KNModels import table 
+   import EOSManager
 
-   eos,eos_fam=table.get_lalsim_eos(opts.use_eos)
-   
+   grid_tmp=np.zeros((len(grid[:,0]), len(grid[0,:])+2))
+   anEOS = EOSManager.EOSLALSimulation(opts.use_eos)
+#   eos,eos_fam=table.get_lalsim_eos(opts.use_eos)
+   eos_fam = anEOS.eos_fam
+
    for i in range(0,len(grid[0,:])):
        grid_tmp[:,i]=grid[:,i]
 
@@ -711,17 +717,28 @@ elif opts.use_eos!=None:
    param_names.append('lambda2')
 
    mc_indx=param_names.index('mc')
-   eta_indx=param_names.index('eta')
+   my_transform = lambda x: x
+   if 'eta' in param_names:
+       eta_indx=param_names.index('eta')
+   else:
+       eta_indx = param_names.index('delta_mc')
+       my_transform = lambda x: 0.25*(1.-x*x)
    lam1_indx=param_names.index('lambda1')
    lam2_indx=param_names.index('lambda2')
 
-   for i in range(0,len(grid[:,mc_indx])):
-       m1=lalsimutils.mass1(grid[i,mc_indx],grid[i,eta_indx])
-       m2=lalsimutils.mass2(grid[i,mc_indx],grid[i,eta_indx])
-       grid_tmp[i,lam1_indx]=calc_lambda_from_m(m1,eos_fam)
-       grid_tmp[i,lam2_indx]=calc_lambda_from_m(m2,eos_fam)
+   for i in range(0,len(grid[:,mc_indx])): # Ridiculously inefficient
+       # fail to assign anything if m1 or m2 is out of range
+       m1=lalsimutils.mass1(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
+       if m1/lal.MSUN_SI < anEOS.mMaxMsun:
+           grid_tmp[i,lam1_indx]= anEOS.lambda_from_m(m1)  # calc_lambda_from_m(m1,eos_fam)
+       m2=lalsimutils.mass2(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
+       if m2/lal.MSUN_SI < anEOS.mMaxMsun:
+           grid_tmp[i,lam2_indx]= anEOS.lambda_from_m(m2)  #calc_lambda_from_m(m2,eos_fam)
 
-   grid=grid_tmp
+   # Remove points with zero lambda1 or lambda2?  
+   #     Not necessarily ... think about it ... but require both for now
+   indx_ok  = np.logical_and(grid_tmp[:,lam1_indx]>0 ,grid_tmp[:,lam2_indx]>0 )
+   grid=grid_tmp[indx_ok]
 
 
 grid_out, P_list = evaluate_overlap_on_grid(hfBase, param_names, grid)

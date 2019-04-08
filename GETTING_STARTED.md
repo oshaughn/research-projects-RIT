@@ -1,5 +1,3 @@
-
-
 In this document, we'll walk you through the bare minimum needed to get RIFT up and running.  We won't explain all the settings, but you will get a realistic analysis working.   You can find a more comprehensive and pedagogical tutorial at
 ```
 https://git.ligo.org/pe/tutorials/blob/master/offline_RIFT.md
@@ -14,6 +12,7 @@ export LIGO_USER_NAME=albert.einstein  # replace as appropriate
 export LIGO_ACCOUNTING=ligo.dev.o3.cbc.pe.lalinferencerapid
 ```
 
+
 ### Confirming your installation works
 
 The following short set of commands will confirm your installation is properly configured; please try in your python version of choice.
@@ -26,6 +25,13 @@ P.m2 = 0.6*P.m1
 P.approx = lalsim.SEOBNRv4
 hlmT = lalsimutils.hlmoft(P)  # Make hlm modes. Confirms you have a version of lalsuite with a compatible waveform interface
 lalsimutils.ChooseWaveformParams_array_to_xml([P], "outfile") # write P parameters to xml file. Confirms XML i/o working (glue/ligolw, etc)
+```
+
+
+Before getting started, make sure you set 
+```
+export LIGO_ACCOUNTING=ligo.dev.o3.cbc.pe.lalinferencerapid
+export LIGO_USER_NAME=albert.einstein # your own username as appropriate
 ```
 
 ### Possible workarounds (Mar 2019)
@@ -46,7 +52,7 @@ While it is not necessary, we recommend you log in to a machine with a GPU (e.g.
 
 
 ### Setting up and understanding the analysis
-The following commands set up the workflow.  
+The following commands set up the workflow. 
 ```
 git  clone https://github.com/oshaughn/ILE-GPU-Paper.git
 cd ILE-GPU-Paper/demos/
@@ -61,6 +67,7 @@ Before you submit a workflow, however, we recommend you first confirm you've set
 ```
 ./command-single.sh
 ```
+(This command will run anywhere; however, it will only test the GPU configuration if you run it on a machine with a GPU, like pcdev13 or pcdev11 at CIT)
 
 The workflow loosely consists of two parts: worker ILE jobs, which evaluate the marginalized likelihood; and fitting/posterior jobs, which fit the marginalized likelihood and estimate the posterior distribution.  Other nodes help group the output of individual jobs and iterations together.  Unless otherwise noted, all quantities provided are detector-frame;  we haven't added automation for source-frame yet.
 
@@ -102,6 +109,7 @@ You can and should use standard PE-compatible tools to manipulate ``posterior-sa
 ```
    plot_posterior_corner.py --posterior-file posterior-samples-5.dat --parameter mc --parameter eta 
 ```
+
 For the data products made in this example, I  recommend adding the following options
 
 ```
@@ -197,7 +205,7 @@ For now, you can do the following (experimental), which for simplicity uses onli
 If you want to use this yourself, **please use the ``--observing-run`` ** argument, to prime the auto-selected arguments (channels, etc) to be appropriate to your analysis.
 
 ### Generation script
-Make the following driver script and call it ``setup_bbh_event.sh``.
+Make the following driver script and call it ``setup_bbh_event.sh``, then do ``chmod a+x setup_bbh_event.sh``
 ```
 mkdir ${1}_analysis_lowlatency
 cd ${1}_analysis_lowlatency
@@ -215,6 +223,7 @@ VERIFY OUTPUT CORRECT, adjust number of iterations to be more reasonable.
 
 __A single event__ :Try this, for GW170814 (an example of a triple event, but the coinc.xml/helper is currently only identifying it as an LV double: FIXME)
 ``
+ligo_proxy_init albert.einstein # yes, for some reason you need to do this even on LDG machines
 ./setup_bbh_event.sh G298172
 ``
 

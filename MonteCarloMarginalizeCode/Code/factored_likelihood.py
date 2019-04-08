@@ -31,6 +31,7 @@ try:
   import optimized_gpu_tools
   import Q_inner_product
   xpy_default=cupy
+  junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
 except:
   print ' no cupy'
   import numpy as cupy
@@ -161,8 +162,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 hlms_conj[mode].data.data *=rom_basis_scale
        else:
            # this code is modular but inefficient: the waveform is regenerated twice
-           hlms = acatHere.hlmoff(P, use_basis=False,force_T=1./P.deltaF,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
-           hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
+           hlms = acatHere.hlmoff(P, use_basis=False,deltaT=P.deltaT,force_T=1./P.deltaF,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
+           hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False,deltaT=P.deltaT,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
            mode_list = hlms.keys()  # make copy: dictionary will change during iteration
            for mode in mode_list:
                    if no_memory and mode[1]==0 and P.SoftAlignedQ():

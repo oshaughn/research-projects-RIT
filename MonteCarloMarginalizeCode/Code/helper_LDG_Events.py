@@ -28,7 +28,7 @@ def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_d
     fname_out_raw = ifo_base[0]+"_raw.cache"
     fname_out = ifo_base[0]+"_local.cache"
     print [ifo_base, types, server, data_start, data_end]
-    cmd = 'gw_data_find -u file --gaps -o ' + ifo_base[0] + ' -t ' + types + ' --server ' + server + ' -s ' + str(data_start) + ' -e ' + str(data_end) + " > " +fname_out_raw
+    cmd = datafind_exe + ' -u file --gaps -o ' + ifo_base[0] + ' -t ' + types + ' --server ' + server + ' -s ' + str(data_start) + ' -e ' + str(data_end) + " > " +fname_out_raw
     os.system(cmd)
 
     if not retrieve:
@@ -69,20 +69,33 @@ def ldg_make_psd(ifo, channel_name,psd_start_time,psd_end_time,srate=4096,use_gw
     return True
 
 
+observing_run_time ={}
+observing_run_time["O1"] = [1126051217,1137254417] # https://www.gw-openscience.org/O1/
+observing_run_time["O2"] = [1164556817,1187733618] # https://www.gw-openscience.org/O2/
+observing_run_time["O3"] = [1230000000,1430000000] # Completely made up boundaries, for now
+def get_observing_run(t):
+    for run in observing_run_time:
+        if  t > observing_run_time[run][0] and t < observing_run_time[run][1]:
+            return run
+    print " No run available for time ", t, " in ", observing_run_time
+    return None
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
 parser.add_argument("--event",type=int,default=None)
-parser.add_argument("--observing-run",default="O2",help="Use the observing run settings to choose defaults for channel names, etc. Not yet implemented using lookup from event time")
-parser.add_argument("--calibration-version",default="C02",help="Calibration version to be used.")
+parser.add_argument("--observing-run",default=None,help="Use the observing run settings to choose defaults for channel names, etc. Not yet implemented using lookup from event time")
+parser.add_argument("--calibration-version",default=None,help="Calibration version to be used.")
 parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER (will override environment variable, which is used as default)")
 parser.add_argument("--fmin",default=None,type=float,help="Minimum frequency for integration. Used to estimate signal duration")
 parser.add_argument("--fmin-template",default=20,type=float,help="Minimum frequency for template. Used to estimate signal duration. If fmin not specified, also the minimum frequency for integration")
 parser.add_argument("--fmax",default=None,type=float,help="fmax. Use this ONLY if you want to override the default settings, which are set based on the PSD used")
 parser.add_argument("--data-start-time",default=None)
 parser.add_argument("--data-end-time",default=None,help="If both data-start-time and data-end-time are provided, this interval will be used.")
+parser.add_argument("--data-LI-seglen",default=None,type=float,help="If provided, use a buffer this long, placing the signal 2s after this, and try to use 0.4s tukey windowing on each side, to be consistent with LI.  ")
 parser.add_argument("--working-directory",default=".")
 parser.add_argument("--datafind-exe",default="gw_data_find")
 parser.add_argument("--gracedb-exe",default="gracedb")
@@ -119,50 +132,16 @@ if opts.use_legacy_gracedb:
     gracedb_exe = "gracedb_legacy"
     download_request = " download "
 
-
-datafind_server = None
-try:
-   datafind_server = os.environ['LIGO_DATAFIND_SERVER']
-   print " LIGO_DATAFIND_SERVER ", datafind_server
-except:
-  print " No LIGO_DATAFIND_SERVER "
-if opts.datafind_server:
-    datafind_server = opts.datafind_server
-if (datafind_server is None) and not (opts.fake_data):
-    print " FAIL: No data !"
-
-
-use_gracedb_event = False
-if not(opts.gracedb_id is None):
-    use_gracedb_event = True
-elif opts.sim_xml:  # right now, configured to do synthetic data only...should be able to mix/match
-    print "====Loading injection XML:", opts.sim_xml, opts.event, " ======="
-    P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))[opts.event]
-    P.radec =False  # do NOT propagate the epoch later
-    P.fref = opts.fmin_template
-    P.fmin = opts.fmin_template
-    event_dict["tref"]=P.tref = opts.event_time
-    event_dict["m1"] = P.m1/lal.MSUN_SI
-    event_dict["m2"] = P.m2/lal.MSUN_SI
-    event_dict["MChirp"] = P.extract_param('mc')/lal.MSUN_SI  # used in strategy downselection
-    event_dict["s1z"] = P.s1z
-    event_dict["s2z"] = P.s2z
-    event_dict["P"] = P
-    event_dict["epoch"]  = 0 # no estimate for now
-
-    # PSDs must be provided by hand, IF this is done by this code!
-    ifo_list=[]
-    if not (opts.psd_file is None):
-        for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
-            psd_names[inst] = psdf
-            ifo_list.append(inst)
-    event_dict["IFOs"] = ifo_list
-
-
+###
+### Hardcoded lookup tables, for production data analysis 
+###
 
 data_types = {}
 standard_channel_names = {}
 
+# Initialize O2
+data_types["O1"] = {}
+standard_channel_names["O1"] = {}
 # Initialize O2
 data_types["O2"] = {}
 standard_channel_names["O2"] = {}
@@ -175,6 +154,17 @@ typical_bns_range_Mpc = {}
 typical_bns_range_Mpc["O1"] = 100 
 typical_bns_range_Mpc["O2"] = 100 
 typical_bns_range_Mpc["O3"] = 130
+
+## O1 definitions
+cal_versions = {"C00", "C01", "C02"}
+for cal in cal_versions:
+    for ifo in "H1", "L1":
+        if cal is "C00":
+            standard_channel_names["O1"][(cal,ifo)] = "GDS-CALIB_STRAIN" # _"+cal
+            data_types["O1"][(cal,ifo)] = ifo+"_HOFT"
+        else:
+            standard_channel_names["O1"][(cal,ifo)] = "DCS-CALIB_STRAIN_"+cal 
+            data_types["O1"][(cal,ifo)] = ifo+"_HOFT_" + cal
 
 ## O2 definitions
 cal_versions = {"C00", "C01", "C02"}
@@ -205,13 +195,13 @@ if opts.verbose:
 cal_versions = {"C00"}
 for cal in cal_versions:
     for ifo in "H1", "L1":
-        data_types["O2"][(cal,ifo)] = ifo+"_HOFT_" + cal
+        data_types["O3"][(cal,ifo)] = ifo+"_HOFT_" + cal
         if opts.online:
-            data_types["O2"][(cal,ifo)] = ifo+"_llhoft"
+            data_types["O3"][(cal,ifo)] = ifo+"_llhoft"
         if cal is "C00":
-            standard_channel_names["O2"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN" 
+            standard_channel_names["O3"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN" 
             if opts.online:
-                standard_channel_names["O2"][(cal,ifo)] = "GDS-CALIB_STRAIN" # Do not assume cleaning is available in low latency
+                standard_channel_names["O3"][(cal,ifo)] = "GDS-CALIB_STRAIN" # Do not assume cleaning is available in low latency
 data_types["O3"][("C00", "V1")] = "V1Online"
 standard_channel_names["O2"][("C00", "V1")] = "Hrec_hoft_16384Hz"
 if opts.online:
@@ -223,8 +213,50 @@ if opts.verbose:
 
 
 
+
+datafind_server = None
+try:
+   datafind_server = os.environ['LIGO_DATAFIND_SERVER']
+   print " LIGO_DATAFIND_SERVER ", datafind_server
+except:
+  print " No LIGO_DATAFIND_SERVER "
+if opts.datafind_server:
+    datafind_server = opts.datafind_server
+if (datafind_server is None) and not (opts.fake_data):
+    print " FAIL: No data !"
+
 ###
-### GraceDB branch
+### Import event and PSD: Manual branch
+###
+
+use_gracedb_event = False
+if not(opts.gracedb_id is None):
+    use_gracedb_event = True
+elif opts.sim_xml:  # right now, configured to do synthetic data only...should be able to mix/match
+    print "====Loading injection XML:", opts.sim_xml, opts.event, " ======="
+    P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))[opts.event]
+    P.radec =False  # do NOT propagate the epoch later
+    P.fref = opts.fmin_template
+    P.fmin = opts.fmin_template
+    event_dict["tref"]=P.tref = opts.event_time
+    event_dict["m1"] = P.m1/lal.MSUN_SI
+    event_dict["m2"] = P.m2/lal.MSUN_SI
+    event_dict["MChirp"] = P.extract_param('mc')/lal.MSUN_SI  # used in strategy downselection
+    event_dict["s1z"] = P.s1z
+    event_dict["s2z"] = P.s2z
+    event_dict["P"] = P
+    event_dict["epoch"]  = 0 # no estimate for now
+
+# PSDs must be provided by hand, IF this is done by this code!
+ifo_list=[]
+if not (opts.psd_file is None):
+    for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
+            psd_names[inst] = psdf
+            ifo_list.append(inst)
+    event_dict["IFOs"] = ifo_list
+
+###
+### Import event and PSD: GraceDB branch
 ###
 
 if use_gracedb_event:
@@ -278,9 +310,26 @@ if use_gracedb_event:
             cmd += " --ifo " + ifo
         os.system(cmd)
 
-
 if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
+
+print " Event analysis ", event_dict
+print " == candidate event parameters (as passed to helper) == "
+event_dict["P"].print_params()
+
+# Use event GPS time to set observing run, if not provided.  Insures automated operation with a trivial settings file does good things.
+if (opts.observing_run is None) and not opts.fake_data:
+    tref = event_dict["tref"]
+    opts.observing_run = get_observing_run(tref)
+    if opts.calibration_version is None:
+        # This should be a dictionary lookup.
+        if opts.observing_run is "O2":
+            opts.calibration_version = "C02"
+        if opts.observing_run is "O1":
+            opts.calibration_version = "C02"
+        if opts.observing_run is "O3":
+            opts.calibration_version = "C00"   # for now! change as needed
+
 
 
 ###
@@ -352,6 +401,7 @@ mc_max=(1+ln_mc_error_pseudo_fisher)*mc_center   # conservative !
 
 eta_min = 0.1  # default for now, will fix this later
 delta_max =0.5
+delta_min =1e-4  # Some approximants like SEOBNRv3 can hard fail if m1=m2
 if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
     import scipy.optimize
     # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
@@ -362,12 +412,23 @@ if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constrai
     delta_max =1.1*res
     eta_min = 0.25*(1-delta_max*delta_max)
 
+eta_max = 0.249999
+eta_val =P.extract_param('eta')
+tune_grid = False
+# High mass ratio configuration.  PROTOTYPE, NEEDS LOTS OF WORK FOR BH-NS, should restore use of  fisher grid!
+if opts.propose_initial_grid and eta_val < 0.1:
+    eta_min =0.25*eta_val
+    eta_max= np.min([0.249999,4*eta_val])
+    delta_max = np.sqrt(1. - 4*eta_min)
+    delta_min = np.sqrt(1. - 4*eta_max)
+    tune_grid = True
+
 chieff_center = P.extract_param('xi')
 chieff_min = np.max([chieff_center -0.3,-1])/snr_fac
 chieff_max = np.max([chieff_center +0.3,1])/snr_fac
 
 mc_range_str = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
-eta_range_str = " --eta-range ["+str(eta_min)+",0.249999]"  # default will include  1, as we work with BBHs
+eta_range_str = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
 
 
 ###
@@ -376,6 +437,7 @@ eta_range_str = " --eta-range ["+str(eta_min)+",0.249999]"  # default will inclu
 helper_ile_args ="X "
 helper_test_args="X "
 helper_cip_args = "X "
+helper_cip_arg_list = []
 
 helper_test_args += " --always-succeed --method lame  --parameter mc"
 
@@ -397,6 +459,7 @@ for ifo in ifos:
 helper_ile_args += " --fmax " + str(opts.fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
 helper_ile_args += " --reference-freq " + str(opts.fmin_template)  # in case we are using a code which allows this to be specified
+approx_str= "SEOBNRv4"  # default, should not be used.  See also cases where grid is tuned
 if opts.lowlatency_propose_approximant:
 #    approx  = lalsim.TaylorF2
     approx_str = "SpinTaylorT4"
@@ -412,20 +475,41 @@ if opts.lowlatency_propose_approximant:
     dmax_guess = np.min([dmax_guess,10000]) # place ceiling
     helper_ile_args +=  " --d-max " + str(int(dmax_guess))
 
-    # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
-    #   ... note that data_start_time was defined BEFORE with the datafind job
-    T_window_raw = 1.1/lalsimutils.estimateDeltaF(P)  # includes going to next power of 2, AND a bonus factor of a few
-    T_window_raw = np.max([T_window_raw,4])  # can't be less than 4 seconds long
-    print " Time window : ", T_window_raw, " based on fmin  = ", P.fmin
-    data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
-    data_end_time = int(P.tref + 2)
-    helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
+    if (opts.data_LI_seglen is None) and  (opts.data_start_time is None):
+        # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
+        #   ... note that data_start_time was defined BEFORE with the datafind job
+        T_window_raw = 1.1/lalsimutils.estimateDeltaF(P)  # includes going to next power of 2, AND a bonus factor of a few
+        T_window_raw = np.max([T_window_raw,4])  # can't be less than 4 seconds long
+        print " Time window : ", T_window_raw, " based on fmin  = ", P.fmin
+        data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
+        data_end_time = int(P.tref + 2)
+        helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
+
+if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
+    # Manually set the data start and end time.
+    T_window = opts.data_end_time - opts.data_start_time
+    # Use LI-style tukey windowing
+    window_shape = 0.4*2/T_window
+    data_start_time =opts.data_start_time
+    data_end_time =opts.data_end_time
+    helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape " + str(window_shape)
+elif opts.data_LI_seglen:
+    seglen = opts.data_LI_seglen
+    # Use LI-style positioning of trigger relative to 2s before end of buffer
+    # Use LI-style tukey windowing
+    window_shape = 0.4*2/seglen
+    data_end_time = event_dict["tref"]+2
+    data_start_time = event_dict["tref"] +2 - seglen
+    helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0  --window-shape " + str(window_shape)
 
 if opts.propose_initial_grid:
     # add basic mass parameters
-    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[0.0," + str(delta_max) + "]'  "
+    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[" + str(delta_min) +"," + str(delta_max) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
+    cmd += " --fmin " + str(opts.fmin_template)
     cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
+    if tune_grid:
+        cmd += " --reset-grid-via-match --match-value 0.85 --use-fisher  --use-fisher-resampling --approx  " + approx_str # ow, but useful
     if opts.assume_nospin:
         cmd += " --grid-cartesian-npts 500 " 
     else:
@@ -439,6 +523,16 @@ if opts.propose_initial_grid:
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
         cmd += " --parameter chieff_aligned  --parameter-range " + chieff_range+  " --grid-cartesian-npts 3000 "
+
+        if opts.assume_precessing_spin:
+            # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
+            cmd += " --parameter s1x --parameter-range [0.01,0.03] "
+
+    if opts.assume_matter:
+        # Do the initial grid assuming matter, with tidal parameters set by the AP4 EOS provided by lalsuite
+        # We will leverage working off this to find the lambdaTilde dependence
+        cmd += " --use-eos AP4 "  
+
     print " Executing grid command ", cmd
     os.system(cmd)
     
@@ -485,19 +579,22 @@ if opts.propose_fit_strategy:
             helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
     if opts.assume_matter:
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
-        helper_arg_list = helper_cip_arg_list.append(helper_cip_arg_list[-1]) # add two lines with the same parameters as the last line
-        helper_arg_list = helper_cip_arg_list.append(helper_cip_arg_list[-1]) 
+        # Add LambdaTilde on top of the aligned spin runs
+        for indx in np.arange(len(helper_cip_arg_list)):
+            helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " 
+        # Add one line with deltaLambdaTilde
+        helper_cip_arg_list.append(helper_cip_arg_list[-1]) 
         # Make the second to last line include tides
         #    - first iterations add lambdatilde
         #    - second iterations add deltalambda
-        helper_arg_list[-2] +=  " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
-        helper_arg_list[-1] +=  " --input-tides --parameter-implied LambdaTilde --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
+#        helper_arg_list[-2] +=  " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
+        helper_cip_arg_list[-1] +=  " --input-tides --parameter-implied LambdaTilde --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
 
 with open("helper_cip_args.txt",'w') as f:
     f.write(helper_cip_args)
 
-with open("helper_cip_arg_list.txt",'w') as f:
+with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))
 
-with open("helper_test_args.txt",'w') as f:
+with open("helper_test_args.txt",'w+') as f:
     f.write(helper_test_args)

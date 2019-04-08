@@ -158,7 +158,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity']
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -275,8 +275,11 @@ class ChooseWaveformParams:
         self.taper = taper
 
     # From Pankow/master
-    _LAL_DICT_PARAMS = {"Lambda1": "lambda1", "Lambda2": "lambda2", "ampO": "ampO", "phaseO": "phaseO"}
-    _LAL_DICT_PTYPE = {"Lambda1": lal.DictInsertREAL8Value, "Lambda2": lal.DictInsertREAL8Value, "ampO": lal.DictInsertINT4Value, "phaseO": lal.DictInsertINT4Value}
+    try:
+        _LAL_DICT_PARAMS = {"Lambda1": "lambda1", "Lambda2": "lambda2", "ampO": "ampO", "phaseO": "phaseO"}
+        _LAL_DICT_PTYPE = {"Lambda1": lal.DictInsertREAL8Value, "Lambda2": lal.DictInsertREAL8Value, "ampO": lal.DictInsertINT4Value, "phaseO": lal.DictInsertINT4Value}
+    except:
+        print " lalsimutils: Warning: Running with non-master version of lal ! "
     def to_lal_dict(self):
         extra_params = lal.CreateDict()
         for k, p in ChooseWaveformParams._LAL_DICT_PARAMS.iteritems():
@@ -1040,6 +1043,7 @@ class ChooseWaveformParams:
         print "distance =", self.dist / 1.e+6 / lsu_PC, "(Mpc)"
         print "reference orbital phase =", self.phiref
         print "polarization angle =", self.psi
+        print "eccentricity = ", self.eccentricity
         print "time of coalescence =", float(self.tref),  " [GPS sec: ",  int(self.tref), ",  GPS ns ", (self.tref - int(self.tref))*1e9, "]"
         print "detector is:", self.detector
         if self.radec==False:
@@ -1168,7 +1172,7 @@ class ChooseWaveformParams:
         self.dist = row.distance * lsu_PC * 1.e6
         self.incl = row.inclination
         self.ampO = row.amp_order
-        if not (str(row.waveform).find("Taylor") == -1 ):  # Not meaningful to have an order for EOB, etc
+        if not (str(row.waveform).find("Taylor") == -1 ) or ("Eccentric" in row.waveform):  # Not meaningful to have an order for EOB, etc
             self.phaseO = lalsim.GetOrderFromString(str(row.waveform))
         else:
             self.phaseO = -1
@@ -1192,6 +1196,7 @@ class ChooseWaveformParams:
         # FAKED COLUMNS (nonstandard)
         self.lambda1 = row.alpha5
         self.lambda2 = row.alpha6
+        self.eccentricity=row.alpha4
 
     def create_sim_inspiral(self):
         """
@@ -1229,13 +1234,14 @@ class ChooseWaveformParams:
         row.amp_order = self.ampO
         # PROBLEM: This line is NOT ROBUST, because of type conversions
         row.waveform = lalsim.GetStringFromApproximant(self.approx)
-        if  ("Taylor" in row.waveform):   # we only have PN orders embedded in Taylor
+        if  ("Taylor" in row.waveform) or ("Eccentric" in row.waveform):   # we only have PN orders embedded in Taylor?
             row.waveform =row.waveform+lsu_StringFromPNOrder(self.phaseO)
         row.taper = "TAPER_NONE"
         row.f_lower =self.fmin
         # NONSTANDARD
         row.alpha5 = self.lambda1
         row.alpha6 = self.lambda2
+        row.alpha4 = self.eccentricity
         # Debug: 
         if rosDebugMessagesContainer[0]:
             print " Constructing the following XML table "
@@ -2145,21 +2151,22 @@ def findDeltaF(P):
     h = hoft(P)
     return 1./(nextPow2(h.data.length) * P.deltaT)
 
-def estimateWaveformDuration(P):
+def estimateWaveformDuration(P,LmaxEff=2):
     """
     Input:  P
     Output:estimated duration (in s) based on Newtonian inspiral from P.fmin to infinite frequency
     """
     fM  = P.fmin*(P.m1+P.m2)*lsu_G / lsu_C**3
+    fM *= 2./LmaxEff  # if we use higher modes, lower the effective frequency, so HM start in band
     eta = symRatio(P.m1,P.m2)
     Msec = (P.m1+P.m2)*lsu_G / lsu_C**3
     return Msec*5./256. / eta* np.power((lsu_PI*fM),-8./3.)
-def estimateDeltaF(P):
+def estimateDeltaF(P,LmaxEff=2):
     """
     Input:  P
     Output:estimated duration (in s) based on Newtonian inspiral from P.fmin to infinite frequency
     """
-    T = estimateWaveformDuration(P)+0.1  # buffer for merger
+    T = estimateWaveformDuration(P,LmaxEff=2)+0.1  # buffer for merger
     return 1./(P.deltaT*nextPow2(T/P.deltaT))
     
 

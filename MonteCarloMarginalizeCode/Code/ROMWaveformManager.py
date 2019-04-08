@@ -6,8 +6,13 @@ rosDebug = False
 
 import numpy as np
 import os, sys
-import gwsurrogate as gws
-print "  gwsurrogate: ",  gws.__file__
+try:
+    import gwtools
+    import gwsurrogate as gws
+    print "  gwsurrogate: ",  gws.__file__
+    print "  gwtools: ",  gwtools.__file__
+except:
+    print " - no gwsurrogate - (almost everything from ROMWaveformManager will hard fail if you use it) "
 try:
     import NRSur7dq2
     print "  NRSur7dq2: ", NRSur7dq2.__version__, NRSur7dq2.__file__
@@ -183,6 +188,7 @@ class WaveformModeCatalog:
        reflection_symmetric     # reflection symmetry used
        max_nbasis_per_mode   # constrain basis size
        coord_names_internal    # coordinate names used by the basis.  FUTURE
+
     """
 
 
@@ -619,11 +625,14 @@ class WaveformModeCatalog:
         return coefs
 
     # See NR code 
-    def hlmoft(self,  P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf,hybrid_time=None,hybrid_use=False,hybrid_method='taper_add',hybrid_frequency=None,verbose=False):
+    def hlmoft(self,  P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf,hybrid_time=None,hybrid_use=False,hybrid_method='taper_add',hybrid_frequency=None,verbose=False,rom_taper_start=False,rom_taper_end=True):
         """
         hlmoft uses the dimensionless ROM basis functions to extract hlm(t) in physical units, in a LAL array.
         The argument 'P' is a ChooseWaveformParaams object
         FIXME: Add tapering option!
+
+        rom_taper_start  # use manual tapering in this routine.  Should taper if this is true, OR the P.taper includes start tapering
+        rom_taper_end  # use gwsurrogate built-in tapering as appropriate (HybSur only), with hard-coded taper time from scott (40M out of 140 M)
         """
         hybrid_time_viaf = hybrid_time
         hlmT ={}
@@ -674,15 +683,34 @@ class WaveformModeCatalog:
             tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
             indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
             hlmT ={}
-            hlmT_dimensionless_narrow = self.sur(params_here,times=tvals_dimensionless[indx_ok],f_low=0)
+            taper_end_duration =None
+            if rom_taper_end:
+                taper_end_duration =40.0
+            hlmT_dimensionless_narrow = self.sur(params_here,times=tvals_dimensionless[indx_ok],f_low=0,taper_end_duration=taper_end_duration)
+            # Build taper for start
+            taper_start_window = np.ones(len(hlmT_dimensionless_narrow[(2,2)]))
+            if rom_taper_start or P.taper  != lalsimutils.lsu_TAPER_NONE:
+                print " HybSur: Preparing manual tapering for first ~ 12 cycles "
+                # Taper the start of the waveform by considering a fixed number of cyles for 2,2 mode
+                # Taper window must be applied later on, as we want to measure the starting frequency
+                # mode-by-mode
+                fM_start_22_mode = gwtools.find_instant_freq(np.real(hlmT_dimensionless_narrow[(2,2)]),\
+                    np.imag(hlmT_dimensionless_narrow[(2,2)]),tvals_dimensionless[indx_ok])
+                taper_start_duration = (2.0 * np.pi) / np.abs(fM_start_22_mode) # about (2pi)^2 radians from 22 mode
+                taper_start_window = gwtools.gwutils.window(tvals_dimensionless[indx_ok],\
+                    tvals_dimensionless[indx_ok][0], tvals_dimensionless[indx_ok][0]+taper_start_duration,\
+                    rolloff=0, windowType='planck')
+                taper_fraction = taper_start_duration/(tvals_dimensionless[indx_ok][-1] - tvals_dimensionless[indx_ok][0])
+                print "Taper duration "+str(taper_start_duration)+" (M). Fraction of signal: "+str(taper_fraction)
+
             for mode in self.modes_available:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
-                if mode[1]<0 and self.reflection_symmetric: 
+                if mode[1]<0 and self.reflection_symmetric:   
                     # Perform reflection symmetry
                     mode_alt = (mode[0],-mode[1])
-                    hlmT_dimensionless[mode][indx_ok] = np.power(-1, mode[0])*np.conj( hlmT_dimensionless_narrow[mode_alt])
+                    hlmT_dimensionless[mode][indx_ok] = np.power(-1, mode[0])*np.conj( taper_start_window* hlmT_dimensionless_narrow[mode_alt])
                 else:
-                    hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
+                    hlmT_dimensionless[mode][indx_ok] = taper_start_window* hlmT_dimensionless_narrow[mode]
 
         # Loop over all modes in the system
         for mode in self.modes_available: # loop over modes

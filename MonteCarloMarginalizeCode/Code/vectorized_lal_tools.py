@@ -2,6 +2,7 @@ import numpy
 try:
     import cupy
     xpy_default=cupy
+    junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
 except:
     xpy_default=numpy
 
