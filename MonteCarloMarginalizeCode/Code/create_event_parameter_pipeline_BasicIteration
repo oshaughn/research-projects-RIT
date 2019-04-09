@@ -112,6 +112,10 @@ parser.add_argument("--workflow",default='single',help="[single|fit+posterior|fu
 parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior jobs. Used in posterior and fit+posterior workflows")
 opts=  parser.parse_args()
 
+working_dir_inside = opts.working_dir  
+if opts.use_singularity:
+    working_dir_inside = "./" # all files on the remote machine are in the current directory
+
 singularity_image = None
 if opts.use_singularity:
     print " === USING SINGULARITY === "
@@ -287,8 +291,8 @@ os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 #    identify overlap grid input
 #    identify output file names (?)
 ile_args_orig = ile_args  # provides ability to strip out the output and replace it with alternate
-ile_args+= ' --sim-xml ' + opts.working_directory + '/overlap-grid-$(macroiteration).xml.gz '
-ile_args_forpuff= ile_args_orig + ' --sim-xml ' + opts.working_directory + '/puffball-$(macroiteration).xml.gz '
+ile_args+= ' --sim-xml ' + working_dir_inside + '/overlap-grid-$(macroiteration).xml.gz '
+ile_args_forpuff= ile_args_orig + ' --sim-xml ' + working_dir_inside + '/puffball-$(macroiteration).xml.gz '
 
 
 ###
