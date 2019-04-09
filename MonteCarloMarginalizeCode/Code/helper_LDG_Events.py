@@ -283,10 +283,14 @@ if use_gracedb_event:
     cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
     os.system(cmd_event)
     samples = table.get_table(utils.load_filename("coinc.xml",contenthandler=lalsimutils.cthdler), lsctables.SnglInspiralTable.tableName)
+    event_duration=4  # default
     for row in samples:
         m1 = row.mass1
         m2 = row.mass2
-        event_duration = row.event_duration
+        try:
+            event_duration = row.event_duration # may not exist
+        except:
+            print " event_duration field not in XML "
     event_dict["m1"] = row.mass1
     event_dict["m2"] = row.mass2
     event_dict["s1z"] = row.spin1z
