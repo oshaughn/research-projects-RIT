@@ -24,6 +24,38 @@ from glue.ligolw import lsctables, table, utils
 from glue.lal import CacheEntry
 
 
+def query_available_ifos(ifos_all,types,server,data_start,data_end,datafind_exe='gw_data_find'):
+    ifos_out = []
+    for ifo in ifos_all:
+        cmd = datafind_exe + ' -u file --gaps -o ' + ifo[0] + ' -t ' + types + ' --server ' + server + ' -s ' + str(data_start) + ' -e ' + str(data_end) + " > test_retrieve.dat"
+        os.system(cmd)
+        lines=np.loadtxt("test_retrieve.dat",dtype=str)
+        if len(lines)>0:
+            ifos_out.append(ifo)
+    return ifos_out
+
+
+# The following code only works on LIGO data .. is there a better way?
+#   V1 : ITF_SCIENCEMODE
+#   L1 : LDS-SCIENCE
+# Alternative LIGO options: DMT-ANALYSIS_READY:1'
+def query_available_ifos_viadq(ifos_all,data_start,data_end):
+    ifos_out = []
+    from gwpy.segments import DataQualityFlag
+    ifos_out = []
+    for ifo in ifos_all:
+        segs = None
+        try:
+            if ifo in ["H1","L1"]:
+                segs = DataQualityFlag.query(ifo+":LDS-SCIENCE:1",data_start,data_end)
+            if ifo in ["V1"]:
+                segs = DataQualityFlag.query(ifo+":ITF_SCIENCEMODE:1",data_start,data_end)
+            # If we reach this point, it hasn't crashed, so
+            ifos_out.append(ifo)
+        except:
+            True
+    return ifos_out
+
 def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_data_find', retrieve=False,machine_with_files="ldas-pcdev1.ligo.caltech.edu"):
     fname_out_raw = ifo_base[0]+"_raw.cache"
     fname_out = ifo_base[0]+"_local.cache"
@@ -87,6 +119,7 @@ parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
 parser.add_argument("--event",type=int,default=None)
+parser.add_argument("--check-ifo-availability",action='store_true',help="if true, attempt to use frame availability or DQ information to choose ")
 parser.add_argument("--observing-run",default=None,help="Use the observing run settings to choose defaults for channel names, etc. Not yet implemented using lookup from event time")
 parser.add_argument("--calibration-version",default=None,help="Calibration version to be used.")
 parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER (will override environment variable, which is used as default)")
@@ -314,6 +347,7 @@ if use_gracedb_event:
             cmd += " --ifo " + ifo
         os.system(cmd)
 
+
 if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
 
@@ -364,6 +398,10 @@ psd_data_end_time = t_event - 1024 - t_before
 # set the start time to be the time needed for the PSD, if we are generating a PSD
 if (opts.psd_file is None) and  use_gracedb_event and not opts.use_online_psd:
     data_start_time = psd_data_start_time
+
+# reset IFO list if needed. Do NOT do with online_psd
+if opts.check_ifo_availability:
+        event_dict["IFOs"] = query_available_ifos_viadq(["H1","L1","V1"],data_start_time_orig,data_end_time)
 
 # define channel names
 ifos = event_dict["IFOs"]
