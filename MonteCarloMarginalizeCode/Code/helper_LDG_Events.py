@@ -375,7 +375,9 @@ if not (opts.fake_data):
     for ifo in ifos:
         data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
-ldg_make_cache(retrieve=not (opts.gracedb_id is None)) # we are using the ifo_local.cache files
+if not opts.cache:  # don't make a cache file if we have one!
+    ldg_make_cache(retrieve=not (opts.gracedb_id is None)) # we are using the ifo_local.cache files
+    opts.cache = "local.cache" # standard filename populated
 
 # If needed, build PSDs
 if (opts.psd_file is None) and not opts.use_online_psd:
@@ -452,7 +454,7 @@ if "SNR" in event_dict.keys():
         helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
         helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
 
-helper_ile_args += " --cache " + opts.working_directory+ "/local.cache"
+helper_ile_args += " --cache " + opts.working_directory+ "/" + opts.cache
 helper_ile_args += " --event-time " + str(event_dict["tref"])
 for ifo in ifos:
     helper_ile_args += " --channel-name "+ifo+"="+channel_names[ifo]
