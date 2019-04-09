@@ -636,7 +636,7 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     nGPUs =0
     if request_gpu:
         nGPUs=1
-    ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
+        ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
     if use_singularity:
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
             ile_job.add_condor_cmd('request_CPUs', str(1))
