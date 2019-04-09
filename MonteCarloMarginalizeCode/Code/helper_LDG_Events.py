@@ -395,12 +395,15 @@ if (opts.psd_file is None) and not opts.use_online_psd:
 mc_center = event_dict["MChirp"]
 v_PN_param = (np.pi* mc_center*opts.fmin*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
 v_PN_param = np.min([v_PN_param,1])
-ln_mc_error_pseudo_fisher = 0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
-mc_min = (1-ln_mc_error_pseudo_fisher)*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
-mc_max=(1+ln_mc_error_pseudo_fisher)*mc_center   # conservative ! 
+ln_mc_error_pseudo_fisher = 1.5*0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
+if ln_mc_error_pseudo_fisher >1:
+    ln_mc_errors_pseudo_fisher =0.8   # stabilize
+mc_min = np.exp( - ln_mc_error_pseudo_fisher)*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
+mc_max=np.exp( ln_mc_error_pseudo_fisher)*mc_center   # conservative ! 
 
 eta_min = 0.1  # default for now, will fix this later
-delta_max =0.5
+tmp1,tmp2 = lalsimutils.m1m2(1,eta_min)
+delta_max =(tmp1-tmp2)/(tmp1+tmp2)  # about 0.8
 delta_min =1e-4  # Some approximants like SEOBNRv3 can hard fail if m1=m2
 if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
     import scipy.optimize
