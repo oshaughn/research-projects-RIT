@@ -334,6 +334,7 @@ if (opts.ile_n_events_to_analyze > 1) and (exe is None):
     ile_exe = dag_utils.which("integrate_likelihood_extrinsic_batchmode")
 output_file_names = None
 if opts.use_singularity:
+    transfer_file_names.append("../overlap-grid-$(macroiteration).xml.gz")
     output_file_names = ','.join(["CME_out-$(macroevent)-$(cluster)-$(process)-{0}.dat".format(x) for x in np.arange(opts.ile_n_events_to_analyze)])
     print "OUTPUT FILES ", output_file_names
 ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,transfer_output_files=output_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,frames_dir=opts.frames_dir,cache_file=opts.cache_file)
