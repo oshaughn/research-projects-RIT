@@ -77,7 +77,7 @@ parser.add_argument("--working-directory",default="./")
 parser.add_argument("--input-grid",default="overlap-grid.xml.gz")
 parser.add_argument("--cip-args",default=None,help="filename of args_cip.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified. ")
 parser.add_argument("--cip-args-list",default=None,help="filename of args_cip_list.file, which holds CIP arguments.  Overrides cip-args if present. One CIP_n.sub file is created for each line in the file, which is used for an integer m iterations, where m is the first item of each line (normally 'X' in CIP)")
-parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball")
+parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball.py")
 parser.add_argument("--puff-args",default=None,help="util_ParameterPuffball arguments.  If not specified, puffball will not be performed  ")
 parser.add_argument("--puff-cadence",default=None,type=int,help="Every n iterations (not including 0), the puffball code will be applied.  Puffball points will be done *in addition* to the usual results from the DAG.  (The puffball is based on perturbing points from that iteration, and this will roughly double that iteration in ILE job size).  Proposed value 2 (i.e., puff overlap-grid-2, ...-4, ...-6.  If not specified, puffball will not be performed ")
 parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
@@ -112,7 +112,7 @@ parser.add_argument("--workflow",default='single',help="[single|fit+posterior|fu
 parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior jobs. Used in posterior and fit+posterior workflows")
 opts=  parser.parse_args()
 
-working_dir_inside = opts.working_dir  
+working_dir_inside = opts.working_directory
 if opts.use_singularity:
     working_dir_inside = "./" # all files on the remote machine are in the current directory
 
