@@ -143,6 +143,7 @@ parser.add_argument("--propose-ile-convergence-options",action='store_true',help
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
 parser.add_argument("--online", action='store_true', help="Use online settings")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
+#parser.add_argument("--propose-initial-grid-includes-search-error",action='store_true',help="Searches have paraemter offsets, but injections have known parameters.  You need a wider grid if you are running from a search grid, since they are usually substantiallyoffset from the maximumlikelihood ")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
@@ -439,7 +440,11 @@ if (opts.psd_file is None) and not opts.use_online_psd:
 mc_center = event_dict["MChirp"]
 v_PN_param = (np.pi* mc_center*opts.fmin*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
 v_PN_param = np.min([v_PN_param,1])
-ln_mc_error_pseudo_fisher = 1.5*0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
+# Estimate width. Note this must *also* account for search error (if we are using search triggers), so it is double-counted and super-wide
+fac_search_correct=1.5
+if opts.use_gracedb_id: #opts.propose_initial_grid_includes_search_error:
+    fac_search_correct = 2
+ln_mc_error_pseudo_fisher = fac_search_correct*0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
 if ln_mc_error_pseudo_fisher >1:
     ln_mc_errors_pseudo_fisher =0.8   # stabilize
 mc_min = np.exp( - ln_mc_error_pseudo_fisher)*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
@@ -473,6 +478,8 @@ if opts.propose_initial_grid and eta_val < 0.1:
 chieff_center = P.extract_param('xi')
 chieff_min = np.max([chieff_center -0.3,-1])/snr_fac
 chieff_max = np.max([chieff_center +0.3,1])/snr_fac
+if chieff_min >0 and opts.use_gracedb_id:
+    chieff_min = -0.1   # make sure to cover spin zero, most BBH have zero spin and missing zero is usually an accident of the search recovered params
 
 mc_range_str = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 eta_range_str = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
