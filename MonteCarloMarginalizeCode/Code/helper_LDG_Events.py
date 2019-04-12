@@ -401,7 +401,7 @@ if (opts.psd_file is None) and  use_gracedb_event and not opts.use_online_psd:
     data_start_time = psd_data_start_time
 
 # reset IFO list if needed. Do NOT do with online_psd
-if opts.check_ifo_availability:
+if opts.check_ifo_availability and not opts.use_online_psd:  # online PSD only available for some IFOs
         event_dict["IFOs"] = query_available_ifos_viadq(["H1","L1","V1"],data_start_time_orig,data_end_time)
 
 # define channel names
