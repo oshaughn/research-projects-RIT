@@ -478,7 +478,7 @@ if opts.propose_initial_grid and eta_val < 0.1:
 chieff_center = P.extract_param('xi')
 chieff_min = np.max([chieff_center -0.3,-1])/snr_fac
 chieff_max = np.max([chieff_center +0.3,1])/snr_fac
-if chieff_min >0 and opts.use_gracedb_id:
+if chieff_min >0 and use_gracedb_event:
     chieff_min = -0.1   # make sure to cover spin zero, most BBH have zero spin and missing zero is usually an accident of the search recovered params
 
 mc_range_str = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
