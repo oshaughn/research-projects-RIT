@@ -442,7 +442,7 @@ v_PN_param = (np.pi* mc_center*opts.fmin*lalsimutils.MsunInSec)**(1./3.)  # 'v' 
 v_PN_param = np.min([v_PN_param,1])
 # Estimate width. Note this must *also* account for search error (if we are using search triggers), so it is double-counted and super-wide
 fac_search_correct=1.5
-if opts.use_gracedb_id: #opts.propose_initial_grid_includes_search_error:
+if opts.gracedb_id: #opts.propose_initial_grid_includes_search_error:
     fac_search_correct = 2
 ln_mc_error_pseudo_fisher = fac_search_correct*0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
 if ln_mc_error_pseudo_fisher >1:
