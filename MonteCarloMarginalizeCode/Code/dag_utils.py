@@ -658,7 +658,12 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
                 with open(cmdname,'w') as f:
                     f.write("#! /bin/bash -xe \n")
                     f.write( "ls "+frames_local+" | lalapps_path2cache > local.cache \n")  # Danger: need user to correctly specify local.cache directory
-                os.system("chmod a+x ile_pre.sh")
+                    # Rewrite cache file to use relative paths, not a file:// operation
+                    f.write(" cat local.cache | awk '{print $1, $2, $3, $4}' > local_stripped.cache \n")
+                    f.write("for i in `ls " + frames_local + "`; do echo "+ frames_local + "/$i; done  > base_paths.dat \n")
+                    f.write("paste local_stripped.cache base_paths.dat > local_relative.cache \n")
+                    f.write("cp local_relative.cache local.cache \n")
+                    os.system("chmod a+x ile_pre.sh")
                 ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
 
 
