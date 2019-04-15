@@ -147,6 +147,7 @@ parser.add_argument("--propose-initial-grid",action='store_true',help="If presen
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
+parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
@@ -441,14 +442,15 @@ mc_center = event_dict["MChirp"]
 v_PN_param = (np.pi* mc_center*opts.fmin*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
 v_PN_param = np.min([v_PN_param,1])
 # Estimate width. Note this must *also* account for search error (if we are using search triggers), so it is double-counted and super-wide
-fac_search_correct=1.5
+# Note I have TWO factors to set: the absolute limits on the CIP, and the grid spacing (which needs to be narrower) for PE placement
+fac_search_correct=1.
 if opts.gracedb_id: #opts.propose_initial_grid_includes_search_error:
     fac_search_correct = 2
-ln_mc_error_pseudo_fisher = fac_search_correct*0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
-if ln_mc_error_pseudo_fisher >1:
-    ln_mc_errors_pseudo_fisher =0.8   # stabilize
-mc_min = np.exp( - ln_mc_error_pseudo_fisher)*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
-mc_max=np.exp( ln_mc_error_pseudo_fisher)*mc_center   # conservative ! 
+ln_mc_error_pseudo_fisher = np.array([1.,fac_search_correct])*0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
+if ln_mc_error_pseudo_fisher[0] >1:
+    ln_mc_errors_pseudo_fisher =np.array([0.8,0.8])   # stabilize
+mc_min, mc_min_tight = np.exp( - ln_mc_error_pseudo_fisher)*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
+mc_max, mc_max_tight=np.exp( ln_mc_error_pseudo_fisher)*mc_center   # conservative ! 
 
 eta_min = 0.1  # default for now, will fix this later
 tmp1,tmp2 = lalsimutils.m1m2(1,eta_min)
@@ -460,6 +462,15 @@ if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constrai
     def crit_m2(delta):
         eta_val = 0.25*(1-delta*delta)
         return 0.5*mc_center*(eta_val**(-3./5.))*delta - 1
+    res = scipy.optimize.brentq(crit_m2, 0.001,0.999) # critical value of delta: largest possible for this mc value
+    delta_max =1.1*res
+    eta_min = 0.25*(1-delta_max*delta_max)
+elif mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid:  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
+    import scipy.optimize
+    # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
+    def crit_m2(delta):
+        eta_val = 0.25*(1-delta*delta)
+        return 0.5*mc_center*(eta_val**(-3./5.))*delta - 3
     res = scipy.optimize.brentq(crit_m2, 0.001,0.999) # critical value of delta: largest possible for this mc value
     delta_max =1.1*res
     eta_min = 0.25*(1-delta_max*delta_max)
@@ -481,7 +492,8 @@ chieff_max = np.max([chieff_center +0.3,1])/snr_fac
 if chieff_min >0 and use_gracedb_event:
     chieff_min = -0.1   # make sure to cover spin zero, most BBH have zero spin and missing zero is usually an accident of the search recovered params
 
-mc_range_str = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
+mc_range_str = " --mc-range ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
+mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 eta_range_str = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
 
 
@@ -558,7 +570,7 @@ elif opts.data_LI_seglen:
 
 if opts.propose_initial_grid:
     # add basic mass parameters
-    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   ["+str(mc_min)+","+str(mc_max)+"]  --parameter delta_mc --parameter-range '[" + str(delta_min) +"," + str(delta_max) + "]'  "
+    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   " + mc_range_str + "  --parameter delta_mc --parameter-range '[" + str(delta_min) +"," + str(delta_max) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
     cmd += " --fmin " + str(opts.fmin_template)
     cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
@@ -624,15 +636,19 @@ if opts.propose_fit_strategy:
     helper_cip_args += " --lnL-offset " + str(lnLoffset_early)
     helper_cip_args += ' --cap-points 12000 --no-plots --fit-method gp  --parameter mc --parameter delta_mc '
     if not opts.no_propose_limits:
-        helper_cip_args += mc_range_str + eta_range_str
+        helper_cip_args += mc_range_str_cip + eta_range_str
 
     helper_cip_arg_list_common = str(helper_cip_args)[1:] # drop X
     helper_cip_arg_list = ["3 " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
+    if opts.use_quadratic_early:
+        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method gp', 'fit-method quadratic')
+
     if not opts.assume_nospin:
         helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
         helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
         helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
         
+
         if opts.assume_precessing_spin:
             # Use cartesian coordinates for now.  Polar is more flexible
             # Default prior is *volumetric*
