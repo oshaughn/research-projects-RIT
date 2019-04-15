@@ -452,6 +452,9 @@ if ln_mc_error_pseudo_fisher[0] >1:
 mc_min, mc_min_tight = np.exp( - ln_mc_error_pseudo_fisher)*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
 mc_max, mc_max_tight=np.exp( ln_mc_error_pseudo_fisher)*mc_center   # conservative ! 
 
+eta_max = 0.249999
+eta_val =P.extract_param('eta')
+tune_grid = False
 eta_min = 0.1  # default for now, will fix this later
 tmp1,tmp2 = lalsimutils.m1m2(1,eta_min)
 delta_max =(tmp1-tmp2)/(tmp1+tmp2)  # about 0.8
@@ -465,21 +468,18 @@ if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constrai
     res = scipy.optimize.brentq(crit_m2, 0.001,0.999) # critical value of delta: largest possible for this mc value
     delta_max =1.1*res
     eta_min = 0.25*(1-delta_max*delta_max)
-elif mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid:  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
-    import scipy.optimize
-    # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
-    def crit_m2(delta):
-        eta_val = 0.25*(1-delta*delta)
-        return 0.5*mc_center*(eta_val**(-3./5.))*delta - 3
-    res = scipy.optimize.brentq(crit_m2, 0.001,0.999) # critical value of delta: largest possible for this mc value
-    delta_max =1.1*res
-    eta_min = 0.25*(1-delta_max*delta_max)
-
-eta_max = 0.249999
-eta_val =P.extract_param('eta')
-tune_grid = False
+# Need logic for BH-NS scale objects to be reasonable
+# elif mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid:  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
+#    import scipy.optimize
+#    # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
+#    def crit_m2(delta):
+#        eta_val = 0.25*(1-delta*delta)
+#        return 0.5*mc_center*(eta_val**(-3./5.))*delta - 3
+#    res = scipy.optimize.brentq(crit_m2, 0.001,0.999) # critical value of delta: largest possible for this mc value
+#    delta_max =1.1*res
+#    eta_min = 0.25*(1-delta_max*delta_max)
 # High mass ratio configuration.  PROTOTYPE, NEEDS LOTS OF WORK FOR BH-NS, should restore use of  fisher grid!
-if opts.propose_initial_grid and eta_val < 0.1:
+elif opts.propose_initial_grid and eta_val < 0.1: # this will override the previous work
     eta_min =0.25*eta_val
     eta_max= np.min([0.249999,4*eta_val])
     delta_max = np.sqrt(1. - 4*eta_min)
