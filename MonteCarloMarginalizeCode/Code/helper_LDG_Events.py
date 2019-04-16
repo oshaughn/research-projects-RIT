@@ -453,13 +453,18 @@ if ln_mc_error_pseudo_fisher[0] >1:
 mc_min, mc_min_tight = np.exp( - ln_mc_error_pseudo_fisher)*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
 mc_max, mc_max_tight=np.exp( ln_mc_error_pseudo_fisher)*mc_center   # conservative ! 
 
+# eta <->  delta
+#   Start out with a grid out to eta = 0.1 ( *tight, passed to the grid code)
+#   Do more than this with puffball and other tools
+#   Use other tools to set CIP limits
 eta_max = 0.249999
 eta_val =P.extract_param('eta')
 tune_grid = False
-eta_min = 0.1  # default for now, will fix this later
+eta_max_tight = eta_max
+eta_min_tight  = eta_min = 0.1  # default for now, will fix this later
 tmp1,tmp2 = lalsimutils.m1m2(1,eta_min)
-delta_max =(tmp1-tmp2)/(tmp1+tmp2)  # about 0.8
-delta_min =1e-4  # Some approximants like SEOBNRv3 can hard fail if m1=m2
+delta_max_tight= delta_max =(tmp1-tmp2)/(tmp1+tmp2)  # about 0.8
+delta_min_tight = delta_min =1e-4  # Some approximants like SEOBNRv3 can hard fail if m1=m2
 if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
     import scipy.optimize
     # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
@@ -496,8 +501,8 @@ if chieff_min >0 and use_gracedb_event:
 
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
-eta_range_str = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
-
+eta_range_str = "  ["+str(eta_min_tight) +","+str(eta_max_tight)+"]"  # default will include  1, as we work with BBHs
+eta_range_str_cip = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
 
 ###
 ### Write arguments
@@ -572,7 +577,7 @@ elif opts.data_LI_seglen:
 
 if opts.propose_initial_grid:
     # add basic mass parameters
-    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   " + mc_range_str + "  --parameter delta_mc --parameter-range '[" + str(delta_min) +"," + str(delta_max) + "]'  "
+    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   " + mc_range_str + "  --parameter delta_mc --parameter-range '[" + str(delta_min_tight) +"," + str(delta_max_tight) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
     cmd += " --fmin " + str(opts.fmin_template)
     if opts.data_LI_seglen:  
@@ -640,7 +645,7 @@ if opts.propose_fit_strategy:
     helper_cip_args += " --lnL-offset " + str(lnLoffset_early)
     helper_cip_args += ' --cap-points 12000 --no-plots --fit-method gp  --parameter mc --parameter delta_mc '
     if not opts.no_propose_limits:
-        helper_cip_args += mc_range_str_cip + eta_range_str
+        helper_cip_args += mc_range_str_cip + eta_range_str_cip
 
     helper_cip_arg_list_common = str(helper_cip_args)[1:] # drop X
     helper_cip_arg_list = ["3 " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
