@@ -181,6 +181,7 @@ parser.add_argument("--amplitude-order",default=-1,type=int,help="Set ampO for g
 parser.add_argument("--phase-order",default=7,type=int,help="Set phaseO for grid. Used in PN")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
+parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
 parser.add_argument("--parameter-value-list", action='append', type=str,help="Add an explicit list of parameter choices to use. ONLY those values will be used. Intended for NR simulations (e.g., q, a1, a2)")
 # Use external EOB for source or template?
 parser.add_argument("--use-external-EOB-source",action="store_true",help="One external EOB call is performed to generate the reference signal")
@@ -340,6 +341,9 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
 
         # Downselect
         include_item =True
+        if not(opts.enforce_duration_bound is None):
+            if lalsimutils.estimateWaveformDuration(Pgrid)> opts.enforce_duration_bound:
+                include_item = False
         for param in downselect_dict:
             if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
                 include_item =False
