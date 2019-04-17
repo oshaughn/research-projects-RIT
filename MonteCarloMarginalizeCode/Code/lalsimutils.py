@@ -2477,7 +2477,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -2498,6 +2498,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
         hlm_out = hlmoft_SEOB_dict(P,Lmax=Lmax)
         if True: #P.taper:
             ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
+            ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             for key in hlm_out.keys():
                 hlm_out[key].data.data *= sign_factor
@@ -2511,6 +2512,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
             sys.exit(0)
         if True: #P.taper:
             ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
+            ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             for key in hlm_out.keys():
                 # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
