@@ -8,3 +8,4 @@ matplotlib<=2.2.4
 gwsurrogate>=0.9.4
 lalsuite>=6.53
 ligo-segments>=1.2.0
+gwpy
