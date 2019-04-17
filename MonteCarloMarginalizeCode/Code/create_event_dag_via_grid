@@ -55,6 +55,7 @@ LIKELIHOOD_PINNABLE_PARAMS = ["right ascension", "declination"]
 
 optp = OptionParser()
 # Options needed by this program only.
+optp.add_option("-z", "--cap-points",default=None,help="If present, places a cap on the number of gridpoints used")
 optp.add_option("-w", "--working-directory", default="./", help="Directory in which to stage DAG components.")
 optp.add_option("--produce-plots", default=False,action='store_true',help="By default, the triplots and SQL generation is NOT included.")
 optp.add_option("--nr-params",default=None, help="List of specific NR parameters and groups (and masses?) to use for the grid.")
@@ -258,6 +259,11 @@ try:
         print n_events
 except ValueError:
         print >>sys.stderr, "No SimInspiral table found in xml file"
+
+
+if not (opts.cap_points is None):
+    if n_events > opts.cap_points:
+        n_event = opts.cap_points
 
 
 # Create one node per index
