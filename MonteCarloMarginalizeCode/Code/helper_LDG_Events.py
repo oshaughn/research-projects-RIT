@@ -122,6 +122,7 @@ parser.add_argument("--event",type=int,default=None)
 parser.add_argument("--check-ifo-availability",action='store_true',help="if true, attempt to use frame availability or DQ information to choose ")
 parser.add_argument("--observing-run",default=None,help="Use the observing run settings to choose defaults for channel names, etc. Not yet implemented using lookup from event time")
 parser.add_argument("--calibration-version",default=None,help="Calibration version to be used.")
+parser.add_argument("--playground-data",default=None,help="Playground data. Modifies channel names used.")
 parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER (will override environment variable, which is used as default)")
 parser.add_argument("--fmin",default=None,type=float,help="Minimum frequency for integration. Used to estimate signal duration")
 parser.add_argument("--fmin-template",default=20,type=float,help="Minimum frequency for template. Used to estimate signal duration. If fmin not specified, also the minimum frequency for integration")
@@ -220,6 +221,11 @@ data_types["O2"][("C02", "V1")] = "V1O2Repro2A"
 standard_channel_names["O2"][("C02", "V1")] = "Hrec_hoft_V1O2Repro2A_16384Hz"
 if opts.verbose:
     print standard_channel_names["O2"]
+
+# Replay data
+if opts.playground_data:
+    data_types["O2"][("C00","H1")] = "GDS-GATED_STRAIN_O2Replay"
+    data_types["O2"][("C00","L1")] = "GDS-GATED_STRAIN_O2Replay"
 
 ## O3 definition (see Gregg Mendell email)
 # https://github.com/lpsinger/gwcelery/blob/master/gwcelery/conf/production.py
