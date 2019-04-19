@@ -393,7 +393,10 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     #
     # Add options en mass, by brute force
     #
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     ile_job.add_opt("fname", input_net)
     ile_job.add_opt("fname-output-samples", out_dir+"/"+output)
@@ -490,7 +493,9 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     #
     # Add options en mass, by brute force
     #
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     ile_job.add_opt("inj-file", input_net)
     ile_job.add_opt("inj-file-out", output)
@@ -574,7 +579,10 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     #
     # Add options en mass, by brute force
     #
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     #
     # Macro based options.
@@ -748,6 +756,9 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     #
     # Add options en mass, by brute force
     #
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
 
@@ -874,7 +885,10 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     ile_job.set_sub_file(ile_sub_name)
 
     if not(arg_str is None or len(arg_str)<2):
-        ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+        arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+        arg_str = arg_str.lstrip('-')
+        ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#        ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
     ile_job.add_arg(file_input)
     
     #
@@ -913,7 +927,10 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     # Add options for two parameter files
     for name in samples_files:
@@ -956,7 +973,10 @@ def write_plot_sub(tag='converge', exe=None,samples_files=None, base=None,target
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     # Add options for two parameter files
     for name in samples_files:
@@ -1001,7 +1021,10 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     # Logging options
     #
