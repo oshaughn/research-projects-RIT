@@ -569,7 +569,7 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         exe=singularity_base_exe_path + path_split[-1]
         if not(frames_dir is None):
             frames_local = frames_dir.split("/")[-1]
-    elif opts.use_osg:  # NOT using singularity!
+    elif use_osg:  # NOT using singularity!
         path_split = exe.split("/")
         exe=path_split[-1]  # pull out basename
         exe_here = 'my_wrapper.sh'
