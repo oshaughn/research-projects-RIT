@@ -115,6 +115,7 @@ def get_observing_run(t):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
+parser.add_argument("--force-data-lookup",action='store_true',help='Use this flag if you want to use real data.')
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
@@ -427,7 +428,10 @@ if not (opts.fake_data):
         data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
 if not opts.cache:  # don't make a cache file if we have one!
-    ldg_make_cache(retrieve=not (opts.gracedb_id is None)) # we are using the ifo_local.cache files
+    real_data = not(opts.gracedb_id is None)
+    real_data = real_data or  opts.check_ifo_availability
+    real_data = real_data or opts.force_data_lookup
+    ldg_make_cache(retrieve=real_data) # we are using the ifo_local.cache files
     opts.cache = "local.cache" # standard filename populated
 
 # If needed, build PSDs
