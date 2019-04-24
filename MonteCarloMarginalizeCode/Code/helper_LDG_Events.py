@@ -441,7 +441,7 @@ if (opts.psd_file is None) and not opts.use_online_psd:
     for ifo in event_dict["IFOs"]:
         print " Building PSD  for ", ifo
         try:
-            ldg_make_psd(ifo, channel_names[ifo], psd_start_time, psd_end_time, working_directory=opts.working_directory)
+            ldg_make_psd(ifo, channel_names[ifo], psd_data_start_time, psd_data_end_time, working_directory=opts.working_directory)
             psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
         except:
             print "  ... PSD generation failed! "
