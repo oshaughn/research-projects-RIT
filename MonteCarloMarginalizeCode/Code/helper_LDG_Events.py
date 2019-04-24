@@ -97,6 +97,7 @@ def ldg_make_psd(ifo, channel_name,psd_start_time,psd_end_time,srate=4096,use_gw
         print " File exists : ", psd_fname
         return True
     cmd = "gstlal_reference_psd --verbose --channel-name " + ifo + "=" + channel_name + " --gps-start-time " + str(psd_start_time) + " --gps-end-time " + str(psd_end_time) + " --write-psd " + psd_fname + " --data-source -frames --frame-cache local.cache --srate " + str(srate)
+    print cmd
     os.system(cmd)
     return True
 
