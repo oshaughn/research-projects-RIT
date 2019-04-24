@@ -617,14 +617,15 @@ if opts.propose_initial_grid:
     if opts.assume_matter:
         # Do the initial grid assuming matter, with tidal parameters set by the AP4 EOS provided by lalsuite
         # We will leverage working off this to find the lambdaTilde dependence
-        cmd += " --use-eos AP4 "  
+#        cmd += " --use-eos AP4 "  
+        cmd += " --random-parameter lambda1 --random-parameter-range [100,800] --random-parameter lambda2 --random-parameter-range [100,800] "
 
     print " Executing grid command ", cmd
     os.system(cmd)
 
     if opts.assume_matter:
         # Now perform a puffball in lambda1 and lambda2
-        cmd_puff = " util_ParameterPuffball.py --parameter lambda1 --parameter lambda2 --inj-file proposed-grid.xml.gz --inj-file-out proposed-grid_puff_lambda --downselect-parameter lambda1 --downselect-parameter-range [0.1,5000] --downselect-parameter lambda2 --downselect-parameter-range [0.1,5000]"
+        cmd_puff = " util_ParameterPuffball.py --parameter LambdaTilde  --inj-file proposed-grid.xml.gz --inj-file-out proposed-grid_puff_lambda --downselect-parameter lambda1 --downselect-parameter-range [0.1,5000] --downselect-parameter lambda2 --downselect-parameter-range [0.1,5000]"
         os.system(cmd_puff)
         # Now add these two together
         # ideally, ligolw_add will work... except it fails
