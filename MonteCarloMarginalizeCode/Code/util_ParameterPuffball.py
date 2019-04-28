@@ -39,7 +39,7 @@ parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
-
+parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
 opts=  parser.parse_args()
 
 # Extract parameter names
@@ -86,11 +86,30 @@ X =dat_out[:,0:len(coord_names)]
 
 
 # Measure covariance matrix and generate random errors
-cov_in = np.cov(X.T)
-cov = cov_in*opts.puff_factor*opts.puff_factor
-rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov)
-delta_X = rv.rvs(size=len(X))
-X_out = X+delta_X
+if len(coord_names) >1:
+    cov_in = np.cov(X.T)
+    cov = cov_in*opts.puff_factor*opts.puff_factor
+
+    # Check for singularities
+    if np.min(np.linalg.eig(cov)[0])<1e-10:
+        print " ===> WARNING: SINGULAR MATRIX: are you sure you varied this parameters? <=== "
+        icov_pseudo = np.linalg.pinv(cov)
+        # Prior range for each parameter is 1000, so icov diag terms are 10^(-6)
+        # This is somewhat made up, but covers most things
+        diag_terms = 1e-6*np.ones(len(cov))
+        # 
+        icov_proposed = icov_pseudo+np.diag(diag_terms)
+        cov= np.linalg.inv(icov_proposed)
+
+    # Compute errors
+    rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov)
+    delta_X = rv.rvs(size=len(X))
+    X_out = X+delta_X
+else:
+    sigma = np.std(X)
+    cov = sigma*sigma
+    delta_X =np.random.normal(size=len(coord_names), scale=sigma)
+    X_out = X+delta_X
 
 
 # Sanity check parameters
@@ -107,8 +126,10 @@ cov_out = np.cov(X_out.T)
 print " Covariance change: The following two matrices should be (A) and (1+puff^2)A, where puff= ", opts.puff_factor
 print cov
 print  cov_out
-print " The one dimensional widths are ", np.sqrt(np.diag(cov_out))
-
+if len(coord_names)>1:
+    print " The one dimensional widths are ", np.sqrt(np.diag(cov_out))
+else:
+    print " The one dimensional width is", np.sqrt(cov_out)
 
 # Copy parameters back in.  MAKE SURE THIS IS POSSIBLE
 P_out = []
