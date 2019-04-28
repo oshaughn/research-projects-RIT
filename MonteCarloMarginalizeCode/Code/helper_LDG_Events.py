@@ -458,7 +458,7 @@ v_PN_param = np.min([v_PN_param,1])
 fac_search_correct=1.
 if opts.gracedb_id: #opts.propose_initial_grid_includes_search_error:
     fac_search_correct = 1.3   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
-ln_mc_error_pseudo_fisher = 1.3*np.array([1,fac_search_correct])*0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
+ln_mc_error_pseudo_fisher = 1.5*np.array([1,fac_search_correct])*0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
 print "  Logarithmic mass error interval base ", ln_mc_error_pseudo_fisher
 if ln_mc_error_pseudo_fisher[0] >1:
     ln_mc_errors_pseudo_fisher =np.array([0.8,0.8])   # stabilize
