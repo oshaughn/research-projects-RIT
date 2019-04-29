@@ -393,7 +393,10 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     #
     # Add options en mass, by brute force
     #
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     ile_job.add_opt("fname", input_net)
     ile_job.add_opt("fname-output-samples", out_dir+"/"+output)
@@ -490,7 +493,9 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     #
     # Add options en mass, by brute force
     #
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     ile_job.add_opt("inj-file", input_net)
     ile_job.add_opt("inj-file-out", output)
@@ -564,6 +569,35 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         exe=singularity_base_exe_path + path_split[-1]
         if not(frames_dir is None):
             frames_local = frames_dir.split("/")[-1]
+    elif use_osg:  # NOT using singularity!
+        path_split = exe.split("/")
+        exe=path_split[-1]  # pull out basename
+        exe_here = 'my_wrapper.sh'
+        if transfer_files is None:
+            transfer_files = []
+        transfer_files += ['../my_wrapper.sh']
+        with open(exe_here,'w') as f:
+            f.write("#! /bin/bash  \n")
+            f.write(r"""
+# Modules and scripts run directly from repository
+# Note the repo and branch are self-referential ! Not a robust solution long-term
+export INSTALL_DIR=research-projects-RIT
+export ILE_DIR=${INSTALL_DIR}/MonteCarloMarginalizeCode/Code
+export PATH=${PATH}:${ILE_DIR}
+export PYTHONPATH=${PYTHONPATH}:${ILE_DIR}
+export GW_SURROGATE=gwsurrogate
+git clone https://git.ligo.org/richard-oshaughnessy/research-projects-RIT.git
+pushd ${INSTALL_DIR} 
+git checkout temp-RIT-Tides-port_master-GPUIntegration 
+popd
+
+ls 
+cat local.cache
+echo Starting ...
+./research-projects-RIT/MonteCarloMarginalizeCode/Code/""" + exe + " $@ \n")
+            os.system("chmod a+x "+exe_here)
+
+
     ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
@@ -574,7 +608,10 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     #
     # Add options en mass, by brute force
     #
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     #
     # Macro based options.
@@ -590,7 +627,7 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     #
     # Logging options
     #
-    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    uniq_str = "$(macroevent)-$(cluster)-$(process)"
     ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
@@ -636,43 +673,49 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     nGPUs =0
     if request_gpu:
         nGPUs=1
-    ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
+        ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
     if use_singularity:
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
             ile_job.add_condor_cmd('request_CPUs', str(1))
             ile_job.add_condor_cmd('transfer_executable', 'False')
             ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
-            ile_job.add_condor_cmd('use_x509userproxy','True')
             ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
             requirements = []
             requirements.append("HAS_SINGULARITY=?=TRUE")
             requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
             #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
 
-            # Create prescript command to set up local.cache, only if frames are needed
-            if not(frames_local is None):
-                cmdname = 'ile_pre.sh'
-                if transfer_files is None:
-                    transfer_files = []
-                transfer_files += ["../ile_pre.sh", frames_dir]  # assuming default working directory setup
-                with open(cmdname,'w') as f:
-                    f.write("#! /bin/bash -xe \n")
-                    f.write( "ls "+frames_local+" | lalapps_path2cache > local.cache \n")  # Danger: need user to correctly specify local.cache directory
-                os.system("chmod a+x ile_pre.sh")
-                ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
 
-
+    if use_singularity or use_osg:
+           requirements.append("IS_GLIDEIN=?=TRUE")
+           ile_job.add_condor_cmd('use_x509userproxy','True')
             # Set up file transfer options
-            ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
+           ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
 
+           # Stream log info
+           ile_job.add_condor_cmd("stream_error",'True')
+           ile_job.add_condor_cmd("stream_output",'True')
 
-            # Stream log info
-            ile_job.add_condor_cmd("stream_error",'True')
-            ile_job.add_condor_cmd("stream_output",'True')
+    # Create prescript command to set up local.cache, only if frames are needed
+    if not(frames_local is None):
+        cmdname = 'ile_pre.sh'
+        if transfer_files is None:
+            transfer_files = []
+        transfer_files += ["../ile_pre.sh", frames_dir]  # assuming default working directory setup
+        with open(cmdname,'w') as f:
+            f.write("#! /bin/bash -xe \n")
+            f.write( "ls "+frames_local+" | lalapps_path2cache > local.cache \n")  # Danger: need user to correctly specify local.cache directory
+            # Rewrite cache file to use relative paths, not a file:// operation
+            f.write(" cat local.cache | awk '{print $1, $2, $3, $4}' > local_stripped.cache \n")
+            f.write("for i in `ls " + frames_local + "`; do echo "+ frames_local + "/$i; done  > base_paths.dat \n")
+            f.write("paste local_stripped.cache base_paths.dat > local_relative.cache \n")
+            f.write("cp local_relative.cache local.cache \n")
+            os.system("chmod a+x ile_pre.sh")
+        ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
+
 
     if use_osg:
         ile_job.add_condor_cmd("+OpenScienceGrid",'True')
-        requirements.append("IS_GLIDEIN=?=TRUE")
     # To change interactively:
     #   condor_qedit
     # for example: 
@@ -743,6 +786,9 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     #
     # Add options en mass, by brute force
     #
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
 
@@ -869,7 +915,10 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     ile_job.set_sub_file(ile_sub_name)
 
     if not(arg_str is None or len(arg_str)<2):
-        ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+        arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+        arg_str = arg_str.lstrip('-')
+        ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#        ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
     ile_job.add_arg(file_input)
     
     #
@@ -908,7 +957,10 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     # Add options for two parameter files
     for name in samples_files:
@@ -951,7 +1003,10 @@ def write_plot_sub(tag='converge', exe=None,samples_files=None, base=None,target
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     # Add options for two parameter files
     for name in samples_files:
@@ -996,7 +1051,10 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     # Logging options
     #

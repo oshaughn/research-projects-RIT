@@ -8,6 +8,9 @@
 #   util_ManualOverlapGrid.py  --verbose --parameter LambdaTilde --parameter-range '[0,1000]' --parameter eta --parameter-range '[0.23,0.25]' --grid-cartesian-npts 10
 #   util_ManualOverlapGrid.py --parameter s1z --parameter-range '[-0.9,0.9]' --parameter s2z --parameter-range '[-0.9,0.9]' --downselect-parameter xi --downselect-parameter-range '[-0.1,0.1]' --skip-overlap --verbose
 #
+# EXAMPLES WITH RANDOM FIELDS
+#   python util_ManualOverlapGrid.py  --parameter mc --parameter-range [2,2.1] --random-parameter s1z --random-parameter-range [-1,1] --skip-overlap --random-parameter lambda1 --random-parameter-range [3,500] --random-parameter lambda2 --random-parameter-range [3,500]
+#
 # EOB SOURCE EXAMPLES
 #
 #   util_ManualOverlapGrid.py --inj inj.xml.gz --parameter LambdaTilde  --parameter-range '[0,1000]' --grid-cartesian-npts 10 --use-external-EOB-source
@@ -177,10 +180,13 @@ parser = argparse.ArgumentParser()
 # Parameters
 parser.add_argument("--parameter", action='append')
 parser.add_argument("--parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used")
+parser.add_argument("--random-parameter", action='append',help="These parameters are specified at random over the entire range, uncorrelated with the grid used for other parameters.  Use for variables which correlate weakly with others; helps with random exploration")
+parser.add_argument("--random-parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used.  ")
 parser.add_argument("--amplitude-order",default=-1,type=int,help="Set ampO for grid. Used in PN")
 parser.add_argument("--phase-order",default=7,type=int,help="Set phaseO for grid. Used in PN")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
+parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
 parser.add_argument("--parameter-value-list", action='append', type=str,help="Add an explicit list of parameter choices to use. ONLY those values will be used. Intended for NR simulations (e.g., q, a1, a2)")
 # Use external EOB for source or template?
 parser.add_argument("--use-external-EOB-source",action="store_true",help="One external EOB call is performed to generate the reference signal")
@@ -340,6 +346,9 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
 
         # Downselect
         include_item =True
+        if not(opts.enforce_duration_bound is None):
+            if lalsimutils.estimateWaveformDuration(Pgrid)> opts.enforce_duration_bound:
+                include_item = False
         for param in downselect_dict:
             if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
                 include_item =False
@@ -669,9 +678,25 @@ prior_dict['eta'] = 1    # provide st dev. Don't want to allow arbitrary eta.
 
 # Base Cartesian grid
 grid_tuples = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
-# Strip unphysical parameters
-print "  NEED TO IMPLEMENT: Stripping of unphysical parameters "
+#print "  NEED TO IMPLEMENT: Stripping of unphysical parameters "
 grid = eff.multi_dim_grid(*grid_tuples)  # each line in 'grid' is a set of parameter values
+print grid.shape
+
+# Extend to use alternative parameters
+if not (opts.random_parameter is None):
+    indx_base = len(opts.parameter)
+#    print param_names, param_ranges
+    param_names += opts.random_parameter
+    param_ranges += map(eval, opts.random_parameter_range)  # do not randomize mass or distance parameters, not being rescaled
+    print param_names, param_ranges,indx_base
+    grid_extra = np.zeros( (len(grid),len(opts.random_parameter)) )
+#    print grid_extra.shape
+    for indx in np.arange(len(opts.random_parameter)):
+        range_here = param_ranges[ indx_base+indx]
+        grid_extra[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))
+
+    grid = np.hstack((grid,grid_extra))
+
 
 # Special check: m2<m1 : if both names appear, strip parameters from the grid
 if ('m1' in param_names) and ('m2' in param_names):
