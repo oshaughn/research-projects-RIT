@@ -596,6 +596,7 @@ cat local.cache
 echo Starting ...
 ./research-projects-RIT/MonteCarloMarginalizeCode/Code/""" + exe + " $@ \n")
             os.system("chmod a+x "+exe_here)
+            exe = exe_here  # update executable
 
 
     ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
