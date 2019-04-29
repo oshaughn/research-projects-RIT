@@ -174,7 +174,7 @@ fvals_NR1 = lalsimutils.evaluate_fvals(hlmF_NR1[(2,2)])
 
 # ROM case, if needed
 if useROM and opts.use_rom3:
-    acatHere = romwf.WaveformModeCatalog('tutorial/TutorialSurrogate', '/EOB_q1_2_NoSpin_Mode22/')
+    acatHere = romwf.WaveformModeCatalog('gwsurrogate-0.9.3/surrogate_downloads/', 'NRHybSur3dq8')
     print " Default ROM (EOB), using NR parameters from NR1"
     hlmT_ROM = acatHere.hlmoft(wfP.P, use_basis=False,force_T=T_window)
     hlmF_ROM = acatHere.hlmoff(wfP.P, use_basis=False,force_T=T_window)  # Must force duration consistency, very annoying
