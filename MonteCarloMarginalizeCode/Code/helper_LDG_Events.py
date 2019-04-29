@@ -620,7 +620,7 @@ if opts.propose_initial_grid:
         # Do the initial grid assuming matter, with tidal parameters set by the AP4 EOS provided by lalsuite
         # We will leverage working off this to find the lambdaTilde dependence
 #        cmd += " --use-eos AP4 "  
-        cmd += " --random-parameter lambda1 --random-parameter-range [100,800] --random-parameter lambda2 --random-parameter-range [100,800] "
+        cmd += " --random-parameter lambda1 --random-parameter-range [50,1500] --random-parameter lambda2 --random-parameter-range [50,1500] "
 
     print " Executing grid command ", cmd
     os.system(cmd)
