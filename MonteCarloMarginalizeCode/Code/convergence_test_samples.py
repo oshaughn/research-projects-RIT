@@ -25,7 +25,7 @@ parser.add_argument("--samples", action='append', help="Samples used in converge
 parser.add_argument("--parameter", action='append', help="Parameters used in convergence test")
 parser.add_argument("--parameter-range", action='append', help="Parameter ranges used in convergence test (used if KDEs or similar knowledge of the PDF is needed). If used, must specify for ALL variables, in order")
 parser.add_argument("--method", default='lame',  help="Test to perform: lame|ks1d|...")
-parser.add_argument("--threshold",default=None,  help="Manual threshold for the test being performed. (If not specified, the success condition is determined by default for that diagnostic, based on the samples size and properties")
+parser.add_argument("--threshold",default=0.01,type=float,  help="Manual threshold for the test being performed. (If not specified, the success condition is determined by default for that diagnostic, based on the samples size and properties).  Try 0.01")
 parser.add_argument("--test-output",  help="Filename to return output. Result is a scalar >=0 and ideally <=1.  Closer to 0 should be good. Second column is the diagnostic, first column is 0 or 1 (success or failure)")
 parser.add_argument("--always-succeed",action='store_true',help="Test output is always success.  Use for plotting convergence diagnostics so jobs insured to run for many iterations.")
 opts=  parser.parse_args()
@@ -116,10 +116,10 @@ else:
     print " No known method ", opts.method
 print  val_test
 
-if opts.always_succeed:
+if opts.always_succeed or (opts.threshold is None):
     sys.exit(0)
 
-if (val_test < 0.01):  
+if (val_test < opts.threshold):  
     sys.exit(1)
 else:
     sys.exit(0)
