@@ -570,6 +570,8 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         if not(frames_dir is None):
             frames_local = frames_dir.split("/")[-1]
     elif use_osg:  # NOT using singularity!
+        if not(frames_dir is None):
+            frames_local = frames_dir.split("/")[-1]
         path_split = exe.split("/")
         exe=path_split[-1]  # pull out basename
         exe_here = 'my_wrapper.sh'
@@ -698,7 +700,7 @@ echo Starting ...
            ile_job.add_condor_cmd("stream_output",'True')
 
     # Create prescript command to set up local.cache, only if frames are needed
-    if not(frames_local is None):
+    if not(frames_local is None):   # should be required for singularity or osg
         cmdname = 'ile_pre.sh'
         if transfer_files is None:
             transfer_files = []
