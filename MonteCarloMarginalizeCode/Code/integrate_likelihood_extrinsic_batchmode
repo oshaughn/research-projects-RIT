@@ -926,9 +926,10 @@ for indx in numpy.arange(len(P_list)):
       params_adapt = sampler.adaptive
       params_adapt  = list(set(params_adapt) - set(['right_ascension','declination']))
       sampler.adaptive = params_adapt
- except:
+ except Exception as exception_failure:
   print "  ===> FAILED ANALYSIS <==== "
-  print " Probable reasons: SEOB nyquist or starting frequency limit "
+  print " Probable reasons: SEOB nyquist or starting frequency limit or signal duration "
+  print exception_failure
   print " Skipping the following binary! "
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
   P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
