@@ -489,6 +489,13 @@ if opts.composite_file:
     samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
     samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
 
+    if ('lambda1' in samples.dtype.names):
+        Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
+        samples= add_field(samples, [('LambdaTilde',float), ('DeltaLambdaTilde',float),('lambdat',float),('dlambdat',float)])
+        samples['LambdaTilde'] = samples['lambdat']= Lt
+        samples['DeltaLambdaTilde'] = samples['dlambdat']= dLt
+
+
     print " Loaded samples from ", fname , len(samples["m1"])
     if True:
         # impose Kerr limit
