@@ -385,7 +385,7 @@ if (opts.observing_run is None) and not opts.fake_data:
 ### General logic 
 ###
 
-snr_fac = 1
+snr_fac = 1.
 if "SNR" in event_dict.keys():
     lnLmax_true = event_dict['SNR']**2 / 2.
     lnLoffset_early = 0.8*lnLmax_true  # default value early on : should be good enough
@@ -457,7 +457,7 @@ v_PN_param = np.min([v_PN_param,1])
 # Note I have TWO factors to set: the absolute limits on the CIP, and the grid spacing (which needs to be narrower) for PE placement
 fac_search_correct=1.
 if opts.gracedb_id: #opts.propose_initial_grid_includes_search_error:
-    fac_search_correct = 1.3   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
+    fac_search_correct = 1.5   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
 ln_mc_error_pseudo_fisher = 1.5*np.array([1,fac_search_correct])*0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
 print "  Logarithmic mass error interval base ", ln_mc_error_pseudo_fisher
 if ln_mc_error_pseudo_fisher[0] >1:
