@@ -106,6 +106,7 @@ optp.add_option("--maximize-only",default=False, action='store_true',help="After
 optp.add_option("--nr-lookup",default=False,action='store_true')
 optp.add_option("--nr-lookup-group",action='append')
 optp.add_option("--nr-perturbative-extraction",action='store_true')
+optp.add_option("--nr-perturbative-extraction-full",action='store_true')
 optp.add_option("--nr-use-provided-strain",action='store_true')
 optp.add_option('--nr-group', default=None,help="If using a *ssingle specific simulation* specified on the command line, provide it here")
 optp.add_option('--nr-param', default=None,help="If using a *ssingle specific simulation* specified on the command line, provide it here")
@@ -241,6 +242,7 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid
         nr_lookup=opts.nr_lookup,
         nr_lookup_group=opts.nr_lookup_group,
         nr_perturbative_extraction=opts.nr_perturbative_extraction,
+        nr_perturbative_extraction_full=opts.nr_perturbative_extraction_full,
         nr_use_provided_strain=opts.nr_use_provided_strain,
         **args_pinned
         )
