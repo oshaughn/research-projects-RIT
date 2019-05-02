@@ -78,7 +78,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
         fval = f_list[q](np.array(x,dtype=np.float128))
         F[:,q] = np.reshape(fval, (len(x),1))
     gamma = np.matrix( np.diag(np.ones(npts,dtype=np.float128)))
-    if gamma_x != None:
+    if not(gamma_x is None):
         gamma = np.matrix(gamma_x)
     Gamma = F.T * gamma * F      # Fisher matrix for the fit
     Sigma = linalg.inv(Gamma)  # Covariance matrix for the fit. WHICH CODE YOU USE HERE IS VERY IMPORTANT.
@@ -110,7 +110,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
         indx_here = indx_lookup[pair]
         my_fisher_est[k,q] += -lambdaHat[indx_here]
         my_fisher_est[q,k] += -lambdaHat[indx_here]  # this will produce a factor of 2 if the two terms are identical
-    if prior_x_gamma!=None and prior_x_gamma.shape == my_fisher_est.shape:
+    if not(prior_x_gamma is None) and (prior_x_gamma.shape == my_fisher_est.shape):
         my_fisher_est += prior_x_gamma
     if verbose:
         print "  Fisher: ", my_fisher_est
