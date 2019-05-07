@@ -3362,6 +3362,22 @@ def pylal_psd_to_swig_psd(raw_pylal_psd):
         psdNew.data.data[i] = data[i]   # don't mix memory management between pylal and swig
     return psdNew
 
+def generate_gwpy_offsource_psds(fname, channel, start=None, stop=None,window_shape=0.,srate=8192,fftlength=8.,method='median',output_ascii=False):
+    """
+    generates offsource psds using gwpy.timeseries.Timeseries.psd
+    """
+    with open(fname) as cfile:
+        cachef = Cache.fromfile(cfile)
+    cachef=cachef.sieve(ifos=channel[:1])
+    from gwpy.timeseries import TimeSeries
+    data = TimeSeries.read(cachef,channel,resample=srate)
+    psd_data=data.crop(start=start,end=stop,copy=True)
+    psd=psd_data.psd(fftlength=fftlength,method=method)
+    if output_ascii:
+        psd.write('H1-gwpy-psd.txt',format='txt')
+    else:
+        return psd
+        
 def regularize_swig_psd_series_near_nyquist(raw_psd,DeltaFToZero):
     """
     regularize_psd_series_near_nyquist
