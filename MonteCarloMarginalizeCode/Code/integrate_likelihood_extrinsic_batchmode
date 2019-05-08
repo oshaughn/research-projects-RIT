@@ -382,7 +382,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
       # Note this is just a constant scale factor in the likelihood, but it *can* have some effect on parameters if one windowing size is small (as it stretches/compresses the likleihood)
       window_fac_psd = lalsimutils.psd_windowing_factor(opts.psd_window_shape, len(psd_dict[inst].data.data))  # assume the windowing factor IS accounted for, and we have to undo it
       window_fac_data = lalsimutils.psd_windowing_factor(opts.window_shape, len(data_dict[inst].data.data))
-      psd_dict[inst] *= window_fac_data/window_fac_psd   # scale the windowing factor to be appropriate for our actual data window: the PSD was measured using a windowing different than the one we use
+      psd_dict[inst].data.data *= window_fac_data/window_fac_psd   # scale the windowing factor to be appropriate for our actual data window: the PSD was measured using a windowing different than the one we use
 
     # implement cutoff.  
     if inst in flow_ifo_dict.keys():
