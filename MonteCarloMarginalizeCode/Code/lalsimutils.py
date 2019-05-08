@@ -3497,6 +3497,22 @@ def load_resample_and_clean_psd(psd_fname, det, deltaF,verbose=False):
     return psd_here
 
 
+def psd_windowing_factor(window_shape, TDlen):
+    """
+    [Implementing <w^2>, due to https://dcc.ligo.org/LIGO-T1900249]
+    If a PSD is calculated using repeated instances of windowed data, the PSD will be biased downward (i.e., we have less noise than we expect)
+    That's fine and self-consistent  if we will be analyzing data which has the same windowing applied.   
+    But if we're *not* applying the same window shape to the data we analyze,  we need to correct for the difference
+    in noise *actually present* to the noise *used to create the PSD*.
+
+    Ths routine creates <w^2> for w a window shape.
+    This could be computed much more efficiently (it is not memory-efficient), but this code is cleaner
+    """
+    hoft_window = lal.CreateTukeyREAL8Window(TDlen, window_shape)
+    # Note this term does not depend much on TDlen, so we can very accurately estimate it with a FIXED TDlen
+    return np.sum(hoft_window.data.data**2)/TDlen
+
+
 def evaluate_tvals(lal_tseries):
     return float(lal_tseries.epoch) +lal_tseries.deltaT*np.arange(lal_tseries.data.length)
 
