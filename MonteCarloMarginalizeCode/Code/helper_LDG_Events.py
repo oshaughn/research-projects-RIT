@@ -245,6 +245,8 @@ for cal in cal_versions:
             data_types["O3"][(cal,ifo)] = ifo+"_llhoft"
         if cal is "C00":
             standard_channel_names["O3"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN" 
+            standard_channel_names["O3"][(cal,ifo,"BeforeMay1")] = "GDS-CALIB_STRAIN" 
+            # Correct channel name is for May 1 onward : need to use *non-clean* before May 1; see Alan W email and https://wiki.ligo.org/Calibration/CalReview_20190502
             if opts.online:
                 standard_channel_names["O3"][(cal,ifo)] = "GDS-CALIB_STRAIN" # Do not assume cleaning is available in low latency
 data_types["O3"][("C00", "V1")] = "V1Online"
@@ -423,6 +425,10 @@ for ifo in ifos:
         channel_names[ifo] = "FAKE-STRAIN"
     else:
         channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo)]
+        # Channel names to use before May 1 in O3: need better lookup logic
+        if opts.observing_run is "O3" and  event_time < 1240750000 and opts.calibration_version is 'C00':
+            if ifo in ['H1', 'L1']:
+                channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo,"BeforeMay1")]
 
 # Set up, perform datafind (if not fake data)
 if not (opts.fake_data):
