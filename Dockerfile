@@ -1,4 +1,4 @@
-FROM nvidia/cuda:10.0-runtime-centos7
+FROM nvidia/cuda:10.1-runtime-centos7
 
 LABEL name="RIFT (CentOs)" \
       maintainer="James Alexander Clark <james.clark@ligo.org>" \
@@ -19,10 +19,10 @@ RUN yum update -y && \
       gsl-devel \
       gcc-c++ \
       make \
-      cuda-libraries-dev-10-0 \
-      cuda-cublas-dev-10-0 \
-      cuda-runtime-10-0 \
-      cuda-nvcc-10-0 
+      cuda-libraries-dev-10-1 \
+      cuda-cublas-dev-10-1 \
+      cuda-runtime-10-1 \
+      cuda-nvcc-10-1 
 
 # RIFT LSCSoft and python dependencies
 RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
