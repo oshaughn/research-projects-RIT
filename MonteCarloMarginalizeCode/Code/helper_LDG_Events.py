@@ -618,7 +618,7 @@ if opts.propose_initial_grid:
                 chieff_range = chi_range  # force to be smaller
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
-        cmd += " --parameter chieff_aligned  --parameter-range " + chieff_range+  " --grid-cartesian-npts 4000 "
+        cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range+  " --grid-cartesian-npts 4000 "
 
         if opts.assume_precessing_spin:
             # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
