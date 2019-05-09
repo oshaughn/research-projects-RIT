@@ -1,43 +1,60 @@
-FROM ligo/builder:el7
-#FROM ligo/base:el7
+FROM nvidia/cuda:10.0-runtime-centos7
 
-LABEL name="RIFT EL7" \
-      maintainer="James Alexander CLark <james.clark@ligo.org>" \
-      date="20190405" \
-      support="Experimental Platform"
+LABEL name="RIFT (CentOs)" \
+      maintainer="James Alexander Clark <james.clark@ligo.org>" \
+      date="20190415" \
+      support="nvidia/cuda image"
 
+## RHEL/CentOS 7 64-Bit ##
+RUN curl -O http://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm && \
+      rpm -ivh epel-release-latest-7.noarch.rpm
 
-# Setup directories for binding
-RUN mkdir -p /cvmfs /hdfs /hadoop /etc/condor /build
+#
+# Yum-installable dependencies
+#
+RUN yum update -y && \
+      yum install -y vim \
+      git \
+      python-devel \
+      gsl-devel \
+      gcc-c++ \
+      make \
+      cuda-libraries-dev-10-0 \
+      cuda-cublas-dev-10-0 \
+      cuda-runtime-10-0 \
+      cuda-nvcc-10-0 
 
-RUN yum upgrade -y && \
-    yum clean all && \
-    rm -rf /var/cache/yum
+# RIFT LSCSoft and python dependencies
+RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
+    python get-pip.py && \
+    rm get-pip.py
+RUN pip --no-cache-dir install --ignore-installed -U setuptools \
+           pip \
+           cupy  \
+           h5py \
+           numba \
+           vegas \
+           corner \
+           scikit-learn \
+           healpy \
+           matplotlib \
+           lalsuite \
+           gwdatafind \
+           ligo-segments \
+           python-ligo-lw 
+#           ligo.skymap
+RUN CFLAGS='-std=c99' pip --no-cache-dir install -U gwsurrogate 
 
-RUN yum update && yum install -y \
-      python-pip git wget \
-      && yum clean all \
-      && rm -rf /var/cache/yum
+# RIFT
+# Modules and scripts run directly from repository
+ENV INSTALL_DIR /opt/lscsoft/rift
+ENV ILE_DIR ${INSTALL_DIR}/MonteCarloMarginalizeCode/Code
+ENV PATH ${PATH}:${ILE_DIR}
+ENV PYTHONPATH ${PYTHONPATH}:${ILE_DIR}
+ENV GW_SURROGATE gwsurrogate
+RUN git clone https://git.ligo.org/richard-oshaughnessy/research-projects-RIT.git ${INSTALL_DIR} \
+      && cd ${INSTALL_DIR} \
+      && git checkout temp-RIT-Tides-port_master-GPUIntegration 
 
-
-RUN wget https://developer.download.nvidia.com/compute/cuda/repos/rhel7/x86_64/cuda-repo-rhel7-10.1.105-1.x86_64.rpm \
-      && rpm -i cuda-repo-rhel7-10.1.105-1.x86_64.rpm 
-      
-RUN yum install -y cuda  python-devel \
-      && rm -rf /var/cache/yum
-
-RUN pip install -U setuptools pip
-RUN pip install cupy lalsuite
-
-ENV export INSTALL_DIR=/opt/lscsoft/rift
-ENV ILE_DIR=${INSTALL_DIR}/MonteCarloMarginalizeCode/Code
-ENV PATH=${PATH}:${ILE_DIR}
-ENV PYTHONPATH=${PYTHONPATH}:${ILE_DIR}
-
-#RUN git clone https://github.com/oshaughn/research-projects-RIT.git
-RUN git clone https://git.ligo.org/richard-oshaughnessy/research-projects-RIT.git \
-      && cd research-projects-RIT \
-      && git checkout temp-RIT-Tides-port_master-GPUIntegration \
-      && python setup.py install
-
-
+# Setup directories for singulary bindings
+RUN mkdir -p /cvmfs /hdfs /hadoop /etc/condor
