@@ -204,8 +204,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 if verbose:
                         print " FFT for mode ", mode, hlmsT[mode].data.length, " note duration = ", hlmsT[mode].data.length*hlmsT[mode].deltaT
                 hlms[mode] = lsu.DataFourier(hlmsT[mode])
-		print  " -> ", hlms[mode].data.length
                 if verbose:
+                        print  " -> ", hlms[mode].data.length
                         print " FFT for conjugate mode ", mode, hlmsT[mode].data.length
                 hlmsT[mode].data.data = np.conj(hlmsT[mode].data.data)
                 hlms_conj[mode] = lsu.DataFourier(hlmsT[mode])
