@@ -303,7 +303,7 @@ dag = pipeline.CondorDAG(log=os.getcwd())
 
 
 # Make directories for all iterations
-for indx in np.arange(it_start,opts.n_iterations):
+for indx in np.arange(it_start,opts.n_iterations+1):
     ile_dir = opts.working_directory+"/iteration_"+str(indx)+"_ile"
     cip_dir = opts.working_directory+"/iteration_"+str(indx)+"_cip"
     consolidate_dir = opts.working_directory+"/iteration_"+str(indx)+"_con"
