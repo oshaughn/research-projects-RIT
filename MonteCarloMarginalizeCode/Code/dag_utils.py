@@ -689,8 +689,9 @@ echo Starting ...
             #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
 
 
-    if use_singularity or use_osg:
+    if use_osg:
            requirements.append("IS_GLIDEIN=?=TRUE")
+    if use_singularity or use_osg:
            ile_job.add_condor_cmd('use_x509userproxy','True')
             # Set up file transfer options
            ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
