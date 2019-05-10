@@ -581,8 +581,11 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         with open(exe_here,'w') as f:
             f.write("#! /bin/bash  \n")
             f.write(r"""
+#!/bin/bash
 # Modules and scripts run directly from repository
 # Note the repo and branch are self-referential ! Not a robust solution long-term
+# Exit on failure:
+# set -e
 export INSTALL_DIR=research-projects-RIT
 export ILE_DIR=${INSTALL_DIR}/MonteCarloMarginalizeCode/Code
 export PATH=${PATH}:${ILE_DIR}
