@@ -113,7 +113,7 @@ parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior
 opts=  parser.parse_args()
 
 working_dir_inside = opts.working_directory
-if opts.use_singularity:
+if opts.use_singularity or opts.use_osg:
     working_dir_inside = "./" # all files on the remote machine are in the current directory
 
 singularity_image = None
