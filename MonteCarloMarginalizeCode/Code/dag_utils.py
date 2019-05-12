@@ -581,8 +581,11 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         with open(exe_here,'w') as f:
             f.write("#! /bin/bash  \n")
             f.write(r"""
+#!/bin/bash
 # Modules and scripts run directly from repository
 # Note the repo and branch are self-referential ! Not a robust solution long-term
+# Exit on failure:
+# set -e
 export INSTALL_DIR=research-projects-RIT
 export ILE_DIR=${INSTALL_DIR}/MonteCarloMarginalizeCode/Code
 export PATH=${PATH}:${ILE_DIR}
@@ -689,8 +692,9 @@ echo Starting ...
             #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
 
 
-    if use_singularity or use_osg:
+    if use_osg:
            requirements.append("IS_GLIDEIN=?=TRUE")
+    if use_singularity or use_osg:
            ile_job.add_condor_cmd('use_x509userproxy','True')
             # Set up file transfer options
            ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
@@ -701,13 +705,18 @@ echo Starting ...
 
     # Create prescript command to set up local.cache, only if frames are needed
     if not(frames_local is None):   # should be required for singularity or osg
+        try:
+            lalapps_path2cache=os.environ['LALAPPS_PATH2CACHE']
+        except KeyError:
+            print("Variable LALAPPS_PATH2CACHE is unset, assume default lalapps_path2cache is appropriate")
+            lalapps_path2cache="lalapps_path2cache"
         cmdname = 'ile_pre.sh'
         if transfer_files is None:
             transfer_files = []
         transfer_files += ["../ile_pre.sh", frames_dir]  # assuming default working directory setup
         with open(cmdname,'w') as f:
             f.write("#! /bin/bash -xe \n")
-            f.write( "ls "+frames_local+" | lalapps_path2cache > local.cache \n")  # Danger: need user to correctly specify local.cache directory
+            f.write( "ls "+frames_local+" | {lalapps_path2cache} 1> local.cache \n".format(lalapps_path2cache=lalapps_path2cache))  # Danger: need user to correctly specify local.cache directory
             # Rewrite cache file to use relative paths, not a file:// operation
             f.write(" cat local.cache | awk '{print $1, $2, $3, $4}' > local_stripped.cache \n")
             f.write("for i in `ls " + frames_local + "`; do echo "+ frames_local + "/$i; done  > base_paths.dat \n")
