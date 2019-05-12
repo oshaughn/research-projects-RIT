@@ -907,7 +907,11 @@ class ChooseWaveformParams:
         f_to_use = self.fref
         if self.fref==0:
             f_to_use = self.fmin
-        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, f_to_use)
+        try:
+            self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, f_to_use,self.phiref)
+        except:
+            # New format for this function
+            self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, f_to_use)
         # Define psiL via the deficit angle between Jhat in the radiation frame and the psiJ we want to achieve 
         Jref = self.TotalAngularMomentumAtReferenceOverM2()
         Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
@@ -939,6 +943,15 @@ class ChooseWaveformParams:
       
         # extract the polar angle of J, KEEPING IN MIND that the J reported above does NOT include psiL!
         psiJ = self.psi + np.arctan2(Jhat[1], Jhat[0])
+
+
+        if hasattr(lalsim,'SimInspiralTransformPrecessingWvf2PE'):
+            # Use predefined / default tool
+            #   - this tool assumes the 'L' frame
+            # See e.g., patch to LI https://git.ligo.org/lscsoft/lalsuite/commit/1f963908caa4f038532114840088b91f9b73e6ce
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2=SimInspiralTransformPrecessingWvf2PE(self.incl,self.s1x, self.s1y, self.s1z,self.s2x, self.s2y,self.s2z, self.m1, self.m2, self.fref, self.phiref)
+            return thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ  # psiJ is not provided by the above routine alas
+
 
         # extract spin magnitudes
         chi1 = np.sqrt(np.dot(S1,S1)) * (M/self.m1)**2
