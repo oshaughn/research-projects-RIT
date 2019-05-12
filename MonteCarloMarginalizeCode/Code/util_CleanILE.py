@@ -28,7 +28,8 @@ col_intrinsic = 9
 
 for fname in sys.argv[1:]:
     sys.stderr.write(fname)
-    data = np.loadtxt(fname)  # this will FAIL if we have a heterogeneous data source!  BE CAREFUL
+#    data = np.loadtxt(fname)  # this will FAIL if we have a heterogeneous data source!  BE CAREFUL
+    data = np.genfromtxt(fname,invalid_raise=False)  #  Protect against inhomogeneous data
     if len(data.shape) ==1:
         data = np.array([data]) # force proper treatment for single-line file
     for line in data:
