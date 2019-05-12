@@ -675,17 +675,28 @@ if opts.propose_fit_strategy:
         helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method gp', 'fit-method quadratic')
 
     if not opts.assume_nospin:
-        helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
-        helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
-        helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
+        if not opts.assume_precessing_spin:
+            helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
+            helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
+            helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
         
+        else: #  opts.assume_precessing_spin:
+            # # Use cartesian? no
+            # helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
+            # helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
+            # helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
+            # # Default prior is *volumetric*
+            # helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
+            # helper_cip_arg_list[0] +=   ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
+            # helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
 
-        if opts.assume_precessing_spin:
-            # Use cartesian coordinates for now.  Polar is more flexible
-            # Default prior is *volumetric*
-            helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
-            helper_cip_arg_list[0] +=   ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
-            helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
+            helper_cip_args += ' --parameter-implied xi  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  '
+            helper_cip_arg_list[0] += ' --parameter-implied xi  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  ' 
+            helper_cip_arg_list[1] +=  ' --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit a1 --parameter-nofit a2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  ' 
+            helper_cip_arg_list[1] = helper_cip_arg_list[1].replace("4 ", "2 ")  # do only 2 iterations with generic aligned spin
+            helper_cip_arg_list = helper_cip_arg_list.append( helper_cip_arg_list[-1] + " --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y ")  # do 4 iterations with full precessing spin
+
+
     if opts.assume_matter:
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
         # Add LambdaTilde on top of the aligned spin runs
