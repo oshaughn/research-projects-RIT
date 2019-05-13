@@ -536,6 +536,8 @@ if not opts.test_convergence:
     helper_test_args+= " --always-succeed "
 
 helper_ile_args += " --save-P 0.1 "   # truncate internal data structures (should do better memory management/avoid need for this if --save-samples is not on)
+if not (opts.fmax is None):
+    helper_ile_args += " --fmax " + str(opts.fmax)  # pass actual fmax
 if "SNR" in event_dict.keys():
     snr_here = event_dict["SNR"]
     if snr_here > 25:
