@@ -694,9 +694,9 @@ if opts.propose_fit_strategy:
 
             helper_cip_args += ' --parameter-implied xi  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  '
             helper_cip_arg_list[0] += ' --parameter-implied xi  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  ' 
-            helper_cip_arg_list[1] +=  ' --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit a1 --parameter-nofit a2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  ' 
-            helper_cip_arg_list[1] = helper_cip_arg_list[1].replace("4 ", "2 ")  # do only 2 iterations with generic aligned spin
+            helper_cip_arg_list[1] +=  ' --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  ' 
             helper_cip_arg_list.append( helper_cip_arg_list[-1] + " --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y ")  # do 4 iterations with full precessing spin
+            helper_cip_arg_list[1] = helper_cip_arg_list[1].replace("4 ", "2 ")  # do only 2 iterations with generic aligned spin
 
 
     if opts.assume_matter:
