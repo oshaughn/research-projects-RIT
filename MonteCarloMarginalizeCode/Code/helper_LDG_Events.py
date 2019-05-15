@@ -692,9 +692,9 @@ if opts.propose_fit_strategy:
             # helper_cip_arg_list[0] +=   ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
             # helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
 
-            helper_cip_args += ' --parameter-implied xi  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  '
-            helper_cip_arg_list[0] += ' --parameter-implied xi  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  ' 
-            helper_cip_arg_list[1] +=  ' --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  ' 
+            helper_cip_args += '  --use-precessing --parameter-implied xi  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  '
+            helper_cip_arg_list[0] += '  --use-precessing  --parameter-implied xi  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  ' 
+            helper_cip_arg_list[1] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  ' 
             helper_cip_arg_list.append( helper_cip_arg_list[-1] + " --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y ")  # do 4 iterations with full precessing spin
             helper_cip_arg_list[1] = helper_cip_arg_list[1].replace("4 ", "2 ")  # do only 2 iterations with generic aligned spin
 
