@@ -448,6 +448,11 @@ class ChooseWaveformParams:
             chiperp_vec_now = np.array([self.s1x,self.s1y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
             chi_now = np.sqrt(self.s1z**2 + chiperp_now**2)
+            if chiperp_now/chi_now < 1e-9: # aligned case - what do we do?
+                self.s1y=0
+                self.s1x = chi_now * np.sin(val)
+                self.s1z = chi_now * np.cos(val)
+                return self
             self.s1x = chi_now*np.sin(val) * self.s1x/chiperp_now
             self.s1y = chi_now*np.sin(val) * self.s1y/chiperp_now
             self.s1z = chi_now*np.cos(val)
@@ -475,6 +480,11 @@ class ChooseWaveformParams:
             chiperp_vec_now = np.array([self.s2x,self.s2y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
             chi_now = np.sqrt(self.s2z**2 + chiperp_now**2)
+            if chiperp_now/chi_now < 1e-9: # aligned case
+                self.s2y=0
+                self.s2x = chi_now * np.sin(val)
+                self.s2z = chi_now * np.cos(val)
+                return self
             self.s2x = chi_now*np.sin(val) * self.s2x/chiperp_now
             self.s2y = chi_now*np.sin(val) * self.s2y/chiperp_now
             self.s2z = chi_now*np.cos(val)
