@@ -563,18 +563,24 @@ class ChooseWaveformParams:
             # This assumes chiminus is a good and useful parameter.  
             # This parameterization was designed to be more stable for extreme mass ratio systems, where the usual chi- becomes highly degenerate
             # Note that by construction, in the limit of large mass ratio, chi1 -> xi and chi2 -> - chiminus, so the parameterization is not degenerate
-# {(m1 c1 +     m2 c2 ) == (m1 + m2) \[Xi], (m2 c1 - m1 c2)/(m1 -      m2) == \[Chi]Diff}
+            # Note we have chosen an exchange-antisymmetric combination (!), changing from prior use
+            # Note that this transformation can as a side effect change spins to be > 1
+# {(m1 c1 +     m2 c2 ) == (m1 + m2) \[Xi], (m2 c1 - m1 c2)/(m1 +      m2) == \[Chi]Diff}
 # {c1, c2} /. Solve[%, {c1, c2}][[1]] // Simplify
 # Collect[%[[2]], {\[Xi], \[Chi]Diff}]
 # % - \[Xi] // Simplify // FullSimplify
-                chi1 = self.extract_param('chi1')
-                chi2 = self.extract_param('chi2')
-                chiminus =  (m2*chi1 - m1*chi2)/(m1 - m2)
+                chi1 = self.s1z
+                chi2 = self.s2z
+                chiminus =  (m2*chi1 - m1*chi2)/(m1 + m2)  # change to be consistent with the 'chiMinus' use elsewhere, avoid extremes
                 # Solve equations for M xi, M chiminus.  
-                chi1_new = chieff_new + (m1 - m2)*m2*(chieff_new + chiminus)/(m1**2 + m2**2)
-                chi2_new = chieff_new - (m1 - m2)*m1*(chieff_new + chiminus)/(m1**2 + m2**2)
-                self.assign_param('chi1', chi1_new)
-                self.assign_param('chi2', chi2_new)
+                chi1_new = (m1+m2)/(m1**2+m2**2) * (m1*chieff_new + m2*chiminus)
+                chi2_new = (m1+m2)/(m1**2+m2**2) * (m2*chieff_new + m1*chiminus)
+#                chi1_new = chieff_new + (m1 - m2)*m2*(chieff_new + chiminus)/(m1**2 + m2**2)
+#                chi2_new = chieff_new - (m1 - m2)*m1*(chieff_new + chiminus)/(m1**2 + m2**2)
+                self.s1z = chi1_new
+                self.s2z = chi2_new
+                #self.assign_param('chi1', chi1_new)
+                #self.assign_param('chi2', chi2_new)
             else:
                 # for equal mass, require them to have the same value
                 self.assign_param('chi1', chieff_new)
