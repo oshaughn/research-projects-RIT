@@ -666,6 +666,7 @@ if not opts.lowlatency_propose_approximant:
 if opts.propose_fit_strategy:
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
     print " Fit strategy NOT IMPLEMENTED -- currently just provides basic parameterization options. Need to work in real strategies (e.g., cip-arg-list)"
+    lnLoffset_late = 15 # default
     helper_cip_args += " --lnL-offset " + str(lnLoffset_early)
     helper_cip_args += ' --cap-points 12000 --no-plots --fit-method gp  --parameter mc --parameter delta_mc '
     if not opts.no_propose_limits:
@@ -683,20 +684,28 @@ if opts.propose_fit_strategy:
             helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
         
         else: #  opts.assume_precessing_spin:
-            # # Use cartesian? no
-            # helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
-            # helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
-            # helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
+            # # Use cartesian +volumetric for FIRST FEW ITERATIONS (or as default).  
+            helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
+            helper_cip_arg_list = ["3 " + helper_cip_arg_list_common, "2 " +  helper_cip_arg_list_common,"2 " +  helper_cip_arg_list_common,"3 " +  helper_cip_arg_list_common  ]
+            helper_cip_arg_list[0] +=  '  --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
+            helper_cip_arg_list[0] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  '
+           
+            helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
+            helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  '
+
+            # this will be perfectly adequate volumetric result
+            helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
+            helper_cip_arg_list[2] +=   ' --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y  '
             # # Default prior is *volumetric*
             # helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
-            # helper_cip_arg_list[0] +=   ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
-            # helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
-
-            helper_cip_args += '  --use-precessing --parameter-implied xi  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  '
-            helper_cip_arg_list[0] += '  --use-precessing  --parameter-implied xi  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  ' 
-            helper_cip_arg_list[1] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2  ' 
-            helper_cip_arg_list.append( helper_cip_arg_list[-1] + " --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y ")  # do 4 iterations with full precessing spin
-            helper_cip_arg_list[1] = helper_cip_arg_list[1].replace("4 ", "2 ")  # do only 2 iterations with generic aligned spin
+             # helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
+            
+            # Last iterations are with a polar spin, to get spin prior  (as usually requested). Fir is the same as before, but sampling is more efficient
+            helper_cip_arg_list[3] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
+        
+            # Change convergence threshold at late times
+#            helper_cip_arg_list[2].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late)
+            helper_cip_arg_list[3].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late)
 
 
     if opts.assume_matter:
