@@ -1358,7 +1358,7 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
     ile_job.set_sub_file(ile_sub_name)
 
 
-    ile_job.add_arg(" . -name '" + file_prefix + "*" +file_postfix+' -exec cat {} \; ')
+    ile_job.add_arg(" . -name '" + file_prefix + "*" +file_postfix+"' -exec cat {} \; ")
     
     #
     # Logging options
