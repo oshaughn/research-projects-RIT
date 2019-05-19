@@ -350,10 +350,10 @@ if use_gracedb_event:
     event_dict["epoch"]  = event_duration
 
     # Get PSD
-    fmax = 1000.
-    cmd_event = gracedb_exe + download_request + opts.gracedb_id + " psd.xml.gz"
-    os.system(cmd_event)
     if opts.use_online_psd:
+        fmax = 1000.
+        cmd_event = gracedb_exe + download_request + opts.gracedb_id + " psd.xml.gz"
+        os.system(cmd_event)
         cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
         # Convert PSD to a useful format
         for ifo in event_dict["IFOs"]:
@@ -407,8 +407,11 @@ data_start_time_orig = data_start_time = t_event - int(t_before)
 data_end_time = t_event + int(t_before) # for inverse spectrum truncation. Overkill
 
 # Estimate data needed for PSD
-psd_data_start_time = t_event - 2048 - t_before
-psd_data_end_time = t_event - 1024 - t_before
+#   - need at least 8 times the duration of the signal!
+#   - important to get very accurate PSD estimation for long signals
+t_psd_window_size = np.max([1024, int(8*t_duration)])
+psd_data_start_time = t_event - 32-t_psd_window_size - t_before
+psd_data_end_time = t_event - 32 - t_before
 # set the start time to be the time needed for the PSD, if we are generating a PSD
 if (opts.psd_file is None) and  use_gracedb_event and not opts.use_online_psd:
     data_start_time = psd_data_start_time
@@ -538,6 +541,8 @@ if not opts.test_convergence:
 helper_ile_args += " --save-P 0.1 "   # truncate internal data structures (should do better memory management/avoid need for this if --save-samples is not on)
 if not (opts.fmax is None):
     helper_ile_args += " --fmax " + str(opts.fmax)  # pass actual fmax
+else:
+    helper_ile_args += " --fmax " + str(fmax)
 if "SNR" in event_dict.keys():
     snr_here = event_dict["SNR"]
     if snr_here > 25:
@@ -552,7 +557,7 @@ for ifo in ifos:
     helper_ile_args += " --psd-file "+ifo+"="+psd_names[ifo]
     if not (opts.fmin is None):
         helper_ile_args += " --fmin-ifo "+ifo+"="+str(opts.fmin)
-helper_ile_args += " --fmax " + str(fmax)
+#helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
 helper_ile_args += " --reference-freq " + str(opts.fmin_template)  # in case we are using a code which allows this to be specified
 approx_str= "SEOBNRv4"  # default, should not be used.  See also cases where grid is tuned
