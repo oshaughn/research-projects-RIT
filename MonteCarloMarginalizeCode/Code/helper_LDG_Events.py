@@ -720,11 +720,7 @@ if opts.propose_fit_strategy:
             helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " 
         # Add one line with deltaLambdaTilde
         helper_cip_arg_list.append(helper_cip_arg_list[-1]) 
-        # Make the second to last line include tides
-        #    - first iterations add lambdatilde
-        #    - second iterations add deltalambda
-#        helper_arg_list[-2] +=  " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
-        helper_cip_arg_list[-1] +=  " --input-tides --parameter-implied LambdaTilde --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 "
+        helper_cip_arg_list[-1] +=  " --parameter-implied DeltaLambdaTilde "
 
 with open("helper_cip_args.txt",'w') as f:
     f.write(helper_cip_args)
