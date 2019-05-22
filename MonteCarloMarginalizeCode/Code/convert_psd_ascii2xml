@@ -64,4 +64,4 @@ xmldoc.childNodes[0].attributes._attrs  = {"Name": "psd"}
 from glue.ligolw import utils
 utils.write_filename(xmldoc, opts.ifo+opts.prefix_out+"_fromascii_psd.xml.gz", gz=True)
 
-np.savetxt(opts.ifo+opts.prefix_out+"_fmax.dat",np.max(dat[:,0]) - 2) # add a 2Hz buffer 
+np.savetxt(opts.ifo+opts.prefix_out+"_fmax.dat",[np.max(dat[:,0]) - 2]) # add a 2Hz buffer 
