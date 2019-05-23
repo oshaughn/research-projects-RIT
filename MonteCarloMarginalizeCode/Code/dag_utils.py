@@ -796,11 +796,11 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     ile_job.add_arg(target) # where to put the output (label), in CWD
 
     #
-    # Add options en mass, by brute force
+    # NO OPTIONS
     #
-    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
-    arg_str = arg_str.lstrip('-')
-    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+#    arg_str = arg_str.lstrip('-')
+#    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
 
