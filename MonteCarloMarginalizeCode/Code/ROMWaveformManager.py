@@ -672,7 +672,7 @@ class WaveformModeCatalog:
             tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
             indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
             hlmT ={}
-            hlmT_dimensionless_narrow = self.sur(params_here[0], params_here[1],params_here[2],t=tvals_dimensionless[indx_ok],f_low=0)
+            hlmT_dimensionless_narrow = self.sur(params_here[0], params_here[1],params_here[2],t=tvals_dimensionless[indx_ok]) #,f_low=0)
             for mode in self.modes_available:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
                 hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
