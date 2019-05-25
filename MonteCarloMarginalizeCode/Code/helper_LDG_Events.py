@@ -238,7 +238,7 @@ if opts.playground_data:
 # [H1|L1]:GDS-CALIB_STRAIN_CLEAN
 # [H1|L1]:GDS-GATED_STRAIN
 # https://github.com/lpsinger/gwcelery/blob/master/gwcelery/conf/production.py
-cal_versions = {"C00"}
+cal_versions = {"C00","C01", "X01"}
 for cal in cal_versions:
     for ifo in "H1", "L1":
         data_types["O3"][(cal,ifo)] = ifo+"_HOFT_" + cal
@@ -250,6 +250,8 @@ for cal in cal_versions:
             # Correct channel name is for May 1 onward : need to use *non-clean* before May 1; see Alan W email and https://wiki.ligo.org/Calibration/CalReview_20190502
             if opts.online:
                 standard_channel_names["O3"][(cal,ifo)] = "GDS-CALIB_STRAIN" # Do not assume cleaning is available in low latency
+        if cal is "X01":  # experimental version of C01 calibration
+            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X01" 
 data_types["O3"][("C00", "V1")] = "V1Online"
 standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
 if opts.online:
