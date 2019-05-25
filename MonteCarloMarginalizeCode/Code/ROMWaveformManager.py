@@ -416,8 +416,9 @@ class WaveformModeCatalog:
         hT = lal.CreateREAL8TimeSeries("h(t)", htC.epoch, 0.,
             P.deltaT, lalsimutils.lsu_DimensionlessUnit, TDlen)
         # Copy data components over
+        #  - note htC is hp - i hx
         hp.data.data = np.real(htC.data.data)
-        hc.data.data = np.imag(htC.data.data)
+        hc.data.data = (-1) * np.imag(htC.data.data)
         # transform as in lalsimutils.hoft
         if Fp!=None and Fc!=None:
             hp.data.data *= Fp
