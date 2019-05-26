@@ -39,6 +39,11 @@ def query_available_ifos(ifos_all,types,server,data_start,data_end,datafind_exe=
 #   V1 : ITF_SCIENCEMODE
 #   L1 : LDS-SCIENCE
 # Alternative LIGO options: DMT-ANALYSIS_READY:1'
+# Alternative LIGO options:
+#     H1:HOFT_OK
+#     H1:OBSERVATION_INTENT
+# Alternative Virgo options
+#     V1:GOOD_QUALITY_DATA_CAT1
 def query_available_ifos_viadq(ifos_all,data_start,data_end):
     ifos_out = []
     from gwpy.segments import DataQualityFlag
@@ -48,8 +53,10 @@ def query_available_ifos_viadq(ifos_all,data_start,data_end):
         try:
             if ifo in ["H1","L1"]:
                 segs = DataQualityFlag.query(ifo+":LDS-SCIENCE:1",data_start,data_end)
+#	        segs = DataQualityFlag.query(ifo+":OBSERVATION_INTENT:1",data_start,data_end)
             if ifo in ["V1"]:
                 segs = DataQualityFlag.query(ifo+":ITF_SCIENCEMODE:1",data_start,data_end)
+#                segs = DataQualityFlag.query(ifo+":OBSERVATION_INTENT:1",data_start,data_end)
             # If we reach this point, it hasn't crashed, so
             ifos_out.append(ifo)
         except:
