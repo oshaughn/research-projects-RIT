@@ -913,11 +913,45 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
-    if opts.save_samples:
+    if opts.save_samples and opts.output_file:
       if opts.inclination_cosine_sampler:
         sampler._rvs["inclination"] = numpy.arccos(sampler._rvs["inclination"].astype(numpy.float64))
       if opts.declination_cosine_sampler:
         sampler._rvs["declination"] = numpy.pi/2 - numpy.arccos(sampler._rvs["declination"].astype(numpy.float64))
+      xmldoc = ligolw.Document()
+      xmldoc.appendChild(ligolw.LIGO_LW())
+      process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
+      samples = sampler._rvs
+      if not opts.time_marginalization:
+            samples["t_ref"] += float(fiducial_epoch)
+      else:
+            samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(sampler._rvs["psi"]))
+      samples["polarization"] = samples["psi"]
+      samples["coa_phase"] = samples["phi_orb"]
+      if ("declination", "right_ascension") in sampler.params:
+            samples["latitude"], samples["longitude"] = samples[("declination", "right_ascension")]
+      else:
+            samples["latitude"] = samples["declination"]
+            samples["longitude"] = samples["right_ascension"]
+      samples["loglikelihood"] = numpy.log(samples["integrand"])
+      if not opts.rom_integrate_intrinsic:
+            # ILE mode: insert fixed model parameters
+            samples["mass1"] = numpy.ones(samples["psi"].shape)*m1 # opts.mass1
+            samples["mass2"] = numpy.ones(samples["psi"].shape)*m2 # opts.mass2
+            samples["spin1x"] =numpy.ones(samples["psi"].shape)*P.s1x
+            samples["spin1y"] =numpy.ones(samples["psi"].shape)*P.s1y
+            samples["spin1z"] =numpy.ones(samples["psi"].shape)*P.s1z
+            samples["spin2x"] =numpy.ones(samples["psi"].shape)*P.s2x
+            samples["spin2y"] =numpy.ones(samples["psi"].shape)*P.s2y
+            samples["spin2z"] =numpy.ones(samples["psi"].shape)*P.s2z
+      xmlutils.append_samples_to_xmldoc(xmldoc, samples)
+        # Extra metadata
+      dict_out={"mass1": m1, "mass2": m2, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": numpy.sqrt(var)/res, "ttotal": sampler.ntotal}
+      if 'distance' in pinned_params:
+            dict_out['distance'] = pinned_params["distance"]
+      xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=dict_return["convergence_test_results"]["normal_integral"], **dict_out)
+      fname_output_xml = opts.output_file +"_"+str(indx_event)+"_" + ".xml.gz"
+      utils.write_filename(xmldoc, fname_output_xml, gz=True)
 
     return res
 
