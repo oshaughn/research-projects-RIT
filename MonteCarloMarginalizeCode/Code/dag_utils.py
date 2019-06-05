@@ -634,7 +634,7 @@ echo Starting ...
     # Logging options
     #
     uniq_str = "$(macroevent)-$(cluster)-$(process)"
-    if simple_uniq:
+    if simple_unique:
         uniq_str = "$(macroevent)"
     ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
