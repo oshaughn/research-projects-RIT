@@ -564,7 +564,8 @@ if opts.posterior_file:
         else:
             dat_here = extract_combination_from_LI(samples, param)
         if param in opts.parameter_log_scale:
-            dat_here= np.log10(dat_here)
+            indx_ok = dat_here > 0
+            dat_here= np.log10(dat_here[indx_ok])
         if len(dat_here) < 1:
             print " Failed to etract data ", param,  " from ", opts.posterior_file[indx]
 
@@ -602,6 +603,9 @@ for pIndex in np.arange(len(posterior_list)):
             dat_mass[:,indx] = samples[param]
         else:
             dat_mass[:,indx] = extract_combination_from_LI(samples, param)
+
+        if param in opts.parameter_log_scale:
+            dat_mass[:,indx] = np.log10(dat_mass[:,indx])
 
         # Parameter ranges (duplicate)
         dat_here = np.array(dat_mass[:,indx])  # force copy ! I need to sort
