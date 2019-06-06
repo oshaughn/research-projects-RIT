@@ -954,6 +954,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       fname_output_xml = opts.output_file +"_"+str(indx_event)+"_" + ".xml.gz"
       utils.write_filename(xmldoc, fname_output_xml, gz=True)
 
+
+    # Clear sampler _rvs, to avoid side effects when called again
+    for key in sampler._rvs.keys():
+      sampler._rvs[key] = []
+
     return res
 
 
