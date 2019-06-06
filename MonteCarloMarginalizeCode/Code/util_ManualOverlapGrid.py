@@ -427,6 +427,13 @@ if opts.inj:
     xmldoc = utils.load_filename(filename, verbose = True,contenthandler =lalsimutils.cthdler)
     sim_inspiral_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
     P.copy_sim_inspiral(sim_inspiral_table[int(event)])
+    if opts.approx:
+        P.approx = lalsim.GetApproximantFromString(opts.approx)
+        if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
+            # Do not use tidal parameters in approximant which does not implement them
+            print " Do not use tidal parameters in approximant which does not implement them "
+            P.lambda1 = 0
+            P.lambda2 = 0    
 else:    
     P.m1 = opts.mass1 *lal.MSUN_SI
     P.m2 = opts.mass2 *lal.MSUN_SI
