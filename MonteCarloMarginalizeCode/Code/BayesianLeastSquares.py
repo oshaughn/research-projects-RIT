@@ -150,7 +150,7 @@ def fit_quadratic_and_resample(x,y,npts,rho_fac=1,x0=None,gamma_x=None,prior_x_g
         
 
     # Use the inverse covariance mattrix
-    my_fisher_est_inv = linalg.inv(my_fisher_est)   # SEE INVERSE DISCUSSION
+    my_fisher_est_inv = linalg.pinv(my_fisher_est)   # SEE INVERSE DISCUSSION
     x_new = np.random.multivariate_normal(best_val_est,my_fisher_est_inv/(rho_fac*rho_fac),size=npts)
 
     return x_new
