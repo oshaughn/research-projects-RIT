@@ -207,6 +207,7 @@ parser.add_argument("--grid-cartesian", action="store_true", help="Place mass po
 parser.add_argument("--grid-cartesian-npts", default=100, type=int)
 parser.add_argument("--skip-overlap",action='store_true', help="If true, the grid is generated without actually performing overlaps. Very helpful for uncertain configurations or low SNR")
 parser.add_argument("--reset-grid-via-match",action='store_true',help="Reset the parameter_range results so each parameter's range is limited by  match_value.  Use this ONLY for estimating the fisher matrix quickly!")
+parser.add_argument("--no-reset-parameter",action='append',help="Don't reset the range of this parameter via tuning. Important for spin parameters, which can be over-tuned due to strong correlations")
 parser.add_argument("--use-fisher-resampling",action='store_true',help="Resample the grid using the fisher matrix. Requires fisher matrix")
 # Cutoff options
 parser.add_argument("--match-value", type=float, default=0.01, help="Use this as the minimum match value. Default is 0.01 (i.e., keep almost everything)")
@@ -607,6 +608,9 @@ if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
     for indx in np.arange(len(param_names)):
         PT = Pbase.copy()  # same as the grid, but we will reset all its parameters
         param_now = param_names[indx]
+        if param_now in opts.no_reset_parameter:
+            print " ==> not retuning range for ", param_now
+            continue
         param_peak = Pbase.extract_param(param_now)
         fac_print =1.0
         if param_now in ['m1', 'm2', 'mc']:
