@@ -630,9 +630,12 @@ if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
             print " Minimum: looking between ",param_ranges[indx][0]/fac_print,param_peak/fac_print, " delta ", np.abs(param_peak - param_ranges[indx][0])/fac_print
 #            if np.abs(param_peak - param_ranges[indx][0])/fac_print < 1e-2:  # very narrow placement range. Want to avoid jumping to the wrong side1
 #                print " Using minimization code ...  "
-#                param_min = brent(ip_here_squared, brack=(param_ranges[indx][0],param_peak, param_ranges[indx][1]), tol=TOL)
+#                
 #            else:
             param_min = brentq(ip_here,param_ranges[indx][0],param_peak ,xtol=TOL,maxiter=maxit)
+            if param_min > param_peak:
+                print " Ordering problem, using minimization code as backup "
+                param_min = brent(ip_here_squared, brack=(param_ranges[indx][0],param_peak, param_ranges[indx][1]), tol=TOL)
         except:
             print "  Range retuning: minimum for ", param_now
             param_min = param_ranges[indx][0]
@@ -642,7 +645,7 @@ if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
         except:
             print "  Range retuning: maximum for ", param_now
             param_max = param_ranges[indx][1]
-        if np.abs(param_max - param_min)/param_peak < 1e-6:  # override if we have catastrophically close placement
+        if np.abs(param_max - param_min)/(np.abs(param_max)+np.abs(param_min)) < 1e-6:  # override if we have catastrophically close placement
             print " Override: tuned parameters got too close, returning to original range "
             param_min = param_ranges[indx][0]
             param_max = param_ranges[indx][1]
@@ -690,6 +693,8 @@ for p in ['mc', 'm1', 'm2', 'mtot']:
 prior_dict = {}
 prior_dict['s1z'] =  2  # provide std dev. Don't want to allow arbitrarily large spins
 prior_dict['s2z'] =  2  # provide std dev. Don't want to allow arbitrarily large spins
+prior_dict['xi']  = 2    
+prior_dict['chieff_aligned']  = 2    
 prior_dict['eta'] = 1    # provide st dev. Don't want to allow arbitrary eta.
 
 
