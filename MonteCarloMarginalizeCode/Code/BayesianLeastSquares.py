@@ -145,6 +145,8 @@ def fit_quadratic_and_resample(x,y,npts,rho_fac=1,x0=None,gamma_x=None,prior_x_g
         w,v = np.linalg.eig(my_fisher_est)
         indx_neg = w<0
         w[indx_neg] =0
+
+        my_fisher_est = np.dot(v.T,np.dot(np.diag(w),v))  # reconstruct matrix, after regularization
         
 
     # Use the inverse covariance mattrix
