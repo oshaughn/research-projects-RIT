@@ -534,6 +534,8 @@ if opts.quantiles:
     quantiles_1d=eval(opts.quantiles)
 
 # Generate labels
+if opts.parameter_log_scale is None:
+    opts.parameter_log_scale = []
 labels_tex = render_coordinates(opts.parameter,logparams=opts.parameter_log_scale)#map(lambda x: tex_dictionary[x], coord_names)
 
 fig_base= None
