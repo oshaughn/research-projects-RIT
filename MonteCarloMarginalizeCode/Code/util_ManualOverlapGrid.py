@@ -601,11 +601,16 @@ ip_min_freq = opts.fmin
 ###
 if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
     # Based on the original effective fisher code: 'find_effective_Fisher_region'
-    TOL=1e-5
+    TOL=(1-opts.match_value)*1e-2
+    maxit=50
+#    TOL=1e-5
     for indx in np.arange(len(param_names)):
         PT = Pbase.copy()  # same as the grid, but we will reset all its parameters
         param_now = param_names[indx]
         param_peak = Pbase.extract_param(param_now)
+        fac_print =1.0
+        if param_now in ['m1', 'm2', 'mc']:
+            fac_print = lal.MSUN_SI
         if opts.verbose:
             print " Optimizing for ", param_now, " with peak expected at value = ", param_peak
             PT.print_params()
@@ -618,18 +623,30 @@ if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
             if opts.verbose:
                 print param_now, x, val
             return val - opts.match_value
+        def ip_here_squared(x):
+            val= ip_here(x)
+            return val**2
         try:
-            param_min = brentq(ip_here,param_peak, param_ranges[indx][0],xtol=TOL)
+            print " Minimum: looking between ",param_ranges[indx][0]/fac_print,param_peak/fac_print, " delta ", np.abs(param_peak - param_ranges[indx][0])/fac_print
+#            if np.abs(param_peak - param_ranges[indx][0])/fac_print < 1e-2:  # very narrow placement range. Want to avoid jumping to the wrong side1
+#                print " Using minimization code ...  "
+#                param_min = brent(ip_here_squared, brack=(param_ranges[indx][0],param_peak, param_ranges[indx][1]), tol=TOL)
+#            else:
+            param_min = brentq(ip_here,param_ranges[indx][0],param_peak ,xtol=TOL,maxiter=maxit)
         except:
             print "  Range retuning: minimum for ", param_now
             param_min = param_ranges[indx][0]
         try:
+            print " Maximum: looking between ",param_peak/fac_print, param_ranges[indx][1]/fac_print
             param_max = brentq(ip_here,param_peak, param_ranges[indx][1],xtol=TOL)
         except:
             print "  Range retuning: maximum for ", param_now
             param_max = param_ranges[indx][1]
-                         
-        print " Revised range for parameter ", param_ranges[indx], " to ", [param_min,param_max]
+        if np.abs(param_max - param_min)/param_peak < 1e-6:  # override if we have catastrophically close placement
+            print " Override: tuned parameters got too close, returning to original range "
+            param_min = param_ranges[indx][0]
+            param_max = param_ranges[indx][1]
+        print " Revised range for parameter ", np.array(param_ranges[indx])/fac_print, " to ", [param_min/fac_print,param_max/fac_print], " around ", param_peak/fac_print
         param_ranges[indx][0] = param_min
         param_ranges[indx][1] = param_max
 
@@ -684,6 +701,7 @@ prior_dict['eta'] = 1    # provide st dev. Don't want to allow arbitrary eta.
 
 
 # Base Cartesian grid
+print param_ranges,pts_per_dim
 grid_tuples = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
 #print "  NEED TO IMPLEMENT: Stripping of unphysical parameters "
 grid = eff.multi_dim_grid(*grid_tuples)  # each line in 'grid' is a set of parameter values
