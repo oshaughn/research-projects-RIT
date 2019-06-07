@@ -237,7 +237,8 @@ parser.add_argument("--lmax", default=2, type=int)
 parser.add_argument("--approx",type=str,default=None)
 # Output options
 parser.add_argument("--fname", default="overlap-grid", help="Base output file for ascii text (.dat) and xml (.xml.gz)")
-parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
+parser.add_argument("--verbose", action="store_true",default=False, help="Extra warnings")
+parser.add_argument("--extra-verbose", action="store_true",default=False, help="Lots of messages")
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
 opts=  parser.parse_args()
 
@@ -428,6 +429,7 @@ if opts.inj:
     xmldoc = utils.load_filename(filename, verbose = True,contenthandler =lalsimutils.cthdler)
     sim_inspiral_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
     P.copy_sim_inspiral(sim_inspiral_table[int(event)])
+    P.fmin =opts.fmin
     if opts.approx:
         P.approx = lalsim.GetApproximantFromString(opts.approx)
         if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
@@ -850,6 +852,7 @@ if opts.use_fisher:
         print " Negative eigenvalues COULD preclude resampling ! Use a prior to regularize"
         print " Eigenvalue report ", my_eig
         print " HOPE that priors help !"
+        np.savetxt("fisher_NEG",my_eig)  # filename with eigenvalues
 #        sys.exit(0)
 
     if opts.use_fisher and opts.use_fisher_resampling:  # dump real data, NOT faked data. You should ALWAYS enter this logic tree
@@ -862,7 +865,7 @@ if opts.use_fisher:
              prior_gamma[indx][indx]  = param_priors_gamma[param_names[indx]]
      print " Using prior matrix to generate candidate draws from likelihood: ", prior_gamma
 
-     grid_fisher[:,:len(param_names)] = BayesianLeastSquares.fit_quadratic_and_resample(grid_out[:,:len(param_names)], grid_out[:,len(param_names)],rho_fac=8,npts=npts_out,x0=x0_val_here,prior_quadratic_gamma=prior_gamma)
+     grid_fisher[:,:len(param_names)] = BayesianLeastSquares.fit_quadratic_and_resample(grid_out[:,:len(param_names)], grid_out[:,len(param_names)],rho_fac=8,npts=npts_out,x0=x0_val_here,prior_quadratic_gamma=prior_gamma,hard_regularize_negative=True)
      grid_fisher[:,-1] = -1*np.ones(npts_out)
      # Convert grid to physical systems.  Drop systems which make no sense
      P_list = []
@@ -875,7 +878,7 @@ if opts.use_fisher:
             if param_names[indx] in downselect_dict:
                 if line[indx] < downselect_dict[param_names[indx]][0] or line[indx] > downselect_dict[param_names[indx]][1]:
                     include_item = False
-                    if opts.verbose:
+                    if opts.extra_verbose:
                         print " Skipping " , line
             # if parameter involes a mass parameter, scale it to sensible units
             fac = 1
@@ -887,7 +890,8 @@ if opts.use_fisher:
         # Downselect.
         for param in downselect_dict:
              if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
-                 print " Skipping " , line
+                 if opts.extra_verbose:
+                     print " Skipping " , line
                  include_item =False
         if include_item:
          grid_revised.append(line)
