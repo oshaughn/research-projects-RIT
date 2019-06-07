@@ -852,7 +852,7 @@ if opts.use_fisher:
         print " Negative eigenvalues COULD preclude resampling ! Use a prior to regularize"
         print " Eigenvalue report ", my_eig
         print " HOPE that priors help !"
-        np.savetxt("fisher_NEG",my_eig)  # filename with eigenvalues
+        np.savetxt("fisher_NEG",my_eig.flatten())  # filename with eigenvalues
 #        sys.exit(0)
 
     if opts.use_fisher and opts.use_fisher_resampling:  # dump real data, NOT faked data. You should ALWAYS enter this logic tree
