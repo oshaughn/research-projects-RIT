@@ -608,7 +608,8 @@ if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
     for indx in np.arange(len(param_names)):
         PT = Pbase.copy()  # same as the grid, but we will reset all its parameters
         param_now = param_names[indx]
-        if param_now in opts.no_reset_parameter:
+        if not(opts.no_reset_parameter is None):
+          if param_now in opts.no_reset_parameter:
             print " ==> not retuning range for ", param_now
             continue
         param_peak = Pbase.extract_param(param_now)
