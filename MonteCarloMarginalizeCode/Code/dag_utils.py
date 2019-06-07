@@ -1374,7 +1374,7 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
     uniq_str = "$(macromassid)-$(cluster)-$(process)"
     ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
-#    ile_job.set_stdout_file(file_output)
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
     ile_job.add_condor_cmd('getenv', 'True')
     try:
