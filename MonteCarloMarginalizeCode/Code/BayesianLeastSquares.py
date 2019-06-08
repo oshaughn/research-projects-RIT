@@ -128,7 +128,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
 
 
 
-def fit_quadratic_and_resample(x,y,npts,rho_fac=1,x0=None,gamma_x=None,prior_x_gamma=None,prior_quadratic_gamma=None,verbose=False,n_digits=None,hard_regularize_negative=False):
+def fit_quadratic_and_resample(x,y,npts,rho_fac=1,x0=None,gamma_x=None,prior_x_gamma=None,prior_quadratic_gamma=None,verbose=False,n_digits=None,hard_regularize_negative=False,hard_regularize_scale=1):
     """
     Simple least squares to a quadratic, *and* resamples from the quadratic derived from the fit.
     Critical for iterative evaluation of 
@@ -144,7 +144,8 @@ def fit_quadratic_and_resample(x,y,npts,rho_fac=1,x0=None,gamma_x=None,prior_x_g
     if hard_regularize_negative:
         w,v = np.linalg.eig(my_fisher_est)
         indx_neg = w<0
-        w[indx_neg] =0
+        # usually we are regularizing placements in spin ... this provides us with error in that dimension
+        w[indx_neg] = hard_regularize_scale # 1./np.min( np.std(x,axis=0))**2   # use scatterplot of input points to set scale of this dimension
 
         my_fisher_est = np.dot(v.T,np.dot(np.diag(w),v))  # reconstruct matrix, after regularization
         
