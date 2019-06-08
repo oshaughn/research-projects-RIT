@@ -1356,7 +1356,7 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
 
     cmdname = 'catjob.sh'
     with open(cmdname,'w') as f:
-        f.write(exe+"  . -name '"+file_prefix+"*"+file_postfix+"' - exec cat {} \; | sort -r | uniq > "+file_output)
+        f.write(exe+"  . -name '"+file_prefix+"*"+file_postfix+"' -exec cat {} \; | sort -r | uniq > "+file_output)
         f.write("switcheroo 'm1 ' '# m1 ' "+file_output)  # add standard prefix
         os.system("chmod a+x "+cmdname)
 
