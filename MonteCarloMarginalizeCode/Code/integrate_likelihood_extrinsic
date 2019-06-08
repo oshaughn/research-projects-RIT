@@ -1006,13 +1006,13 @@ else: # Sum over time for every point in other extrinsic params
 
             P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
             if opts.declination_cosine_sampler:
-              P.theta = numpy.pi/2 - xpy_default.asarray(np.arccos(declination),dtype=np.float64)
+              P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
             else:
               P.theta = xpy_default.asarray(declination,dtype=np.float64)
             P.tref = float(fiducial_epoch)
             P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
             if opts.inclination_cosine_sampler:
-              P.incl = xpy_default.asarray(np.arccos(inclination), dtype=np.float64)
+              P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
             else:
               P.incl = xpy_default.asarray(inclination, dtype=np.float64)
             P.psi = xpy_default.asarray(psi, dtype=np.float64)
