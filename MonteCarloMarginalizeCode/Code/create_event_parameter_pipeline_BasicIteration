@@ -82,6 +82,7 @@ parser.add_argument("--puff-args",default=None,help="util_ParameterPuffball argu
 parser.add_argument("--puff-cadence",default=None,type=int,help="Every n iterations (not including 0), the puffball code will be applied.  Puffball points will be done *in addition* to the usual results from the DAG.  (The puffball is based on perturbing points from that iteration, and this will roughly double that iteration in ILE job size).  Proposed value 2 (i.e., puff overlap-grid-2, ...-4, ...-6.  If not specified, puffball will not be performed ")
 parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
+parser.add_argument("--last-iteration-extrinsic-nsamples",default=3000,type=int,help="Construct this number of extrinsic samples")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
@@ -113,13 +114,14 @@ parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior
 opts=  parser.parse_args()
 
 working_dir_inside = opts.working_directory
-if opts.use_singularity:
+if opts.use_singularity or opts.use_osg:
     working_dir_inside = "./" # all files on the remote machine are in the current directory
 
 singularity_image = None
 if opts.use_singularity:
     print " === USING SINGULARITY === "
     singularity_image = os.environ["SINGULARITY_RIFT_IMAGE"]  # must be present to use singularity
+    os.environ['LALAPPS_PATH2CACHE'] = "singularity exec {singularity_image} lalapps_path2cache".format(singularity_image=singularity_image)
     print singularity_image
 
 if (opts.cip_args is None) and (opts.cip_args_list is None):
@@ -303,7 +305,7 @@ dag = pipeline.CondorDAG(log=os.getcwd())
 
 
 # Make directories for all iterations
-for indx in np.arange(it_start,opts.n_iterations):
+for indx in np.arange(it_start,opts.n_iterations+1):
     ile_dir = opts.working_directory+"/iteration_"+str(indx)+"_ile"
     cip_dir = opts.working_directory+"/iteration_"+str(indx)+"_cip"
     consolidate_dir = opts.working_directory+"/iteration_"+str(indx)+"_con"
@@ -333,9 +335,9 @@ ile_exe =opts.ile_exe
 if (opts.ile_n_events_to_analyze > 1) and (exe is None):
     ile_exe = dag_utils.which("integrate_likelihood_extrinsic_batchmode")
 output_file_names = None
-if opts.use_singularity:
+if opts.use_singularity or opts.use_osg:
     transfer_file_names.append("../overlap-grid-$(macroiteration).xml.gz")
-    output_file_names = ','.join(["CME_out-$(macroevent)-$(cluster)-$(process)-{0}.dat".format(x) for x in np.arange(opts.ile_n_events_to_analyze)])
+    output_file_names = ','.join(["CME_out-$(macroevent)-$(cluster)-$(process).xml_{0}_.dat".format(x) for x in np.arange(opts.ile_n_events_to_analyze)])
     print "OUTPUT FILES ", output_file_names
 ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,transfer_output_files=output_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,frames_dir=opts.frames_dir,cache_file=opts.cache_file)
 # Modify: create macro for iteration 
@@ -353,12 +355,48 @@ ile_job.write_sub_file()
 if not (opts.puff_args is None):
     # Write a version of the ILE job that uses puffball inputs ... IDENTICAL to code above for standard ILE case,just different argument for input
     # Yes, it would logically be simpler to make overlap-grid.xml.gz larger ... but I want to keep 'real samples' and 'puffed samples' seperate.
-    ilePuff_job, ilePuff_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_puff',log_dir=None,arg_str=ile_args_forpuff,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE)
+    ilePuff_job, ilePuff_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_puff',log_dir=None,arg_str=ile_args_forpuff,output_file="CME_out.xml",simple_unique=True,ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE)
     ilePuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
     ilePuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).log")
     ilePuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).err")
     ilePuff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).out")
     ilePuff_job.write_sub_file()
+
+if  (opts.last_iteration_extrinsic):
+    # ILE job with modified output format
+    #  - note we *double* the memory request, because we need space to save samples
+    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff 100 "  # modify convergence criteria so output of reasonable size
+    ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE)
+    ileExtr_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
+    ileExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).log")
+    ileExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).err")
+    ileExtr_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).out")
+    ileExtr_job.write_sub_file()
+    
+    # Convert task
+    convert_args_extr =  " --convention LI  --export-cosmology " 
+    if not (convert_args is None):
+        convert_args_extr += convert_args
+    convertExtr_job, convertExtr_job_name = dag_utils.write_convert_sub(tag='convert_extr',log_dir=None,arg_str=convert_args_extr,file_input=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.xml.gz",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.dat", out_dir=opts.working_directory+"/iteration_$(macroiteration)_ile/")
+    convertExtr_job.add_condor_cmd("initialdir",opts.working_directory)
+    convertExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/convert-$(macroevent)-$(macroindx).log")
+    convertExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/convert-$(macroevent)-$(macroindx).err")
+    convertExtr_job.write_sub_file()
+
+    # Resample task 
+    resample_args = ' --n-output-samples  5 '  # pick 5 random points from each ILE run
+    resample_job, resample_job_name = dag_utils.write_resample_sub('resample',log_dir=None,arg_str=resample_args,file_input=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.dat",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.downsampled_dat")
+    resample_job.add_condor_cmd("initialdir",opts.working_directory)
+    resample_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).log")
+    resample_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).err")
+    resample_job.write_sub_file()
+
+    # Combination task at end -- probably should be a general utility
+    cat_job, cat_job_name = dag_utils.write_cat_sub(file_prefix='EXTR', file_postfix='.downsampled_dat.dat',file_output='extrinsic_posterior_samples.dat')
+    cat_job.add_condor_cmd("initialdir",opts.working_directory)
+    cat_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(cluster)-$(process).log")
+    cat_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(cluster)-$(process).err")
+    cat_job.write_sub_file()
 
 
 ##   Consolidate job(s)
@@ -594,9 +632,49 @@ for it in np.arange(it_start,opts.n_iterations):
         parent_fit_node=test_node
 
 
-# Create export stages for extrinsic samples: 
+# Create export stages for extrinsic samples
 if opts.last_iteration_extrinsic:
-    print "Not implemented yet ... requires information "
+    # Create nodes for followup tasks
+    cat_node = pipeline.CondorDAGNode(cat_job)
+
+    # Perform final ILE run on all points, saving samples
+    # Need to perform number of events CONSISTENT WITH TARGET SAMPLE SIZE
+    #    - *not* always same as number of ILE events being analyzed
+    #    - *assumes* grid files have sufficiently large numbers of samples to allow this! (as in many other cases)
+    n_jobs_extrinsic = int(opts.last_iteration_extrinsic_nsamples/(1.0*n_group))
+    for event in np.arange(n_jobs_extrinsic):
+        # Add task per ILE operation
+        ile_node = pipeline.CondorDAGNode(ileExtr_job)
+#        ile_node.set_priority(JOB_PRIORITIES["ILE"])
+        ile_node.set_retry(opts.ile_retries)
+        ile_node.add_macro("macroevent", event*n_group)
+        ile_node.add_macro("macroiteration", it)
+        ile_node.add_parent(parent_fit_node)
+        dag.add_node(ile_node)
+
+        # Add convert and resample task *for each output file*
+        for indx in np.arange(n_group):
+            convert_node = pipeline.CondorDAGNode(convertExtr_job)
+            convert_node.add_macro("macroevent", event*n_group)
+            convert_node.add_macro("macroiteration", it)
+            convert_node.add_macro("macroindx",indx)
+            convert_node.add_parent(ile_node)
+
+            resample_node = pipeline.CondorDAGNode(resample_job)
+            resample_node.add_macro("macroevent", event*n_group)
+            resample_node.add_macro("macroiteration", it)
+            resample_node.add_macro("macroindx",indx)
+            resample_node.set_retry(3)  # these occasionally fail for stupid reasons - nodes missing software, etc
+            resample_node.add_parent(convert_node)
+            
+            # Make cat job 
+            cat_node.add_parent(resample_node)
+
+            # Add nodes
+            dag.add_node(convert_node)
+            dag.add_node(resample_node)
+            
+    dag.add_node(cat_node)
 
 # Create final node for overall plots.  (Note: default setup is designed to enable plots of the last two iterations *at each step* but this seems like overkill)
 if plot_args:

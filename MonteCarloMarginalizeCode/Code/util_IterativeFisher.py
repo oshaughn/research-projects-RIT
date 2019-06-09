@@ -1,7 +1,12 @@
 #! /usr/bin/env python
 #
-# util_ManualOverlapGrid.py
+# util_IterativeFisher.py
 #
+# BASED ON
+#    util_ManualOverlapGrid.py
+#
+# STRATEGY
+#    - compute 1d diagonal terms in fisher matrix via 1d calculations
 # EXAMPLES
 #   util_ManualOverlapGrid.py --inj inj.xml.gz --parameter LambdaTilde  # 1d grid in changing LambdaTilde
 #   util_ManualOverlapGrid.py  --verbose --parameter LambdaTilde --parameter-range '[0,1000]'
@@ -237,8 +242,7 @@ parser.add_argument("--lmax", default=2, type=int)
 parser.add_argument("--approx",type=str,default=None)
 # Output options
 parser.add_argument("--fname", default="overlap-grid", help="Base output file for ascii text (.dat) and xml (.xml.gz)")
-parser.add_argument("--verbose", action="store_true",default=False, help="Extra warnings")
-parser.add_argument("--extra-verbose", action="store_true",default=False, help="Lots of messages")
+parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
 opts=  parser.parse_args()
 
@@ -429,7 +433,6 @@ if opts.inj:
     xmldoc = utils.load_filename(filename, verbose = True,contenthandler =lalsimutils.cthdler)
     sim_inspiral_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
     P.copy_sim_inspiral(sim_inspiral_table[int(event)])
-    P.fmin =opts.fmin
     if opts.approx:
         P.approx = lalsim.GetApproximantFromString(opts.approx)
         if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
@@ -705,114 +708,35 @@ prior_dict['chieff_aligned']  = 2
 prior_dict['eta'] = 1    # provide st dev. Don't want to allow arbitrary eta.
 
 
-###
-### Lay out grid, currently CARTESIAN.   OPTIONAL: Load grid from file
-###
-# WARNINGS: The code will NOT enforce sanity, and can produce lambda's < 0. This may cause some codes to barf.
-# FIXME: Use seed cartesian grid to help lay out an effective Fisher grid
 
-
-# Base Cartesian grid
+# Base ranges
 print param_ranges,pts_per_dim
-grid_tuples = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
-#print "  NEED TO IMPLEMENT: Stripping of unphysical parameters "
-grid = eff.multi_dim_grid(*grid_tuples)  # each line in 'grid' is a set of parameter values
-print grid.shape
-
-# Extend to use alternative parameters
-if not (opts.random_parameter is None):
-    indx_base = len(opts.parameter)
-#    print param_names, param_ranges
-    param_names += opts.random_parameter
-    param_ranges += map(eval, opts.random_parameter_range)  # do not randomize mass or distance parameters, not being rescaled
-    print param_names, param_ranges,indx_base
-    grid_extra = np.zeros( (len(grid),len(opts.random_parameter)) )
-#    print grid_extra.shape
-    for indx in np.arange(len(opts.random_parameter)):
-        range_here = param_ranges[ indx_base+indx]
-        grid_extra[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))
-
-    grid = np.hstack((grid,grid_extra))
 
 
-# Special check: m2<m1 : if both names appear, strip parameters from the grid
-if ('m1' in param_names) and ('m2' in param_names):
-    print " Grid uses m1, m2. Eliminating points with m1<m2"
-    indx1 = param_names.index('m1')
-    indx2 = param_names.index('m2')
-    indxOk = grid[:,indx1] >= grid[:,indx2]
-    grid = grid[indxOk] # Boolean indexing
-    print " Revised grid size : ", len(grid)
+# Evaluate fisher prototype
+n_dim = len(param_ranges)
+gamma_fisher_diag = np.zeros((n_dim,n_dim))
+for indx in np.arange(n_dim):
+    npts_1d=20
+    xvals = np.linspace(param_ranges[indx][0], param_ranges[indx][1],npts_1d)
+    grid = np.zeros((npts_1d,n_dim))
+    for indx_param in np.arange(param_names):
+        param_now = param_names[indx_param]
+        grid[:,indx_param] = Pbase.extract_param(param_now)*np.ones(npts_1d)
+    grid[:,indx] = xvals   # replace this with range
+    grid_out, P_list = evaluate_overlap_on_grid(hfBase, param_names, grid)
+    # Perform 1d fit
+    z = np.polyfit( xvals, grid_out[:,-1],2)
+    print " Fisher term for ", param_now, " = ", -2*z[0]
+    gamma_fisher_diag[indx,indx] = -2*z[0]
 
-# If external grid provided, erase this grid and set of names, and replace it with the new one.
-if opts.external_grid_txt:
-    tmp = np.genfromtxt(opts.external_grid_txt, names=True)
-    raw_names = tmp.dtype.names
-#    print tmp, tmp['eta'], tmp['ip'], raw_names
-    param_names = np.array(list(set(raw_names) - set(['ip'])))
-    for p in ['mc', 'm1', 'm2', 'mtot']:
-        if p in param_names:
-            tmp[p] *= lal.MSUN_SI  # add back units
-    print param_names
-    grid = np.array(tmp[param_names])
-    param_names = list(param_names)
-    # rescale arrays that correspond to masses
+print gamma_fisher_diag
 
-#    print grid, grid[1][0]
-#    sys.exit(0)
-
-
-#if using an external EOS add lambda to grid (Richard, you may want to fix this to be more general)
-elif opts.use_eos!=None:
-#   from gwemlightcurves.KNModels import table 
-   import EOSManager
-
-   grid_tmp=np.zeros((len(grid[:,0]), len(grid[0,:])+2))
-   anEOS = EOSManager.EOSLALSimulation(opts.use_eos)
-#   eos,eos_fam=table.get_lalsim_eos(opts.use_eos)
-   eos_fam = anEOS.eos_fam
-
-   for i in range(0,len(grid[0,:])):
-       grid_tmp[:,i]=grid[:,i]
-
-   param_names.append('lambda1')
-   param_names.append('lambda2')
-
-   mc_indx=param_names.index('mc')
-   my_transform = lambda x: x
-   if 'eta' in param_names:
-       eta_indx=param_names.index('eta')
-   else:
-       eta_indx = param_names.index('delta_mc')
-       my_transform = lambda x: 0.25*(1.-x*x)
-   lam1_indx=param_names.index('lambda1')
-   lam2_indx=param_names.index('lambda2')
-
-   for i in range(0,len(grid[:,mc_indx])): # Ridiculously inefficient
-       # fail to assign anything if m1 or m2 is out of range
-       m1=lalsimutils.mass1(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
-       if m1/lal.MSUN_SI < anEOS.mMaxMsun:
-           grid_tmp[i,lam1_indx]= anEOS.lambda_from_m(m1)  # calc_lambda_from_m(m1,eos_fam)
-       m2=lalsimutils.mass2(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
-       if m2/lal.MSUN_SI < anEOS.mMaxMsun:
-           grid_tmp[i,lam2_indx]= anEOS.lambda_from_m(m2)  #calc_lambda_from_m(m2,eos_fam)
-
-   # Remove points with zero lambda1 or lambda2?  
-   #     Not necessarily ... think about it ... but require both for now
-   indx_ok  = np.logical_and(grid_tmp[:,lam1_indx]>0 ,grid_tmp[:,lam2_indx]>0 )
-   grid=grid_tmp[indx_ok]
-
+sys.exit(0)
 
 grid_out, P_list = evaluate_overlap_on_grid(hfBase, param_names, grid)
 if len(grid_out)==0:
     print " No points survive...."
-
-###
-### (Fisher matrix-based grids): 
-###     - Use seed cartesian grid to compute the effective fisher matrix
-###     - Loop *again* to evaluate overlap on that grid
-###
-
 
 if opts.use_fisher:
     rho_fac = 8
@@ -852,84 +776,10 @@ if opts.use_fisher:
         print " Negative eigenvalues COULD preclude resampling ! Use a prior to regularize"
         print " Eigenvalue report ", my_eig
         print " HOPE that priors help !"
-        np.savetxt("fisher_NEG",my_eig[0].flatten())  # filename with eigenvalues
 #        sys.exit(0)
 
-    if opts.use_fisher and opts.use_fisher_resampling:  # dump real data, NOT faked data. You should ALWAYS enter this logic tree
-     # this grid will have mass units ! Possibly catastrophic?
-     npts_out = opts.grid_cartesian_npts*10  # Use more points in the search grid than the small grid used for Fisher. Aim for 1k points
-     grid_fisher = -1*np.ones((npts_out,len(param_names)+1))
-     prior_gamma= np.zeros(my_fisher_est.shape)
-     for indx in np.arange(len(param_names)):
-         if param_names[indx] in param_priors_gamma:
-             prior_gamma[indx][indx]  = param_priors_gamma[param_names[indx]]
-     print " Using prior matrix to generate candidate draws from likelihood: ", prior_gamma
 
-     grid_fisher[:,:len(param_names)] = BayesianLeastSquares.fit_quadratic_and_resample(grid_out[:,:len(param_names)], grid_out[:,len(param_names)],rho_fac=8,npts=npts_out,x0=x0_val_here,prior_quadratic_gamma=prior_gamma,hard_regularize_negative=True)
-     grid_fisher[:,-1] = -1*np.ones(npts_out)
-     # Convert grid to physical systems.  Drop systems which make no sense
-     P_list = []
-     grid_revised = []
-     for line in grid_fisher:
-        Pgrid = P.manual_copy()
-        include_item =True
-        # Set attributes that are being changed as necessary, leaving all others fixed
-        for indx in np.arange(len(param_names)):
-            if param_names[indx] in downselect_dict:
-                if line[indx] < downselect_dict[param_names[indx]][0] or line[indx] > downselect_dict[param_names[indx]][1]:
-                    include_item = False
-                    if opts.extra_verbose:
-                        print " Skipping " , line
-            # if parameter involes a mass parameter, scale it to sensible units
-            fac = 1
-            if param_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
-                fac = lal.MSUN_SI
-            # do assignment of parameters anyways, as we will skip it momentarily
-            Pgrid.assign_param(param_names[indx], line[indx]*fac)
 
-        # Downselect.
-        for param in downselect_dict:
-             if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
-                 if opts.extra_verbose:
-                     print " Skipping " , line
-                 include_item =False
-        if include_item:
-         grid_revised.append(line)
-         if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
-            P_list.append(Pgrid)
-         else:
-            Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
-            P_list.append(Pgrid)
-        else:
-            True
-
-     print " Original grid size", len(grid_out)
-     grid_out=[]  # force reset of this variable..no crap inherited
-     grid_out = np.array(grid_revised)
-     print " Revised grid size", len(grid_out)
-
-if opts.linear_spoked or opts.uniform_spoked:
-    print " Effective fisher report. GRID NOT YET IMPLEMENTED "
-    if len(param_names)==2:
-        fitgamma = eff.effectiveFisher(eff.residuals2d, grid_out[:,-1], *grid_out[:,0:len(param_names)-1])
-        gam = eff.array_to_symmetric_matrix(fitgamma)
-        evals, evecs, rot = eff.eigensystem(gam)
-        # Print information about the effective Fisher matrix
-        # and its eigensystem
-        print "Least squares fit finds ", fitgamma
-        print "\nFisher matrix:"
-        print "eigenvalues:", evals
-        print "eigenvectors:"
-        print evecs
-        print "rotation "
-        print rot
-
-    else:
-        print " Higher-dimensional grids not yet implemented "
-        sys.exit(0)
-    print "Fisher grid not yet implemented"
-    sys.exit(0)
-                             
 
 
 ###

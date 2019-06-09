@@ -194,10 +194,11 @@ A few options control the fitting method
   * ``--cap-points``: If present, and ``fname`` contains more than ``cap-points`` points which satisfy the condition above, then randomly select 
 
 
-## Walkthrough of an example on a GraceDB event  (Feb 2019 edition)
+## Walkthrough of an example on a GraceDB event  (Feb 2019 edition, update April 2019)
 
 PLACEHOLDER: Not the best convergence options
 
+If you want the current setup, see the ``LVC-only`` discussion below.
 We'll have something working through gwcelery and with a configparser soon.
 
 For now, you can do the following (experimental), which for simplicity uses online PSDs and auto-configured settings to provide a quick estimate using nonprecessing models.   (Warning: will likely modify this soon to use ``--cip-args-list`` rather than ``--cip-args``, to give  flexibility to handle precessing systems with a multi-stage workflow.)
@@ -213,8 +214,9 @@ helper_LDG_Events.py --use-legacy-gracedb --gracedb-id $1 --use-online-psd --pro
 
 echo  `cat helper_ile_args.txt`   > args_ile.txt
 echo `cat helper_cip_args.txt`  --n-output-samples 5000 --n-eff 5000 --lnL-offset 50 > args_cip.txt
+echo "X --always-succeed --method lame  --parameter m1" > args_test.txt
 
-create_event_parameter_pipeline_BasicIteration --request-gpu-ILE --ile-n-events-to-analyze 20 --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args args_cip.txt --request-memory-CIP 30000 --request-memory-ILE 4096 --n-samples-per-job 500 --working-directory `pwd` --n-iterations 5 --n-copies 1
+create_event_parameter_pipeline_BasicIteration --request-gpu-ILE --ile-n-events-to-analyze 20 --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args args_cip.txt --test-args args_test.txt --request-memory-CIP 30000 --request-memory-ILE 4096 --n-samples-per-job 500 --working-directory `pwd` --n-iterations 5 --n-copies 1
 ```
 
 ### Analysis examples
@@ -232,20 +234,13 @@ or this, for GW170823 (an example of an HL double event)
 ./setup_bbh_event.sh G298936
 ``
 
-
-__Multiple events__ : So long as events are in GraceDB, you can launch an analysis of multiple events in parallel:
-
-``
-mkdir my_work; cd my_work
-for id in G298172 G298936;
-do
- ../setup_bbh_event.sh $i
-done
-util_ConsolidateDAGsUnderMaster.sh G* 
-condor_submit_dag master.dag
-``
-
-A similar trick will work with synthetic events; see below
+### More sophisticated demonstrations (LVC-only)
+The link
+[PSEUDO_ROTA_INSTRUCTIONS.md](https://git.ligo.org/richard-oshaughnessy/rapid_pe_nr_review_o3/blob/master/testing_archival_and_pseudo_online/PseudoOnlineO3/PSEUDO_ROTA_INSTRUCTIONS.md)
+provides the location for [``setup_analysis_gracedb_event.py``](https://git.ligo.org/richard-oshaughnessy/rapid_pe_nr_review_o3/blob/master/testing_archival_and_pseudo_online/scripts/setup_analysis_gracedb_event.py) and  instructions on how to use it.   We have developed and tested this script for production use.  Extending the above, it allows you to 
+  * efficiently reproduce LI-style settings by choosing the analysis duration time, 
+  * tries to adjust some settings (e.g., the starting frequency) based on the trigger time to avoid railing on physics (e.g., you can't always generate a signal at a fixed frequency very close to merger) , and 
+   * enables *puffball*, a tool which help randomly explore the parameter space
 
 ## Walkthrough of an example which generates synthetic zero-noise nonprecessing BNS (Mar 2019 edition)
 Suppose you have a file ``my_injections.xml.gz` of binary neutron star injections.
