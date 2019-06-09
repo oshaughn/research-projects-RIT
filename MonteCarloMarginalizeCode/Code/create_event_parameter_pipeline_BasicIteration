@@ -669,6 +669,7 @@ if opts.last_iteration_extrinsic:
             
             # Make cat job 
             cat_node.add_parent(resample_node)
+            cat_node.add_macro("macroiteration", it)  # needed to identify log file location
 
             # Add nodes
             dag.add_node(convert_node)
