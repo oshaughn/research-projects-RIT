@@ -394,8 +394,8 @@ if  (opts.last_iteration_extrinsic):
     # Combination task at end -- probably should be a general utility
     cat_job, cat_job_name = dag_utils.write_cat_sub(file_prefix='EXTR', file_postfix='.downsampled_dat.dat',file_output='extrinsic_posterior_samples.dat')
     cat_job.add_condor_cmd("initialdir",opts.working_directory)
-    cat_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(cluster)-$(process).log")
-    cat_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(cluster)-$(process).err")
+    cat_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/cat-$(cluster)-$(process).log")
+    cat_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/cat-$(cluster)-$(process).err")
     cat_job.write_sub_file()
 
 
