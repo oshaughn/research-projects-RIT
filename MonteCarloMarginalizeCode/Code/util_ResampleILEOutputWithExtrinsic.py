@@ -30,7 +30,7 @@ parser.add_argument("--save-P",default=0.,type=float,help="Not currently used")
 parser.add_argument("--n-output-samples",default=2000,type=int)
 opts = parser.parse_args()
 
-samples = np.genfromtxt(opts.fname,names=True)
+samples = np.genfromtxt(opts.fname,names=True,invalid_raise=False)
 lnLmax = np.max(samples["lnL"])
 p = samples["p"]     # only prior!
 ps = samples["ps"]  # sampling prior
