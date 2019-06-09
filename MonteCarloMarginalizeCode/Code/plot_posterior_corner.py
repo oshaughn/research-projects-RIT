@@ -142,7 +142,7 @@ remap_ILE_2_LI = {
   "LambdaTilde":"lambdat",
   "DeltaLambdaTilde": "dlambdat",
   "thetaJN":"theta_jn"}
-remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot'}
+remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot', "distance":"dist", 'ra':'phi', 'dec':'theta',"phiorb":"phiref"}
 
 
 def extract_combination_from_LI(samples_LI, p):
