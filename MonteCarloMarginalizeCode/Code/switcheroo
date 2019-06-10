@@ -1,0 +1,19 @@
+#! /bin/bash
+#
+# switcheroo from to file    [ideally, a file LIST, but not implemented yet]
+#
+#   Switcheroo performs a conversion 
+#
+#
+#  References:
+#
+#   http://builder.com.com/5100-6372_14-1044668.html
+#   http://www.tldp.org/LDP/abs/html/
+#   http://www.tldp.org/LDP/abs/html/
+
+# in=$1;
+# shift; 
+# out=$2;
+# shift;
+
+perl -i -p -e "s^$1^$2^g;" "$3"
