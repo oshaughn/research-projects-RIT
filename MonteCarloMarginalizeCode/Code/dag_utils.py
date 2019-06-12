@@ -676,7 +676,8 @@ echo Starting ...
 
     ile_job.add_var_opt("event")
 
-    ile_job.add_condor_cmd('getenv', 'True')
+    if not use_osg:
+        ile_job.add_condor_cmd('getenv', 'True')
     ile_job.add_condor_cmd('request_memory', str(request_memory)) 
     nGPUs =0
     if request_gpu:
