@@ -355,7 +355,7 @@ ile_job.write_sub_file()
 if not (opts.puff_args is None):
     # Write a version of the ILE job that uses puffball inputs ... IDENTICAL to code above for standard ILE case,just different argument for input
     # Yes, it would logically be simpler to make overlap-grid.xml.gz larger ... but I want to keep 'real samples' and 'puffed samples' seperate.
-    ilePuff_job, ilePuff_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_puff',log_dir=None,arg_str=ile_args_forpuff,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE)
+    ilePuff_job, ilePuff_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_puff',log_dir=None,arg_str=ile_args_forpuff,output_file="CME_out.xml",simple_unique=True,ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE)
     ilePuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
     ilePuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).log")
     ilePuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).err")
@@ -366,7 +366,7 @@ if  (opts.last_iteration_extrinsic):
     # ILE job with modified output format
     #  - note we *double* the memory request, because we need space to save samples
     ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff 100 "  # modify convergence criteria so output of reasonable size
-    ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",ncopies=1,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE)
+    ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE)
     ileExtr_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
     ileExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).log")
     ileExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).err")
@@ -374,28 +374,29 @@ if  (opts.last_iteration_extrinsic):
     ileExtr_job.write_sub_file()
     
     # Convert task
-    convert_args_extr =  " --convention LI  " 
+    convert_args_extr =  " --convention LI  --export-cosmology " 
     if not (convert_args is None):
         convert_args_extr += convert_args
-    convertExtr_job, convertExtr_job_name = dag_utils.write_convert_sub(tag='convert_extr',log_dir=None,arg_str=convert_args_extr,file_input=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent)-$(cluster)-$(process).xml_$(macroindx)_.xml.gz",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent)-$(cluster)-$(process).xml_$(macroindx)_.dat", out_dir=opts.working_directory+"/iteration_$(macroiteration)_ile/")
+    convertExtr_job, convertExtr_job_name = dag_utils.write_convert_sub(tag='convert_extr',log_dir=None,arg_str=convert_args_extr,file_input=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.xml.gz",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.dat", out_dir=opts.working_directory+"/iteration_$(macroiteration)_ile/")
     convertExtr_job.add_condor_cmd("initialdir",opts.working_directory)
-    convertExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/convert-$(cluster)-$(process).log")
-    convertExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/convert-$(cluster)-$(process).err")
+    convertExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/convert-$(macroevent)-$(macroindx).log")
+    convertExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/convert-$(macroevent)-$(macroindx).err")
     convertExtr_job.write_sub_file()
 
     # Resample task 
     resample_args = ' --n-output-samples  5 '  # pick 5 random points from each ILE run
-    resample_job, resample_job_name = dag_utils.write_resample_sub('resample',log_dir=None,arg_str=resample_args,file_input=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent)-$(cluster)-$(process).xml_$(macroindx)_.dat",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent)-$(cluster)-$(process).xml_$(macroindx)_.downsampled_dat")
+    resample_job, resample_job_name = dag_utils.write_resample_sub('resample',log_dir=None,arg_str=resample_args,file_input=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.dat",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.downsampled_dat")
     resample_job.add_condor_cmd("initialdir",opts.working_directory)
-    resample_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(cluster)-$(process).log")
-    resample_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(cluster)-$(process).err")
+    resample_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).log")
+    resample_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).err")
     resample_job.write_sub_file()
 
     # Combination task at end -- probably should be a general utility
-    cat_job, cat_job_name = dag_utils.write_cat_sub(file_prefix='EXTR', file_postfix='.downsampled_dat',file_output='extrinsic_posterior_samples.dat')
+    cat_job, cat_job_name = dag_utils.write_cat_sub(file_prefix='EXTR', file_postfix='.downsampled_dat.dat',file_output='extrinsic_posterior_samples.dat')
     cat_job.add_condor_cmd("initialdir",opts.working_directory)
-    cat_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(cluster)-$(process).log")
-    cat_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(cluster)-$(process).err")
+    cat_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/cat-$(cluster)-$(process).log")
+    cat_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/cat-$(cluster)-$(process).out")
+    cat_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/cat-$(cluster)-$(process).err")
     cat_job.write_sub_file()
 
 
@@ -664,10 +665,12 @@ if opts.last_iteration_extrinsic:
             resample_node.add_macro("macroevent", event*n_group)
             resample_node.add_macro("macroiteration", it)
             resample_node.add_macro("macroindx",indx)
+            resample_node.set_retry(3)  # these occasionally fail for stupid reasons - nodes missing software, etc
             resample_node.add_parent(convert_node)
             
             # Make cat job 
             cat_node.add_parent(resample_node)
+            cat_node.add_macro("macroiteration", it)  # needed to identify log file location
 
             # Add nodes
             dag.add_node(convert_node)

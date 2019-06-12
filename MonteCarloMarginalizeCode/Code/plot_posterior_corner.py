@@ -64,9 +64,13 @@ plt.rcParams.update(rc_params)
 
 print " WARNINGS : BoundedKDE class can oversmooth.  Need to edit options for using this class! "
 
-def render_coord(x):
+def render_coord(x,logscale=False):
     if x in lalsimutils.tex_dictionary.keys():
-        return lalsimutils.tex_dictionary[x]
+        mystr= lalsimutils.tex_dictionary[x]
+        if logscale:
+            mystr=mystr.lstrip('$')
+            mystr = "$\log_{10}"+mystr
+            return mystr
     if 'product(' in x:
         a=x.replace(' ', '') # drop spaces
         a = a[:len(a)-1] # drop last
@@ -79,8 +83,8 @@ def render_coord(x):
     else:
         return x
 
-def render_coordinates(coord_names):
-    return map(render_coord, coord_names)
+def render_coordinates(coord_names,logparams=[]):
+    return map(lambda x: render_coord(x,logscale=(x in logparams)), coord_names)
 
 
 def add_field(a, descr):
@@ -138,7 +142,7 @@ remap_ILE_2_LI = {
   "LambdaTilde":"lambdat",
   "DeltaLambdaTilde": "dlambdat",
   "thetaJN":"theta_jn"}
-remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot'}
+remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot', "distance":"dist", 'ra':'phi', 'dec':'theta',"phiorb":"phiref"}
 
 
 def extract_combination_from_LI(samples_LI, p):
@@ -247,6 +251,7 @@ parser.add_argument("--posterior-label",action='append',help="label for posterio
 parser.add_argument("--posterior-color",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
 parser.add_argument("--posterior-linestyle",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
 parser.add_argument("--parameter", action='append',help="parameter name (ILE). Note source-frame masses are only natively supported for LI")
+parser.add_argument("--parameter-log-scale",action='append',help="Put this parameter in log scale")
 parser.add_argument("--change-parameter-label", action='append',help="format name=string. Will be wrapped in $...$")
 parser.add_argument("--use-legend",action='store_true')
 parser.add_argument("--use-title",default=None,type=str)
@@ -529,7 +534,9 @@ if opts.quantiles:
     quantiles_1d=eval(opts.quantiles)
 
 # Generate labels
-labels_tex = render_coordinates(opts.parameter)#map(lambda x: tex_dictionary[x], coord_names)
+if opts.parameter_log_scale is None:
+    opts.parameter_log_scale = []
+labels_tex = render_coordinates(opts.parameter,logparams=opts.parameter_log_scale)#map(lambda x: tex_dictionary[x], coord_names)
 
 fig_base= None
 # Create figure workspace for 1d plots
@@ -558,7 +565,9 @@ if opts.posterior_file:
             dat_here = samples[param]
         else:
             dat_here = extract_combination_from_LI(samples, param)
-            
+        if param in opts.parameter_log_scale:
+            indx_ok = dat_here > 0
+            dat_here= np.log10(dat_here[indx_ok])
         if len(dat_here) < 1:
             print " Failed to etract data ", param,  " from ", opts.posterior_file[indx]
 
@@ -596,6 +605,9 @@ for pIndex in np.arange(len(posterior_list)):
             dat_mass[:,indx] = samples[param]
         else:
             dat_mass[:,indx] = extract_combination_from_LI(samples, param)
+
+        if param in opts.parameter_log_scale:
+            dat_mass[:,indx] = np.log10(dat_mass[:,indx])
 
         # Parameter ranges (duplicate)
         dat_here = np.array(dat_mass[:,indx])  # force copy ! I need to sort

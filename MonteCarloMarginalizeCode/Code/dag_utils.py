@@ -542,7 +542,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     return ile_job, ile_sub_name
 
 
-def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,**kwargs):
+def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,simple_unique=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -634,6 +634,8 @@ echo Starting ...
     # Logging options
     #
     uniq_str = "$(macroevent)-$(cluster)-$(process)"
+    if simple_unique:
+        uniq_str = "$(macroevent)"
     ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
@@ -1351,14 +1353,22 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
     """
 
     exe = exe or which("find")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
+    exe_switch = which("switcheroo")  # tool for patterend search-replace, to fix first line of output file
 
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    cmdname = 'catjob.sh'
+    with open(cmdname,'w') as f:
+        f.write("#! /bin/bash\n")
+        f.write(exe+"  . -name '"+file_prefix+"*"+file_postfix+"' -exec cat {} \; | sort -r | uniq > "+file_output+";\n")
+        f.write(exe_switch + "'m1 ' '# m1 ' "+file_output)  # add standard prefix
+        os.system("chmod a+x "+cmdname)
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable='catjob.sh')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
 
-    ile_job.add_arg(" . -name '" + file_prefix + "*" +file_postfix+"' -exec cat {} \; ")
+#    ile_job.add_arg(" . -name '" + file_prefix + "*" +file_postfix+"' -exec cat {} \; ")
     
     #
     # Logging options
@@ -1366,7 +1376,7 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
     uniq_str = "$(macromassid)-$(cluster)-$(process)"
     ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
-    ile_job.set_stdout_file(file_output)
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
     ile_job.add_condor_cmd('getenv', 'True')
     try:

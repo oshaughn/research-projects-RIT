@@ -2892,11 +2892,12 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
             TDlen = int(1./(P.deltaT*P.deltaF))
         elif TDlen!=0: # Set values of P.deltaF from TDlen, P.deltaT
             P.deltaF = 1./P.deltaT/TDlen
-        hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(P.phiref, P.deltaF,
+        extra_params = P.to_lal_dict()
+        hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(#P.phiref, P.deltaF,
             P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
             P.dist, P.incl, P.phiref,  \
             P.psi, P.eccentricity, P.meanPerAno, \
-            P.deltaT, P.fmin, TDlen*P.deltaF, P.fref, \
+            P.deltaF, P.fmin, TDlen*P.deltaF/2, P.fref, \
             extra_params, P.approx)
 
         if TDlen > 0:

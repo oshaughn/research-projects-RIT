@@ -758,7 +758,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
             i = 0
             for ph, th, tr, phr, ic, ps, di in zip(right_ascension, dec,
-                    t_ref, phi_orb, inclination, psi, distance):
+                    t_ref, phi_orb, incl, psi, distance):
                 P.phi = ph # right ascension
                 P.theta = th # declination
                 P.tref = fiducial_epoch + tr # ref. time (rel to epoch for data taking)
@@ -813,13 +813,20 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 psi, distance):
 #            global nEvals
             tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+            dec = numpy.copy(declination).astype(numpy.float64)
+            if opts.declination_cosine_sampler:
+              dec = numpy.pi/2 - numpy.arccos(dec)
+            incl = numpy.copy(inclination).astype(numpy.float64)
+            if opts.inclination_cosine_sampler:
+              incl = numpy.arccos(incl)
+
             # use EXTREMELY many bits
             lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
             P.phi = right_ascension.astype(float)  # cast to float
-            P.theta = declination.astype(float)
+            P.theta = dec #declination.astype(float)
             P.tref = float(fiducial_epoch)
             P.phiref = phi_orb.astype(float)
-            P.incl = inclination.astype(float)
+            P.incl = incl #inclination.astype(float)
             P.psi = psi.astype(float)
             P.dist = (distance* 1.e6 * lalsimutils.lsu_PC).astype(float) # luminosity distance
 
@@ -834,10 +841,16 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #                global nEvals
                 tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
                 P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
-                P.theta = xpy_default.asarray(declination,dtype=np.float64)
+                if opts.declination_cosine_sampler:
+                  P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
+                else:
+                  P.theta = xpy_default.asarray(declination,dtype=np.float64)
                 P.tref = float(fiducial_epoch)
                 P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
-                P.incl = xpy_default.asarray(inclination, dtype=np.float64)
+                if opts.inclination_cosine_sampler:
+                  P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
+                else:
+                  P.incl = xpy_default.asarray(inclination, dtype=np.float64)
                 P.psi = xpy_default.asarray(psi, dtype=np.float64)
                 P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
 
@@ -863,7 +876,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
 #            t_start =lal.GPSTimeNow() 
             for ph, th, phr, ic, ps, di,qi in zip(right_ascension, dec,
-                    phi_orb, inclination, psi, distance,q):
+                    phi_orb, incl, psi, distance,q):
                  # Reconstruct U,V using ROM fits.  PROBABLY should do this once for every q, rather than deep on the loop
                 P.assign_param('q',qi)  # mass ratio
                 rholms_intp_A, cross_terms_A, cross_terms_V_A, rholms_A, rest_A = factored_likelihood.ReconstructPrecomputedLikelihoodTermsROM(P, rest, rholms_intp, cross_terms, cross_terms_V, rholms,verbose=False)
@@ -914,18 +927,19 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
     if opts.save_samples and opts.output_file:
+      import copy
+      samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!
       if opts.inclination_cosine_sampler:
-        sampler._rvs["inclination"] = numpy.arccos(sampler._rvs["inclination"].astype(numpy.float64))
+        samples["inclination"] = numpy.arccos(samples["inclination"].astype(numpy.float64))
       if opts.declination_cosine_sampler:
-        sampler._rvs["declination"] = numpy.pi/2 - numpy.arccos(sampler._rvs["declination"].astype(numpy.float64))
+        samples["declination"] = numpy.pi/2 - numpy.arccos(samples["declination"].astype(numpy.float64))
       xmldoc = ligolw.Document()
       xmldoc.appendChild(ligolw.LIGO_LW())
       process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
-      samples = sampler._rvs
       if not opts.time_marginalization:
             samples["t_ref"] += float(fiducial_epoch)
       else:
-            samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(sampler._rvs["psi"]))
+            samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(samples["psi"]))
       samples["polarization"] = samples["psi"]
       samples["coa_phase"] = samples["phi_orb"]
       if ("declination", "right_ascension") in sampler.params:
@@ -952,6 +966,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=dict_return["convergence_test_results"]["normal_integral"], **dict_out)
       fname_output_xml = opts.output_file +"_"+str(indx_event)+"_" + ".xml.gz"
       utils.write_filename(xmldoc, fname_output_xml, gz=True)
+
+
+    # Clear sampler _rvs, to avoid side effects when called again
+    for key in sampler._rvs.keys():
+      sampler._rvs[key] = []
 
     return res
 
