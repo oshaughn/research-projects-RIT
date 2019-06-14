@@ -25,6 +25,7 @@ lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--allow-singular",default=False,action='store_true')
 parser.add_argument("--inj-file", help="Name of XML file")
 parser.add_argument("--inj-file-out", default="output-puffball", help="Name of XML file")
 parser.add_argument("--puff-factor", default=1,type=float)
@@ -102,7 +103,7 @@ if len(coord_names) >1:
         cov= np.linalg.inv(icov_proposed)
 
     # Compute errors
-    rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov)
+    rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov, allow_singular=opts.allow_singular)
     delta_X = rv.rvs(size=len(X))
     X_out = X+delta_X
 else:
