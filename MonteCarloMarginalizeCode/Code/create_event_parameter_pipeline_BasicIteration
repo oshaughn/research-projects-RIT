@@ -534,6 +534,8 @@ if opts.gridinit_args:
    parent_fit_node = grid_node  # this must happen before the first ILE jobs
 
 
+n_group = opts.ile_n_events_to_analyze
+
 for it in np.arange(it_start,opts.n_iterations):
     consolidate_now = None
     fit_node_now = None
@@ -550,7 +552,6 @@ for it in np.arange(it_start,opts.n_iterations):
     n_jobs_this_time = opts.n_samples_per_job
     if it ==it_start:
         n_jobs_this_time = n_initial
-    n_group = opts.ile_n_events_to_analyze
     indx_max = int((1.0*n_jobs_this_time)/n_group)
     if indx_max*n_jobs_this_time < n_group:
         indx_max+=1
