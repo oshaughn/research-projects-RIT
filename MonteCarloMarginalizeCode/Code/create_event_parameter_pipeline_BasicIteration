@@ -636,6 +636,10 @@ for it in np.arange(it_start,opts.n_iterations):
 
 # Create export stages for extrinsic samples
 if opts.last_iteration_extrinsic:
+    # Check if 'it' is defined : it will not always be, if done later
+    if not ('it' in globals()):
+        it = opts.n_iterations  # last iteration
+
     # Create nodes for followup tasks
     cat_node = pipeline.CondorDAGNode(cat_job)
 
