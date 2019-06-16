@@ -2550,7 +2550,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     assert Lmax >= 2
 
     sign_factor = 1
-    if nr_polarization_convention:
+    if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
 
     if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4 or P.approx == lalSEOBNRv4HM):
@@ -2581,7 +2581,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
-    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2):
+    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         extra_params = P.to_lal_dict()
         hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
 	    P.s1x, P.s1y, P.s1z, \
