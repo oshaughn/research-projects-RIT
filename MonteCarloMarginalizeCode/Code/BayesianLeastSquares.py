@@ -78,7 +78,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
         fval = f_list[q](np.array(x,dtype=np.float128))
         F[:,q] = np.reshape(fval, (len(x),1))
     gamma = np.matrix( np.diag(np.ones(npts,dtype=np.float128)))
-    if gamma_x != None:
+    if not(gamma_x is None):
         gamma = np.matrix(gamma_x)
     Gamma = F.T * gamma * F      # Fisher matrix for the fit
     Sigma = linalg.inv(Gamma)  # Covariance matrix for the fit. WHICH CODE YOU USE HERE IS VERY IMPORTANT.
@@ -110,7 +110,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
         indx_here = indx_lookup[pair]
         my_fisher_est[k,q] += -lambdaHat[indx_here]
         my_fisher_est[q,k] += -lambdaHat[indx_here]  # this will produce a factor of 2 if the two terms are identical
-    if prior_x_gamma!=None and prior_x_gamma.shape == my_fisher_est.shape:
+    if not(prior_x_gamma is None) and (prior_x_gamma.shape == my_fisher_est.shape):
         my_fisher_est += prior_x_gamma
     if verbose:
         print "  Fisher: ", my_fisher_est
@@ -128,7 +128,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
 
 
 
-def fit_quadratic_and_resample(x,y,npts,rho_fac=1,x0=None,gamma_x=None,prior_x_gamma=None,prior_quadratic_gamma=None,verbose=False,n_digits=None):
+def fit_quadratic_and_resample(x,y,npts,rho_fac=1,x0=None,gamma_x=None,prior_x_gamma=None,prior_quadratic_gamma=None,verbose=False,n_digits=None,hard_regularize_negative=False,hard_regularize_scale=1):
     """
     Simple least squares to a quadratic, *and* resamples from the quadratic derived from the fit.
     Critical for iterative evaluation of 
@@ -141,8 +141,17 @@ def fit_quadratic_and_resample(x,y,npts,rho_fac=1,x0=None,gamma_x=None,prior_x_g
     the_quadratic_results = fit_quadratic(x,y,x0=x0,gamma_x=gamma_x,prior_x_gamma=prior_x_gamma,prior_quadratic_gamma=prior_quadratic_gamma,n_digits=n_digits)
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fit_here = the_quadratic_results
 
+    if hard_regularize_negative:
+        w,v = np.linalg.eig(my_fisher_est)
+        indx_neg = w<0
+        # usually we are regularizing placements in spin ... this provides us with error in that dimension
+        w[indx_neg] = hard_regularize_scale # 1./np.min( np.std(x,axis=0))**2   # use scatterplot of input points to set scale of this dimension
+
+        my_fisher_est = np.dot(v.T,np.dot(np.diag(w),v))  # reconstruct matrix, after regularization
+        
+
     # Use the inverse covariance mattrix
-    my_fisher_est_inv = linalg.inv(my_fisher_est)   # SEE INVERSE DISCUSSION
+    my_fisher_est_inv = linalg.pinv(my_fisher_est)   # SEE INVERSE DISCUSSION
     x_new = np.random.multivariate_normal(best_val_est,my_fisher_est_inv/(rho_fac*rho_fac),size=npts)
 
     return x_new

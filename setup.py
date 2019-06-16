@@ -1,13 +1,20 @@
 import setuptools
+import numpy as np
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
 
+with open("requirements.txt",'r') as f:
+    lines = f.readlines()
+    for indx in np.arange(len(lines)):
+        lines[indx]=lines[indx].rstrip()
 REQUIREMENTS = {
-  "install" : ["numpy>=1.14.0","scipy>=1.0.1","h5py", "corner", "numba", "scikit-learn<=0.20"]
+  "install" : lines #["numpy>=1.14.0","scipy>=1.0.1","h5py", "corner", "numba", "scikit-learn<=0.20"]
 
  }
+
+#print REQUIREMENTS
 
 setuptools.setup(
     name="RIFT",

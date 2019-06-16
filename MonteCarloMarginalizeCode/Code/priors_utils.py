@@ -13,7 +13,7 @@ except:
     numba_on = False
     print " Numba off (priors_utils) "
 
-# https://git.ligo.org/RatesAndPopulations/lalinfsamplereweighting/blob/approx-prior/approxprior.py
+# https://git.ligo.org/RatesAndPopulations/lalinfsamplereweighting/blob/reviewed-post-O2/approxprior.py
 will_cosmo_const = np.array( [ 1.012306, 1.136740, 0.262462, 0.016732, 0.000387 ])
 def dist_prior_pseudo_cosmo(dL,nm=1):
     """

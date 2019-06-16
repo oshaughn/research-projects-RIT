@@ -158,7 +158,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO"]
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity']
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -275,8 +275,11 @@ class ChooseWaveformParams:
         self.taper = taper
 
     # From Pankow/master
-    _LAL_DICT_PARAMS = {"Lambda1": "lambda1", "Lambda2": "lambda2", "ampO": "ampO", "phaseO": "phaseO"}
-    _LAL_DICT_PTYPE = {"Lambda1": lal.DictInsertREAL8Value, "Lambda2": lal.DictInsertREAL8Value, "ampO": lal.DictInsertINT4Value, "phaseO": lal.DictInsertINT4Value}
+    try:
+        _LAL_DICT_PARAMS = {"Lambda1": "lambda1", "Lambda2": "lambda2", "ampO": "ampO", "phaseO": "phaseO"}
+        _LAL_DICT_PTYPE = {"Lambda1": lal.DictInsertREAL8Value, "Lambda2": lal.DictInsertREAL8Value, "ampO": lal.DictInsertINT4Value, "phaseO": lal.DictInsertINT4Value}
+    except:
+        print " lalsimutils: Warning: Running with non-master version of lal ! "
     def to_lal_dict(self):
         extra_params = lal.CreateDict()
         for k, p in ChooseWaveformParams._LAL_DICT_PARAMS.iteritems():
@@ -432,12 +435,27 @@ class ChooseWaveformParams:
         #         return self
         #     self.s1x,self.s1y,self.s1z = chi1_vec_now * val/chi1_now
         #     return self
-        if p == 'theta1':
+        if p == 'theta1_Jfix':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=val,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
+            return self
+        if p == 'theta1':
+            # Do it MANUALLY, assuming the L frame! 
+            # Implementation avoids calling 'system_frame' transformations needlessly
+            chiperp_vec_now = np.array([self.s1x,self.s1y])
+            chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
+            chi_now = np.sqrt(self.s1z**2 + chiperp_now**2)
+            if chiperp_now/chi_now < 1e-9: # aligned case - what do we do?
+                self.s1y=0
+                self.s1x = chi_now * np.sin(val)
+                self.s1z = chi_now * np.cos(val)
+                return self
+            self.s1x = chi_now*np.sin(val) * self.s1x/chiperp_now
+            self.s1y = chi_now*np.sin(val) * self.s1y/chiperp_now
+            self.s1z = chi_now*np.cos(val)
             return self
         if p == 'phi1':
             if self.fref is 0:
@@ -449,12 +467,27 @@ class ChooseWaveformParams:
             self.s1x = chiperp_now*np.cos(val)
             self.s1y = chiperp_now*np.sin(val)
             return self
-        if p == 'theta2':
+        if p == 'theta2_Jfix':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=theta1,theta2=val,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
+            return self
+        if p == 'theta2':
+            # Do it MANUALLY, assuming the L frame! 
+            # Implementation avoids calling 'system_frame' transformations needlessly
+            chiperp_vec_now = np.array([self.s2x,self.s2y])
+            chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
+            chi_now = np.sqrt(self.s2z**2 + chiperp_now**2)
+            if chiperp_now/chi_now < 1e-9: # aligned case
+                self.s2y=0
+                self.s2x = chi_now * np.sin(val)
+                self.s2z = chi_now * np.cos(val)
+                return self
+            self.s2x = chi_now*np.sin(val) * self.s2x/chiperp_now
+            self.s2y = chi_now*np.sin(val) * self.s2y/chiperp_now
+            self.s2z = chi_now*np.cos(val)
             return self
         if p == 'phi2':
             if self.fref is 0:
@@ -530,18 +563,24 @@ class ChooseWaveformParams:
             # This assumes chiminus is a good and useful parameter.  
             # This parameterization was designed to be more stable for extreme mass ratio systems, where the usual chi- becomes highly degenerate
             # Note that by construction, in the limit of large mass ratio, chi1 -> xi and chi2 -> - chiminus, so the parameterization is not degenerate
-# {(m1 c1 +     m2 c2 ) == (m1 + m2) \[Xi], (m2 c1 - m1 c2)/(m1 -      m2) == \[Chi]Diff}
+            # Note we have chosen an exchange-antisymmetric combination (!), changing from prior use
+            # Note that this transformation can as a side effect change spins to be > 1
+# {(m1 c1 +     m2 c2 ) == (m1 + m2) \[Xi], (m2 c1 - m1 c2)/(m1 +      m2) == \[Chi]Diff}
 # {c1, c2} /. Solve[%, {c1, c2}][[1]] // Simplify
 # Collect[%[[2]], {\[Xi], \[Chi]Diff}]
 # % - \[Xi] // Simplify // FullSimplify
-                chi1 = self.extract_param('chi1')
-                chi2 = self.extract_param('chi2')
-                chiminus =  (m2*chi1 - m1*chi2)/(m1 - m2)
+                chi1 = self.s1z
+                chi2 = self.s2z
+                chiminus =  (m2*chi1 - m1*chi2)/(m1 + m2)  # change to be consistent with the 'chiMinus' use elsewhere, avoid extremes
                 # Solve equations for M xi, M chiminus.  
-                chi1_new = chieff_new + (m1 - m2)*m2*(chieff_new + chiminus)/(m1**2 + m2**2)
-                chi2_new = chieff_new - (m1 - m2)*m1*(chieff_new + chiminus)/(m1**2 + m2**2)
-                self.assign_param('chi1', chi1_new)
-                self.assign_param('chi2', chi2_new)
+                chi1_new = (m1+m2)/(m1**2+m2**2) * (m1*chieff_new + m2*chiminus)
+                chi2_new = (m1+m2)/(m1**2+m2**2) * (m2*chieff_new + m1*chiminus)
+#                chi1_new = chieff_new + (m1 - m2)*m2*(chieff_new + chiminus)/(m1**2 + m2**2)
+#                chi2_new = chieff_new - (m1 - m2)*m1*(chieff_new + chiminus)/(m1**2 + m2**2)
+                self.s1z = chi1_new
+                self.s2z = chi2_new
+                #self.assign_param('chi1', chi1_new)
+                #self.assign_param('chi2', chi2_new)
             else:
                 # for equal mass, require them to have the same value
                 self.assign_param('chi1', chieff_new)
@@ -664,18 +703,28 @@ class ChooseWaveformParams:
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return phiJL
-        if p == 'theta1':
+        if p == 'theta1_Jfix':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return theta1
-        if p == 'theta2':
+        if p == 'theta2_Jfix':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return theta2
+        if p == 'theta1':
+            chiperp_vec_now = np.array([self.s1x,self.s1y])
+            chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
+            chi_now = np.sqrt(self.s1z**2 + chiperp_now**2)
+            return np.arccos(self.s1z/chi_now)
+        if p == 'theta2':
+            chiperp_vec_now = np.array([self.s2x,self.s2y])
+            chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
+            chi_now = np.sqrt(self.s2z**2 + chiperp_now**2)
+            return np.arccos(self.s2z/chi_now)
         if p == 'cos_theta1':
             if self.fref is 0:
                 print " Changing geometry requires a reference frequency "
@@ -904,7 +953,11 @@ class ChooseWaveformParams:
         f_to_use = self.fref
         if self.fref==0:
             f_to_use = self.fmin
-        self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, f_to_use)
+        try:
+            self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, f_to_use,self.phiref)
+        except:
+            # New format for this function
+            self.incl, self.s1x,self.s1y, self.s1z, self.s2x, self.s2y, self.s2z = lalsim.SimInspiralTransformPrecessingNewInitialConditions(np.float(thetaJN), np.float(phiJL), np.float(theta1),np.float(theta2), np.float(phi12), np.float(chi1), chi2, self.m1, self.m2, f_to_use)
         # Define psiL via the deficit angle between Jhat in the radiation frame and the psiJ we want to achieve 
         Jref = self.TotalAngularMomentumAtReferenceOverM2()
         Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
@@ -936,6 +989,15 @@ class ChooseWaveformParams:
       
         # extract the polar angle of J, KEEPING IN MIND that the J reported above does NOT include psiL!
         psiJ = self.psi + np.arctan2(Jhat[1], Jhat[0])
+
+
+        if hasattr(lalsim,'SimInspiralTransformPrecessingWvf2PE'):
+            # Use predefined / default tool
+            #   - this tool assumes the 'L' frame
+            # See e.g., patch to LI https://git.ligo.org/lscsoft/lalsuite/commit/1f963908caa4f038532114840088b91f9b73e6ce
+            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2=lalsim.SimInspiralTransformPrecessingWvf2PE(self.incl,self.s1x, self.s1y, self.s1z,self.s2x, self.s2y,self.s2z, self.m1, self.m2, np.max([self.fref,self.fmin]), self.phiref)
+            return thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ  # psiJ is not provided by the above routine alas
+
 
         # extract spin magnitudes
         chi1 = np.sqrt(np.dot(S1,S1)) * (M/self.m1)**2
@@ -1040,6 +1102,7 @@ class ChooseWaveformParams:
         print "distance =", self.dist / 1.e+6 / lsu_PC, "(Mpc)"
         print "reference orbital phase =", self.phiref
         print "polarization angle =", self.psi
+        print "eccentricity = ", self.eccentricity
         print "time of coalescence =", float(self.tref),  " [GPS sec: ",  int(self.tref), ",  GPS ns ", (self.tref - int(self.tref))*1e9, "]"
         print "detector is:", self.detector
         if self.radec==False:
@@ -1168,7 +1231,7 @@ class ChooseWaveformParams:
         self.dist = row.distance * lsu_PC * 1.e6
         self.incl = row.inclination
         self.ampO = row.amp_order
-        if not (str(row.waveform).find("Taylor") == -1 ):  # Not meaningful to have an order for EOB, etc
+        if not (str(row.waveform).find("Taylor") == -1 ) or ("Eccentric" in row.waveform):  # Not meaningful to have an order for EOB, etc
             self.phaseO = lalsim.GetOrderFromString(str(row.waveform))
         else:
             self.phaseO = -1
@@ -1192,6 +1255,7 @@ class ChooseWaveformParams:
         # FAKED COLUMNS (nonstandard)
         self.lambda1 = row.alpha5
         self.lambda2 = row.alpha6
+        self.eccentricity=row.alpha4
 
     def create_sim_inspiral(self):
         """
@@ -1229,13 +1293,14 @@ class ChooseWaveformParams:
         row.amp_order = self.ampO
         # PROBLEM: This line is NOT ROBUST, because of type conversions
         row.waveform = lalsim.GetStringFromApproximant(self.approx)
-        if  ("Taylor" in row.waveform):   # we only have PN orders embedded in Taylor
+        if  ("Taylor" in row.waveform) or ("Eccentric" in row.waveform):   # we only have PN orders embedded in Taylor?
             row.waveform =row.waveform+lsu_StringFromPNOrder(self.phaseO)
         row.taper = "TAPER_NONE"
         row.f_lower =self.fmin
         # NONSTANDARD
         row.alpha5 = self.lambda1
         row.alpha6 = self.lambda2
+        row.alpha4 = self.eccentricity
         # Debug: 
         if rosDebugMessagesContainer[0]:
             print " Constructing the following XML table "
@@ -2471,7 +2536,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -2492,6 +2557,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
         hlm_out = hlmoft_SEOB_dict(P,Lmax=Lmax)
         if True: #P.taper:
             ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
+            ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             for key in hlm_out.keys():
                 hlm_out[key].data.data *= sign_factor
@@ -2505,6 +2571,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False ):
             sys.exit(0)
         if True: #P.taper:
             ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
+            ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             for key in hlm_out.keys():
                 # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
@@ -2862,10 +2929,13 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
             TDlen = int(1./(P.deltaT*P.deltaF))
         elif TDlen!=0: # Set values of P.deltaF from TDlen, P.deltaT
             P.deltaF = 1./P.deltaT/TDlen
-        hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(P.phiref, P.deltaF,
-            P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.spin2x, P.spin2y, P.spin2z, P.fmin,
-            P.fmax, P.fref, P.dist, P.incl, P.lambda1, P.lambda2, P.waveFlags,
-            P.nonGRparams, P.ampO, P.phaseO, P.approx)
+        extra_params = P.to_lal_dict()
+        hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(#P.phiref, P.deltaF,
+            P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
+            P.dist, P.incl, P.phiref,  \
+            P.psi, P.eccentricity, P.meanPerAno, \
+            P.deltaF, P.fmin, TDlen*P.deltaF/2, P.fref, \
+            extra_params, P.approx)
 
         if TDlen > 0:
             if P.approx != lalsim.IMRPhenomP:
@@ -3524,6 +3594,22 @@ def load_resample_and_clean_psd(psd_fname, det, deltaF,verbose=False):
     if verbose:
         print "Post-extension sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), "(at n=", np.argmin(tmp[np.nonzero(tmp)])," or f=", fBad, ")  and maximum is ", np.max(psd_here.data.data)
     return psd_here
+
+
+def psd_windowing_factor(window_shape, TDlen):
+    """
+    [Implementing <w^2>, due to https://dcc.ligo.org/LIGO-T1900249]
+    If a PSD is calculated using repeated instances of windowed data, the PSD will be biased downward (i.e., we have less noise than we expect)
+    That's fine and self-consistent  if we will be analyzing data which has the same windowing applied.   
+    But if we're *not* applying the same window shape to the data we analyze,  we need to correct for the difference
+    in noise *actually present* to the noise *used to create the PSD*.
+
+    Ths routine creates <w^2> for w a window shape.
+    This could be computed much more efficiently (it is not memory-efficient), but this code is cleaner
+    """
+    hoft_window = lal.CreateTukeyREAL8Window(TDlen, window_shape)
+    # Note this term does not depend much on TDlen, so we can very accurately estimate it with a FIXED TDlen
+    return np.sum(hoft_window.data.data**2)/TDlen
 
 
 def evaluate_tvals(lal_tseries):

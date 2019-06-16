@@ -17,6 +17,7 @@ try:
   import cupy
   xpy_default=cupy
   identity_convert = cupy.asnumpy
+  junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
 except:
   print ' no cupy'
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
@@ -105,6 +106,7 @@ optp.add_option("--srate",default=16384,type=int,help="Sampling rate. Change ONL
 optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
 optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Timescale of inverse spectrum truncation in seconds (Default is 8 - give 0 for no truncation)")
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
+optp.add_option("--psd-window-shape", type=float, default=0, help="Shape of Tukey window that *was* applied to the PSD being passed. If nonzero, we will rescale the PSD by the ratio of window shape results")
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
@@ -374,6 +376,13 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     deltaF = data_dict[inst].deltaF
     psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
     print "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF
+
+    # Implement PSD window rescaling: see T1900249
+    if opts.psd_window_shape > 0 or opts.window_shape > 0:
+      # Note this is just a constant scale factor in the likelihood, but it *can* have some effect on parameters if one windowing size is small (as it stretches/compresses the likleihood)
+      window_fac_psd = lalsimutils.psd_windowing_factor(opts.psd_window_shape, len(psd_dict[inst].data.data))  # assume the windowing factor IS accounted for, and we have to undo it
+      window_fac_data = lalsimutils.psd_windowing_factor(opts.window_shape, len(data_dict[inst].data.data))
+      psd_dict[inst].data.data *= window_fac_data/window_fac_psd   # scale the windowing factor to be appropriate for our actual data window: the PSD was measured using a windowing different than the one we use
 
     # implement cutoff.  
     if inst in flow_ifo_dict.keys():
@@ -749,7 +758,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
             i = 0
             for ph, th, tr, phr, ic, ps, di in zip(right_ascension, dec,
-                    t_ref, phi_orb, inclination, psi, distance):
+                    t_ref, phi_orb, incl, psi, distance):
                 P.phi = ph # right ascension
                 P.theta = th # declination
                 P.tref = fiducial_epoch + tr # ref. time (rel to epoch for data taking)
@@ -804,13 +813,20 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 psi, distance):
 #            global nEvals
             tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+            dec = numpy.copy(declination).astype(numpy.float64)
+            if opts.declination_cosine_sampler:
+              dec = numpy.pi/2 - numpy.arccos(dec)
+            incl = numpy.copy(inclination).astype(numpy.float64)
+            if opts.inclination_cosine_sampler:
+              incl = numpy.arccos(incl)
+
             # use EXTREMELY many bits
             lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
             P.phi = right_ascension.astype(float)  # cast to float
-            P.theta = declination.astype(float)
+            P.theta = dec #declination.astype(float)
             P.tref = float(fiducial_epoch)
             P.phiref = phi_orb.astype(float)
-            P.incl = inclination.astype(float)
+            P.incl = incl #inclination.astype(float)
             P.psi = psi.astype(float)
             P.dist = (distance* 1.e6 * lalsimutils.lsu_PC).astype(float) # luminosity distance
 
@@ -825,10 +841,16 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #                global nEvals
                 tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
                 P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
-                P.theta = xpy_default.asarray(declination,dtype=np.float64)
+                if opts.declination_cosine_sampler:
+                  P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
+                else:
+                  P.theta = xpy_default.asarray(declination,dtype=np.float64)
                 P.tref = float(fiducial_epoch)
                 P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
-                P.incl = xpy_default.asarray(inclination, dtype=np.float64)
+                if opts.inclination_cosine_sampler:
+                  P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
+                else:
+                  P.incl = xpy_default.asarray(inclination, dtype=np.float64)
                 P.psi = xpy_default.asarray(psi, dtype=np.float64)
                 P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
 
@@ -854,7 +876,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
 #            t_start =lal.GPSTimeNow() 
             for ph, th, phr, ic, ps, di,qi in zip(right_ascension, dec,
-                    phi_orb, inclination, psi, distance,q):
+                    phi_orb, incl, psi, distance,q):
                  # Reconstruct U,V using ROM fits.  PROBABLY should do this once for every q, rather than deep on the loop
                 P.assign_param('q',qi)  # mass ratio
                 rholms_intp_A, cross_terms_A, cross_terms_V_A, rholms_A, rest_A = factored_likelihood.ReconstructPrecomputedLikelihoodTermsROM(P, rest, rholms_intp, cross_terms, cross_terms_V, rholms,verbose=False)
@@ -904,11 +926,51 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
-    if opts.save_samples:
+    if opts.save_samples and opts.output_file:
+      import copy
+      samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!
       if opts.inclination_cosine_sampler:
-        sampler._rvs["inclination"] = numpy.arccos(sampler._rvs["inclination"].astype(numpy.float64))
+        samples["inclination"] = numpy.arccos(samples["inclination"].astype(numpy.float64))
       if opts.declination_cosine_sampler:
-        sampler._rvs["declination"] = numpy.pi/2 - numpy.arccos(sampler._rvs["declination"].astype(numpy.float64))
+        samples["declination"] = numpy.pi/2 - numpy.arccos(samples["declination"].astype(numpy.float64))
+      xmldoc = ligolw.Document()
+      xmldoc.appendChild(ligolw.LIGO_LW())
+      process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
+      if not opts.time_marginalization:
+            samples["t_ref"] += float(fiducial_epoch)
+      else:
+            samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(samples["psi"]))
+      samples["polarization"] = samples["psi"]
+      samples["coa_phase"] = samples["phi_orb"]
+      if ("declination", "right_ascension") in sampler.params:
+            samples["latitude"], samples["longitude"] = samples[("declination", "right_ascension")]
+      else:
+            samples["latitude"] = samples["declination"]
+            samples["longitude"] = samples["right_ascension"]
+      samples["loglikelihood"] = numpy.log(samples["integrand"])
+      if not opts.rom_integrate_intrinsic:
+            # ILE mode: insert fixed model parameters
+            samples["mass1"] = numpy.ones(samples["psi"].shape)*m1 # opts.mass1
+            samples["mass2"] = numpy.ones(samples["psi"].shape)*m2 # opts.mass2
+            samples["spin1x"] =numpy.ones(samples["psi"].shape)*P.s1x
+            samples["spin1y"] =numpy.ones(samples["psi"].shape)*P.s1y
+            samples["spin1z"] =numpy.ones(samples["psi"].shape)*P.s1z
+            samples["spin2x"] =numpy.ones(samples["psi"].shape)*P.s2x
+            samples["spin2y"] =numpy.ones(samples["psi"].shape)*P.s2y
+            samples["spin2z"] =numpy.ones(samples["psi"].shape)*P.s2z
+      xmlutils.append_samples_to_xmldoc(xmldoc, samples)
+        # Extra metadata
+      dict_out={"mass1": m1, "mass2": m2, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": numpy.sqrt(var)/res, "ttotal": sampler.ntotal}
+      if 'distance' in pinned_params:
+            dict_out['distance'] = pinned_params["distance"]
+      xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=dict_return["convergence_test_results"]["normal_integral"], **dict_out)
+      fname_output_xml = opts.output_file +"_"+str(indx_event)+"_" + ".xml.gz"
+      utils.write_filename(xmldoc, fname_output_xml, gz=True)
+
+
+    # Clear sampler _rvs, to avoid side effects when called again
+    for key in sampler._rvs.keys():
+      sampler._rvs[key] = []
 
     return res
 
@@ -916,6 +978,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 lnL_sofar = -np.inf
 no_adapt_sky = False
 for indx in numpy.arange(len(P_list)):
+ try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.no_adapt_after_first and (not no_adapt_sky):
@@ -924,3 +987,11 @@ for indx in numpy.arange(len(P_list)):
       params_adapt = sampler.adaptive
       params_adapt  = list(set(params_adapt) - set(['right_ascension','declination']))
       sampler.adaptive = params_adapt
+ except Exception as exception_failure:
+  print "  ===> FAILED ANALYSIS <==== "
+  print " Probable reasons: SEOB nyquist or starting frequency limit or signal duration "
+  print exception_failure
+  print " Skipping the following binary! "
+  # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
+  P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
+  P_list[indx].print_params()

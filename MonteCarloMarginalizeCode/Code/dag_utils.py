@@ -60,6 +60,10 @@ def generate_job_id():
     r = str( long( np.random.random() * 100000000000000000L ) )
     return md5(t + r).hexdigest()
 
+
+# From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+
+
 def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log_dir=None, ncopies=1, **kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over
@@ -389,7 +393,10 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     #
     # Add options en mass, by brute force
     #
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     ile_job.add_opt("fname", input_net)
     ile_job.add_opt("fname-output-samples", out_dir+"/"+output)
@@ -486,7 +493,9 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     #
     # Add options en mass, by brute force
     #
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     ile_job.add_opt("inj-file", input_net)
     ile_job.add_opt("inj-file-out", output)
@@ -533,7 +542,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     return ile_job, ile_sub_name
 
 
-def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,arg_vals=None, transfer_files=None, **kwargs):
+def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,simple_unique=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -541,8 +550,60 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     Outputs:
         - An instance of the CondorDAGJob that was generated for ILE
     """
+    if use_singularity and (singularity_image == None)  :
+        print " FAIL : Need to specify singularity_image to use singularity "
+        sys.exit(0)
+    if use_singularity and (frames_dir == None)  and (cache_file == None) :
+        print " FAIL : Need to specify frames_dir or cache_file to use singularity (at present) "
+        sys.exit(0)
+    if use_singularity and (transfer_files == None)  :
+        print " FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file "
+        sys.exit(0)
 
     exe = exe or which("integrate_likelihood_extrinsic")
+    frames_local = None
+    if use_singularity:
+        path_split = exe.split("/")
+        print " Executable: name breakdown ", path_split, " from ", exe
+        singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
+        exe=singularity_base_exe_path + path_split[-1]
+        if not(frames_dir is None):
+            frames_local = frames_dir.split("/")[-1]
+    elif use_osg:  # NOT using singularity!
+        if not(frames_dir is None):
+            frames_local = frames_dir.split("/")[-1]
+        path_split = exe.split("/")
+        exe=path_split[-1]  # pull out basename
+        exe_here = 'my_wrapper.sh'
+        if transfer_files is None:
+            transfer_files = []
+        transfer_files += ['../my_wrapper.sh']
+        with open(exe_here,'w') as f:
+            f.write("#! /bin/bash  \n")
+            f.write(r"""
+#!/bin/bash
+# Modules and scripts run directly from repository
+# Note the repo and branch are self-referential ! Not a robust solution long-term
+# Exit on failure:
+# set -e
+export INSTALL_DIR=research-projects-RIT
+export ILE_DIR=${INSTALL_DIR}/MonteCarloMarginalizeCode/Code
+export PATH=${PATH}:${ILE_DIR}
+export PYTHONPATH=${PYTHONPATH}:${ILE_DIR}
+export GW_SURROGATE=gwsurrogate
+git clone https://git.ligo.org/richard-oshaughnessy/research-projects-RIT.git
+pushd ${INSTALL_DIR} 
+git checkout temp-RIT-Tides-port_master-GPUIntegration 
+popd
+
+ls 
+cat local.cache
+echo Starting ...
+./research-projects-RIT/MonteCarloMarginalizeCode/Code/""" + exe + " $@ \n")
+            os.system("chmod a+x "+exe_here)
+            exe = exe_here  # update executable
+
+
     ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
@@ -553,7 +614,10 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     #
     # Add options en mass, by brute force
     #
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     #
     # Macro based options.
@@ -564,15 +628,14 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     if use_eos:
         ile_job.add_var_opt("using-eos")
 
-    if not transfer_files is None:
-        fname_str = ','.join(transfer_files)
-        fname_str=fname_str.strip()
-        ile_job.add_condor_cmd('transfer_input_files', fname_str)
 
+    requirements =[]
     #
     # Logging options
     #
-    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    uniq_str = "$(macroevent)-$(cluster)-$(process)"
+    if simple_unique:
+        uniq_str = "$(macroevent)"
     ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
@@ -608,25 +671,99 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         else:
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
+    if cache_file:
+        ile_job.add_opt("cache_file",cache_file)
+
     ile_job.add_var_opt("event")
 
-    ile_job.add_condor_cmd('getenv', 'True')
+    if not use_osg:
+        ile_job.add_condor_cmd('getenv', 'True')
     ile_job.add_condor_cmd('request_memory', str(request_memory)) 
     nGPUs =0
     if request_gpu:
         nGPUs=1
-    ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
+        ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
+    if use_singularity:
+        # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+            ile_job.add_condor_cmd('request_CPUs', str(1))
+            ile_job.add_condor_cmd('transfer_executable', 'False')
+            ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
+            ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+            requirements = []
+            requirements.append("HAS_SINGULARITY=?=TRUE")
+            requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
+            #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
+
+
+    if use_osg:
+           requirements.append("IS_GLIDEIN=?=TRUE")
+    if use_singularity or use_osg:
+           ile_job.add_condor_cmd('use_x509userproxy','True')
+            # Set up file transfer options
+           ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
+
+           # Stream log info
+           ile_job.add_condor_cmd("stream_error",'True')
+           ile_job.add_condor_cmd("stream_output",'True')
+
+    # Create prescript command to set up local.cache, only if frames are needed
+    if not(frames_local is None):   # should be required for singularity or osg
+        try:
+            lalapps_path2cache=os.environ['LALAPPS_PATH2CACHE']
+        except KeyError:
+            print("Variable LALAPPS_PATH2CACHE is unset, assume default lalapps_path2cache is appropriate")
+            lalapps_path2cache="lalapps_path2cache"
+        cmdname = 'ile_pre.sh'
+        if transfer_files is None:
+            transfer_files = []
+        transfer_files += ["../ile_pre.sh", frames_dir]  # assuming default working directory setup
+        with open(cmdname,'w') as f:
+            f.write("#! /bin/bash -xe \n")
+            f.write( "ls "+frames_local+" | {lalapps_path2cache} 1> local.cache \n".format(lalapps_path2cache=lalapps_path2cache))  # Danger: need user to correctly specify local.cache directory
+            # Rewrite cache file to use relative paths, not a file:// operation
+            f.write(" cat local.cache | awk '{print $1, $2, $3, $4}' > local_stripped.cache \n")
+            f.write("for i in `ls " + frames_local + "`; do echo "+ frames_local + "/$i; done  > base_paths.dat \n")
+            f.write("paste local_stripped.cache base_paths.dat > local_relative.cache \n")
+            f.write("cp local_relative.cache local.cache \n")
+            os.system("chmod a+x ile_pre.sh")
+        ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
+
+
+    if use_osg:
+        ile_job.add_condor_cmd("+OpenScienceGrid",'True')
     # To change interactively:
     #   condor_qedit
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    # Write requirements
+    # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
         print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
-        
+
+    if not transfer_files is None:
+        if not isinstance(transfer_files, list):
+            fname_str=transfer_files
+        else:
+            fname_str = ','.join(transfer_files)
+        fname_str=fname_str.strip()
+        ile_job.add_condor_cmd('transfer_input_files', fname_str)
+        ile_job.add_condor_cmd('should_transfer_files','YES')
+
+    if not transfer_output_files is None:
+        if not isinstance(transfer_output_files, list):
+            fname_str=transfer_output_files
+        else:
+            fname_str = ','.join(transfer_output_files)
+        fname_str=fname_str.strip()
+        ile_job.add_condor_cmd('transfer_output_files', fname_str)
+ 
+       
     
 
     ###
@@ -662,8 +799,11 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     ile_job.add_arg(target) # where to put the output (label), in CWD
 
     #
-    # Add options en mass, by brute force
+    # NO OPTIONS
     #
+#    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+#    arg_str = arg_str.lstrip('-')
+#    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
 
@@ -790,7 +930,10 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     ile_job.set_sub_file(ile_sub_name)
 
     if not(arg_str is None or len(arg_str)<2):
-        ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+        arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+        arg_str = arg_str.lstrip('-')
+        ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#        ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
     ile_job.add_arg(file_input)
     
     #
@@ -829,7 +972,10 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     # Add options for two parameter files
     for name in samples_files:
@@ -872,7 +1018,10 @@ def write_plot_sub(tag='converge', exe=None,samples_files=None, base=None,target
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     # Add options for two parameter files
     for name in samples_files:
@@ -917,7 +1066,10 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
     # Logging options
     #
@@ -939,3 +1091,300 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
         print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
 
     return ile_job, ile_sub_name
+
+
+
+def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,channel_dict=None,psd_length=4,srate=4096,data_start_time=None,trigtime=None,**kwargs):
+    """
+    Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
+
+    Inputs:
+      - channel_dict['H1']  = [channel_name, flow_ifo]
+    Outputs:
+        - An instance of the CondorDAGJob that was generated for ILE
+    """
+    exe = exe or which("BayesWavePost")
+    frames_local = None
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+
+    requirements =[]
+    #
+    # Logging options
+    #
+    uniq_str = "$(macroevent)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    #
+    # Add mandatory options
+    ile_job.add_opt('checkpoint', '')
+    ile_job.add_opt('bayesLine', '')
+    ile_job.add_opt('cleanOnly', '')
+    ile_job.add_opt('updateGeocenterPSD', '')
+    ile_job.add_opt('Nchain', '20')
+    ile_job.add_opt('Niter', '4000000')
+    ile_job.add_opt('Nbayesline', '2000')
+    ile_job.add_opt('dataseed', '1234')  # make reproducible
+
+    ile_job.add_opt('trigtime', event_time)
+    ile_job.add_opt('psdstart', event_time-(psd_length-2))
+    ile_job.add_opt('segment-start', event_time-(psd_length-2))
+    ile_job.add_opt('seglen', psd_length)
+    ile_job.add_opt('srate', srate)
+
+
+
+    #
+    # Loop over IFOs
+    for ifo in channel_dict:
+        channel_name, channel_flow = channel_dict[ifo]
+        ile_job.add_opt("ifo", ifo)
+#        ile_job.add_opt(ifo+"-channel", channel_name)
+        ile_job.add_opt(ifo+"-cache", cache_file)
+
+    # Add lame initial argument
+    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+        #
+        # Need to modify the output file so it's unique
+        #
+        ofname = kwargs["output_file"].split(".")
+        ofname, ext = ofname[0], ".".join(ofname[1:])
+        ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
+        del kwargs["output_file"]
+        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+            ile_job.add_opt("save-samples", None)
+            del kwargs["save_samples"]
+
+
+    #
+    # Add normal arguments
+    # FIXME: Get valid options from a module
+    #
+    for opt, param in kwargs.iteritems():
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
+
+    # Write requirements
+    # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+
+
+    return ile_job, ile_sub_name
+
+
+def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,channel_dict=None,psd_length=4,srate=4096,data_start_time=None,trigtime=None,**kwargs):
+    """
+    Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
+
+    Inputs:
+      - channel_dict['H1']  = [channel_name, flow_ifo]
+    Outputs:
+        - An instance of the CondorDAGJob that was generated for ILE
+    """
+    exe = exe or which("BayesWave")
+    frames_local = None
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+
+    requirements =[]
+    #
+    # Logging options
+    #
+    uniq_str = "$(macroevent)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    #
+    # Add mandatory options
+    ile_job.add_opt('checkpoint', '')
+    ile_job.add_opt('bayesLine', '')
+    ile_job.add_opt('cleanOnly', '')
+    ile_job.add_opt('updateGeocenterPSD', '')
+    ile_job.add_opt('Nchain', '20')
+    ile_job.add_opt('Niter', '4000000')
+    ile_job.add_opt('Nbayesline', '2000')
+    ile_job.add_opt('dataseed', '1234')  # make reproducible
+
+    ile_job.add_opt('trigtime', event_time)
+    ile_job.add_opt('psdstart', event_time-(psd_length-2))
+    ile_job.add_opt('segment-start', event_time-(psd_length-2))
+    ile_job.add_opt('seglen', psd_length)
+    ile_job.add_opt('srate', srate)
+
+
+
+    #
+    # Loop over IFOs
+    for ifo in channel_dict:
+        channel_name, channel_flow = channel_dict[ifo]
+        ile_job.add_opt("ifo", ifo)
+        ile_job.add_opt(ifo+"-channel", channel_name)
+        ile_job.add_opt(ifo+"-cache", cache_file)
+
+    # Add lame initial argument
+    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+        #
+        # Need to modify the output file so it's unique
+        #
+        ofname = kwargs["output_file"].split(".")
+        ofname, ext = ofname[0], ".".join(ofname[1:])
+        ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
+        del kwargs["output_file"]
+        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+            ile_job.add_opt("save-samples", None)
+            del kwargs["save_samples"]
+
+
+    #
+    # Add normal arguments
+    # FIXME: Get valid options from a module
+    #
+    for opt, param in kwargs.iteritems():
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
+
+    # Write requirements
+    # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+
+
+    return ile_job, ile_sub_name
+
+
+def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=None,arg_str='',log_dir=None, use_eos=False,ncopies=1, **kwargs):
+    """
+    Write a submit file for launching a 'resample' job
+       util_ResampleILEOutputWithExtrinsic.py
+
+    """
+
+    exe = exe or which("util_ResampleILEOutputWithExtrinsic.py")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    if not(arg_str is None or len(arg_str)<2):
+        arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+        arg_str = arg_str.lstrip('-')
+        ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+#        ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    ile_job.add_opt('fname',file_input)
+    ile_job.add_opt('fname-out',file_output)
+    
+    #
+    # Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file(file_output)
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    # To change interactively:
+    #   condor_qedit
+    # for example: 
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+
+    return ile_job, ile_sub_name
+
+
+
+def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_output=None,arg_str='',log_dir=None, use_eos=False,ncopies=1, **kwargs):
+    """
+    Write a submit file for launching a 'resample' job
+       util_ResampleILEOutputWithExtrinsic.py
+
+    """
+
+    exe = exe or which("find")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
+    exe_switch = which("switcheroo")  # tool for patterend search-replace, to fix first line of output file
+
+    cmdname = 'catjob.sh'
+    with open(cmdname,'w') as f:
+        f.write("#! /bin/bash\n")
+        f.write(exe+"  . -name '"+file_prefix+"*"+file_postfix+"' -exec cat {} \; | sort -r | uniq > "+file_output+";\n")
+        f.write(exe_switch + " 'm1 ' '# m1 ' "+file_output)  # add standard prefix
+        os.system("chmod a+x "+cmdname)
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable='catjob.sh')
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+
+#    ile_job.add_arg(" . -name '" + file_prefix + "*" +file_postfix+"' -exec cat {} \; ")
+    
+    #
+    # Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+
+    return ile_job, ile_sub_name
+

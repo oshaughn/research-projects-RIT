@@ -31,6 +31,7 @@ try:
   import optimized_gpu_tools
   import Q_inner_product
   xpy_default=cupy
+  junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
 except:
   print ' no cupy'
   import numpy as cupy
@@ -176,17 +177,18 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx ==lsu.lalSEOBNRv4HM or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4 ):
         if not quiet:
                 print "  FACTORED LIKELIHOOD WITH SEOB "    
-        hlmst = {}
-        if P.approx == lalsim.SEOBNRv3:
-                hlmsT = lsu.hlmoft_SEOBv3_dict(P)  # only 2,2 modes -- Lmax irrelevant
-        else:
-                if useNR:
-                        nrwf.HackRoundTransverseSpin(P) # HACK, to make reruns of NR play nicely, without needing to rerun
+        hlmsT = {}
+        hlmsT = lsu.hlmoft(P,Lmax)  # do a standard function call NOT anything special; should be wrapped properly now!
+        # if P.approx == lalsim.SEOBNRv3:
+        #         hlmsT = lsu.hlmoft_SEOBv3_dict(P)  # only 2,2 modes -- Lmax irrelevant
+        # else:
+        #         if useNR:
+        #                 nrwf.HackRoundTransverseSpin(P) # HACK, to make reruns of NR play nicely, without needing to rerun
 
-                hlmsT = lsu.hlmoft_SEOB_dict(P, Lmax)  # only 2,2 modes -- Lmax irrelevant
+        #         hlmsT = lsu.hlmoft_SEOB_dict(P, Lmax)  # only 2,2 modes -- Lmax irrelevant
         if not quiet:
                 print "  hlm generation complete "    
-        if P.approx == lalsim.SEOBNRv3 or  P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
+        if P.approx == lalsim.SEOBNRv3 or  P.deltaF == None: # h_lm(t) should be zero-padded properly inside code
                 TDlen = int(1./(P.deltaF*P.deltaT))#TDlen = lsu.nextPow2(hlmsT[(2,2)].data.length)
                 if not quiet:
                         print " Resizing to ", TDlen, " from ", hlmsT[(2,2)].data.length
@@ -202,8 +204,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 if verbose:
                         print " FFT for mode ", mode, hlmsT[mode].data.length, " note duration = ", hlmsT[mode].data.length*hlmsT[mode].deltaT
                 hlms[mode] = lsu.DataFourier(hlmsT[mode])
-		print  " -> ", hlms[mode].data.length
                 if verbose:
+                        print  " -> ", hlms[mode].data.length
                         print " FFT for conjugate mode ", mode, hlmsT[mode].data.length
                 hlmsT[mode].data.data = np.conj(hlmsT[mode].data.data)
                 hlms_conj[mode] = lsu.DataFourier(hlmsT[mode])
