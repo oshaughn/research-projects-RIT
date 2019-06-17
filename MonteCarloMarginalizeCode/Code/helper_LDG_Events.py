@@ -259,7 +259,9 @@ for cal in cal_versions:
             if opts.online:
                 standard_channel_names["O3"][(cal,ifo)] = "GDS-CALIB_STRAIN" # Do not assume cleaning is available in low latency
         if cal is "X01":  # experimental version of C01 calibration
-            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X01" 
+            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X01"
+        if cal is "X02":
+            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X02" 
 data_types["O3"][("C00", "V1")] = "V1Online"
 data_types["O3"][("X01", "V1")] = "V1Online"
 data_types["O3"][("X02", "V1")] = "V1Online"
