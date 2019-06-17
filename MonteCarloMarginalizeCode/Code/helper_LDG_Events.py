@@ -246,7 +246,7 @@ if opts.playground_data:
 # [H1|L1]:GDS-CALIB_STRAIN_CLEAN
 # [H1|L1]:GDS-GATED_STRAIN
 # https://github.com/lpsinger/gwcelery/blob/master/gwcelery/conf/production.py
-cal_versions = {"C00","C01", "X01"}
+cal_versions = {"C00","C01", "X01","X02"}
 for cal in cal_versions:
     for ifo in "H1", "L1":
         data_types["O3"][(cal,ifo)] = ifo+"_HOFT_" + cal
@@ -262,8 +262,10 @@ for cal in cal_versions:
             standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X01" 
 data_types["O3"][("C00", "V1")] = "V1Online"
 data_types["O3"][("X01", "V1")] = "V1Online"
+data_types["O3"][("X02", "V1")] = "V1Online"
 standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
 standard_channel_names["O3"][("X01", "V1")] = "Hrec_hoft_16384Hz"
+standard_channel_names["O3"][("X02", "V1")] = "Hrec_hoft_16384Hz"
 if opts.online:
     data_types["O3"][("C00", "V1")] = "V1_llhoft"
     standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
