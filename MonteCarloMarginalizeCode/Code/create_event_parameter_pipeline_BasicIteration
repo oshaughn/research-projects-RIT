@@ -572,6 +572,7 @@ for it in np.arange(it_start,opts.n_iterations):
         print " ILE jobs for puffball on iteration ", it
         for event in np.arange(indx_max):
             ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
+            ile_node.set_retry(opts.ile_retries)
             ile_node.add_macro("macroevent", event*n_group)
             ile_node.add_macro("macroiteration", it)
             if not(parent_fit_node is None):
@@ -665,17 +666,19 @@ if opts.last_iteration_extrinsic:
             convert_node.add_macro("macroevent", event*n_group)
             convert_node.add_macro("macroiteration", it)
             convert_node.add_macro("macroindx",indx)
+            convert_node.set_retry(opts.ile_retries)  # this can fail too
             convert_node.add_parent(ile_node)
 
             resample_node = pipeline.CondorDAGNode(resample_job)
             resample_node.add_macro("macroevent", event*n_group)
             resample_node.add_macro("macroiteration", it)
             resample_node.add_macro("macroindx",indx)
-            resample_node.set_retry(3)  # these occasionally fail for stupid reasons - nodes missing software, etc
+            resample_node.set_retry(opts.ile_retries)  # these occasionally fail for stupid reasons - nodes missing software, etc
             resample_node.add_parent(convert_node)
             
             # Make cat job 
             cat_node.add_parent(resample_node)
+            cat_node.set_retry(opts.ile_retries)  # this can fail too
             cat_node.add_macro("macroiteration", it)  # needed to identify log file location
 
             # Add nodes
