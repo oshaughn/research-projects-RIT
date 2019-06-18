@@ -324,17 +324,17 @@ if not (opts.psd_file is None):
 ###
 
 if use_gracedb_event:
-    cmd_event = gracedb_exe + download_request + opts.gracedb_id + " event.log"
-    os.system(cmd_event)
-    # Parse gracedb. Note very annoying heterogeneity in event.log files
-    with open("event.log",'r') as f:
+  cmd_event = gracedb_exe + download_request + opts.gracedb_id + " event.log"
+  os.system(cmd_event)
+  # Parse gracedb. Note very annoying heterogeneity in event.log files
+  with open("event.log",'r') as f:
         lines = f.readlines()
         for  line  in lines:
             line = line.split(':')
             param = line[0]
             if opts.verbose:
                 print " Parsing line ", line
-            if param in ['MChirp', 'MTot', "SNR"]:
+            if param in ['MChirp', 'MTot', "SNR","Frequency"]: # add a cwb parameter
                 event_dict[ line[0]]  = float(line[1])
             elif 'ime' in param: # event time
                 event_dict["tref"] = float(line[1])
@@ -342,7 +342,7 @@ if use_gracedb_event:
                 line[1] = line[1].replace(' ','').rstrip()
                 ifo_list = line[1].split(",")
                 event_dict["IFOs"] = ifo_list
-
+  try:
     # Read in event parameters. Use masses as quick estimate
     cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
     os.system(cmd_event)
@@ -377,7 +377,15 @@ if use_gracedb_event:
             psd_names[ifo] = opts.working_directory+"/"+ifo+"-psd.xml.gz"
             cmd += " --ifo " + ifo
         os.system(cmd)
-
+  except:
+      print " ==> probably not a CBC event, attempting to proceed anyways, FAKING central value <=== "
+      P=lalsimutils.ChooseWaveformParams()
+      # For CWB triggers, should use event.log file to pull out a central frequency
+      P.m1=P.m2= 50*lal.MSUN_SI  # make this up completely, just so code will run, goal is higher mass than this, watch out for mc range
+      event_dict["P"]=P
+      event_dict["MChirp"] = P.extract_param('mc')/lal.MSUN_SI
+      if not "SNR" in event_dict:
+          event_dict["SNR"] = 10  # again made up so code will run
 
 if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
