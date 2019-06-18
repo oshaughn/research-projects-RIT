@@ -134,6 +134,8 @@ parser.add_argument("--calibration-version",default=None,help="Calibration versi
 parser.add_argument("--playground-data",default=None,help="Playground data. Modifies channel names used.")
 parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER (will override environment variable, which is used as default)")
 parser.add_argument("--fmin",default=None,type=float,help="Minimum frequency for integration. Used to estimate signal duration")
+parser.add_argument("--manual-mc-min",default=None,type=float,help="Manually input minimum in chirp mass")
+parser.add_argument("--manual-mc-max",default=None,type=float,help="Manually input maximum in chrip mass")
 parser.add_argument("--fmin-template",default=20,type=float,help="Minimum frequency for template. Used to estimate signal duration. If fmin not specified, also the minimum frequency for integration")
 parser.add_argument("--fmax",default=None,type=float,help="fmax. Use this ONLY if you want to override the default settings, which are set based on the PSD used")
 parser.add_argument("--data-start-time",default=None)
@@ -550,6 +552,10 @@ if chieff_min >0 and use_gracedb_event:
     chieff_min = -0.1   # make sure to cover spin zero, most BBH have zero spin and missing zero is usually an accident of the search recovered params
 
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
+if not(opts.manual_mc_min is None):
+    mc_min = opts.manual_mc_min
+if not(opts.manual_mc_max is None):
+    mc_max = opts.manual_mc_max
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 eta_range_str = "  ["+str(eta_min_tight) +","+str(eta_max_tight)+"]"  # default will include  1, as we work with BBHs
 eta_range_str_cip = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
