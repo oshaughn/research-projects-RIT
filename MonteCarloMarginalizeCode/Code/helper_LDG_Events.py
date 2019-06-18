@@ -384,6 +384,7 @@ if use_gracedb_event:
       P.m1=P.m2= 50*lal.MSUN_SI  # make this up completely, just so code will run, goal is higher mass than this, watch out for mc range
       event_dict["P"]=P
       event_dict["MChirp"] = P.extract_param('mc')/lal.MSUN_SI
+      event_dict["epoch"]  = 0 # no estimate for now
       if not "SNR" in event_dict:
           event_dict["SNR"] = 10  # again made up so code will run
 
