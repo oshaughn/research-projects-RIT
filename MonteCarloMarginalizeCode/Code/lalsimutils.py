@@ -897,12 +897,12 @@ class ChooseWaveformParams:
             print "Setting default phase"
             self.phiref = float(default_phase)
         else:
-            self.phiref = np.random.uniform(0, np.pi)
+            self.phiref = np.random.uniform(0, 2*np.pi)
         if default_polarization is not None:
             print "Setting default polarization"
             self.psi = float(default_polarization)
         else:
-            self.psi = np.random.uniform(0, np.pi)
+            self.psi = np.random.uniform(0, 2*np.pi)  # match PE range
         if not zero_spin_Q and not aligned_spin_Q:
             s1mag = np.random.uniform(sMin,sMax)
             s1theta = np.random.uniform(0,np.pi)
