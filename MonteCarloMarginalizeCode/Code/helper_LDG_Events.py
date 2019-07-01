@@ -148,6 +148,7 @@ parser.add_argument("--gracedb-exe",default="gracedb")
 parser.add_argument("--fake-data",action='store_true',help="If this argument is present, the channel names are overridden to FAKE_STRAIN")
 parser.add_argument("--cache",type=str,default=None,help="If this argument is present, the various routines will use the frame files in this cache. The user is responsible for setting this up")
 parser.add_argument("--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.  Required if using --fake-data option")
+parser.add_argument("--assume-fiducial-psd-files", action="store_true", help="Will populate the arguments --psd-file IFO=IFO-psd.xml.gz for all IFOs being used, based on data availability.   Intended for user to specify PSD files later, or for DAG to build BW PSDs. ")
 parser.add_argument("--use-online-psd",action='store_true',help='Use PSD from gracedb, if available')
 parser.add_argument("--assume-matter",action='store_true',help="If present, the code will add options necessary to manage tidal arguments. The proposed fit strategy and initial grid will allow for matter")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
@@ -474,7 +475,7 @@ if not opts.cache:  # don't make a cache file if we have one!
     opts.cache = "local.cache" # standard filename populated
 
 # If needed, build PSDs
-if (opts.psd_file is None) and not opts.use_online_psd:
+if (opts.psd_file is None) and (not opts.use_online_psd) and not (opts.assume_fiducial_psd_files):
     print " PSD construction "
     for ifo in event_dict["IFOs"]:
         print " Building PSD  for ", ifo
@@ -484,6 +485,9 @@ if (opts.psd_file is None) and not opts.use_online_psd:
         except:
             print "  ... PSD generation failed! "
             sys.exit(1)
+elif (opts.assume_fiducial_psd_files):
+    for ifo in event_dict["IFOs"]:
+        psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
 
 # Estimate mc range, eta range
 #   - UPDATE: need to add scaling with SNR too
