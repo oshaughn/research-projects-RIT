@@ -435,15 +435,17 @@ if opts.use_bw_psd:
     seglen  = opts_ile.data_end_time - opts_ile.data_start_time
 
     # Write bw sub files
-    bw_job, bw_job_name = dag_utils.write_psd_sub_BW_step0(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time)
-    bw2_job, bw2_job_name=dag_utils.write_psd_sub_BW_step1(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time)
+    bw_job, bw_job_name = dag_utils.write_psd_sub_BW_step0(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/")
+    bw2_job, bw2_job_name=dag_utils.write_psd_sub_BW_step1(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/")
     bw_job.add_condor_cmd("initialdir",bw_dir)
     bw2_job.add_condor_cmd("initialdir",bw_dir)
     bw_job.write_sub_file()
     bw2_job.write_sub_file()
 
     # write convert command
-    convert_psd_job, convert_psd_job_name = dag_utils.write_convertpsd_sub(ifo="$(ifo)")
+    convert_psd_job, convert_psd_job_name = dag_utils.write_convertpsd_sub(ifo="$(ifo)",file_input=bw_dir+"/$(ifo)_burnin_psd.dat",log_dir=bw_dir+"/")
+    convert_psd_job.add_condor_cmd('initialdir',working_dir_inside)
+    convert_psd_job.write_sub_file()
 
 
 # Make directories for all iterations
@@ -680,10 +682,21 @@ if opts.use_bw_psd:
     bw0_node =pipeline.CondorDAGNode(bw_job)
     bw1_node =pipeline.CondorDAGNode(bw2_job)
     bw1_node.add_parent(bw0_node)
-#    bw0_node.add_parent(parent_fit_node)
+    dag.add_node(bw0_node)
+    dag.add_node(bw1_node)
 
-    # Need to add nodes to convert results to correct format
+    # Need correct inheritance: this will be annoying b/c loop below does not allow for it
+    # ...so do the PSD convert steps *serially* for now
     parent_fit_node = bw1_node
+
+    # Add nodes to convert the PSD to the correct format
+    # 
+    for ifo in channel_names.keys():
+        convert_psd_node =pipeline.CondorDAGNode(convert_psd_job)
+        convert_psd_node.add_parent(parent_fit_node)
+        parent_fit_node = convert_psd_node
+        convert_psd_node.add_macro('ifo',ifo)
+        dag.add_node(convert_psd_node)
     
 
 n_group = opts.ile_n_events_to_analyze
