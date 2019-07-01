@@ -191,6 +191,8 @@ parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent
 parser.add_argument("--test-exe",default=None,help="filename of test code or equivalent executable.  Must have a --test-output <fname> argument.  Used for convergence testing or other termination. NOT ACTIVE; see 'convergence_test_samples.py' for example")
 parser.add_argument("--plot-exe",default=None,help="filename of plot code or equivalent executable.  Will default to `which plot_posterior_corner.py`.  Default is to plot last set of samples")
 parser.add_argument("--gridinit-exe",default=None,help="filename of initial grid creation or equivalent executable.  Will default to `which util_ManualOverlapGrid.py`.  Must create overlap-grid-0.xml.gz")
+parser.add_argument("--bw-exe",default=None,help="BayesWave location (or wrapper)")
+parser.add_argument("--bw-post-exe",default=None,help="BayesWave location (or wrapper)")
 parser.add_argument("--test-args",default=None,help="filename of args_test.txt, which holds test arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments")
 parser.add_argument("--convert-args",default=None,help="filename of args_convert.txt, which holds arguments to the convert function. Needed if you plan to export tide informaton")
 parser.add_argument("--plot-args",default=None,help="filename of args_plot.txt, which holds plot arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments.  To create the posterior samples file, you probably need to run the convert job (e.g., via the tests)")
@@ -435,8 +437,8 @@ if opts.use_bw_psd:
     seglen  = opts_ile.data_end_time - opts_ile.data_start_time
 
     # Write bw sub files
-    bw_job, bw_job_name = dag_utils.write_psd_sub_BW_step0(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/")
-    bw2_job, bw2_job_name=dag_utils.write_psd_sub_BW_step1(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/")
+    bw_job, bw_job_name = dag_utils.write_psd_sub_BW_step0(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/",exe=opts.bw_exe)
+    bw2_job, bw2_job_name=dag_utils.write_psd_sub_BW_step1(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/",exe=opts.bw_post_exe)
     bw_job.add_condor_cmd("initialdir",bw_dir)
     bw2_job.add_condor_cmd("initialdir",bw_dir)
     bw_job.write_sub_file()
