@@ -18,7 +18,7 @@
 A collection of routines to manage Condor workflows (DAGs).
 """
 
-import os
+import os, sys
 import numpy as np
 from time import time
 from hashlib import md5
@@ -1094,7 +1094,7 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
 
 
 
-def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,channel_dict=None,psd_length=4,srate=4096,data_start_time=None,trigtime=None,**kwargs):
+def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,channel_dict=None,psd_length=4,srate=4096,data_start_time=None,event_time=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -1104,6 +1104,10 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
         - An instance of the CondorDAGJob that was generated for ILE
     """
     exe = exe or which("BayesWavePost")
+    if exe is None:
+        print " BayesWavePost not available, hard fail "
+        import sys
+        sys.exit(0)
     frames_local = None
 
     ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
@@ -1134,11 +1138,11 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
     ile_job.add_opt('Nbayesline', '2000')
     ile_job.add_opt('dataseed', '1234')  # make reproducible
 
-    ile_job.add_opt('trigtime', event_time)
-    ile_job.add_opt('psdstart', event_time-(psd_length-2))
-    ile_job.add_opt('segment-start', event_time-(psd_length-2))
-    ile_job.add_opt('seglen', psd_length)
-    ile_job.add_opt('srate', srate)
+    ile_job.add_opt('trigtime', str(event_time))
+    ile_job.add_opt('psdstart', str(event_time-(psd_length-2)))
+    ile_job.add_opt('segment-start', str(event_time-(psd_length-2)))
+    ile_job.add_opt('seglen', str(psd_length))
+    ile_job.add_opt('srate', str(srate))
 
 
 
@@ -1197,7 +1201,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
     return ile_job, ile_sub_name
 
 
-def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,channel_dict=None,psd_length=4,srate=4096,data_start_time=None,trigtime=None,**kwargs):
+def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,channel_dict=None,psd_length=4,srate=4096,data_start_time=None,event_time=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -1207,6 +1211,9 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
         - An instance of the CondorDAGJob that was generated for ILE
     """
     exe = exe or which("BayesWave")
+    if exe is None:
+        print " BayesWave not available, hard fail "
+        sys.exit(0)
     frames_local = None
 
     ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
@@ -1237,11 +1244,11 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
     ile_job.add_opt('Nbayesline', '2000')
     ile_job.add_opt('dataseed', '1234')  # make reproducible
 
-    ile_job.add_opt('trigtime', event_time)
-    ile_job.add_opt('psdstart', event_time-(psd_length-2))
-    ile_job.add_opt('segment-start', event_time-(psd_length-2))
-    ile_job.add_opt('seglen', psd_length)
-    ile_job.add_opt('srate', srate)
+    ile_job.add_opt('trigtime', str(event_time))
+    ile_job.add_opt('psdstart', str(event_time-(psd_length-2)))
+    ile_job.add_opt('segment-start', str(event_time-(psd_length-2)))
+    ile_job.add_opt('seglen', str(psd_length))
+    ile_job.add_opt('srate', str(srate))
 
 
 
@@ -1378,6 +1385,44 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
     ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+
+    return ile_job, ile_sub_name
+
+
+
+def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,target_dir=None,arg_str='',log_dir=None,  **kwargs):
+    """
+    Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.
+    """
+
+    exe = exe or which("convert_psd_ascii2xml")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    ile_job.add_opt("fname-psd-ascii",file_input)
+    ile_job.add_opt("ifo",ifo)
+    ile_jobs.add_argument("--conventional-postfix")
+    
+    #
+    # Logging options
+    #
+    uniq_str = "$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    if not (target_dir is None):
+        # Copy output PSD into place
+        ile_job.add_condor_cmd("+PostCmd", '" cp '+ifo+'-psd.xml.gz ' + target_dir +'"')
 
     ile_job.add_condor_cmd('getenv', 'True')
     try:
