@@ -1410,7 +1410,7 @@ def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,t
 
     ile_job.add_opt("fname-psd-ascii",file_input)
     ile_job.add_opt("ifo",ifo)
-    ile_jobs.add_argument("--conventional-postfix")
+    ile_job.add_arg("--conventional-postfix")
     
     #
     # Logging options
