@@ -853,6 +853,13 @@ if opts.use_fisher:
         print " Eigenvalue report ", my_eig
         print " HOPE that priors help !"
         np.savetxt("fisher_NEG",my_eig[0].flatten())  # filename with eigenvalues
+
+        # As a stopgap, save results with *regularized* fisher
+        print " ==> Regularizing fisher matrix results <== "
+        the_quadratic_results = BayesianLeastSquares.fit_quadratic( grid_out[:,:len(param_names)], grid_out[:,len(param_names)],x0=x0_val_here,prior_x_gamma=prior_x_gamma,hard_regularize_negative=True)#x0=None)#x0_val_here)
+        peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
+        np.savetxt("fisher_gamma.dat",my_fisher_est,header=' '.join(param_names))
+
 #        sys.exit(0)
 
     if opts.use_fisher and opts.use_fisher_resampling:  # dump real data, NOT faked data. You should ALWAYS enter this logic tree
