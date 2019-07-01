@@ -679,25 +679,26 @@ if opts.gridinit_args:
 
 if opts.use_bw_psd:
     print " ===> Adding BW PSD nodes to dag <=== "
+
     bw0_node =pipeline.CondorDAGNode(bw_job)
     bw1_node =pipeline.CondorDAGNode(bw2_job)
     bw1_node.add_parent(bw0_node)
     dag.add_node(bw0_node)
     dag.add_node(bw1_node)
 
-    # Need correct inheritance: this will be annoying b/c loop below does not allow for it
-    # ...so do the PSD convert steps *serially* for now
-    parent_fit_node = bw1_node
-
     # Add nodes to convert the PSD to the correct format
     # 
     for ifo in channel_names.keys():
+
+        # Need correct inheritance: this will be annoying b/c loop below does not allow for it
+        # ...so do the PSD convert steps *serially* for now.  (The individual PSDs can be done in parallel)
         convert_psd_node =pipeline.CondorDAGNode(convert_psd_job)
-        convert_psd_node.add_parent(parent_fit_node)
+        convert_psd_node.add_parent(bw1_node)
+        if not(parent_fit_node is None):
+            convert_psd_node.add_parent(parent_fit_node)
         parent_fit_node = convert_psd_node
         convert_psd_node.add_macro('ifo',ifo)
         dag.add_node(convert_psd_node)
-    
 
 n_group = opts.ile_n_events_to_analyze
 
