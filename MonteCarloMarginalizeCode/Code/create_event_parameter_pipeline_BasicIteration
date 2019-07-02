@@ -699,7 +699,10 @@ if opts.use_bw_psd:
         channel_name, channel_flow = channel_dict_bw[ifo]
         bw_arg_str += " --ifo "+ifo
         bw_arg_str += " --"+ifo+"-channel "+ifo+":"+channel_name
-        bw_arg_str += " --"+ifo+"-cache "+opts_ile.cache_file
+        ifo_cache_name =  working_dir_inside +"/for_bw_"+ifo+".cache"  # bw requires single-IFO cache files, argh!!!
+        ifo_char = ifo[0]
+        os.system("grep ^"+ifo_char +  " " +opts_ile.cache_file+ " > " + ifo_cache_name)
+        bw_arg_str += " --"+ifo+"-cache "+ifo_cache_name
         bw_arg_str += " --"+ifo+"-flow "+str(channel_flow)
         bw_arg_str += " --"+ifo+"-timeslide 0.0"
         bw0_node.add_macro('macroargument0',bw_arg_str)
