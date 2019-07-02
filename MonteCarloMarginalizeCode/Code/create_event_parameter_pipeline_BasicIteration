@@ -437,12 +437,15 @@ if opts.use_bw_psd:
     seglen  = opts_ile.data_end_time - opts_ile.data_start_time
 
     # Write bw sub files
-    bw_job, bw_job_name = dag_utils.write_psd_sub_BW_step0(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/",exe=opts.bw_exe)
-    bw2_job, bw2_job_name=dag_utils.write_psd_sub_BW_step1(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/",exe=opts.bw_post_exe)
+    bw_job, bw_job_name = dag_utils.write_psd_sub_BW_monoblock(cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/",exe=opts.bw_exe)
     bw_job.add_condor_cmd("initialdir",bw_dir)
-    bw2_job.add_condor_cmd("initialdir",bw_dir)
     bw_job.write_sub_file()
-    bw2_job.write_sub_file()
+
+    # bw_job, bw_job_name = dag_utils.write_psd_sub_BW_step0(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/",exe=opts.bw_exe)
+    # bw2_job, bw2_job_name=dag_utils.write_psd_sub_BW_step1(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/",exe=opts.bw_post_exe)
+    # bw_job.add_condor_cmd("initialdir",bw_dir)
+    # bw2_job.add_condor_cmd("initialdir",bw_dir)
+    # bw2_job.write_sub_file()
 
     # write convert command
     convert_psd_job, convert_psd_job_name = dag_utils.write_convertpsd_sub(ifo="$(ifo)",file_input=bw_dir+"/$(ifo)_burnin_psd.dat",log_dir=bw_dir+"/")
@@ -682,22 +685,33 @@ if opts.gridinit_args:
 if opts.use_bw_psd:
     print " ===> Adding BW PSD nodes to dag <=== "
 
-    bw0_node =pipeline.CondorDAGNode(bw_job)
-    bw1_node =pipeline.CondorDAGNode(bw2_job)
-    bw1_node.add_parent(bw0_node)
-    dag.add_node(bw0_node)
-    dag.add_node(bw1_node)
+#    bw1_node =pipeline.CondorDAGNode(bw2_job)
+#    bw1_node.add_parent(bw0_node)
+#    dag.add_node(bw1_node)
 
     # Add nodes to convert the PSD to the correct format
     # 
     for ifo in channel_names.keys():
+        bw0_node =pipeline.CondorDAGNode(bw_job)
+        bw0_node.add_macro('ifo',ifo)
+        # Create argument string
+        bw_arg_str = ''
+        channel_name, channel_flow = channel_dict_bw[ifo]
+        bw_arg_str += " --ifo "+ifo
+        bw_arg_str += " --"+ifo+"-channel "+ifo+":"+channel_name
+        bw_arg_str += " --"+ifo+"-cache "+opts_ile.cache_file
+        bw_arg_str += " --"+ifo+"-flow "+str(channel_flow)
+        bw_arg_str += " --"+ifo+"-timeslide 0.0"
+        bw0_node.add_macro('macroargument0',bw_arg_str)
+            
+        dag.add_node(bw0_node)
 
         # Need correct inheritance: this will be annoying b/c loop below does not allow for it
         # ...so do the PSD convert steps *serially* for now.  (The individual PSDs can be done in parallel)
         convert_psd_node =pipeline.CondorDAGNode(convert_psd_job)
-        convert_psd_node.add_parent(bw1_node)
-        if not(parent_fit_node is None):
-            convert_psd_node.add_parent(parent_fit_node)
+        convert_psd_node.add_parent(bw0_node)
+#        if not(parent_fit_node is None):
+#            convert_psd_node.add_parent(parent_fit_node)
         parent_fit_node = convert_psd_node
         convert_psd_node.add_macro('ifo',ifo)
         dag.add_node(convert_psd_node)
