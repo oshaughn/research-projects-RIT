@@ -1094,6 +1094,117 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
 
 
 
+def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,psd_length=4,srate=4096,data_start_time=None,event_time=None,**kwargs):
+    """
+    Write a submit file for constructing the PSD using BW
+    Modern argument syntax for BW
+    Note that *all ifo-specific results must be set outside this loop*, to work sensibly, and passed as an argument
+
+    Inputs:
+      - channel_dict['H1']  = [channel_name, flow_ifo]
+    Outputs:
+        - An instance of the CondorDAGJob that was generated for BW
+    """
+    exe = exe or which("BayesWave")
+    if exe is None:
+        print " BayesWave not available, hard fail "
+        sys.exit(0)
+    frames_local = None
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+
+    requirements =[]
+    #
+    # Logging options
+    #
+    uniq_str = "$(macroevent)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+
+    #
+    # Loop over IFOs
+    # You should only have one, in the workflow for which this is intended
+    # Problem: 
+    ile_job.add_arg("$(macroargument0")
+
+
+    #
+    # Add mandatory options
+    ile_job.add_opt('Niter', '4000000')
+    ile_job.add_opt('Nchain', '20')
+    ile_job.add_opt('resume', '')
+    ile_job.add_opt('progress', '')
+    ile_job.add_opt('checkpoint', '')
+    ile_job.add_opt('bayesLine', '')
+    ile_job.add_opt('cleanOnly', '')
+    ile_job.add_opt('updateGeocenterPSD', '')
+    ile_job.add_opt('dataseed', '1234')  # make reproducible
+
+    ile_job.add_opt('trigtime', str(event_time))
+    ile_job.add_opt('psdstart', str(event_time-(psd_length-2)))
+    ile_job.add_opt('segment-start', str(event_time-(psd_length-2)))
+    ile_job.add_opt('seglen', str(psd_length))
+    ile_job.add_opt('srate', str(srate))
+
+
+
+
+
+    # Add lame initial argument
+    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+        #
+        # Need to modify the output file so it's unique
+        #
+        ofname = kwargs["output_file"].split(".")
+        ofname, ext = ofname[0], ".".join(ofname[1:])
+        ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
+        del kwargs["output_file"]
+        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+            ile_job.add_opt("save-samples", None)
+            del kwargs["save_samples"]
+
+
+    #
+    # Add normal arguments
+    # FIXME: Get valid options from a module
+    #
+    for opt, param in kwargs.iteritems():
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
+
+    # Write requirements
+    # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+
+
+    return ile_job, ile_sub_name
+
+
 def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,channel_dict=None,psd_length=4,srate=4096,data_start_time=None,event_time=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
@@ -1264,6 +1375,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
         ile_job.add_opt(ifo+"-channel", ifo+":"+channel_name)
         ile_job.add_opt(ifo+"-cache", cache_file)
         ile_job.add_opt(ifo+"-flow", str(channel_flow))
+        ile_job.add_opt(ifo+"-timeslide", str(0.0))
 
 
     # Add lame initial argument
