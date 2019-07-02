@@ -1138,8 +1138,9 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
 
     #
     # Add mandatory options
-    ile_job.add_opt('Niter', '4000000')
+    ile_job.add_opt('Niter', '1000100')
     ile_job.add_opt('Nchain', '20')
+    ile_job.add_opt('Dmax', '200')  # limit number of dimensions in model
     ile_job.add_opt('resume', '')
     ile_job.add_opt('progress', '')
     ile_job.add_opt('checkpoint', '')
@@ -1154,7 +1155,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
     ile_job.add_opt('seglen', str(psd_length))
     ile_job.add_opt('psdlength', str(psd_length))
     ile_job.add_opt('srate', str(srate))
-    ile_job.add_opt('outputDir', '.')
+    ile_job.add_opt('outputDir', 'output_$(ifo)')
 
 
 
