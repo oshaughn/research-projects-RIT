@@ -1152,7 +1152,9 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
     ile_job.add_opt('psdstart', str(event_time-(psd_length-2)))
     ile_job.add_opt('segment-start', str(event_time-(psd_length-2)))
     ile_job.add_opt('seglen', str(psd_length))
+    ile_job.add_opt('psdlength', str(psd_length))
     ile_job.add_opt('srate', str(srate))
+    ile_job.add_opt('outputDir', '.')
 
 
 
