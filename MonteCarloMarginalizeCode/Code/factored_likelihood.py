@@ -265,9 +265,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # Load the catalog
         print perturbative_extraction_full
         wfP = nrwf.WaveformModeCatalog(group, param, \
-                                           clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True,
-                                       perturbative_extraction=perturbative_extraction,perturbative_extraction_full=perturbative_extraction_full,lmax=Lmax,
-                                       align_at_peak_l2_m2_emission=True, build_strain_and_conserve_memory=True,use_provided_strain=use_provided_strain)
+                                       clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True,perturbative_extraction_full=perturbative_extraction_full,perturbative_extraction=perturbative_extraction,lmax=Lmax,align_at_peak_l2_m2_emission=True, build_strain_and_conserve_memory=True,use_provided_strain=use_provided_strain)
         # Overwrite the parameters in wfP to set the desired scale
         wfP.P.m1 = mtot/(1+q)
         wfP.P.m2 = mtot*q/(1+q)

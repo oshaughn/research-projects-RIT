@@ -641,6 +641,8 @@ for pIndex in np.arange(len(posterior_list)):
             truths_here[indx] = P_ref.extract_param(param_to_extract)
             if param in [ 'mc', 'm1', 'm2', 'mtotal']:
                 truths_here[indx] = truths_here[indx]/lal.MSUN_SI
+            if param in ['dist', 'distance']:
+                truths_here[indx] = truths_here[indx]/lal.PC_SI/1e6
 #            print param, truths_here[indx]
 
         # if 1d plots needed, make them

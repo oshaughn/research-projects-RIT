@@ -134,6 +134,8 @@ parser.add_argument("--calibration-version",default=None,help="Calibration versi
 parser.add_argument("--playground-data",default=None,help="Playground data. Modifies channel names used.")
 parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER (will override environment variable, which is used as default)")
 parser.add_argument("--fmin",default=None,type=float,help="Minimum frequency for integration. Used to estimate signal duration")
+parser.add_argument("--manual-mc-min",default=None,type=float,help="Manually input minimum in chirp mass")
+parser.add_argument("--manual-mc-max",default=None,type=float,help="Manually input maximum in chrip mass")
 parser.add_argument("--fmin-template",default=20,type=float,help="Minimum frequency for template. Used to estimate signal duration. If fmin not specified, also the minimum frequency for integration")
 parser.add_argument("--fmax",default=None,type=float,help="fmax. Use this ONLY if you want to override the default settings, which are set based on the PSD used")
 parser.add_argument("--data-start-time",default=None)
@@ -146,6 +148,7 @@ parser.add_argument("--gracedb-exe",default="gracedb")
 parser.add_argument("--fake-data",action='store_true',help="If this argument is present, the channel names are overridden to FAKE_STRAIN")
 parser.add_argument("--cache",type=str,default=None,help="If this argument is present, the various routines will use the frame files in this cache. The user is responsible for setting this up")
 parser.add_argument("--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.  Required if using --fake-data option")
+parser.add_argument("--assume-fiducial-psd-files", action="store_true", help="Will populate the arguments --psd-file IFO=IFO-psd.xml.gz for all IFOs being used, based on data availability.   Intended for user to specify PSD files later, or for DAG to build BW PSDs. ")
 parser.add_argument("--use-online-psd",action='store_true',help='Use PSD from gracedb, if available')
 parser.add_argument("--assume-matter",action='store_true',help="If present, the code will add options necessary to manage tidal arguments. The proposed fit strategy and initial grid will allow for matter")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
@@ -246,7 +249,7 @@ if opts.playground_data:
 # [H1|L1]:GDS-CALIB_STRAIN_CLEAN
 # [H1|L1]:GDS-GATED_STRAIN
 # https://github.com/lpsinger/gwcelery/blob/master/gwcelery/conf/production.py
-cal_versions = {"C00","C01", "X01"}
+cal_versions = {"C00","C01", "X01","X02"}
 for cal in cal_versions:
     for ifo in "H1", "L1":
         data_types["O3"][(cal,ifo)] = ifo+"_HOFT_" + cal
@@ -259,11 +262,15 @@ for cal in cal_versions:
             if opts.online:
                 standard_channel_names["O3"][(cal,ifo)] = "GDS-CALIB_STRAIN" # Do not assume cleaning is available in low latency
         if cal is "X01":  # experimental version of C01 calibration
-            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X01" 
+            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X01"
+        if cal is "X02":
+            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X02" 
 data_types["O3"][("C00", "V1")] = "V1Online"
 data_types["O3"][("X01", "V1")] = "V1Online"
+data_types["O3"][("X02", "V1")] = "V1Online"
 standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
 standard_channel_names["O3"][("X01", "V1")] = "Hrec_hoft_16384Hz"
+standard_channel_names["O3"][("X02", "V1")] = "Hrec_hoft_16384Hz"
 if opts.online:
     data_types["O3"][("C00", "V1")] = "V1_llhoft"
     standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
@@ -320,17 +327,17 @@ if not (opts.psd_file is None):
 ###
 
 if use_gracedb_event:
-    cmd_event = gracedb_exe + download_request + opts.gracedb_id + " event.log"
-    os.system(cmd_event)
-    # Parse gracedb. Note very annoying heterogeneity in event.log files
-    with open("event.log",'r') as f:
+  cmd_event = gracedb_exe + download_request + opts.gracedb_id + " event.log"
+  os.system(cmd_event)
+  # Parse gracedb. Note very annoying heterogeneity in event.log files
+  with open("event.log",'r') as f:
         lines = f.readlines()
         for  line  in lines:
             line = line.split(':')
             param = line[0]
             if opts.verbose:
                 print " Parsing line ", line
-            if param in ['MChirp', 'MTot', "SNR"]:
+            if param in ['MChirp', 'MTot', "SNR","Frequency"]: # add a cwb parameter
                 event_dict[ line[0]]  = float(line[1])
             elif 'ime' in param: # event time
                 event_dict["tref"] = float(line[1])
@@ -338,7 +345,7 @@ if use_gracedb_event:
                 line[1] = line[1].replace(' ','').rstrip()
                 ifo_list = line[1].split(",")
                 event_dict["IFOs"] = ifo_list
-
+  try:
     # Read in event parameters. Use masses as quick estimate
     cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
     os.system(cmd_event)
@@ -373,7 +380,16 @@ if use_gracedb_event:
             psd_names[ifo] = opts.working_directory+"/"+ifo+"-psd.xml.gz"
             cmd += " --ifo " + ifo
         os.system(cmd)
-
+  except:
+      print " ==> probably not a CBC event, attempting to proceed anyways, FAKING central value <=== "
+      P=lalsimutils.ChooseWaveformParams()
+      # For CWB triggers, should use event.log file to pull out a central frequency
+      P.m1=P.m2= 50*lal.MSUN_SI  # make this up completely, just so code will run, goal is higher mass than this, watch out for mc range
+      event_dict["P"]=P
+      event_dict["MChirp"] = P.extract_param('mc')/lal.MSUN_SI
+      event_dict["epoch"]  = 0 # no estimate for now
+      if not "SNR" in event_dict:
+          event_dict["SNR"] = 10  # again made up so code will run
 
 if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
@@ -460,7 +476,7 @@ if not opts.cache:  # don't make a cache file if we have one!
     opts.cache = "local.cache" # standard filename populated
 
 # If needed, build PSDs
-if (opts.psd_file is None) and not opts.use_online_psd:
+if (opts.psd_file is None) and (not opts.use_online_psd) and not (opts.assume_fiducial_psd_files):
     print " PSD construction "
     for ifo in event_dict["IFOs"]:
         print " Building PSD  for ", ifo
@@ -470,6 +486,9 @@ if (opts.psd_file is None) and not opts.use_online_psd:
         except:
             print "  ... PSD generation failed! "
             sys.exit(1)
+elif (opts.assume_fiducial_psd_files):
+    for ifo in event_dict["IFOs"]:
+        psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
 
 # Estimate mc range, eta range
 #   - UPDATE: need to add scaling with SNR too
@@ -538,6 +557,10 @@ if chieff_min >0 and use_gracedb_event:
     chieff_min = -0.1   # make sure to cover spin zero, most BBH have zero spin and missing zero is usually an accident of the search recovered params
 
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
+if not(opts.manual_mc_min is None):
+    mc_min = opts.manual_mc_min
+if not(opts.manual_mc_max is None):
+    mc_max = opts.manual_mc_max
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 eta_range_str = "  ["+str(eta_min_tight) +","+str(eta_max_tight)+"]"  # default will include  1, as we work with BBHs
 eta_range_str_cip = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs

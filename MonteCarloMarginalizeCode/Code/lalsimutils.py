@@ -897,12 +897,12 @@ class ChooseWaveformParams:
             print "Setting default phase"
             self.phiref = float(default_phase)
         else:
-            self.phiref = np.random.uniform(0, np.pi)
+            self.phiref = np.random.uniform(0, 2*np.pi)
         if default_polarization is not None:
             print "Setting default polarization"
             self.psi = float(default_polarization)
         else:
-            self.psi = np.random.uniform(0, np.pi)
+            self.psi = np.random.uniform(0, 2*np.pi)  # match PE range
         if not zero_spin_Q and not aligned_spin_Q:
             s1mag = np.random.uniform(sMin,sMax)
             s1theta = np.random.uniform(0,np.pi)
@@ -2550,7 +2550,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     assert Lmax >= 2
 
     sign_factor = 1
-    if nr_polarization_convention:
+    if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
 
     if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4 or P.approx == lalSEOBNRv4HM):
@@ -2581,7 +2581,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
-    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2):
+    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         extra_params = P.to_lal_dict()
         hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
 	    P.s1x, P.s1y, P.s1z, \
@@ -2759,6 +2759,43 @@ def hlmoff(P, Lmax=2):
     Hlms = lalsim.SphHarmFrequencySeriesFromSphHarmTimeSeries(hlms)
 
     return Hlms
+
+def hlmoft_SpinTaylorManual_dict(P,Lmax=2):
+    """
+    Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
+    with parameters P. Returns a dictionary of modes.
+    Just for SpinTaylor, using manual interface provided by Riccardo and Jake.
+
+    """
+
+    dictParams = P.to_lal_dict()
+    P.approx = approx = lalsim.GetApproximantFromString("SpinTaylorT4")
+    modearray=lalsim.SimInspiralCreateModeArray()
+    
+    #Construct array with modes you want (based off Lmax given)
+    modes_used = []
+    for l in np.arange(2,Lmax+1,1):
+        for m in np.arange(-l,l+1,1):
+            modes_used.append([l,m])
+            
+    for mode in modes_used:
+        lalsim.SimInspiralModeArrayActivateMode(modearray, mode[0], mode[1])
+        lalsim.SimInspiralModeArrayActivateMode(modearray, mode[0], -mode[1])
+        
+        #Get hlms thanks to Riccardo
+        hp, hx, V, Phi, S1x, S1y, S1z, S2x, S2y, S2z, LNx, LNy, LNz, E1x, E1y, E1z = lalsim.SimInspiralSpinTaylorDriver(P.phiref, P.deltaT, P.m1, P.m2, P.fmin, P.fref, P.dist, P.s1x, P.s1y,
+                                                                                                                        P.s1z, P.s2x, P.s2y, P.s2z, 0, 0,1,1,0,0, dictParams, approx)
+        hlm_struct = lalsim.SimInspiralSpinTaylorHlmModesFromOrbit(V, Phi, LNx, LNy, LNz, E1x, E1y, E1z,  S1x, S1y, S1z, S2x, S2y, S2z, P.m1, P.m2, P.dist, P.ampO, modearray)
+
+    #add padding 
+    if P.deltaF is not None:
+        TDlen = int(1./P.deltaF * 1./P.deltaT)
+        hxx = lalsim.SphHarmTimeSeriesGetMode(hlm_struct,2,2)
+        assert TDlen >= hxx.data.length
+        hlm_struct = lalsim.ResizeSphHarmTimeSeries(hlm_struct,0,TDlen)
+
+    return hlm_struct
+
 
 def conj_hlmoff(P, Lmax=2):
     hlms = hlmoft(P, Lmax)
