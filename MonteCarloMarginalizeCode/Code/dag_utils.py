@@ -1152,11 +1152,11 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
 #    ile_job.add_opt("ifo","$(ifo)")
 #    ile_job.add_opt("$(ifo)-cache",cache_file)
     for ifo in channel_dict:
-         channel_name, channel_flow = channel_dict[ifo]
-         ile_job.add_opt("ifo", ifo)
-         ile_job.add_opt(ifo+"-channel", ifo+":"+channel_name)
-         ile_job.add_opt(ifo+"-cache", cache_file)
-         ile_job.add_opt(ifo+"-flow", str(channel_flow))
+        channel_name, channel_flow = channel_dict[ifo]
+        ile_job.add_arg("--ifo "+ ifo)  # need to prevent overwriting!
+        ile_job.add_opt(ifo+"-channel", ifo+":"+channel_name)
+        ile_job.add_opt(ifo+"-cache", cache_file)
+        ile_job.add_opt(ifo+"-flow", str(channel_flow))
 
     # Add lame initial argument
     if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
@@ -1260,7 +1260,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
     # Loop over IFOs
     for ifo in channel_dict:
         channel_name, channel_flow = channel_dict[ifo]
-        ile_job.add_opt("ifo", ifo)
+        ile_job.add_arg("--ifo " + ifo)
         ile_job.add_opt(ifo+"-channel", ifo+":"+channel_name)
         ile_job.add_opt(ifo+"-cache", cache_file)
         ile_job.add_opt(ifo+"-flow", str(channel_flow))
