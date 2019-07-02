@@ -2703,7 +2703,7 @@ def hlmoft_SEOB_dict(P,Lmax=2):
                 hlms[mode_conj] = hC2
         return hlms
 
-    if not (P.approx == lalsim.SEOBNRv2 or P.approx==lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx==lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
+    if not (P.approx == lalsim.SEOBNRv2 or P.approx==lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv4_opt or P.approx==lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
         return None
 
     # Remember, we have a fiducial orientation for the h22. 
