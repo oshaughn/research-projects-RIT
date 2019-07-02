@@ -1133,7 +1133,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
     # Loop over IFOs
     # You should only have one, in the workflow for which this is intended
     # Problem: 
-    ile_job.add_arg("$(macroargument0")
+    ile_job.add_arg("$(macroargument0)")
 
 
     #
