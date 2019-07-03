@@ -15,7 +15,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname-psd-ascii",default=None)
 parser.add_argument("--prefix-out",default="",type=str)
-parser.add_argument("--conventional-postfix",default="",type=str)
+parser.add_argument("--conventional-postfix",action='store_true')
 parser.add_argument("--ifo",default="H1")
 parser.add_argument("--asd",action='store_true', help="If specified, the input is an ASD. Square it.")
 opts=  parser.parse_args()

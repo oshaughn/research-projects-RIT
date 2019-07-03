@@ -2553,7 +2553,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
 
-    if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4 or P.approx == lalSEOBNRv4HM):
+    if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx==lalsim.SEOBNRv4_opt or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4 or P.approx == lalSEOBNRv4HM):
         hlm_out = hlmoft_SEOB_dict(P,Lmax=Lmax)
         if True: #P.taper:
             ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
@@ -2703,7 +2703,7 @@ def hlmoft_SEOB_dict(P,Lmax=2):
                 hlms[mode_conj] = hC2
         return hlms
 
-    if not (P.approx == lalsim.SEOBNRv2 or P.approx==lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx==lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
+    if not (P.approx == lalsim.SEOBNRv2 or P.approx==lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv4_opt or P.approx==lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4):
         return None
 
     # Remember, we have a fiducial orientation for the h22. 
