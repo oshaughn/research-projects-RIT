@@ -448,7 +448,9 @@ if opts.use_bw_psd:
     # bw2_job.write_sub_file()
 
     # write convert command
-    convert_psd_job, convert_psd_job_name = dag_utils.write_convertpsd_sub(ifo="$(ifo)",file_input=bw_dir+"/$(ifo)_burnin_psd.dat",log_dir=bw_dir+"/")
+    event_time_trunc ='%.2f' % float(opts_ile.event_time)   # format so only 3 digits after decimal 
+    event_time_trunc += '0'  # add last character, always zero?
+    convert_psd_job, convert_psd_job_name = dag_utils.write_convertpsd_sub(ifo="$(ifo)",file_input=bw_dir+"/" + str(event_time_trunc) + "_$(ifo)-PSD.dat",log_dir=bw_dir+"/")
     convert_psd_job.add_condor_cmd('initialdir',working_dir_inside)
     convert_psd_job.write_sub_file()
 
