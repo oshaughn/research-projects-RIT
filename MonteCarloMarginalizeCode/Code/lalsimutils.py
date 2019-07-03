@@ -905,10 +905,10 @@ class ChooseWaveformParams:
             self.psi = np.random.uniform(0, 2*np.pi)  # match PE range
         if not zero_spin_Q and not aligned_spin_Q:
             s1mag = np.random.uniform(sMin,sMax)
-            s1theta = np.random.uniform(0,np.pi)
+            s1theta = np.arccos(np.random.uniform(-1,1))
             s1phi = np.random.uniform(0,2*np.pi)
             s2mag = np.random.uniform(sMin,sMax)
-            s2theta = np.random.uniform(0,np.pi)
+            s2theta = np.arccos(np.random.uniform(-1,1))
             s2phi = np.random.uniform(0,2*np.pi)
             self.s1x = s1mag * sin(s1theta) * cos(s1phi)
             self.s1y = s1mag * sin(s1theta) * sin(s1phi)
