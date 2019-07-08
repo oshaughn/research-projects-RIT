@@ -404,14 +404,14 @@ class ChooseWaveformParams:
                 self.s1x,self.s1y,self.s1z = val* chi1Vec/chi1VecMag
             return self
         if p == 'chi2':
-            chi1Vec = np.array([self.s2x,self.s2y,self.s2z])
-            chi1VecMag = np.sqrt(np.dot(chi1Vec,chi1Vec))
-            if chi1VecMag < 1e-5:
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            chi2VecMag = np.sqrt(np.dot(chi2Vec,chi2Vec))
+            if chi2VecMag < 1e-5:
                 Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
                 Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
                 self.s2x,self.s2y,self.s2z = val*Lhat
             else:
-                self.s2x,self.s2y,self.s2z = val* chi1Vec/chi1VecMag
+                self.s2x,self.s2y,self.s2z = val* chi2Vec/chi2VecMag
             return self
         if p == 'thetaJN':
             if self.fref is 0:
@@ -618,8 +618,8 @@ class ChooseWaveformParams:
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             return np.sqrt(np.dot(chi1Vec,chi1Vec))
         if p == 'chi2':
-            chi1Vec = np.array([self.s2x,self.s2y,self.s2z])
-            return np.sqrt(np.dot(chi1Vec,chi1Vec))
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            return np.sqrt(np.dot(chi2Vec,chi2Vec))
         if p == 'chi1_perp':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
             if spin_convention == "L":
