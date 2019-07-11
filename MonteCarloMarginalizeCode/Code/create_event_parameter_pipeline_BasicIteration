@@ -685,6 +685,7 @@ if opts.gridinit_args:
    dag.add_node(grid_node)
    parent_fit_node = grid_node  # this must happen before the first ILE jobs
 
+convert_psd_node_list = []
 if opts.use_bw_psd:
     print " ===> Adding BW PSD nodes to dag <=== "
 
@@ -722,6 +723,7 @@ if opts.use_bw_psd:
         convert_psd_node.add_macro('ifo',ifo)
         convert_psd_node.set_retry(opts.ile_retries)  # these fail all the time
         dag.add_node(convert_psd_node)
+        convert_psd_node_list.append(convert_psd_node)
 
 n_group = opts.ile_n_events_to_analyze
 
@@ -753,6 +755,9 @@ for it in np.arange(it_start,opts.n_iterations):
         ile_node.add_macro("macroiteration", it)
         if not(parent_fit_node is None):
             ile_node.add_parent(parent_fit_node)
+        if it == it_start:
+            for node in convert_psd_node_list:  # for every PSD conversion job, make sure PSD is present before we run the first iteration!
+                ile_node.add_parent(node)
         con_node.add_parent(ile_node) # consolidate depends on all of the individual jobs
         dag.add_node(ile_node)
 
