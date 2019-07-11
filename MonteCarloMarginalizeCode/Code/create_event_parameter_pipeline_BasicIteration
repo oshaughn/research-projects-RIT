@@ -709,7 +709,7 @@ if opts.use_bw_psd:
         bw_arg_str += " --"+ifo+"-flow "+str(channel_flow)
         bw_arg_str += " --"+ifo+"-timeslide 0.0"
         bw0_node.add_macro('macroargument0',bw_arg_str)
-        bw0_node.add_retry(opts.ile_retries)  # these fail all the time
+        bw0_node.set_retry(opts.ile_retries)  # these fail all the time
         dag.add_node(bw0_node)
 
         # Need correct inheritance: this will be annoying b/c loop below does not allow for it
@@ -720,7 +720,7 @@ if opts.use_bw_psd:
 #            convert_psd_node.add_parent(parent_fit_node)
         parent_fit_node = convert_psd_node
         convert_psd_node.add_macro('ifo',ifo)
-        convert_psd_node.add_retry(opts.ile_retries)  # these fail all the time
+        convert_psd_node.set_retry(opts.ile_retries)  # these fail all the time
         dag.add_node(convert_psd_node)
 
 n_group = opts.ile_n_events_to_analyze
