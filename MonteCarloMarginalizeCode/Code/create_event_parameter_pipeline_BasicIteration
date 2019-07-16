@@ -860,6 +860,8 @@ for it in np.arange(it_start,opts.n_iterations):
         join_node.set_category("join_cip")
         join_node.add_parent(worker_node)
         
+        dag.add_node(worker_node)
+        dag.add_node(join_node)
         parent_fit_node=join_node
 
     # Check if puffball being created, and if so create it *immediately* after CIP job creates the overlap-grid file
@@ -870,7 +872,7 @@ for it in np.arange(it_start,opts.n_iterations):
         puff_node.add_macro("macroiteration", it)
         puff_node.add_macro("macroiterationnext", it+1)
         puff_node.set_category("PUFF")
-        puff_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
+        puff_node.add_parent(fit_node)  # only fit if we have results from the previous iteration
         dag.add_node(puff_node) 
         
         parent_fit_node = puff_node
