@@ -1589,7 +1589,9 @@ def write_joingrids_sub(tag='join_grids', exe=None, input_pattern=None,target_di
     fname_out =target_dir + "/" +output_base + ".xml"
     ile_job.set_stdout_file(fname_out)
 
-    ile_job.add_condor_cmd("+PostCmd", ' " gzip ' +fname_out + '"')
+    ile_job.add_condor_cmd("+PostCmd", ' "gzip ' +fname_out + '"')
+
+    ile_job.add_arg("overlap-grid*.xml.gz")  # working in our current directory
 
     ile_job.add_condor_cmd('getenv', 'True')
     try:
