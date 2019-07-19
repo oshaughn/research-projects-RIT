@@ -1586,7 +1586,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, input_pattern=None,target_di
     uniq_str = "$(cluster)-$(process)"
     ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
-    fname_out =base_target_dir + "/" +output_base + ".xml"
+    fname_out =target_dir + "/" +output_base + ".xml"
     ile_job.set_stdout_file(fname_out)
 
     ile_job.add_condor_cmd("+PostCmd", ' " gzip ' +fname_out + '"')
