@@ -147,7 +147,8 @@ for indx_P in np.arange(len(P_list)):
             fac = lal.MSUN_SI
         P_list[indx_P].assign_param( coord_names[indx], X_out[indx_P,indx]*fac)
 
-    if lalsimutils.estimateWaveformDuration(P)> opts.enforce_duration_bound:
+    if not(opts.enforce_duration_bound is None):
+      if lalsimutils.estimateWaveformDuration(P)> opts.enforce_duration_bound:
         include_item = False
     for param in downselect_dict:
         if P.extract_param(param) < downselect_dict[param][0] or P.extract_param(param) > downselect_dict[param][1]:
