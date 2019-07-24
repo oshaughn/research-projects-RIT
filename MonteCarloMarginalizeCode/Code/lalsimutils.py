@@ -2555,7 +2555,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 
     if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx==lalsim.SEOBNRv4_opt or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4 or P.approx == lalSEOBNRv4HM):
         hlm_out = hlmoft_SEOB_dict(P,Lmax=Lmax)
-        if True: #P.taper:
+        if True: #not (P.taper == lsu_TAPER_NONE): #True: #P.taper:
             ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
             ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
@@ -2578,6 +2578,24 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                 hlm_out[key].data.data *= sign_factor
                 hlm_out[key].data.data[:ntaper]*=vectaper
         return hlm_out
+
+    if ('IMRPhenomP' in  lalsim.GetStringFromApproximant(P.approx) ) and not (P.SoftAlignedQ()):
+        hlms = hlmoft_IMRPv2_dict(P)
+        if not (P.deltaF is None):
+            TDlen = int(1./P.deltaF * 1./P.deltaT)
+            for mode in hlms:
+                if TDlen > hlms[mode].data.length:
+                    hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlms[mode],0,TDlen)
+        if True: #P.taper:
+            ntaper = int(0.01*hlms[(2,2)].data.length)  # fixed 1% of waveform length, at start, be consistent with other methods
+            ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
+            vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+            for key in hlms.keys():
+                # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
+                hlms[key].data.data *= sign_factor
+                hlms[key].data.data[:ntaper]*=vectaper
+
+        return hlms
 
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
@@ -2730,6 +2748,66 @@ def hlmoft_SEOB_dict(P,Lmax=2):
 
     return hlm_dict
 
+
+def hlmoft_IMRPv2_dict(P,sgn=-1):
+    """
+    Reconstruct hlm(t) from h(t,nhat) evaluated in 5 different nhat directions, specifically for IMRPhenomPv2
+    Using SimInspiralTD evaluated at nhat=zhat  (zhat=Jhat), nhat=-zhat, and at three points in the equatorial plane.
+    There is an analytic solution, but for code transparency I do the inverse numerically rather than code it in
+    """
+
+#<< RotationAndHarmonics`SpinWeightedHarmonics`
+#expr = Sum[  SpinWeightedSphericalHarmonicY[-2, 2, m, th, ph] h[m], {m, -2, 2}]
+#vecHC = Map[(expr /. {th -> #[[1]], ph -> #[[2]]}) &, { {0, 0}, {Pi,     0}, {Pi/2, 0}, {Pi/2, Pi/2}, {Pi/2, 3 Pi/2}}]
+#mtx = Table[Coefficient[vecHC, h[m]], {m, -2, 2}] // Simplify
+#Inverse[mtx] // Simplify
+
+    mtxAngularForward = np.zeros((5,5),dtype=np.complex64)
+    paramsForward =[ [0,0], [np.pi,0], [np.pi/2,0], [np.pi/2,np.pi/2], [np.pi/2, 3*np.pi/2]];
+    mvals = [-2,-1,0,1,2]
+    for indx in np.arange(len(paramsForward)):
+        for indx2 in np.arange(5):
+            m = mvals[indx2]
+            th,ph = paramsForward[indx]
+            mtxAngularForward[indx,indx2] = lal.SpinWeightedSphericalHarmonic(th,ph,-2,2,m)
+    mtx = np.linalg.inv(mtxAngularForward)
+
+
+    # Now generate solutions at these values
+    P_copy = P.manual_copy()
+    hTC_list = []
+    for indx in np.arange(len(paramsForward)):
+        th,ph = paramsForward[indx]
+        P_copy.assign_param('thetaJN', th)
+        P_copy.assign_param('phiref',ph)
+        #        hT = complex_hoft(P_copy)
+        extra_params = P_copy.to_lal_dict()
+        hp, hc = lalsim.SimInspiralTD( \
+            P_copy.m1, P_copy.m2, \
+            P_copy.s1x, P_copy.s1y, P_copy.s1z, \
+            P_copy.s2x, P_copy.s2y, P_copy.s2z, \
+            P_copy.dist, P_copy.incl, P_copy.phiref,  \
+            P_copy.psi, P_copy.eccentricity, P_copy.meanPerAno, \
+            P_copy.deltaT, P_copy.fmin, P_copy.fref, \
+            extra_params, P_copy.approx)
+        hT = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
+            hp.deltaT, lsu_DimensionlessUnit, hp.data.length)
+        hT.epoch = hT.epoch + P_copy.tref
+        hT.data.data = hp.data.data + 1j * sgn * hc.data.data
+
+        hTC_list.append(hT)
+
+    # Now construct the hlm from this sequence
+    hlmT = {}
+    for indx2 in np.arange(5):
+        m = mvals[indx2]
+        hlmT[(2,m)] = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
+            hp.deltaT, lsu_DimensionlessUnit, hp.data.length)
+        hlmT[(2,m)].epoch = hTC_list[0].epoch
+        for indx in np.arange(len(paramsForward)):
+            hlmT[(2,m)].data.data += mtx[indx2,indx] * hTC_list[indx].data.data
+    
+    return hlmT
 
 def hlmoff(P, Lmax=2):
     """
