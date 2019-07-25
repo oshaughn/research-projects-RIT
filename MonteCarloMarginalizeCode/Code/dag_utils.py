@@ -1555,7 +1555,7 @@ def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,t
     return ile_job, ile_sub_name
 
 
-def write_joingrids_sub(tag='join_grids', exe=None, input_pattern=None,target_dir=None,output_base=None,log_dir=None,n_explode=1,  **kwargs):
+def write_joingrids_sub(tag='join_grids', exe=None, input_pattern=None,target_dir=None,output_base=None,log_dir=None,n_explode=1, old_add=True, **kwargs):
     """
     Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.
     """
@@ -1597,6 +1597,9 @@ def write_joingrids_sub(tag='join_grids', exe=None, input_pattern=None,target_di
     explode_str += " {}.xml.gz ".format(output_base)
     ile_job.add_arg(explode_str)
 #    ile_job.add_arg("overlap-grid*.xml.gz")  # working in our current directory
+    
+    if old_add:
+        ile_job.add_opt("ilwdchar-compat",'')  # needed?
 
     ile_job.add_condor_cmd('getenv', 'True')
     try:
