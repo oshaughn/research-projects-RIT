@@ -1194,7 +1194,11 @@ class ChooseWaveformParams:
         """
         Test if L,S1,S2 all parallel to *one another*
         """
-        Lvec = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
+        if not(spin_convention == 'radiation'):
+            return np.abs(self.s1x)+np.abs(self.s2x)+np.abs(self.s1y)+np.abs(self.s2y) < 1e-5
+        Lvec = self.OrbitalAngularMomentumAtReference()
+        Lvec = Lvec/np.sqrt(np.dot(Lvec,Lvec))
+#        Lvec = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
         S1 = np.array([self.s1x,self.s1y, self.s1z])
         S2 = np.array([self.s2x,self.s2y, self.s2z])
         if np.dot(S1,S1) < 1e-5:
