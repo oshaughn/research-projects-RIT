@@ -2773,7 +2773,7 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
         for indx2 in np.arange(5):
             m = mvals[indx2]
             th,ph = paramsForward[indx]
-            mtxAngularForward[indx,indx2] = lal.SpinWeightedSphericalHarmonic(th,ph,-2,2,m)
+            mtxAngularForward[indx,indx2] = lal.SpinWeightedSphericalHarmonic(th,-ph,-2,2,m)  # note phase sign
     mtx = np.linalg.inv(mtxAngularForward)
 
 
@@ -2782,7 +2782,8 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
     hTC_list = []
     for indx in np.arange(len(paramsForward)):
         th,ph = paramsForward[indx]
-        P_copy.assign_param('thetaJN', th)
+#        P_copy.assign_param('thetaJN', th)  # to be CONSISTENT with h(t) produced by ChooseTD, need to use incl here (!!)
+        P_copy.assign_param('incl', th)  # to be CONSISTENT with h(t) produced by ChooseTD, need to use incl here (!!)
         P_copy.assign_param('phiref',ph)
         #        hT = complex_hoft(P_copy)
         extra_params = P_copy.to_lal_dict()
@@ -2791,13 +2792,13 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
             P_copy.s1x, P_copy.s1y, P_copy.s1z, \
             P_copy.s2x, P_copy.s2y, P_copy.s2z, \
             P_copy.dist, P_copy.incl, P_copy.phiref,  \
-            P_copy.psi, P_copy.eccentricity, P_copy.meanPerAno, \
+            0, P_copy.eccentricity, P_copy.meanPerAno, \
             P_copy.deltaT, P_copy.fmin, P_copy.fref, \
             extra_params, P_copy.approx)
         hT = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
             hp.deltaT, lsu_DimensionlessUnit, hp.data.length)
         hT.epoch = hT.epoch + P_copy.tref
-        hT.data.data = hp.data.data + 1j * sgn * hc.data.data
+        hT.data.data = np.real(hp.data.data) + 1j * sgn * np.real(hc.data.data) # make absolutely sure no surprises
 
         hTC_list.append(hT)
 
@@ -2808,6 +2809,7 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
         hlmT[(2,m)] = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
             hp.deltaT, lsu_DimensionlessUnit, hp.data.length)
         hlmT[(2,m)].epoch = hTC_list[0].epoch
+        hlmT[(2,m)].data.data *=0   # this is needed, memory is not reliably cleaned
         for indx in np.arange(len(paramsForward)):
             hlmT[(2,m)].data.data += mtx[indx2,indx] * hTC_list[indx].data.data
     
