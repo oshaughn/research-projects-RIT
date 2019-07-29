@@ -873,7 +873,8 @@ for it in np.arange(it_start,opts.n_iterations):
         puff_node.add_macro("macroiteration", it)
         puff_node.add_macro("macroiterationnext", it+1)
         puff_node.set_category("PUFF")
-        puff_node.add_parent(fit_node)  # only fit if we have results from the previous iteration
+        if not (parent_fit_node is None):
+            puff_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
         dag.add_node(puff_node) 
         
         parent_fit_node = puff_node
