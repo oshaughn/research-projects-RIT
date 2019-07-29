@@ -2758,6 +2758,10 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
     Reconstruct hlm(t) from h(t,nhat) evaluated in 5 different nhat directions, specifically for IMRPhenomPv2
     Using SimInspiralTD evaluated at nhat=zhat  (zhat=Jhat), nhat=-zhat, and at three points in the equatorial plane.
     There is an analytic solution, but for code transparency I do the inverse numerically rather than code it in
+
+    ISSUES
+      - lots of instability in recovery depending on point set used (e.g., degeneracy in aligned spin case)
+      - suspect issues with the waveform interface
     """
 
 #<< RotationAndHarmonics`SpinWeightedHarmonics`
@@ -2766,8 +2770,21 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
 #mtx = Table[Coefficient[vecHC, h[m]], {m, -2, 2}] // Simplify
 #Inverse[mtx] // Simplify
 
+# exprHere =   expr /. {h[1] -> 0, h[-1] -> 0, h[0] -> 0, 
+#     h[2] -> Exp[-I 2 \[CapitalPhi]], 
+#     h[-2] -> Exp[I 2 \[CapitalPhi]]} // Simplify
+# vals = Map[(exprHere /. {th -> #[[1]], ph -> -#[[2]]}) &, {{Pi, 
+#     0}, {Pi/2, 0}, {Pi/2, 2 Pi/3}, {Pi/2, 4 Pi/3}, {0, 0}}]
+# Transpose[imtx].vals // N // FullSimplify // Chop
+
     mtxAngularForward = np.zeros((5,5),dtype=np.complex64)
-    paramsForward =[ [0,0], [np.pi,0], [np.pi/2,0], [np.pi/2,np.pi/2], [np.pi/2, 3*np.pi/2]];
+    # Organize points so the (2,-2) and (2,2) mode clearly have contributions only from one point
+    # Problem with points in equatorial plane: pure real signal in aligned-spin limit! Degeneracy!
+#    paramsForward =[ [np.pi,0], [np.pi/2,0], [np.pi/2,np.pi/2], [np.pi/2, 3*np.pi/2], [0,0]];
+#    paramsForward =[ [np.pi,0], [np.pi/2,0], [np.pi/2, np.pi/3], [np.pi/2, 2*np.pi/3], [0,0]];
+    paramsForward =[ [np.pi,0], [np.pi/3,0], [np.pi/2, 0], [2*np.pi/3, 0], [0,0]];
+#    paramsForward =[ [np.pi,0], [np.pi/2,0], [np.pi/4, 0],[3*np.pi/4,np.pi], [0,0]];
+#    paramsForward =[ [np.pi,0], [np.pi/4,np.pi/4], [np.pi/2, np.pi/2], [3*np.pi/4,3*np.pi/2],[0,np.pi]];
     mvals = [-2,-1,0,1,2]
     for indx in np.arange(len(paramsForward)):
         for indx2 in np.arange(5):
@@ -2776,38 +2793,39 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
             mtxAngularForward[indx,indx2] = lal.SpinWeightedSphericalHarmonic(th,-ph,-2,2,m)  # note phase sign
     mtx = np.linalg.inv(mtxAngularForward)
 
+#    print np.around(mtx,decimals=5)
 
     # Now generate solutions at these values
     P_copy = P.manual_copy()
+    # Force rouding of tiny transverse spins, to avoid numerical problems associated with the way the PhenomP code defines orientations
+    P_copy.s1x = int(P.s1x*1e4)/1.e4
+    P_copy.s2x = int(P.s2x*1e4)/1.e4
+    P_copy.s1y = int(P.s1y*1e4)/1.e4
+    P_copy.s2y = int(P.s2y*1e4)/1.e4
+
     hTC_list = []
     for indx in np.arange(len(paramsForward)):
         th,ph = paramsForward[indx]
 #        P_copy.assign_param('thetaJN', th)  # to be CONSISTENT with h(t) produced by ChooseTD, need to use incl here (!!)
-        P_copy.assign_param('incl', th)  # to be CONSISTENT with h(t) produced by ChooseTD, need to use incl here (!!)
-        P_copy.assign_param('phiref',ph)
-        #        hT = complex_hoft(P_copy)
-        extra_params = P_copy.to_lal_dict()
-        hp, hc = lalsim.SimInspiralTD( \
-            P_copy.m1, P_copy.m2, \
-            P_copy.s1x, P_copy.s1y, P_copy.s1z, \
-            P_copy.s2x, P_copy.s2y, P_copy.s2z, \
-            P_copy.dist, P_copy.incl, P_copy.phiref,  \
-            0, P_copy.eccentricity, P_copy.meanPerAno, \
-            P_copy.deltaT, P_copy.fmin, P_copy.fref, \
-            extra_params, P_copy.approx)
-        hT = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
-            hp.deltaT, lsu_DimensionlessUnit, hp.data.length)
-        hT.epoch = hT.epoch + P_copy.tref
-        hT.data.data = np.real(hp.data.data) + 1j * sgn * np.real(hc.data.data) # make absolutely sure no surprises
+        P_copy.incl = th  # to be CONSISTENT with h(t) produced by ChooseTD, need to use incl here (!!)
+        P_copy.phiref = ph
+        # Note argument change!  Hack to recover reasonable hlm modes for (2,+/-1), (2,0)
+        # Something is funny about how SimInspiralFD/etc applies all these coordinate transforms
+        if P_copy.fref ==0:
+            P_copy.fref = P_copy.fmin
+#        if np.abs(np.cos(P_copy.incl))<1:
+#            P_copy.phiref =  P_copy.phiref
+#            P_copy.psi = P_copy.phiref # polarization angle is set by emission direction, physically
 
-        hTC_list.append(hT)
+        hTC = complex_hoft_IMRPv2(P_copy)
+        hTC_list.append(hTC)
 
     # Now construct the hlm from this sequence
     hlmT = {}
     for indx2 in np.arange(5):
         m = mvals[indx2]
-        hlmT[(2,m)] = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
-            hp.deltaT, lsu_DimensionlessUnit, hp.data.length)
+        hlmT[(2,m)] = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hTC.epoch, hTC.f0, 
+            hTC.deltaT, lsu_DimensionlessUnit, hTC.data.length)
         hlmT[(2,m)].epoch = hTC_list[0].epoch
         hlmT[(2,m)].data.data *=0   # this is needed, memory is not reliably cleaned
         for indx in np.arange(len(paramsForward)):
@@ -2984,6 +3002,32 @@ def complex_hoft(P, sgn=-1):
     ht.epoch = ht.epoch + P.tref
     ht.data.data = hp.data.data + 1j * sgn * hc.data.data
     return ht
+
+def complex_hoft_IMRPv2(P_copy,sgn=-1):
+    """
+    Generate a complex TD waveform from ChooseWaveformParams P, using SimInspiralTD
+    Returns h(t) = h+(t) + 1j sgn hx(t)
+    where sgn = -1 (default) or 1
+
+    Returns a COMPLEX16TimeSeries object
+
+    Designed specifically to help interface with IMRPhenomPv2
+    """
+    extra_params = P_copy.to_lal_dict()
+    hp, hc = lalsim.SimInspiralTD( \
+            P_copy.m1, P_copy.m2, \
+            P_copy.s1x, P_copy.s1y, P_copy.s1z, \
+            P_copy.s2x, P_copy.s2y, P_copy.s2z, \
+            P_copy.dist, P_copy.incl, P_copy.phiref,  \
+            P_copy.psi, P_copy.eccentricity, P_copy.meanPerAno, \
+            P_copy.deltaT, P_copy.fmin, P_copy.fref, \
+            extra_params, P_copy.approx)
+    hT = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
+            hp.deltaT, lsu_DimensionlessUnit, hp.data.length)
+    hT.epoch = hT.epoch + P_copy.tref
+    hT.data.data = np.real(hp.data.data) + 1j * sgn * np.real(hc.data.data) # make absolutely sure no surprises
+    return hT
+
 
 def complex_hoff(P, sgn=-1, fwdplan=None):
     """
