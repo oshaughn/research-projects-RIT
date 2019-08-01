@@ -2797,6 +2797,7 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
 
     # Now generate solutions at these values
     P_copy = P.manual_copy()
+    P_copy.tref =0  # we do not need or want this offset when constructing hlm
     # Force rouding of tiny transverse spins, to avoid numerical problems associated with the way the PhenomP code defines orientations
     P_copy.s1x = int(P.s1x*1e4)/1.e4
     P_copy.s2x = int(P.s2x*1e4)/1.e4
@@ -2826,7 +2827,7 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
         m = mvals[indx2]
         hlmT[(2,m)] = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hTC.epoch, hTC.f0, 
             hTC.deltaT, lsu_DimensionlessUnit, hTC.data.length)
-        hlmT[(2,m)].epoch = hTC_list[0].epoch
+        hlmT[(2,m)].epoch = float(hTC_list[0].epoch)
         hlmT[(2,m)].data.data *=0   # this is needed, memory is not reliably cleaned
         for indx in np.arange(len(paramsForward)):
             hlmT[(2,m)].data.data += mtx[indx2,indx] * hTC_list[indx].data.data
