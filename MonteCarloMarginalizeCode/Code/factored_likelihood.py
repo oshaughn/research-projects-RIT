@@ -1904,57 +1904,16 @@ def ComputeYlmsArray(lookupNK, theta, phi):
     return Ylms
 
 
-try: 
-        import numba
-        from numba import vectorize, complex128, float64, int64
-        numba_on = True
-        print " Numba on "
-
-        # Very inefficient : decorating
-        @vectorize([complex128(float64,float64,int64,int64,int64)])
-        def lalylm(th,ph,s,l,m):
-                return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
-        # @vectorize
-        # def lalF(det, RA,DEC,psi,tref):
-        #         return ComplexAntennaFactor(det, RA, DEC, psi, tref)
-        # @vectorize
-        # def lalT(deta, RA, DEC, tref):
-                return ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
-
-        def lalF(det, RA, DEC,psi,tref): # note tref is a SCALAR
-                F = np.zeros( len(RA), dtype=complex)
-                for indx  in np.arange(len(RA)):
-                        F[indx] = ComplexAntennaFactor(det, RA[indx],DEC[indx], psi[indx], tref)
-                return F
-        def lalT(det, RA, DEC,tref): # note tref is a SCALAR
-                T = np.zeros( len(RA), dtype=float)
-                for indx  in np.arange(len(RA)):
-                        T[indx] = ComputeArrivalTimeAtDetector(det, RA[indx],DEC[indx],  tref)
-                return T
-
-except:
-        numba_on = False
-        print " Numba off "
-        # Very inefficient
-        def lalylm(th,ph,s,l,m):
-                return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
-        def lalF(det, RA, DEC,psi,tref):
-                if isinstance(RA, float):
-                        return ComplexAntennaFactor(det, RA, DEC, psi,tref)
-                F = np.zeros( len(RA), dtype=complex)
-                for indx  in np.arange(len(RA)):
-                        F[indx] = ComplexAntennaFactor(det, RA[indx],DEC[indx], psi[indx], tref)
-                return F
-        def lalT(det, RA, DEC,tref):
-                if isinstance(RA, float):
-                        return ComputeArrivalTimeAtDetector(det, RA, DEC,tref)
-                T = np.zeros( len(RA), dtype=float)
-                for indx  in np.arange(len(RA)):
-                        T[indx] = ComputeArrivalTimeAtDetector(det, RA[indx],DEC[indx], tref)
-                return T
-
-#        lalF = ComplexAntennaFactor
-#        lalT = ComputeArrivalTimeAtDetector
+def lalF(det, RA, DEC,psi,tref): # note tref is a SCALAR
+        F = np.zeros( len(RA), dtype=complex)
+        for indx  in np.arange(len(RA)):
+                F[indx] = ComplexAntennaFactor(det, RA[indx],DEC[indx], psi[indx], tref)
+        return F
+def lalT(det, RA, DEC,tref): # note tref is a SCALAR
+        T = np.zeros( len(RA), dtype=float)
+        for indx  in np.arange(len(RA)):
+                T[indx] = ComputeArrivalTimeAtDetector(det, RA[indx],DEC[indx],  tref)
+        return T
 
 def ComputeYlmsArrayVector(lookupNK, theta, phi):
     """
@@ -1971,13 +1930,16 @@ def ComputeYlmsArrayVector(lookupNK, theta, phi):
     # Allocate
     Ylms = np.zeros((len(lookupNK), len(theta)),dtype=complex)
 
+    # Vectorize the spin-weighted spherical harmonic calculation:
+    vfunc = np.vectorize(lal.SpinWeightedSphericalHarmonic)
+
     # Loop over l, m and evaluate.
     for indx in range(len(lookupNK)):
-            l = int(lookupNK[indx][0])*np.ones(len(theta),dtype=int)   # use np.repeat instead for speed
-            m = int(lookupNK[indx][1])*np.ones(len(theta),dtype=int)
-            s = -2 * np.ones(len(theta),dtype=int)
+        l = int(lookupNK[indx][0])
+        m = int(lookupNK[indx][1])
+        s = -2
+        Ylms[indx] = vfunc(theta, phi, s, l, m)
 
-            Ylms[indx] = lalylm(theta, phi, s, l, m)
     return Ylms
 
 
