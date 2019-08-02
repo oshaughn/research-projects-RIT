@@ -575,7 +575,7 @@ def tapered_magnitude_prior(x,loc=0.65,kappa=19.):   #
     
     return f1/(1+f1)/(1+f2)
 
-def tapered_magnitude_prior_alt(x,loc=0.85,kappa=20.):   # 
+def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   # 
     """ 
     tapered_magnitude_prior is 1 above the scale factor and 0 below it
         1/ (1+f) =
@@ -714,7 +714,7 @@ if opts.prior_tapered_mass_ratio:
     if not  'q' in low_level_coord_names:
         print " Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)"
         sys.exit(0)
-    prior_map['q'] = functools.partial(tapered_magnitude_prior_alt,loc=0.85,kappa=20.)  # not fully normalized, and very ad-hoc
+    prior_map['q'] = functools.partial(tapered_magnitude_prior_alt,loc=0.8,kappa=20.)  # not fully normalized, and very ad-hoc
 
 
 # tex_dictionary  = {

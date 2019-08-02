@@ -1554,3 +1554,62 @@ def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,t
 
     return ile_job, ile_sub_name
 
+
+def write_joingrids_sub(tag='join_grids', exe=None, input_pattern=None,target_dir=None,output_base=None,log_dir=None,n_explode=1, gzip="/usr/bin/gzip", old_add=True, **kwargs):
+    """
+    Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.
+    """
+    exe = exe or which("ligolw_add")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
+
+#     exe_here = "my_join.sh"
+#     with open(exe_here,'w') as f:
+#             f.write("#! /bin/bash  \n")
+#             f.write(r"""
+# #!/bin/bash
+# # Modules and scripts run directly from repository
+# # Note the repo and branch are self-referential ! Not a robust solution long-term
+# # Exit on failure:
+# # set -e
+# {} {}  > {}/{}.xml
+# gzip {}.{}.xml""".format(exe,input_pattern,target_dir,output_base,target_dir,output_base) )
+#     os.system("chmod a+x "+exe_here)
+#     exe = exe_here  # update executable
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    fname_out =target_dir + "/" +output_base + ".xml.gz"
+    ile_job.add_arg("--output="+fname_out)
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+#    ile_job.set_stdout_file(fname_out)
+
+#    ile_job.add_condor_cmd("+PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
+
+    explode_str = ""
+    for indx in np.arange(n_explode):
+        explode_str+= " {}-{}.xml.gz ".format(output_base,indx)
+    explode_str += " {}.xml.gz ".format(output_base)
+    ile_job.add_arg(explode_str)
+#    ile_job.add_arg("overlap-grid*.xml.gz")  # working in our current directory
+    
+    if old_add:
+        ile_job.add_opt("ilwdchar-compat",'')  # needed?
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+
+    return ile_job, ile_sub_name
+
