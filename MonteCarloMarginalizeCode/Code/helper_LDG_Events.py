@@ -265,12 +265,16 @@ for cal in cal_versions:
             standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X01"
         if cal is "X02":
             standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X02" 
+        if cal is 'C01':
+            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_C01" 
 data_types["O3"][("C00", "V1")] = "V1Online"
 data_types["O3"][("X01", "V1")] = "V1Online"
 data_types["O3"][("X02", "V1")] = "V1Online"
+data_types["O3"][("C01", "V1")] = "V1Online"
 standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
 standard_channel_names["O3"][("X01", "V1")] = "Hrec_hoft_16384Hz"
 standard_channel_names["O3"][("X02", "V1")] = "Hrec_hoft_16384Hz"
+standard_channel_names["O3"][("C01", "V1")] = "Hrec_hoft_16384Hz"
 if opts.online:
     data_types["O3"][("C00", "V1")] = "V1_llhoft"
     standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
