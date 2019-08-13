@@ -2568,7 +2568,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                 # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
                 hlm_out[key].data.data[:ntaper]*=vectaper
         return hlm_out
-    elif P.approx == lalsim.SEOBNRv3:
+    elif P.approx == lalsim.SEOBNRv3 or P.approx == lalsim.SEOBNRv3_opt:
         hlm_out = hlmoft_SEOBv3_dict(P)
         if not hlm_out:
             print " Failed generation: SEOBNRv3 "

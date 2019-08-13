@@ -233,7 +233,8 @@ def extract_combination_from_LI(samples_LI, p):
         if p=='dlambdat':
             return dLt
 
-        
+    if p == "q"  and 'm1' in samples.dtype.names:
+        return samples["m2"]/samples["m1"]
 
     print " No access for parameter ", p, " in ", samples.dtype.names
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
@@ -244,6 +245,7 @@ def extract_combination_from_LI(samples_LI, p):
 parser = argparse.ArgumentParser()
 parser.add_argument("--posterior-file",action='append',help="filename of *.dat file [standard LI output]")
 parser.add_argument("--truth-file",type=str, help="file containing the true parameters")
+parser.add_argument("--posterior-distance-factor",action='append',help="Sequence of factors used to correct the distances")
 parser.add_argument("--truth-event",type=int, default=0,help="file containing the true parameters")
 parser.add_argument("--composite-file",action='append',help="filename of *.dat file [standard ILE intermediate]")
 parser.add_argument("--flag-tides-in-composite",action='store_true',help='Required, if you want to parse files with tidal parameters')
@@ -311,7 +313,11 @@ linestyle_list = ['-' for k in color_list]
 if opts.posterior_linestyle:
     linestyle_list = opts.posterior_linestyle + linestyle_list
 #linestyle_remap_contour  = {":", 'dotted', '-'
-    
+posterior_distance_factors = np.ones(len(opts.posterior_file))
+if opts.posterior_distance_factor:
+    for indx in np.arange(len(opts.posterior_file)):
+        posterior_distance_factors[indx] = float(opts.posterior_distance_factor[indx])
+
 line_handles = []
 corner_legend_location=None; corner_legend_prop=None
 if opts.use_legend and opts.posterior_label:
@@ -433,6 +439,13 @@ if opts.posterior_file:
         P_list.append(P)
     posteriorP_list.append(P_list)
 
+for indx in np.arange(len(posterior_list)):
+    samples = posterior_list[indx]
+    fac = posterior_distance_factors[indx]
+    if 'dist' in samples.dtype.names:
+        samples["dist"]*= fac
+    if 'distance' in samples.dtype.names:
+        samples["distance"]*= fac
 
 # Import
 composite_list = []
@@ -591,8 +604,9 @@ if opts.posterior_file:
 my_cmap_values=None
 for pIndex in np.arange(len(posterior_list)):
     samples = posterior_list[pIndex]
+    sample_names = samples.dtype.names; sample_ref_name  = sample_names[0]
     # Create data for corner plot
-    dat_mass = np.zeros( (len(samples["m1"]), len(labels_tex)) )
+    dat_mass = np.zeros( (len(samples[sample_ref_name]), len(labels_tex)) )
     my_cmap_values = color_list[pIndex]
     plot_range_list = []
     smooth_list =[]
