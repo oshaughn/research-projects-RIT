@@ -2590,6 +2590,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
             for mode in hlms:
                 if TDlen > hlms[mode].data.length:
                     hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlms[mode],0,TDlen)
+                if TDlen < hlms[mode].data.length:  # we have generated too long a signal!...truncate from LEFT. Danger!
+                    hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlms[mode],hlms[mode].data.length-TDlen,TDlen)
         if True: #P.taper:
             ntaper = int(0.01*hlms[(2,2)].data.length)  # fixed 1% of waveform length, at start, be consistent with other methods
             ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
@@ -2760,8 +2762,8 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
     There is an analytic solution, but for code transparency I do the inverse numerically rather than code it in
 
     ISSUES
-      - lots of instability in recovery depending on point set used (e.g., degeneracy in aligned spin case)
-      - suspect issues with the waveform interface
+      - lots of instability in recovery depending on point set used (e.g., degeneracy in aligned spin case). Need to choose intelligently
+      - duration of hlm is *longer* than deltaF (because of SimInspiralTD) in general.
     """
 
 #<< RotationAndHarmonics`SpinWeightedHarmonics`
