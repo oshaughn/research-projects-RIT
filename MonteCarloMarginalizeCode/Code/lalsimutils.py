@@ -2632,7 +2632,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         TDlen = int(1./P.deltaF * 1./P.deltaT)
         hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
         # Consider modifing TD behavior to be consistent with FD behavior used to match LI
-        assert TDlen >= hxx.data.length:
+        assert TDlen >= hxx.data.length
         hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
 
     hlm_dict = SphHarmTimeSeries_to_dict(hlms,Lmax)
