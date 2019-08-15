@@ -2631,13 +2631,20 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
         hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
-        assert TDlen >= hxx.data.length
+        # Consider modifing TD behavior to be consistent with FD behavior used to match LI
+        assert TDlen >= hxx.data.length:
         hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
 
     hlm_dict = SphHarmTimeSeries_to_dict(hlms,Lmax)
 
-    for key in hlm_dict:
-        hlm_dict[key].data.data *= sign_factor
+    for mode in hlm_dict:
+        hlm_dict[mode].data.data *= sign_factor
+
+        # Force waveform duration to fit inside target time!  (SimInspiralTD adds a lot of padding)
+        if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1 and not (P.deltaF is None):
+            TDlen = int(1./P.deltaF * 1./P.deltaT)
+            if TDlen < hlm_dict[mode].data.length:  # we have generated too long a signal!...truncate from LEFT. Danger!
+                    hlm_dict[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm_dict[mode],hlm_dict[mode].data.length-TDlen,TDlen)
 
     return hlm_dict   # note data type is different than with SEOB; need to finish port to pure dictionary
 
@@ -2688,7 +2695,6 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
         hlm_dict[key].data.data *= ampFac
         # epoch
         hlm_dict[key].epoch = hplus.epoch  # set the event as usual : t=0 corresponds to the time of the event
-
 
     return hlm_dict
 
