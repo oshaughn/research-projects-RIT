@@ -129,6 +129,13 @@ try:
 except:
     lalSEOBNRv4HM = -5
 
+try:
+    lalSEOBNRv4P = lalsim.SEOBNRv4P
+    lalSEOBNRv4PHM = lalsim.SEOBNRv4PHM
+except:
+    lalSEOBNRv4P = -6
+    lalSEOBNRv4PHM = -7
+
 MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
 
 
@@ -2590,6 +2597,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
             for mode in hlms:
                 if TDlen > hlms[mode].data.length:
                     hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlms[mode],0,TDlen)
+                if TDlen < hlms[mode].data.length:  # we have generated too long a signal!...truncate from LEFT. Danger!
+                    hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlms[mode],hlms[mode].data.length-TDlen,TDlen)
         if True: #P.taper:
             ntaper = int(0.01*hlms[(2,2)].data.length)  # fixed 1% of waveform length, at start, be consistent with other methods
             ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
@@ -2603,7 +2612,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
-    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
+    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSOBNRv4PHM):
         extra_params = P.to_lal_dict()
         hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
 	    P.s1x, P.s1y, P.s1z, \
@@ -2629,13 +2638,20 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
         hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
+        # Consider modifing TD behavior to be consistent with FD behavior used to match LI
         assert TDlen >= hxx.data.length
         hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
 
     hlm_dict = SphHarmTimeSeries_to_dict(hlms,Lmax)
 
-    for key in hlm_dict:
-        hlm_dict[key].data.data *= sign_factor
+    for mode in hlm_dict:
+        hlm_dict[mode].data.data *= sign_factor
+
+        # Force waveform duration to fit inside target time!  (SimInspiralTD adds a lot of padding)
+        if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1 and not (P.deltaF is None):
+            TDlen = int(1./P.deltaF * 1./P.deltaT)
+            if TDlen < hlm_dict[mode].data.length:  # we have generated too long a signal!...truncate from LEFT. Danger!
+                    hlm_dict[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm_dict[mode],hlm_dict[mode].data.length-TDlen,TDlen)
 
     return hlm_dict   # note data type is different than with SEOB; need to finish port to pure dictionary
 
@@ -2686,7 +2702,6 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
         hlm_dict[key].data.data *= ampFac
         # epoch
         hlm_dict[key].epoch = hplus.epoch  # set the event as usual : t=0 corresponds to the time of the event
-
 
     return hlm_dict
 
@@ -2760,8 +2775,8 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
     There is an analytic solution, but for code transparency I do the inverse numerically rather than code it in
 
     ISSUES
-      - lots of instability in recovery depending on point set used (e.g., degeneracy in aligned spin case)
-      - suspect issues with the waveform interface
+      - lots of instability in recovery depending on point set used (e.g., degeneracy in aligned spin case). Need to choose intelligently
+      - duration of hlm is *longer* than deltaF (because of SimInspiralTD) in general.
     """
 
 #<< RotationAndHarmonics`SpinWeightedHarmonics`
