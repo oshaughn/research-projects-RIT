@@ -713,6 +713,7 @@ if not opts.lowlatency_propose_approximant:
 #    helper_cip_args += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 5000 "
 
 if opts.propose_fit_strategy:
+    puff_max_it= 0
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
     print " Fit strategy NOT IMPLEMENTED -- currently just provides basic parameterization options. Need to work in real strategies (e.g., cip-arg-list)"
     lnLoffset_late = 15 # default
@@ -732,6 +733,8 @@ if opts.propose_fit_strategy:
             helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
             helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
         
+            puff_max_it=4
+
         else: #  opts.assume_precessing_spin:
             # # Use cartesian +volumetric for FIRST FEW ITERATIONS (or as default).  
             helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
@@ -756,6 +759,11 @@ if opts.propose_fit_strategy:
 #            helper_cip_arg_list[2].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late)
             helper_cip_arg_list[3].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late))
 
+            n_its = map(lambda x: float(x.split()[0]), helper_cip_arg_list)
+            puff_max_it= n_its[0] + n_its[1] # puff for first 2 types, to insure good coverage in narrow-q cases
+            if event_dict["m2"]/event_dict["m1"] < 0.4: # High q, do even through the full aligned spin model case
+                puff_max_it += n_its[2]
+
 
     if opts.assume_matter:
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
@@ -765,6 +773,10 @@ if opts.propose_fit_strategy:
         # Add one line with deltaLambdaTilde
         helper_cip_arg_list.append(helper_cip_arg_list[-1]) 
         helper_cip_arg_list[-1] +=  " --parameter-implied DeltaLambdaTilde "
+
+        n_its = map(lambda x: float(x.split()[0]), helper_cip_arg_list)
+        puff_max_it= np.sum(n_its) # puff all the way to the end
+
 
 with open("helper_cip_args.txt",'w') as f:
     f.write(helper_cip_args)
@@ -779,3 +791,7 @@ with open("helper_test_args.txt",'w+') as f:
 if opts.assume_matter:
     with open("helper_convert_args.txt",'w+') as f:
         f.write(" --export-tides ")
+
+if opts.propose_fit_strategy:
+    with open("helper_puff_max_it.txt",'w') as f:
+        f.write(puff_max_it)
