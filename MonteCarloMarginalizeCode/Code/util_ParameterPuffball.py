@@ -102,7 +102,7 @@ if len(coord_names) >1:
         cov= np.linalg.inv(icov_proposed)
 
     # Compute errors
-    rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov)
+    rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov,allow_singular=True)  # they are just complaining about dynamic range of parameters, usually
     delta_X = rv.rvs(size=len(X))
     X_out = X+delta_X
 else:
