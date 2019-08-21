@@ -241,6 +241,7 @@ parser.add_argument("--fit-uses-reported-error",action='store_true')
 parser.add_argument("--fit-uses-reported-error-factor",type=float,default=1,help="Factor to add to standard deviation of fit, before adding to lnL. Multiplies number fitting dimensions")
 parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
+parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--fail-unless-n-eff",default=None,type=int,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
@@ -965,6 +966,7 @@ if opts.mc_range:
         mc_cut_range =np.array(mc_cut_range)*(1+opts.source_redshift)  # prevent stupidity in grid selection
 print " Stripping samples outside of ", mc_cut_range, " in mc"
 P= lalsimutils.ChooseWaveformParams()
+P_list_in = []
 for line in dat:
   # Skip precessing binaries unless explicitly requested not to!
   if not opts.use_precessing and (line[3]**2 + line[4]**2 + line[6]**2 + line[7]**2)>0.01:
@@ -1002,6 +1004,9 @@ for line in dat:
         P.lambda2 = line[10]
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[9]  # Incompatible with tides, note!
+    
+    if opts.contingency_unevolve_neff == "quadpuff":
+        P_list_in.append(P) # store  it
 
     # INPUT GRID: Evaluate binary parameters on fitting coordinates
     line_out = np.zeros(len(coord_names)+2)
@@ -1369,6 +1374,44 @@ if not (opts.fail_unless_n_eff is None):
     if neff < opts.fail_unless_n_eff:
         print " FAILURE: n_eff too small"
         sys.exit(1)
+if neff < 0.5*opts.n_eff:
+    print " ==> neff (={}) is low <==".format(neff)
+    if opts.contingency_unevolved_neff == 'quadpuff':
+        # Add errors
+        # Note we only want to add errors to RETAINED points
+        print " Contingency: quadpuff: take covariance of points, draw from it again, add to existing points as offsets (i.e. a puffball) "
+        n_output_size = np.min([len(P_in_list),opts.n_output_samples])
+
+        my_cov = np.cov(X.T)  # covariance of data points
+        rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X[0])), cov=cov,allow_singular=True)  # they are just complaining about dynamic range
+        delta_X = rv.rvs(size=len(X))
+        X_new = X+deltaX
+        P_out_list = []
+        # Loop over points 
+        # Jitter using the parameters we use to fit with
+        for indx_P in np.arange(len(P_in_list)):
+            include_item=True
+            P = P_in_list[indx_P]
+            for indx in np.arange(len(coord_names)):
+                param  = coord_names[indx]
+                fac = 1
+                if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
+                    fac = lal.MSUN_SI
+                    P.assign_param(param, (X_new[indx_P,indx]*fac))
+            for p in downselect_dict.keys():
+                val = Pgrid.extract_param(p) 
+                if p in ['mc','m1','m2','mtot']:
+                    val = val/lal.MSUN_SI
+                if val < downselect_dict[p][0] or val > downselect_dict[p][1]:
+                    include_item = False
+            if include_item:
+                P_out_list.append(P)
+
+            # Save output
+            lalsimutils.ChooseWaveformParams_array_to_xml(P_out_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
+            sys.exit(0)
+
+
 
 # Save result -- needed for odds ratios, etc.
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
