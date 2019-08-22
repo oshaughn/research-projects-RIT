@@ -518,9 +518,10 @@ if not (opts.puff_args is None):
     ilePuff_job.write_sub_file()
 
 if  (opts.last_iteration_extrinsic):
+    n_points_per_ILE = 5
     # ILE job with modified output format
     #  - note we *double* the memory request, because we need space to save samples
-    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff 100 "  # modify convergence criteria so output of reasonable size
+    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(2*n_points_per_ILE)  # modify convergence criteria so output of reasonable size
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
     ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE)
@@ -541,7 +542,7 @@ if  (opts.last_iteration_extrinsic):
     convertExtr_job.write_sub_file()
 
     # Resample task 
-    resample_args = ' --n-output-samples  5 '  # pick 5 random points from each ILE run
+    resample_args = ' --n-output-samples  ' + str(n_points_per_ILE)  # pick 5 random points from each ILE run
     resample_job, resample_job_name = dag_utils.write_resample_sub('resample',log_dir=None,arg_str=resample_args,file_input=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.dat",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.downsampled_dat")
     resample_job.add_condor_cmd("initialdir",opts.working_directory)
     resample_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).log")
