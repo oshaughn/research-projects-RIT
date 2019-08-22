@@ -1005,7 +1005,7 @@ for line in dat:
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[9]  # Incompatible with tides, note!
     
-    if opts.contingency_unevolve_neff == "quadpuff":
+    if opts.contingency_unevolved_neff == "quadpuff":
         P_list_in.append(P) # store  it
 
     # INPUT GRID: Evaluate binary parameters on fitting coordinates
