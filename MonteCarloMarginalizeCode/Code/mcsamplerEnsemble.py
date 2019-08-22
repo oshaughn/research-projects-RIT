@@ -170,14 +170,18 @@ class MCSampler(object):
         '''
         
 
-    def integrate(self, func, args,n_comp=None,nmax=None,verbose=False):
+    def integrate(self, func, *args,**kwargs):
         '''
         
         This is where I need to add stuff
+        n_comp=None,nmax=None,verbose=False,
         
         '''
-        if not n_comp:
-            n_comp = 1
+        nmax = kwargs["nmax"] if kwargs.has_key("nmax") else 1e6
+        neff = kwargs["neff"] if kwargs.has_key("neff") else 1000
+        n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)  # chunk size
+        n_comp = kwargs["n_comp"] if kwargs.has_key("n_comp") else 1
+
         dim = len(args)
         bounds = []
         for param in args:
@@ -191,7 +195,8 @@ class MCSampler(object):
             gmm_dict[(x,)] = None
         
         integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp)
-        return integrator.integrate(func)
+        func_unzip = lambda x: func(*x.T)
+        return integrator.integrate(func_unzip)
 
 
 ##############################################################
