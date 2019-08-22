@@ -64,6 +64,12 @@ from glue.ligolw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 import mcsampler
+try:
+    import mcsamplerEnsemble as mcsamplerEnsemble
+    mcsampler_gmm_ok = True
+except:
+    print " No mcsamplerEnsemble "
+    mcsampler_gmm_ok = False
 
 
 def render_coord(x):
@@ -258,6 +264,7 @@ parser.add_argument("--protect-coordinate-conversions", action='store_true', hel
 parser.add_argument("--source-redshift",default=0,type=float,help="Source redshift (used to convert from source-frame mass [integration limits] to arguments of fitting function.  Note that if nonzero, integration done in SOURCE FRAME MASSES, but the fit is calculated using DETECTOR FRAME")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
+parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM")
 opts=  parser.parse_args()
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
@@ -1272,6 +1279,8 @@ else:
 
 
 sampler = mcsampler.MCSampler()
+if opts.sampler_method == "GMM":
+    sampler = mcsamplerEnsemble.MCSampler()
 
 
 ##
