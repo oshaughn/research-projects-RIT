@@ -64,10 +64,10 @@ from glue.ligolw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 import mcsampler
-try:
+if True: #try:
     import mcsamplerEnsemble as mcsamplerEnsemble
     mcsampler_gmm_ok = True
-except:
+else: #except:
     print " No mcsamplerEnsemble "
     mcsampler_gmm_ok = False
 
@@ -1376,7 +1376,11 @@ my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to sl
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
 print " Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto"
 
-res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True)  # weight ecponent needs better choice. We are using arbitrary-name functions
+
+if opts.sampler_method == "GMM":
+    extra_args = {'n_comp':3}  # made up for now, should adjust
+
+res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
