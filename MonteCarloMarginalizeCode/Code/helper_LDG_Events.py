@@ -736,7 +736,7 @@ if opts.propose_fit_strategy:
 
     if not opts.assume_nospin:
         if not opts.assume_precessing_spin:
-            if not assume_highq:
+            if not opts.assume_highq:
                 helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
                 helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
                 helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
