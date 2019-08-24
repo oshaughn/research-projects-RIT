@@ -827,4 +827,4 @@ if opts.assume_matter:
 
 if opts.propose_fit_strategy:
     with open("helper_puff_max_it.txt",'w') as f:
-        f.write(puff_max_it)
+        f.write(str(puff_max_it))
