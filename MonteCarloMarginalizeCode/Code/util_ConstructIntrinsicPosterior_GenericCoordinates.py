@@ -1377,6 +1377,7 @@ my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to sl
 print " Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto"
 
 
+extra_args={}
 if opts.sampler_method == "GMM":
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
     extra_args = {'n_comp':3,'max_iter':n_max_blocks}  # made up for now, should adjust
