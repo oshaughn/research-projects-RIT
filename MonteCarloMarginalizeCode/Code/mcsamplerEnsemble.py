@@ -236,6 +236,11 @@ class MCSampler(object):
         integrator_func  = kwargs['integrator_func'] if kwargs.has_key('integrator_func') else None
         mcsamp_func  = kwargs['mcsamp_func'] if kwargs.has_key('mcsamp_func') else None
         proc_count = kwargs['proc_count'] if kwargs.has_key('proc_count') else None
+        direct_eval = kwargs['direct_eval'] if kwargs.has_key('direct_eval') else False
+        min_iter = kwargs['min_iter'] if kwargs.has_key('min_iter') else 10
+        max_iter = kwargs['max_iter'] if kwargs.has_key('max_iter') else 20
+        var_thresh = kwargs['var_thres'] if kwargs.has_key('var_thresh') else 0.05
+        write_to_file = kwargs['write_to_file'] if kwargs.has_key('write_to_file') else False
 
         # set up a lot of preliminary stuff
         self.func = func
@@ -260,15 +265,15 @@ class MCSampler(object):
         # do the integral
 
         integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=n, prior=self.calc_pdf,
-                        reflect=reflect, user_func=integrator_func, proc_count=proc_count)
+                         user_func=integrator_func, proc_count=proc_count) # reflect=reflect,
         if not direct_eval:
             func = self.evaluate
         integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax)
 
         # get results
 
-        self.n = integrator.n
-        self.ntotal = integrator.ntotal
+        self.n = int(integrator.n)
+        self.ntotal = int(integrator.ntotal)
         integral = integrator.integral
         var = integrator.var
         eff_samp = integrator.eff_samp
