@@ -1399,7 +1399,7 @@ if neff < 0.5*opts.n_eff:
         my_cov = np.cov(X.T)  # covariance of data points
         rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X[0])), cov=my_cov,allow_singular=True)  # they are just complaining about dynamic range
         delta_X = rv.rvs(size=len(X))
-        X_new = X+deltaX
+        X_new = X+delta_X
         P_out_list = []
         # Loop over points 
         # Jitter using the parameters we use to fit with
