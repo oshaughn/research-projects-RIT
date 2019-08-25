@@ -1459,14 +1459,14 @@ print samples.keys()
 n_params = len(coord_names)
 dat_mass = np.zeros((len(samples[low_level_coord_names[0]]),n_params+3))
 dat_logL = np.log(samples["integrand"])
+lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
 print " Max lnL ", np.max(dat_logL)
 
 # Throw away stupid points that don't impact the posterior
-indx_ok = np.logical_and(dat_logL > np.max(dat_logL)-opts.lnL_offset ,samples["joint_s_prior"]>0)
+indx_ok = np.logical_and(dat_logL > lnLmax-opts.lnL_offset ,samples["joint_s_prior"]>0)
 for p in low_level_coord_names:
     samples[p] = samples[p][indx_ok]
 dat_logL  = dat_logL[indx_ok]
-print samples.keys()
 samples["joint_prior"] =samples["joint_prior"][indx_ok]
 samples["joint_s_prior"] =samples["joint_s_prior"][indx_ok]
 
