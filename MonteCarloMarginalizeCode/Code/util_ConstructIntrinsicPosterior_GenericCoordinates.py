@@ -1413,7 +1413,7 @@ if neff < 0.5*opts.n_eff:
                     fac = lal.MSUN_SI
                     P.assign_param(param, (X_new[indx_P,indx]*fac))
             for p in downselect_dict.keys():
-                val = Pgrid.extract_param(p) 
+                val = P.extract_param(p) 
                 if p in ['mc','m1','m2','mtot']:
                     val = val/lal.MSUN_SI
                 if val < downselect_dict[p][0] or val > downselect_dict[p][1]:
