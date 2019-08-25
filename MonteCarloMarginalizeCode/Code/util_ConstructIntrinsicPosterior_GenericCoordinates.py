@@ -1393,7 +1393,7 @@ if neff < 0.5*opts.n_eff:
         # Add errors
         # Note we only want to add errors to RETAINED points
         print " Contingency: quadpuff: take covariance of points, draw from it again, add to existing points as offsets (i.e. a puffball) "
-        n_output_size = np.min([len(P_in_list),opts.n_output_samples])
+        n_output_size = np.min([len(P_list_in),opts.n_output_samples])
 
         my_cov = np.cov(X.T)  # covariance of data points
         rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X[0])), cov=cov,allow_singular=True)  # they are just complaining about dynamic range
@@ -1402,9 +1402,9 @@ if neff < 0.5*opts.n_eff:
         P_out_list = []
         # Loop over points 
         # Jitter using the parameters we use to fit with
-        for indx_P in np.arange(len(P_in_list)):
+        for indx_P in np.arange(len(P_list_in)):
             include_item=True
-            P = P_in_list[indx_P]
+            P = P_list_in[indx_P]
             for indx in np.arange(len(coord_names)):
                 param  = coord_names[indx]
                 fac = 1
