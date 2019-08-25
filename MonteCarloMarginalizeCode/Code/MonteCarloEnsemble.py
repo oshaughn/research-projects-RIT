@@ -70,9 +70,9 @@ class integrator:
         # constants
         self.t = 0.02 # percent estimated error threshold
         if n is None:
-            self.n = (5000 * self.d) # number of samples per batch
+            self.n = int(5000 * self.d) # number of samples per batch
         else:
-            self.n = n
+            self.n = int(n)
         self.ntotal = 0
         # integrator object parameters
         self.sample_array = None
