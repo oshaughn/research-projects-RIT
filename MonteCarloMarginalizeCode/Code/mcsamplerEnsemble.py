@@ -277,10 +277,10 @@ class MCSampler(object):
         integral = integrator.integral
         var = integrator.var
         eff_samp = integrator.eff_samp
-        sample_array = integrator.sample_array
-        value_array = integrator.value_array
-        p_array = integrator.p_array
-        prior_array = integrator.prior_array
+        sample_array = integrator.cumulative_samples
+        value_array = integrator.cumulative_values
+        p_array = integrator.cumulative_p
+        prior_array = integrator.cumulative_p_s
 
         # user-defined function
         if mcsamp_func is not None:
