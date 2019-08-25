@@ -1395,6 +1395,7 @@ if neff < 0.5*opts.n_eff:
         # Note we only want to add errors to RETAINED points
         print " Contingency: quadpuff: take covariance of points, draw from it again, add to existing points as offsets (i.e. a puffball) "
         n_output_size = np.min([len(P_list_in),opts.n_output_samples])
+        print " Preparing to write ", n_output_size , " samples "
 
         my_cov = np.cov(X.T)  # covariance of data points
         rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X[0])), cov=my_cov,allow_singular=True)  # they are just complaining about dynamic range
@@ -1421,9 +1422,9 @@ if neff < 0.5*opts.n_eff:
             if include_item:
                 P_out_list.append(P)
 
-            # Save output
-            lalsimutils.ChooseWaveformParams_array_to_xml(P_out_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
-            sys.exit(0)
+        # Save output
+        lalsimutils.ChooseWaveformParams_array_to_xml(P_out_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
+        sys.exit(0)
 
 
 
