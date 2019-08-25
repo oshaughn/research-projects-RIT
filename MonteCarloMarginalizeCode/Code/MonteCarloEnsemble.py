@@ -277,8 +277,8 @@ class integrator:
                         self.gmm_dict[k].print_params()
             if epoch is not None and self.iterations % epoch == 0:
                 self._reset()
-        if verbose:
-            # Standard mcsampler message, to monitor convergence
-            print(" : {} {} {} {} ".format(self.iterations*self.n, self.eff_samp, np.sqrt(2*np.log(np.max(self.cumulative_values))), 0 ) )
+            if verbose:
+                # Standard mcsampler message, to monitor convergence
+                print(" : {} {} {} {} ".format(self.iterations*self.n, self.eff_samp, np.sqrt(2*np.log(np.max(self.cumulative_values))), 0 ) )
         print('cumulative eval time: ', cumulative_eval_time)
         print('integrator iterations: ', self.iterations)
