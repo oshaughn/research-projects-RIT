@@ -1396,7 +1396,7 @@ if neff < 0.5*opts.n_eff:
         n_output_size = np.min([len(P_list_in),opts.n_output_samples])
 
         my_cov = np.cov(X.T)  # covariance of data points
-        rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X[0])), cov=cov,allow_singular=True)  # they are just complaining about dynamic range
+        rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X[0])), cov=my_cov,allow_singular=True)  # they are just complaining about dynamic range
         delta_X = rv.rvs(size=len(X))
         X_new = X+deltaX
         P_out_list = []
