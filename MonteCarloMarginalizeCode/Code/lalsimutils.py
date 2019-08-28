@@ -2639,8 +2639,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         TDlen = int(1./P.deltaF * 1./P.deltaT)
         hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
         # Consider modifing TD behavior to be consistent with FD behavior used to match LI
-        assert TDlen >= hxx.data.length
-        hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
+        if TDlen >= hxx.data.length:
+            hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
 
     hlm_dict = SphHarmTimeSeries_to_dict(hlms,Lmax)
 
@@ -2648,7 +2648,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         hlm_dict[mode].data.data *= sign_factor
 
         # Force waveform duration to fit inside target time!  (SimInspiralTD adds a lot of padding)
-        if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1 and not (P.deltaF is None):
+        if not (P.deltaF is None):  # lalsim.SimInspiralImplementedFDApproximants(P.approx)==1 and 
             TDlen = int(1./P.deltaF * 1./P.deltaT)
             if TDlen < hlm_dict[mode].data.length:  # we have generated too long a signal!...truncate from LEFT. Danger!
                     hlm_dict[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm_dict[mode],hlm_dict[mode].data.length-TDlen,TDlen)
