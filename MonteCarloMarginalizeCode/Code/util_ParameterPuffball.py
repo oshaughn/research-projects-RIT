@@ -169,12 +169,11 @@ for indx_P in np.arange(len(P_list)):
 # Randomize parameters that have been requested to be randomized
 #   - note there is NO SANITY CHECKING if you do this
 #   - target: tidal parameters, more efficiently hammer on low-tide corner if necessary
-random_ranges = {}
-for indx in len(opts.random_parameter):
+if len(opts.random_parameter) >0:
+  random_ranges = {}   
+  for indx in np.arange(len(opts.random_parameter)):
     param = opts.random_parameter[indx]
     random_ranges[param] = np.array(eval(opts.random_parameter_range[indx]))
-    
-if len(opts.random_parameter) >0:
   for P in P_out: 
     for param in opts.random_parameter:
         val = np.random.uniform( random_ranges[param][0], random_ranges[param][1])
