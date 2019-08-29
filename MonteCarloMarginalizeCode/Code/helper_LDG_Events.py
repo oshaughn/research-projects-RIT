@@ -159,6 +159,7 @@ parser.add_argument("--test-convergence",action='store_true',help="If present, t
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
 parser.add_argument("--online", action='store_true', help="Use online settings")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
+parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,help="A factor to multiply the mc grid width by. By default 1, or 1.5 if search active. Use larger values mainly in synthetic data tests with noise, to insure sufficiently wide coverage around the *true* parameter values.")
 #parser.add_argument("--propose-initial-grid-includes-search-error",action='store_true',help="Searches have paraemter offsets, but injections have known parameters.  You need a wider grid if you are running from a search grid, since they are usually substantiallyoffset from the maximumlikelihood ")
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
@@ -505,6 +506,8 @@ v_PN_param = np.min([v_PN_param,1])
 fac_search_correct=1.
 if opts.gracedb_id: #opts.propose_initial_grid_includes_search_error:
     fac_search_correct = 1.5   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
+if opts.force_grid_stretch_mc_factor:
+    fac_search_correct =  opts.force_grid_stretch_mc_factor
 ln_mc_error_pseudo_fisher = 1.5*np.array([1,fac_search_correct])*0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
 print "  Logarithmic mass error interval base ", ln_mc_error_pseudo_fisher
 if ln_mc_error_pseudo_fisher[0] >1:
