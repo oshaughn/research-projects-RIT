@@ -540,14 +540,14 @@ else:
 # Distance - luminosity distance to source in parsecs
 # sampler: uniform distance over [dmin, dmax), adaptive sampling
 #
-#dist_sampler = functools.partial(mcsampler.uniform_samp_vector,     param_limits["distance"][0], param_limits["distance"][1])
-#dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
-dist_sampler=functools.partial( mcsampler.uniform_samp_withfloor_vector, numpy.min([distBoundGuess,param_limits["distance"][1]]), param_limits["distance"][1], 0.001)
+dist_sampler = functools.partial(mcsampler.uniform_samp_vector,     param_limits["distance"][0], param_limits["distance"][1])
+dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
+#dist_sampler=functools.partial( mcsampler.uniform_samp_withfloor_vector, numpy.min([distBoundGuess,param_limits["distance"][1]]), param_limits["distance"][1], 0.001)
 dist_prior_pdf =   lambda x: x**2/(param_limits["distance"][1]**3/3.                   - param_limits["distance"][0]**3/3.) 
 if opts.d_prior == 'pseudo_cosmo':
   nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(param_limits["distance"][0],param_limits["distance"][1])
   dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm)
-dist_sampler_cdf_inv=None
+#dist_sampler_cdf_inv=None
 sampler.add_parameter("distance", 
     pdf = dist_sampler, 
     cdf_inv = dist_sampler_cdf_inv,
