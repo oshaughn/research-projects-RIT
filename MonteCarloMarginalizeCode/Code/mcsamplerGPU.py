@@ -32,6 +32,13 @@ except:
   cupy_ok = False
 
 
+def set_xpy_to_numpy():
+   xpy_default=numpy
+   identity_convert = lambda x: x  # trivial return itself
+   identity_convert_togpu = lambda x: x
+   cupy_ok = False
+   
+
 if 'PROFILE' not in os.environ:
    def profile(fn):
         return fn
