@@ -374,7 +374,7 @@ class MCSampler(object):
                rvs_tmp = dict(zip(args, rv))
                #for p, ar in self._rvs.iteritems():
                for p in self.params_ordered:
-                   self._rvs[p] = numpy.hstack((self._rvs[p], rvs_tmp[p]))
+                   self._rvs[p] = self.xpy.hstack((self._rvs[p], rvs_tmp[p]))
 
 
         return joint_p_s, joint_p_prior, rv
