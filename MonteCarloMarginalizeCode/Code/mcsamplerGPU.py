@@ -443,8 +443,8 @@ class MCSampler(object):
     def integrate(self, func, *args, **kwargs):
         """
         Integrate func, by using n sample points. Right now, all params defined must be passed to args must be provided, but this will change soon.
-        Limitations:
-            func's signature must contain all parameters currently defined by the sampler, and with the same names. This is required so that the sample values can be passed consistently.
+        Does NOT allow for tuples of arguments, an unused feature in mcsampler
+
         kwargs:
         nmax -- total allowed number of sample points, will throw a warning if this number is reached before neff.
         neff -- Effective samples to collect before terminating. If not given, assume infinity
@@ -463,6 +463,8 @@ class MCSampler(object):
         n_bins = 100
         for p in self.params_ordered:
             self.setup_hist_single_param(self.llim[p], self.rlim[p], n_bins, p)
+
+        xpy_here = self.xpy
 
         #
         # Pin values
@@ -546,12 +548,12 @@ class MCSampler(object):
                 print " Initiating multiprocessor pool : ", nProcesses
             p = Pool(nProcesses)
 
-        int_val1 = numpy.float128(0)
+        int_val1 = xpy_here.float128(0)
         self.ntotal = 0
         maxval = -float("Inf")
         maxlnL = -float("Inf")
         eff_samp = 0
-        mean, var = None, numpy.float128(0)    # to prevent infinite variance due to overflow
+        mean, var = None, xpy_here.float128(0)    # to prevent infinite variance due to overflow
 
         if bShowEvaluationLog:
             print "iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var"
@@ -611,8 +613,8 @@ class MCSampler(object):
             if save_intg:
                 # FIXME: The joint_prior, if not specified is set to one and
                 # will come out as a scalar here, hence the hack
-                if not isinstance(joint_p_prior, numpy.ndarray):
-                    joint_p_prior = numpy.ones(fval.shape)*joint_p_prior
+                if not isinstance(joint_p_prior, xpy_here.ndarray):
+                    joint_p_prior = xpy_here.ones(fval.shape)*joint_p_prior
 
 
 #                print "      Prior", type(joint_p_prior), joint_p_prior.dtype
@@ -621,10 +623,10 @@ class MCSampler(object):
                 # need to be moved out of this, as they are not part of MC
                 # integration
                 if self._rvs.has_key("integrand"):
-                    self._rvs["integrand"] = numpy.hstack( (self._rvs["integrand"], fval) )
-                    self._rvs["joint_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
-                    self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_s_prior"], joint_p_s) )
-                    self._rvs["weights"] = numpy.hstack( (self._rvs["joint_s_prior"], fval*joint_p_prior/joint_p_s) )
+                    self._rvs["integrand"] = xpy_here.hstack( (self._rvs["integrand"], fval) )
+                    self._rvs["joint_prior"] = xpy_here.hstack( (self._rvs["joint_prior"], joint_p_prior) )
+                    self._rvs["joint_s_prior"] = xpy_here.hstack( (self._rvs["joint_s_prior"], joint_p_s) )
+                    self._rvs["weights"] = xpy_here.hstack( (self._rvs["joint_s_prior"], fval*joint_p_prior/joint_p_s) )
                 else:
                     self._rvs["integrand"] = fval
                     self._rvs["joint_prior"] = joint_p_prior
@@ -641,17 +643,17 @@ class MCSampler(object):
             # Calculate max L (a useful convergence feature) for debug 
             # reporting.  Not used for integration
             # Try to avoid nan's
-            maxlnL = numpy.log(numpy.max([numpy.exp(maxlnL), numpy.max(fval),numpy.exp(-100)]))   # note if f<0, this will return nearly 0
+            maxlnL = numpy.log(numpy.max([numpy.exp(maxlnL), identity_convert(xpy_here.max(fval)),numpy.exp(-100)]))   # note if f<0, this will return nearly 0
 
             # Calculate the effective samples via max over the current 
             # evaluations
-            maxval = max(maxval, int_val[0]) if int_val[0] != 0 else maxval
+            maxval = max(maxval, identity_convert(int_val[0])) if int_val[0] != 0 else maxval
             maxval = max(maxval,numpy.amax(int_val))
             #for v in int_val[1:]:
             #    maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
             # running variance
-            var = cumvar(int_val, mean, var, int(self.ntotal))[-1]
+            var = cumvar(identity_convert(int_val), mean, var, int(self.ntotal))[-1]
             # running integral
             int_val1 += int_val.sum()
             # running number of evaluations
