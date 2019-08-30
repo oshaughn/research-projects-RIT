@@ -20,6 +20,7 @@ try:
   import cupy
   xpy_default=cupy
   identity_convert = cupy.asnumpy
+  identity_convert_togpu = cupy.asarray
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
   cupy_ok = True
 except:
@@ -27,6 +28,7 @@ except:
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
+  identity_convert_togpu = lambda x: x
   cupy_ok = False
 
 
@@ -548,12 +550,12 @@ class MCSampler(object):
                 print " Initiating multiprocessor pool : ", nProcesses
             p = Pool(nProcesses)
 
-        int_val1 = xpy_here.float128(0)
+        int_val1 = numpy.float128(0)
         self.ntotal = 0
         maxval = -float("Inf")
         maxlnL = -float("Inf")
         eff_samp = 0
-        mean, var = None, xpy_here.float128(0)    # to prevent infinite variance due to overflow
+        mean, var = None, numpy.float128(0)    # to prevent infinite variance due to overflow
 
         if bShowEvaluationLog:
             print "iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var"
@@ -592,7 +594,7 @@ class MCSampler(object):
                     params.extend(item)
                 else:
                     params.append(item)
-            unpacked = unpacked0 = numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
+            unpacked = unpacked0 = rv #numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
             unpacked = dict(zip(params, unpacked))
             if kwargs.has_key('no_protect_names'):
                 fval = func(*unpacked0)  # do not protect order
