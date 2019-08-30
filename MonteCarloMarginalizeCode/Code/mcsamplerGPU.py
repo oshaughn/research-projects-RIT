@@ -166,7 +166,6 @@ class MCSampler(object):
             else:
                 self.prior_pdf[params] = prior_pdf
         self.prior_pdf[params] = prior_pdf
-        print " Prior  pdf ", self.prior_pdf[params]
 
         if adaptive_sampling:
             print "   Adapting ", params
