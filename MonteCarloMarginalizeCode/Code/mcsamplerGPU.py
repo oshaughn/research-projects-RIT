@@ -601,6 +601,8 @@ class MCSampler(object):
             else:
                 fval = func(**unpacked) # Chris' original plan: note this insures the function arguments are tied to the parameters, using a dictionary. 
 
+            fval = identity_convert_togpu(fval)  # send to GPU, if not already there
+
             #
             # Check if there is any practical contribution to the integral
             #
