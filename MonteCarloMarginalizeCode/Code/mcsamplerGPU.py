@@ -795,12 +795,12 @@ def uniform_samp_phase(x,xpy=xpy_default):
    """
    Assume range known as 0,2pi
    """
-   return xpy.ones(x)/(2*np.pi) 
+   return xpy.ones(len(x))/(2*np.pi) 
 def uniform_samp_psi(x,xpy=xpy_default):
    """
    Assume range known as 0,pi
    """
-   return xpy.ones(x)/(np.pi) 
+   return xpy.ones(len(x))/(np.pi) 
 def uniform_samp_theta(x,xpy=xpy_default):
    """
    Assume range known as 
