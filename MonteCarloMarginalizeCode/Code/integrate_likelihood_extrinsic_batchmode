@@ -513,7 +513,7 @@ sampler.add_parameter("phi_orb",
 #
 
 adapt_extra_intrinsic=False
-if sampler_method == "adaptive_cartesian_gpu":  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
+if opts.sampler_method == "adaptive_cartesian_gpu":  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
   adapt_extra_intrinsic=True
 
 if not opts.inclination_cosine_sampler:
