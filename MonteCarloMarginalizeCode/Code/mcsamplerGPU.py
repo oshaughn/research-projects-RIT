@@ -16,6 +16,18 @@ import functools
 
 import os
 
+try:
+  import cupy
+  xpy_default=cupy
+  identity_convert = cupy.asnumpy
+  junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
+except:
+  print ' no cupy (mcsamplerGPU)'
+#  import numpy as cupy  # will automatically replace cupy calls with numpy!
+  xpy_default=numpy  # just in case, to make replacement clear and to enable override
+  identity_convert = lambda x: x  # trivial return itself
+
+
 if 'PROFILE' not in os.environ:
    def profile(fn):
         return fn
@@ -110,7 +122,7 @@ class MCSampler(object):
         # histogram setup
         self.setup_hist()
         self.xpy = numpy
-
+        self.identity_convert = lambda x: x  # if needed, convert to numpy format  (e.g, cupy.asnumpy)
 
     def clear(self):
         """
@@ -755,17 +767,15 @@ def uniform_samp_cdf_inv_vector(a,b,p):
     out = p*(b-a) + a
     return out
 #uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
-uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
+#uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
+def uniform_samp_vector(a,b,x):
+   """
+   uniform_samp_vector:
+      Implement uniform sampling with np primitives, not np.vectorize !
+   """
+   return numpy.heaviside(x-a,0)*numpy.heaviside(b-x,0)/(b-a)
 
-# def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
-#     ret =0.
-#     if x<rmaxQuad:
-#         ret+= (1-pFlat)/rmaxQuad
-#     if x<rmaxFlat:
-#         ret +=pFlat/rmaxFlat
-#     return  ret
-# uniform_samp_withfloor_vector = numpy.vectorize(uniform_samp_withfloor, otypes=[numpy.float])
-def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
+def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=xpy_default):
     if isinstance(x, float):
         ret =0.
         if x<rmaxQuad:
@@ -773,38 +783,50 @@ def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
         if x<rmaxFlat:
             ret +=pFlat/rmaxFlat
         return  ret
-    ret = numpy.zeros(x.shape,dtype=numpy.float64)
-    ret += numpy.select([x<rmaxQuad],[(1.-pFlat)/rmaxQuad])
-    ret += numpy.select([x<rmaxFlat],[pFlat/rmaxFlat])
+    ret = xpy.zeros(x.shape,dtype=numpy.float64)
+    ret += xpy.select([x<rmaxQuad],[(1.-pFlat)/rmaxQuad])
+    ret += xpy.select([x<rmaxFlat],[pFlat/rmaxFlat])
     return ret
 
 
 
 # syntatic sugar : predefine the most common distributions
-uniform_samp_phase = numpy.vectorize(lambda x: 1/(2*numpy.pi))
-uniform_samp_psi = numpy.vectorize(lambda x: 1/(numpy.pi))
-uniform_samp_theta = numpy.vectorize(lambda x: numpy.sin(x)/(2))
-uniform_samp_dec = numpy.vectorize(lambda x: numpy.cos(x)/(2))
+def uniform_samp_phase(x,xpy=xpy_default):
+   """
+   Assume range known as 0,2pi
+   """
+   return xpy.ones(x)/(2*np.pi) 
+def uniform_samp_psi(x,xpy=xpy_default):
+   """
+   Assume range known as 0,pi
+   """
+   return xpy.ones(x)/(np.pi) 
+def uniform_samp_theta(x,xpy=xpy_default):
+   """
+   Assume range known as 
+   """
+   return xpy.sin(x)/(2.) 
+def uniform_samp_dec(x,xpy=xpy_default):
+   """
+   Assume range known as 
+   """
+   return xpy.cos(x)/(2.) 
 
-def quadratic_samp(rmax,x):
-        if x<rmax:
-                return x**2/(3*rmax**3)
-        else:
-                return 0
 
-quadratic_samp_vector = numpy.vectorize(quadratic_samp, otypes=[numpy.float])
+def cos_samp(x,xpy=xpy_default):
+        return xpy.sin(x)/2   # x from 0, pi
 
-def inv_uniform_cdf(a, b, x):
-    return (b-a)*x+a
+def dec_samp(x,xpy=xpy_default):
+        return xpy.sin(x+numpy.pi/2)/2   # x from 0, pi
 
-def gauss_samp(mu, std, x):
-    return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2)
+cos_samp_vector = cos_samp
+dec_samp_vector = dec_samp
+def cos_samp_cdf_inv_vector(p,xpy=xpy_default):
+    return xpy.arccos( 2*p-1)   # returns from 0 to pi
+def dec_samp_cdf_inv_vector(p,xpy=xpy_default):
+    return xpy.arccos(2*p-1) - xpy.pi/2  # target from -pi/2 to pi/2
 
-def gauss_samp_withfloor(mu, std, myfloor, x):
-    return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2) + myfloor
 
-#gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,excluded=['mu','std','myfloor'],otypes=[numpy.float])
-gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,otypes=[numpy.float])
 
 
 # Mass ratio. PDF propto 1/(1+q)^2.  Defined so mass ratio is < 1
@@ -816,7 +838,7 @@ gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,otypes=[numpy
 def q_samp_vector(qmin,qmax,x):
     scale = 1./(1+qmin) - 1./(1+qmax)
     return 1/numpy.power((1+x),2)/scale
-def q_cdf_inv_vector(qmin,qmax,x):
+def q_cdf_inv_vector(qmin,qmax,x,xpy=xpy_default):
     return np.array((qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x),dtype=np.float128)
 
 # total mass. Assumed used with q.  2M/Mmax^2-Mmin^2
@@ -824,19 +846,6 @@ def M_samp_vector(Mmin,Mmax,x):
     scale = 2./(Mmax**2 - Mmin**2)
     return x*scale
 
-
-def cos_samp(x):
-        return numpy.sin(x)/2   # x from 0, pi
-
-def dec_samp(x):
-        return numpy.sin(x+numpy.pi/2)/2   # x from 0, pi
-
-cos_samp_vector = numpy.vectorize(cos_samp,otypes=[numpy.float])
-dec_samp_vector = numpy.vectorize(dec_samp,otypes=[numpy.float])
-def cos_samp_cdf_inv_vector(p):
-    return numpy.arccos( 2*p-1)   # returns from 0 to pi
-def dec_samp_cdf_inv_vector(p):
-    return numpy.arccos(2*p-1) - numpy.pi/2  # target from -pi/2 to pi/2
 
 
 def pseudo_dist_samp(r0,r):
@@ -855,147 +864,6 @@ def delta_func_samp(x_0, x):
 
 delta_func_samp_vector = numpy.vectorize(delta_func_samp, otypes=[numpy.float])
 
-class HealPixSampler(object):
-    """
-    Class to sample the sky using a FITS healpix map. Equivalent to a joint 2-D pdf in RA and dec.
-    """
-
-    @staticmethod
-    def thph2decra(th, ph):
-        """
-        theta/phi to RA/dec
-        theta (north to south) (0, pi)
-        phi (east to west) (0, 2*pi)
-        declination: north pole = pi/2, south pole = -pi/2
-        right ascension: (0, 2*pi)
-        
-        dec = pi/2 - theta
-        ra = phi
-        """
-        return numpy.pi/2-th, ph
-
-    @staticmethod
-    def decra2thph(dec, ra):
-        """
-        theta/phi to RA/dec
-        theta (north to south) (0, pi)
-        phi (east to west) (0, 2*pi)
-        declination: north pole = pi/2, south pole = -pi/2
-        right ascension: (0, 2*pi)
-        
-        theta = pi/2 - dec
-        ra = phi
-        """
-        return numpy.pi/2-dec, ra
-
-    def __init__(self, skymap, massp=1.0):
-        self.skymap = skymap
-        self._massp = massp
-        self.renormalize()
-
-    @property
-    def massp(self):
-        return self._massp
-
-    @massp.setter
-    def massp(self, value):
-        assert 0 <= value <= 1
-        self._massp = value
-        norm = self.renormalize()
-
-    def renormalize(self):
-        """
-        Identify the points contributing to the overall cumulative probability distribution, and set the proper normalization.
-        """
-        res = healpy.npix2nside(len(self.skymap))
-        self.pdf_sorted = sorted([(p, i) for i, p in enumerate(self.skymap)], reverse=True)
-        self.valid_points_decra = []
-        cdf, np = 0, 0
-        for p, i in self.pdf_sorted:
-            if p == 0:
-                continue # Can't have a zero prior
-            self.valid_points_decra.append(HealPixSampler.thph2decra(*healpy.pix2ang(res, i)))
-            cdf += p
-            if cdf > self._massp:
-                break
-        self._renorm = cdf
-        # reset to indicate we'd need to recalculate this
-        self.valid_points_hist = None
-        return self._renorm
-
-    def __expand_valid(self, min_p=1e-7):
-        #
-        # Determine what the 'quanta' of probabilty is
-        #
-        if self._massp == 1.0:
-            # This is to ensure we don't blow away everything because the map
-            # is very spread out
-            min_p = min(min_p, max(self.skymap))
-        else:
-            # NOTE: Only valid if CDF descending order is kept
-            min_p = self.pseudo_pdf(*self.valid_points_decra[-1])
-
-        self.valid_points_hist = []
-        ns = healpy.npix2nside(len(self.skymap))
-
-        # Renormalize first so that the vector histogram is properly normalized
-        self._renorm = 0
-        # Account for probability lost due to cut off
-        for i, v in enumerate(self.skymap >= min_p):
-            self._renorm += self.skymap[i] if v else 0
-
-        for pt in self.valid_points_decra:
-            th, ph = HealPixSampler.decra2thph(pt[0], pt[1])
-            pix = healpy.ang2pix(ns, th, ph)
-            if self.skymap[pix] < min_p:
-                continue
-            self.valid_points_hist.extend([pt]*int(round(self.pseudo_pdf(*pt)/min_p)))
-        self.valid_points_hist = numpy.array(self.valid_points_hist).T
-
-    def pseudo_pdf(self, dec_in, ra_in):
-        """
-        Return pixel probability for a given dec_in and ra_in. Note, uses healpy functions to identify correct pixel.
-        """
-        th, ph = HealPixSampler.decra2thph(dec_in, ra_in)
-        res = healpy.npix2nside(len(self.skymap))
-        return self.skymap[healpy.ang2pix(res, th, ph)]/self._renorm
-
-    def pseudo_cdf_inverse(self, dec_in=None, ra_in=None, ndraws=1, stype='vecthist'):
-        """
-        Select points from the skymap with a distribution following its corresponding pixel probability. If dec_in, ra_in are suupplied, they are ignored except that their shape is reproduced. If ndraws is supplied, that will set the shape. Will return a 2xN numpy array of the (dec, ra) values.
-        stype controls the type of sampling done to retrieve points. Valid choices are
-        'rejsamp': Rejection sampling: accurate but slow
-        'vecthist': Expands a set of points into a larger vector with the multiplicity of the points in the vector corresponding roughly to the probability of drawing that point. Because this is not an exact representation of the proability, some points may not be represented at all (less than quantum of minimum probability) or inaccurately (a significant fraction of the fundamental quantum).
-        """
-
-        if ra_in is not None:
-            ndraws = len(ra_in)
-        if ra_in is None:
-            ra_in, dec_in = numpy.zeros((2, ndraws))
-
-        if stype == 'rejsamp':
-            # FIXME: This is only valid under descending ordered CDF summation
-            ceiling = max(self.skymap)
-            i, np = 0, len(self.valid_points_decra)
-            while i < len(ra_in):
-                rnd_n = numpy.random.randint(0, np)
-                trial = numpy.random.uniform(0, ceiling)
-                if trial <= self.pseudo_pdf(*self.valid_points_decra[rnd_n]):
-                    dec_in[i], ra_in[i] = self.valid_points_decra[rnd_n]
-                    i += 1
-            return numpy.array([dec_in, ra_in])
-        elif stype == 'vecthist':
-            if self.valid_points_hist is None:
-                self.__expand_valid()
-            np = self.valid_points_hist.shape[1]
-            rnd_n = numpy.random.randint(0, np, len(ra_in))
-            dec_in, ra_in = self.valid_points_hist[:,rnd_n]
-            return numpy.array([dec_in, ra_in])
-        else:
-            raise ValueError("%s is not a recgonized sampling type" % stype)
-
-#pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
-pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float])
 
 
 def sanityCheckSamplerIntegrateUnity(sampler,*args,**kwargs):
