@@ -470,7 +470,7 @@ param_limits = { "psi": (0, 2*numpy.pi),
 #
 params = {}
 sampler = mcsampler.MCSampler()
-if opts.sampler_method == "cartesian_adaptive_gpu":
+if opts.sampler_method == "adaptive_cartesian_gpu":
     sampler = mcsamplerGPU.MCSampler()
     sampler.xpy = xpy_default
 
