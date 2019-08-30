@@ -473,6 +473,8 @@ sampler = mcsampler.MCSampler()
 if opts.sampler_method == "adaptive_cartesian_gpu":
     sampler = mcsamplerGPU.MCSampler()
     sampler.xpy = xpy_default
+    sampler.identity_convert=identity_convert
+    mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
 
 
 #
@@ -509,6 +511,11 @@ sampler.add_parameter("phi_orb",
 # inclination - angle of system angular momentum with line of sight
 # sampler: cos(incl) uniform in [-1, 1)
 #
+
+adapt_extra_intrinsic=False
+if sampler_method == "adaptive_cartesian_gpu":  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
+  adapt_extra_intrinsic=True
+
 if not opts.inclination_cosine_sampler:
  incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
  incl_sampler_cdf_inv = mcsampler.cos_samp_cdf_inv_vector
@@ -517,7 +524,7 @@ if not opts.inclination_cosine_sampler:
     cdf_inv = incl_sampler_cdf_inv, 
     left_limit = param_limits["inclination"][0], 
     right_limit = param_limits["inclination"][1],
-    prior_pdf = mcsampler.uniform_samp_theta)
+    prior_pdf = mcsampler.uniform_samp_theta)  # do NOT adapt if we are using a prior that goes to zero at the edges
 else:
  incl_sampler = functools.partial(mcsampler.uniform_samp_vector,-1,1)
  incl_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1) 
@@ -526,7 +533,8 @@ else:
     cdf_inv = incl_sampler_cdf_inv, 
     left_limit = -1, 
     right_limit = 1,
-    prior_pdf = incl_sampler)
+    prior_pdf = incl_sampler,
+    adaptive_sampling=adapt_extra_extrinsic)
 
 #
 # Distance - luminosity distance to source in parsecs
@@ -535,9 +543,7 @@ else:
 #dist_sampler = functools.partial(mcsampler.uniform_samp_vector,     param_limits["distance"][0], param_limits["distance"][1])
 #dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
 dist_sampler=functools.partial( mcsampler.uniform_samp_withfloor_vector, numpy.min([distBoundGuess,param_limits["distance"][1]]), param_limits["distance"][1], 0.001)
-dist_prior_pdf =  numpy.vectorize(
-            lambda x: x**2/(param_limits["distance"][1]**3/3.
-                    - param_limits["distance"][0]**3/3.) )
+dist_prior_pdf =   lambda x: x**2/(param_limits["distance"][1]**3/3.                   - param_limits["distance"][0]**3/3.) 
 if opts.d_prior == 'pseudo_cosmo':
   nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(param_limits["distance"][0],param_limits["distance"][1])
   dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm)
@@ -548,7 +554,7 @@ sampler.add_parameter("distance",
     left_limit = param_limits["distance"][0], 
     right_limit = param_limits["distance"][1],
     prior_pdf = dist_prior_pdf,
-    adaptive_sampling = not (opts.no_adapt or opts.no_adapt_distance))
+    adaptive_sampling = adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance))
 
 
 #
