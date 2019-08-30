@@ -659,7 +659,7 @@ class MCSampler(object):
             # Calculate the effective samples via max over the current 
             # evaluations
             maxval = max(maxval, identity_convert(int_val[0])) if int_val[0] != 0 else maxval
-            maxval = max(maxval,xpy_here.amax(int_val))
+            maxval = identity_convert(max(maxval,xpy_here.amax(int_val)))
             #for v in int_val[1:]:
             #    maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
