@@ -134,7 +134,7 @@ if not ( opts.background_cache is None  or opts.background_channel is None and o
 channel = opts.instrument+":FAKE-STRAIN"
 
 tstart = int(hoft.epoch)
-duration = int(hoft.data.length*hoft.deltaT)
+duration = int(round(hoft.data.length*hoft.deltaT))
 if not opts.fname:
     fname = opts.instrument.replace("1","")+"-fake_strain-"+str(tstart)+"-"+str(duration)+".gwf"
 
