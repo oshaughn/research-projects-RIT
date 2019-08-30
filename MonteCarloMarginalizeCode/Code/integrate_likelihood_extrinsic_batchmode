@@ -512,9 +512,9 @@ sampler.add_parameter("phi_orb",
 # sampler: cos(incl) uniform in [-1, 1)
 #
 
-adapt_extra_intrinsic=False
+adapt_extra_extrinsic=False
 if opts.sampler_method == "adaptive_cartesian_gpu":  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
-  adapt_extra_intrinsic=True
+  adapt_extra_extrinsic=True
 
 if not opts.inclination_cosine_sampler:
  incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
