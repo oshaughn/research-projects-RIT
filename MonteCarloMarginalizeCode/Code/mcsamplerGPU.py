@@ -252,12 +252,19 @@ class MCSampler(object):
 
     def cdf_inverse_from_hist(self, P, param):
         # Compute the value of the inverse CDF, but scaled to [0, 1].
-        y = np.interp(
-            P, self.histogram_cdf[param],
-            self.histogram_edges[param],
+       """
+        cdf_inverse_from_hist
+           - for now, do on the CPU, since this is done rarely and involves fairly small arrays
+           - this is very wasteful, since we are casting back to the CPU for ALL our sampling points
+       """
+       dat_cdf = identity_convert(self.histogram_cdf[param])
+       dat_edges = identity_convert(self.histogram_edges[param])
+       y = np.interp(
+            identity_convert(P), dat_cdf,
+            dat_edges,
         )
-        # Return the value in the original scaling.
-        return y*self.x_max_minus_min[param] + self.x_min[param]
+       # Return the value in the original scaling.
+       return identity_convert_togpu(y)*self.x_max_minus_min[param] + self.x_min[param]
 
     def pdf_from_hist(self, x, param):
         # Rescale `x` to [0, 1].
@@ -652,14 +659,14 @@ class MCSampler(object):
             # Calculate the effective samples via max over the current 
             # evaluations
             maxval = max(maxval, identity_convert(int_val[0])) if int_val[0] != 0 else maxval
-            maxval = max(maxval,numpy.amax(int_val))
+            maxval = max(maxval,xpy_here.amax(int_val))
             #for v in int_val[1:]:
             #    maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
             # running variance
             var = cumvar(identity_convert(int_val), mean, var, int(self.ntotal))[-1]
             # running integral
-            int_val1 += int_val.sum()
+            int_val1 += identity_convert(int_val.sum())
             # running number of evaluations
             self.ntotal += n
             # FIXME: Likely redundant with int_val1
