@@ -501,7 +501,7 @@ class MCSampler(object):
         #
         nmax = kwargs["nmax"] if kwargs.has_key("nmax") else float("inf")
         neff = kwargs["neff"] if kwargs.has_key("neff") else numpy.float128("inf")
-        n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
+        n = int(kwargs["n"] if kwargs.has_key("n") else min(1000, nmax))
         convergence_tests = kwargs["convergence_tests"] if kwargs.has_key("convergence_tests") else None
 	save_no_samples = kwargs["save_no_samples"] if kwargs.has_key("save_no_samples") else None
 
