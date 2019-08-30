@@ -21,11 +21,13 @@ try:
   xpy_default=cupy
   identity_convert = cupy.asnumpy
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
+  cupy_ok = True
 except:
   print ' no cupy (mcsamplerGPU)'
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
+  cupy_ok = False
 
 
 if 'PROFILE' not in os.environ:
@@ -772,8 +774,18 @@ def uniform_samp_vector(a,b,x):
    """
    uniform_samp_vector:
       Implement uniform sampling with np primitives, not np.vectorize !
+   Note NO cupy implementation yet
    """
    return numpy.heaviside(x-a,0)*numpy.heaviside(b-x,0)/(b-a)
+def uniform_samp_vector_lazy(a,b,x):
+   """
+   uniform_samp_vector_lazy:
+      Implement uniform sampling as multiplication by a constant.
+      Much faster and lighter weight. We never use the cutoffs anyways, because the limits are hardcoded elsewhere.
+   """
+   return 1./(b-a)  # requires the variable in range.  Needed because there is no cupy implementation of np.heavyside
+if cupy_ok:
+   uniform_samp_vector = uniform_samp_vector_lazy  
 
 def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=xpy_default):
     if isinstance(x, float):
