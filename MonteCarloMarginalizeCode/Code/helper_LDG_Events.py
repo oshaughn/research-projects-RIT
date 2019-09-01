@@ -162,6 +162,7 @@ parser.add_argument("--propose-initial-grid",action='store_true',help="If presen
 parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,help="A factor to multiply the mc grid width by. By default 1, or 1.5 if search active. Use larger values mainly in synthetic data tests with noise, to insure sufficiently wide coverage around the *true* parameter values.")
 #parser.add_argument("--propose-initial-grid-includes-search-error",action='store_true',help="Searches have paraemter offsets, but injections have known parameters.  You need a wider grid if you are running from a search grid, since they are usually substantiallyoffset from the maximumlikelihood ")
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
+parser.add_argument("--force-initial-grid-size",action='store_true',help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
@@ -689,15 +690,15 @@ if opts.propose_initial_grid:
     print " Executing grid command ", cmd
     os.system(cmd)
 
-    if opts.assume_matter:
-        # Now perform a puffball in lambda1 and lambda2
-        cmd_puff = " util_ParameterPuffball.py --parameter LambdaTilde  --inj-file proposed-grid.xml.gz --inj-file-out proposed-grid_puff_lambda --downselect-parameter lambda1 --downselect-parameter-range [0.1,5000] --downselect-parameter lambda2 --downselect-parameter-range [0.1,5000]"
-        os.system(cmd_puff)
-        # Now add these two together
-        # ideally, ligolw_add will work... except it fails
-        P_A = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid.xml.gz")
-        P_B = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid_puff_lambda.xml.gz")
-        lalsimutils.ChooseWaveformParams_array_to_xml(P_A+P_B, "proposed-grid.xml.gz")
+    # if opts.assume_matter:
+    #     # Now perform a puffball in lambda1 and lambda2
+    #     cmd_puff = " util_ParameterPuffball.py --parameter LambdaTilde  --inj-file proposed-grid.xml.gz --inj-file-out proposed-grid_puff_lambda --downselect-parameter lambda1 --downselect-parameter-range [0.1,5000] --downselect-parameter lambda2 --downselect-parameter-range [0.1,5000]"
+    #     os.system(cmd_puff)
+    #     # Now add these two together
+    #     # ideally, ligolw_add will work... except it fails
+    #     P_A = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid.xml.gz")
+    #     P_B = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid_puff_lambda.xml.gz")
+    #     lalsimutils.ChooseWaveformParams_array_to_xml(P_A+P_B, "proposed-grid.xml.gz")
 
 if opts.propose_ile_convergence_options:
     helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler   --n-max 4000000 --n-eff 50 "
