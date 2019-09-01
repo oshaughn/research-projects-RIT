@@ -552,6 +552,7 @@ else:
             print ' Invalid param ', param, ' not in ', lalsimutils.valid_params
             sys.exit(0)
     npts_per_dim = int(np.power(opts.grid_cartesian_npts, 1./len(param_names)))+1
+    npts_per_dim *= np.power(2*len(opts.downselect_parameter), 1/len(param_names))  # if we provide cutoffs, increase the underlying grid size. Make SURE we get target point size!
     pts_per_dim = npts_per_dim*np.ones(len(param_names))  # ow!
     param_ranges = []
     if len(param_names) == len(opts.parameter_range):
@@ -942,7 +943,9 @@ if opts.linear_spoked or opts.uniform_spoked:
 ###
 ### Optional: Write grid to XML file (ONLY if using cutoff option)
 ###
-lalsimutils.ChooseWaveformParams_array_to_xml(P_list, fname=opts.fname, fref=P.fref)
+n_out = np.min([opts.grid_cartesian_npts,len(P_list)])
+lalsimutils.ChooseWaveformParams_array_to_xml(P_list[:n_out], fname=opts.fname, fref=P.fref)
+print "  ==> Writing npts = ", n_out, " out of ", len(P_list)
 
 ###
 ### Write output to text file:  p1 p2 p3 ... overlap, only including named params
