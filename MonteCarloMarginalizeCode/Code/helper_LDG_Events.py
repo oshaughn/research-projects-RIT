@@ -162,7 +162,7 @@ parser.add_argument("--propose-initial-grid",action='store_true',help="If presen
 parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,help="A factor to multiply the mc grid width by. By default 1, or 1.5 if search active. Use larger values mainly in synthetic data tests with noise, to insure sufficiently wide coverage around the *true* parameter values.")
 #parser.add_argument("--propose-initial-grid-includes-search-error",action='store_true',help="Searches have paraemter offsets, but injections have known parameters.  You need a wider grid if you are running from a search grid, since they are usually substantiallyoffset from the maximumlikelihood ")
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
-parser.add_argument("--force-initial-grid-size",action='store_true',help="Force grid size for initial grid (hopefully)")
+parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
@@ -664,7 +664,7 @@ if opts.propose_initial_grid:
     if tune_grid:
         cmd += " --reset-grid-via-match --match-value 0.85 --use-fisher  --use-fisher-resampling --approx  " + approx_str # ow, but useful
     if opts.assume_nospin:
-        cmd += " --grid-cartesian-npts 500 " 
+        grid_size = 500
     else:
         chieff_range = str([chieff_min,chieff_max]).replace(' ', '')   # assumes all chieff are possible
         if opts.propose_fit_strategy:
@@ -675,7 +675,8 @@ if opts.propose_initial_grid:
                 chieff_range = chi_range  # force to be smaller
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
-        cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range+  " --grid-cartesian-npts 4000 "
+        cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
+        grid_size =4000
 
         if opts.assume_precessing_spin:
             # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
@@ -686,7 +687,11 @@ if opts.propose_initial_grid:
         # We will leverage working off this to find the lambdaTilde dependence
 #        cmd += " --use-eos AP4 "  
         cmd += " --random-parameter lambda1 --random-parameter-range [50,1500] --random-parameter lambda2 --random-parameter-range [50,1500] "
+        grid_size *=3  
 
+    if not (opts.force_initial_grid_size is None):
+        grid_size = opts.force_initial_grid_size
+    cmd += " --grid-cartesian-npts  " + str(grid_size)
     print " Executing grid command ", cmd
     os.system(cmd)
 
