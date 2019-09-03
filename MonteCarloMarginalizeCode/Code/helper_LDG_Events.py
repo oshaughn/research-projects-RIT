@@ -734,6 +734,7 @@ if not opts.lowlatency_propose_approximant:
 
 puff_max_it=0
 puff_factor=1
+puff_args = " --parameter mc --parameter eta "
 if opts.propose_fit_strategy:
     puff_max_it= 0
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
@@ -748,16 +749,18 @@ if opts.propose_fit_strategy:
     n_it_early =3
     if opts.assume_highq:
         n_it_early =5
+        qmin_puff = 0.05 # 20:1
     helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
     if opts.use_quadratic_early:
         helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method gp', 'fit-method quadratic')
 
     if not opts.assume_nospin:
+        helper_puff_args += " --parameter chieff_aligned "
         if not opts.assume_precessing_spin:
             if not opts.assume_highq:
                 helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
                 helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
-                helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
+                helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z '
             else: # highq
                 helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
                 helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z  ' 
@@ -817,6 +820,7 @@ if opts.propose_fit_strategy:
 
 
     if opts.assume_matter:
+        helper_puff_args += " --parameter LambdaTilde  --downselect-parameter s1z --downselect-parameter-range [-0.9,0.9] --downselect-parameter s2z --downselect-parameter-range [-0.9,0.9]  "  # Probably should also aggressively force sampling of low-lambda region
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
         # Add LambdaTilde on top of the aligned spin runs
         for indx in np.arange(len(helper_cip_arg_list)):
@@ -851,3 +855,9 @@ if opts.propose_fit_strategy:
 if opts.propose_fit_strategy:
     with open("helper_puff_factor.txt",'w') as f:
         f.write(str(puff_factor))
+
+if opts.propose_fit_strategy:
+    puff_args += " --downselect-parameter eta --downselect-parameter-range ["+str(eta_min) +","+str(eta_max)+"]"
+    puff_args += " --puff-factor " + str(puff_factor)
+    with open("helper_puff_args.txt",'w') as f:
+        f.write(puff_args)
