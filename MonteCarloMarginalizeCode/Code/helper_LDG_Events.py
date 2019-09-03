@@ -705,6 +705,13 @@ if opts.propose_initial_grid:
     #     P_B = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid_puff_lambda.xml.gz")
     #     lalsimutils.ChooseWaveformParams_array_to_xml(P_A+P_B, "proposed-grid.xml.gz")
 
+
+if opts.propose_fit_strategy and (not opts.gracedb_id is None):
+    # use a puff factor that depends on mass.  Use a larger puff factor below around 10.
+    if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
+        puff_factor =3  # high q, use more aggressive puff
+
+
 if opts.propose_ile_convergence_options:
     helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler   --n-max 4000000 --n-eff 50 "
     # Modify someday to use the SNR to adjust some settings
@@ -725,6 +732,8 @@ if not opts.lowlatency_propose_approximant:
 #if opts.last_iteration_extrinsic:
 #    helper_cip_args += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 5000 "
 
+puff_max_it=0
+puff_factor=1
 if opts.propose_fit_strategy:
     puff_max_it= 0
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
@@ -799,7 +808,7 @@ if opts.propose_fit_strategy:
         
                 # Change convergence threshold at late times
                 #            helper_cip_arg_list[2].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late)
-                helper_cip_arg_list[3].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late))
+                helper_cip_arg_list[3]=helper_cip_arg_list[3].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late))
 
             n_its = map(lambda x: float(x.split()[0]), helper_cip_arg_list)
             puff_max_it= n_its[0] + n_its[1] # puff for first 2 types, to insure good coverage in narrow-q cases
@@ -812,6 +821,8 @@ if opts.propose_fit_strategy:
         # Add LambdaTilde on top of the aligned spin runs
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " 
+        # Remove LambdaTilde from *first* batch of iterations .. too painful
+        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('--parameter-implied LambdaTilde','')
         # Add one line with deltaLambdaTilde
         helper_cip_arg_list.append(helper_cip_arg_list[-1]) 
         helper_cip_arg_list[-1] +=  " --parameter-implied DeltaLambdaTilde "
@@ -837,3 +848,6 @@ if opts.assume_matter:
 if opts.propose_fit_strategy:
     with open("helper_puff_max_it.txt",'w') as f:
         f.write(str(puff_max_it))
+if opts.propose_fit_strategy:
+    with open("helper_puff_factor.txt",'w') as f:
+        f.write(str(puff_factor))
