@@ -734,7 +734,7 @@ if not opts.lowlatency_propose_approximant:
 
 puff_max_it=0
 puff_factor=1
-puff_args = " --parameter mc --parameter eta "
+helper_puff_args = " --parameter mc --parameter eta "
 if opts.propose_fit_strategy:
     puff_max_it= 0
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
@@ -857,7 +857,7 @@ if opts.propose_fit_strategy:
         f.write(str(puff_factor))
 
 if opts.propose_fit_strategy:
-    puff_args += " --downselect-parameter eta --downselect-parameter-range ["+str(eta_min) +","+str(eta_max)+"]"
-    puff_args += " --puff-factor " + str(puff_factor)
+    helper_puff_args += " --downselect-parameter eta --downselect-parameter-range ["+str(eta_min) +","+str(eta_max)+"]"
+    helper_puff_args += " --puff-factor " + str(puff_factor)
     with open("helper_puff_args.txt",'w') as f:
-        f.write(puff_args)
+        f.write(helper_puff_args)
