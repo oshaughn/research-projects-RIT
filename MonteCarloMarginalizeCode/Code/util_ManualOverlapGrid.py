@@ -544,7 +544,7 @@ if not opts.parameter:
     param_names =[ 'eta', 'LambdaTilde']  # override options for now
     param_ranges =[ [0.23, 0.25], [0, 1000]]
     pts_per_dim = [ 10,10]
-else:
+elif not(opts.parameter is None):
     param_names = opts.parameter
     for param in param_names:
         # Check if in the valid list
@@ -552,7 +552,8 @@ else:
             print ' Invalid param ', param, ' not in ', lalsimutils.valid_params
             sys.exit(0)
     npts_per_dim = int(np.power(opts.grid_cartesian_npts, 1./len(param_names)))+1
-    npts_per_dim *= np.power(2*len(opts.downselect_parameter), 1/len(param_names))  # if we provide cutoffs, increase the underlying grid size. Make SURE we get target point size!
+    if opts.downselect_parameter:
+        npts_per_dim *= np.power(2*len(opts.downselect_parameter), 1/len(param_names))  # if we provide cutoffs, increase the underlying grid size. Make SURE we get target point size!
     pts_per_dim = npts_per_dim*np.ones(len(param_names))  # ow!
     param_ranges = []
     if len(param_names) == len(opts.parameter_range):
@@ -721,7 +722,7 @@ grid = eff.multi_dim_grid(*grid_tuples)  # each line in 'grid' is a set of param
 print grid.shape
 
 # Extend to use alternative parameters
-if not (opts.random_parameter is None):
+if not (opts.random_parameter is None) and not(opts.parameter is None):
     indx_base = len(opts.parameter)
 #    print param_names, param_ranges
     param_names += opts.random_parameter
@@ -734,6 +735,12 @@ if not (opts.random_parameter is None):
         grid_extra[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))
 
     grid = np.hstack((grid,grid_extra))
+
+elif opts.parameter is None:
+    param_names =  opts.random_parameter
+    param_ranges = map(eval, opts.random_parameter_range)
+    print param_names, param_ranges
+    grid = np.zeros( (opts.grid_cartesian_npts,len(opts.random_parameter)) )
 
 
 # Special check: m2<m1 : if both names appear, strip parameters from the grid
