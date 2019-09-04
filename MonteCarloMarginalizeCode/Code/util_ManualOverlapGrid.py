@@ -741,6 +741,11 @@ elif opts.parameter is None:
     param_ranges = map(eval, opts.random_parameter_range)
     print param_names, param_ranges
     grid = np.zeros( (opts.grid_cartesian_npts,len(opts.random_parameter)) )
+    for indx in np.arange(len(opts.random_parameter)):
+        range_here = np.array(param_ranges[ indx])
+        if opts.random_parameter[indx] in ['mc','mtot','m1','m2']:
+            range_here *= lal.MSUN_SI
+        grid[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))
 
 
 # Special check: m2<m1 : if both names appear, strip parameters from the grid
