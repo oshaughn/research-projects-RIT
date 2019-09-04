@@ -695,7 +695,7 @@ if opts.propose_initial_grid:
 
     if not (opts.force_initial_grid_size is None):
         grid_size = opts.force_initial_grid_size
-    cmd += " --grid-cartesian-npts  " + str(grid_size)
+    cmd += " --grid-cartesian-npts  " + str(int(grid_size))
     print " Executing grid command ", cmd
     os.system(cmd)
 
