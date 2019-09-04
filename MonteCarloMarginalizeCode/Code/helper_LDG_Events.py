@@ -687,7 +687,7 @@ if opts.propose_initial_grid:
         # We will leverage working off this to find the lambdaTilde dependence
 #        cmd += " --use-eos AP4 "  
         cmd += " --random-parameter lambda1 --random-parameter-range [50,1500] --random-parameter lambda2 --random-parameter-range [50,1500] "
-        grid_size *=1.5  
+        grid_size *=1  
 
     if opts.propose_fit_strategy:
         if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
