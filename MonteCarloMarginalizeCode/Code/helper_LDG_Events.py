@@ -655,7 +655,7 @@ elif opts.data_LI_seglen:
 
 if opts.propose_initial_grid:
     # add basic mass parameters
-    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   " + mc_range_str + "  --parameter delta_mc --parameter-range '[" + str(delta_min_tight) +"," + str(delta_max_tight) + "]'  "
+    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap  --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --parameter-range '[" + str(delta_min_tight) +"," + str(delta_max_tight) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
     cmd += " --fmin " + str(opts.fmin_template)
     if opts.data_LI_seglen:  
@@ -676,7 +676,7 @@ if opts.propose_initial_grid:
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
         cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
-        grid_size =4000
+        grid_size =3000
 
         if opts.assume_precessing_spin:
             # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
@@ -687,7 +687,11 @@ if opts.propose_initial_grid:
         # We will leverage working off this to find the lambdaTilde dependence
 #        cmd += " --use-eos AP4 "  
         cmd += " --random-parameter lambda1 --random-parameter-range [50,1500] --random-parameter lambda2 --random-parameter-range [50,1500] "
-        grid_size *=3  
+        grid_size *=1.5  
+
+    if opts.propose_fit_strategy:
+        if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
+            grid_size *=1.5  # denser grid at low mass, because of tight correlations
 
     if not (opts.force_initial_grid_size is None):
         grid_size = opts.force_initial_grid_size
