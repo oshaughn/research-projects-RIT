@@ -793,6 +793,19 @@ def delta_func_samp(x_0, x):
 
 delta_func_samp_vector = numpy.vectorize(delta_func_samp, otypes=[numpy.float])
 
+
+def linear_down_samp(x,xmin=0,xmax=1):
+    """
+    distribution p(x) \propto (xmax-x) 
+    """
+    return 2./(xmax-xmin)**2 * np.power(xmax-x,1)
+
+def linear_down_samp_cdf(x,xmin=0,xmax=1):
+    """
+    CDF of distribution p(x) \propto (xmax-x) 
+    """
+    return 1.-1./(xmax-xmin)**2 * np.power(xmax-x,2)
+
 class HealPixSampler(object):
     """
     Class to sample the sky using a FITS healpix map. Equivalent to a joint 2-D pdf in RA and dec.
