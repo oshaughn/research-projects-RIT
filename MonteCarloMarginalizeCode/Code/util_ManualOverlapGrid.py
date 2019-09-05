@@ -687,13 +687,15 @@ for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
 # Enforce definition of eta
 downselect_dict['eta'] = [0,0.25]
 
-print " Downselect dictionary ", downselect_dict
+print " Downselect dictionary (before scaling) ", downselect_dict
 
 # downselection procedure: fix units so I can downselect on mass parameters
 for p in ['mc', 'm1', 'm2', 'mtot']:
     if p in downselect_dict.keys():
         downselect_dict[p] = np.array(downselect_dict[p],dtype=np.float64)
         downselect_dict[p] *= lal.MSUN_SI  # add back units
+
+print " Downselect dictionary (with units) ", downselect_dict
 
 
 ###
@@ -731,7 +733,9 @@ if not (opts.random_parameter is None) and not(opts.parameter is None):
     grid_extra = np.zeros( (len(grid),len(opts.random_parameter)) )
 #    print grid_extra.shape
     for indx in np.arange(len(opts.random_parameter)):
-        range_here = param_ranges[ indx_base+indx]
+        range_here = np.array(param_ranges[ indx_base+indx])
+        if param_names[indx] in ['mc','mtot','m1','m2']:
+            range_here *= lal.MSUN_SI
         grid_extra[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))
 
     grid = np.hstack((grid,grid_extra))
@@ -743,7 +747,7 @@ elif opts.parameter is None:
     grid = np.zeros( (opts.grid_cartesian_npts,len(opts.random_parameter)) )
     for indx in np.arange(len(opts.random_parameter)):
         range_here = np.array(param_ranges[ indx])
-        if opts.random_parameter[indx] in ['mc','mtot','m1','m2']:
+        if param_names[indx] in ['mc','mtot','m1','m2']:
             range_here *= lal.MSUN_SI
         grid[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))
 
