@@ -734,7 +734,7 @@ if not (opts.random_parameter is None) and not(opts.parameter is None):
 #    print grid_extra.shape
     for indx in np.arange(len(opts.random_parameter)):
         range_here = np.array(param_ranges[ indx_base+indx])
-        if param_names[indx] in ['mc','mtot','m1','m2']:
+        if param_names[indx_base+indx] in ['mc','mtot','m1','m2']:
             range_here *= lal.MSUN_SI
         grid_extra[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))
 
