@@ -141,6 +141,7 @@ parser.add_argument("--fmax",default=None,type=float,help="fmax. Use this ONLY i
 parser.add_argument("--data-start-time",default=None)
 parser.add_argument("--data-end-time",default=None,help="If both data-start-time and data-end-time are provided, this interval will be used.")
 parser.add_argument("--data-LI-seglen",default=None,type=float,help="If provided, use a buffer this long, placing the signal 2s after this, and try to use 0.4s tukey windowing on each side, to be consistent with LI.  ")
+parser.add_argument("--no-enforce-duration-bound",action='store_true',help="Allow user to perform LI-style behavior and reequest signals longer than the seglen. Argh, by request.")
 #parser.add_argument("--enforce-q-min",default=None,type=float,help='float.  If provided ,the grid will go down to this mass ratio. SEGMENT LENGTH WILL BE ADJUSTED')
 parser.add_argument("--working-directory",default=".")
 parser.add_argument("--datafind-exe",default="gw_data_find")
@@ -658,7 +659,7 @@ if opts.propose_initial_grid:
     cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap  --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_min_tight) +"," + str(delta_max_tight) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
     cmd += " --fmin " + str(opts.fmin_template)
-    if opts.data_LI_seglen:  
+    if opts.data_LI_seglen and not (opts.no_enforce_duration_bound):  
         cmd += " --enforce-duration-bound " + str(opts.data_LI_seglen)
     cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
     if tune_grid:
