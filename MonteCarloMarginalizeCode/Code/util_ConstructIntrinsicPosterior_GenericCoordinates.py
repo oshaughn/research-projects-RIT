@@ -1394,9 +1394,9 @@ if not (opts.fail_unless_n_eff is None):
     if neff < opts.fail_unless_n_eff:
         print " FAILURE: n_eff too small"
         sys.exit(1)
-if neff < 0.5*opts.n_eff:
+if neff < opts.n_eff:   
     print " ==> neff (={}) is low <==".format(neff)
-    if opts.contingency_unevolved_neff == 'quadpuff':
+    if opts.contingency_unevolved_neff == 'quadpuff'  and neff < np.min([500,opts.n_eff]): # we can usually get by with about 500 points
         # Add errors
         # Note we only want to add errors to RETAINED points
         print " Contingency: quadpuff: take covariance of points, draw from it again, add to existing points as offsets (i.e. a puffball) "
@@ -1410,7 +1410,7 @@ if neff < 0.5*opts.n_eff:
         P_out_list = []
         # Loop over points 
         # Jitter using the parameters we use to fit with
-        for indx_P in np.arange(len(P_list_in)):
+        for indx_P in np.arange(np.min([len(P_list_in),len(X)])):   # make sure no past-limits errors
             include_item=True
             P = P_list_in[indx_P]
             for indx in np.arange(len(coord_names)):
