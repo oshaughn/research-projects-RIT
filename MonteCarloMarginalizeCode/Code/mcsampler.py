@@ -798,13 +798,13 @@ def linear_down_samp(x,xmin=0,xmax=1):
     """
     distribution p(x) \propto (xmax-x) 
     """
-    return 2./(xmax-xmin)**2 * np.power(xmax-x,1)
+    return 2./(xmax-xmin)**2 * numpy.power(xmax-x,1)
 
 def linear_down_samp_cdf(x,xmin=0,xmax=1):
     """
     CDF of distribution p(x) \propto (xmax-x) 
     """
-    return 1.-1./(xmax-xmin)**2 * np.power(xmax-x,2)
+    return 1.-1./(xmax-xmin)**2 * numpy.power(xmax-x,2)
 
 class HealPixSampler(object):
     """
