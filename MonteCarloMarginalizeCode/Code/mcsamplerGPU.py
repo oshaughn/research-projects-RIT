@@ -110,6 +110,7 @@ class MCSampler(object):
         self.params_ordered = []  # keep them in order. Important to break likelihood function need for names
         # parameter -> pdf function object
         self.pdf = {}
+        self.pdf_initial = {}
         # If the pdfs aren't normalized, this will hold the normalization 
         # constant
         self._pdf_norm = defaultdict(lambda: 1)
@@ -118,6 +119,7 @@ class MCSampler(object):
         # parameter -> cdf^{-1} function object
         self.cdf = {}
         self.cdf_inv = {}
+        self.cdf_inv_initial = {}
         # params for left and right limits
         self.llim, self.rlim = {}, {}
         # Keep track of the adaptive parameters
@@ -182,6 +184,8 @@ class MCSampler(object):
         self.pdf[params] = pdf
         # FIXME: This only works automagically for the 1d case currently
         self.cdf_inv[params] = cdf_inv or self.cdf_inverse(params)
+        self.pdf_initial[params] = pdf
+        self.cdf_inv_initial[params] = self.cdf_inv[params]
         if not isinstance(params, tuple):
             self.cdf[params] =  self.cdf_function(params)
             if prior_pdf is None:
@@ -194,6 +198,9 @@ class MCSampler(object):
             print "   Adapting ", params
             self.adaptive.append(params)
 
+    def reset_sampling(self,param):
+      self.pdf[param] = self.pdf_initial[param]
+      self.cdf_inv[param] = self.cdf_inv_initial[param]
 
     def setup_hist(self):
         """

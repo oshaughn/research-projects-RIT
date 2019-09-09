@@ -928,6 +928,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #            print " Max lnL for this iteration ", numpy.max(lnL)
             return numpy.exp(lnL - manual_avoid_overflow_logarithm)
 
+    if opts.sampler_method == "adaptive_cartesian_gpu":
+      # reset sampling parameter as needed (distance, inclination but not sky location)
+      # distance (and inclination) can conceivably correlate with mass, and we don't want to truncate in distance/inclination prematurely from history effects
+      sampler.reset_sampling('distance')
+      sampler.reset_sampling('inclination')
+
     # Integrate
     args = likelihood_function.func_code.co_varnames[:likelihood_function.func_code.co_argcount]
     print " --------> Arguments ", args
