@@ -830,8 +830,8 @@ if opts.propose_fit_strategy:
         # Add LambdaTilde on top of the aligned spin runs
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " 
-        # Remove LambdaTilde from *first* batch of iterations .. too painful
-        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('--parameter-implied LambdaTilde','')
+        # Remove LambdaTilde from *first* batch of iterations .. too painful ? NO, otherwise we wander off into wilderness
+#        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('--parameter-implied LambdaTilde','')
         # Add one line with deltaLambdaTilde
         helper_cip_arg_list.append(helper_cip_arg_list[-1]) 
         helper_cip_arg_list[-1] +=  " --parameter-implied DeltaLambdaTilde "
