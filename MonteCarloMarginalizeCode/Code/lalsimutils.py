@@ -2065,7 +2065,7 @@ def tidal_lambda_from_tilde(mass1, mass2, lam_til, dlam_til):
 ### Bernuzzi's conversion routines
 ###
 try:
-    from scipy import factorial2
+    from scipy.special import factorial2
 except:  
     from scipy.misc import factorial2
 def lamtilde_of_eta_lam1_lam2(eta, lam1, lam2):
