@@ -806,6 +806,20 @@ def linear_down_samp_cdf(x,xmin=0,xmax=1):
     """
     return 1.-1./(xmax-xmin)**2 * numpy.power(xmax-x,2)
 
+
+def power_down_samp(x,xmin=0,xmax=1,alpha=3):
+    """
+    distribution p(x) \propto (xmax-x) 
+    """
+    return alpha/(xmax-xmin)**alpha * numpy.power(xmax-x,alpha-1)
+
+def power_down_samp_cdf(x,xmin=0,xmax=1,alpha=3):
+    """
+    CDF of distribution p(x) \propto (xmax-x) 
+    """
+    return 1.-1./(xmax-xmin)**alpha * numpy.power(xmax-x,alpha)
+
+
 class HealPixSampler(object):
     """
     Class to sample the sky using a FITS healpix map. Equivalent to a joint 2-D pdf in RA and dec.
