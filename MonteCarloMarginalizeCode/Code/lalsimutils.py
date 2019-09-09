@@ -46,9 +46,9 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 rosDebugMessagesContainer = [False]
 rosDebugMessagesLongContainer = [False]
-print >>sys.stderr, "[Loading lalsimutils.py : MonteCarloMarginalization version]"
-print >> sys.stderr, "  scipy : ", scipy.__version__
-print >>sys.stderr,"  numpy : ", np.__version__
+print( "[Loading lalsimutils.py : MonteCarloMarginalization version]",file=sys.stderr)
+print( "  scipy : ", scipy.__version__, file=sys.stderr)
+print("  numpy : ", np.__version__,file=sys.stderr)
 
 TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 
@@ -1412,7 +1412,7 @@ def xml_to_ChooseWaveformParams_array(fname, minrow=None, maxrow=None,
         [Ps[i-minrow].copy_lsctables_sim_inspiral(sim_insp[i]) for i in rng]
         # set the approximants correctly -- this is NOT straightforward because of conversions
     except ValueError:
-        print >>sys.stderr, "No SimInspiral table found in xml file"
+        print( "No SimInspiral table found in xml file",file=sys.stderr)
     return Ps
 
 #
