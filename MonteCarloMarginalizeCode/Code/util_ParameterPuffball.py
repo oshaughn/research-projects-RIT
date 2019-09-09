@@ -62,6 +62,7 @@ if opts.downselect_parameter:
 else:
     dlist = []
     dlist_ranges = []
+    opts.downselect_parameter =[]
 if len(dlist) != len(dlist_ranges):
     print " downselect parameters inconsistent", dlist, dlist_ranges
 for indx in np.arange(len(dlist_ranges)):
