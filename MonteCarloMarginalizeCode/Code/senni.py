@@ -307,4 +307,9 @@ class Interpolator(object): # interpolator
                   input[:, dim], _, _ = self.preprocessing(input[:, dim])
 
             self.net.eval()
-            return self.net(torch.from_numpy(input).float().to(self.device)).detach().numpy()[:,0] # convert back to 1d output
+
+            output = self.net(torch.from_numpy(input).float().to(self.device)).detach().numpy()[:,0] # convert back to 1d output
+            output *= self.target_sigma
+            output += self.target_mu
+
+            return output
