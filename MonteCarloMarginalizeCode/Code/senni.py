@@ -39,7 +39,7 @@ class Interpolator(object): # interpolator
 
       def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=32,
                    epochs=100, learning_rate=1e-2, betas=(0.9, 0.99), eps=1e-2, epochs_per_lr=20, 
-                   lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True,working_dir='.'):
+                   lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True, working_dir='.', loss_func='mape'):
 
             '''
             :input: Input column vector with each column representing one input with size (n_samples, n_dim)
@@ -87,6 +87,10 @@ class Interpolator(object): # interpolator
             target_valid, _, _ = self.preprocessing(target_valid, self.target_mu, self.target_sigma)
             target_test, _, _ = self.preprocessing(target_test, self.target_mu, self.target_sigma)
 
+            errors_train, err_mu, err_sigma = self.preprocessing(errors_train)
+            errors_valid, _, _ = self.preprocessing(errors_valid, mu=err_mu, sigma=err_sigma)
+            errors_test, _, _ = self.preprocessing(errors_test, mu=err_mu, sigma=err_sigma)
+
             self.input_train = torch.from_numpy(input_train).float().to(self.device)
             self.input_valid = torch.from_numpy(input_valid).float().to(self.device)
             self.input_test = torch.from_numpy(input_test).float().to(self.device)
@@ -95,7 +99,12 @@ class Interpolator(object): # interpolator
             self.target_valid = torch.from_numpy(target_valid).float().to(self.device)
             self.target_test = torch.from_numpy(target_test).float().to(self.device)
 
+            self.errors_train = torch.from_numpy(errors_train).float().to(self.device)
+            self.errors_valid = torch.from_numpy(errors_valid).float().to(self.device)
+            self.errors_test = torch.from_numpy(errors_test).float().to(self.device)
+
             self.network_init()
+            self.loss_func = loss_func
             self.optim_init(learning_rate=learning_rate, betas=betas, eps=eps)
             self.sched_init(epochs_per_lr=epochs_per_lr, lr_divisions=lr_divisions, lr_frac=lr_frac)
 
@@ -192,6 +201,10 @@ class Interpolator(object): # interpolator
             '''
             return 1./output.shape[0]*torch.sum(torch.abs((output-target)/(target+mu/sigma)))
 
+      def reducedchisquareloss(self, output, target, error):
+
+            return torch.sum((output-target)**2/(error)**2)/(output.shape[0]-self.n_inputs)
+
       def train(self,debug=True):
             '''
             Training on the inputs
@@ -204,7 +217,7 @@ class Interpolator(object): # interpolator
             try: os.system('rm ' + working_dir + '/models/bestmodel.pt')
             except: pass
 
-            dataset = Data.TensorDataset(self.input_train, self.target_train)
+            dataset = Data.TensorDataset(self.input_train, self.target_train, self.errors_train)
 
             loader = Data.DataLoader(dataset=dataset, batch_size=self.batch_size, shuffle=self.shuffle)
 
@@ -212,20 +225,27 @@ class Interpolator(object): # interpolator
 
             for epoch in np.arange(1, self.epochs+1):
 
-                  for step, (batch_input, batch_target) in enumerate(loader):
+                  for step, (batch_input, batch_target, batch_error) in enumerate(loader):
 
                         batch_inputs = Variable(batch_input)
                         batch_targets = Variable(batch_target)
+                        batch_errors = Variable(batch_error)
 
                         prediction = self.net(batch_inputs)
-                       
-                        loss = self.MAPEloss(prediction, batch_targets, self.target_mu, self.target_sigma)
+
+                        if self.loss_func == 'mape':
+                            loss = self.MAPEloss(prediction, batch_targets, self.target_mu, self.target_sigma)
+                        if self.loss_func == 'chi2':
+                            loss = self.reducedchisquareloss(prediction, batch_targets, batch_errors)
 
                         self.optim.zero_grad()
                         loss.backward()      
                         self.optim.step()
 
-                  validation_loss = self.MAPEloss(self.net(self.input_valid), self.target_valid, self.target_mu, self.target_sigma)
+                  if self.loss_func == 'mape':
+                      validation_loss = self.MAPEloss(self.net(self.input_valid), self.target_valid, self.target_mu, self.target_sigma)
+                  if self.loss_func == 'chi2':
+                      validation_loss = self.reducedchisquareloss(self.net(self.input_valid), self.target_valid, self.errors_valid)
 
                   if validation_loss < validation_threshold:
 
@@ -245,8 +265,12 @@ class Interpolator(object): # interpolator
                   if debug:
                       print "Epoch %d out of %d complete" % (epoch, self.epochs)
 
-            self.train_loss = self.MAPEloss(self.net(self.input_train), self.target_train, self.target_mu, self.target_sigma)
-            self.valid_loss = self.MAPEloss(self.net(self.input_valid), self.target_valid, self.target_mu, self.target_sigma)
+            if self.loss_func == 'mape':
+                self.train_loss = self.MAPEloss(self.net(self.input_train), self.target_train, self.target_mu, self.target_sigma)
+                self.valid_loss = self.MAPEloss(self.net(self.input_valid), self.target_valid, self.target_mu, self.target_sigma)
+            if self.loss_func == 'chi2':
+                self.train_loss = self.reducedchisquareloss(self.net(self.input_train), self.target_train, self.errors_train)
+                self.valid_loss = self.reducedchisquareloss(self.net(self.input_valid), self.target_valid, self.errors_valid)
 
       def save(self, filename):
             '''
