@@ -943,7 +943,7 @@ def fit_nn(x,y,y_errors=None,fname_export='nn_fit'):
         errors_packed = None
     import os
     working_dir = os.getcwd()
-    nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=100, frac=0.2, test_frac=0,working_dir=working_dir)  # May want to adjust?
+    nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=200, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='chi2')  # May want to adjust?
     nn_interpolator.train()
     if opts.fit_save_gp:
         print " Attempting to save NN fit ", opts.fit_save_gp+".network"
