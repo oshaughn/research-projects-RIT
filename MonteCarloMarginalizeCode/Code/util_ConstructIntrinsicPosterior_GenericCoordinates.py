@@ -943,18 +943,22 @@ def fit_nn(x,y,y_errors=None,fname_export='nn_fit'):
         errors_packed = None
     import os
     working_dir = os.getcwd()
-    nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=200, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='chi2')  # May want to adjust?
+    # train first with one loss, then the next?
+    nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=50, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='mape')  # May want to adjust size of network based on data size?
+    nn_interpolator.train()
+    nn_interpolator.loss_func='chi2'; nn_interpolator.epochs = 200
     nn_interpolator.train()
     if opts.fit_save_gp:
         print " Attempting to save NN fit ", opts.fit_save_gp+".network"
         nn_interpolator.save(opts.fit_save_gp+".network")
-    
+
+    fn_return = lambda x_in: nn_interpolator.evaluate(x_in) 
+
     print " Demonstrating NN"   # debugging
     residuals = nn_interpolator.evaluate(x)-y
-    print "    std ", np.std(residuals)
-#    print nn_interpolator.evaluate(x)   # debugging
-
-    return lambda x_in: nn_interpolator.evaluate(x_in)
+    residuals2 = fn_return(x) - y
+    print "    std ", np.std(residuals), np.std(residuals2), np.max(y)
+    return fn_return
 
 
 
