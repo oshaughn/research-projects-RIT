@@ -1278,11 +1278,11 @@ elif opts.fit_method == 'gp-pool':
     my_fit = fit_gp_pool(X,Y,y_errors=Y_err,n_pool=opts.pool_size)
 elif opts.fit_method == 'nn':
     print " FIT METHOD ", opts.fit_method, " IS NN "
-    # NO data truncation for NN ? 
-#    X=X[indx_ok]
-#    Y=Y[indx_ok] - lnL_shift
-#    Y_err = Y_err[indx_ok]
- #   dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
