@@ -63,8 +63,6 @@ class Interpolator(object): # interpolator
 
             try: os.mkdir(working_dir+'/models')
             except: pass
-            try: os.system('rm ' + working_dir + '/models/bestmodel.pt')
-            except: pass
 
             self.select_device()
 
@@ -202,6 +200,9 @@ class Interpolator(object): # interpolator
             import numpy as np
             from torch.autograd import Variable
             import torch.utils.data as Data
+
+            try: os.system('rm ' + working_dir + '/models/bestmodel.pt')
+            except: pass
 
             dataset = Data.TensorDataset(self.input_train, self.target_train)
 
