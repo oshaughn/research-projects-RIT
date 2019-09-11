@@ -142,7 +142,8 @@ class Interpolator(object): # interpolator
             else:
                   data_mu = mu
                   data_sigma = sigma
-
+            if data_sigma == 0:
+                data_sigma = 1  # special case
             data = (data - data_mu)/data_sigma
 
             return data, data_mu, data_sigma
@@ -269,12 +270,12 @@ class Interpolator(object): # interpolator
                 self.train_loss = self.MAPEloss(self.net(self.input_train), self.target_train, self.target_mu, self.target_sigma)
                 self.valid_loss = self.MAPEloss(self.net(self.input_valid), self.target_valid, self.target_mu, self.target_sigma)
                 if debug:
-                    print "   Loss ", self.train_loss, self.valid_loss
+                    print "   Loss (MAPE) ", self.train_loss, self.valid_loss
             if self.loss_func == 'chi2':
                 self.train_loss = self.reducedchisquareloss(self.net(self.input_train), self.target_train, self.errors_train)
                 self.valid_loss = self.reducedchisquareloss(self.net(self.input_valid), self.target_valid, self.errors_valid)
                 if debug:
-                    print "   Loss ", self.train_loss, self.valid_loss
+                    print "   Loss (chi2) ", self.train_loss, self.valid_loss
 
       def save(self, filename):
             '''
