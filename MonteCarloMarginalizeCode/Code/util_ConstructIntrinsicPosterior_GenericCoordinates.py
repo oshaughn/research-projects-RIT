@@ -64,12 +64,18 @@ from glue.ligolw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 import mcsampler
-if True: #try:
+try:
     import mcsamplerEnsemble as mcsamplerEnsemble
     mcsampler_gmm_ok = True
-else: #except:
+except:
     print " No mcsamplerEnsemble "
     mcsampler_gmm_ok = False
+try:
+    import senni
+    senni_ok = True
+except:
+    print " No senni "
+    senni_ok = False
 
 
 def render_coord(x):
@@ -929,6 +935,27 @@ def fit_gp_pool(x,y,n_pool=10,**kwargs):
     print " Testing ", fn_out([x[0]])
     return fn_out
 
+def fit_nn(x,y,y_errors=None,fname_export='nn_fit'):
+    y_packed = y[:,np.newaxis]
+    if not (y_errors is None):
+        errors_packed = y_errors[:,np.newaxis]
+    else:
+        errors_packed = None
+    import os
+    working_dir = os.getcwd()
+    nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=100, frac=0.2, test_frac=0,working_dir=working_dir)  # May want to adjust?
+    nn_interpolator.train()
+    if opts.fit_save_gp:
+        print " Attempting to save NN fit ", opts.fit_save_gp+".network"
+        nn_interpolator.save(opts.fit_save_gp+".network")
+    
+    print " Demonstrating NN"   # debugging
+    residuals = nn_interpolator.evaluate(x)-y
+    print "    std ", np.std(residuals)
+#    print nn_interpolator.evaluate(x)   # debugging
+
+    return lambda x_in: nn_interpolator.evaluate(x_in)
+
 
 
 
@@ -1249,6 +1276,22 @@ elif opts.fit_method == 'gp-pool':
     if opts.pool_size == None:
         opts.pool_size = np.max([2,np.round(4000/len(X))])  # pick a pool size that has no more than 4000 members per pool
     my_fit = fit_gp_pool(X,Y,y_errors=Y_err,n_pool=opts.pool_size)
+elif opts.fit_method == 'nn':
+    print " FIT METHOD ", opts.fit_method, " IS NN "
+    # NO data truncation for NN ? 
+#    X=X[indx_ok]
+#    Y=Y[indx_ok] - lnL_shift
+#    Y_err = Y_err[indx_ok]
+ #   dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_nn(X,Y,y_errors=Y_err)
 
 
 
