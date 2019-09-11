@@ -3,6 +3,7 @@ Single Event Neural Network Interpolator
 '''
 
 import torch
+import os
 
 class Net(torch.nn.Module):
             '''
@@ -38,7 +39,7 @@ class Interpolator(object): # interpolator
 
       def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=32,
                    epochs=100, learning_rate=1e-2, betas=(0.9, 0.99), eps=1e-2, epochs_per_lr=20, 
-                   lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True):
+                   lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True,working_dir='.'):
 
             '''
             :input: Input column vector with each column representing one input with size (n_samples, n_dim)
@@ -60,13 +61,14 @@ class Interpolator(object): # interpolator
             import numpy as np
             import os
 
-            try: os.mkdir('models')
+            try: os.mkdir(working_dir+'/models')
             except: pass
-            try: os.system('rm models/bestmodel.pt')
+            try: os.system('rm ' + working_dir + '/models/bestmodel.pt')
             except: pass
 
             self.select_device()
 
+            self.working_dir = working_dir
             self.n_inputs = np.size(input, 1)
             self.n_outputs = np.size(target, 1)
             self.hlayer_size = hlayer_size
@@ -192,7 +194,7 @@ class Interpolator(object): # interpolator
             '''
             return 1./output.shape[0]*torch.sum(torch.abs((output-target)/(target+mu/sigma)))
 
-      def train(self):
+      def train(self,debug=True):
             '''
             Training on the inputs
             Inputs and target should be of the form [array1, array2, ...]
@@ -230,16 +232,17 @@ class Interpolator(object): # interpolator
 
                         torch.save({
                         'model_state_dict': self.net.state_dict(),
-                        }, 'models/bestmodel.pt')
+                        }, self.working_dir+'/models/bestmodel.pt')
 
                   if epoch % self.epochs_per_lr == 0 and epoch <= self.lr_divisions*self.epochs_per_lr:
-                    
-                        savedmodel = torch.load('models/bestmodel.pt')
+                      if os.path.exists(self.working_dir+'/models/bestmodel.pt'):
+                        savedmodel = torch.load(self.working_dir+'/models/bestmodel.pt')
                         self.net.load_state_dict(savedmodel['model_state_dict'])
 
                   self.sched.step()
-
-                  print "Epoch %d out of %d complete" % (epoch, self.epochs)
+                  
+                  if debug:
+                      print "Epoch %d out of %d complete" % (epoch, self.epochs)
 
             self.train_loss = self.MAPEloss(self.net(self.input_train), self.target_train, self.target_mu, self.target_sigma)
             self.valid_loss = self.MAPEloss(self.net(self.input_valid), self.target_valid, self.target_mu, self.target_sigma)
@@ -274,4 +277,4 @@ class Interpolator(object): # interpolator
                   input[:, dim], _, _ = self.preprocessing(input[:, dim])
 
             self.net.eval()
-            return self.net(torch.from_numpy(input).float().to(self.device))
+            return self.net(torch.from_numpy(input).float().to(self.device)).detach().numpy()[:,0] # convert back to 1d output
