@@ -403,8 +403,20 @@ if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
 
 print " Event analysis ", event_dict
-print " == candidate event parameters (as passed to helper) == "
-event_dict["P"].print_params()
+if (opts.event_time is None):
+    print " == candidate event parameters (as passed to helper) == "
+    event_dict["P"].print_params()
+else:
+    print  " == Using event time only; please specify a grid! == "
+    event_dict["tref"]  = opts.event_time
+    event_dict["epoch"] = 4
+    if not("IFOs" in event_dict.keys()):
+        event_dict["IFOs"] = [] # empty list, user must provide later
+#    if not("P" in event_dict.keys()):
+    event_dict["P"] = lalsimutils.ChooseWaveformParams() # default!
+
+    event_dict["MChirp"] = event_dict["P"].extract_param('mc')/lal.MSUN_SI
+    print event_dict["MChirp"]
 
 # Use event GPS time to set observing run, if not provided.  Insures automated operation with a trivial settings file does good things.
 if (opts.observing_run is None) and not opts.fake_data:
