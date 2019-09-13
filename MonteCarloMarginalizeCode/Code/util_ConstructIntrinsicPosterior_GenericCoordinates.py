@@ -943,10 +943,12 @@ def fit_nn(x,y,y_errors=None,fname_export='nn_fit'):
         errors_packed = None
     import os
     working_dir = os.getcwd()
+#    for indx in np.arange(len(x[0])):
+#        print np.min(x[:,indx]), np.max(x[:,indx]), (np.max(x[:,indx])-np.mean(x[:,indx]))/np.std(x[:,indx])
     # train first with one loss, then the next?
-    nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=50, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='mape')  # May want to adjust size of network based on data size?
+    nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=20, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='mape')  # May want to adjust size of network based on data size?
     nn_interpolator.train()
-    nn_interpolator.loss_func='chi2'; nn_interpolator.epochs = 200
+    nn_interpolator.loss_func='chi2'; nn_interpolator.epochs = 120
     nn_interpolator.train()
     if opts.fit_save_gp:
         print " Attempting to save NN fit ", opts.fit_save_gp+".network"
@@ -957,8 +959,65 @@ def fit_nn(x,y,y_errors=None,fname_export='nn_fit'):
     print " Demonstrating NN"   # debugging
     residuals = nn_interpolator.evaluate(x)-y
     residuals2 = fn_return(x) - y
-    print "    std ", np.std(residuals), np.std(residuals2), np.max(y)
+    print "    std ", np.std(residuals), np.std(residuals2), np.max(y), np.max(fn_return(x))
     return fn_return
+
+
+
+def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
+    from sklearn.ensemble import RandomForestRegressor
+    # Instantiate model. Usually not that many structures to find, don't overcomplicate
+    #   - should scale like number of samples
+    rf = RandomForestRegressor(n_estimators=100, random_state = 42,verbose=True,n_jobs=-1)
+    if y_errors is None:
+        rf.fit(x,y)
+    else:
+        rf.fit(x,y,sample_weight=1./y_errors**2)
+
+    fn_return = lambda x_in: rf.predict(x_in) 
+
+    print " Demonstrating RF"   # debugging
+    residuals = rf.predict(x)-y
+    print "    std ", np.std(residuals), np.max(y), np.max(fn_return(x))
+    return fn_return
+
+def fit_nn_rfwrapper(x,y,y_errors=None,fname_export='nn_fit'):
+    from sklearn.ensemble import RandomForestRegressor
+    # Instantiate model. Usually not that many structures to find, don't overcomplicate
+    #   - should scale like number of samples
+    rf = RandomForestRegressor(n_estimators=100, random_state = 42,verbose=True,n_jobs=-1)
+    if y_errors is None:
+        rf.fit(x,y)
+    else:
+        rf.fit(x,y,sample_weight=1./y_errors**2)
+
+    y_packed = y[:,np.newaxis]
+    if not (y_errors is None):
+        errors_packed = y_errors[:,np.newaxis]
+    else:
+        errors_packed = None
+    import os
+    working_dir = os.getcwd()
+#    for indx in np.arange(len(x[0])):
+#        print np.min(x[:,indx]), np.max(x[:,indx]), (np.max(x[:,indx])-np.mean(x[:,indx]))/np.std(x[:,indx])
+    # train first with one loss, then the next?
+    nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=10, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='mape')  # May want to adjust size of network based on data size?
+    nn_interpolator.train()
+    nn_interpolator.loss_func='chi2'; nn_interpolator.epochs = 50
+    nn_interpolator.train()
+
+    y_max = np.max(y)
+    def fn_return(x):
+        vals_rf = rf.predict(x)
+        vals_nn = nn_interpolator.evaluate(x)
+        return np.where(vals_rf > y_max-15, vals_nn, vals_rf)
+
+    print " Demonstrating RF"   # debugging
+    residuals = fn_return(x)-y
+    print "    std ", np.std(residuals), np.max(y), np.max(fn_return(x))
+    return fn_return
+
+
 
 
 
@@ -1296,6 +1355,38 @@ elif opts.fit_method == 'nn':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_nn(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'rf':
+    print " FIT METHOD ", opts.fit_method, " IS RF "
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_rf(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'nn_rfwrapper':
+    print " FIT METHOD ", opts.fit_method, " IS NN with RF wrapper "
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_nn_rfwrapper(X,Y,y_errors=Y_err)
 
 
 
