@@ -78,11 +78,6 @@ class Interpolator(object): # interpolator
             input_train, target_train, errors_train, input_valid, target_valid, errors_valid, input_test, target_test, errors_test \
             = self.set_separation(input, target, errors, frac, test_frac)
 
-            for dim in xrange(self.n_inputs):
-                  input_train[:, dim], mu, sigma = self.preprocessing(input_train[:, dim])
-                  input_valid[:, dim], _, _ = self.preprocessing(input_valid[:, dim], mu=mu, sigma=sigma)
-                  input_test[:, dim], _, _ = self.preprocessing(input_test[:, dim], mu=mu, sigma=sigma)
-
             target_train, self.target_mu, self.target_sigma = self.preprocessing(target_train)
             target_valid, _, _ = self.preprocessing(target_valid, self.target_mu, self.target_sigma)
             target_test, _, _ = self.preprocessing(target_test, self.target_mu, self.target_sigma)
@@ -90,6 +85,31 @@ class Interpolator(object): # interpolator
             errors_train, err_mu, err_sigma = self.preprocessing(errors_train)
             errors_valid, _, _ = self.preprocessing(errors_valid, mu=err_mu, sigma=err_sigma)
             errors_test, _, _ = self.preprocessing(errors_test, mu=err_mu, sigma=err_sigma)
+
+            for dim in xrange(self.n_inputs):
+                  input_train[:, dim], mu, sigma = self.preprocessing(input_train[:, dim])
+                  input_valid[:, dim], _, _ = self.preprocessing(input_valid[:, dim], mu=mu, sigma=sigma)
+                  input_test[:, dim], _, _ = self.preprocessing(input_test[:, dim], mu=mu, sigma=sigma)
+
+                  min, max = 2*np.min(input_train[:, dim]), 2*np.max(input_train[:, dim])
+
+                  fakesamples = np.linspace(min, max, 0.5*input_train.shape[0])
+
+                  bad_idxs = np.where((fakesamples > (min/2.)) & (fakesamples < (max/2.)))
+                  fakesamples = np.delete(fakesamples, bad_idxs)
+
+                  otherdims = np.random.normal(size=(fakesamples.shape[0], self.n_inputs-1))
+                  fakesamples = np.insert(otherdims, dim, fakesamples.T, axis=1)
+
+                  zerolnLs = np.zeros(fakesamples.shape[0])
+                  zerolnLs = zerolnLs[:, np.newaxis]
+
+                  unitysigmas = np.ones(fakesamples.shape[0])
+                  unitysigmas = unitysigmas[:, np.newaxis]
+                  
+                  input_train = np.append(input_train, fakesamples, axis=0)
+                  target_train = np.append(target_train, zerolnLs, axis=0)
+                  errors_train = np.append(errors_train, unitysigmas, axis=0)
 
             self.input_train = torch.from_numpy(input_train).float().to(self.device)
             self.input_valid = torch.from_numpy(input_valid).float().to(self.device)
