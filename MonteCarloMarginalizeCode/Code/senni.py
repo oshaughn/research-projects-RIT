@@ -77,11 +77,18 @@ class Interpolator(object): # interpolator
             self.store_mu_x =[]
             self.store_sigma_x=[]
 
+            self.store_mu_x = np.zeros(len(input[0]))
+            self.store_sigma_x = np.zeros(len(input[0]))
+
+            for dim in xrange(self.n_inputs):
+                  self.store_mu_x[dim] = np.mean(input[:,dim])
+                  self.store_sigma_x[dim] = np.std(input[:,dim])
+                  print " Computing scaling factors on raw data ", dim, self.store_mu_x[dim], self.store_sigma_x[dim]
+
+                
+
             input_train, target_train, errors_train, input_valid, target_valid, errors_valid, input_test, target_test, errors_test \
             = self.set_separation(input, target, errors, frac, test_frac)
-
-            self.store_mu_x = np.zeros(len(input_train[0]))
-            self.store_sigma_x = np.zeros(len(input_train[0]))
 
 
             target_train, self.target_mu, self.target_sigma = self.preprocessing(target_train)
@@ -92,25 +99,35 @@ class Interpolator(object): # interpolator
 #            errors_valid, _, _ = self.preprocessing(errors_valid, mu=err_mu, sigma=err_sigma)
 #            errors_test, _, _ = self.preprocessing(errors_test, mu=err_mu, sigma=err_sigma)
 
+            # Create copies to extend, based on input values
+            #  - do *not* try to edit these on the fly, since we need to loop through the *original* sample
+            input_train_revised = np.array(input_train)
+            target_train_revised = np.array(target_train)
+            errors_train_revised = np.array(errors_train)
+            p_epsilon =1e-3
             for dim in xrange(self.n_inputs):
-                  input_train[:, dim], mu, sigma = self.preprocessing(input_train[:, dim])
-                  self.store_mu_x[dim] = mu
-                  self.store_sigma_x[dim] = sigma
+                  mu, sigma = self.store_mu_x[dim], self.store_sigma_x[dim]
+                  input_train[:, dim], _, _ = self.preprocessing(input_train[:, dim],mu=mu,sigma=sigma)
                   input_valid[:, dim], _, _ = self.preprocessing(input_valid[:, dim], mu=mu, sigma=sigma)
                   input_test[:, dim], _, _ = self.preprocessing(input_test[:, dim], mu=mu, sigma=sigma)
 
                   # take the max and min values of the array
-                  true_min,true_max = np.min(input_train[:,dim]),np.min(input_train[:,dim])
+                  #   - don't use actual min and max, in case of crazy outliers that will leave large gaps in NN coverage
+                  true_min,true_max = np.percentile(input_train[:,dim],p_epsilon*100),np.percentile(input_train[:,dim],100*(1-p_epsilon))
                   # find target range
                   #   - choice depends on if signs are different!
                   #   - if same sign, use a factor 
-                  test_min, test_max = 0.75*true_min,1.25*true_max
+                  test_min, test_max = 0.5*true_min,2*true_max
                   if test_min*test_max < 0: # two different signs for this parameter
-                      test_min, test_max = 1.25*true_min, 1.25*true_max
-                  fakesamples = np.linspace(test_min, test_max, 0.1*input_train.shape[0])
+                      test_min, test_max = 2*true_min, 2*true_max
+                  # Creating fake samples. Note size scaled so TOTAL number of fake samples scales with total sample size
+#                  print " Extending range to ", test_min, test_max, input_train[:,dim], "; cutoffs  in physical coordinates are ", self.store_mu_x[dim]+self.store_sigma_x[dim]*np.array([test_min,true_min, true_max, test_max])
+                  n_samples_to_add = int(0.3*input_train.shape[0]/(1.0*self.n_inputs))
+                  fakesamples = np.random.uniform(test_min, test_max, n_samples_to_add)
                   # remove all the values which occur in the dataset (keep np.where(newv<min) and np.where(newv>max))
                   bad_idxs = np.where((fakesamples > (true_min)) & (fakesamples < (true_max)))
                   fakesamples = np.delete(fakesamples, bad_idxs)
+ #                 print " Adding fake samples to dimension ",dim, len(fakesamples), n_samples_to_add, "note mean, width of scaled variable are ",np.mean(input_train[:,dim]),np.std(input_train[:,dim])
                   # set random values (draw from normal) for other parameters and then set likelihood = 0
                   otherdims = np.random.normal(size=(fakesamples.shape[0], self.n_inputs-1))
                   # insert the non-random fakesamples into the relevant dimension index
@@ -119,9 +136,13 @@ class Interpolator(object): # interpolator
                   zerolnLs = zerolnLs[:, np.newaxis]
                   unitysigmas = np.ones(fakesamples.shape[0])
                   unitysigmas = unitysigmas[:, np.newaxis]
-                  input_train = np.append(input_train, fakesamples, axis=0)
-                  target_train = np.append(target_train, zerolnLs, axis=0)
-                  errors_train = np.append(errors_train, unitysigmas, axis=0)
+                  input_train_revised = np.append(input_train_revised, fakesamples, axis=0)
+                  target_train_revised = np.append(target_train_revised, zerolnLs, axis=0)
+                  errors_train_revised = np.append(errors_train_revised, 0.001*unitysigmas, axis=0) # assume these zeros for lnL are well-known!
+            input_train = input_train_revised
+            target_train = target_train_revised
+            errors_train = errors_train_revised
+
 
             self.input_train = torch.from_numpy(input_train).float().to(self.device)
             self.input_valid = torch.from_numpy(input_valid).float().to(self.device)
