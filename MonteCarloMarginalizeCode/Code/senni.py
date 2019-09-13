@@ -336,7 +336,7 @@ class Interpolator(object): # interpolator
             import numpy as np
 
             for dim in xrange(np.size(input, 1)):
-                  input[:, dim], _, _ = self.preprocessing(input[:, dim],mu=self.store_mu[dim],sigma=self.store_sigma[dim])
+                  input[:, dim], _, _ = self.preprocessing(input[:, dim],mu=self.store_mu_x[dim],sigma=self.store_sigma_x[dim])
 
             self.net.eval()
 
