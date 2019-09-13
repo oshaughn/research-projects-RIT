@@ -74,20 +74,28 @@ class Interpolator(object): # interpolator
             self.epochs = epochs
             self.batch_size = batch_size
             self.shuffle = shuffle
+            self.store_mu_x =[]
+            self.store_sigma_x=[]
 
             input_train, target_train, errors_train, input_valid, target_valid, errors_valid, input_test, target_test, errors_test \
             = self.set_separation(input, target, errors, frac, test_frac)
+
+            self.store_mu_x = np.zeros(len(input_train[0]))
+            self.store_sigma_x = np.zeros(len(input_train[0]))
+
 
             target_train, self.target_mu, self.target_sigma = self.preprocessing(target_train)
             target_valid, _, _ = self.preprocessing(target_valid, self.target_mu, self.target_sigma)
             target_test, _, _ = self.preprocessing(target_test, self.target_mu, self.target_sigma)
 
-            errors_train, err_mu, err_sigma = self.preprocessing(errors_train)
-            errors_valid, _, _ = self.preprocessing(errors_valid, mu=err_mu, sigma=err_sigma)
-            errors_test, _, _ = self.preprocessing(errors_test, mu=err_mu, sigma=err_sigma)
+#            errors_train, err_mu, err_sigma = self.preprocessing(errors_train)
+#            errors_valid, _, _ = self.preprocessing(errors_valid, mu=err_mu, sigma=err_sigma)
+#            errors_test, _, _ = self.preprocessing(errors_test, mu=err_mu, sigma=err_sigma)
 
             for dim in xrange(self.n_inputs):
                   input_train[:, dim], mu, sigma = self.preprocessing(input_train[:, dim])
+                  self.store_mu_x[dim] = mu
+                  self.store_sigma_x[dim] = sigma
                   input_valid[:, dim], _, _ = self.preprocessing(input_valid[:, dim], mu=mu, sigma=sigma)
                   input_test[:, dim], _, _ = self.preprocessing(input_test[:, dim], mu=mu, sigma=sigma)
 
@@ -328,7 +336,7 @@ class Interpolator(object): # interpolator
             import numpy as np
 
             for dim in xrange(np.size(input, 1)):
-                  input[:, dim], _, _ = self.preprocessing(input[:, dim])
+                  input[:, dim], _, _ = self.preprocessing(input[:, dim],mu=self.store_mu[dim],sigma=self.store_sigma[dim])
 
             self.net.eval()
 
