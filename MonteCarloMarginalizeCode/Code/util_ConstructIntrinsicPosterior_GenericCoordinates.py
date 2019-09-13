@@ -965,10 +965,11 @@ def fit_nn(x,y,y_errors=None,fname_export='nn_fit'):
 
 
 def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
-    from sklearn.ensemble import RandomForestRegressor
+#    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.ensemble import ExtraTreesRegressor
     # Instantiate model. Usually not that many structures to find, don't overcomplicate
     #   - should scale like number of samples
-    rf = RandomForestRegressor(n_estimators=100, random_state = 42,verbose=True,n_jobs=-1)
+    rf = ExtraTreesRegressor(n_estimators=100, verbose=True,n_jobs=-1) # no more than 5% of samples in a leaf
     if y_errors is None:
         rf.fit(x,y)
     else:
