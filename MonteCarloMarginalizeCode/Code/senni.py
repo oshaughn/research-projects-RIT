@@ -100,38 +100,17 @@ class Interpolator(object): # interpolator
                   if test_min*test_max < 0: # two different signs for this parameter
                       test_min, test_max = 1.25*true_min, 1.25*true_max
                   fakesamples = np.linspace(test_min, test_max, 0.1*input_train.shape[0])
-                  # remove all the values which occur in the dataset (keep np.where(newv1<min) and np.where(newv1>max))
+                  # remove all the values which occur in the dataset (keep np.where(newv<min) and np.where(newv>max))
                   bad_idxs = np.where((fakesamples > (true_min)) & (fakesamples < (true_max)))
                   fakesamples = np.delete(fakesamples, bad_idxs)
                   # set random values (draw from normal) for other parameters and then set likelihood = 0
                   otherdims = np.random.normal(size=(fakesamples.shape[0], self.n_inputs-1))
-                  #print otherdims
                   # insert the non-random fakesamples into the relevant dimension index
                   fakesamples = np.insert(otherdims, dim, fakesamples.T, axis=1)
                   zerolnLs = np.zeros(fakesamples.shape[0])
                   zerolnLs = zerolnLs[:, np.newaxis]
                   unitysigmas = np.ones(fakesamples.shape[0])
                   unitysigmas = unitysigmas[:, np.newaxis]
-                  # input_train = np.append(input_train, extension, axis=0)
-                  input_train = np.append(input_train, fakesamples, axis=0)
-                  target_train = np.append(target_train, zerolnLs, axis=0)
-                  errors_train = np.append(errors_train, unitysigmas, axis=0)
-                  min, max = 2*np.min(input_train[:, dim]), 2*np.max(input_train[:, dim])
-
-                  fakesamples = np.linspace(min, max, 0.5*input_train.shape[0])
-
-                  bad_idxs = np.where((fakesamples > (min/2.)) & (fakesamples < (max/2.)))
-                  fakesamples = np.delete(fakesamples, bad_idxs)
-
-                  otherdims = np.random.normal(size=(fakesamples.shape[0], self.n_inputs-1))
-                  fakesamples = np.insert(otherdims, dim, fakesamples.T, axis=1)
-
-                  zerolnLs = np.zeros(fakesamples.shape[0])
-                  zerolnLs = zerolnLs[:, np.newaxis]
-
-                  unitysigmas = np.ones(fakesamples.shape[0])
-                  unitysigmas = unitysigmas[:, np.newaxis]
-                  
                   input_train = np.append(input_train, fakesamples, axis=0)
                   target_train = np.append(target_train, zerolnLs, axis=0)
                   errors_train = np.append(errors_train, unitysigmas, axis=0)
