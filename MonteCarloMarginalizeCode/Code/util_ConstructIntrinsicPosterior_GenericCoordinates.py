@@ -1114,7 +1114,8 @@ for line in dat:
         P.dist = lal.PC_SI*1e6*line[9]  # Incompatible with tides, note!
     
     if opts.contingency_unevolved_neff == "quadpuff":
-        P_list_in.append(P) # store  it
+        P_copy = P.manual_copy()  # prevent duplication
+        P_list_in.append(P_copy) # store  it, make sure distinct
 
     # INPUT GRID: Evaluate binary parameters on fitting coordinates
     line_out = np.zeros(len(coord_names)+2)
