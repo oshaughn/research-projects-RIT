@@ -169,6 +169,7 @@ parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does 
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
+parser.add_argument("--use-osg",action='store_true',help="If true, use pathnames consistent with OSG")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
@@ -501,13 +502,19 @@ if (opts.psd_file is None) and (not opts.use_online_psd) and not (opts.assume_fi
         print " Building PSD  for ", ifo
         try:
             ldg_make_psd(ifo, channel_names[ifo], psd_data_start_time, psd_data_end_time, working_directory=opts.working_directory)
-            psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            if not opts.osg:
+                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            else:
+                psd_names[ifo] =  ifo + "-psd.xml.gz"
         except:
             print "  ... PSD generation failed! "
             sys.exit(1)
 elif (opts.assume_fiducial_psd_files):
     for ifo in event_dict["IFOs"]:
-        psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            if not opts.osg:
+                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            else:
+                psd_names[ifo] =  ifo + "-psd.xml.gz"
 
 # Estimate mc range, eta range
 #   - UPDATE: need to add scaling with SNR too
@@ -613,7 +620,10 @@ if "SNR" in event_dict.keys():
         helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
         helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
 
-helper_ile_args += " --cache " + opts.working_directory+ "/" + opts.cache
+if not opts.use_osg:
+    helper_ile_args += " --cache " + opts.working_directory+ "/" + opts.cache
+else:
+    helper_ile_args += " --cache local.cache "
 helper_ile_args += " --event-time " + str(event_dict["tref"])
 for ifo in ifos:
     helper_ile_args += " --channel-name "+ifo+"="+channel_names[ifo]
