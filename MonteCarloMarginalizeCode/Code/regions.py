@@ -9,6 +9,7 @@ regions.py
      Relies on 'mcsampler.py' to provide integration
 """
 
+from six.moves  import range
 import numpy as np
 import functools
 import mcsampler
@@ -362,7 +363,7 @@ def multi_dim_flatgrid(*arrs):
         [2,4,6,2,4,6,2,4,6]
     """
     outarrs = multi_dim_meshgrid(*arrs)
-    return tuple([ outarrs[i].flatten() for i in xrange(len(outarrs)) ])
+    return tuple([ outarrs[i].flatten() for i in range(len(outarrs)) ])
 
 def multi_dim_grid(*arrs):
     """

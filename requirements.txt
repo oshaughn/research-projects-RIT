@@ -12,4 +12,4 @@ lalsuite
 gwdatafind 
 ligo-segments 
 python-ligo-lw 
-
+six
