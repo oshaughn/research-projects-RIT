@@ -502,7 +502,7 @@ if (opts.psd_file is None) and (not opts.use_online_psd) and not (opts.assume_fi
         print " Building PSD  for ", ifo
         try:
             ldg_make_psd(ifo, channel_names[ifo], psd_data_start_time, psd_data_end_time, working_directory=opts.working_directory)
-            if not opts.osg:
+            if not opts.use_osg:
                 psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
             else:
                 psd_names[ifo] =  ifo + "-psd.xml.gz"
@@ -511,7 +511,7 @@ if (opts.psd_file is None) and (not opts.use_online_psd) and not (opts.assume_fi
             sys.exit(1)
 elif (opts.assume_fiducial_psd_files):
     for ifo in event_dict["IFOs"]:
-            if not opts.osg:
+            if not opts.use_osg:
                 psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
             else:
                 psd_names[ifo] =  ifo + "-psd.xml.gz"
