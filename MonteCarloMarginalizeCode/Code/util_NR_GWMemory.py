@@ -54,7 +54,7 @@ for pair in hlmT_memory:
     dt = hlmT_memory_integrand[pair].deltaT
     hlmT_memory[pair].data.data = np.cumsum(dat)*dt
 
-    print pair, np.max(hlmT_memory[pair].data.data), np.max(np.abs(hlmT[pair].data.data)), np.max(np.abs(hlmT_dot[pair].data.data))
+    print(pair, np.max(hlmT_memory[pair].data.data), np.max(np.abs(hlmT[pair].data.data)), np.max(np.abs(hlmT_dot[pair].data.data)))
 
 
 # Save

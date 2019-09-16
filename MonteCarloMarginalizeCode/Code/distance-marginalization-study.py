@@ -74,7 +74,7 @@ for a in sigmahat:
   ratio = evidence/evidence1.ravel()
   pl.semilogx(evidence, np.abs(ratio), label=mylabel)
 
-  print "This is a visual pacifier" 
+  print("This is a visual pacifier")
 
 pl.figure(1)
 pl.legend(loc='upper left')

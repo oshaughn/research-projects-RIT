@@ -33,7 +33,7 @@ def lnprob(x):
         P2.m2 =P2.m1
         hf2 = norm_hoff(P2, IP)
         ret = np.exp(- fakeSNR*fakeSNR*(1-IP.ip(hf1,hf2)))
-    print x, ret
+    print(x, ret)
     return ret
 
 ndim, nwalkers = 1,6
@@ -43,5 +43,5 @@ sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob)
 sampler.run_mcmc(p0,30)
 
 for i in  sampler.flatchain:
-    print i[0]
+    print(i[0])
 

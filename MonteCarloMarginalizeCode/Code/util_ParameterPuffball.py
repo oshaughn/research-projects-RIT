@@ -53,7 +53,7 @@ coord_names = opts.parameter # Used  in fit
 #    coord_names = coord_names + opts.parameter_nofit
 if coord_names is None:
     sys.exit(0)
-print coord_names
+print(coord_names)
 
 downselect_dict = {}
 if opts.downselect_parameter:
@@ -64,7 +64,7 @@ else:
     dlist_ranges = []
     opts.downselect_parameter =[]
 if len(dlist) != len(dlist_ranges):
-    print " downselect parameters inconsistent", dlist, dlist_ranges
+    print(" downselect parameters inconsistent", dlist, dlist_ranges)
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
@@ -98,7 +98,7 @@ if len(coord_names) >1:
 
     # Check for singularities
     if np.min(np.linalg.eig(cov)[0])<1e-10:
-        print " ===> WARNING: SINGULAR MATRIX: are you sure you varied this parameters? <=== "
+        print(" ===> WARNING: SINGULAR MATRIX: are you sure you varied this parameters? <=== ")
         icov_pseudo = np.linalg.pinv(cov)
         # Prior range for each parameter is 1000, so icov diag terms are 10^(-6)
         # This is somewhat made up, but covers most things
@@ -128,13 +128,13 @@ for indx in np.arange(len(coord_names)):
 
 
 cov_out = np.cov(X_out.T)
-print " Covariance change: The following two matrices should be (A) and (1+puff^2)A, where puff= ", opts.puff_factor
-print cov
-print  cov_out
+print(" Covariance change: The following two matrices should be (A) and (1+puff^2)A, where puff= ", opts.puff_factor)
+print(cov)
+print(cov_out)
 if len(coord_names)>1:
-    print " The one dimensional widths are ", np.sqrt(np.diag(cov_out))
+    print(" The one dimensional widths are ", np.sqrt(np.diag(cov_out)))
 else:
-    print " The one dimensional width is", np.sqrt(cov_out)
+    print(" The one dimensional width is", np.sqrt(cov_out))
 
 # Copy parameters back in.  MAKE SURE THIS IS POSSIBLE
 P_out = []

@@ -157,14 +157,14 @@ class EOSConcrete:
                 return False
         else:
             if rosDebug:
-                print " performing comprehensive test "
+                print(" performing comprehensive test ")
         h = np.linspace(0.0001,hmax,npts_internal)
 #        h = np.linspace(0.0001,lalsim.SimNeutronStarEOSMinAcausalPseudoEnthalpy(eos),npts_internal)
         vs_internal = np.zeros(npts_internal)
         for indx in np.arange(npts_internal):
             vs_internal[indx] =  lalsim.SimNeutronStarEOSSpeedOfSoundGeometerized(h[indx],eos)
             if rosDebug:
-                print h[indx], vs_internal[indx]
+                print(h[indx], vs_internal[indx])
         return not np.any(vs_internal>1.1)   # allow buffer, so we have some threshold
 
 ###
@@ -225,11 +225,11 @@ class EOSFromDataFile(EOSConcrete):
         EOS tables described by Ozel `here <https://arxiv.org/pdf/1603.02698.pdf>`_ and downloadable `here <http://xtreme.as.arizona.edu/NeutronStars/data/eos_tables.tar>`_. LALSim utilizes this tables, but needs some interfacing (i.e. conversion to SI units, and conversion from non monotonic to monotonic pressure density tables)
     """
         obs_max_mass = 2.01 - 0.04  # used
-        print "Checking %s" % self.name
+        print("Checking %s" % self.name)
         eos_fname = ""
         if os.path.exists(self.fname):
             # NOTE: Adapted from code by Monica Rizzo
-            print "Loading from %s" % self.fname
+            print("Loading from %s" % self.fname)
             bdens, press, edens = np.loadtxt(self.fname, unpack=True)
             press *= DENSITY_CGS_IN_MSQUARED
             edens *= DENSITY_CGS_IN_MSQUARED
@@ -249,14 +249,14 @@ class EOSFromDataFile(EOSConcrete):
             assert np.all(np.diff(edens) > 0)
 
             # Creating temporary file in suitable units
-            print "Dumping to %s" % self.fname
+            print("Dumping to %s" % self.fname)
             eos_fname = "./" +eos_name + "_geom.dat" # assume write acces
             np.savetxt(eos_fname, np.transpose((press, edens)), delimiter='\t')
             eos = lalsim.SimNeutronStarEOSFromFile(eos_fname)
             fam = lalsim.CreateSimNeutronStarFamily(eos)
 
         else:
-            print " No such file ", self.fname
+            print(" No such file ", self.fname)
             sys.exit(0)
 
         mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
@@ -264,7 +264,7 @@ class EOSFromDataFile(EOSConcrete):
         return eos, fam
 
     def p_rho_arrays(self):
-        print self.fname
+        print(self.fname)
         dat_file = np.array(np.loadtxt(self.fname))
         nb=dat_file[:,0]
         p=dat_file[:,1]
@@ -409,7 +409,7 @@ class EOSLindblomSpectral(EOSConcrete):
         xvals = np.linspace(0,xmax,500)
         gamma_vals = gamma_of_x(xvals, coefficients)
         if rosDebug:
-            print "  Spectral EOS debug test limits: Gamma bounds", np.min(gamma_vals), np.max(gamma_vals)
+            print("  Spectral EOS debug test limits: Gamma bounds", np.min(gamma_vals), np.max(gamma_vals))
         return  not( np.any(gamma_vals < bounds[0]) or np.any(gamma_vals>bounds[1]) )
             
 
@@ -453,7 +453,7 @@ class EOSLindblomSpectral(EOSConcrete):
 
         cutoff=eos_vals[0,:]   
         if verbose:
-            print " cutoff ", cutoff
+            print(" cutoff ", cutoff)
  
         break_pt=0
         for i in range(0, len(low_density)):
@@ -485,12 +485,12 @@ class EOSLindblomSpectral(EOSConcrete):
  
         for i in range(0, resample_pts):
             if verbose == True:
-                print "epsilon", 10**epsilon_range[i]
+                print("epsilon", 10**epsilon_range[i])
 
             new_eos_vals[i,1] = 10**ms.interp_func(epsilon_range[i], np.log10(eos_vals[1:,0]), np.log10(eos_vals[1:,1]), p_of_epsilon)
 
             if verbose == True:
-                print "p", new_eos_vals[i,1]
+                print("p", new_eos_vals[i,1])
     
         new_eos_vals = check_monotonicity(new_eos_vals)
         new_eos_vals = np.vstack((np.array([0.,0.]), new_eos_vals))
@@ -657,7 +657,7 @@ def make_mr_lambda(eos,use_lal=False):
           #print lalsim.SimNeutronStarTOVODEIntegrate((10**fac_max)*p_nuc, eos)
        r_fin=answer[0]/10**3 # convert to km
        if rosDebug:
-           print "R: ",r_fin, r_ref, " M: ", answer[1]/lal.MSUN_SI, m_ref , m_min # should converge to maximum mass
+           print("R: ",r_fin, r_ref, " M: ", answer[1]/lal.MSUN_SI, m_ref , m_min) # should converge to maximum mass
        if r_fin>8:
           fac_max+=0.05
        if r_fin<6:

@@ -76,9 +76,9 @@ T_est = lalsimutils.estimateWaveformDuration(P)
 T_est = P.deltaT*lalsimutils.nextPow2(T_est/P.deltaT)
 T_est = np.max([4,T_est])
 P.deltaF = 1./T_est
-print " Duration ", T_est
+print(" Duration ", T_est)
 if T_est < opts.seglen:
-    print " Buffer length too short, automating retuning forced "
+    print(" Buffer length too short, automating retuning forced ")
 
 # Generate ROM
 acatHere = romwf.WaveformModeCatalog(opts.group, opts.param, opts.lmax)
@@ -93,7 +93,7 @@ if opts.seglen/hoft.deltaT > hoft.data.length:
 # zero pad some more on either side, to make sure the segment covers start to stop
 if opts.start and hoft.epoch > opts.start:
     nToAddBefore = int((hoft.epoch-opts.start)/hoft.deltaT)
-    print nToAddBefore, hoft.data.length
+    print(nToAddBefore, hoft.data.length)
     ht = lal.CreateREAL8TimeSeries("Template h(t)", 
             hoft.epoch - nToAddBefore*hoft.deltaT, 0, hoft.deltaT, lalsimutils.lsu_DimensionlessUnit, 
             hoft.data.length+nToAddBefore)
@@ -103,7 +103,7 @@ if opts.start and hoft.epoch > opts.start:
 
 if opts.stop and hoft.epoch+hoft.data.length*hoft.deltaT < opts.stop:
     nToAddAtEnd = int( (-(hoft.epoch+hoft.data.length*hoft.deltaT)+opts.stop)/hoft.deltaT)
-    print "Padding end ", nToAddAtEnd, hoft.data.length
+    print("Padding end ", nToAddAtEnd, hoft.data.length)
     hoft = lal.ResizeREAL8TimeSeries(hoft,0, int(hoft.data.length+nToAddAtEnd))
 
 channel = opts.instrument+":FAKE-STRAIN"
@@ -113,7 +113,7 @@ duration = int(hoft.data.length*hoft.deltaT)
 if not opts.fname:
     fname = opts.instrument.replace("1","")+"-fake_strain-"+str(tstart)+"-"+str(duration)+".gwf"
 
-print "Writing signal with ", hoft.data.length*hoft.deltaT, " to file ", fname
+print("Writing signal with ", hoft.data.length*hoft.deltaT, " to file ", fname)
 lalsimutils.hoft_to_frame_data(fname,channel,hoft)
 
 # TEST: Confirm it works by reading the frame

@@ -42,7 +42,7 @@ Lmax = 2 # sets which modes to include
 #
 rholms_intp, crossTerms, rholms = PrecomputeLikelihoodTerms(P, data_dict,
         psd_dict, Lmax, analyticPSD_Q)
-print "Finished Precomputation..."
+print("Finished Precomputation...")
 
 #
 # Call the likelihood function for various extrinsic parameter values
@@ -58,6 +58,6 @@ for i in range(Niter):
 
     lnL = FactoredLogLikelihood(P, rholms_intp, crossTerms, Lmax)
 
-    print "For (RA, DEC, tref, phiref, incl, psi, dist) ="
-    print "\t", P.phi, P.theta, P.tref, P.phiref, P.incl, P.psi, P.dist
-    print "\tlog likelihood is:", lnL
+    print("For (RA, DEC, tref, phiref, incl, psi, dist) =")
+    print("\t", P.phi, P.theta, P.tref, P.phiref, P.incl, P.psi, P.dist)
+    print("\tlog likelihood is:", lnL)

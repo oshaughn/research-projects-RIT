@@ -24,4 +24,4 @@ if opts.coinc:
     for sngl_row in sngl_inspiral_table:
         detList.append(str(sngl_row.ifo))
 
-print  detList
+print(detList)

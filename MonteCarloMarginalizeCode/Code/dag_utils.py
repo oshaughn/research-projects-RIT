@@ -148,7 +148,7 @@ def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
         
     
 
@@ -462,7 +462,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
         
     
 
@@ -536,7 +536,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
         
     
     return ile_job, ile_sub_name
@@ -551,20 +551,20 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         - An instance of the CondorDAGJob that was generated for ILE
     """
     if use_singularity and (singularity_image == None)  :
-        print " FAIL : Need to specify singularity_image to use singularity "
+        print(" FAIL : Need to specify singularity_image to use singularity ")
         sys.exit(0)
     if use_singularity and (frames_dir == None)  and (cache_file == None) :
-        print " FAIL : Need to specify frames_dir or cache_file to use singularity (at present) "
+        print(" FAIL : Need to specify frames_dir or cache_file to use singularity (at present) ")
         sys.exit(0)
     if use_singularity and (transfer_files == None)  :
-        print " FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file "
+        print(" FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file ")
         sys.exit(0)
 
     exe = exe or which("integrate_likelihood_extrinsic")
     frames_local = None
     if use_singularity:
         path_split = exe.split("/")
-        print " Executable: name breakdown ", path_split, " from ", exe
+        print(" Executable: name breakdown ", path_split, " from ", exe)
         singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
         exe=singularity_base_exe_path + path_split[-1]
         if not(frames_dir is None):
@@ -744,7 +744,7 @@ echo Starting ...
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     if not transfer_files is None:
         if not isinstance(transfer_files, list):
@@ -843,7 +843,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
         
     
 
@@ -911,7 +911,7 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,arg_str=
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -954,7 +954,7 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -999,7 +999,7 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1045,7 +1045,7 @@ def write_plot_sub(tag='converge', exe=None,samples_files=None, base=None,target
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1088,7 +1088,7 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1107,7 +1107,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
     """
     exe = exe or which("BayesWave")
     if exe is None:
-        print " BayesWave not available, hard fail "
+        print(" BayesWave not available, hard fail ")
         sys.exit(0)
     frames_local = None
 
@@ -1202,7 +1202,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
 
     return ile_job, ile_sub_name
@@ -1219,7 +1219,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
     """
     exe = exe or which("BayesWavePost")
     if exe is None:
-        print " BayesWavePost not available, hard fail "
+        print(" BayesWavePost not available, hard fail ")
         import sys
         sys.exit(0)
     frames_local = None
@@ -1313,7 +1313,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
 
     return ile_job, ile_sub_name
@@ -1330,7 +1330,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
     """
     exe = exe or which("BayesWave")
     if exe is None:
-        print " BayesWave not available, hard fail "
+        print(" BayesWave not available, hard fail ")
         sys.exit(0)
     frames_local = None
 
@@ -1422,7 +1422,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
 
     return ile_job, ile_sub_name
@@ -1468,7 +1468,7 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1512,7 +1512,7 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1550,7 +1550,7 @@ def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,t
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1609,7 +1609,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, input_pattern=None,target_di
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 

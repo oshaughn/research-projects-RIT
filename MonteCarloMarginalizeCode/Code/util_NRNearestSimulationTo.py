@@ -83,21 +83,21 @@ def nr_closest_to(P,distance_function_P1P2,nr_group,mass_ref=None,return_list=Fa
             if m_msun < 20:
                 return 1e5
             if opts.verbose:
-                print " Trying ", nr_group, param, m_msun
+                print(" Trying ", nr_group, param, m_msun)
             P1.assign_param('mtot', m_msun*lal.MSUN_SI)
             return distance_function_P1P2(P,P1)
         
         res = optimize.minimize(distance_at_mass, mass_start_msun,bounds=[(20,200)],tol=opts.match_tolerance,method='Nelder-Mead',options={'maxiter':15}) # loose tolerance because quadratic, often noisy calculations due to fmin, etc
         if opts.verbose:
-            print " ===> search result <=== "
-            P.print_params(); print "  ", nr_group, param,  res.x[0]
+            print(" ===> search result <=== ")
+            P.print_params(); print("  ", nr_group, param,  res.x[0])
         val = distance_at_mass(res.x[0])
         result_list.append( (param,res.x[0],val))
         mass_start_msun = res.x  # use guess for next point, to speed up things
         
     # Full output: param, M, value for the whole group
     if opts.verbose:
-        print result_list
+        print(result_list)
     if return_list:
         return result_list
 
@@ -138,14 +138,14 @@ if opts.fname_fisher:
     ### Load in Fisher. Create default distance function (WARNING: needs parameter labels to be appended!)
     ###
     datFisher = np.genfromtxt(opts.fname_fisher,names=True)
-    print " Fisher matrix ", datFisher, " with shape ",  datFisher.shape , " and parameters ", datFisher.dtype.names
+    print(" Fisher matrix ", datFisher, " with shape ",  datFisher.shape , " and parameters ", datFisher.dtype.names)
 
     # parameter names
     param_names = list(datFisher.dtype.names)
 
     # FAIL if Fisher matrix does not include a mass-like dimension
     if not ( 'mc' in param_names  or 'mtot' in param_names or 'm1' in param_names):
-        print " You must have a mass parameter in your Fisher matrix, otherwise you cannot optimize in mass "
+        print(" You must have a mass parameter in your Fisher matrix, otherwise you cannot optimize in mass ")
         sys.exit(0)
 
     # parameter matrix
@@ -159,7 +159,7 @@ if opts.fname_fisher:
         mtx = np.zeros( (1,1))
         mtx[0,0] = datFisher[param_names[0]] #datFisher[0]
 
-    print " Fisher in matrix form is ", mtx
+    print(" Fisher in matrix form is ", mtx)
 
     # make distance function
     dist_here = make_distance_for_fisher(mtx,param_names)
@@ -170,7 +170,7 @@ elif opts.approx:
         eff_fisher_psd = getattr(lalsim, opts.fisher_psd)   # --fisher-psd SimNoisePSDaLIGOZeroDetHighPower   now
         analyticPSD_Q=True
     else:
-        print " Importing PSD file ", opts.psd_file
+        print(" Importing PSD file ", opts.psd_file)
         eff_fisher_psd = lalsimutils.load_resample_and_clean_psd(opts.psd_file, 'H1', 1./opts.seglen)
         analyticPSD_Q = False
 
@@ -203,7 +203,7 @@ elif opts.approx:
             rho2 = IP.norm(hF2)
             dist = 1- np.abs( IP.ip(hF1,hF2)/rho1/rho2)
         except:
-            print " Distance evaluation failure "
+            print(" Distance evaluation failure ")
         if np.isnan(dist):
             return 1e5
         return dist
@@ -224,11 +224,11 @@ elif opts.approx:
 ### Load in xml
 ###
 if not opts.fname:
-    print " No data provided "
+    print(" No data provided ")
     sys.exit(0)
 P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.fname)
 if not (opts.npts==None) and opts.npts>0 and opts.npts < len(P_list):
-    print " Truncating list of sample points to examine to size ", opts.npts
+    print(" Truncating list of sample points to examine to size ", opts.npts)
     P_list = P_list[:opts.npts]
 
 
@@ -249,7 +249,7 @@ for P in P_list:
         continue
     P.fmin = opts.fmin # we change this. FOR PRECESSING SYSTEMS THAT CAN CHANGE THE MEANING, BE CAREFUL
     if opts.verbose:
-        print " Trying next point in XML"
+        print(" Trying next point in XML")
         P.print_params()
     P.approx = lalsim.GetApproximantFromString(opts.approx)
     P.fmin = opts.fmin
@@ -268,13 +268,13 @@ for P in P_list:
             closest_so_far  = (group,res[0])
             closest_so_far_d = res[1]
             if opts.verbose:
-                print " NEW CLOSEST SIMULATION FOR THIS POSTERIOR POINT", closest_so_far, closest_so_far_d
+                print(" NEW CLOSEST SIMULATION FOR THIS POSTERIOR POINT", closest_so_far, closest_so_far_d)
 
     if closest_so_far_d> opts.cut:
         P_list_retain.append(P)
         dist_list_retain.append(closest_so_far_d)
     else:
-        print " Skipping point shown below as too close to simulations because the closest has distance", closest_so_far_d, " which is less than ", opts.cut
+        print(" Skipping point shown below as too close to simulations because the closest has distance", closest_so_far_d, " which is less than ", opts.cut)
         P.print_params()
         
 
