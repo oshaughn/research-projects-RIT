@@ -1,0 +1,5 @@
+include *.md Dockerfile requirements.txt
+include MonteCarloMarginalizeCode/Code/*.py MonteCarloMarginalizeCode/Code/*.sh  MonteCarloMarginalizeCode/Code/switcheroo  
+include MonteCarloMarginalizeCode/Code/integrate_likelihood*
+include MonteCarloMarginalizeCode/Code/convert*
+include MonteCarloMarginalizeCode/Code/cuda*cu
