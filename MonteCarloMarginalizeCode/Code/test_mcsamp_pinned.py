@@ -75,4 +75,4 @@ def integrand(p, r, dec, ph, i, di):
 	return norm * numpy.exp(exponent)
 
 res, var = samp.integrate(integrand, "psi", "phi", "inc", "dist", neff=100, nmax=int(1e6), ra=ra_val, dec=dec_val)
-print "Integral value: %f, stddev %f" % (res, numpy.sqrt(var))
+print("Integral value: %f, stddev %f" % (res, numpy.sqrt(var)))

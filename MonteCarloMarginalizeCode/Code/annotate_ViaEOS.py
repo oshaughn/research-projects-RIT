@@ -86,11 +86,11 @@ for name in param_names_orig:
 samples = np.genfromtxt(opts.fname_to_annotate,dtype=dtype_list) # 
 param_names = samples.dtype.names
 param_names_out = list(param_names) # duplicate
-print param_names, samples.dtype
+print(param_names, samples.dtype)
 npts = len(samples[param_names[0]])
 
 if not 'eos_name' in param_names:
-    print " no EOS name, why are you running this?"
+    print(" no EOS name, why are you running this?")
     sys.exit(0)
 
 # Add fields as appropriate

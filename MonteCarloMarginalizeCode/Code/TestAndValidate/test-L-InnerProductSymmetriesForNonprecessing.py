@@ -20,5 +20,5 @@ hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2,
 
 crossTerms = ComputeModeCrossTermIP(hlms, psd, P.fmin, fSample/2.)
 
-print crossTerms
+print(crossTerms)
 

@@ -31,7 +31,7 @@ parser.add_argument("--always-succeed",action='store_true',help="Test output is 
 opts=  parser.parse_args()
 
 if len(opts.samples)<1:
-    print " Need at least two sets of samples"
+    print(" Need at least two sets of samples")
     sys.exit(0)
 
 
@@ -113,8 +113,8 @@ elif opts.method == 'KS_1d':
 elif opts.method == 'KL_1d':
     val_test = test_KL1d(dat1[:,0],dat2[:,0])
 else:
-    print " No known method ", opts.method
-print  val_test
+    print(" No known method ", opts.method)
+print(val_test)
 
 if opts.always_succeed or (opts.threshold is None):
     sys.exit(0)

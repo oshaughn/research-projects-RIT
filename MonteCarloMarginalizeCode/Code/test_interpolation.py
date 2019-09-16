@@ -14,7 +14,7 @@ Psig = ChooseWaveformParams(fmin=fmin_sig, radec=False, m1=m1, m2=m2)
 df = findDeltaF(Psig)
 Psig.deltaF = df
 htest = hoft(Psig)
-print "Length of the signal waveform is:", float(htest.epoch)
+print("Length of the signal waveform is:", float(htest.epoch))
 gc_tref = gc_epoch - float(htest.epoch)
 
 IP = Overlap(fLow=40., deltaF=df, psd=lal.LIGOIPsd, full_output=True)
@@ -48,25 +48,25 @@ tL1 = float(htL1.epoch) + np.arange(htL1.data.length) * htL1.deltaT
 tV1 = float(htV1.epoch) + np.arange(htV1.data.length) * htV1.deltaT
 tTMPLT = gc_epoch + np.arange(htTMPLT.data.length) * htTMPLT.deltaT
 
-print "Template length is:", -float(htTMPLT.epoch)
-print "H1 epoch is:", float(htH1.epoch)
-print "\tso max should be at time:", float(htH1.epoch) - float(htest.epoch)\
-        + float(htTMPLT.epoch)
-print "L1 epoch is:", float(htL1.epoch)
-print "\tso max should be at time:", float(htL1.epoch) - float(htest.epoch)\
-        + float(htTMPLT.epoch)
-print "V1 epoch is:", float(htV1.epoch)
-print "\tso max should be at time:", float(htV1.epoch) - float(htest.epoch)\
-        + float(htTMPLT.epoch)
+print("Template length is:", -float(htTMPLT.epoch))
+print("H1 epoch is:", float(htH1.epoch))
+print("\tso max should be at time:", float(htH1.epoch) - float(htest.epoch)\
+        + float(htTMPLT.epoch))
+print("L1 epoch is:", float(htL1.epoch))
+print("\tso max should be at time:", float(htL1.epoch) - float(htest.epoch)\
+        + float(htTMPLT.epoch))
+print("V1 epoch is:", float(htV1.epoch))
+print("\tso max should be at time:", float(htV1.epoch) - float(htest.epoch)\
+        + float(htTMPLT.epoch))
 
 rhoMaxH1, rhoH1, rhoIdxH1, rhoArgH1 = IP.ip(hfH1, hfTMPLT)
 rhoMaxL1, rhoL1, rhoIdxL1, rhoArgL1 = IP.ip(hfL1, hfTMPLT)
 rhoMaxV1, rhoV1, rhoIdxV1, rhoArgV1 = IP.ip(hfV1, hfTMPLT)
 
-print "Max SNRs are:"
-print "H1 max =", rhoMaxH1, "at index", rhoIdxH1, "or time", tH1[rhoIdxH1]
-print "L1 max =", rhoMaxL1, "at index", rhoIdxL1, "or time", tL1[rhoIdxL1]
-print "V1 max =", rhoMaxV1, "at index", rhoIdxV1, "or time", tV1[rhoIdxV1]
+print("Max SNRs are:")
+print("H1 max =", rhoMaxH1, "at index", rhoIdxH1, "or time", tH1[rhoIdxH1])
+print("L1 max =", rhoMaxL1, "at index", rhoIdxL1, "or time", tL1[rhoIdxL1])
+print("V1 max =", rhoMaxV1, "at index", rhoIdxV1, "or time", tV1[rhoIdxV1])
 
 firstH1 = int(rhoIdxH1 - Nsamp)
 lastH1 = rhoIdxH1 + Nsamp
@@ -82,8 +82,8 @@ tH1cut = tH1[firstH1:lastH1+1]
 tL1cut = tL1[firstL1:lastL1+1]
 tV1cut = tV1[firstV1:lastV1+1]
 
-print "Cut length", rhoH1cut.data.length
-print "Length of time steps", len(tH1cut)
+print("Cut length", rhoH1cut.data.length)
+print("Length of time steps", len(tH1cut))
 
 # Plot TD template and H1 waveform
 plt.figure(1)

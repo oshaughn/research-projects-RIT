@@ -7,7 +7,7 @@ try:
   import SphericalHarmonics_gpu
   xpy_default=cupy
 except:
-  print ' no cupy'
+  print(' no cupy')
   import numpy as cupy
   optimized_gpu_tools=None
   Q_inner_product=None

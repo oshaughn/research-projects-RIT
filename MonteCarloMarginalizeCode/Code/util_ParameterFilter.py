@@ -35,12 +35,12 @@ else:
     dlist = []
     dlist_ranges = []
 if len(dlist) != len(dlist_ranges):
-    print " downselect parameters inconsistent", dlist, dlist_ranges
+    print(" downselect parameters inconsistent", dlist, dlist_ranges)
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
 if otps.verbose:
-    print downselect_dict
+    print(downselect_dict)
 
 # downselection procedure: fix units so I can downselect on mass parameters
 for p in ['mc', 'm1', 'm2', 'mtot']:

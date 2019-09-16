@@ -51,16 +51,16 @@ param_names = ['Mc', 'eta']
 # Find appropriate parameter ranges
 param_ranges = eff.find_effective_Fisher_region(PSIG, IP, 0.90, param_names,
         [[0.9*McSIG,1.1*McSIG],[0.05,0.25]])
-print "Computing amibiguity function in the range:"
+print("Computing amibiguity function in the range:")
 for i, param in enumerate(param_names):
     if param=='Mc' or param=='m1' or param=='m2': # rescale output by MSUN
-        print "\t", param, ":", np.array(param_ranges[i])/lal.LAL_MSUN_SI,\
-                "(Msun)"
+        print("\t", param, ":", np.array(param_ranges[i])/lal.LAL_MSUN_SI,\
+                "(Msun)")
     else:
-        print "\t", param, ":", param_ranges[i]
+        print("\t", param, ":", param_ranges[i])
 
 elapsed = elapsed_time()
-print "Range-finding took:", elapsed, "(s) for", len(param_names),"parameters\n"
+print("Range-finding took:", elapsed, "(s) for", len(param_names),"parameters\n")
 
 # setup uniform parameter grid for effective Fisher
 pts_per_dim = [NMcs, NEtas]
@@ -93,21 +93,21 @@ gam = eff.array_to_symmetric_matrix(fitgamma)
 evals, evecs, rot = eff.eigensystem(gam)
 
 elapsed = elapsed_time() - elapsed
-print "Time to compute effective Fisher matrix and its eigensystem:", elapsed
-print "For a grid of size:", pts_per_dim, "\n"
+print("Time to compute effective Fisher matrix and its eigensystem:", elapsed)
+print("For a grid of size:", pts_per_dim, "\n")
 
 # Print information about the effective Fisher matrix
 # and its eigensystem
-print "Least squares fit finds g_Mc,Mc = ", fitgamma[0]
-print "                        g_Mc,eta = ", fitgamma[1]
-print "                        g_eta,eta = ", fitgamma[2]
+print("Least squares fit finds g_Mc,Mc = ", fitgamma[0])
+print("                        g_Mc,eta = ", fitgamma[1])
+print("                        g_eta,eta = ", fitgamma[2])
 
-print "\nFisher matrix:"
-print "eigenvalues:", evals
-print "eigenvectors:"
-print evecs
-print "rotation taking eigenvectors into Mc, eta basis:"
-print rot
+print("\nFisher matrix:")
+print("eigenvalues:", evals)
+print("eigenvectors:")
+print(evecs)
+print("rotation taking eigenvectors into Mc, eta basis:")
+print(rot)
 
 #
 # Distribute points inside predicted ellipsoid of certain level of overlap
@@ -122,7 +122,7 @@ Nrad = 10
 Nspokes = 40
 ph0 = np.arctan(np.abs(r1) * (rot[0,1])/(np.abs(r2) * rot[0,0]) )
 #ph0 = 0.
-print "angle is:", ph0, r1, r2
+print("angle is:", ph0, r1, r2)
 #cart_grid, sph_grid = eff.uniform_spoked_ellipsoid(Nrad,Nspokes, [ph0], r1, r2)
 cart_grid, sph_grid = eff.linear_spoked_ellipsoid(Nrad, Nspokes, [ph0], r1, r2)
 gridT = np.transpose(cart_grid)
@@ -147,9 +147,9 @@ cart_grid = np.transpose((rand_Mcs,rand_etas))
 phys_cut = ~np.isnan(cart_grid).any(1) # cut to remove unphysical pts
 unphys_cut = np.isnan(cart_grid).any(1) # unphysical pts only
 cart_grid = cart_grid[phys_cut]
-print "Requested", Nrandpts, "points inside the ellipsoid of",\
-        match_cntr, "match."
-print "Kept", len(cart_grid), "points with physically allowed parameters."
+print("Requested", Nrandpts, "points inside the ellipsoid of",\
+        match_cntr, "match.")
+print("Kept", len(cart_grid), "points with physically allowed parameters.")
 
 # Save grid of mass points to file
 #np.savetxt("Mc_eta_pts.txt", cart_grid)
@@ -164,7 +164,7 @@ for i in xrange(Njobs):
         np.savetxt(fname, cart_grid3[i])
 
 elapsed = elapsed_time() - elapsed
-print "Time to distribute points, split and write to file:", elapsed
+print("Time to distribute points, split and write to file:", elapsed)
 
 #dag_utils.write_integrate_likelihood_extrinsic_sub('test')
 #dag_utils.write_extrinsic_marginalization_dag(cart_grid2, 'test.sub')

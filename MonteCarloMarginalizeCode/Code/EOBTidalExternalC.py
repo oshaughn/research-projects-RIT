@@ -37,7 +37,7 @@ dirBaseFilesArchive =os.environ["EOB_C_ARCHIVE"]
 n_max_dirs = 1+ int(os.environ["EOB_C_ARCHIVE_NMAX"])
 
 # PRINT GIT REPO IN LOG
-print " EOB resumS git hash "
+print(" EOB resumS git hash ")
 os.system("(cd " + dirBaseFiles +"; git rev-parse HEAD)")
 
 default_interpolation_kind = 'linear'  # spline interpolation   # very slow! 
@@ -153,7 +153,7 @@ class WaveformModeCatalog:
 
         # Require spins zero for now
         if any([P.s1x,P.s1y,P.s2x,P.s2y]):
-            print " FAILURE: Tidal code assumes a nonprecessing approximant for now"
+            print(" FAILURE: Tidal code assumes a nonprecessing approximant for now")
 
         # Run the external script with the necessary parameters
         # Assume environment set correctly
@@ -168,30 +168,30 @@ class WaveformModeCatalog:
         #  - generate lambda2
 
         fname_base = "working.dir"+str(np.random.randint(0,n_max_dirs))
-        print "  Saving to file (beware collisions!) ", fname_base
+        print("  Saving to file (beware collisions!) ", fname_base)
 
         retrieve_directory = ''
         cwd = os.getcwd(); 
         while os.path.exists(dirBaseFilesArchive+"/"+fname_base):
-            print " Waiting to delete file... "+fname_base 
+            print(" Waiting to delete file... "+fname_base)
             time.sleep(10)
         if False: #rosUseArchivedWaveforms and os.path.exists(dirBaseFilesArchive+"/"+fname_base) and os.path.exists(dirBaseFilesArchive+"/"+fname_base+"/test_h22.dat"):
             retrieve_directory = dirBaseFilesArchive+"/"+fname_base
-            print " Attempting to use archived waveform data  in ", retrieve_directory
+            print(" Attempting to use archived waveform data  in ", retrieve_directory)
         else:
             retrieve_directory = dirBaseFilesArchive+"/"+fname_base + "/"
             # Create directory 
             if not os.path.exists(retrieve_directory):
-                print " Making directory to archive this run ... ", retrieve_directory
+                print(" Making directory to archive this run ... ", retrieve_directory)
                 os.makedirs(retrieve_directory)  
                 if not os.path.exists(retrieve_directory):
-                    print " FAILED TO CREATE ", retrieve_directory
+                    print(" FAILED TO CREATE ", retrieve_directory)
                     sys.exit(0)
             M_sec = (P.m1+P.m2)/lal.MSUN_SI * MsunInSec
             dt_over_M = P.deltaT/M_sec # needed for solver sanity at end
             write_par_file(retrieve_directory, (m1InMsun+m2InMsun),m1InMsun/m2InMsun, P.s1z, P.s2z, P.lambda1,P.lambda2,P.fmin,dt_over_M)
             cmd = dirBaseFiles+"/TEOBResumS.x -p my.par"
-            print " Generating tidal EOB with ", cmd
+            print(" Generating tidal EOB with ", cmd)
             os.chdir(retrieve_directory); os.system(cmd); 
                            
         # First loop: Create all the basic mode data
@@ -203,14 +203,14 @@ class WaveformModeCatalog:
         # time/M    Amp_21   phi_21   Amp_22 phi_22  Amp_33 phi_33
         hlm_data_raw = np.loadtxt(retrieve_directory + "/hlm_insp.dat")
         # DELETE RESULTS
-        print " Deleting intermediate files...", retrieve_directory
+        print(" Deleting intermediate files...", retrieve_directory)
         shutil.rmtree(retrieve_directory)
 
                
         tmin = np.min(hlm_data_raw[:,0])
         tmax = np.max(hlm_data_raw[:,0])
         tvals = np.array(hlm_data_raw[:,0]) # copy
-        print " Loading time range ", tvals[0], tvals[-1],  " in dimensionless time "
+        print(" Loading time range ", tvals[0], tvals[-1],  " in dimensionless time ")
 
         # Rescale time units (previously done in matlab code)
         tvals *= (m1InMsun+m2InMsun)*MsunInSec
@@ -223,7 +223,7 @@ class WaveformModeCatalog:
         if align_at_peak_l2_m2_emission:
                     tvals += -t_ref
                     t_ref = 0
-        print " Time range after timeshift and rescaling to seconds ", tvals[0], tvals[-1]
+        print(" Time range after timeshift and rescaling to seconds ", tvals[0], tvals[-1])
 
 
         # taper functuion:                
@@ -248,8 +248,8 @@ class WaveformModeCatalog:
 
                 # nan removal: occasionally, TEOBResumS code can nan-pad at end (e,g., negative spins)
                 if rosDebug:
-                    print " Mode ", mode, " nan check for phase ", np.sum(np.isnan(datP)), " out of ", len(datP)
-                    print " Mode ", mode, " nan check for amp ", np.sum(np.isnan(datA)), " out of ", len(datA)
+                    print(" Mode ", mode, " nan check for phase ", np.sum(np.isnan(datP)), " out of ", len(datP))
+                    print(" Mode ", mode, " nan check for amp ", np.sum(np.isnan(datA)), " out of ", len(datA))
                 datP[np.isnan(datP)] = 0 # zero this out 
                 datA[np.isnan(datA)] = 0 # zero this out 
 
@@ -283,9 +283,9 @@ class WaveformModeCatalog:
                 if mode ==(2,2):
                     self.fOrbitLower  = 0.5*self.fMinMode[mode]
                     if rosDebug:
-                        print " Identifying initial orbital frequency ", self.fOrbitLower, " which had better be related to ", P.fmin
+                        print(" Identifying initial orbital frequency ", self.fOrbitLower, " which had better be related to ", P.fmin)
                 if rosDebug:
-                    print mode, self.fMinMode[mode]
+                    print(mode, self.fMinMode[mode])
 
 
                 # Historical/used for plotting only
@@ -302,7 +302,7 @@ class WaveformModeCatalog:
                 self.waveform_modes_nonuniform_largest_timestep[mode] = self.waveform_modes[mode][1,0]-self.waveform_modes[mode][0,0]  # uniform in time
 
         if rosDebug:
-            print " Restoring current working directory... ",cwd
+            print(" Restoring current working directory... ",cwd)
         os.chdir(cwd);
 
 
@@ -315,7 +315,7 @@ class WaveformModeCatalog:
         for mode in hlmT.keys():
             # PROBLEM: Be careful with interpretation. The incl and phiref terms are NOT tied to L.
             if rosDebug:
-                print mode, np.max(hlmT[mode].data.data), " running max ",  np.max(np.abs(wfmTS.data.data))
+                print(mode, np.max(hlmT[mode].data.data), " running max ",  np.max(np.abs(wfmTS.data.data)))
             wfmTS.data.data += np.exp(-2*sgn*1j*self.P.psi)* hlmT[mode].data.data*lal.SpinWeightedSphericalHarmonic(self.P.incl,-self.P.phiref,-2, int(mode[0]),int(mode[1]))
         return wfmTS
     def complex_hoff(self, force_T=False):
@@ -338,8 +338,8 @@ class WaveformModeCatalog:
         htC = self.complex_hoft(force_T=1./self.P.deltaF, deltaT= self.P.deltaT)  # note P.tref is NOT used in the low-level code
         TDlen  = htC.data.length
         if rosDebug:
-            print  "Size sanity check ", TDlen, 1/(self.P.deltaF*self.P.deltaT)
-            print " Raw complex magnitude , ", np.max(htC.data.data)
+            print("Size sanity check ", TDlen, 1/(self.P.deltaF*self.P.deltaT))
+            print(" Raw complex magnitude , ", np.max(htC.data.data))
             
         # Create working buffers to extract data from it -- wasteful.
         hp = lal.CreateREAL8TimeSeries("h(t)", htC.epoch, 0.,
@@ -369,20 +369,20 @@ class WaveformModeCatalog:
             hp.epoch = hp.epoch + self.P.tref
             hc.epoch = hc.epoch + self.P.tref
             if rosDebug:
-                print " Real h(t) before detector weighting, ", np.max(hp.data.data), np.max(hc.data.data)
+                print(" Real h(t) before detector weighting, ", np.max(hp.data.data), np.max(hc.data.data))
             hoft = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc,    # beware, this MAY alter the series length??
                 self.P.phi, self.P.theta, self.P.psi, 
                 lalsim.DetectorPrefixToLALDetector(str(self.P.detector)))
             hoft = lal.CutREAL8TimeSeries(hoft, 0, hp.data.length)       # force same length as before??
             if rosDebug:
-                print "Size before and after detector weighting " , hp.data.length, hoft.data.length
+                print("Size before and after detector weighting " , hp.data.length, hoft.data.length)
         if rosDebug:
-            print  " Real h_{IFO}(t) generated, pre-taper : max strain =", np.max(hoft.data.data)
+            print(" Real h_{IFO}(t) generated, pre-taper : max strain =", np.max(hoft.data.data))
         if self.P.taper != lalsimutils.lsu_TAPER_NONE: # Taper if requested
             lalsim.SimInspiralREAL8WaveTaper(hoft.data, self.P.taper)
         if self.P.deltaF is not None:
             TDlen = int(1./self.P.deltaF * 1./self.P.deltaT)
-            print "Size sanity check 2 ", int(1./self.P.deltaF * 1./self.P.deltaT), hoft.data.length
+            print("Size sanity check 2 ", int(1./self.P.deltaF * 1./self.P.deltaT), hoft.data.length)
             assert TDlen >= hoft.data.length
             npts = hoft.data.length
             hoft = lal.ResizeREAL8TimeSeries(hoft, 0, TDlen)
@@ -390,7 +390,7 @@ class WaveformModeCatalog:
             hoft.data.data[npts:TDlen] = 0
 
         if rosDebug:
-            print  " Real h_{IFO}(t) generated : max strain =", np.max(hoft.data.data)
+            print(" Real h_{IFO}(t) generated : max strain =", np.max(hoft.data.data))
         return hoft
 
     def non_herm_hoff(self):
@@ -455,12 +455,12 @@ class WaveformModeCatalog:
             npts = lalsimutils.nextPow2(npts_estimated)
         else:
             npts = int(force_T/deltaT)
-            print " Forcing length T=", force_T, " length ", npts
+            print(" Forcing length T=", force_T, " length ", npts)
         # WARNING: Time range may not cover the necessary time elements.
         # Plan on having a few seconds buffer at the end
         T_buffer_required = npts*deltaT
-        print " EOB internal: Estimated time window (sec) ", T_estimated, " versus buffer duration ", T_buffer_required
-        print " EOB internal: Requested size vs buffer size",   npts, len(self.waveform_modes_complex[(2,2)])
+        print(" EOB internal: Estimated time window (sec) ", T_estimated, " versus buffer duration ", T_buffer_required)
+        print(" EOB internal: Requested size vs buffer size",   npts, len(self.waveform_modes_complex[(2,2)]))
         # If the waveform is longer than the buffer, we need to avoid wraparound
 
         # If the buffer requested is SHORTER than the 2*waveform, work backwards
@@ -472,7 +472,7 @@ class WaveformModeCatalog:
             n_crit = int( t_crit/deltaT) # estiamted peak sample location in the t array, working forward
 
         else:
-            print "  EOB internal: Warning LOSSY conversion to insure half of data is zeros "
+            print("  EOB internal: Warning LOSSY conversion to insure half of data is zeros ")
             # Create time samples by walking backwards from the last sample of the waveform, a suitable duration
             # ASSUME we are running in a configuration with align_at_peak_l2m2_emission
             # FIXME: Change this
@@ -491,7 +491,7 @@ class WaveformModeCatalog:
             phase_vals = lalsimutils.unwind_phase(phase_vals)  # should not be necessary, but just in case
 
             if rosDebug:
-                print "  Mode ", mode, " physical strain max, indx,", np.max(amp_vals), np.argmax(amp_vals)
+                print("  Mode ", mode, " physical strain max, indx,", np.max(amp_vals), np.argmax(amp_vals))
             
             # Copy into a new LIGO time series object
             wfmTS = lal.CreateCOMPLEX16TimeSeries("h", lal.LIGOTimeGPS(0.), 0., deltaT, lalsimutils.lsu_DimensionlessUnit, npts)
@@ -519,7 +519,7 @@ class WaveformModeCatalog:
         # Set time at peak of 22 mode. This is a hack, but good enough for us
 #        n_crit = np.argmax(hlmT[(2,2)].data.data)
         epoch_crit = float(-t_crit) #-deltaT*n_crit 
-        print " EOB internal: zero epoch sample location", n_crit, np.argmax(np.abs(hlmT[(2,2)].data.data))
+        print(" EOB internal: zero epoch sample location", n_crit, np.argmax(np.abs(hlmT[(2,2)].data.data)))
         for mode in hlmT:
             hlmT[mode].epoch = epoch_crit
 

@@ -22,13 +22,13 @@ import lalsimulation as lalsim
 import factored_likelihood
 try:
     import matplotlib
-    print " matplotlib backend ", matplotlib.get_backend()
+    print(" matplotlib backend ", matplotlib.get_backend())
     if matplotlib.get_backend() is "MacOSX":
         bSavePlots  = False
     else:
         bSavePlots = True
     if matplotlib.get_backend() is 'TkAgg':  # on cluster
-        print "On cluster"
+        print("On cluster")
         fExtensionHighDensity = "png"
         fExtensionLowDensity = "png"
     else:
@@ -41,7 +41,7 @@ try:
 except:
     bNoMatplotlib =True
     bNoInteractivePlots = True
-    print "  factored_likelihood_test: No plots for you!"
+    print("  factored_likelihood_test: No plots for you!")
 import sys
 import scipy.optimize
 from scipy import integrate
@@ -72,7 +72,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
 
     fmin_SNR=30
 #    keysPairs = lalsimutils.constructLMIterator(Lmax)
-    print detectors
+    print(detectors)
     keysPairs = rholms_intp[detectors[0]].keys()
 
     df = data_dict[detectors[0]].deltaF
@@ -91,11 +91,11 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             plt.title("Placeholder - reset to this screen")
 
     rho2Net =0
-    print " ++ WARNING : Some tests depend on others.  Not made robust yet ++ "
+    print(" ++ WARNING : Some tests depend on others.  Not made robust yet ++ ")
     # Data: what is the SNR of the injected signal?
     # Only useful for *zero noise* signals.
     if TestDictionary["DataReport"]:
-        print " == Data report == "
+        print(" == Data report == ")
         detectors = data_dict.keys()
         rho2Net = 0
         for det in detectors:
@@ -108,12 +108,12 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
             rhoExpectedAlt[det] = rhoDet2 = IPOverlap.norm(data_dict[det])
             rho2Net += rhoDet*rhoDet
-            print det, rhoDet, rhoDet2, " [via IP and Overlap]; both should agree with analytic expectations (if zero noise)."
-        print "Network : ", np.sqrt(rho2Net)
+            print(det, rhoDet, rhoDet2, " [via IP and Overlap]; both should agree with analytic expectations (if zero noise).")
+        print("Network : ", np.sqrt(rho2Net))
 
 
-        print " .... Generating the zero-noise template  (in case the real data is noisy), to estimate its amplitude at the signal  ..... "
-        print "      [for some signals (coincs) the distance is not set, so the amplitude will be set to a fiducial distance. The value will be off] "
+        print(" .... Generating the zero-noise template  (in case the real data is noisy), to estimate its amplitude at the signal  ..... ")
+        print("      [for some signals (coincs) the distance is not set, so the amplitude will be set to a fiducial distance. The value will be off] ")
         data_fake_dict ={}
         rho2Net = 0
         for det in detectors:
@@ -127,40 +127,40 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
                 IP = lalsimutils.ComplexIP(fLow=fmin_SNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det].data.data,fMax=fmaxSNR, analyticPSD_Q=analyticPSD_Q)
             rhoFake[det] = IP.norm(data_fake_dict[det])   # Reset
             rho2Net += rhoFake[det]*rhoFake[det]
-            print " Fake data :", det, rhoFake[det]
-        print " Fake network:", np.sqrt(rho2Net)
+            print(" Fake data :", det, rhoFake[det])
+        print(" Fake network:", np.sqrt(rho2Net))
 
     if TestDictionary["DataReportTime"]:
-        print " == Timing report == "
+        print(" == Timing report == ")
         for det in detectors:
-            print det, " Time offset between data and fiducial : ", float(data_dict[det].epoch-theEpochFiducial)
+            print(det, " Time offset between data and fiducial : ", float(data_dict[det].epoch-theEpochFiducial))
             if not(det is "Fake"):
-                print det," Time offset from time of flight (known parms): ",  float(factored_likelihood.ComputeArrivalTimeAtDetector(det, Psig.phi, Psig.theta, theEpochFiducial) - theEpochFiducial)
+                print(det," Time offset from time of flight (known parms): ",  float(factored_likelihood.ComputeArrivalTimeAtDetector(det, Psig.phi, Psig.theta, theEpochFiducial) - theEpochFiducial))
         
     # U report
     if TestDictionary["UVReport"]:
-        print " ======= UV report =========="
+        print(" ======= UV report ==========")
         for det in detectors:
             for pair1 in keysPairs:
                 for pair2 in keysPairs:
                     if np.abs(crossTerms[det][pair1,pair2]) > 1e-5:
-                        print "U", det, pair1, pair2, crossTerms[det][pair1,pair2]
-                        print "V", det, pair1, pair2, crossTermsV[det][pair1,pair2]
+                        print("U", det, pair1, pair2, crossTerms[det][pair1,pair2])
+                        print("V", det, pair1, pair2, crossTermsV[det][pair1,pair2])
 
 
     # UV reflection symmetry
     if (TestDictionary["UVReflection"]): # Only valid for nonprecessing
-        print " ======= UV symmetry check (reflection symmetric) =========="
+        print(" ======= UV symmetry check (reflection symmetric) ==========")
         constraint1 = 0
         for det in detectors:
             for pair1 in keysPairs:
                 for pair2 in keysPairs:
                     constraint1 += np.abs( crossTerms[det][pair1,pair2] - ((-1)**(pair1[0]+pair2[0]))*np.conj(crossTerms[det][(pair1[0],-pair1[1]), (pair2[0],-pair2[1])]) )**2
-        print "   : Reflection symmetry constraint (UV) : 0 ~=  ", constraint1
+        print("   : Reflection symmetry constraint (UV) : 0 ~=  ", constraint1)
         if np.abs(constraint1) > 1e-15:
-            print " ++ WARNING ++"
-            print "   If you see this message, UV reflection symmetry does not hold.  If you have run with a nonprecessing binary "
-            print "   then this symmetry *must* hold, preferably to machine precision.. \n  PLEASE CHECK  ANY RECENT CHANGES TO THE LOW-LEVEL INFRASTRUCTURE (e.g., inner products, psd import, etc)"
+            print(" ++ WARNING ++")
+            print("   If you see this message, UV reflection symmetry does not hold.  If you have run with a nonprecessing binary ")
+            print("   then this symmetry *must* hold, preferably to machine precision.. \n  PLEASE CHECK  ANY RECENT CHANGES TO THE LOW-LEVEL INFRASTRUCTURE (e.g., inner products, psd import, etc)")
 
     # Q(t) reflection symmetry [discrete]
     if TestDictionary["QReflection"]:   # Only valid for nonprecessing
@@ -170,17 +170,17 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
                 hyy = rholms[det][( 2, -2)]
                 for i in np.arange(len(hxx.data.data)):
                     constraint1+= np.abs(hxx.data.data[i]-np.conj(hyy.data.data[i]))**2
-            print "   : Reflection symmetry constraint (Q22,Q2-2) with raw data: : 0 ~= ", constraint1/len(hxx.data.data)    # error per point 
+            print("   : Reflection symmetry constraint (Q22,Q2-2) with raw data: : 0 ~= ", constraint1/len(hxx.data.data))    # error per point 
 
     if TestDictionary["Rho22Timeseries"] and not bNoMatplotlib:
-        print " ======= rho22: Plot versus time  =========="
-        print "    Note in Evan's implementation, they are functions of t in GPS units (i.e., 10^9) "
+        print(" ======= rho22: Plot versus time  ==========")
+        print("    Note in Evan's implementation, they are functions of t in GPS units (i.e., 10^9) ")
         plt.clf()
         plt.figure(2)   # plot not geocentered
         # Plot
         for det in detectors:
             q = rholms[det][(2,2)] # factored_likelihood.QSumOfSquaresDiscrete(rholms[det],crossTerms[det])
-            print  " rho22 plot ", det, lalsimutils.stringGPSNice(q.epoch), lalsimutils.stringGPSNice(theEpochFiducial)
+            print(" rho22 plot ", det, lalsimutils.stringGPSNice(q.epoch), lalsimutils.stringGPSNice(theEpochFiducial))
             tvals = float(q.epoch-theEpochFiducial) + np.arange(len(q.data.data))*q.deltaT  # rho timeseries are truncated, so short
             plt.plot(tvals,np.abs(q.data.data),label='rho22(t):'+det)
             plt.xlabel('t(s) [not geocentered] : relative to '+lalsimutils.stringGPSNice(theEpochFiducial))
@@ -203,22 +203,22 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
     # lnLmodel (known parameters). 
     #   Using conventional interpolated likelihood, so skip if not available
     if TestDictionary["lnLModelAtKnown"]:
-            print " ======= UV test: Recover the SNR of the injection  =========="
-            print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] "
+            print(" ======= UV test: Recover the SNR of the injection  ==========")
+            print(" Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] ")
             for det in detectors:
                 lnLModel = factored_likelihood.SingleDetectorLogLikelihoodModel(crossTerms, crossTermsV, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, Lmax, det)
-                print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det], "      [last two equal (in zero noise)?]"
+                print(det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det], "      [last two equal (in zero noise)?]")
 
     # lnL (known parameters)
     if TestDictionary["lnLAtKnown"]:
-            print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters  =========="
+            print(" ======= End to end LogL: Recover the SNR of the injection at the injection parameters  ==========")
             lnL = factored_likelihood.FactoredLogLikelihood(Psig, rholms, rholms_intp, crossTerms, crossTermsV, Lmax)
-            print "  : Default code : ", lnL, " versus rho^2/2 ", rho2Net/2 , " [last two equal (in zero noise)?]"
-            print "     [should agree in zero noise. Some disagreement expected because *recovered* (=best-fit-to-data) time and phase parameters are slightly different than injected]"
+            print("  : Default code : ", lnL, " versus rho^2/2 ", rho2Net/2 , " [last two equal (in zero noise)?]")
+            print("     [should agree in zero noise. Some disagreement expected because *recovered* (=best-fit-to-data) time and phase parameters are slightly different than injected]")
 
     # lnLMarginalizeTime
     if TestDictionary["lnLAtKnownMarginalizeTime"]:
-            print " ======= \int L dt/T: Consistency across multiple methods  =========="
+            print(" ======= \int L dt/T: Consistency across multiple methods  ==========")
             tvals = np.linspace(tWindowExplore[0], tWindowExplore[1], int(fSample*(tWindowExplore[1]-tWindowExplore[0])))
             lnLmargT1 = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,Psig, rholms_intp, rholms, crossTerms, crossTermsV, Lmax)
             lnLmargT1b = factored_likelihood.FactoredLogLikelihoodTimeMarginalized(tvals,Psig, rholms_intp, rholms, crossTerms, crossTermsV, Lmax,interpolate=True)
@@ -229,7 +229,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
                 P2.tref = theEpochFiducial+x  
                 return np.exp(np.max([factored_likelihood.FactoredLogLikelihood(P2, rholms, rholms_intp, crossTerms,crossTermsV,Lmax),-15]))   # control for roundoff
             lnLmargT3 = np.log(integrate.quad(fn,  tWindowExplore[0], tWindowExplore[1],points=[0],limit=500)[0])
-            print "Validating ln \int L dt/T over a window (manual,interp,discrete)= ", lnLmargT3, lnLmargT1, lnLmargT1b,   " note time window has length ", tWindowExplore[1]-tWindowExplore[0]
+            print("Validating ln \int L dt/T over a window (manual,interp,discrete)= ", lnLmargT3, lnLmargT1, lnLmargT1b,   " note time window has length ", tWindowExplore[1]-tWindowExplore[0])
 
 
 
@@ -237,7 +237,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
     if TestDictionary["lnLDataPlot"] and not bNoMatplotlib:
 
         # Plot the interpolated lnLData versus *time*
-        print " ======= lnLdata timeseries at the injection parameters =========="
+        print(" ======= lnLdata timeseries at the injection parameters ==========")
         tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],fSample*(tWindowExplore[1]-tWindowExplore[0]))
         for det in detectors:
             lnLData = map( lambda x: factored_likelihood.SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, det), tvals)
@@ -269,7 +269,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             plt.title('lnLdata(t) discrete, NO TIME SHIFTS')
             plt.legend()
         tEventRelative =float( Psig.tref - theEpochFiducial)
-        print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is ", tEventRelative
+        print(" Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is ", tEventRelative)
         plt.figure(1)
         plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
         plt.title("lnLdata (interpolated) vs narrow time interval")
@@ -277,9 +277,9 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         if bSavePlots:
             plt.savefig("FLT-lnLData."+fExtensionLowDensity)
 
-        print " ======= rholm test: Plot the lnL timeseries at the injection parameters =========="
+        print(" ======= rholm test: Plot the lnL timeseries at the injection parameters ==========")
         tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],fSample*(tWindowExplore[1]-tWindowExplore[0]))
-        print "  ... plotting over range ", [min(tvals), max(tvals)], " with npts = ", len(tvals)
+        print("  ... plotting over range ", [min(tvals), max(tvals)], " with npts = ", len(tvals))
         P = Psig.copy()
         lnL = np.zeros(len(tvals))
         for indx in np.arange(len(tvals)):
@@ -297,7 +297,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             lnLfac = 100
         plt.ylim(-lnLfac,lnLfac)   # sometimes we get yanked off the edges.  Larger than this isn't likely
         tEventRelative =float( Psig.tref - theEpochFiducial)
-        print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
+        print(" Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative)
         plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
         plt.title("lnL (interpolated) vs narrow time interval")
         plt.xlim(-0.05,0.05)
@@ -320,7 +320,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
                 lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], crossTerms[det],crossTermsV[det])
 
         # Plot the interpolated lnLData versus *time*
-        print " ======= lnLdata timeseries at the injection parameters =========="
+        print(" ======= lnLdata timeseries at the injection parameters ==========")
         tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],fSample*(tWindowExplore[1]-tWindowExplore[0]))
         for det in detectors:
             lnLData = map( lambda x: factored_likelihood.SingleDetectorLogLikelihoodData(theEpochFiducial,rholms_intp, theEpochFiducial+x, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, det), tvals)
@@ -352,7 +352,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             plt.title('lnLdata(t) discrete, NO TIME SHIFTS')
             plt.legend()
         tEventRelative =float( Psig.tref - theEpochFiducial)
-        print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is ", tEventRelative
+        print(" Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is ", tEventRelative)
         plt.figure(1)
         plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
         plt.title("lnLdata (interpolated) vs narrow time interval")
@@ -360,9 +360,9 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         if bSavePlots:
             plt.savefig("FLT-lnLaltData."+fExtensionLowDensity)
 
-        print " ======= rholm test: Plot the lnL timeseries at the injection parameters =========="
+        print(" ======= rholm test: Plot the lnL timeseries at the injection parameters ==========")
         tvals = np.linspace(tWindowExplore[0],tWindowExplore[1],fSample*(tWindowExplore[1]-tWindowExplore[0]))
-        print "  ... plotting over range ", [min(tvals), max(tvals)], " with npts = ", len(tvals)
+        print("  ... plotting over range ", [min(tvals), max(tvals)], " with npts = ", len(tvals))
         P = Psig.copy()
         lnL = np.zeros(len(tvals))
         for indx in np.arange(len(tvals)):
@@ -380,7 +380,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
             lnLfac = 100
         plt.ylim(-lnLfac,lnLfac)   # sometimes we get yanked off the edges.  Larger than this isn't likely
         tEventRelative =float( Psig.tref - theEpochFiducial)
-        print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
+        print(" Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative)
         plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
         plt.title("lnL (interpolated) vs narrow time interval")
         plt.xlim(-0.05,0.05)
@@ -390,7 +390,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
 
     # lnLdata (plot)
     if TestDictionary["lnLDataPlotVersusPsi"] and not bNoMatplotlib:
-        print " ======= Code test: Plot the lnL versus psi, at the injection parameters =========="
+        print(" ======= Code test: Plot the lnL versus psi, at the injection parameters ==========")
         psivals = np.linspace(0, 2*np.pi,500)
         P = Psig.copy()
         P.tref =Psig.tref    #Probably already created. Be careful re recreating, some memory management issues
@@ -413,7 +413,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
 
     # lnL (plot)
     if TestDictionary["lnLDataPlotVersusPhi"]:  # here phi means *phiref*, not *phiS*
-        print " ======= Code test: Plot the lnL versus phi, at the injection parameters =========="
+        print(" ======= Code test: Plot the lnL versus phi, at the injection parameters ==========")
         phivals = np.linspace(0, 2*np.pi,500)
         P = Psig.copy()
         P.tref =Psig.tref    #Probably already created. Be careful re recreating, some memory management issues
@@ -445,7 +445,7 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
 
     # lnLdata (plot)
     if TestDictionary["lnLDataPlotVersusPhiPsi"]:
-        print " ======= Code test: Plot the lnL versus phi,psi, at the injection parameters =========="
+        print(" ======= Code test: Plot the lnL versus phi,psi, at the injection parameters ==========")
         psivals = np.linspace(0, 2*np.pi,50)
         phivals = np.linspace(0, 2*np.pi,50)
         psivals, phivals = np.meshgrid(psivals,phivals)
@@ -467,8 +467,8 @@ def TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial, data_dict, 
         ax.set_zlabel('lnL')
 
     if (not bNoMatplotlib) and (not bNoInteractivePlots)  and (TestDictionary["lnLDataPlotVersusPsi"] or TestDictionary["lnLDataPlot"] or  TestDictionary["lnLDataPlotVersusPhiPsi"]): # TestDictionary["DataReport"] or
-        print " Making plots "
-        print TestDictionary
+        print(" Making plots ")
+        print(TestDictionary)
         plt.show()
 
 

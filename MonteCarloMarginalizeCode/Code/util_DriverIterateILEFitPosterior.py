@@ -29,7 +29,7 @@ ILE_CODE_PATH='';
 try:
     ILE_CODE_PATH=os.environ['ILE_CODE_PATH'] + "/"
 except:
-    print " ILE code path not set, relying on your PATH"
+    print(" ILE code path not set, relying on your PATH")
 
 
 parser = argparse.ArgumentParser()
@@ -57,20 +57,20 @@ if opts.run_dir:
 
    run_dir_full=os.getcwd()
    run_dir=run_dir_full.split('/')[-1]
-   print " Run directory ", run_dir
-   print os.listdir(os.getcwd())
+   print(" Run directory ", run_dir)
+   print(os.listdir(os.getcwd()))
  
    comp_file=None
    #find composite file 
    #os.chdir(run_dir_full+"/../")   # SHOULD NOT CHANGE DIRECTORIES HERE. Keep in subdirectory.
-   print " Composite file ... ", os.listdir(run_dir_full+"/../") # not happy about looking up for it.
+   print(" Composite file ... ", os.listdir(run_dir_full+"/../")) # not happy about looking up for it.
    for f in os.listdir(run_dir_full+"/../"): #os.listdir(os.getcwd()):
        if str(f).endswith("composite"): # and str(run_dir) in str(f):
            comp_file=f
-   print " Identified composite file ", comp_file
+   print(" Identified composite file ", comp_file)
    if not(comp_file ==None):
        cmd = "cp  ../" + comp_file + " . "
-       print cmd
+       print(cmd)
        os.system(cmd)
   
    #create composite file if not already exisitng
@@ -85,13 +85,13 @@ if opts.run_dir:
    it_count=np.array([0])
    for f in os.listdir(run_dir_full):
       if str(f).startswith("iteration"):
-          print " Match iteration ", f
+          print(" Match iteration ", f)
           it_count=np.append(it_count,int(f[-1]))
    if max(it_count)>0:
-      print " --- continuing run ---- "
+      print(" --- continuing run ---- ")
       it=max(it_count)
       comp_file_full=run_dir_full+"/iteration"+str(it)+"/iterate.composite"
-      print " Iteration ", it
+      print(" Iteration ", it)
       it+=1
    else:
       it=1
@@ -116,12 +116,12 @@ if opts.run_dir:
          approx=opts.approx
 
       post_proc= "python " + ILE_CODE_PATH+"util_ConstructIntrinsicPosterior_GenericCoordinates.py --fname "+comp_file_full+" "+opts.postproc_opts+" --approx-output "+approx
-      print " --- postproc ---- "
-      print post_proc
+      print(" --- postproc ---- ")
+      print(post_proc)
       os.system(post_proc)
       # Confirm the necessary output files are created!
       if not ("output-ILE-samples.xml.gz" in os.listdir('.')):
-          print " POSTPROCESSING FAIL; HALT"
+          print(" POSTPROCESSING FAIL; HALT")
           sys.exit(0)
      
       if (not opts.no_test_convergence) and it>2 and not opts.test_convergence_1d: 
@@ -141,8 +141,8 @@ if opts.run_dir:
 
           #diff=np.dot(np.dot(abs(bestpt1-bestpt2),mtx1),abs(bestpt1-bestpt2))
 
-          print "KL Divergence:"
-          print kl
+          print("KL Divergence:")
+          print(kl)
 
           if kl<0.1:
               iterate=False
@@ -201,14 +201,14 @@ if opts.run_dir:
 
          # Create .composite file IN THE DIRECTORY
          compile1="find ./ -name 'CME*.dat' -exec cat {} \; > iterate_tmp.dat"
-         print compile1;
+         print(compile1);
          os.system(compile1)
          compile2="python " + ILE_CODE_PATH+"util_CleanILE.py iterate_tmp.dat | sort -rg -k10 > iterate_tmp.composite"
-         print compile2;
+         print(compile2);
          os.system(compile2)
          time.sleep(5)  # give time for filesystem to respond.
          if not ("iterate_tmp.composite" in os.listdir('.')):
-             print " POSTPROCESSING FAIL (iterate_tmp.composite)"
+             print(" POSTPROCESSING FAIL (iterate_tmp.composite)")
              sys.exit(0)
          # Append result from PREVIOUS ITERATIONS
          addme = ""
@@ -216,7 +216,7 @@ if opts.run_dir:
              addme = comp_file_full
 #         compile3 = 'cat ' +run_dir_full + "/"+iteration_dir + '/iterate_tmp.composite ' + addme + ' > iterate.composite'
          compile3 = 'cat iterate_tmp.composite ' + addme + ' > iterate.composite'
-         print compile3
+         print(compile3)
          os.system(compile3)
          comp_file_full=run_dir_full+"/"+iteration_dir+"/iterate.composite"
          it+=1
@@ -224,7 +224,7 @@ if opts.run_dir:
 
 
 else:
-  print "Please specify run directory"
+  print("Please specify run directory")
 
 
 

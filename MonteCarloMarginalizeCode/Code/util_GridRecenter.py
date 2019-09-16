@@ -52,6 +52,6 @@ for indx in np.arange(len(P_list)):
    P_out.append(P_list[indx])
    dat_out.append(vec)
 
-print " Recentering report: last two should be equal : ", np.mean(dat,axis=0),np.mean(dat_ref,axis=0),np.mean(dat_out,axis=0)
+print(" Recentering report: last two should be equal : ", np.mean(dat,axis=0),np.mean(dat_ref,axis=0),np.mean(dat_out,axis=0))
 
 lalsimutils.ChooseWaveformParams_array_to_xml(P_out, "shifted.xml.gz")

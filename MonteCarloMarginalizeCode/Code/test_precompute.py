@@ -51,7 +51,7 @@ analyticPSD_Q = True # For simplicity, using an analytic PSD
 fminWaves = 25
 fminWavesTemplate = 25
 if (rosUseRandomTemplateStartingFrequency):
-    print "   --- Generating a random template starting frequency  ---- " 
+    print("   --- Generating a random template starting frequency  ---- ")
     fminWavesTemplate += 5*np.random.random_sample()
 fminSNR = 25
 fmaxSNR = 2000
@@ -69,7 +69,7 @@ m1 = 4*lal.LAL_MSUN_SI
 m2 = 3*lal.LAL_MSUN_SI
 tEventFiducial = 0.0
 if rosUseRandomEventTime:
-    print "   --- Generating a random event (barycenter) time  ---- " 
+    print("   --- Generating a random event (barycenter) time  ---- ")
     tEventFiducial+= 0.05*np.random.random_sample()
 ampO =0 # sets which modes to include in the physical signal
 Lmax = 2  # sets which modes to include in the output
@@ -84,22 +84,22 @@ Psig = lalsimutils.ChooseWaveformParams(fmin = fminWaves, radec=True, incl=0.0,p
          deltaT=1./fSample,
         detector='H1', dist=distanceFiducial*1.e6*lal.LAL_PC_SI)
 if rosUseRandomSkyLocation:
-    print "   --- Generating a random sky location  ---- " 
+    print("   --- Generating a random sky location  ---- ")
     Psig.theta = np.arccos( 2*(np.random.random_sample())-1)
     Psig.phi = (np.random.random_sample())*2*lal.LAL_PI
     Psig.psi = (np.random.random_sample())*lal.LAL_PI
 if rosUseRandomSourceOrientation:
-    print "   --- Generating a random source orientation  ---- " 
+    print("   --- Generating a random source orientation  ---- ")
     Psig.incl = np.arccos( 2*(np.random.random_sample())-1)
     Psig.phiref = (np.random.random_sample())*2*lal.LAL_PI
 if rosUseRandomEventTime:
-    print "   --- Generating a random event (barycenter) time  ---- " 
+    print("   --- Generating a random event (barycenter) time  ---- ")
     Psig.tref += np.random.random_sample()
 
 df = lalsimutils.findDeltaF(Psig)
 Psig.deltaF = df
 Psig.print_params()
-print " ======= Generating synthetic data in each interferometer (manual timeshifts) =========="
+print(" ======= Generating synthetic data in each interferometer (manual timeshifts) ==========")
 t0 = Psig.tref
 Psig.detector = 'H1'
 data_dict['H1'] = lalsimutils.non_herm_hoff(Psig)  # already takes care of propagating to a detector, using the 'detector' field
@@ -109,7 +109,7 @@ Psig.detector = 'V1'
 data_dict['V1'] = lalsimutils.non_herm_hoff(Psig)
 
 
-print " == Data report == "
+print(" == Data report == ")
 detectors = data_dict.keys()
 rho2Net = 0
 for det in detectors:
@@ -118,13 +118,13 @@ for det in detectors:
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
     rhoExpectedAlt[det] = rhoDet2 = IPOverlap.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
-    print det, rhoDet, rhoDet2, " has arrival time relative to fiducial of ", float(factored_likelihood.ComputeArrivalTimeAtDetector(det, Psig.phi,Psig.theta,Psig.tref) - theEpochFiducial)
+    print(det, rhoDet, rhoDet2, " has arrival time relative to fiducial of ", float(factored_likelihood.ComputeArrivalTimeAtDetector(det, Psig.phi,Psig.theta,Psig.tref) - theEpochFiducial))
     tarrive = factored_likelihood.ComputeArrivalTimeAtDetector(det, Psig.phi,Psig.theta,Psig.tref)
-    print " and has  epoch ", float(data_dict[det].epoch), " with arrival time ",  lalsimutils.stringGPSNice(tarrive)
-print "Network : ", np.sqrt(rho2Net)
+    print(" and has  epoch ", float(data_dict[det].epoch), " with arrival time ",  lalsimutils.stringGPSNice(tarrive))
+print("Network : ", np.sqrt(rho2Net))
 
 if checkInputPlots:
-    print " == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
+    print(" == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == ")
     P = Psig.copy()
     P.tref = Psig.tref
     for det in detectors:
@@ -140,7 +140,7 @@ if checkInputPlots:
 
 
 
-print " ======= Template specified: precomputing all quantities =========="
+print(" ======= Template specified: precomputing all quantities ==========")
 # Struct to hold template parameters
 # Fiducial distance provided but will not be used
 P =  lalsimutils.ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.0, theta=0.0, phi=0,psi=0.0,

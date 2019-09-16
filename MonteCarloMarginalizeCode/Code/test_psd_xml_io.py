@@ -10,7 +10,7 @@ from glue.ligolw import utils, lsctables, table
 try:
     from matplotlib import pylab as plt
 except:
-    print " No interactive plots for you ! "
+    print(" No interactive plots for you ! ")
 
 import lalsimutils
 import factored_likelihood
@@ -27,8 +27,8 @@ optp = OptionParser()
 optp.add_option("-p", "--psd-file", default="psd.xml.gz",help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
 opts, args = optp.parse_args()
 
-print opts, args
-print opts.psd_file
+print(opts, args)
+print(opts.psd_file)
 #
 # Load in PSDs: original API
 #
@@ -52,18 +52,18 @@ fvals = psd_dict['H1'] .deltaF*np.arange(len(psd_dict['H1'].data.data))
 
 # Report on PSD -- in particular, on the nyquist bin
 detectors = psd_dict.keys()
-print "  === 'Nyquist bin' report  ==== "
+print("  === 'Nyquist bin' report  ==== ")
 for det in detectors:
     df = psd_dict[det].deltaF
-    print det, " has length ", len(psd_dict[det].data.data), " with nyquist bin value ",  psd_dict[det].data.data[-1], " which had better be EXACTLY zero if we don't explicitly excise it.  Note also  second-to-last bin, etc are also low:  ", psd_dict[det].data.data[-2], psd_dict[det].data.data[-int(10/df)],psd_dict[det].data.data[-int(30/df)]
-print " ... so several bins may be anomalously small ... "
+    print(det, " has length ", len(psd_dict[det].data.data), " with nyquist bin value ",  psd_dict[det].data.data[-1], " which had better be EXACTLY zero if we don't explicitly excise it.  Note also  second-to-last bin, etc are also low:  ", psd_dict[det].data.data[-2], psd_dict[det].data.data[-int(10/df)],psd_dict[det].data.data[-int(30/df)])
+print(" ... so several bins may be anomalously small ... ")
 for det in psd_dict.keys():
     pairups = np.transpose(np.array([fvals,psd_dict[det].data.data]))
     badbins = [k[0] for k in pairups if k[0]>100 and  k[1]<100*psd_dict[det].data.data[-1]]
-    print " highest reliable frequency in ", det, " seems to be ", badbins[0]
+    print(" highest reliable frequency in ", det, " seems to be ", badbins[0])
 
 # Plot the raw  PSD
-print " === Plotting === "
+print(" === Plotting === ")
 for det in detectors:
     if rosUseWindowing:
         tmp =  lalsimutils.regularize_swig_psd_series_near_nyquist(psd_dict[det], 80) # zero out 80 hz window near nyquist
@@ -81,7 +81,7 @@ plt.show()
 #
 # 'Interpolate' PSD and replot  [option to use the 'regularize']
 #
-print " === Interpolating and replotting === "
+print(" === Interpolating and replotting === ")
 psd_extend = {}
 plt.clf()
 for det in detectors:
@@ -102,7 +102,7 @@ m2 = 10*lal.LAL_MSUN_SI
 
 df = psd_dict[detectors[0]].deltaF
 fSample = df * 2 *( len(psd_dict[detectors[0]].data.data)-1)  # rescale
-print "To construct a signal, we  reconstruct the sampling rate and time window, consistent with the default PSD sampling: (fSample, 1/df) = ", fSample, 1/df
+print("To construct a signal, we  reconstruct the sampling rate and time window, consistent with the default PSD sampling: (fSample, 1/df) = ", fSample, 1/df)
 Psig = lalsimutils.ChooseWaveformParams(
     m1 = m1,m2 =m2,
     fmin = 30, 
@@ -128,15 +128,15 @@ psd_analytic_dict['V1'] = lalsim.SimNoisePSDaLIGOZeroDetHighPower # lal.LIGOIPsd
 
 for det in psd_dict.keys():
     fNyq = (len(psd_dict[det].data.data)-1)*psd_dict[det].deltaF
-    print fNyq
-    print " Length consistency requirements : ", 2*(len(psd_dict[det].data.data)-1), 2*fNyq/df  -1 , len(data_dict[det].data.data)
+    print(fNyq)
+    print(" Length consistency requirements : ", 2*(len(psd_dict[det].data.data)-1), 2*fNyq/df  -1 , len(data_dict[det].data.data))
     IP = lalsimutils.ComplexIP(fLow=30, fNyq=fNyq,deltaF=df,psd=psd_dict[det].data.data,analyticPSD_Q=False)
     IPAnalytic = lalsimutils.ComplexIP(fLow=30, fNyq=fNyq,deltaF=df,psd=psd_analytic_dict[det],analyticPSD_Q=True)
 
     rho1 = IP.norm(data_dict[det])
     rho2 = IPAnalytic.norm(data_dict[det])
 
-    print det, rho1, rho2
+    print(det, rho1, rho2)
 
 #
 # Interpolate PSD and repeat the above test
@@ -146,7 +146,7 @@ for det in psd_dict.keys():
 # Populate signal
 df = psd_extend[detectors[0]].deltaF
 fSample = df * 2 *( len(psd_extend[detectors[0]].data.data)-1)  # rescale
-print "To construct a signal, we  reconstruct the sampling rate and time window, consistent with the default PSD sampling: (fSample, 1/df) = ", fSample, 1/df
+print("To construct a signal, we  reconstruct the sampling rate and time window, consistent with the default PSD sampling: (fSample, 1/df) = ", fSample, 1/df)
 Psig = lalsimutils.ChooseWaveformParams(
     m1 = m1,m2 =m2,
     fmin = 30, 
@@ -172,14 +172,14 @@ psd_analytic_dict['V1'] = lalsim.SimNoisePSDaLIGOZeroDetHighPower # lal.LIGOIPsd
 
 for det in psd_extend.keys():
     fNyq = (len(psd_extend[det].data.data)-1)*psd_extend[det].deltaF
-    print fNyq
-    print " Length consistency requirements : ", 2*(len(psd_extend[det].data.data)-1), 2*fNyq/df  -1 , len(data_dict[det].data.data)
+    print(fNyq)
+    print(" Length consistency requirements : ", 2*(len(psd_extend[det].data.data)-1), 2*fNyq/df  -1 , len(data_dict[det].data.data))
     IP = lalsimutils.ComplexIP(fLow=30, fNyq=fNyq,deltaF=df,psd=psd_extend[det].data.data,analyticPSD_Q=False)
     IPAnalytic = lalsimutils.ComplexIP(fLow=30, fNyq=fNyq,deltaF=df,psd=psd_analytic_dict[det],analyticPSD_Q=True)
 
     rho1 = IP.norm(data_dict[det])
     rho2 = IPAnalytic.norm(data_dict[det])
 
-    print det, rho1, rho2
+    print(det, rho1, rho2)
 
 
