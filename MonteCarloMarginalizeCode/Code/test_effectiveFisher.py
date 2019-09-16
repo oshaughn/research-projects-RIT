@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from time import clock
 from functools import partial
+from six.moves import range
 
 import itertools
 from glue.ligolw import utils, ligolw, lsctables, table
@@ -130,7 +131,7 @@ xs = gridT[0]
 ys = gridT[1]
 # Rotate to get coordinates in parameter basis
 cart_grid = np.array([ np.real( np.dot(rot, cart_grid[i]))
-    for i in xrange(len(cart_grid)) ])
+    for i in range(len(cart_grid)) ])
 gridT = np.transpose(cart_grid)
 Xs = gridT[0]
 Ys = gridT[1]
@@ -154,12 +155,12 @@ print("Kept", len(cart_grid), "points with physically allowed parameters.")
 # Save grid of mass points to file
 #np.savetxt("Mc_eta_pts.txt", cart_grid)
 cart_grid2 = np.array([lsu.m1m2(cart_grid[i][0], cart_grid[i][1]) # convert to m1, m2
-        for i in xrange(len(cart_grid))])
+        for i in range(len(cart_grid))])
 cart_grid2 /= lal.LAL_MSUN_SI
 #np.savetxt("m1_m2_pts.txt", cart_grid2)
 Njobs = int(np.ceil(len(cart_grid2)/float(pts_per_job)))
 cart_grid3 = np.array_split(cart_grid2, Njobs)
-for i in xrange(Njobs):
+for i in range(Njobs):
         fname = "m1_m2_pts_%i.txt" % i
         np.savetxt(fname, cart_grid3[i])
 
