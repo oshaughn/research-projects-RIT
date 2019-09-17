@@ -353,7 +353,7 @@ if use_gracedb_event:
             elif param == 'IFOs':
                 line[1] = line[1].replace(' ','').rstrip()
                 ifo_list = line[1].split(",")
-                event_dict["IFOs"] = ifo_list
+                event_dict["IFOs"] = list(set(event_dict["IFOs"]  +ifo_list))
   try:
     # Read in event parameters. Use masses as quick estimate
     cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
@@ -472,6 +472,7 @@ if opts.check_ifo_availability and not opts.use_online_psd:  # online PSD only a
     # Do not override the original IFO list, build from the list of PSD files or otherwise
     original_list = event_dict["IFOs"] 
     event_dict["IFOs"] = list( set( original_list+query_available_ifos_viadq(["H1","L1","V1"],data_start_time_orig,data_end_time)))
+    print " IFO list to use ", event_dict["IFOs"]
 
 # define channel names
 ifos = event_dict["IFOs"]
