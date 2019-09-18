@@ -90,7 +90,9 @@ class Interpolator(object): # interpolator
 
             # set the scaling of the 'y' variable to the ORIGINAL problem, not allowing for any padding
             # also use the WHOLE sample to get the scaling factors
-            _, self.target_mu, self.target_sigma = self.preprocessing(target)
+            target_copy = np.copy(target)
+            _, self.target_mu, self.target_sigma = self.preprocessing(target_copy)
+            print " Computing scaling factors on scaled output ", self.target_mu, self.target_sigma
 
 #            target_train, self.target_mu, self.target_sigma = self.preprocessing(target_train)
 #            target_valid, _, _ = self.preprocessing(target_valid, self.target_mu, self.target_sigma)
@@ -209,9 +211,10 @@ class Interpolator(object): # interpolator
                   data_sigma = sigma
             if data_sigma == 0:
                 data_sigma = 1  # special case
-            data = (data - data_mu)/data_sigma
+            data_copy =np.zeros(data.shape)
+            data_copy = (data - data_mu)/data_sigma
 
-            return data, data_mu, data_sigma
+            return data_copy, data_mu, data_sigma
 
       def select_device(self):
             '''
@@ -374,12 +377,13 @@ class Interpolator(object): # interpolator
             '''
             import numpy as np
 
+            input_copy = np.zeros(input.shape)
             for dim in xrange(np.size(input, 1)):
-                  input[:, dim], _, _ = self.preprocessing(input[:, dim],mu=self.store_mu_x[dim],sigma=self.store_sigma_x[dim])
+                  input_copy[:, dim], _, _ = self.preprocessing(input[:, dim],mu=self.store_mu_x[dim],sigma=self.store_sigma_x[dim])
 
             self.net.eval()
 
-            output = self.net(torch.from_numpy(input).float().to(self.device)).detach().numpy()[:,0] # convert back to 1d output
+            output = self.net(torch.from_numpy(input_copy).float().to(self.device)).detach().numpy()[:,0] # convert back to 1d output
             output *= self.target_sigma
             output += self.target_mu
 
