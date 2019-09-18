@@ -85,31 +85,26 @@ class Interpolator(object): # interpolator
                   self.store_sigma_x[dim] = np.std(input[:,dim])
                   print " Computing scaling factors on raw data ", dim, self.store_mu_x[dim], self.store_sigma_x[dim]
 
-                
-
             input_train, target_train, errors_train, input_valid, target_valid, errors_valid, input_test, target_test, errors_test \
             = self.set_separation(input, target, errors, frac, test_frac)
 
-
-            target_train, self.target_mu, self.target_sigma = self.preprocessing(target_train)
-            target_valid, _, _ = self.preprocessing(target_valid, self.target_mu, self.target_sigma)
-            target_test, _, _ = self.preprocessing(target_test, self.target_mu, self.target_sigma)
-
-#            errors_train, err_mu, err_sigma = self.preprocessing(errors_train)
-#            errors_valid, _, _ = self.preprocessing(errors_valid, mu=err_mu, sigma=err_sigma)
-#            errors_test, _, _ = self.preprocessing(errors_test, mu=err_mu, sigma=err_sigma)
+#            target_train, self.target_mu, self.target_sigma = self.preprocessing(target_train)
+#            target_valid, _, _ = self.preprocessing(target_valid, self.target_mu, self.target_sigma)
+#            target_test, _, _ = self.preprocessing(target_test, self.target_mu, self.target_sigma)
 
             # Create copies to extend, based on input values
             #  - do *not* try to edit these on the fly, since we need to loop through the *original* sample
             input_train_revised = np.array(input_train)
             target_train_revised = np.array(target_train)
             errors_train_revised = np.array(errors_train)
+            
             p_epsilon =1e-3
+            
             for dim in xrange(self.n_inputs):
-                  mu, sigma = self.store_mu_x[dim], self.store_sigma_x[dim]
-                  input_train[:, dim], _, _ = self.preprocessing(input_train[:, dim],mu=mu,sigma=sigma)
-                  input_valid[:, dim], _, _ = self.preprocessing(input_valid[:, dim], mu=mu, sigma=sigma)
-                  input_test[:, dim], _, _ = self.preprocessing(input_test[:, dim], mu=mu, sigma=sigma)
+#                  mu, sigma = self.store_mu_x[dim], self.store_sigma_x[dim]
+#                  input_train[:, dim], _, _ = self.preprocessing(input_train[:, dim],mu=mu,sigma=sigma)
+#                  input_valid[:, dim], _, _ = self.preprocessing(input_valid[:, dim], mu=mu, sigma=sigma)
+#                  input_test[:, dim], _, _ = self.preprocessing(input_test[:, dim], mu=mu, sigma=sigma)
 
                   # take the max and min values of the array
                   #   - don't use actual min and max, in case of crazy outliers that will leave large gaps in NN coverage
@@ -139,10 +134,20 @@ class Interpolator(object): # interpolator
                   input_train_revised = np.append(input_train_revised, fakesamples, axis=0)
                   target_train_revised = np.append(target_train_revised, zerolnLs, axis=0)
                   errors_train_revised = np.append(errors_train_revised, 0.001*unitysigmas, axis=0) # assume these zeros for lnL are well-known!
+
             input_train = input_train_revised
             target_train = target_train_revised
             errors_train = errors_train_revised
 
+            target_train, self.target_mu, self.target_sigma = self.preprocessing(target_train)
+            target_valid, _, _ = self.preprocessing(target_valid, self.target_mu, self.target_sigma)
+            target_test, _, _ = self.preprocessing(target_test, self.target_mu, self.target_sigma)
+
+            for dim in xrange(self.n_inputs):
+                  mu, sigma = self.store_mu_x[dim], self.store_sigma_x[dim]
+                  input_train[:, dim], _, _ = self.preprocessing(input_train[:, dim],mu=mu,sigma=sigma)
+                  input_valid[:, dim], _, _ = self.preprocessing(input_valid[:, dim], mu=mu, sigma=sigma)
+                  input_test[:, dim], _, _ = self.preprocessing(input_test[:, dim], mu=mu, sigma=sigma)
 
             self.input_train = torch.from_numpy(input_train).float().to(self.device)
             self.input_valid = torch.from_numpy(input_valid).float().to(self.device)
@@ -253,11 +258,13 @@ class Interpolator(object): # interpolator
             '''
             Mean absolute percentage error loss function
             '''
-            return 1./output.shape[0]*torch.sum(torch.abs((output-target)/(target+mu/sigma)))
+            t_max = torch.max(target)
+            return 1./output.shape[0]*torch.sum(torch.abs((output-target)*torch.exp(-0.2*torch.abs(t_max-output))/(target+mu/sigma)))
 
       def reducedchisquareloss(self, output, target, error):
 
-            return torch.sum((output-target)**2/(error)**2)/(output.shape[0]-self.n_inputs)
+            t_max = torch.max(target)
+            return torch.sum((output-target)**2*torch.exp(-0.2*torch.abs(t_max-output))/(error)**2)/(output.shape[0]-self.n_inputs)
 
       def train(self,debug=True):
             '''
