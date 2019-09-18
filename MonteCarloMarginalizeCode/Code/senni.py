@@ -39,7 +39,7 @@ class Interpolator(object): # interpolator
 
       def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=32,
                    epochs=100, learning_rate=1e-2, betas=(0.9, 0.99), eps=1e-2, epochs_per_lr=20, 
-                   lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True, working_dir='.', loss_func='mape'):
+                   lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True, working_dir='.', loss_func='mape',no_pad=False):
 
             '''
             :input: Input column vector with each column representing one input with size (n_samples, n_dim)
@@ -88,6 +88,10 @@ class Interpolator(object): # interpolator
             input_train, target_train, errors_train, input_valid, target_valid, errors_valid, input_test, target_test, errors_test \
             = self.set_separation(input, target, errors, frac, test_frac)
 
+            # set the scaling of the 'y' variable to the ORIGINAL problem, not allowing for any padding
+            # also use the WHOLE sample to get the scaling factors
+            _, self.target_mu, self.target_sigma = self.preprocessing(target)
+
 #            target_train, self.target_mu, self.target_sigma = self.preprocessing(target_train)
 #            target_valid, _, _ = self.preprocessing(target_valid, self.target_mu, self.target_sigma)
 #            target_test, _, _ = self.preprocessing(target_test, self.target_mu, self.target_sigma)
@@ -100,7 +104,8 @@ class Interpolator(object): # interpolator
             
             p_epsilon =1e-3
             
-            for dim in xrange(self.n_inputs):
+            if not no_pad:
+              for dim in xrange(self.n_inputs):
 #                  mu, sigma = self.store_mu_x[dim], self.store_sigma_x[dim]
 #                  input_train[:, dim], _, _ = self.preprocessing(input_train[:, dim],mu=mu,sigma=sigma)
 #                  input_valid[:, dim], _, _ = self.preprocessing(input_valid[:, dim], mu=mu, sigma=sigma)
@@ -139,7 +144,9 @@ class Interpolator(object): # interpolator
             target_train = target_train_revised
             errors_train = errors_train_revised
 
+            # scale the output scale *including* the padded points
             target_train, self.target_mu, self.target_sigma = self.preprocessing(target_train)
+#            target_train, _,_ = self.preprocessing(target_train,self.target_mu, self.target_sigma)
             target_valid, _, _ = self.preprocessing(target_valid, self.target_mu, self.target_sigma)
             target_test, _, _ = self.preprocessing(target_test, self.target_mu, self.target_sigma)
 
@@ -307,6 +314,10 @@ class Interpolator(object): # interpolator
                       validation_loss = self.MAPEloss(self.net(self.input_valid), self.target_valid, self.target_mu, self.target_sigma)
                   if self.loss_func == 'chi2':
                       validation_loss = self.reducedchisquareloss(self.net(self.input_valid), self.target_valid, self.errors_valid)
+
+                  if validation_loss < 1e-6:
+                      print "   ... should we stop? "
+                      break
 
                   if validation_loss < validation_threshold:
 
