@@ -947,7 +947,7 @@ def fit_nn(x,y,y_errors=None,fname_export='nn_fit'):
 #        print np.min(x[:,indx]), np.max(x[:,indx]), (np.max(x[:,indx])-np.mean(x[:,indx]))/np.std(x[:,indx])
     # train first with one loss, then the next?
     nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=20, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='mape')  # May want to adjust size of network based on data size?
-    nn_interpolator.train()
+#    nn_interpolator.train()
     nn_interpolator.loss_func='chi2'; nn_interpolator.epochs = 120
     nn_interpolator.train()
     if opts.fit_save_gp:
