@@ -57,7 +57,7 @@ def generate_job_id():
     Borrowed and modified from the LAL code in glue/glue/pipeline.py
     """
     t = str( long( time() * 1000 ) )
-    r = str( long( np.random.random() * 100000000000000000L ) )
+    r = str( long( np.random.random() * 100000000000000000 ) )
     return md5(t + r).hexdigest()
 
 
