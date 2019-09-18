@@ -57,16 +57,16 @@ import vectorized_lal_tools
 import os
 if 'PROFILE' not in os.environ:
    def profile(fn):
-	return fn
+      return fn
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 try:
-	import NRWaveformCatalogManager as nrwf
-	useNR =True
+        import NRWaveformCatalogManager as nrwf
+        useNR =True
         print(" factored_likelihood.py : NRWaveformCatalogManager available ")
 except ImportError:
-	useNR=False
+        useNR=False
 
 try:
         import ROMWaveformManager as romwf
@@ -194,8 +194,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 TDlen = int(1./(P.deltaF*P.deltaT))#TDlen = lsu.nextPow2(hlmsT[(2,2)].data.length)
                 if not quiet:
                         print(" Resizing to ", TDlen, " from ", hlmsT[(2,2)].data.length)
-		for mode in hlmsT:
-			hlmsT[mode] = lal.ResizeCOMPLEX16TimeSeries(hlmsT[mode],0, TDlen)
+                for mode in hlmsT:
+                        hlmsT[mode] = lal.ResizeCOMPLEX16TimeSeries(hlmsT[mode],0, TDlen)
                 #h22 = hlmsT[(2,2)]
                 #h2m2 = hlmsT[(2,-2)]
                 #hlmsT[(2,2)] = lal.ResizeCOMPLEX16TimeSeries(h22, 0, TDlen)
@@ -262,7 +262,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 group = NR_group
                 param = NR_param
         print(" Identified matching NR simulation ", group, param)
-	mtot = P.m1 + P.m2
+        mtot = P.m1 + P.m2
         q = P.m2/P.m1
         # Load the catalog
         wfP = nrwf.WaveformModeCatalog(group, param, \
@@ -798,13 +798,13 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms,crossTermsV, Ylms, F, dis
 def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
         N_shift, N_window, analyticPSD_Q=False,
         inv_spec_trunc_Q=False, T_spec=0.):
-    """
+    r"""
     Compute the complex-valued overlap between
     each member of a SphHarmFrequencySeries 'hlms'
     and the interferometer data COMPLEX16FrequencySeries 'data',
     weighted the power spectral density REAL8FrequencySeries 'psd'.
 
-    The integrand is non-zero in the range: [-fNyq, -fmin] \union [fmin, fNyq].
+    The integrand is non-zero in the range: [-fNyq, -fmin] union [fmin, fNyq].
     This integrand is then inverse-FFT'd to get the inner product
     at a discrete series of time shifts.
 
@@ -894,7 +894,7 @@ def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF,
     Compute the 'cross terms' between waveform modes, i.e.
     < h_lm | h_l'm' >.
     The inner product is weighted by power spectral density 'psd' and
-    integrated over the interval [-fNyq, -fmin] \union [fmin, fNyq]
+    integrated over the interval [-fNyq, -fmin] union [fmin, fNyq]
 
     Returns a dictionary of inner product values keyed by tuples of mode indices
     i.e. ((l,m),(l',m'))
