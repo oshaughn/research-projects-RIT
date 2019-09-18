@@ -124,6 +124,7 @@ optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
+optp.add_option("--internal-hard-fail-on-error",action='store_true',help='If true, fails with exit code 1 if any point is unsuccessful')
 optp.add_option("--verbose",action='store_true')
 #
 # Add the integration options
@@ -1022,9 +1023,16 @@ for indx in numpy.arange(len(P_list)):
       sampler.adaptive = params_adapt
  except Exception as exception_failure:
   print "  ===> FAILED ANALYSIS <==== "
-  print " Probable reasons: SEOB nyquist or starting frequency limit or signal duration "
   print exception_failure
+  if "CUBLAS" in exception_failure:  # Hard fail if a cuda error!
+    sys.exit(1) 
+  if "CUDA" in exception_failure: # Hard fail if a cuda error
+    sys.exit(1)
+  print " Probable reasons: SEOB nyquist or starting frequency limit or signal duration "
   print " Skipping the following binary! "
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
   P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
   P_list[indx].print_params()
+  if opts.internal_hard_fail_on_error:
+    sys.exit(1)
+  
