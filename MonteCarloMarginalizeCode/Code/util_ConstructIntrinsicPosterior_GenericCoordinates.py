@@ -77,6 +77,13 @@ except:
     print " No senni "
     senni_ok = False
 
+try:
+    import internal_GP
+    internalGP_ok = True
+except:
+    print " - no internal_GP -  "
+    internalGP_ok = False
+
 
 def render_coord(x):
     if x in lalsimutils.tex_dictionary.keys():
@@ -705,31 +712,31 @@ if opts.pseudo_uniform_magnitude_prior and opts.pseudo_uniform_magnitude_prior_a
 if opts.prior_gaussian_spin1_magnitude:
     if not  'chi1' in low_level_coord_names:
         print " Incompatible options: gaussian spin1 prior requires polar coordinates"
-        sys.exit(0)
+        sys.exit(1)
     prior_map['chi1'] =functools.partial(gaussian_mass_prior,mu=0.7,sigma=0.1)  # not fully normalized particularly if chimax <1! Dangerous, fixme eventually
 
 if opts.prior_tapered_spin1_magnitude:
     if not  'chi1' in low_level_coord_names:
         print " Incompatible options: tapered spin1 prior requires polar coordinates"
-        sys.exit(0)
+        sys.exit(1)
     prior_map['s1z'] =tapered_magnitude_prior
 
 if opts.prior_tapered_spin1z:
     if not  's1z' in low_level_coord_names:
         print " Incompatible options: tapered spin1z prior requires cartesian coordinates"
-        sys.exit(0)
+        sys.exit(1)
     prior_map['s1z'] =tapered_magnitude_prior
 
 if opts.prior_gaussian_mass_ratio:
     if not  'q' in low_level_coord_names:
         print " Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)"
-        sys.exit(0)
+        sys.exit(1)
     prior_map['q'] = functools.partial(gaussian_mass_prior,mu=0.5,sigma=0.2)  # not fully normalized, and very ad-hoc
 
 if opts.prior_tapered_mass_ratio:
     if not  'q' in low_level_coord_names:
         print " Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)"
-        sys.exit(0)
+        sys.exit(1)
     prior_map['q'] = functools.partial(tapered_magnitude_prior_alt,loc=0.8,kappa=20.)  # not fully normalized, and very ad-hoc
 
 if opts.prior_lambda_linear:
@@ -1017,6 +1024,12 @@ def fit_nn_rfwrapper(x,y,y_errors=None,fname_export='nn_fit'):
     residuals = fn_return(x)-y
     print "    std ", np.std(residuals), np.max(y), np.max(fn_return(x))
     return fn_return
+
+if internalGP_ok:
+    from internal_GP import fit_gp as fit_gp_sparse
+else:
+    def fit_gp_sparse(x):
+        sys.exit(1)
 
 
 
@@ -1389,6 +1402,26 @@ elif opts.fit_method == 'nn_rfwrapper':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_nn_rfwrapper(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'gp-sparse':
+    print " FIT METHOD ", opts.fit_method, " IS gp-sparse "
+    if not internalGP_ok:
+        print " FAILED "
+        sys.exit(1)
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_gp_sparse(X,Y,y_errors=Y_err)
+
 
 
 
