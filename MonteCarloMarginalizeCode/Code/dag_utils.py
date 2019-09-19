@@ -696,6 +696,7 @@ echo Starting ...
 
     if opts.use_cvmfs_frames:
         requirements.append("HAS_LIGO_FRAMES=?=TRUE")
+        ile_job.add_condor_cmd('use_x509userproxy','True')
 
 
     if use_osg:
@@ -703,7 +704,6 @@ echo Starting ...
            if "OSG_DESIRED_SITES" in os.environ:
                ile_job.add_condor_cmd('+DESIRED_SITES='+os.environ["OSG_DESIRED_SITES"])
     if use_singularity or use_osg:
-           ile_job.add_condor_cmd('use_x509userproxy','True')
             # Set up file transfer options
            ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
 
