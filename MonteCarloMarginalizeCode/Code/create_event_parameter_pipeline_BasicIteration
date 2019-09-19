@@ -355,7 +355,7 @@ if (it_start is 0) and not gridinit_args:
     shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
     n_initial = len(lalsimutils.xml_to_ChooseWaveformParams_array("overlap-grid-0.xml.gz"))
 
-transfer_file_names = None
+transfer_file_names = []
 if not (opts.transfer_file_list is None):
     transfer_file_names=[]
     # Load args.txt. Remove first item.  Store
@@ -363,7 +363,6 @@ if not (opts.transfer_file_list is None):
         for  line in f.readlines():
             transfer_file_names.append(line.rstrip())
     print " Input files to transfer to job working directory (note!)", transfer_file_names
-
 
 ###
 ### Fiducial fit job (=sanity check that code will run)
