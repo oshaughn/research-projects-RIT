@@ -697,6 +697,9 @@ echo Starting ...
     if opts.use_cvmfs_frames:
         requirements.append("HAS_LIGO_FRAMES=?=TRUE")
         ile_job.add_condor_cmd('use_x509userproxy','True')
+        if 'X509_USER_PROXY' in os.environ.keys():
+            print " Storing reference to X509 user proxy -- beware expiration! "
+            ile_job.add_condor_cmd('x509userproxy',os.environ['X509_USER_PROXY'])
 
 
     if use_osg:
