@@ -700,6 +700,8 @@ echo Starting ...
 
     if use_osg:
            requirements.append("IS_GLIDEIN=?=TRUE")
+           if "OSG_DESIRED_SITES" in os.environ:
+               ile_job.add_condor_cmd('+DESIRED_SITES='+os.environ["OSG_DESIRED_SITES"])
     if use_singularity or use_osg:
            ile_job.add_condor_cmd('use_x509userproxy','True')
             # Set up file transfer options
