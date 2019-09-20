@@ -694,7 +694,7 @@ echo Starting ...
             requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
             #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
 
-    if opts.use_cvmfs_frames:
+    if use_cvmfs_frames:
         requirements.append("HAS_LIGO_FRAMES=?=TRUE")
         ile_job.add_condor_cmd('use_x509userproxy','True')
         if 'X509_USER_PROXY' in os.environ.keys():
