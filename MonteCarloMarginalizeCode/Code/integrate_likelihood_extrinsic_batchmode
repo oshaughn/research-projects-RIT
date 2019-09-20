@@ -135,6 +135,7 @@ optp.add_option("-S", "--save-samples", action="store_true", help="Save sample p
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("--internal-hard-fail-on-error",action='store_true',help='If true, fails with exit code 1 if any point is unsuccessful')
+optp.add_option("--internal-make-empty-file-on-error",action='store_true',help='If true, failed points generate empty output file. Protects against OSG workflow problems')
 optp.add_option("--verbose",action='store_true')
 #
 # Add the integration options
@@ -1034,9 +1035,9 @@ for indx in numpy.arange(len(P_list)):
  except Exception as exception_failure:
   print "  ===> FAILED ANALYSIS <==== "
   print exception_failure
-  if "CUBLAS" in exception_failure:  # Hard fail if a cuda error!
+  if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
     sys.exit(1) 
-  if "CUDA" in exception_failure: # Hard fail if a cuda error
+  if "CUDA" in exception_failure[0]: # Hard fail if a cuda error
     sys.exit(1)
   print " Probable reasons: SEOB nyquist or starting frequency limit or signal duration "
   print " Skipping the following binary! "
@@ -1045,4 +1046,7 @@ for indx in numpy.arange(len(P_list)):
   P_list[indx].print_params()
   if opts.internal_hard_fail_on_error:
     sys.exit(1)
+  if opts.internal_make_empty_file_on_error:
+    fname_output_txt = opts.output_file +"_"+str(indx_event)+"_" + ".dat"
+    open(fname_output_txt,'a').close()  # create empty file
   
