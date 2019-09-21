@@ -1035,18 +1035,19 @@ for indx in numpy.arange(len(P_list)):
  except Exception as exception_failure:
   print "  ===> FAILED ANALYSIS <==== "
   print exception_failure
-  if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
-    sys.exit(1) 
-  if "CUDA" in exception_failure[0]: # Hard fail if a cuda error
+  if opts.internal_make_empty_file_on_error:
+    fname_output_txt = opts.output_file +"_"+str(indx_event)+"_" + ".dat"
+    open(fname_output_txt,'a').close()  # create empty file
+  if opts.internal_hard_fail_on_error:
     sys.exit(1)
+  if len(exception_failure) >0:
+    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
+      sys.exit(1) 
+    if "CUDA" in exception_failure[0]: # Hard fail if a cuda error
+      sys.exit(1)
   print " Probable reasons: SEOB nyquist or starting frequency limit or signal duration "
   print " Skipping the following binary! "
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
   P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
   P_list[indx].print_params()
-  if opts.internal_hard_fail_on_error:
-    sys.exit(1)
-  if opts.internal_make_empty_file_on_error:
-    fname_output_txt = opts.output_file +"_"+str(indx_event)+"_" + ".dat"
-    open(fname_output_txt,'a').close()  # create empty file
   
