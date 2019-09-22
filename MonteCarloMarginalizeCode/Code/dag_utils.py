@@ -708,6 +708,9 @@ echo Starting ...
                ile_job.add_condor_cmd('+DESIRED_SITES',os.environ["OSG_DESIRED_SITES"])
            if "OSG_UNDESIRED_SITES" in os.environ:
                ile_job.add_condor_cmd('+UNDESIRED_SITES',os.environ["OSG_UNDESIRED_SITES"])
+           # Some options to automate restarts, acts on top of RETRY in dag
+           ile_job.add_condor_cmd("periodic_release","(NumJobStarts < 5) && ((CurrentTime - EnteredCurrentStatus) > 600)")
+           ile_job.add_condor_cmd("on_exit_hold","(ExitBySignal == True) || (ExitCode != 0)")
     if use_singularity or use_osg:
             # Set up file transfer options
            ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
