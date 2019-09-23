@@ -330,6 +330,8 @@ if not (opts.psd_file is None):
             psd_names[inst] = psdf
             ifo_list.append(inst)
     event_dict["IFOs"] = ifo_list
+if not ("IFOs" in event_dict.keys()):  
+    event_dict["IFOs"] = []   # Make sure this is populated, for later
 
 ###
 ### Import event and PSD: GraceDB branch
