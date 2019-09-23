@@ -906,7 +906,7 @@ if opts.use_osg:
     #   - psd files
     #   - cache file (local.cache), IF using cvmfs frames
     if opts.use_cvmfs_frames:
-        transfer_files.append("local.cache")
+        transfer_files.append(opts.working_directory+"/local.cache")
     with open("helper_transfer_files.txt","w") as f:
         for name in transfer_files:
             f.write(name+"\n")
