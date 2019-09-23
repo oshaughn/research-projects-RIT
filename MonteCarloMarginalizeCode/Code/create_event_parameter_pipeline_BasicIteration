@@ -490,7 +490,7 @@ ile_exe =opts.ile_exe
 if (opts.ile_n_events_to_analyze > 1) and (exe is None):
     ile_exe = dag_utils.which("integrate_likelihood_extrinsic_batchmode")
 output_file_names = None
-if opts.use_singularity or opts.use_osg:
+if False: #opts.use_singularity or opts.use_osg:
     transfer_file_names.append("../overlap-grid-$(macroiteration).xml.gz")
     output_file_names = ','.join(["CME_out-$(macroevent)-$(cluster)-$(process).xml_{0}_.dat".format(x) for x in np.arange(opts.ile_n_events_to_analyze)])
     print "OUTPUT FILES ", output_file_names
