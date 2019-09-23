@@ -170,6 +170,7 @@ parser.add_argument("--no-propose-limits",action='store_true',help="If a fit str
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-osg",action='store_true',help="If true, use pathnames consistent with OSG")
+parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.  This option insures that the cache file is properly transferred (because you have generated it)")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
@@ -502,6 +503,7 @@ if not opts.cache:  # don't make a cache file if we have one!
     opts.cache = "local.cache" # standard filename populated
 
 # If needed, build PSDs
+transfer_files=[]
 if (opts.psd_file is None) and (not opts.use_online_psd) and not (opts.assume_fiducial_psd_files):
     print " PSD construction "
     for ifo in event_dict["IFOs"]:
@@ -521,6 +523,10 @@ elif (opts.assume_fiducial_psd_files):
                 psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
             else:
                 psd_names[ifo] =  ifo + "-psd.xml.gz"
+for ifo in psd_names.keys():
+    transfer_files.append(opts.working_directory+"/" + ifo + "-psd.xml.gz")
+
+
 
 # Estimate mc range, eta range
 #   - UPDATE: need to add scaling with SNR too
@@ -894,3 +900,14 @@ if opts.propose_fit_strategy:
     helper_puff_args += " --puff-factor " + str(puff_factor)
     with open("helper_puff_args.txt",'w') as f:
         f.write(helper_puff_args)
+
+if opts.use_osg:
+    # Write log of extra files to transfer
+    #   - psd files
+    #   - cache file (local.cache), IF using cvmfs frames
+    if opts.use_cvmfs_frames:
+        transfer_files.append("local.cache")
+    with open("helper_transfer_files.txt","w") as f:
+        for name in transfer_files:
+            f.write(name+"\t")
+        
