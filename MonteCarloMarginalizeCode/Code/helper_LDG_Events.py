@@ -909,5 +909,5 @@ if opts.use_osg:
         transfer_files.append("local.cache")
     with open("helper_transfer_files.txt","w") as f:
         for name in transfer_files:
-            f.write(name+"\t")
+            f.write(name+"\n")
         
