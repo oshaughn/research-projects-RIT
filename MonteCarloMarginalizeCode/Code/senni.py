@@ -39,7 +39,8 @@ class Interpolator(object): # interpolator
 
       def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=32,
                    epochs=100, learning_rate=1e-2, betas=(0.9, 0.99), eps=1e-2, epochs_per_lr=20, 
-                   lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True, working_dir='.', loss_func='mape',no_pad=False):
+                   lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True, working_dir='.', 
+                   loss_func='chi2', no_pad=False):
 
             '''
             :input: Input column vector with each column representing one input with size (n_samples, n_dim)
@@ -56,6 +57,9 @@ class Interpolator(object): # interpolator
             :lr_frac: Fraction by which the learning_rate is multiplied every epochs_per_lr epochs
             :batch_size: Size of the batches used during training
             :shuffle: Boolean deciding whether the data batches are shuffled prior to training
+            :working_dir: Sets the working directory
+            :loss_func: Chooses which loss function is used during training, current options are 'mape' and 'chi2' (see loss function definitions below)
+            :no_pad: Boolean deciding whether to force the function to 0 outside the input values by adding fake zero-valued samples
             '''
 
             import numpy as np
@@ -94,10 +98,6 @@ class Interpolator(object): # interpolator
             _, self.target_mu, self.target_sigma = self.preprocessing(target_copy)
             print " Computing scaling factors on scaled output ", self.target_mu, self.target_sigma
 
-#            target_train, self.target_mu, self.target_sigma = self.preprocessing(target_train)
-#            target_valid, _, _ = self.preprocessing(target_valid, self.target_mu, self.target_sigma)
-#            target_test, _, _ = self.preprocessing(target_test, self.target_mu, self.target_sigma)
-
             # Create copies to extend, based on input values
             #  - do *not* try to edit these on the fly, since we need to loop through the *original* sample
             input_train_revised = np.array(input_train)
@@ -108,11 +108,6 @@ class Interpolator(object): # interpolator
             
             if not no_pad:
               for dim in xrange(self.n_inputs):
-#                  mu, sigma = self.store_mu_x[dim], self.store_sigma_x[dim]
-#                  input_train[:, dim], _, _ = self.preprocessing(input_train[:, dim],mu=mu,sigma=sigma)
-#                  input_valid[:, dim], _, _ = self.preprocessing(input_valid[:, dim], mu=mu, sigma=sigma)
-#                  input_test[:, dim], _, _ = self.preprocessing(input_test[:, dim], mu=mu, sigma=sigma)
-
                   # take the max and min values of the array
                   #   - don't use actual min and max, in case of crazy outliers that will leave large gaps in NN coverage
                   true_min,true_max = np.percentile(input_train[:,dim],p_epsilon*100),np.percentile(input_train[:,dim],100*(1-p_epsilon))
@@ -134,7 +129,7 @@ class Interpolator(object): # interpolator
                   otherdims = np.random.normal(size=(fakesamples.shape[0], self.n_inputs-1))
                   # insert the non-random fakesamples into the relevant dimension index
                   fakesamples = np.insert(otherdims, dim, fakesamples.T, axis=1)
-                  zerolnLs = np.zeros(fakesamples.shape[0])
+                  zerolnLs = np.ones(fakesamples.shape[0])*1e-5
                   zerolnLs = zerolnLs[:, np.newaxis]
                   unitysigmas = np.ones(fakesamples.shape[0])
                   unitysigmas = unitysigmas[:, np.newaxis]
@@ -148,7 +143,6 @@ class Interpolator(object): # interpolator
 
             # scale the output scale *including* the padded points
             target_train, self.target_mu, self.target_sigma = self.preprocessing(target_train)
-#            target_train, _,_ = self.preprocessing(target_train,self.target_mu, self.target_sigma)
             target_valid, _, _ = self.preprocessing(target_valid, self.target_mu, self.target_sigma)
             target_test, _, _ = self.preprocessing(target_test, self.target_mu, self.target_sigma)
 
@@ -383,7 +377,7 @@ class Interpolator(object): # interpolator
 
             self.net.eval()
 
-            output = self.net(torch.from_numpy(input_copy).float().to(self.device)).detach().numpy()[:,0] # convert back to 1d output
+            output = self.net(torch.from_numpy(input_copy).float().to(self.device)).detach().cpu().numpy()[:,0] # convert back to 1d output
             output *= self.target_sigma
             output += self.target_mu
 
