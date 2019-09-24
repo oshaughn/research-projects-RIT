@@ -889,7 +889,7 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,arg_str=
 
     # Write unify.sh
     #    - problem of globbing inside condor commands
-    #    - problem that *.composite files from intermediate results will generally NOT be present
+    #    - problem that *.composite files from intermediate results will generally NOT be present 
     cmdname ='unify.sh'
     base_str = ''
     if not (base is None):
@@ -903,7 +903,7 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,arg_str=
     os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 
 
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable="./"+cmdname)
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=base_str+cmdname) # force full prefix
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
