@@ -1032,6 +1032,9 @@ for indx in numpy.arange(len(P_list)):
       params_adapt = sampler.adaptive
       params_adapt  = list(set(params_adapt) - set(['right_ascension','declination']))
       sampler.adaptive = params_adapt
+      # Disable saving of the integrand -- saves on memory and will reduce speed. 
+      # Note this needs to be done in a few places
+      pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
  except Exception as exception_failure:
   print "  ===> FAILED ANALYSIS <==== "
   print exception_failure
