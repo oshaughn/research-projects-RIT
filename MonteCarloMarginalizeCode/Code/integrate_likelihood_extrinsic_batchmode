@@ -1040,11 +1040,11 @@ for indx in numpy.arange(len(P_list)):
     open(fname_output_txt,'a').close()  # create empty file
   if opts.internal_hard_fail_on_error:
     sys.exit(1)
-  if len(exception_failure) >0:
-    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
-      sys.exit(1) 
-    if "CUDA" in exception_failure[0]: # Hard fail if a cuda error
-      sys.exit(1)
+#  if len(exception_failure) >0:
+#    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
+#      sys.exit(1) 
+#    if "CUDA" in exception_failure[0]: # Hard fail if a cuda error
+#      sys.exit(1)
   print " Probable reasons: SEOB nyquist or starting frequency limit or signal duration "
   print " Skipping the following binary! "
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
