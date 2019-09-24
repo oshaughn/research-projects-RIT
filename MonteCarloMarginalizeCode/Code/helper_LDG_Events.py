@@ -165,6 +165,7 @@ parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,hel
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
 parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
+parser.add_argument("--internal-fit-strategy-enforces-cut",action='store_true',help="Fit strategy enforces lnL-cut (default 20) after the first batch of iterations.")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
@@ -872,6 +873,10 @@ if opts.propose_fit_strategy:
 
         n_its = map(lambda x: float(x.split()[0]), helper_cip_arg_list)
         puff_max_it= np.sum(n_its) # puff all the way to the end
+
+    if opts.internal_fit_strategy_enforces_cut:
+        for indx in np.arange(len(helper_cip_arg_list))[1:]:
+            helper_cip_arg_list[indx] += " --lnL-cut 20 "  # enforce lnL cutoff past the first iteration. Focuses fit on high-likelihood points as in O1/O2
 
 
 with open("helper_cip_args.txt",'w') as f:
