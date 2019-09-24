@@ -11,7 +11,13 @@ See [INSTALL.md](INSTALL.md).  Remember, if you run on an LDG cluster, you need 
 export LIGO_USER_NAME=albert.einstein  # replace as appropriate
 export LIGO_ACCOUNTING=ligo.dev.o3.cbc.pe.lalinferencerapid
 ```
-
+If you plan on performing production runs in O3, you should be using release code, and a production accounting tag.  On the OSG, you will need to be sure you are using the production release container.  We recommend you create the following script and source it
+```
+export LIGO_USER_NAME=albert.einstein  # replace as appropriate
+export LIGO_ACCOUNTING=ligo.prod.o3.cbc.pe.lalinferencerapid  # production tag
+export PS1=${PS1}":(PROD)"   # make sure user knows production accounting is used
+SINGULARITY_RIFT_IMAGE=/cvmfs/ligo-containers.opensciencegrid.org/james-clark/research-projects-rit/rift/production
+```
 
 ### Confirming your installation works
 
