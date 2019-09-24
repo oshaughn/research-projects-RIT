@@ -672,7 +672,7 @@ echo Starting ...
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
     if cache_file:
-        ile_job.add_opt("cache_file",cache_file)
+        ile_job.add_opt("cache-file",cache_file)
 
     ile_job.add_var_opt("event")
 
