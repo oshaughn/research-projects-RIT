@@ -404,6 +404,7 @@ class MCSampler(object):
             
 
         save_intg = kwargs["save_intg"] if kwargs.has_key("save_intg") else False
+        force_no_adapt = kwargs["force_no_adapt"] if kwargs.has_key("force_no_adapt") else False
         # FIXME: The adaptive step relies on the _rvs cache, so this has to be
         # on in order to work
         if n_adapt > 0 and tempering_exp > 0.0:
@@ -496,7 +497,7 @@ class MCSampler(object):
                 print >>sys.stderr, "No contribution to integral, skipping."
                 continue
 
-            if save_intg:
+            if save_intg and not force_no_adapt:
                 # FIXME: The joint_prior, if not specified is set to one and
                 # will come out as a scalar here, hence the hack
                 if not isinstance(joint_p_prior, numpy.ndarray):
@@ -579,6 +580,9 @@ class MCSampler(object):
             #
             # FIXME: We need a better stopping condition here
             if self.ntotal > n_adapt:
+                continue
+
+            if force_no_adapt:
                 continue
 
             # FIXME: Hardcoding
