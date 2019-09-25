@@ -1601,6 +1601,8 @@ def write_joingrids_sub(tag='join_grids', exe=None, input_pattern=None,target_di
     fname_out =target_dir + "/" +output_base + ".xml.gz"
     ile_job.add_arg("--output="+fname_out)
 
+    working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
+
     #
     # Logging options
     #
@@ -1614,8 +1616,8 @@ def write_joingrids_sub(tag='join_grids', exe=None, input_pattern=None,target_di
 
     explode_str = ""
     for indx in np.arange(n_explode):
-        explode_str+= " {}-{}.xml.gz ".format(output_base,indx)
-    explode_str += " {}.xml.gz ".format(output_base)
+        explode_str+= " {}/{}-{}.xml.gz ".format(working_dir,output_base,indx)
+    explode_str += " {}/{}.xml.gz ".format(working_dir,output_base)
     ile_job.add_arg(explode_str)
 #    ile_job.add_arg("overlap-grid*.xml.gz")  # working in our current directory
     
