@@ -202,6 +202,9 @@ class MCSampler(object):
         if len(args) == 0:
             args = self.params
 
+        no_cache_samples = kwargs["no_cache_samples"] if kwargs.has_key("no_cache_samples") else False
+
+
         if isinstance(rvs, int) or isinstance(rvs, float):
             #
             # Convert all arguments to tuples
@@ -230,9 +233,10 @@ class MCSampler(object):
         #
         # Cache the samples we chose
         #
-        if len(self._rvs) == 0:
+        if not no_cache_samples:  # more efficient memory usage. Note adaptation will not wor
+          if len(self._rvs) == 0:
             self._rvs = dict(zip(args, rvs_tmp))
-        else:
+          else:
             rvs_tmp = dict(zip(args, rvs_tmp))
             #for p, ar in self._rvs.iteritems():
             for p in self.params_ordered:
@@ -405,6 +409,9 @@ class MCSampler(object):
 
         save_intg = kwargs["save_intg"] if kwargs.has_key("save_intg") else False
         force_no_adapt = kwargs["force_no_adapt"] if kwargs.has_key("force_no_adapt") else False
+        save_no_samples = kwargs["save_no_samples"] if kwargs.has_key("save_no_samples") else False
+        if save_no_samples:   # can't adapt without saved samples
+            force_no_adapt = True
         # FIXME: The adaptive step relies on the _rvs cache, so this has to be
         # on in order to work
         if n_adapt > 0 and tempering_exp > 0.0:
@@ -443,7 +450,10 @@ class MCSampler(object):
             last_convergence_test = defaultdict(lambda: False)   # need record of tests to be returned always
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
-            p_s, p_prior, rv = self.draw(n, *self.params_ordered)  # keep in order
+            args_draw ={}
+            if force_no_adapt or save_no_samples:  # don't save permanent sample history if not needed
+                args_draw.update({"no_cache_samples":True})
+            p_s, p_prior, rv = self.draw(n, *self.params_ordered,**args_draw)  # keep in order
 
 #            print "Prior ",  type(p_prior[0]), p_prior[0]
 #            print "rv ",  type(rv[0]), rv[0]    # rv generally has dtype = object, to enable joint sampling with multid variables
