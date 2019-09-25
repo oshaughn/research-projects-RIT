@@ -241,6 +241,12 @@ class MCSampler(object):
             #for p, ar in self._rvs.iteritems():
             for p in self.params_ordered:
                 self._rvs[p] = numpy.hstack( (self._rvs[p], rvs_tmp[p]) )
+        else:  
+            # if we are not caching samples, DELETE the sample record.  Saves memory!
+            if len(self._rvs) >0:
+                for p in self.params_ordered:
+                    del self._rvs[p]
+            self._rvs = {}
 
         #
         # Pack up the result if the user wants a dictonary instead
