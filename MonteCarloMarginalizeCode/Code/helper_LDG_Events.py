@@ -256,7 +256,7 @@ if opts.playground_data:
 # [H1|L1]:GDS-CALIB_STRAIN_CLEAN
 # [H1|L1]:GDS-GATED_STRAIN
 # https://github.com/lpsinger/gwcelery/blob/master/gwcelery/conf/production.py
-cal_versions = {"C00","C01", "X01","X02"}
+cal_versions = {"C00","C01", "X01","X02","C01_nonlinear"}
 for cal in cal_versions:
     for ifo in "H1", "L1":
         data_types["O3"][(cal,ifo)] = ifo+"_HOFT_" + cal
@@ -274,14 +274,19 @@ for cal in cal_versions:
             standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X02" 
         if cal is 'C01':
             standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_C01" 
+        if cal is 'C01_nonlinear':
+            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN-SUB60HZ_C01" 
+            data_types["O3"][(cal,ifo)] = ifo+"_HOFT_CLEAN_SUB60HZ_C01"
 data_types["O3"][("C00", "V1")] = "V1Online"
 data_types["O3"][("X01", "V1")] = "V1Online"
 data_types["O3"][("X02", "V1")] = "V1Online"
 data_types["O3"][("C01", "V1")] = "V1Online"
+data_types["O3"][("C01_nonlinear", "V1")] = "V1Online"
 standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
 standard_channel_names["O3"][("X01", "V1")] = "Hrec_hoft_16384Hz"
 standard_channel_names["O3"][("X02", "V1")] = "Hrec_hoft_16384Hz"
 standard_channel_names["O3"][("C01", "V1")] = "Hrec_hoft_16384Hz"
+standard_channel_names["O3"][("C01_nonlinear", "V1")] = "Hrec_hoft_16384Hz"
 if opts.online:
     data_types["O3"][("C00", "V1")] = "V1_llhoft"
     standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
@@ -421,7 +426,7 @@ else:
     event_dict["P"] = lalsimutils.ChooseWaveformParams() # default!
 
     if "MChirp" not in event_dict.keys():
-        event_dict["MChirp"] = event_dict["P"].extract_param('mc')/lal.MSUN_SI
+        event_dict["MChirp"] = event_dict["P"].extract_param('mc')/lal.MSUN_SI  # note this is RANDOM
     else:
         event_dict["P"].assign_param('mc', event_dict["MChirp"]*lal.MSUN_SI)
     print event_dict["MChirp"]
