@@ -420,7 +420,10 @@ else:
 #    if not("P" in event_dict.keys()):
     event_dict["P"] = lalsimutils.ChooseWaveformParams() # default!
 
-    event_dict["MChirp"] = event_dict["P"].extract_param('mc')/lal.MSUN_SI
+    if "MChirp" not in event_dict.keys():
+        event_dict["MChirp"] = event_dict["P"].extract_param('mc')/lal.MSUN_SI
+    else:
+        event_dict["P"].assign_param('mc', event_dict["MChirp"]*lal.MSUN_SI)
     print event_dict["MChirp"]
 
 # Use event GPS time to set observing run, if not provided.  Insures automated operation with a trivial settings file does good things.
