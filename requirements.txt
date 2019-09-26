@@ -1,6 +1,7 @@
 setuptools 
 pip 
 #cupy  
+numpy
 h5py 
 numba 
 #vegas 
