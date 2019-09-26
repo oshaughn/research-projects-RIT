@@ -40,7 +40,7 @@ my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/cuda*.cu")
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.8",
+    version="0.0.9",
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_master-GPUIntegration!",
@@ -48,7 +48,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://git.ligo.org/richard-oshaughnessy/research-projects-RIT",
     package_dir = {'':'MonteCarloMarginalizeCode/Code'},
-    py_modules = {"mcsampler", "mcsamplerGPU", "mcsamplerEnsemble", "MonteCarloEnsemble", "lalsimutils",'optimized_GPU_tools', 'Q_inner_product', 'SphericalHarmonics_gpu','vectorized_lal_tools','ROMWaveformManager','factored_likelihood','xmlutils', 'priors_utils', 'dag_utils','statutils', 'bounded_kde','multivariate_truncnorm', 'senni',"PrecessingFisherMatrix","EOSManager", "EOBTidalExternalC","BayesianLeastSquares"},
+    py_modules = {"mcsampler", "mcsamplerGPU", "mcsamplerEnsemble", "MonteCarloEnsemble", "lalsimutils",'optimized_gpu_tools', 'Q_inner_product', 'SphericalHarmonics_gpu','vectorized_lal_tools','ROMWaveformManager','factored_likelihood','xmlutils', 'priors_utils', 'dag_utils','statutils', 'bounded_kde','multivariate_truncnorm', 'senni',"PrecessingFisherMatrix","EOSManager", "EOBTidalExternalC","BayesianLeastSquares"},
     packages=setuptools.find_packages('MonteCarloMarginalizeCode/Code'),
     include_package_data=True,
     classifiers=[
