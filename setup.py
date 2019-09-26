@@ -18,9 +18,12 @@ REQUIREMENTS = {
 
 import glob
 my_scripts = glob.glob("MonteCarloMarginalizeCode/Code/*.py")
+my_scripts = [x for x in my_scripts if not ('test_' in x)]
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/*.sh")
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/integrate_likelihood*")
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/convert*")
+
+my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/cuda*.cu")
 
 # Remove old things
 #  - ourio.py, ourparams.py
@@ -30,7 +33,7 @@ my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/convert*")
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.5",
+    version="0.0.6",
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_master-GPUIntegration!",
@@ -47,6 +50,7 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     scripts=my_scripts,
-#    data_files=[('source',my_scripts)],
+#https://docs.python.org/3/distutils/setupscript.html
+   data_files=[('bin',my_extra_source)],
    install_requires=REQUIREMENTS["install"]
 )
