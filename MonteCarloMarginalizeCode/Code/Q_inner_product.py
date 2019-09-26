@@ -25,7 +25,7 @@ def Q_inner_product_cupy(Q, A, start_indices, window_size):
         path = os.path.join(os.path.dirname(__file__), 'cuda_Q_inner_product.cu')
         # alternative to deal with packaging in another directory
         if not (os.path.isfile(path)):
-            path = os.path.join(os.path.dirname(__file__), '../cuda_Q_inner_product.cu')
+            path = os.path.join(os.path.split(os.path.dirname(__file__))[0], 'cuda_Q_inner_product.cu')
         with open(path, 'r') as f:
             _cuda_code = f.read()
             Q_prod_fn = cupy.RawKernel(_cuda_code, "Q_inner")
