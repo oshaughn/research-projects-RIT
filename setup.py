@@ -44,7 +44,7 @@ my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/cuda*.cu")
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.11",
+    version="0.0.12", # do not build on OSX machine, side effects
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_master-GPUIntegration!",
