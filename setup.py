@@ -16,17 +16,21 @@ REQUIREMENTS = {
 
 #print REQUIREMENTS
 
+my_library_prefixes=["mcsampler", "mcsamplerGPU", "mcsamplerEnsemble", "MonteCarloEnsemble", "lalsimutils",'optimized_gpu_tools', 'Q_inner_product', 'SphericalHarmonics_gpu','vectorized_lal_tools','vectorized_general_tools','ROMWaveformManager','factored_likelihood','xmlutils', 'priors_utils', 'dag_utils','statutils', 'bounded_kde','multivariate_truncnorm', 'senni',"PrecessingFisherMatrix","EOSManager", "EOBTidalExternal","EOBTidalExternalC","BayesianLeastSquares","samples_utils","effectiveFisher",'gmm','weighted_gmm','gaussian_mixture_model','multivariate_truncnorm', "ModifiedScikitFit",'gp','our_corner','spokes','weight_simulations','MonotonicSpline','bounded_kde','xmlutils']
+my_library_total = [("MonteCarloMarginalizeCode/Code/"+x+".py") for x in my_library_prefixes]
+
 import glob
 my_scripts = glob.glob("MonteCarloMarginalizeCode/Code/*.py")
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/create*py")
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/helper*py")
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/util*py")
 my_scripts = list(set([x for x in my_scripts if not ('test_' in x)]))  # try to remove duplicates, and tests
+my_scripts = list(set(my_scripts) - set(my_library_total))
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/*.sh")
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/integrate_likelihood*")
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/convert*")
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/switcheroo")
-#print my_scripts
+print my_scripts
 # No packages found
 #print setuptools.find_packages('MonteCarloMarginalizeCode/Code')
 
@@ -40,7 +44,7 @@ my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/cuda*.cu")
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.10",
+    version="0.0.11",
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_master-GPUIntegration!",
@@ -48,7 +52,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://git.ligo.org/richard-oshaughnessy/research-projects-RIT",
     package_dir = {'':'MonteCarloMarginalizeCode/Code'},
-    py_modules = {"mcsampler", "mcsamplerGPU", "mcsamplerEnsemble", "MonteCarloEnsemble", "lalsimutils",'optimized_gpu_tools', 'Q_inner_product', 'SphericalHarmonics_gpu','vectorized_lal_tools','ROMWaveformManager','factored_likelihood','xmlutils', 'priors_utils', 'dag_utils','statutils', 'bounded_kde','multivariate_truncnorm', 'senni',"PrecessingFisherMatrix","EOSManager", "EOBTidalExternalC","BayesianLeastSquares"},
+    py_modules =set(my_library_prefixes),
     packages=setuptools.find_packages('MonteCarloMarginalizeCode/Code'),
     include_package_data=True,
     classifiers=[
