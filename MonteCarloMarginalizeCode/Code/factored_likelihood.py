@@ -1911,6 +1911,8 @@ try:
         print " Numba on "
 
         # Very inefficient : decorating
+        # Problem - lately, compiler not correctly identifying return value of code
+        # Should just use SphericalHarmonicsVectorized
         @vectorize([complex128(float64,float64,int64,int64,int64)])
         def lalylm(th,ph,s,l,m):
                 return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
@@ -1919,7 +1921,7 @@ try:
         #         return ComplexAntennaFactor(det, RA, DEC, psi, tref)
         # @vectorize
         # def lalT(deta, RA, DEC, tref):
-                return ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
+#                return ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
 
         def lalF(det, RA, DEC,psi,tref): # note tref is a SCALAR
                 F = np.zeros( len(RA), dtype=complex)
