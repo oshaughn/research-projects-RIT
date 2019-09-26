@@ -40,7 +40,7 @@ my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/cuda*.cu")
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.9",
+    version="0.0.10",
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_master-GPUIntegration!",
@@ -60,6 +60,7 @@ setuptools.setup(
 #https://docs.python.org/3/distutils/setupscript.html
 # https://docs.python.org/2/distutils/setupscript.html
 # Would be preferable to be *global* path, not relative to install. Depends on if doing user install or not
-   data_files=[('../../our_cuda',my_extra_source)],
+# This pathname puts it in the same place as the other files, in site-packages/
+   data_files=[('../../',my_extra_source)],
    install_requires=REQUIREMENTS["install"]
 )
