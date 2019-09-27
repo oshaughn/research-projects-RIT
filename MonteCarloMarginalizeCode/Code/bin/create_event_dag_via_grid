@@ -26,7 +26,7 @@ from glue import pipeline
 
 import RIFT.lalsimutils as lalsimutils as lsu
 import effectiveFisher as eff
-import dag_utils
+import RIFT.misc.dag_utils as dag_utils
 
 import regions
 

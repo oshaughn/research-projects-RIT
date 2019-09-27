@@ -68,9 +68,9 @@ import itertools
 
 from glue import pipeline # https://github.com/lscsoft/lalsuite-archive/blob/5a47239a877032e93b1ca34445640360d6c3c990/glue/glue/pipeline.py
 
-import dag_utils
-from dag_utils import mkdir
-from dag_utils import which
+import RIFT.misc.dag_utils as dag_utils
+from RIFT.misc.dag_utils import mkdir
+from RIFT.misc.dag_utils import which
 
 
 def parse_ile_args_for_bw(my_arg_str):
