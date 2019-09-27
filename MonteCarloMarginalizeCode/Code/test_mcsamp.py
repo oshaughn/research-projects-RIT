@@ -19,7 +19,7 @@ import scipy.special
 from lalinference.bayestar import fits as bfits
 from lalinference.bayestar import plot as bplot
 
-import mcsampler
+import RIFT.integrators.mcsampler as mcsampler
 from statutils import cumvar
 
 

@@ -16,7 +16,7 @@ import numpy
 from lalinference.bayestar import fits as bfits
 from lalinference.bayestar import plot as bplot
 
-import mcsampler
+import RIFT.integrators.mcsampler as mcsampler
 
 
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
@@ -155,7 +155,7 @@ ss_test = mcsampler.HealPixSampler(numpy.ones(np)/float(np))
 import timeit
 setup = """
 from lalinference.bayestar import fits as bfits
-import mcsampler
+import RIFT.integrators.mcsampler as mcsampler
 smap, smap_meta = bfits.read_sky_map(sys.argv[1])
 skysampler = mcsampler.HealPixSampler(smap)
 """

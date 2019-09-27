@@ -212,7 +212,7 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
 
 tMiddleAfterPlots = lal.GPSTimeNow()
 
-import mcsampler
+import RIFT.integrators.mcsampler as mcsampler
 sampler = mcsampler.MCSampler()
 
 # Sampling distribution

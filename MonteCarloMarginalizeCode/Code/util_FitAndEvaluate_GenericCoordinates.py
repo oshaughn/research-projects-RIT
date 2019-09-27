@@ -50,7 +50,7 @@ from sklearn import linear_model
 from glue.ligolw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
-import mcsampler
+import RIFT.integrators.mcsampler as mcsampler
 
 
 def render_coord(x):

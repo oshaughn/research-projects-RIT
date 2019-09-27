@@ -305,7 +305,7 @@ def PopulatePrototypeSignal(opts):
 ###
 ### Populate standard sampler arguments
 ###
-import mcsampler
+import RIFT.integrators.mcsampler as mcsampler
 import numpy 
 import functools
 

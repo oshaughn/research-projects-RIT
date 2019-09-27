@@ -8,7 +8,7 @@
 from lalsimutils import *
 from matplotlib import pylab as plt
 
-import mcsampler
+import RIFT.integrators.mcsampler as mcsampler
 sampler = mcsampler.MCSampler()
 # Sampling distribution
 def uniform_samp(a, b, x):

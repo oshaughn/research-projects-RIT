@@ -34,7 +34,7 @@ import glue.lal
 
 import lalsimutils
 import factored_likelihood
-import mcsampler
+import RIFT.integrators.mcsampler as mcsampler
 import xmlutils
 
 #from lalinference.bayestar import fits as bfits

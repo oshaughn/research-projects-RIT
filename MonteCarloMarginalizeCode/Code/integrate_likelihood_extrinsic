@@ -31,9 +31,9 @@ from glue.ligolw.utils import process
 import glue.lal
 #import pylal
 
-import lalsimutils
-import factored_likelihood
-import mcsampler
+import RIFT.lalsimutils as lalsimutils
+import RIFT.likelihood.factored_likelihood as factored_likelihood
+import RIFT.integrators.mcsampler as mcsampler
 import priors_utils
 import xmlutils
 

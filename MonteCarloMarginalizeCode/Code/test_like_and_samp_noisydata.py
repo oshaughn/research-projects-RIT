@@ -276,7 +276,7 @@ def likelihood_function(phi, theta, tref, phiref, incl, psi, dist):
     nEvals+=i 
     return np.exp(lnL)
 
-import mcsampler
+import RIFT.integrators.mcsampler as mcsampler
 sampler = mcsampler.MCSampler()
 
 # Sampling distribution

@@ -2,8 +2,8 @@
 import numpy as np
 from matplotlib import pylab as plt
 
-#import mcsampler
-import mcsamplerEnsemble as mcsampler
+import RIFT.integrators.mcsampler as mcsampler
+#import RIFT.integrators.mcsamplerEnsemble as mcsampler
 import ourio
 
 #import dill # so I can pickle lambda functions: https://stackoverflow.com/questions/25348532/can-python-pickle-lambda-functions?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
@@ -14,7 +14,7 @@ samplerPrior = mcsampler.MCSampler()
 samplerPrior.add_parameter('x', np.vectorize(lambda x: 1.3), None, -1.5,1)  # is this correctly renormalized?
 
 # Do an MC integral with this sampler (=the measure specified by the sampler).
-ret = samplerPrior.integrate(np.vectorize(lambda x:1.0), 'x', nmax=1e4,verbose=True)
+ret = samplerPrior.integrate(lambda x:np.ones(len(x)), 'x', nmax=1e4,verbose=True)
 print "Integral of 1 over this range ", [samplerPrior.llim['x'] ,samplerPrior.rlim['x'] ], " is ", ret, " needs to be ", samplerPrior.rlim['x'] -  samplerPrior.llim['x'] ," and (small)"
 # do an integral with a different prior
 samplerNewPrior = mcsampler.MCSampler()

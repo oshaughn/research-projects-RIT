@@ -667,7 +667,7 @@ if True:
         nEvals +=i # len(tvals)  # go forward using length of tvals
         return np.exp(lnLOffsetValue)*np.exp(lnL-lnLOffsetValue)
 
-import mcsampler
+import RIFT.integrators.mcsampler as mcsampler
 sampler = mcsampler.MCSampler()
 
 # Populate sampler 
