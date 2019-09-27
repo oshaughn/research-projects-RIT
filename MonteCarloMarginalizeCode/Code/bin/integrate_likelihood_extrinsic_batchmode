@@ -50,8 +50,8 @@ except:
     print " No mcsamplerGPU "
     mcsampler_gpu_ok = False
 
-import priors_utils
-import xmlutils
+import RIFT.likelihood.priors_utils as priors_utils
+import RIFT.misc.xmlutils as xmlutils
 
 #from lalinference.bayestar import fits as bfits
 

@@ -34,8 +34,8 @@ import glue.lal
 import RIFT.lalsimutils as lalsimutils
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 import RIFT.integrators.mcsampler as mcsampler
-import priors_utils
-import xmlutils
+import RIFT.likelihood.priors_utils as priors_utils
+import RIFT.misc.xmlutils as xmlutils
 
 #from lalinference.bayestar import fits as bfits
 
