@@ -14,7 +14,7 @@
 
 import argparse
 import numpy as np
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lalsimulation as lalsim
 import lalframe
 import lal

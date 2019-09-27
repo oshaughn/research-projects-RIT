@@ -22,7 +22,7 @@ import argparse
 import sys
 import os
 import numpy as np
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lalsimulation as lalsim
 import lal
 import functools

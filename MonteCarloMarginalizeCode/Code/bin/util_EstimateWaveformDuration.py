@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import ourparams
 opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 lalsimutils.rosDebugMessagesDictionary            = rosDebugMessagesDictionary

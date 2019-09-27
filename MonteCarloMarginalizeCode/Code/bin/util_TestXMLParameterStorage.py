@@ -2,7 +2,7 @@
 #
 # USAGE
 #  python util_TestXMLParameterStorage.py ; ligolw_print -t sim_inspiral -c alpha5 output.xml.gz
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import numpy as np
 import lal
 

@@ -14,7 +14,7 @@ import spokes
 import argparse
 import sys
 import numpy as np
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lal
 
 try:

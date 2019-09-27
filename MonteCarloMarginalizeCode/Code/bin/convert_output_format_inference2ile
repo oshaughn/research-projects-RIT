@@ -31,7 +31,7 @@ import numpy as np
 from glue.ligolw import utils, table, lsctables, ligolw
 
 import lal
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lalsimulation as lalsim
 
 ros_debug = False

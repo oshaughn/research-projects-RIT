@@ -17,7 +17,7 @@ from shutil import copyfile
 
 import NRWaveformCatalogManager as nrwf
 import lal
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--l-max", type=int, default=2, help="Include all (l,m) modes with l less than or equal to this value.")

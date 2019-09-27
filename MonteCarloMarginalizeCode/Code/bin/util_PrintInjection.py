@@ -7,7 +7,7 @@ util_PrintInjection --inj [inj]  --psiJ --psiL --iota --m1  # print rows of thes
 import argparse
 import numpy as np
 import lalsimulation as lalsim
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lal
 import sys
 from glue.ligolw import utils, lsctables, table, ligolw

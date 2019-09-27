@@ -2,7 +2,7 @@
 # Uses ROS param parser to pull in injection from XML and event id, then print parameters.  Currently used to popuate mass1, mass2, event time
 
 import ourparams
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import numpy as np
 import sys
 opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()

@@ -17,7 +17,7 @@ import numpy as np
 import argparse
 
 import lal
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lalsimulation as lalsim
 
 from glue.ligolw import lsctables, table, utils

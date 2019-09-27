@@ -2,7 +2,7 @@
 #
 # USAGE
 #  python util_JoinXML.py ~/overlap-grid.xml.gz  ~/overlap-grid.xml.gz  --output-file merged_output  --verbose X --force-approximant SEOBNRv2
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lalsimulation as lalsim
 import numpy as np
 import lal

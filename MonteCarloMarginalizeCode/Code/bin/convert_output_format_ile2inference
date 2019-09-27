@@ -46,12 +46,12 @@ if opts.export_cosmology:
     default_cosmology.set(opts.with_cosmology)
     cosmo = default_cosmology.get()
 if opts.export_extra_spins:
-    import lalsimutils
+    import RIFT.lalsimutils as lalsimutils
 
 
 # Add LI-style export
 if opts.convention == 'LI':
-  import lalsimutils
+  import RIFT.lalsimutils as lalsimutils
   print "# m1 m2 a1x a1y a1z a2x a2y a2z mc eta  ra dec time phiorb incl psi  distance Npts lnL p ps neff  mtotal q chi_eff chi_p",
   if opts.export_extra_spins:
       print 'theta_jn phi_jl tilt1 tilt2 costilt1 costilt2 phi12 a1 a2 psiJ',

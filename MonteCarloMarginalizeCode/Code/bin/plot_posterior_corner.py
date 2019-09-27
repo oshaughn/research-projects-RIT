@@ -13,7 +13,7 @@
 #    - hardcoded list of colors, used in order, for multiple plots
 #
 
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lal
 import numpy as np
 import argparse
@@ -41,9 +41,9 @@ from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.lines as mlines
 import corner
 
-import our_corner
+import RIFT.misc.our_corner as our_corner
 try:
-    import bounded_kde
+    import RIFT.misc.bounded_kde as bounded_kde
 except:
     print " -No 1d kdes- "
 

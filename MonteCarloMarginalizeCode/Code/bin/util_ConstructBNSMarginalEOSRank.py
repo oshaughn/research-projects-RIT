@@ -7,8 +7,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 
-#from lalinference.rapid_pe import lalsimutils
-import lalsimutils
+#from lalinference.rapid_pe import RIFT.lalsimutils as lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import EOSManager
 #import lalsim_EOS_tools as let
 from scipy.integrate import nquad

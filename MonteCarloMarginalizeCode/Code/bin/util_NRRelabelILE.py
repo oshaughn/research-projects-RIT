@@ -12,7 +12,7 @@
 import argparse
 import sys
 import numpy as np
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 
 
 from multiprocessing import Pool

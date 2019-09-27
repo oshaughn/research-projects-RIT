@@ -5,7 +5,7 @@ import argparse
 
 import lal
 import numpy as np
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 
 import NRWaveformCatalogManager as nrwf
 

@@ -25,7 +25,7 @@ import numpy as np
 import numpy.lib.recfunctions
 import scipy
 import scipy.stats
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lalsimulation as lalsim
 import lalframe
 import lal

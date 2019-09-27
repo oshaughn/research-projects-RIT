@@ -10,7 +10,7 @@ from pylal.series import read_psd_xmldoc
 
 import lal
 
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import ourparams
 opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 
