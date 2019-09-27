@@ -1,16 +1,29 @@
-We are working on refactoring the code to make it a properly-install-able package.
+We have very recently refactored the code to make it properly use setuptools.  
+If you as an 
 
-Right now, however, you install the code by downloading the source,
+ * **pip install**: Installation with pip is the easiest.   Until we remove a namespace squatter, we are using ``test.pypi.org``.
+```
+  pip install  --user --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple  RIFT
+```
+ * **source install with setup.py**: If you retrieve the source code, you can run the setup script directly.  That's very helpful if you need to edit the source
+```
+git clone https://github.com/oshaughn/research-projects-RIT.git # use for HTTPS
+cd research-projects-RIT
+python setup.py install --user
+export GW_SURROGATE=''
+```
+   * Alternatively you can use ``pip install --user -e .`` from the source directory
+ * **source install, directly** :  Finally, if you don't want to use pip, you can work directly with the source
 ```bash
 git clone https://github.com/oshaughn/research-projects-RIT.git # use for HTTPS
 # git clone git@github.com:oshaughn/research-projects-RIT.git # use instead for SSH
 cd research-projects-RIT
 git checkout temp-RIT-Tides-port_master-GPUIntegration   
 export INSTALL_DIR=`pwd`
+export GW_SURROGATE=''
 ```
 
-putting the following directory in your `PATH` and `PYTHONPATH`
-
+      * put the following directory in your `PATH` and `PYTHONPATH`
 ```bash
 export ILE_DIR=${INSTALL_DIR}/MonteCarloMarginalizeCode/Code
 export PATH=${PATH}:${ILE_DIR}
@@ -18,7 +31,7 @@ export PYTHONPATH=${PYTHONPATH}:${ILE_DIR}
 export GW_SURROGATE=''
 ```
 
-and making sure you have installed the necessary dependencies.  The following command will at least ensure that these dependencies are up to date 
+    *  make sure you have installed the necessary dependencies.  The following command will at least ensure that these dependencies are up to date 
 ```bash
 python setup.py install --user
 ```
@@ -31,7 +44,7 @@ The code also requires a working version of glue, supporting `glue.ligolw.ligolw
 ## GPU-sensitive installs
 
 The code uses cupy to access GPUs.  If you don't have one, the code will still work.
-If you do need one, make sure to install cupy:
+If you do need one, make sure to install cupy **on a machine that supports GPUs **
 
 ```bash
 pip install --user cupy
