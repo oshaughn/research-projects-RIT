@@ -9,7 +9,7 @@ ourparams.py
 
 import argparse
 import lalsimulation as lalsim
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lal
 
 from glue.ligolw import utils, lsctables, table, ligolw

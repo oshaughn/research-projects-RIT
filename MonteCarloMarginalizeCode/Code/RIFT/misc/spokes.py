@@ -16,7 +16,7 @@
 
 import numpy as np
 import lal
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import weight_simulations
 
 rosDebug=False
