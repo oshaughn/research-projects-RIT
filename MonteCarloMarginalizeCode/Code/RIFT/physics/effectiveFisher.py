@@ -19,7 +19,7 @@ Module of routines to compute an effective Fisher matrix and related utilities,
 such as finding a region of interest and laying out a grid over it
 """
 
-import lalsimutils as lsu
+import RIFT.lalsimutils as lsu
 import numpy as np
 from scipy.optimize import leastsq, brentq
 from scipy.linalg import eig, inv

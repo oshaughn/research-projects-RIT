@@ -44,7 +44,7 @@ import argparse
 import sys
 import numpy as np
 import scipy
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lalsimulation as lalsim
 import lalframe
 import lal
@@ -54,8 +54,8 @@ import itertools
 from scipy.optimize import brentq
 
 
-import effectiveFisher  as eff   # for the mesh grid generation
-import PrecessingFisherMatrix   as pcf   # Superior tools to perform overlaps. Will need to standardize with Evans' approach in effectiveFisher.py
+import RIFT.physics.effectiveFisher  as eff   # for the mesh grid generation
+import RIFT.physics.PrecessingFisherMatrix   as pcf   # Superior tools to perform overlaps. Will need to standardize with Evans' approach in effectiveFisher.py
 
 from multiprocessing import Pool
 try:
@@ -73,7 +73,7 @@ except:
 	hasNR=False
 try:
     hasEOB=True
-    import EOBTidalExternal as eobwf
+    import RIFT.physics.EOBTidalExternal as eobwf
 except:
     hasEOB=False
 
@@ -82,7 +82,7 @@ except:
 ### Linear fits. Resampling a quadratic. (Export me)
 ###
 
-import BayesianLeastSquares
+import RIFT.interpolators.BayesianLeastSquares
 
 param_priors_gamma = {'s1z':0.01, 's2z': 0.01, 'xi':0.1}  # weak constraints on s1z, s2z
 
