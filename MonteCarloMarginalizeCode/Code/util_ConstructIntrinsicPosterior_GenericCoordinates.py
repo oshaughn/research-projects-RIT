@@ -15,7 +15,7 @@
 #
 
 
-import BayesianLeastSquares
+import RIFT.interpolators.BayesianLeastSquares as BayesianLeastSquares
 
 import argparse
 import sys
@@ -24,7 +24,7 @@ import numpy.lib.recfunctions
 import scipy
 import scipy.stats
 import scipy.special
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lalsimulation as lalsim
 import lalframe
 import lal
@@ -63,15 +63,15 @@ from sklearn import linear_model
 from glue.ligolw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
-import mcsampler
+import RIFT.integrators.mcsampler as mcsampler
 try:
-    import mcsamplerEnsemble as mcsamplerEnsemble
+    import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
     mcsampler_gmm_ok = True
 except:
     print " No mcsamplerEnsemble "
     mcsampler_gmm_ok = False
 try:
-    import senni
+    import RIFT.interpolators.senni as senni
     senni_ok = True
 except:
     print " No senni "
