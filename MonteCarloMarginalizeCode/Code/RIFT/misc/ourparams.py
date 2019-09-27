@@ -309,7 +309,7 @@ import RIFT.integrators.mcsampler as mcsampler
 import numpy 
 import functools
 
-import factored_likelihood
+import RIFT.likelihood.factored_likelihood as factored_likelihood
 tWindowExplore  = factored_likelihood.tWindowExplore
 Tmax = numpy.max([0.05,tWindowExplore[1]]) # max ref. time
 Tmin = numpy.min([-0.05,tWindowExplore[0]]) # min ref. time
