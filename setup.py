@@ -30,7 +30,7 @@ my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/*.sh")
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/integrate_likelihood*")
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/convert*")
 my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/switcheroo")
-print my_scripts
+#print my_scripts
 # No packages found
 #print setuptools.find_packages('MonteCarloMarginalizeCode/Code')
 
@@ -44,7 +44,7 @@ my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/cuda*.cu")
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.12", # do not build on OSX machine, side effects
+    version="0.0.13", # do not build on OSX machine, side effects
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_master-GPUIntegration!",
