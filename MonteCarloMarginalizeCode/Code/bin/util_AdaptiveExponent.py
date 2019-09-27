@@ -11,7 +11,7 @@ from pylal.series import read_psd_xmldoc
 import lal
 
 import RIFT.lalsimutils as lalsimutils
-import ourparams
+import RIFT.misc.ourparams as ourparams
 opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 
 import common_cl

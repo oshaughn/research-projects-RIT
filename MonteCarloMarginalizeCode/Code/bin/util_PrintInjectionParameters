@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 # Uses ROS param parser to pull in injection from XML and event id, then print parameters.  Currently used to popuate mass1, mass2, event time
 
-import ourparams
+import RIFT.misc.ourparams as ourparams
 import RIFT.lalsimutils as lalsimutils
 import numpy as np
 import sys

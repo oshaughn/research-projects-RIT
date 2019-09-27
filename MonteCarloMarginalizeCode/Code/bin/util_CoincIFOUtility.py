@@ -7,7 +7,7 @@
 
 
 
-import ourparams
+import RIFT.misc.ourparams as ourparams
 import numpy as np
 opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 
