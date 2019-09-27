@@ -67,7 +67,7 @@ except ImportError:
 	useNR=False
 
 try:
-        import ROMWaveformManager as romwf
+        import RIFT.physics.ROMWaveformManager as romwf
         print " factored_likelihood.py: ROMWaveformManager as romwf"
         useROM=True
         rom_basis_scale = 1.0*1e-21   # Fundamental problem: Inner products with ROM basis vectors/Sh are tiny. Need to rescale to avoid overflow/underflow and simplify comparisons
@@ -78,7 +78,7 @@ except ImportError:
 
 try:
     hasEOB=True
-    import EOBTidalExternalC as eobwf
+    import RIFT.physics.EOBTidalExternalC as eobwf
 #    import EOBTidalExternal as eobwf
 except:
     hasEOB=False
