@@ -52,7 +52,7 @@ from scipy import special
 from itertools import product
 import math
 
-import vectorized_lal_tools
+from .vectorized_lal_tools import ComputeDetAMResponse,TimeDelayFromEarthCenter
 
 import os
 if 'PROFILE' not in os.environ:
@@ -1761,7 +1761,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
         # Array of shape (npts_extrinsic,)
 #        F_vec_old = xpy.asarray(lalF(det, RA, DEC, psi, tref))
-        F_vec = vectorized_lal_tools.ComputeDetAMResponse(
+        F_vec = ComputeDetAMResponse(
             detector_response,
             RA, DEC, psi,
             greenwich_mean_sidereal_time_tref,
@@ -1775,7 +1775,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # Note that to save on precision compared to ...NoLoopOrig, we CHANGE the t_det definition to be relative to the IFO statt time t_ref
         #    ... this means we don't keep a 1e9 out in front, so we have more significant digits in the event time (and can if needed reduce precision in GPU ops)
         # an array of shape (npts_extrinsic,)
-        t_det = float(tref - float(t_ref)) + vectorized_lal_tools.TimeDelayFromEarthCenter(
+        t_det = float(tref - float(t_ref)) + TimeDelayFromEarthCenter(
             detector_location, RA, DEC,
             float(greenwich_mean_sidereal_time_tref),
             xpy=xpy
