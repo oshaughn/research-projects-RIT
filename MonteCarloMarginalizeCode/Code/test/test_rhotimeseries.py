@@ -21,7 +21,7 @@ psd = lal.LIGOIPsd
 IP = ComplexOverlap(30, 2048, data.deltaF, psd, True, True)
 
 rhoData = IP.norm(data)  # Amplitude of the actual real signal in the data
-print "Amplitude in one IFO : ", rhoData
+print("Amplitude in one IFO : ", rhoData)
 
 Psig.dist = distMpcReference*1.e6*lal.LAL_PC_SI  # Fiducial distance
 hlms = hlmoff(Psig,2)

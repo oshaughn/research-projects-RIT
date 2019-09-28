@@ -44,21 +44,21 @@ bNoInteractivePlots=True # default
 fig_extension = '.jpg'
 try:
     import matplotlib
-    print " Matplotlib backend ", matplotlib.get_backend()
+    print(" Matplotlib backend ", matplotlib.get_backend())
     if matplotlib.get_backend() is 'MacOSX':
         if opts.save_plots:
-            print "  OSX without interactive plots"
+            print("  OSX without interactive plots")
             bNoInteractivePlots=True
             fig_extension='.jpg'
         else:  #  Interactive plots
-            print "  OSX with interactive plots"
+            print("  OSX with interactive plots")
             bNoInteractivePlots=False
     elif matplotlib.get_backend() is 'agg':
         fig_extension = '.png'
         bNoInteractivePlots=True
-        print " No OSX; no interactive plots "
+        print(" No OSX; no interactive plots ")
     else:
-        print " Unknown configuration "
+        print(" Unknown configuration ")
         fig_extension = '.png'
         bNoInteractivePlots =True
     from matplotlib import pyplot as plt
@@ -66,7 +66,7 @@ try:
 except:
     from matplotlib import pyplot as plt
     fig_extension = '.png'
-    print " - no matplotlib - "
+    print(" - no matplotlib - ")
     bNoInteractivePlots = False
     bNoPlots = True
 
@@ -75,19 +75,19 @@ except:
 group = opts.group
 param = eval(str(opts.param))
 if opts.verbose:
-    print "Importing ", group, param 
+    print("Importing ", group, param)
 
 
 if opts.print_group_list:
-    print "Simulations available"
+    print("Simulations available")
     for key in  nrwf.internal_ParametersAvailable.keys():
-        print  "  ", key
+        print("  ", key)
     sys.exit(0)
 
 if opts.print_param_list:
-    print "Parameters available for ", group
+    print("Parameters available for ", group)
     for key in  nrwf.internal_ParametersAvailable[group]:
-        print  "  ", key
+        print("  ", key)
     sys.exit(0)
 
 
@@ -110,11 +110,11 @@ P.scale_to_snr(20,lalsim.SimNoisePSDaLIGOZeroDetHighPower,['H1', 'L1'])
 if opts.seglen:
     P.deltaF = 1./opts.seglen
 if P.deltaF > 1./T_window:
-    print " time too short "
+    print(" time too short ")
 P.print_params()
 
 wfP = eobT.WaveformModeCatalog(P,lmax=l,align_at_peak_l2_m2_emission=True)
-print " Loaded modes ", wfP.waveform_modes_complex.keys()
+print(" Loaded modes ", wfP.waveform_modes_complex.keys())
 wfP.P.incl = opts.incl
 
 # LAL hlm(t)
@@ -128,7 +128,7 @@ tvals_eob = lalsimutils.evaluate_tvals(hlmT_eob[(2,2)])
 ###
 ### Time domain : (a) rescaled EOB_tidal [here], (b) LAL, and (c) rescaled NR [internal]
 ###
-print " TIME DOMAIN PLOTS"
+print(" TIME DOMAIN PLOTS")
 # Manually plot raw data
 figindex =0
 tmax = np.abs(wfP.waveform_modes_complex[(2,2)][-1,0])
@@ -183,7 +183,7 @@ for mode in hlmT_lal.keys():
       plt.savefig("EOB_mode_"+str(mode)+fig_extension)
 
  
-print "FREQUENCY VERSUS TIME"
+print("FREQUENCY VERSUS TIME")
 if opts.show_plots or opts.save_plots:
     datPhase= lalsimutils.unwind_phase(np.angle(hlmT_eob[(2,2)].data.data))
     nStride=4
@@ -239,11 +239,11 @@ fvals_lal = lalsimutils.evaluate_fvals(hlm_lal[(2,2)])
 for mode in hlm_lal.keys():
  if opts.show_plots or opts.save_plots:
     if mode[1]>0 and mode in hlmF_NR_lal.keys():
-        print " Handling mode ", mode
+        print(" Handling mode ", mode)
         # Re-evaluate the frequency sampling each time
         fvals_lal =lalsimutils.evaluate_fvals(hlm_lal[mode])
         fvals_NR_lal =lalsimutils.evaluate_fvals(hlmF_NR_lal[mode])
-        print mode, len(fvals_lal), len(fvals_NR_lal)
+        print(mode, len(fvals_lal), len(fvals_NR_lal))
 
 
         plt.figure(1); plt.xlim(1, 4); 
@@ -275,10 +275,10 @@ if opts.show_plots or opts.save_plots:
 ### Inner products
 ###
 
-print hlm_lal[(2,2)].deltaF, len(hlm_lal[(2,2)].data.data)
-print hlmF_NR_lal[(2,2)].deltaF, len(hlmF_NR_lal[(2,2)].data.data)
+print(hlm_lal[(2,2)].deltaF, len(hlm_lal[(2,2)].data.data))
+print(hlmF_NR_lal[(2,2)].deltaF, len(hlmF_NR_lal[(2,2)].data.data))
 IP = lalsimutils.CreateCompatibleComplexOverlap(hlm_lal)
 
 for mode in hlm_lal:
   if mode in hlmF_NR_lal.keys():
-    print mode, IP.norm(hlm_lal[mode]), IP.norm(hlmF_NR_lal[mode]), IP.ip(hlm_lal[mode],hlmF_NR_lal[mode])/(IP.norm(hlm_lal[mode]) * IP.norm(hlmF_NR_lal[mode]))
+    print(mode, IP.norm(hlm_lal[mode]), IP.norm(hlmF_NR_lal[mode]), IP.ip(hlm_lal[mode],hlmF_NR_lal[mode])/(IP.norm(hlm_lal[mode]) * IP.norm(hlmF_NR_lal[mode])))

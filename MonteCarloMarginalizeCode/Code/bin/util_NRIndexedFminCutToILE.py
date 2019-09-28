@@ -48,7 +48,7 @@ with open(opts.fname) as f:
      group = line[3]
      if not nrwf.internal_ParametersAreExpressions.has_key(group):
          if opts.verbose:
-             print " Cannot parse ",group
+             print(" Cannot parse ",group)
          continue
      param = None
      if nrwf.internal_ParametersAreExpressions[group]:
@@ -57,14 +57,14 @@ with open(opts.fname) as f:
          param = line[4]
      if len(line)<6:
          if opts.verbose:
-             print " Line too short"
+             print(" Line too short")
          continue
      m1 = eval(line[1])
      m2 = eval(line[2])
      try:
          meta_here = nrwf.internal_WaveformMetadata[group][param]
      except:
-         print " Skipping ", group, param
+         print(" Skipping ", group, param)
          continue
      # in case line abbreviated for some reason
      try:
@@ -73,11 +73,11 @@ with open(opts.fname) as f:
          npts_here = float(line[7])
      except:
          if opts.verbose:
-             print " Failed on ", line
+             print(" Failed on ", line)
          continue
      if sigma_here > opts.sigma_cut:  
          if opts.verbose:
-             print " Skipping large error ", line
+             print(" Skipping large error ", line)
          continue
      if npts_here < opts.min_npts:
          continue
@@ -120,33 +120,33 @@ with open(opts.fname) as f:
              if 'Chi1AtReference' in nrwf.internal_WaveformMetadata[group][param]:
                  chi1 = nrwf.internal_WaveformMetadata[group][param]['Chi1AtReference']
                  if np.dot(chi1,chi1) > 1:
-                     print " ARRGH ", group,param
+                     print(" ARRGH ", group,param)
                  s1x = np.dot(hatX,chi1)
                  s1y = np.dot(hatY,chi1)
                  s1z = np.dot(hatZ,chi1)
                  if s1x**2 + s1y**2+s1z**2>1:
-                     print " ARRGH ", group,param, np.sqrt(s1x**2 + s1y**2+s1z**2), np.sqrt(np.dot(chi1,chi1))
+                     print(" ARRGH ", group,param, np.sqrt(s1x**2 + s1y**2+s1z**2), np.sqrt(np.dot(chi1,chi1)))
              if 'Chi2AtReference' in nrwf.internal_WaveformMetadata[group][param]:
                  chi2 = nrwf.internal_WaveformMetadata[group][param]['Chi2AtReference']
                  if np.dot(chi2,chi2) > 1:
-                     print " ARRGH 2", group,param
+                     print(" ARRGH 2", group,param)
                  s2x = np.dot(hatX,chi2)
                  s2y = np.dot(hatY,chi2)
                  s2z = np.dot(hatZ,chi2)
                  if s2x**2 + s2y**2+s2z**2>1:
-                     print " ARRGH 2", group,param, np.sqrt(s2x**2 + s2y**2+s2z**2), np.sqrt(np.dot(chi2,chi2))
+                     print(" ARRGH 2", group,param, np.sqrt(s2x**2 + s2y**2+s2z**2), np.sqrt(np.dot(chi2,chi2)))
 
          if f0 < opts.flow:
              line_out = [ -1, m1, m2, s1x,s1y,s1z, s2x,s2y,s2z, lnLhere, sigma_here,npts_here, float(line[-2])]
              if opts.verbose:
-                 print ' '.join(map(str,line_out))
+                 print(' '.join(map(str,line_out)))
              dat_out.append(line_out)
          else:
              if opts.verbose:
-                 print " Skipping line as too high frequency ", f0, line
+                 print(" Skipping line as too high frequency ", f0, line)
 #     except:
      else:
-         print " FAILED TO PARSE ", line
+         print(" FAILED TO PARSE ", line)
          continue
 
 

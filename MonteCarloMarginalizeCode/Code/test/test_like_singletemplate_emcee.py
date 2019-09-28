@@ -2,6 +2,8 @@
    a test to see how to glue emcee to our likelihood evaluation.
 """
 
+from __future__ import print_function
+
 import sys
 from optparse import OptionParser
 
@@ -39,7 +41,7 @@ opts, args = optp.parse_args()
 det_dict = {}
 rhoExpected ={}
 if opts.channel_name is not None and opts.cache_file is None:
-    print >>sys.stderr, "Cache file required when requesting channel data."	
+    print("Cache file required when requesting channel data.", file=sys.stderr)
     exit(-1)
 elif opts.channel_name is not None:
     det_dict = dict(map(lambda cname: cname.split("="), opts.channel_name))
@@ -60,7 +62,7 @@ if rosUseDifferentWaveformLengths:
     fminWavesTemplate = fminWavesSignal+0.005
 else:
     if rosUseRandomTemplateStartingFrequency:
-         print "   --- Generating a random template starting frequency  ---- " 
+         print("   --- Generating a random template starting frequency  ---- ")
          fminWavesTemplate = fminWavesSignal+5.*np.random.random_sample()
     else:
         fminWavesTemplate = fminWavesSignal
@@ -102,20 +104,20 @@ psd_dict['H1'] = lal.LIGOIPsd
 psd_dict['L1'] = lal.LIGOIPsd
 psd_dict['V1'] = lal.LIGOIPsd
 
-print " == Data report == "
+print(" == Data report == ")
 detectors = data_dict.keys()
 rho2Net = 0
-print  " Amplitude report :"
+print(" Amplitude report :")
 fminSNR =30
 for det in detectors:
     IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=Psig.deltaF,psd=psd_dict[det])
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
-    print det, " rho = ", rhoDet
-print "Network : ", np.sqrt(rho2Net)
+    print(det, " rho = ", rhoDet)
+print("Network : ", np.sqrt(rho2Net))
 
 if checkInputs:
-    print " == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
+    print(" == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == ")
     P = Psig.copy()
     P.tref = Psig.tref
     for det in detectors:
@@ -147,10 +149,10 @@ P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.
 # Perform the Precompute stage
 #
 rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict,psd_dict, Lmax, analyticPSD_Q)
-print "Finished Precomputation..."
-print "====Generating metadata from precomputed results ====="
+print("Finished Precomputation...")
+print("====Generating metadata from precomputed results =====")
 distBoundGuess = estimateUpperDistanceBoundInMpc(rholms, crossTerms)
-print " distance probably less than ", distBoundGuess, " Mpc"
+print(" distance probably less than ", distBoundGuess, " Mpc")
 
 nEvals = 0
 def likelihood_function( x):
@@ -176,8 +178,8 @@ def likelihood_function( x):
     lnL = FactoredLogLikelihood(P, rholms_intp, crossTerms, Lmax)
     if rosDebugMessages:
         if (numpy.mod(nEvals,400)==10 and nEvals>100):
-            print "\t Params ", nEvals, " (RA, DEC, tref, phiref, incl, psi, dist) ="
-            print "\t", nEvals, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL
+            print("\t Params ", nEvals, " (RA, DEC, tref, phiref, incl, psi, dist) =")
+            print("\t", nEvals, P.phi, P.theta, float(P.tref-theEpochFiducial), P.phiref, P.incl, P.psi, P.dist/(1e6*lal.LAL_PC_SI), lnL)
 
     nEvals+=1
     return np.exp(lnL)

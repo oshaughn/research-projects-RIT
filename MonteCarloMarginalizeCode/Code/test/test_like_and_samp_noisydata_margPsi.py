@@ -5,6 +5,9 @@ test_like_and_samp_noisydata.py:  Testing convergnece of intrinsic marginalizati
   - Constructs a template which *exactly* matches the known source
   - 
 """
+
+from __future__ import print_function
+
 from pylal import Fr
 import sys
 from optparse import OptionParser
@@ -74,7 +77,7 @@ if rosUseDifferentWaveformLengths:
     fminWavesTemplate = fminWavesSignal+0.005
 else:
     if rosUseRandomTemplateStartingFrequency:
-         print "   --- Generating a random template starting frequency  ---- " 
+         print("   --- Generating a random template starting frequency  ---- ")
          fminWavesTemplate = fminWavesSignal+5.*np.random.random_sample()
     else:
         fminWavesTemplate = fminWavesSignal
@@ -101,14 +104,14 @@ data_dict['L1'] =frame_data_to_non_herm_hoff(fnameCache, "L1"+":FAKE-STRAIN")
 #print data_dict['H1'].data.data[10]  # confirm data loaded
 df = data_dict['H1'].deltaF  
 fSample = len(data_dict['H1'].data.data)*data_dict['H1'].deltaF  # Note two-sided
-print " sampling rate of data = ", fSample
-print " ===  Repeating SNR calculation (only valid for noiseless data) ==="
+print(" sampling rate of data = ", fSample)
+print(" ===  Repeating SNR calculation (only valid for noiseless data) ===")
 rho2NetManual = 0
 for det in detectors:
     IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det])
     rhoManual[det] = IP.norm(data_dict[det])
     rho2NetManual+= rhoManual[det]*rhoManual[det]
-    print det, rhoManual[det], " via raw data"
+    print(det, rhoManual[det], " via raw data")
 
 
 # TARGET INJECTED SIGNAL (for reference and calibration of results)
@@ -123,23 +126,23 @@ for det in detectors:
     IP = ComplexIP(fLow=fminSNR, fNyq=fSampleSig/2,deltaF=dfSig,psd=psd_dict[det])
     rhoExpected[det] = rhoDet = IP.norm(hT)
     rho2Net += rhoDet*rhoDet
-    print det, rhoDet, "compare to", rhoExpected[det],  "; note it arrival time relative to fiducial of ", float(ComputeArrivalTimeAtDetector(det, Psig.phi,Psig.theta,Psig.tref) - theEpochFiducial)
-print "Network : ", np.sqrt(rho2Net)
+    print(det, rhoDet, "compare to", rhoExpected[det],  "; note it arrival time relative to fiducial of ", float(ComputeArrivalTimeAtDetector(det, Psig.phi,Psig.theta,Psig.tref) - theEpochFiducial))
+print("Network : ", np.sqrt(rho2Net))
 
-print " == Data report == "
+print(" == Data report == ")
 detectors = data_dict.keys()
 rho2Net = 0
-print  " Amplitude report :"
+print(" Amplitude report :")
 fminSNR =30
 for det in detectors:
     IP = ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=Psig.deltaF,psd=psd_dict[det])
     rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
     rho2Net += rhoDet*rhoDet
-    print det, " rho = ", rhoDet
-print "Network : ", np.sqrt(rho2Net)
+    print(det, " rho = ", rhoDet)
+print("Network : ", np.sqrt(rho2Net))
 
 if checkInputs:
-    print " == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
+    print(" == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == ")
     P = Psig.copy()
     P.tref = Psig.tref
     for det in detectors:
@@ -171,27 +174,27 @@ P = ChooseWaveformParams(fmin=fminWavesTemplate, radec=False, incl=0.0,phiref=0.
 # Perform the Precompute stage
 #
 rholms_intp, crossTerms, rholms, epoch_post = PrecomputeLikelihoodTerms(theEpochFiducial,P, data_dict,psd_dict, Lmax, analyticPSD_Q)
-print "Finished Precomputation..."
-print "====Generating metadata from precomputed results ====="
+print("Finished Precomputation...")
+print("====Generating metadata from precomputed results =====")
 distBoundGuess = estimateUpperDistanceBoundInMpc(rholms, crossTerms)
-print " distance probably less than ", distBoundGuess, " Mpc"
+print(" distance probably less than ", distBoundGuess, " Mpc")
 
-print "====Loading metadata from previous runs (if any): sampler-seed-data.dat ====="
+print("====Loading metadata from previous runs (if any): sampler-seed-data.dat =====")
 
 
 if checkInputs == True:
 
-    print " ======= UV test: Recover the SNR of the injection  =========="
-    print " Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] "
+    print(" ======= UV test: Recover the SNR of the injection  ==========")
+    print(" Detector lnLmodel  (-2lnLmodel)^(1/2)  rho(directly)  [last two entries should be equal!] ")
     for det in detectors:
         lnLModel = SingleDetectorLogLikelihoodModel(crossTerms, Psig.tref, Psig.phi, Psig.theta, Psig.incl, Psig.phiref, Psig.psi, Psig.dist, 2, det)
-        print det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det], "      [last two equal?]"
-    print " ======= End to end LogL: Recover the SNR of the injection at the injection parameters  =========="
+        print(det, lnLModel, np.sqrt(-2*lnLModel), rhoExpected[det], "      [last two equal?]")
+    print(" ======= End to end LogL: Recover the SNR of the injection at the injection parameters  ==========")
     lnL = FactoredLogLikelihood(Psig, rholms_intp, crossTerms, Lmax)
-    print "  : Evan's code : ", lnL, " versus rho^2/2 ", rho2Net/2
-    print "  : Timing issues (checkme!) : fiducial = ", stringGPSNice(theEpochFiducial)
+    print("  : Evan's code : ", lnL, " versus rho^2/2 ", rho2Net/2)
+    print("  : Timing issues (checkme!) : fiducial = ", stringGPSNice(theEpochFiducial))
 
-    print " ======= rholm test: Plot the lnLdata timeseries at the injection parameters (* STILL TIME OFFSET *)  =========="
+    print(" ======= rholm test: Plot the lnLdata timeseries at the injection parameters (* STILL TIME OFFSET *)  ==========")
     tmin = np.max(float(epoch_post - theEpochFiducial),tWindowReference[0]+0.03)   # the minimum time used is set by the rolling condition
 #    tvals = np.linspace(tmin,tWindowReference[1],4*fSample*(tWindowReference[1]-tmin))
     tvals = np.linspace(tWindowExplore[0]+tEventFiducial,tWindowExplore[1]+tEventFiducial,fSample*(tWindowExplore[1]-tWindowExplore[0]))
@@ -203,13 +206,13 @@ if checkInputs == True:
         plt.plot(tvalsPlot, lnLData,label='Ldata(t)+'+det)
         plt.plot(tvalsPlot, lnLDataEstimate,label="$rho^2("+det+")$")
     tEventRelative =float( Psig.tref - theEpochFiducial)
-    print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is ", tEventRelative
+    print(" Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is ", tEventRelative)
     plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
     plt.title("lnLdata (interpolated) vs narrow time interval")
     plt.xlabel('t(s)')
     plt.ylabel('lnLdata')
 
-    print " ======= rholm test: Plot the lnL timeseries at the injection parameters (* STILL TIME)  =========="
+    print(" ======= rholm test: Plot the lnL timeseries at the injection parameters (* STILL TIME)  ==========")
     tmin = np.max(float(epoch_post - theEpochFiducial),tWindowReference[0]+0.03)   # the minimum time used is set by the rolling condition
     tvals = np.linspace(tmin,tWindowReference[1],4*fSample*(tWindowReference[1]-tmin))
     P = Psig.copy()
@@ -223,7 +226,7 @@ if checkInputs == True:
     plt.plot(tvalsPlot, lnL,label='lnL(t)')
     plt.plot(tvalsPlot, lnLEstimate,label="$rho^2/2(net)$")
     tEventRelative =float( Psig.tref - theEpochFiducial)
-    print " Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative
+    print(" Real time (relative to fiducial start time) ", tEventFiducial,  " and our triggering time is the same ", tEventRelative)
     plt.plot([tEventFiducial,tEventFiducial],[0,rho2Net], color='k',linestyle='--')
     plt.title("lnL (interpolated) vs narrow time interval")
     plt.xlim(Tmin,Tmax)  # the window we actually use
@@ -345,8 +348,8 @@ else:
 
 
 if rosShowSamplerInputDistributions:
-    print " ====== Plotting prior and sampling distributions ==== "
-    print "  PROBLEM: Build in/hardcoded via uniform limits on each parameter! Need to add measure factors "
+    print(" ====== Plotting prior and sampling distributions ==== ")
+    print("  PROBLEM: Build in/hardcoded via uniform limits on each parameter! Need to add measure factors ")
     nFig = 0
     for param in sampler.params:
         nFig+=1
@@ -376,10 +379,10 @@ if rosShowSamplerInputDistributions:
 tGPSStart = lal.GPSTimeNow()
 res, var, ret, lnLmarg, neff = sampler.integrate(likelihood_function, "ra", "dec", "tref", "phi", "incl", "psi", "dist", n=200,nmax=nMaxEvals,igrandmax=rho2Net/2,full_output=True,neff=100,igrand_threshold_fraction=0.95)
 tGPSEnd = lal.GPSTimeNow()
-print " Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds"
-print " lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res
-print " expected largest value is ", rho2Net/2, 
-print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff)
+print(" Evaluation time  = ", float(tGPSEnd - tGPSStart), " seconds")
+print(" lnLmarg is ", np.log(res), " with expected relative error ", np.sqrt(var)/res)
+print(" expected largest value is ", rho2Net/2, end=' ')
+print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff))
 
 # Save the sampled points to a file
 # Only store some
@@ -390,7 +393,7 @@ if checkInputs:
 # Plot terminal histograms from the sampled points and log likelihoods
 if rosShowTerminalSampleHistograms:
     ra,dec,tref,phi,incl, psi,dist,lnL = np.transpose(ret)  # unpack. This can include all or some of the data set. The default configuration returns *all* points
-    print " ==== CONVERGENCE PLOTS (**beware: potentially truncated data!**) === "
+    print(" ==== CONVERGENCE PLOTS (**beware: potentially truncated data!**) === ")
     plt.figure(0)
     plt.clf()
     plt.plot(np.arange(len(lnLmarg)), lnLmarg,label="lnLmarg")
@@ -399,7 +402,7 @@ if rosShowTerminalSampleHistograms:
     plt.xlabel('iteration')
     plt.ylabel('lnL')
     plt.legend()
-    print " ==== TERMINAL 1D HISTOGRAMS: Sampling and posterior === "
+    print(" ==== TERMINAL 1D HISTOGRAMS: Sampling and posterior === ")
     plt.figure(1)
     plt.clf()
     hist, bins  = np.histogram(dist/(1e6*lal.LAL_PC_SI),bins=50,density=True)
@@ -446,7 +449,7 @@ if rosShowTerminalSampleHistograms:
     plt.title("Sampling and posterior distribution: psi ")
     plt.legend()
     plt.show()
-    print " ==== TERMINAL 2D HISTOGRAMS: Sampling and posterior === "
+    print(" ==== TERMINAL 2D HISTOGRAMS: Sampling and posterior === ")
         # Distance-inclination
     plt.figure(1)
     plt.clf()

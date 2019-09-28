@@ -95,7 +95,7 @@ opts=  parser.parse_args()
 ### Comparison data (from LI)
 ###
 if opts.fname_lalinference:
-    print " Loading lalinference samples for direct comparison ", opts.fname_lalinference
+    print(" Loading lalinference samples for direct comparison ", opts.fname_lalinference)
     samples_LI = np.genfromtxt(opts.fname_lalinference,names=True)
 
 
@@ -156,7 +156,7 @@ def fit_quadratic(x,y,x0=None,symmetry_list=None):
     clf = linear_model.LinearRegression()
     clf.fit(X_,y)
 
-    print  " Fit: std: ", np.std(y - clf.predict(X_)),  "using number of features ", len(y)  # should NOT be perfect
+    print(" Fit: std: ", np.std(y - clf.predict(X_)),  "using number of features ", len(y))  # should NOT be perfect
     
     return lambda x: clf.predict(poly.fit_transform(x))
 
@@ -175,7 +175,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None):
 
     gp.fit(x,y)
 
-    print  " Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y)  # should NOT be perfect
+    print(" Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y))  # should NOT be perfect
 
     return lambda x: gp.predict(x)
 
@@ -191,8 +191,8 @@ elif opts.coordinates_m1_m2:
 else:
     coord_names = opts.parameter
     fixed_coords = False
-print " Coordinate names :, ", coord_names
-print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], coord_names)
+print(" Coordinate names :, ", coord_names)
+print(" Rendering coordinate names : ", map(lambda x: tex_dictionary[x], coord_names))
 
 # initialize
 dat_mass  = [] 
@@ -209,7 +209,7 @@ if not opts.fname_rom_samples:
  col_lnL = 9
  dat_orig = dat = np.loadtxt(opts.fname)
  dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
- print " Original data size = ", len(dat), dat.shape
+ print(" Original data size = ", len(dat), dat.shape)
 
 
  ###
@@ -226,10 +226,10 @@ if not opts.fname_rom_samples:
   if not opts.use_precessing and (line[3]**2 + line[4]**2 + line[6]**2 + line[7]**2)>0.01:
       continue
   if line[1]+line[2] > opts.M_max_cut:
-      print " Skipping ", line, " as too massive, with mass ", line[1]+line[2]
+      print(" Skipping ", line, " as too massive, with mass ", line[1]+line[2])
       continue
   if line[10] > opts.sigma_cut:
-      print " Skipping ", line
+      print(" Skipping ", line)
       continue
   if line[col_lnL] < opts.lnL_peak_insane_cut:
     P.m1 = line[1]*lal.MSUN_SI
@@ -262,7 +262,7 @@ if not opts.fname_rom_samples:
  # Eliminate values with Y too small
  max_lnL = np.max(Y)
  indx_ok = Y>np.max(Y)-opts.lnL_offset
- print " Points used in fit : ", sum(indx_ok), " given max lnL ", max_lnL
+ print(" Points used in fit : ", sum(indx_ok), " given max lnL ", max_lnL)
  if max_lnL < 10:
     # nothing matters, we will reject it anyways
     indx_ok = np.ones(len(Y),dtype=bool)
@@ -273,7 +273,7 @@ if not opts.fname_rom_samples:
     indx_list = np.array( [[k, Y[k]] for k in idx_sorted_index])     # pair up with the weights again
     indx_list = indx_list[::-1]  # reverse, so most significant are first
     indx_ok = map(int,indx_list[:10,0])
-    print " Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:10]
+    print(" Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:10])
  X_raw = X.copy()
 
  my_fit= None
@@ -292,8 +292,8 @@ if not opts.fname_rom_samples:
                 p_to_assign = "chieff_aligned"
             P.assign_param(p_to_assign,pt_best_X[indx]*fac) 
            
-        print " ====BEST BINARY ===="
-        print " Parameters from fit ", pt_best_X
+        print(" ====BEST BINARY ====")
+        print(" Parameters from fit ", pt_best_X)
         P.print_params()
         sys.exit(0)
     my_fit = fit_quadratic(X,Y)
@@ -344,12 +344,12 @@ if not opts.fname_rom_samples:
  #xi_min = np.min(X[:,2])
  xi_max = 0.99 # np.max(X[:,2])
 
- print " xi range ", xi_min, xi_max
+ print(" xi range ", xi_min, xi_max)
 
  if opts.coordinates_mc_eta:
-    print " Chirp mass integration range ", mc_min, mc_max
+    print(" Chirp mass integration range ", mc_min, mc_max)
  else:
-    print " Total mass integration range ", mc_min, mc_max
+    print(" Total mass integration range ", mc_min, mc_max)
 
  if opts.coordinates_mc_eta:
     def mc_prior(x):
@@ -426,15 +426,15 @@ if not opts.fname_rom_samples:
          sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_map[p], left_limit=p_min,right_limit=p_max)
      argstr = ", ".join(coord_names)
      fakefunc_src = "def likelihood_function(%s):\n\t return np.exp(real_func([%s]).T)" % (argstr, argstr)
-     print fakefunc_src
+     print(fakefunc_src)
 ##     eval(fakefunc_src,{"real_func":my_fit,"np":np})
      fakefunc_code = compile(fakefunc_src, "fakesource", "exec")
      fakeglobals = {}
      eval(fakefunc_code, {"real_func":my_fit, "np":np},fakeglobals)
      likelihood_function = fakeglobals["likelihood_function"]
      # Test that likelihood function works
-     print X[0], np.log(likelihood_function(X[0])), Y[0]
-     print X[-1], np.log(likelihood_function(X[-1])), Y[-1]
+     print(X[0], np.log(likelihood_function(X[0])), Y[0])
+     print(X[-1], np.log(likelihood_function(X[-1])), Y[-1])
      res, var, neff, dict_return = sampler.integrate(likelihood_function, *coord_names, verbose=True,nmax=int(opts.n_max),n=1e5,save_intg=True)
 
 
@@ -444,18 +444,18 @@ if not opts.fname_rom_samples:
 
 
  samples = sampler._rvs
- print samples.keys()
+ print(samples.keys())
  n_params = len(coord_names)
  dat_mass = np.zeros((len(samples[coord_names[0]]),n_params+3))
  dat_logL = np.log(samples["integrand"])
- print " Max lnL ", np.max(dat_logL)
+ print(" Max lnL ", np.max(dat_logL))
 
  # Throw away stupid points that don't impact the posterior
  indx_ok = np.logical_and(dat_logL > np.max(dat_logL)-opts.lnL_offset ,samples["joint_s_prior"]>0)
  for p in coord_names:
     samples[p] = samples[p][indx_ok]
  dat_logL  = dat_logL[indx_ok]
- print samples.keys()
+ print(samples.keys())
  samples["joint_prior"] =samples["joint_prior"][indx_ok]
  samples["joint_s_prior"] =samples["joint_s_prior"][indx_ok]
  for indx in np.arange(len(samples[coord_names[0]])):   # this is a stupid loop, but easy to debug
@@ -482,7 +482,7 @@ else:  # ROM ACTIVE
     tmp = np.loadtxt(opts.fname_rom_samples)
     coord_names = ['mc', 'eta','xi']
     n_params = len(coord_names)
-    print tmp[1]
+    print(tmp[1])
     dat_mass = np.zeros( (len(tmp), len(coord_names)+3),dtype=np.float)
     dat_mass[:,0] = tmp[:,0]
     dat_mass[:,1] = tmp[:,1]
@@ -512,7 +512,7 @@ ps =dat_mass[:,n_params+2]
 lnL = dat_mass[:,n_params]
 lnLmax = np.max(lnL)
 weights = np.exp(lnL-lnLmax)*p/ps
-print ps
+print(ps)
 # Expected range
 #m1min,junk = lalsimutils.m1m2(mc_min,0.25)
 #m1max,junk = lalsimutils.m1m2(mc_max,eta_min)
@@ -526,7 +526,7 @@ if  opts.inj_file is not None:
 Pref.print_params()
 
 # Quick and dirty cumulatives
-print " --- cumulative 1 ---- "
+print(" --- cumulative 1 ---- ")
 if True:
     dat_out = []; dat_out_LI = []
     for x in np.linspace(np.min(dat_mass[:,0]),np.max(dat_mass[:,0]),200):
@@ -543,7 +543,7 @@ if True:
     plt.xlabel('$m_1 (M_\odot)$'); plt.legend()
     plt.savefig("m1_cdf.png"); plt.clf()
 
-print " --- cumulative 2 --- "
+print(" --- cumulative 2 --- ")
 if True:
     dat_out = []; dat_out_LI = []
     for x in np.linspace(np.min(dat_mass[:,1]),np.max(dat_mass[:,1]),200):
@@ -561,7 +561,7 @@ if True:
     plt.savefig("m2_cdf.png"); plt.clf()
 
 
-print " --- cumulative 3 --- "
+print(" --- cumulative 3 --- ")
 if True:
     dat_out = []; dat_out_LI = []
     for x in np.linspace(np.min(dat_mass[:,0]+dat_mass[:,1]),np.max(dat_mass[:,0]+dat_mass[:,1]),50):
@@ -578,7 +578,7 @@ if True:
     plt.xlabel('$M (M_\odot)$'); plt.legend()
     plt.savefig("mtot_cdf.png"); plt.clf()
 
-print " --- cumulative 4 --- "
+print(" --- cumulative 4 --- ")
 if True:
     dat_out = []; dat_out_LI = []
     for x in np.linspace(q_min,np.max(dat_mass[:,1]/dat_mass[:,0]),50):
@@ -597,7 +597,7 @@ if True:
     plt.savefig("q_cdf.png"); plt.clf()
 
 
-print " --- cumulative 5 --- "
+print(" --- cumulative 5 --- ")
 if True:
     dat_out = []; dat_out_LI =[]
     for x in np.linspace(xi_min,np.max(dat_mass[:,2]),50):
@@ -615,17 +615,17 @@ if True:
     plt.savefig("xi_cdf.png"); plt.clf()
 
 
-print " --- s1z, s2z scatter (input only) --- "
+print(" --- s1z, s2z scatter (input only) --- ")
 # http://stackoverflow.com/questions/17682216/scatter-plot-and-color-mapping-in-python
 lnLmax_all = np.max(dat[:,col_lnL])  # peak max
 if lnLmax_all > opts.lnL_peak_insane_cut:
     lnLmax_all = lnLmax
 dat_ok = dat[ np.logical_and(dat[:,col_lnL] < opts.lnL_peak_insane_cut ,dat[:,col_lnL] > lnLmax_all -8)]
-print " Remaining points ", len(dat_ok)
+print(" Remaining points ", len(dat_ok))
 if len(dat_ok) >0:
     dat_ok = dat_ok[ dat_ok[:,col_lnL].argsort()]
-    print np.max(dat_ok[:,col_lnL]), lnLmax, lnLmax-4, opts.lnL_peak_insane_cut # peak lnL is much higher for precessing
-    print dat_ok[0],dat_ok[-1]
+    print(np.max(dat_ok[:,col_lnL]), lnLmax, lnLmax-4, opts.lnL_peak_insane_cut) # peak lnL is much higher for precessing
+    print(dat_ok[0],dat_ok[-1])
     plt.clf();
     dat_1p = -np.sqrt(dat_ok[:,3]**2 +dat_ok[:,4]**2 )
     dat_2p = np.sqrt(dat_ok[:,6]**2 +dat_ok[:,7]**2 )
@@ -645,7 +645,7 @@ if len(dat_ok) >0:
     plt.savefig('chi1z_chi2z_input.png')
 
 
-print " --- corner --- "
+print(" --- corner --- ")
 
 
 
@@ -668,14 +668,14 @@ if not opts.fname_rom_samples:
     dat_here[:,1] = dat[:,2]
     dat_here[:,2] = (dat[:,1]*dat[:,5] + dat[:,2]*dat[:,8])/(dat[:,1]+ dat[:,2])
     dat_here = dat_here[indx_ok]
-    print range_here
-    print " Plotting overlay: ILE evaluations near the peak, with npts= ", len(dat_here)
+    print(range_here)
+    print(" Plotting overlay: ILE evaluations near the peak, with npts= ", len(dat_here))
     fig_base = corner.corner(dat_here,plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base,weights = 1*np.ones(len(dat_here))/len(dat_here), data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'--'},labels=['m1','m2','xi'])
 if opts.fname_lalinference:
     fig_base = corner.corner( np.array([samples_LI["m1"],samples_LI["m2"],samples_LI["chi_eff"]]).T,color='r',labels=labels_tex,weights=np.ones(len(samples_LI))*1.0/len(samples_LI),quantiles=quantiles_1d,fig=fig_base,plot_datapoints=False,no_fill_contours=True,fill_contours=False,plot_density=False,levels=CIs,range=range_here)
 plt.savefig("posterior_corner_m1m2.png"); plt.clf()
 
-print " --- corner 2 --- "
+print(" --- corner 2 --- ")
 mtot_vals = dat_mass[:,0]+dat_mass[:,1]
 q_vals = dat_mass[:,1]/dat_mass[:,0]
 xi_vals = dat_mass[:,2]
@@ -695,7 +695,7 @@ if not opts.fname_rom_samples:
     dat_here[:,1] = dat[:,2]/dat[:,1]
     dat_here[:,2] = (dat[:,1]*dat[:,5] + dat[:,2]*dat[:,8])/(dat[:,1]+ dat[:,2])
     dat_here = dat_here[indx_ok]
-    print " Plotting overlay for points ", len(dat_here), " with range ", range_here
+    print(" Plotting overlay for points ", len(dat_here), " with range ", range_here)
     chivals =  (dat[:,1]*dat[:,5] + dat[:,2]*dat[:,8])/(dat[:,1]+ dat[:,2])
     range_here = [
         (np.min(dat_mass[:,0]+dat_mass[:,1]),np.max(dat_mass[:,0]+dat_mass[:,1])),
@@ -716,7 +716,7 @@ if opts.fname_rom_samples:
     import sys
     sys.exit(0)
 
-print " --- Exporting " + str(opts.n_output_samples) + " posterior samples to " + opts.fname_output_samples  + " ---- "
+print(" --- Exporting " + str(opts.n_output_samples) + " posterior samples to " + opts.fname_output_samples  + " ---- ")
 
 # pick random numbers
 p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=opts.n_output_samples)
@@ -771,7 +771,7 @@ for indx_here in indx_list:
         else:
             True
 
-print " Writing file ", opts.fname_output_samples, " size ", len(P_list)
+print(" Writing file ", opts.fname_output_samples, " size ", len(P_list))
 lalsimutils.ChooseWaveformParams_array_to_xml(P_list, fname=opts.fname_output_samples, fref=P.fref)
 
 

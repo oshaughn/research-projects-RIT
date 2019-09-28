@@ -61,10 +61,10 @@ from multiprocessing import Pool
 try:
     import os
     n_threads = int(os.environ['OMP_NUM_THREADS'])
-    print " Pool size : ", n_threads
+    print(" Pool size : ", n_threads)
 except:
     n_threads=1
-    print " - No multiprocessing - "
+    print(" - No multiprocessing - ")
 
 try:
 	import NRWaveformCatalogManager as nrwf
@@ -252,24 +252,24 @@ if opts.verbose:
 ###
 if hasNR and not ( opts.NR_signal_group in nrwf.internal_ParametersAvailable.keys()):
     if opts.NR_signal_group:
-        print " ===== UNKNOWN NR PARAMETER ====== "
-        print opts.NR_signal_group, opts.NR_signal_param
+        print(" ===== UNKNOWN NR PARAMETER ====== ")
+        print(opts.NR_signal_group, opts.NR_signal_param)
 elif hasNR:
     if opts.NR_signal_param:
         opts.NR_signal_param = eval(str(opts.NR_signal_param)) # needs to be evaluated
     if not ( opts.NR_signal_param in nrwf.internal_ParametersAvailable[opts.NR_signal_group]):
-        print " ===== UNKNOWN NR PARAMETER ====== "
-        print opts.NR_signal_group, opts.NR_signal_param
+        print(" ===== UNKNOWN NR PARAMETER ====== ")
+        print(opts.NR_signal_group, opts.NR_signal_param)
 if hasNR and not ( opts.NR_template_group in nrwf.internal_ParametersAvailable.keys()):
     if opts.NR_template_group:
-        print " ===== UNKNOWN NR PARAMETER ====== "
-        print opts.NR_template_group, opts.NR_template_param
+        print(" ===== UNKNOWN NR PARAMETER ====== ")
+        print(opts.NR_template_group, opts.NR_template_param)
 elif hasNR:
     if opts.NR_template_param:
         opts.NR_template_param = eval(opts.NR_template_param) # needs to be evaluated
     if not ( opts.NR_template_param in nrwf.internal_ParametersAvailable[opts.NR_template_group]):
-        print " ===== UNKNOWN NR PARAMETER ====== "
-        print opts.NR_template_group, opts.NR_template_param
+        print(" ===== UNKNOWN NR PARAMETER ====== ")
+        print(opts.NR_template_group, opts.NR_template_param)
 
 
 
@@ -297,7 +297,7 @@ def eval_overlap(grid,P_list, IP,indx):
         if not use_external_EOB:
             hf2 = lalsimutils.complex_hoff(P2)
         else:
-            print "  Waiting for EOB waveform ....", indx, " with duration  ", T_here
+            print("  Waiting for EOB waveform ....", indx, " with duration  ", T_here)
             wfP = eobwf.WaveformModeCatalog(P2,lmax=Lmax)  # only include l=2 for us.
             hf2 = wfP.complex_hoff(force_T=T_here)
         nm2 = IP.norm(hf2);  hf2.data.data *= 1./nm2
@@ -311,7 +311,7 @@ def eval_overlap(grid,P_list, IP,indx):
     else:
         line_out.append(-1)
     if opts.verbose:
-        print " Answer ", indx, line_out
+        print(" Answer ", indx, line_out)
     return line_out
 
 def calc_lambda_from_m(m, eos_fam):
@@ -411,7 +411,7 @@ if not opts.psd_file:
     eff_fisher_psd = getattr(lalsim, opts.fisher_psd)   # --fisher-psd SimNoisePSDaLIGOZeroDetHighPower   now
     analyticPSD_Q=True
 else:
-    print " Importing PSD file ", opts.psd_file
+    print(" Importing PSD file ", opts.psd_file)
     eff_fisher_psd = lalsimutils.load_resample_and_clean_psd(opts.psd_file, 'H1', 1./opts.seglen)
     analyticPSD_Q = False
 
@@ -434,7 +434,7 @@ if opts.inj:
         P.approx = lalsim.GetApproximantFromString(opts.approx)
         if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
             # Do not use tidal parameters in approximant which does not implement them
-            print " Do not use tidal parameters in approximant which does not implement them "
+            print(" Do not use tidal parameters in approximant which does not implement them ")
             P.lambda1 = 0
             P.lambda2 = 0    
 else:    
@@ -456,7 +456,7 @@ else:
         P.approx = lalsim.GetApproximantFromString(opts.approx)
         if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
             # Do not use tidal parameters in approximant which does not implement them
-            print " Do not use tidal parameters in approximant which does not implement them "
+            print(" Do not use tidal parameters in approximant which does not implement them ")
             P.lambda1 = 0
             P.lambda2 = 0
     else:
@@ -473,68 +473,68 @@ Pbase = P.copy()
 
 hfBase = None
 if opts.skip_overlap:
-    print " ---- NO WAVEFORM GENERATION ---- "
+    print(" ---- NO WAVEFORM GENERATION ---- ")
     hfBase = None
     IP=lalsimutils.InnerProduct()  # Default, so IP.deltaF code etc does not need to be wrapped
 else:
  if hasEOB and opts.use_external_EOB_source:
-    print "    -------INTERFACE ------"
-    print "    Using external EOB interface (Bernuzzi)   with window  ", opts.seglen
+    print("    -------INTERFACE ------")
+    print("    Using external EOB interface (Bernuzzi)   with window  ", opts.seglen)
     # Code WILL FAIL IF LAMBDA=0
     if P.lambda1<1:
         P.lambda1=1
     if P.lambda2<1:
         P.lambda2=1
     if P.deltaT > 1./16384:
-        print 
+        print()
     wfP = eobwf.WaveformModeCatalog(P,lmax=Lmax)  # only include l=2 for us.
     if opts.verbose:
-        print " Duration of stored signal (cut if necessary) ", wfP.estimateDurationSec()
+        print(" Duration of stored signal (cut if necessary) ", wfP.estimateDurationSec())
     hfBase = wfP.complex_hoff(force_T=opts.seglen)
-    print "EOB waveform length ", hfBase.data.length
-    print "EOB waveform duration", -hfBase.epoch
+    print("EOB waveform length ", hfBase.data.length)
+    print("EOB waveform duration", -hfBase.epoch)
  elif opts.use_external_EOB_source and not hasEOB:
     # do not do something else silently!
-    print " Failure: EOB requested but impossible "
+    print(" Failure: EOB requested but impossible ")
     sys.exit(0)
  elif opts.use_external_NR_source and hasNR:
     m1Msun = P.m1/lal.MSUN_SI;     m2Msun = P.m2/lal.MSUN_SI
     if m1Msun < 50 or m2Msun < 50:
-        print " Invalid NR mass "
+        print(" Invalid NR mass ")
         sys.exit(0)
-    print " Using NR ", opts.NR_signal_group, opts.NR_signal_param
+    print(" Using NR ", opts.NR_signal_group, opts.NR_signal_param)
     T_window = 16. # default 
     wfP = nrwf.WaveformModeCatalog(opts.NR_signal_group, opts.NR_signal_param, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, lmax=opts.lmax,align_at_peak_l2_m2_emission=True,build_strain_and_conserve_memory=True)
     q = wfP.P.m2/wfP.P.m1
-    print " NR q  (overrides anything)", q
+    print(" NR q  (overrides anything)", q)
     mtotOrig  =(wfP.P.m1+wfP.P.m2)/lal.MSUN_SI
     wfP.P.m1 *= (m1Msun+m2Msun)/mtotOrig
     wfP.P.m2 *= (m1Msun+m2Msun)/mtotOrig
 
     wfP.P.deltaT = 1./opts.srate
-    print " NR duration (in s) of simulation at this mass = ", wfP.estimateDurationSec()
-    print " NR starting 22 mode frequency at this mass = ", wfP.estimateFminHz()
+    print(" NR duration (in s) of simulation at this mass = ", wfP.estimateDurationSec())
+    print(" NR starting 22 mode frequency at this mass = ", wfP.estimateFminHz())
     T_window = max([16, 2**int(np.log(wfP.estimateDurationSec())/np.log(2)+1)])
     wfP.P.deltaF = 1./T_window
-    print " Final T_window ", T_window
+    print(" Final T_window ", T_window)
     wfP.P.radec = False  # use a real source with a real instrument
     wfP.P.fmin = 10
-    print "  ---- NR interface: Overriding parameters to match simulation requested ---- "
+    print("  ---- NR interface: Overriding parameters to match simulation requested ---- ")
     wfP.P.print_params()
     hfBase = wfP.complex_hoff(force_T=T_window)
  elif opts.use_external_NR_source and not hasNR:
-    print " Failure: NR requested but impossible "
+    print(" Failure: NR requested but impossible ")
     sys.exit(0)
  else:
-    print "    -------INTERFACE ------"
-    print "    Using lalsuite   ", hasEOB, opts.use_external_EOB_source
+    print("    -------INTERFACE ------")
+    print("    Using lalsuite   ", hasEOB, opts.use_external_EOB_source)
     hfBase = lalsimutils.complex_hoff(P)
  IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=opts.fmax,interpolate_max=True)
  nmBase = IP.norm(hfBase)
  hfBase.data.data *= 1./nmBase
  if opts.verbose:
-    print " ------  SIGNAL DURATION ----- "
-    print hfBase.data.length*P.deltaT
+    print(" ------  SIGNAL DURATION ----- ")
+    print(hfBase.data.length*P.deltaT)
 
 ###
 ### Define parameter ranges to be changed
@@ -549,7 +549,7 @@ elif not(opts.parameter is None):
     for param in param_names:
         # Check if in the valid list
         if not(param in lalsimutils.valid_params):
-            print ' Invalid param ', param, ' not in ', lalsimutils.valid_params
+            print(' Invalid param ', param, ' not in ', lalsimutils.valid_params)
             sys.exit(0)
     npts_per_dim = int(np.power(opts.grid_cartesian_npts, 1./len(param_names)))+1
     if opts.downselect_parameter:
@@ -588,13 +588,13 @@ elif not(opts.parameter is None):
             #val_center = P.extract_param(param)
             param_ranges.append( [0, 1000]) # HARDCODED
         else:
-            print " Parameter not implemented ", param
+            print(" Parameter not implemented ", param)
             sys.exit(0)
 
     if opts.verbose:
-        print " ----- PARAMETER RANGES ----- "
+        print(" ----- PARAMETER RANGES ----- ")
         for indx in np.arange(len(param_names)):
-            print param_names[indx], param_ranges[indx], pts_per_dim[indx]
+            print(param_names[indx], param_ranges[indx], pts_per_dim[indx])
 
 
 template_min_freq = opts.fmin
@@ -614,14 +614,14 @@ if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
         param_now = param_names[indx]
         if not(opts.no_reset_parameter is None):
           if param_now in opts.no_reset_parameter:
-            print " ==> not retuning range for ", param_now
+            print(" ==> not retuning range for ", param_now)
             continue
         param_peak = Pbase.extract_param(param_now)
         fac_print =1.0
         if param_now in ['m1', 'm2', 'mc']:
             fac_print = lal.MSUN_SI
         if opts.verbose:
-            print " Optimizing for ", param_now, " with peak expected at value = ", param_peak
+            print(" Optimizing for ", param_now, " with peak expected at value = ", param_peak)
             PT.print_params()
         def ip_here(x):
             PT.assign_param(param_now,x)
@@ -630,35 +630,35 @@ if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
             nm_now = IP.norm(hf_now)
             val = IP.ip(hfBase,hf_now)/nm_now
             if opts.verbose:
-                print param_now, x, val
+                print(param_now, x, val)
             return val - opts.match_value
         def ip_here_squared(x):
             val= ip_here(x)
             return val**2
         try:
-            print " Minimum: looking between ",param_ranges[indx][0]/fac_print,param_peak/fac_print, " delta ", np.abs(param_peak - param_ranges[indx][0])/fac_print
+            print(" Minimum: looking between ",param_ranges[indx][0]/fac_print,param_peak/fac_print, " delta ", np.abs(param_peak - param_ranges[indx][0])/fac_print)
 #            if np.abs(param_peak - param_ranges[indx][0])/fac_print < 1e-2:  # very narrow placement range. Want to avoid jumping to the wrong side1
 #                print " Using minimization code ...  "
 #                
 #            else:
             param_min = brentq(ip_here,param_ranges[indx][0],param_peak ,xtol=TOL,maxiter=maxit)
             if param_min > param_peak:
-                print " Ordering problem, using minimization code as backup "
+                print(" Ordering problem, using minimization code as backup ")
                 param_min = brent(ip_here_squared, brack=(param_ranges[indx][0],param_peak, param_ranges[indx][1]), tol=TOL)
         except:
-            print "  Range retuning: minimum for ", param_now
+            print("  Range retuning: minimum for ", param_now)
             param_min = param_ranges[indx][0]
         try:
-            print " Maximum: looking between ",param_peak/fac_print, param_ranges[indx][1]/fac_print
+            print(" Maximum: looking between ",param_peak/fac_print, param_ranges[indx][1]/fac_print)
             param_max = brentq(ip_here,param_peak, param_ranges[indx][1],xtol=TOL)
         except:
-            print "  Range retuning: maximum for ", param_now
+            print("  Range retuning: maximum for ", param_now)
             param_max = param_ranges[indx][1]
         if np.abs(param_max - param_min)/(np.abs(param_max)+np.abs(param_min)) < 1e-6:  # override if we have catastrophically close placement
-            print " Override: tuned parameters got too close, returning to original range "
+            print(" Override: tuned parameters got too close, returning to original range ")
             param_min = param_ranges[indx][0]
             param_max = param_ranges[indx][1]
-        print " Revised range for parameter ", np.array(param_ranges[indx])/fac_print, " to ", [param_min/fac_print,param_max/fac_print], " around ", param_peak/fac_print
+        print(" Revised range for parameter ", np.array(param_ranges[indx])/fac_print, " to ", [param_min/fac_print,param_max/fac_print], " around ", param_peak/fac_print)
         param_ranges[indx][0] = param_min
         param_ranges[indx][1] = param_max
 
@@ -675,7 +675,7 @@ else:
     dlist = []
     dlist_ranges = []
 if len(dlist) != len(dlist_ranges):
-    print " downselect parameters inconsistent", dlist, dlist_ranges
+    print(" downselect parameters inconsistent", dlist, dlist_ranges)
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
@@ -687,7 +687,7 @@ for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
 # Enforce definition of eta
 downselect_dict['eta'] = [0,0.25]
 
-print " Downselect dictionary (before scaling) ", downselect_dict
+print(" Downselect dictionary (before scaling) ", downselect_dict)
 
 # downselection procedure: fix units so I can downselect on mass parameters
 for p in ['mc', 'm1', 'm2', 'mtot']:
@@ -695,7 +695,7 @@ for p in ['mc', 'm1', 'm2', 'mtot']:
         downselect_dict[p] = np.array(downselect_dict[p],dtype=np.float64)
         downselect_dict[p] *= lal.MSUN_SI  # add back units
 
-print " Downselect dictionary (with units) ", downselect_dict
+print(" Downselect dictionary (with units) ", downselect_dict)
 
 
 ###
@@ -717,11 +717,11 @@ prior_dict['eta'] = 1    # provide st dev. Don't want to allow arbitrary eta.
 
 
 # Base Cartesian grid
-print param_ranges,pts_per_dim
+print(param_ranges,pts_per_dim)
 grid_tuples = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
 #print "  NEED TO IMPLEMENT: Stripping of unphysical parameters "
 grid = eff.multi_dim_grid(*grid_tuples)  # each line in 'grid' is a set of parameter values
-print grid.shape
+print(grid.shape)
 
 # Extend to use alternative parameters
 if not (opts.random_parameter is None) and not(opts.parameter is None):
@@ -729,7 +729,7 @@ if not (opts.random_parameter is None) and not(opts.parameter is None):
 #    print param_names, param_ranges
     param_names += opts.random_parameter
     param_ranges += map(eval, opts.random_parameter_range)  # do not randomize mass or distance parameters, not being rescaled
-    print param_names, param_ranges,indx_base
+    print(param_names, param_ranges,indx_base)
     grid_extra = np.zeros( (len(grid),len(opts.random_parameter)) )
 #    print grid_extra.shape
     for indx in np.arange(len(opts.random_parameter)):
@@ -743,7 +743,7 @@ if not (opts.random_parameter is None) and not(opts.parameter is None):
 elif opts.parameter is None:
     param_names =  opts.random_parameter
     param_ranges = map(eval, opts.random_parameter_range)
-    print param_names, param_ranges
+    print(param_names, param_ranges)
     grid = np.zeros( (opts.grid_cartesian_npts,len(opts.random_parameter)) )
     for indx in np.arange(len(opts.random_parameter)):
         range_here = np.array(param_ranges[ indx])
@@ -754,12 +754,12 @@ elif opts.parameter is None:
 
 # Special check: m2<m1 : if both names appear, strip parameters from the grid
 if ('m1' in param_names) and ('m2' in param_names):
-    print " Grid uses m1, m2. Eliminating points with m1<m2"
+    print(" Grid uses m1, m2. Eliminating points with m1<m2")
     indx1 = param_names.index('m1')
     indx2 = param_names.index('m2')
     indxOk = grid[:,indx1] >= grid[:,indx2]
     grid = grid[indxOk] # Boolean indexing
-    print " Revised grid size : ", len(grid)
+    print(" Revised grid size : ", len(grid))
 
 # If external grid provided, erase this grid and set of names, and replace it with the new one.
 if opts.external_grid_txt:
@@ -770,7 +770,7 @@ if opts.external_grid_txt:
     for p in ['mc', 'm1', 'm2', 'mtot']:
         if p in param_names:
             tmp[p] *= lal.MSUN_SI  # add back units
-    print param_names
+    print(param_names)
     grid = np.array(tmp[param_names])
     param_names = list(param_names)
     # rescale arrays that correspond to masses
@@ -822,7 +822,7 @@ elif opts.use_eos!=None:
 
 grid_out, P_list = evaluate_overlap_on_grid(hfBase, param_names, grid)
 if len(grid_out)==0:
-    print " No points survive...."
+    print(" No points survive....")
 
 ###
 ### (Fisher matrix-based grids): 
@@ -849,14 +849,14 @@ if opts.use_fisher:
     # Reference point for fit should NOT MATTER
     x0_val_here =grid_out[0,:len(param_names)]
 #    print grid_out[0], x0_val_here
-    print " Generating Fisher matrix using N = ", len(grid_out), " surviving points with match > ", opts.match_value
-    print " Creating nominal prior on parameters "
+    print(" Generating Fisher matrix using N = ", len(grid_out), " surviving points with match > ", opts.match_value)
+    print(" Creating nominal prior on parameters ")
     prior_x_gamma = np.zeros( (len(param_names),len(param_names)) )
     for indx in np.arange(len(param_names)):
         if param_names[indx] in prior_dict:
             prior_x_gamma[indx,indx] = 1./prior_dict[param_names[indx]]**2 /(rho_fac*rho_fac) # must divide, because we work with the scaled Fisher
     the_quadratic_results = BayesianLeastSquares.fit_quadratic( grid_out[:,:len(param_names)], grid_out[:,len(param_names)],x0=x0_val_here,prior_x_gamma=prior_x_gamma)#x0=None)#x0_val_here)
-    print "Fisher matrix results (raw) :", the_quadratic_results
+    print("Fisher matrix results (raw) :", the_quadratic_results)
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
     np.savetxt("fisher_reference.dat",x0_val_here,header=' '.join(param_names)) 
     np.savetxt("fisher_peakval.dat",[peak_val_est])   # generally not very useful
@@ -866,13 +866,13 @@ if opts.use_fisher:
 
     my_eig= scipy.linalg.eig(my_fisher_est)
     if any(np.real(my_eig[0]) < 0) : 
-        print " Negative eigenvalues COULD preclude resampling ! Use a prior to regularize"
-        print " Eigenvalue report ", my_eig
-        print " HOPE that priors help !"
+        print(" Negative eigenvalues COULD preclude resampling ! Use a prior to regularize")
+        print(" Eigenvalue report ", my_eig)
+        print(" HOPE that priors help !")
         np.savetxt("fisher_NEG",my_eig[0].flatten())  # filename with eigenvalues
 
         # As a stopgap, save results with *regularized* fisher
-        print " ==> Regularizing fisher matrix results <== "
+        print(" ==> Regularizing fisher matrix results <== ")
         the_quadratic_results = BayesianLeastSquares.fit_quadratic( grid_out[:,:len(param_names)], grid_out[:,len(param_names)],x0=x0_val_here,prior_x_gamma=prior_x_gamma,hard_regularize_negative=True)#x0=None)#x0_val_here)
         peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
         np.savetxt("fisher_gamma.dat",my_fisher_est,header=' '.join(param_names))
@@ -887,7 +887,7 @@ if opts.use_fisher:
      for indx in np.arange(len(param_names)):
          if param_names[indx] in param_priors_gamma:
              prior_gamma[indx][indx]  = param_priors_gamma[param_names[indx]]
-     print " Using prior matrix to generate candidate draws from likelihood: ", prior_gamma
+     print(" Using prior matrix to generate candidate draws from likelihood: ", prior_gamma)
 
      grid_fisher[:,:len(param_names)] = BayesianLeastSquares.fit_quadratic_and_resample(grid_out[:,:len(param_names)], grid_out[:,len(param_names)],rho_fac=8,npts=npts_out,x0=x0_val_here,prior_quadratic_gamma=prior_gamma,hard_regularize_negative=True)
      grid_fisher[:,-1] = -1*np.ones(npts_out)
@@ -903,7 +903,7 @@ if opts.use_fisher:
                 if line[indx] < downselect_dict[param_names[indx]][0] or line[indx] > downselect_dict[param_names[indx]][1]:
                     include_item = False
                     if opts.extra_verbose:
-                        print " Skipping " , line
+                        print(" Skipping " , line)
             # if parameter involes a mass parameter, scale it to sensible units
             fac = 1
             if param_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
@@ -915,7 +915,7 @@ if opts.use_fisher:
         for param in downselect_dict:
              if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
                  if opts.extra_verbose:
-                     print " Skipping " , line
+                     print(" Skipping " , line)
                  include_item =False
         if include_item:
          grid_revised.append(line)
@@ -927,31 +927,31 @@ if opts.use_fisher:
         else:
             True
 
-     print " Original grid size", len(grid_out)
+     print(" Original grid size", len(grid_out))
      grid_out=[]  # force reset of this variable..no crap inherited
      grid_out = np.array(grid_revised)
-     print " Revised grid size", len(grid_out)
+     print(" Revised grid size", len(grid_out))
 
 if opts.linear_spoked or opts.uniform_spoked:
-    print " Effective fisher report. GRID NOT YET IMPLEMENTED "
+    print(" Effective fisher report. GRID NOT YET IMPLEMENTED ")
     if len(param_names)==2:
         fitgamma = eff.effectiveFisher(eff.residuals2d, grid_out[:,-1], *grid_out[:,0:len(param_names)-1])
         gam = eff.array_to_symmetric_matrix(fitgamma)
         evals, evecs, rot = eff.eigensystem(gam)
         # Print information about the effective Fisher matrix
         # and its eigensystem
-        print "Least squares fit finds ", fitgamma
-        print "\nFisher matrix:"
-        print "eigenvalues:", evals
-        print "eigenvectors:"
-        print evecs
-        print "rotation "
-        print rot
+        print("Least squares fit finds ", fitgamma)
+        print("\nFisher matrix:")
+        print("eigenvalues:", evals)
+        print("eigenvectors:")
+        print(evecs)
+        print("rotation ")
+        print(rot)
 
     else:
-        print " Higher-dimensional grids not yet implemented "
+        print(" Higher-dimensional grids not yet implemented ")
         sys.exit(0)
-    print "Fisher grid not yet implemented"
+    print("Fisher grid not yet implemented")
     sys.exit(0)
                              
 
@@ -961,7 +961,7 @@ if opts.linear_spoked or opts.uniform_spoked:
 ###
 n_out = np.min([opts.grid_cartesian_npts,len(P_list)])
 lalsimutils.ChooseWaveformParams_array_to_xml(P_list[:n_out], fname=opts.fname, fref=P.fref)
-print "  ==> Writing npts = ", n_out, " out of ", len(P_list)
+print("  ==> Writing npts = ", n_out, " out of ", len(P_list))
 
 ###
 ### Write output to text file:  p1 p2 p3 ... overlap, only including named params
@@ -992,4 +992,4 @@ if opts.save_plots and opts.verbose and len(param_names)==2:
     plt.savefig("fig-grid3d.png")
 #    plt.show()
 
-print " ---- DONE ----"
+print(" ---- DONE ----")

@@ -22,7 +22,7 @@ import lal
 try:
     from matplotlib import pyplot as plt
 except:
-    print " - no plots - "
+    print(" - no plots - ")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--approx",default="SEOBNRv2")
@@ -47,14 +47,14 @@ if not opts.psd_file:
     eff_fisher_psd = getattr(lalsim, opts.fisher_psd)   # --fisher-psd SimNoisePSDaLIGOZeroDetHighPower   now
     analyticPSD_Q=True
 else:
-    print " Importing PSD file ", opts.psd_file
+    print(" Importing PSD file ", opts.psd_file)
     eff_fisher_psd = lalsimutils.load_resample_and_clean_psd(opts.psd_file, 'H1', 1./opts.seglen)
     analyticPSD_Q = False
 
 
-print " Loading samples "
+print(" Loading samples ")
 samples_in = np.genfromtxt(opts.fname_lalinference,names=True)
-print " Done loading samples "
+print(" Done loading samples ")
 deltaT = 1./4096
 T_window =int(opts.seglen)
 
@@ -65,13 +65,13 @@ P.deltaF = 1./T_window
 P.fmin = samples_in["flow"][0]
 P.approx=lalsim.SpinTaylorT2
 P.print_params()
-print lalsimutils.estimateDeltaF(P), P.deltaF
+print(lalsimutils.estimateDeltaF(P), P.deltaF)
 if P.deltaF > lalsimutils.estimateDeltaF(P):
     sys.exit(0)
 hfBase = lalsimutils.complex_hoff(P) # Does not matter what this is.
-print " Done generating waveform"
+print(" Done generating waveform")
 IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=opts.fmax,interpolate_max=True)
-print " Done populating inner product"
+print(" Done populating inner product")
 
 
 # Similar code: convert_output_format_inference2ile
@@ -102,7 +102,7 @@ for indx in np.arange(len(samples_in["m1"])):
     elif "phase" in samples_in.dtype.names:
      P.phiref = samples_in["phase"][fac_reduce*indx]
     else:
-     print samples_in.dtype.names
+     print(samples_in.dtype.names)
      P.phiref = 0  # does not actually matter
     P.approx = lalsim.GetApproximantFromString(opts.approx)
     if "phi_jl" in samples_in.dtype.names and 'theta1' in samples_in.dtype.names:
@@ -136,7 +136,7 @@ for indx in np.arange(len(samples_in["m1"])):
          psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
          )
     else:
-        print " Don't know how to handle this orientation for", opts.approx
+        print(" Don't know how to handle this orientation for", opts.approx)
 
       ###
       ### Create two approximants
@@ -161,7 +161,7 @@ for indx in np.arange(len(samples_in["m1"])):
     nm_1 = IP.norm(hF_1)
     nm_2 = IP.norm(hF_2)
     match = IP.ip(hF_1,hF_2)/nm_1/nm_2
-    print indx, match
+    print(indx, match)
 
     if opts.verbose and match < 0.95:
         P.print_params()

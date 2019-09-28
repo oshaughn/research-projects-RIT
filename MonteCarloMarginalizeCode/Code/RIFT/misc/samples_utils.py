@@ -15,14 +15,14 @@ def extract_combination_from_LI(samples_LI, p):
          return samples_LI[ remap_ILE_2_LI[p] ]
     # Return cartesian components of spin1, spin2.  NOTE: I may already populate these quantities in 'Add important quantities'
     if p == 'chiz_plus':
-        print " Transforming "
+        print(" Transforming ")
         if 'a1z' in samples_LI.dtype.names:
             return (samples_LI['a1z']+ samples_LI['a2z'])/2.
         if 'theta1' in samples_LI.dtype.names:
             return (samples_LI['a1']*np.cos(samples_LI['theta1']) + samples_LI['a2']*np.cos(samples_LI['theta2']) )/2.
 #        return (samples_LI['a1']+ samples_LI['a2'])/2.
     if p == 'chiz_minus':
-        print " Transforming "
+        print(" Transforming ")
         if 'a1z' in samples_LI.dtype.names:
             return (samples_LI['a1z']- samples_LI['a2z'])/2.
         if 'theta1' in samples_LI.dtype.names:
@@ -55,7 +55,7 @@ def extract_combination_from_LI(samples_LI, p):
     if p == 'product(sin_beta,cos_phiJL)':
         return np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.cos(  samples_LI['phi_jl'])
 
-    print " No access for parameter ", p
+    print(" No access for parameter ", p)
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
 
 def add_field(a, descr):
@@ -83,7 +83,7 @@ def add_field(a, descr):
     True
     """
     if a.dtype.fields is None:
-        raise ValueError, "`A' must be a structured numpy array"
+        raise ValueError("`A' must be a structured numpy array")
     b = np.empty(a.shape, dtype=a.dtype.descr + descr)
     for name in a.dtype.names:
         b[name] = a[name]

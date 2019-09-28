@@ -33,10 +33,10 @@ from multiprocessing import Pool
 try:
     import os
     n_threads = int(os.environ['OMP_NUM_THREADS'])
-    print " Pool size : ", n_threads
+    print(" Pool size : ", n_threads)
 except:
     n_threads=1
-    print " - No multiprocessing - "
+    print(" - No multiprocessing - ")
 
 try:
 	import NRWaveformCatalogManager as nrwf
@@ -134,7 +134,7 @@ def eval_overlap(grid,P_list, IP,indx):
     else:
         line_out.append(-1)
     if opts.verbose:
-            print " Answer ", indx, line_out
+            print(" Answer ", indx, line_out)
     return line_out
 
 def evaluate_overlap_on_grid(hfbase,param_names, grid):
@@ -224,7 +224,7 @@ else:
         P.approx = lalsim.GetApproximantFromString(opts.approx)
         if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
             # Do not use tidal parameters in approximant which does not implement them
-            print " Do not use tidal parameters in approximant which does not implement them "
+            print(" Do not use tidal parameters in approximant which does not implement them ")
             P.lambda1 = 0
             P.lambda2 = 0
     else:
@@ -236,7 +236,7 @@ P.fref = opts.fref
 P.print_params()
 
 
-print "    -------INTERFACE ------"
+print("    -------INTERFACE ------")
 hfBase =None
 IP=None
 if not opts.skip_overlap:
@@ -245,8 +245,8 @@ if not opts.skip_overlap:
     nmBase = IP.norm(hfBase)
     hfBase.data.data *= 1./nmBase
     if opts.verbose:
-        print " ------  SIGNAL DURATION ----- "
-        print hfBase.data.length*P.deltaT
+        print(" ------  SIGNAL DURATION ----- ")
+        print(hfBase.data.length*P.deltaT)
 
 
 
@@ -274,20 +274,20 @@ if opts.inj and opts.insert_missing_spokes:
         compare_dict['s2y'] = P_here.s2y
         good_sim_list = nrwf.NRSimulationLookup(compare_dict,valid_groups=[opts.group])
         if len(good_sim_list)< 1:
-                        print " ------- NO MATCHING SIMULATIONS FOUND ----- "
+                        print(" ------- NO MATCHING SIMULATIONS FOUND ----- ")
                         import sys
                         sys.exit(0)
-                        print " Identified set of matching NR simulations ", good_sim_list
+                        print(" Identified set of matching NR simulations ", good_sim_list)
         try:
-                        print  "   Attempting to pick longest simulation matching  the simulation  "
+                        print("   Attempting to pick longest simulation matching  the simulation  ")
                         MOmega0  = 1
                         good_sim = None
                         for key in good_sim_list:
-                                print key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+                                print(key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]])
                                 if nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0'] < MOmega0:
                                         good_sim = key
                                         MOmega0 = nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0']
-                                print " Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+                                print(" Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]])
         except:
             good_sim  = good_sim_list[0] # pick the first one.  Note we will want to reduce /downselect the lookup process
             group = good_sim[0]
@@ -310,11 +310,11 @@ else:
 
 eta_range = eval(opts.eta_range)
 
-print opts.group, opts.param
+print(opts.group, opts.param)
 for group in glist:
   if not opts.param:
     for param in nrwf.internal_ParametersAvailable[group]:
-     print "  -> ", group, param
+     print("  -> ", group, param)
      try:
         wfP = nrwf.WaveformModeCatalog(group,param,metadata_only=True)
         wfP.P.deltaT = P.deltaT
@@ -324,7 +324,7 @@ for group in glist:
         # Add parameters. Because we will compare with SEOB, we need an ALIGNED waveform, so we fake it
         if wfP.P.extract_param('eta') >= eta_range[0] and wfP.P.extract_param('eta')<=eta_range[1] and (not np.isnan(wfP.P.s1z) and not np.isnan(wfP.P.s2z)):
             if (not opts.skip_overlap) and wfP.P.SoftAlignedQ():
-                print " Adding aligned sim ", group, param,  " and changing spin values, so we can compute overlaps "
+                print(" Adding aligned sim ", group, param,  " and changing spin values, so we can compute overlaps ")
                 wfP.P.approx = lalsim.GetApproximantFromString(opts.approx)  # Make approx consistent and sane
                 wfP.P.m2 *= 1. - 1e-6  # Prevent failure for exactly equal!
             # Satisfy error checking condition for lal
@@ -339,14 +339,14 @@ for group in glist:
                     omega_list_NR+=[-1]
             elif opts.skip_overlap:
                 if not opts.aligned_only:
-                    print " Adding generic sim; for layout only ", group, param
+                    print(" Adding generic sim; for layout only ", group, param)
                     P_list_NR = P_list_NR + [wfP.P]
                     try:
                         omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
                     except:
                         omega_list_NR+=[-1]
                 elif opts.aligned_only and  wfP.P.SoftAlignedQ():
-                    print " Adding aligned spin simulation; for layout only", group, param, " and fixing transverse spins accordingly"
+                    print(" Adding aligned spin simulation; for layout only", group, param, " and fixing transverse spins accordingly")
                     wfP.P.s1x = 0
                     wfP.P.s2x = 0
                     wfP.P.s1y = 0
@@ -359,16 +359,16 @@ for group in glist:
 
                     
             else:
-                print " Skipping non-aligned simulation because overlaps active (=SEOBNRv2 comparison usually)", group, param
+                print(" Skipping non-aligned simulation because overlaps active (=SEOBNRv2 comparison usually)", group, param)
 #                wfP.P.print_params()
 #                print nrwf.internal_WaveformMetadata[group][param]
      except:
-	print " Failed to add ", group, param
+	print(" Failed to add ", group, param)
         
   else: # target case if a single group and parameter sequence are specified
-        print "Looping over list ", opts.param
+        print("Looping over list ", opts.param)
         for paramKey in opts.param:
-            print " Adding specific simulation ", opts.group, paramKey
+            print(" Adding specific simulation ", opts.group, paramKey)
             if nrwf.internal_ParametersAreExpressions[group]:
                 param = eval(paramKey)
             else:
@@ -385,7 +385,7 @@ for group in glist:
 
 
 if len(P_list_NR)<1:
-    print " No simulations"
+    print(" No simulations")
     sys.exit(0)
 
 
@@ -425,7 +425,7 @@ mass_grid =np.linspace( mass_range[0],mass_range[1],opts.grid_cartesian_npts)
 # Loop over simulations and mass grid
 grid = []
 indx=-1
-print "Length check", len(P_list_NR), len(omega_list_NR)
+print("Length check", len(P_list_NR), len(omega_list_NR))
 for P in P_list_NR:
     indx+=1
     Momega0_here = omega_list_NR[indx]
@@ -446,13 +446,13 @@ for P in P_list_NR:
             # only add mass point if a valid mass choice, given NR starting frequency.
             grid = grid+[ newline]
 
-print " ---- DONE WITH GRID SETUP --- "
-print " grid points # = " ,len(grid)
+print(" ---- DONE WITH GRID SETUP --- ")
+print(" grid points # = " ,len(grid))
 
 
 grid_out, P_list = evaluate_overlap_on_grid(hfBase, param_names, grid)
 if len(grid_out)==0:
-    print " No points survive...."
+    print(" No points survive....")
 
 ###
 ### Optional: Write grid to XML file (ONLY if using cutoff option)
@@ -488,4 +488,4 @@ if opts.verbose and len(param_names)==2:
     ax.scatter(grid_out[:,0], grid_out[:,1], grid_out[:,2])
     plt.show()
 
-print " ---- DONE ----"
+print(" ---- DONE ----")

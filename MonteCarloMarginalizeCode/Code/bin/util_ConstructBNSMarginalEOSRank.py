@@ -99,7 +99,7 @@ prior_dict = {'mc': mc_prior,
 #gp fit (basically taken from util_ConstructIntrinsincPosterior_GenericCoordinates.py)
 def gp_fit(x, y, mc_index=0):
     
-    print "Fitting", len(y), "points: "
+    print("Fitting", len(y), "points: ")
 
     #length scale tuning taken from util_ConstructIntrinsicPosterior_GenericCoordinates.py
     length_scale_est = []
@@ -111,7 +111,7 @@ def gp_fit(x, y, mc_index=0):
         length_scale_min_here= np.max([1e-3,0.2*np.std(x[:,indx]/np.sqrt(len(x)))])
         if indx == mc_index:
             length_scale_min_here= 0.2*np.std(x[:,indx]/np.sqrt(len(x)))
-            print " Setting mc range: retained point range is ", np.std(x[:,indx]), " and target min is ", length_scale_min_here
+            print(" Setting mc range: retained point range is ", np.std(x[:,indx]), " and target min is ", length_scale_min_here)
     length_scale_bounds_est.append( (length_scale_min_here, 5*np.std(x[:,indx])) )
 
     #set up kernel
@@ -244,9 +244,9 @@ if opts.composite_file:
    
     param_array = []    
 
-    print "Fitting to params:"
+    print("Fitting to params:")
     for param in opts.parameter:
-        print param
+        print(param)
         param_array.append(param)
 
     #append extra argument to calculate 
@@ -309,10 +309,10 @@ if opts.composite_file:
            integral_bounds.append(integral_bound_dict[p])
 
     #do the integral
-    print "Integrating ..."
-    print integral_bounds
-    print param_array
+    print("Integrating ...")
+    print(integral_bounds)
+    print(param_array)
     integral_result = integrate_likelihood(gp_fit_function, integral_bounds, param_array)
-    print integral_result
+    print(integral_result)
     
     np.savetxt(opts.fname_out, integral_result)

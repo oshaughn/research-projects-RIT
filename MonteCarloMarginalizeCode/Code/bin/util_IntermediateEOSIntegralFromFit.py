@@ -113,13 +113,13 @@ def integrate_at(eta_here, LambdaTildeHere):
 # Test case
 eta_here = 0.245
 LambdaTildeHere = 200
-print integrate_at(eta_here, LambdaTildeHere)
+print(integrate_at(eta_here, LambdaTildeHere))
 
 dat_out = []
 for d in np.linspace(delta_mc_range[0],delta_mc_range[1],50):
     for L in np.linspace(1,2000,200):  # need very dense sampling
         dat_out.append([d, L, np.log(integrate_at( 0.25*(1 - d*d), L))])
         if opts.verbose:
-            print dat_out[-1]
+            print(dat_out[-1])
 
 np.savetxt(opts.out_file, dat_out)

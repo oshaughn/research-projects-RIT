@@ -6,6 +6,9 @@ Fit a Gaussian Mixture Model (GMM) to data and draw samples from it. Uses the
 Expectation-Maximization algorithm.
 '''
 from __future__ import print_function
+
+from six.moves import range
+
 import numpy as np
 from scipy.stats import multivariate_normal
 from scipy.misc import logsumexp
@@ -116,8 +119,8 @@ class estimator:
 
             # Removing scaling factor of covariance matrix
             n = x.shape[0]
-            var_list = np.array([np.sqrt(x[i,i]) for i in xrange(n)])
-            y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
+            var_list = np.array([np.sqrt(x[i,i]) for i in range(n)])
+            y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
 
             # getting the nearest correlation matrix
             eigval, eigvec = np.linalg.eig(y)
@@ -129,7 +132,7 @@ class estimator:
             near_corr = B*B.T    
 
             # returning the scaling factors
-            near_cov = np.array([[near_corr[i, j]*(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
+            near_cov = np.array([[near_corr[i, j]*(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
             if np.isreal(near_cov).all():
                 break
             else:
@@ -306,8 +309,8 @@ class gmm:
 
             # Removing scaling factor of covariance matrix
             n = x.shape[0]
-            var_list = np.array([np.sqrt(x[i,i]) for i in xrange(n)])
-            y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
+            var_list = np.array([np.sqrt(x[i,i]) for i in range(n)])
+            y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
 
             # getting the nearest correlation matrix
             eigval, eigvec = np.linalg.eig(y)
@@ -319,7 +322,7 @@ class gmm:
             near_corr = B*B.T    
 
             # returning the scaling factors
-            near_cov = np.array([[near_corr[i, j]*(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
+            near_cov = np.array([[near_corr[i, j]*(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
             if np.isreal(near_cov).all():
                 break
             else:

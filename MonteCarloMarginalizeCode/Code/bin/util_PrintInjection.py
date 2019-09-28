@@ -74,7 +74,7 @@ for event in events:
        
    if toprint:
        if toprintHead:
-                      print " ----   Event number ", event , " ------"
+                      print(" ----   Event number ", event , " ------")
        P.print_params(show_system_frame=opts.system_frame) # show_morphology=True, ,show_fend=opts.show_fend
 
  

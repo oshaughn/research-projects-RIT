@@ -25,10 +25,10 @@ from multiprocessing import Pool
 try:
     import os
     n_threads = int(os.environ['OMP_NUM_THREADS'])
-    print " Pool size : ", n_threads
+    print(" Pool size : ", n_threads)
 except:
     n_threads=1
-    print " - No multiprocessing - "
+    print(" - No multiprocessing - ")
 
 try:
 	import NRWaveformCatalogManager as nrwf
@@ -119,9 +119,9 @@ with open(opts.fname) as f:
       else:
          full_spoke[key] = [[mtot,lnLhere, sigma_here]]
 
-print " -----  BEST SINGLE POINT MATCHES ------ "  # unsorted
+print(" -----  BEST SINGLE POINT MATCHES ------ ")  # unsorted
 if  opts.fit:
-  print "  +++ Using fit code +++ "
+  print("  +++ Using fit code +++ ")
   for key in best_matches:
       full_spoke[key] = np.array(sorted(np.array(full_spoke[key]),key=lambda p: p[1]))
       lnLmaxHere = np.max(full_spoke[key][:,1])
@@ -130,7 +130,7 @@ if  opts.fit:
       n_required =np.max([4,np.min([10, 0.1*len(full_spoke[key])])])
       indx_crit =int(np.max([n_required-1,np.argmin( np.abs(full_spoke[key][:,1]-10))]))
       if opts.verbose:
-	print " Spoke needs ", key, indx_crit+1
+	print(" Spoke needs ", key, indx_crit+1)
       reduced_spoke = full_spoke[key][-indx_crit:]
       mMin = np.min(reduced_spoke[:,0])
       mMax = np.max(reduced_spoke[:,0])
@@ -144,27 +144,27 @@ if  opts.fit:
           mBestGuess = -0.5*z[1]/z[0]
           lnLBestGuess = z[2] -0.25*z[1]**2/z[0] 
       except:
-          print " Interpolation failure (internal to polyfit, VERY UNUSUAL) for spoke ", key, " reverting to pointwise best "
+          print(" Interpolation failure (internal to polyfit, VERY UNUSUAL) for spoke ", key, " reverting to pointwise best ")
           indxMax = np.argmax(reduced_spoke[:,2])
           mBestGuess = reduced_spoke[indxMax,0]
           lnLBestGuess = reduced_spoke[indxMax,2]
           z = [0,0,lnLBestGuess]
-      print key, z[0], mBestGuess, lnLBestGuess, best_matches[key], sigma_crit
+      print(key, z[0], mBestGuess, lnLBestGuess, best_matches[key], sigma_crit)
       if z[2]<0 and mBestGuess> mMin and mBestGuess < mMax:
         if lnLBestGuess < lnLmaxHere+opts.lnL_cut_up and lnLBestGuess > lnLmaxHere-5*sigma_crit:  # do not allow arbitrary extrapolation
           if opts.verbose:
-              print " Replacing peak ", key, best_matches[key], " -> ", lnLBestGuess, " at mass ", mBestGuess
+              print(" Replacing peak ", key, best_matches[key], " -> ", lnLBestGuess, " at mass ", mBestGuess)
               if lnLBestGuess > lnLmaxHere+5:
-                  print " VERY LARGE CHANGE FOR", key, lnLmaxHere, "->", lnLBestGuess
+                  print(" VERY LARGE CHANGE FOR", key, lnLmaxHere, "->", lnLBestGuess)
           best_matches[key] = lnLBestGuess 
           orig_mtot = best_matches_masses[key][0]+best_matches_masses[key][1]
           orig_m1 = best_matches_masses[key][0]
           orig_m2 = best_matches_masses[key][1]
           best_matches_masses[key]=(mBestGuess* orig_m1/orig_mtot, mBestGuess* orig_m2/orig_mtot)
         else:
-	  print " Replacement rejected as out of range ", key, " reject ", lnLmaxHere, "->", lnLBestGuess, " : you probably need to rerun this spoke"
+	  print(" Replacement rejected as out of range ", key, " reject ", lnLmaxHere, "->", lnLBestGuess, " : you probably need to rerun this spoke")
       if z[2]<0 and not ( mBestGuess> mMin and mBestGuess < mMax):
-          print " PLACEMENT FAILURE: ", key, mBestGuess, " outside of ", [mMin,mMax]
+          print(" PLACEMENT FAILURE: ", key, mBestGuess, " outside of ", [mMin,mMax])
       
 
       ## REVISE BEST FIT VIA GAUSSIAN PROCESS
@@ -176,7 +176,7 @@ if  opts.fit:
           xvals_dense = np.linspace(mMin,mMax,1000)
           yvals_dense = my_gp.predict(xvals_dense)[:,0]
           indx_gp_best = np.argmax(yvals_dense)
-          print " GP best fit ", xvals_dense[indx_gp_best], yvals_dense[indx_gp_best][0,0], "versus", mBestGuess, lnLmaxHere
+          print(" GP best fit ", xvals_dense[indx_gp_best], yvals_dense[indx_gp_best][0,0], "versus", mBestGuess, lnLmaxHere)
           if  mBestGuess-2 < xvals_dense[indx_gp_best] < mBestGuess+2 and yvals_dense[indx_gp_best][0,0] < lnLBestGuess+5*sigma_crit:
               mBestGuess = xvals_dense[indx_gp_best]
               lnLmaxHere= yvals_dense[indx_gp_best][0,0]
@@ -185,10 +185,10 @@ if  opts.fit:
               orig_m1 = best_matches_masses[key][0]
               orig_m2 = best_matches_masses[key][1]
               best_matches_masses[key]=(mBestGuess* orig_m1/orig_mtot, mBestGuess* orig_m2/orig_mtot)
-              print "  ....using GP best fit  for ", key, best_matches[key], best_matches_masses[key]
+              print("  ....using GP best fit  for ", key, best_matches[key], best_matches_masses[key])
 
       except:
-          print " GP failure"
+          print(" GP failure")
 
 
 for key in best_matches:
@@ -204,6 +204,6 @@ for key in best_matches:
         Mf = nrwf.internal_WaveformMetadata[key[0]][key[1]]['MF']
     wfP = nrwf.WaveformModeCatalog(key[0],key[1], metadata_only=True)
     xi = wfP.P.extract_param('xi')
-    print best_matches[key], key[0], str(key[1]).replace(' ',''),   best_matches_masses[key][0], best_matches_masses[key][1], tmax, xi, Mf, af
+    print(best_matches[key], key[0], str(key[1]).replace(' ',''),   best_matches_masses[key][0], best_matches_masses[key][1], tmax, xi, Mf, af)
   except:
-     print "Skipping ", key
+     print("Skipping ", key)

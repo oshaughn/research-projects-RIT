@@ -42,6 +42,6 @@ sampler.add_parameter("dist", functools.partial(uniform_samp, dist_min, dist_max
 
 
 ptarray = sampler.draw( 10, ("tref", "ra", "dec", "inc", "phi", "psi", "d"))
-print ptarray
+print(ptarray)
 plt.hist(ptarray,50,normed=1)
 plt.show()

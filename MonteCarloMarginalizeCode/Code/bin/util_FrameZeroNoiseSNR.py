@@ -42,16 +42,16 @@ for ifo in ifo_list:
     fSample = len(data_dict[ifo].data.data)*data_dict[ifo].deltaF
     df = data_dict[ifo].deltaF
     if not psd_name.has_key(ifo):
-        print ifo, " analytic psd ", opts.psd
+        print(ifo, " analytic psd ", opts.psd)
         analyticPSD_Q=True
         psd_dict[ifo] = eval(opts.psd)
     else:
         analyticPSD_Q=False
-        print "Reading PSD for instrument %s from %s" % (ifo, psd_name[ifo])
+        print("Reading PSD for instrument %s from %s" % (ifo, psd_name[ifo]))
         psd_dict[ifo] = lalsimutils.load_resample_and_clean_psd(psd_name[ifo], ifo, df)
     IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[ifo],fMax=fmaxSNR,analyticPSD_Q=analyticPSD_Q)
     rhoDet = rho_dict[ifo] = IP.norm(data_dict[ifo])
-    print ifo, rho_dict[ifo]
+    print(ifo, rho_dict[ifo])
     rho2Net += rhoDet*rhoDet
     if opts.plot_sanity:
         fvals = lalsimutils.evaluate_fvals(data_dict[ifo])
@@ -64,10 +64,10 @@ for ifo in ifo_list:
         plt. savefig("frameplot_psd_"+ifo+".png"); plt.clf()
     data_dict[ifo] = None  # clear it
   except:
-      print " No IFO ", ifo
+      print(" No IFO ", ifo)
 rho_dict['Network']=    np.sqrt(rho2Net )
 
-print rho_dict
+print(rho_dict)
 import json
 with open("snr-report.txt", 'w') as f:
     json.dump(rho_dict, f)

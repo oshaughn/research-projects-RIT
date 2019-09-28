@@ -5,6 +5,7 @@
 # Like ILE, but only providing the Qlm and inverse spectrum filters
 #
 
+from __future__ import print_function
 
 import sys
 import functools
@@ -21,7 +22,7 @@ try:
   xpy_default=cupy
   identity_convert = cupy.asnumpy
 except:
-  print ' no cupy'
+  print(' no cupy')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
@@ -157,7 +158,7 @@ optp.add_option_group(pinnable)
 opts, args = optp.parse_args()
 
 if opts.gpu and xpy_default is numpy:
-    print " Override --gpu  (not available);  use --force-xpy to require the identical code path is used (with xpy =[np|cupy]"
+    print(" Override --gpu  (not available);  use --force-xpy to require the identical code path is used (with xpy =[np|cupy]")
     opts.gpu=False
     if opts.force_xpy:
         opts.gpu=True
@@ -175,7 +176,7 @@ restricted_mode_list=None
 if not(opts.restricted_mode_list_file is None):
     modes =numpy.loadtxt(opts.restricted_mode_list_file,dtype=int) # columns are l m.  Must contain all. Only integers obviously
     restricted_mode_list = [ (l,m) for l,m in modes]
-    print " RESTRICTED MODE LIST target :", restricted_mode_list
+    print(" RESTRICTED MODE LIST target :", restricted_mode_list)
 
 intrinsic_param_names = opts.parameter
 valid_intrinsic_param_names = ['q']
@@ -184,7 +185,7 @@ if intrinsic_param_names:
     
     # Check if in the valid list
     if not(param in valid_intrinsic_param_names):
-            print ' Invalid param ', param, ' not in ', valid_intrinsic_param_names
+            print(' Invalid param ', param, ' not in ', valid_intrinsic_param_names)
             sys.exit(0)
     param_ranges = []
     if len(intrinsic_param_names) == len(opts.parameter_range):
@@ -239,9 +240,9 @@ else:
 
 if opts.event_time is not None:
     event_time = glue.lal.LIGOTimeGPS(opts.event_time)
-    print "Event time from command line: %s" % str(event_time)
+    print("Event time from command line: %s" % str(event_time))
 else:
-    print " Error! "
+    print(" Error! ")
     sys.exit(0)
 
 #
@@ -254,10 +255,10 @@ fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more di
 # Struct to hold template parameters
 P_list = None
 if opts.sim_xml:
-    print "====Loading injection XML:", opts.sim_xml, opts.event, " ======="
+    print("====Loading injection XML:", opts.sim_xml, opts.event, " =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
     if  len(P_list) < opts.event+opts.n_events_to_analyze:
-        print " Event list of range; soft exit"
+        print(" Event list of range; soft exit")
         sys.exit(0)
     P_list = P_list[opts.event:(opts.event+opts.n_events_to_analyze)]
     for P in P_list:
@@ -283,8 +284,8 @@ if opts.sim_xml:
 if not (opts.data_start_time == None) and  not (opts.data_end_time == None):
     start_time =  opts.data_start_time
     end_time =  opts.data_end_time
-    print "Fetching data segment with start=", start_time
-    print "                             end=", end_time
+    print("Fetching data segment with start=", start_time)
+    print("                             end=", end_time)
 
 # Automatically choose data segment bounds so region of interest isn't corrupted
 # FIXME: Use estimate, instead of painful full waveform generation call here.
@@ -305,10 +306,10 @@ else:
 #        T_seg *=2   # extra safety factor
     start_time = float(event_time) - T_seg
     end_time = float(event_time) + T_seg
-    print "Fetching data segment with start=", start_time
-    print "                             end=", end_time
-    print "\t\tEvent time is: ", float(event_time)
-    print "\t\tT_seg is: ", T_seg
+    print("Fetching data segment with start=", start_time)
+    print("                             end=", end_time)
+    print("\t\tEvent time is: ", float(event_time))
+    print("\t\tT_seg is: ", T_seg)
 
 #
 # Load in data and PSDs
@@ -316,27 +317,27 @@ else:
 data_dict, psd_dict = {}, {}
 
 for inst, chan in map(lambda c: c.split("="), opts.channel_name):
-    print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
+    print("Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
     data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
             inst+":"+chan, start=start_time, stop=end_time,
             window_shape=opts.window_shape,deltaT=deltaT)
-    print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
-            data_dict[inst].data.length)
+    print("Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
+            data_dict[inst].data.length))
 
 flow_ifo_dict = {}
 if opts.fmin_ifo:
  for inst, freq_str in map(lambda c: c.split("="), opts.fmin_ifo):
     freq_low_here = float(freq_str)
-    print "Reading low frequency cutoff for instrument %s from %s" % (inst, freq_str), freq_low_here
+    print("Reading low frequency cutoff for instrument %s from %s" % (inst, freq_str), freq_low_here)
     flow_ifo_dict[inst] = freq_low_here
 
 for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
-    print "Reading PSD for instrument %s from %s" % (inst, psdf)
+    print("Reading PSD for instrument %s from %s" % (inst, psdf))
     psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
 
     deltaF = data_dict[inst].deltaF
     psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
-    print "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF
+    print("PSD deltaF after interpolation %f" % psd_dict[inst].deltaF)
 
     # implement cutoff.  
     if inst in flow_ifo_dict.keys():
@@ -344,7 +345,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
             psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(psd_dict[inst].data.length)
             psd_dict[inst].data.data[ psd_fvals < flow_ifo_dict[inst]] = 0 # 
         else:
-            print 'FAIL'
+            print('FAIL')
             sys.exit(0)
 #        elif isinstance(psd_dict[inst], pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):  # for backward compatibility
 #            psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(len(psd_dict[inst].data))
@@ -368,7 +369,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
 
 # Ensure data and PSDs keyed to same detectors
 if sorted(psd_dict.keys()) != sorted(data_dict.keys()):
-    print >>sys.stderr, "Got a different set of instruments based on data and PSDs provided."
+    print("Got a different set of instruments based on data and PSDs provided.", file=sys.stderr)
 
 # Ensure waveform has same sample rate, padded length as data
 #
@@ -404,7 +405,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # Only allocate the FFT plans ONCE
     ifo0 = psd_dict.keys()[0]
     npts = data_dict[ifo0].data.length
-    print " Allocating FFT forward, reverse plans ", npts
+    print(" Allocating FFT forward, reverse plans ", npts)
     fwdplan = lal.CreateForwardREAL8FFTPlan(npts, 0)
     revplan = lal.CreateReverseREAL8FFTPlan(npts, 0)
 
@@ -428,7 +429,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         WTD = lal.CreateREAL8TimeSeries('TD root inv. spec.',
                     lal.LIGOTimeGPS(0.), 0., IP_here.deltaT,
                     lal.DimensionlessUnit, IP_here.len2side)
-        print ifo, IP_here.len2side
+        print(ifo, IP_here.len2side)
 #        if not(fwdplan is None):
         WFD.data.data[:] = np.sqrt(IP_here.weights) # W_FD is 1/sqrt(S_n(f))
         WFD.data.data[0] = WFD.data.data[-1] = 0. # zero 0, f_Nyq bins

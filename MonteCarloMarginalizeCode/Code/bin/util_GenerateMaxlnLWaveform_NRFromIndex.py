@@ -61,14 +61,14 @@ with open(opts.fname_indexed) as f:
      # string split
      line = line_str.split()
      if opts.verbose:
-         print "  Input ", line
+         print("  Input ", line)
      # Get NR data
      if float(line[1])+float(line[2]) > opts.M_max_cut:
          continue
      group = line[3]
      if not (group == opts.nr_group):
          if opts.verbose:
-             print " Bad group ", group
+             print(" Bad group ", group)
          continue
      if not nrwf.internal_ParametersAreExpressions.has_key(group):
          continue
@@ -80,7 +80,7 @@ with open(opts.fname_indexed) as f:
 
      if not (param == opts.nr_param):
          if opts.verbose:
-             print " Bad param", param    # Problem: this can happen because of the lookup code! Equivalent physical parameters
+             print(" Bad param", param)    # Problem: this can happen because of the lookup code! Equivalent physical parameters
          continue
 
      if len(line)<6:
@@ -154,7 +154,7 @@ with open(str(opts.run_dir)+"/command-single.sh",'r') as runfile:
     if "--n-copies" in rf:
         rf_submit=rf_submit.replace("--n-copies","")
         
-    print rf_submit
+    print(rf_submit)
     os.system(rf_submit)
        
 
@@ -178,6 +178,6 @@ with open(str(opts.run_dir)+"/command-single.sh",'r') as runfile:
 	cmd+=" --save-plots --verbose"
 
 os.chdir(opts.run_dir)
-print cmd
+print(cmd)
 os.system(cmd)
 

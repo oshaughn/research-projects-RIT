@@ -12,6 +12,7 @@
 #  WARNING: My version does NOT interpolate the signal to a synchronized set of sample times.
 #                       This may cause problems for some applications, particularly at low sample rates.
 
+from __future__ import print_function
 
 import argparse
 import sys
@@ -70,7 +71,7 @@ if opts.start and opts.stop:
     opts.seglen = opts.stop-opts.start # override
 P.deltaF = 1./opts.seglen #lalsimutils.findDeltaF(P)
 if P.deltaF > 1./T_window:
-    print " time too short "
+    print(" time too short ")
 
 
 if not opts.inj:
@@ -91,32 +92,32 @@ P.print_params()
 
 # FAIL if masses are not viable
 if P.m1/lal.MSUN_SI > 3 or P.m2/lal.MSUN_SI > 3:
-    print " Invalid NS mass "
+    print(" Invalid NS mass ")
     sys.exit(0)
 
 wfP = eobwf.WaveformModeCatalog(P,lmax=opts.lmax)
-print " Loaded modes ", wfP.waveform_modes_complex.keys()
-print " Duration of stored signal ", wfP.estimateDurationSec()
+print(" Loaded modes ", wfP.waveform_modes_complex.keys())
+print(" Duration of stored signal ", wfP.estimateDurationSec())
 mtotMsun = (wfP.P.m1+wfP.P.m2)/lal.MSUN_SI
 
 
 # Generate signal
 hoft = wfP.real_hoft()   # include translation of source, but NOT interpolation onto regular time grid
-print " Original signal (min, max) ", np.min(hoft.data.data) ,np.max(hoft.data.data)
-print " Original signal duration ", hoft.deltaT*hoft.data.length
+print(" Original signal (min, max) ", np.min(hoft.data.data) ,np.max(hoft.data.data))
+print(" Original signal duration ", hoft.deltaT*hoft.data.length)
 # zero pad to be opts.seglen long
 TDlenGoal = int(opts.seglen/hoft.deltaT)
 if TDlenGoal < hoft.data.length:
-    print " seglen too short -- signal truncation would be required"
+    print(" seglen too short -- signal truncation would be required")
     sys.exit(0)
 nptsOrig = hoft.data.length
 hoft = lal.ResizeREAL8TimeSeries(hoft, 0, TDlenGoal)
 hoft.data.data[nptsOrig:TDlenGoal] = 0 # np.zeros(TDlenGoal-nptsOrig) # zero out the tail
-print " Resized signal (min, max) ", np.min(hoft.data.data) ,np.max(hoft.data.data)
+print(" Resized signal (min, max) ", np.min(hoft.data.data) ,np.max(hoft.data.data))
 # zero pad some more on either side, to make sure the segment covers start to stop
 if opts.start and hoft.epoch > opts.start:
     nToAddBefore = int((hoft.epoch-opts.start)/hoft.deltaT)
-    print "Padding start ", nToAddBefore, hoft.data.length
+    print("Padding start ", nToAddBefore, hoft.data.length)
     ht = lal.CreateREAL8TimeSeries("Template h(t)", 
             hoft.epoch - nToAddBefore*hoft.deltaT, 0, hoft.deltaT, lalsimutils.lsu_DimensionlessUnit, 
             hoft.data.length+nToAddBefore)
@@ -130,11 +131,11 @@ else:
     nToAddAtEnd=0
 if nToAddAtEnd <=0:
     nToAddAtEnd = int(1/hoft.deltaT)  # always at at least 1s of padding at end
-print "Padding end ", nToAddAtEnd, hoft.data.length
+print("Padding end ", nToAddAtEnd, hoft.data.length)
 nptsNow = hoft.data.length
 hoft = lal.ResizeREAL8TimeSeries(hoft,0, int(hoft.data.length+nToAddAtEnd))
 hoft.data.data[nptsNow:hoft.data.length] = 0
-print " Padded signal (min, max) ", np.min(hoft.data.data) ,np.max(hoft.data.data)
+print(" Padded signal (min, max) ", np.min(hoft.data.data) ,np.max(hoft.data.data))
 
 
 channel = opts.instrument+":FAKE-STRAIN"
@@ -144,30 +145,30 @@ duration = int(hoft.data.length*hoft.deltaT)
 if not opts.fname:
     fname = opts.instrument.replace("1","")+"-fake_strain-"+str(tstart)+"-"+str(duration)+".gwf"
 
-print "Writing signal with ", hoft.data.length*hoft.deltaT, " to file ", fname
-print "Maximum original ", np.max(hoft.data.data)
-print "Start time", hoft.epoch
+print("Writing signal with ", hoft.data.length*hoft.deltaT, " to file ", fname)
+print("Maximum original ", np.max(hoft.data.data))
+print("Start time", hoft.epoch)
 lalsimutils.hoft_to_frame_data(fname,channel,hoft)
 
 bNoInteractivePlots=True # default
 fig_extension = '.jpg'
 try:
     import matplotlib
-    print " Matplotlib backend ", matplotlib.get_backend()
+    print(" Matplotlib backend ", matplotlib.get_backend())
     if matplotlib.get_backend() is 'MacOSX':
         if opts.save_plots:
-            print "  OSX without interactive plots"
+            print("  OSX without interactive plots")
             bNoInteractivePlots=True
             fig_extension='.jpg'
         else:  #  Interactive plots
-            print "  OSX with interactive plots"
+            print("  OSX with interactive plots")
             bNoInteractivePlots=False
     elif matplotlib.get_backend() is 'agg':
         fig_extension = '.png'
         bNoInteractivePlots=True
-        print " No OSX; no interactive plots "
+        print(" No OSX; no interactive plots ")
     else:
-        print " Unknown configuration "
+        print(" Unknown configuration ")
         fig_extension = '.png'
         bNoInteractivePlots =True
     from matplotlib import pyplot as plt
@@ -175,7 +176,7 @@ try:
 except:
     from matplotlib import pyplot as plt
     fig_extension = '.png'
-    print " - no matplotlib - "
+    print(" - no matplotlib - ")
     bNoInteractivePlots = True
     bNoPlots = False
 
@@ -196,11 +197,11 @@ if opts.verbose and not bNoPlots:
     ncrit = np.argmax(hoft2.data.data)
     tcrit = float(hoft2.epoch) - float(wfP.P.tref) + ncrit*hoft2.deltaT    # zero time
 
-    print " Maximum original ", np.max(hoft.data.data), " size ", len(tvals), len(hoft.data.data)
-    print " Maximum frames ", np.max(hoft2.data.data), " size ", len(tvals2), len(hoft2.data.data)
-    print " Location of maximum in samples. relative time ", ncrit, tcrit
-    print " Location of maximum in samples, compared to tref", tcrit+P.tref, 
-    print " Location of maximum as GPS time ", ncrit*hoft2.deltaT+ float(hof2.epoch)
+    print(" Maximum original ", np.max(hoft.data.data), " size ", len(tvals), len(hoft.data.data))
+    print(" Maximum frames ", np.max(hoft2.data.data), " size ", len(tvals2), len(hoft2.data.data))
+    print(" Location of maximum in samples. relative time ", ncrit, tcrit)
+    print(" Location of maximum in samples, compared to tref", tcrit+P.tref, end=' ')
+    print(" Location of maximum as GPS time ", ncrit*hoft2.deltaT+ float(hof2.epoch))
 
     plt.plot(tvals2,hoft2.data.data,label='Fr')
     plt.xlim(tcrit-1,tcrit+1)
@@ -211,7 +212,7 @@ if opts.verbose and not bNoPlots:
         plt.show()
     else:
         for indx in [1]:
-            print "Writing figure ", indx
+            print("Writing figure ", indx)
             plt.xlim(tcrit-0.1,tcrit+0.01)
             plt.figure(indx); plt.savefig("eob-framedump-" +str(indx)+fig_extension)
 #            plt.xlim(min(tvals2),max(tvals2)) # full range with pad
