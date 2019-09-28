@@ -240,7 +240,7 @@ def multi_dim_meshgrid(*arrs):
     Taken from: http://stackoverflow.com/questions/1827489/numpy-meshgrid-in-3d
     """
     arrs = tuple(reversed(arrs))
-    lens = map(len, arrs)
+    lens = list(map(len, arrs))
     dim = len(arrs)
 
     sz = 1
