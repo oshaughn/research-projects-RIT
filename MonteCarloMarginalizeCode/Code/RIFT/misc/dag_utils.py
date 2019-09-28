@@ -124,7 +124,7 @@ def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in kwargs.items():
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -222,7 +222,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in kwargs.items():
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -439,7 +439,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in kwargs.items():
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -513,7 +513,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in kwargs.items():
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -659,7 +659,7 @@ echo Starting ...
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in kwargs.items():
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -839,7 +839,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in kwargs.items():
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -1197,7 +1197,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in kwargs.items():
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -1308,7 +1308,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in kwargs.items():
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -1417,7 +1417,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in kwargs.items():
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:

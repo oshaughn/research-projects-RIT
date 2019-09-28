@@ -113,7 +113,7 @@ def write_CIP_sub(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in kwargs.items():
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:

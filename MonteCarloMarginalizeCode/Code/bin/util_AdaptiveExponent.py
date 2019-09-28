@@ -65,7 +65,7 @@ if __file__ == sys.argv[0]:
                     
         else:
             psd_dict = common_cl.parse_cl_key_value(opts.psd_file_singleifo)
-            for det, psdf in psd_dict.iteritems():
+            for det, psdf in psd_dict.items():
                 psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(psdf, det)
 
         """

@@ -64,7 +64,7 @@ def plot_integral(fcn, samp, fargs=None, fname=None):
 
 	fval = fcn(*args)
 	n = len(fval)
-	#p_s = numpy.array([ samp.pdf[p](*x)/samp._pdf_norm[p] for p, x in samp._rvs.iteritems() ])
+	#p_s = numpy.array([ samp.pdf[p](*x)/samp._pdf_norm[p] for p, x in samp._rvs.items() ])
 	joint_p_s = numpy.prod(p_s, axis=0)
 	int_val = fval/joint_p_s
 	maxval = [fval[0]/joint_p_s[0] or -float("Inf")]
@@ -135,7 +135,7 @@ def plot_cdf_inv(samp, fname=None):
 
 	pyplot.figure()
 	x_i = numpy.linspace(0, 1, 1000)
-	for param, cdfinv in samp.cdf_inv.iteritems():
+	for param, cdfinv in samp.cdf_inv.items():
 		pyplot.plot(x_i, map(cdfinv, x_i), '-', label=param)
 
 	pyplot.grid()

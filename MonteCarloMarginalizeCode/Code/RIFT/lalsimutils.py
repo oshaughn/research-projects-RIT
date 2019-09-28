@@ -291,7 +291,7 @@ class ChooseWaveformParams:
         print(" lalsimutils: Warning: Running with non-master version of lal ! ")
     def to_lal_dict(self):
         extra_params = lal.CreateDict()
-        for k, p in ChooseWaveformParams._LAL_DICT_PARAMS.iteritems():
+        for k, p in ChooseWaveformParams._LAL_DICT_PARAMS.items():
             typfunc = ChooseWaveformParams._LAL_DICT_PTYPE[k]
             typfunc(extra_params, k, getattr(self, p))
         # Properly add tidal parammeters

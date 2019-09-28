@@ -83,7 +83,7 @@ def CreateCompatibleComplexOverlap(hlmf,**kwargs):
     deltaF = hbase.deltaF
     fNyq = np.max(lalsimutils.evaluate_fvals(hbase))
     if debug_output:
-#        for key, value in kwargs.iteritems():
+#        for key, value in kwargs.items():
 #            print (key, value)
         print(kwargs)
         print("dF, fNyq, npts = ",deltaF, fNyq, len(hbase.data.data))
@@ -99,7 +99,7 @@ def CreateCompatibleComplexIP(hlmf,**kwargs):
     deltaF = hbase.deltaF
     fNyq = np.max(lalsimutils.evaluate_fvals(hbase))
     if debug_output:
-#        for key, value in kwargs.iteritems():
+#        for key, value in kwargs.items():
 #            print (key, value)
         print(kwargs)
         print("dF, fNyq, npts = ",deltaF, fNyq, len(hbase.data.data))

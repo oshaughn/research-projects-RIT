@@ -72,7 +72,7 @@ else:
 #
 data_dict = {}
 if len(det_dict) > 0:
-    for d, chan in det_dict.iteritems():
+    for d, chan in det_dict.items():
         data_dict[d] = lalsimutils.frame_data_to_hoff(opts.cache_file, chan)
 else:
     m1 = 4*lal.LAL_MSUN_SI

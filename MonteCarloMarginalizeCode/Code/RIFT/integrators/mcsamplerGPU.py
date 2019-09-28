@@ -388,7 +388,7 @@ class MCSampler(object):
                self._rvs = dict(zip(args, rv))
             else:
                rvs_tmp = dict(zip(args, rv))
-               #for p, ar in self._rvs.iteritems():
+               #for p, ar in self._rvs.items():
                for p in self.params_ordered:
                    self._rvs[p] = self.xpy.hstack((self._rvs[p], rvs_tmp[p]))
 
@@ -447,7 +447,7 @@ class MCSampler(object):
             self._rvs = dict(zip(args, rvs_tmp))
          else:
             rvs_tmp = dict(zip(args, rvs_tmp))
-            #for p, ar in self._rvs.iteritems():
+            #for p, ar in self._rvs.items():
             for p in self.params_ordered:
                 self._rvs[p] = numpy.hstack( (self._rvs[p], rvs_tmp[p]) )
 
@@ -496,7 +496,7 @@ class MCSampler(object):
         #
         tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
         temppdfnormdict = defaultdict(lambda: 1.0)
-        for p, val in kwargs.iteritems():
+        for p, val in kwargs.items():
             if p in self.params_ordered:
                 # Store the previous pdf/cdf in case it's already defined
                 tempcdfdict[p] = self.cdf_inv[p]

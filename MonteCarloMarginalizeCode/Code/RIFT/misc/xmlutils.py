@@ -110,7 +110,7 @@ def append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, neff=0, converged=
 def samples_to_siminsp_row(table, colmap={}, **sampdict):
     row = table.RowType()
     row.simulation_id = table.get_next_id()
-    for key, col in CMAP.iteritems():
+    for key, col in CMAP.items():
         if key not in sampdict:
             continue
         if isinstance(col, types.FunctionType):

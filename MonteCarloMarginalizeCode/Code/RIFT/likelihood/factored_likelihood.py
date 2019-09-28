@@ -523,7 +523,7 @@ def FactoredLogLikelihood(extr_params, rholms,rholms_intp, crossTerms, crossTerm
                         det_rholms[key] = func(float(t_det))
         else:
             # do not interpolate, just use nearest neighbor.
-            for key, rhoTS in rholms[det].iteritems():
+            for key, rhoTS in rholms[det].items():
                 tfirst = t_det
                 ifirst = int(np.round(( float(tfirst) - float(rhoTS.epoch)) / rhoTS.deltaT) + 0.5)
                 det_rholms[key] = rhoTS.data.data[ifirst]
@@ -579,11 +579,11 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
         det_rholms = {}  # rholms evaluated at time at detector
         if ( interpolate ):
             # use the interpolating functions. 
-            for key, func in rholms_intp[det].iteritems():
+            for key, func in rholms_intp[det].items():
                 det_rholms[key] = func(float(t_det)+tvals)
         else:
             # do not interpolate, just use nearest neighbors.
-            for key, rhoTS in rholms[det].iteritems():
+            for key, rhoTS in rholms[det].items():
                 tfirst = float(t_det)+tvals[0]
                 ifirst = int(np.round(( float(tfirst) - float(rhoTS.epoch)) / rhoTS.deltaT) + 0.5)
                 ilast = ifirst + len(tvals)
@@ -780,7 +780,7 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms,crossTermsV, Ylms, F, dis
     # Eq. 35 of Richard's notes
     term1 = 0.
 #    for mode in rholm_vals:
-    for mode, Ylm in Ylms.iteritems():
+    for mode, Ylm in Ylms.items():
         term1 += Fstar * np.conj( Ylms[mode]) * rholm_vals[mode]
     term1 = np.real(term1) *invDistMpc
 
