@@ -1,0 +1,188 @@
+#! /usr/bin/env python
+#
+# convert_output_format_inference2ile
+#
+# PLEASE DEPRECATE
+#   cbcBayesPosToSimInspiral.py   # should handle all the conversions needed
+#
+# GOAL
+#    - read in lalinference posterior samples (ascii, by default)
+#    - return XML properly formatted for ILE
+# ISSUES
+#    - interface change in lalsimulation / coordinate change
+#         MAY BE ROTATED SPIN CONFIGURATION ON LAPTOP (radiation frame vs others)
+#    - does not require consistency : precessing conditions can be applied to a nonprecesing approximant
+#    - no check on fref, fmin, ...
+#    - implemented for one iteration of lalinference...format constantly evolving
+#
+# CHECK COLUMNS
+# for word in `head -n 1 downloads/online_IMRP.dat `; do echo $word; done | sort -rn
+#
+# WARNINGS
+#   - Assumes input is a valid, complete posterior_samples.dat file, with all headers avaiable as of 2017-01-10
+#
+#
+#  EXAMPLES
+#    convert_output_format_inference2ile --posterior-samples downloads/online_IMRP.dat --target-size 5
+
+import sys
+from optparse import OptionParser
+import numpy as np
+from glue.ligolw import utils, table, lsctables, ligolw
+
+import lal
+import RIFT.lalsimutils as lalsimutils
+import lalsimulation as lalsim
+
+ros_debug = False
+
+
+# Contenthandlers : argh
+#   - http://software.ligo.org/docs/glue/
+lsctables.use_in(ligolw.LIGOLWContentHandler)
+
+
+optp = OptionParser()
+optp.add_option("--posterior-samples",default="posterior_samples.dat")
+optp.add_option("--output-xml",default="posterior.xml.gz",type=str)
+optp.add_option("--approx",default="SEOBNRv2")
+optp.add_option("--force-aligned",action='store_true')
+optp.add_option("--fmin",default=20,type=float)
+optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
+optp.add_option("--target-size",default=2000,type=int)
+optp.add_option("--use-extrinsic",action='store_true')
+optp.add_option("--use-no-spin",action='store_true')
+opts, args = optp.parse_args()
+opts.output_xml = opts.output_xml.replace('.xml.gz', '') # Strip trailing xml, as it will be added later
+
+
+###
+### Import file. Verify required columns
+###
+samples_in = np.genfromtxt(opts.posterior_samples,names=True)
+
+if opts.target_size > len(samples_in["m1"]):
+	opts.target_size = len(samples_in["m1"])
+
+###
+### Generate P list
+###
+
+P_list =[]
+n_samples_in = len(samples_in["mc"])
+fac_reduce = 1; #int(n_samples_in/(opts.target_size+1))
+
+for indx in np.arange(opts.target_size):
+    m1 = samples_in["m1"][indx*fac_reduce]*lal.MSUN_SI
+    m2 = samples_in["m2"][fac_reduce*indx]*lal.MSUN_SI
+    if 'distance' in samples_in.dtype.names:
+            d = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
+    elif 'dist' in samples_in.dtype.names:
+            d = samples_in["dist"][fac_reduce*indx]*lal.PC_SI*1e6
+    else:
+            d = 1.0 
+    P = lalsimutils.ChooseWaveformParams(m1=m1,m2=m2,dist=d)
+    if "time_maxl" in samples_in.dtype.names:
+     P.tref = samples_in["time_maxl"][fac_reduce*indx]
+    elif 'time' in samples_in.dtype.names:
+     P.tref = samples_in["time"][fac_reduce*indx]
+    elif 'tref' in samples_in.dtype.names:
+     P.tref = samples_in["tref"][fac_reduce*indx]
+    else:
+            print "Failure"
+#    P.fmin = opts.fmin
+#    P.fref = opts.fref
+    if 'flow' in samples_in.dtype.names:
+            P.fmin =  samples_in["flow"][fac_reduce*indx]  # REFERENCE FREQUENCY IS NOT YET RELIABLE
+            P.fref = samples_in["f_ref"][fac_reduce*indx]  # a field now !  MAY NOT BE RELIABLE
+    if P.approx == lalsim.SEOBNRv3:
+            P.fref = P.fmin
+    if "phi_orb" in samples_in.dtype.names:
+     P.phiref = samples_in["phi_orb"][fac_reduce*indx]
+    elif "phase_maxl" in samples_in.dtype.names:
+     P.phiref =samples_in["phase_maxl"][fac_reduce*indx]
+    elif "phase" in samples_in.dtype.names:
+     P.phiref = samples_in["phase"][fac_reduce*indx]
+    elif "phiorb" in samples_in.dtype.names:
+     P.phiref = samples_in["phiorb"][fac_reduce*indx]
+    else:
+     print ' No phase in ', samples_in.dtype.names
+     P.phiref = 0  # does not actually matter
+    P.approx = lalsim.GetApproximantFromString(opts.approx)
+    if opts.use_no_spin:
+           True; 
+    elif "phi_jl" in samples_in.dtype.names:
+      P.init_via_system_frame( 
+         thetaJN=samples_in["theta_jn"][fac_reduce*indx],
+         phiJL=samples_in["phi_jl"][fac_reduce*indx],
+         theta1=samples_in["tilt1"][fac_reduce*indx],
+         theta2=samples_in["tilt2"][fac_reduce*indx],
+         phi12=samples_in["phi12"][fac_reduce*indx],
+         chi1=samples_in["a1"][fac_reduce*indx],
+         chi2=samples_in["a2"][fac_reduce*indx],
+         psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
+         )
+      P.psi = samples_in["psi"][fac_reduce*indx]  # OVERRIDE the low-level choices I make in 'init_via_system_frame
+    elif opts.approx == "SEOBNRv2" or opts.approx == "SEOBNRv4" or  P.approx == lalsim.SEOBNRv2 or  P.approx == lalsimutils.lalSEOBv4 or opts.approx =="TaylorT4": # .SEOBNRv4:
+        # Aligned spin model
+        P.s1z = samples_in["a1z"][fac_reduce*indx]
+        P.s2z = samples_in["a2z"][fac_reduce*indx]
+        P.psi = samples_in["psi"][fac_reduce*indx]
+        if "theta_jn" in samples_in.dtype.names:
+                P.incl = samples_in["theta_jn"][fac_reduce*indx]
+    else:
+      P.init_via_system_frame( 
+         thetaJN=samples_in["theta_jn"][fac_reduce*indx],
+         phiJL=0, # does not matter
+         theta1=samples_in["theta1"][fac_reduce*indx],
+         theta2=samples_in["theta2"][fac_reduce*indx],
+         phi12=samples_in["phi12"][fac_reduce*indx],
+         chi1=samples_in["a1"][fac_reduce*indx],
+         chi2=samples_in["a2"][fac_reduce*indx],
+         psiJ=samples_in["psi"][fac_reduce*indx]   # THIS IS NOT BEING SET CONSISTENTLY...but we marginalize over it, so that's ok
+         )
+      P.psi = samples_in["psi"][fac_reduce*indx]  # OVERRIDE the low-level choices I make in 'init_via_system_frame
+
+    # Tides
+    if "lambda1" in samples_in.dtype.names:
+            P.lambda1 = samples_in["lambda1"][fac_reduce*indx]
+            P.lambda2 = samples_in["lambda2"][fac_reduce*indx]
+    elif "lambdat" in samples_in.dtype.names:
+            lambdat_here = samples_in["lambdat"][fac_reduce*indx]
+            dlambdat_here = samples_in["dlambdat"][fac_reduce*indx]
+            lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1,m2,lambdat_here, dlambdat_here)
+            P.lambda1 = lambda1
+            P.lambda2 =lambda2
+
+    # Add extrinsic parameters...NEED TO DOUBLE CHECK
+    if opts.use_extrinsic:  # note the Euler angles are already set
+            P.radec = True
+            P.theta = samples_in["dec"][fac_reduce*indx]
+            P.phi   = samples_in["ra"][fac_reduce*indx]
+            P.dist  = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
+
+    if ros_debug:
+        if 'iota' in samples_in.dtype.names:
+                print " Target inclination (should be equal) ", P.incl, samples_in["iota"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
+        elif 'theta_jn' in samples_in.dtype.names and P.approx == 'SEOBNRv2':
+                print " Target inclination (should be equal) ", P.incl, samples_in["theta_jn"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
+        print " Target spinz1 (should be equal)", P.s1z, samples_in["a1z"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
+        print " Target spin2z ", P.s2z, samples_in["a2z"][fac_reduce*indx]  # NOT ALWAYS CONSISTENT
+        print " Target chieff ", (P.s1z*P.m1+P.s2z*P.m2)/(P.m1+P.m2), samples_in["chi_eff"][fac_reduce*indx]  # uses current coordinate system/ modern one
+        print " Target ra, dec ", [P.theta, samples_in["dec"][fac_reduce*indx]], [P.phi, samples_in["ra"][fac_reduce*indx]]
+    if opts.force_aligned:  
+        # assumes in L frame, not radiation frame!
+        P.s1x = P.s1y=0
+        P.s2x = P.s2y=0
+#    P.print_params()
+    P_list.append(P)
+
+P_list = P_list[:opts.target_size]
+
+
+###
+### Write XML file
+###
+print " Writing  to file ", len(P_list)
+lalsimutils.ChooseWaveformParams_array_to_xml(P_list, fname=opts.output_xml, fref=P.fref)
+

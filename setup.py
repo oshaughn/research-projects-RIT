@@ -20,21 +20,12 @@ my_library_prefixes=["mcsampler", "mcsamplerGPU", "mcsamplerEnsemble", "MonteCar
 my_library_total = [("MonteCarloMarginalizeCode/Code/"+x+".py") for x in my_library_prefixes]
 
 import glob
-my_scripts = glob.glob("MonteCarloMarginalizeCode/Code/*.py")
-my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/create*py")
-my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/helper*py")
-my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/util*py")
-my_scripts = list(set([x for x in my_scripts if not ('test_' in x)]))  # try to remove duplicates, and tests
-my_scripts = list(set(my_scripts) - set(my_library_total))
-my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/*.sh")
-my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/integrate_likelihood*")
-my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/convert*")
-my_scripts += glob.glob("MonteCarloMarginalizeCode/Code/switcheroo")
+my_scripts = glob.glob("MonteCarloMarginalizeCode/Code/bin/*")
 #print my_scripts
 # No packages found
 #print setuptools.find_packages('MonteCarloMarginalizeCode/Code')
 
-my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/cuda*.cu")
+my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/RIFT/likelihood/cuda*.cu")
 
 # Remove old things
 #  - ourio.py, ourparams.py
@@ -44,7 +35,7 @@ my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/cuda*.cu")
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.13", # do not build on OSX machine, side effects
+    version="0.0.13.1", # do not build on OSX machine, side effects
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_master-GPUIntegration!",
@@ -52,7 +43,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://git.ligo.org/richard-oshaughnessy/research-projects-RIT",
     package_dir = {'':'MonteCarloMarginalizeCode/Code'},
-    py_modules =set(my_library_prefixes),
+#    py_modules =set(my_library_prefixes),
     packages=setuptools.find_packages('MonteCarloMarginalizeCode/Code'),
     include_package_data=True,
     classifiers=[
@@ -65,6 +56,6 @@ setuptools.setup(
 # https://docs.python.org/2/distutils/setupscript.html
 # Would be preferable to be *global* path, not relative to install. Depends on if doing user install or not
 # This pathname puts it in the same place as the other files, in site-packages/
-   data_files=[('../../',my_extra_source)],
+   data_files=[('RIFT/likelihood',my_extra_source)],
    install_requires=REQUIREMENTS["install"]
 )

@@ -24,7 +24,7 @@ SINGULARITY_RIFT_IMAGE=/cvmfs/ligo-containers.opensciencegrid.org/james-clark/re
 The following short set of commands will confirm your installation is properly configured; please try in your python version of choice.
 
 ```
-import numpy as np; import lal; import lalsimulation as lalsim; import lalsimutils
+import numpy as np; import lal; import lalsimulation as lalsim; import RIFT.lalsimutils as lalsimutils
 P=lalsimutils.ChooseWaveformParams()
 P.m1 = 30*lal.MSUN_SI
 P.m2 = 0.6*P.m1

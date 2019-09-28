@@ -1,3 +1,0 @@
-To run the single-template test
-   make all  # retrieve a gracedb template, and link scripts
-   make test # run test script

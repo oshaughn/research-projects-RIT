@@ -11,7 +11,7 @@ regions.py
 
 import numpy as np
 import functools
-import mcsampler
+import RIFT.integrators.mcsampler as mcsampler
 import random
 
 default_sampling_neff = 2000
