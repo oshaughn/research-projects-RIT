@@ -557,7 +557,7 @@ elif not(opts.parameter is None):
     pts_per_dim = npts_per_dim*np.ones(len(param_names))  # ow!
     param_ranges = []
     if len(param_names) == len(opts.parameter_range):
-        param_ranges = map(eval, opts.parameter_range)
+        param_ranges = list(map(eval, opts.parameter_range))
         # Rescale hand-specified ranges to SI units
         for p in ['mc', 'm1', 'm2', 'mtot']:
           if p in param_names:
@@ -670,7 +670,7 @@ if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
 downselect_dict = {}
 if opts.downselect_parameter:
     dlist = opts.downselect_parameter
-    dlist_ranges  = map(eval,opts.downselect_parameter_range)
+    dlist_ranges  = list(map(eval,opts.downselect_parameter_range))
 else:
     dlist = []
     dlist_ranges = []
@@ -728,7 +728,7 @@ if not (opts.random_parameter is None) and not(opts.parameter is None):
     indx_base = len(opts.parameter)
 #    print param_names, param_ranges
     param_names += opts.random_parameter
-    param_ranges += map(eval, opts.random_parameter_range)  # do not randomize mass or distance parameters, not being rescaled
+    param_ranges += list(map(eval, opts.random_parameter_range))  # do not randomize mass or distance parameters, not being rescaled
     print(param_names, param_ranges,indx_base)
     grid_extra = np.zeros( (len(grid),len(opts.random_parameter)) )
 #    print grid_extra.shape
@@ -742,7 +742,7 @@ if not (opts.random_parameter is None) and not(opts.parameter is None):
 
 elif opts.parameter is None:
     param_names =  opts.random_parameter
-    param_ranges = map(eval, opts.random_parameter_range)
+    param_ranges = list(map(eval, opts.random_parameter_range))
     print(param_names, param_ranges)
     grid = np.zeros( (opts.grid_cartesian_npts,len(opts.random_parameter)) )
     for indx in np.arange(len(opts.random_parameter)):
