@@ -6,6 +6,9 @@
    - Intended for use in makefiles and command lines
    - Can provide any subset of parameters as needed
 """
+
+from __future__ import print_function
+
 import sys
 #from lalsimutils import *
 
@@ -28,26 +31,26 @@ sim_inspiral_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableNam
 row = sim_inspiral_table[int(event)]
 
 if "right_ascension" in params:
-    print " --right-ascension ", row.longitude,
+    print(" --right-ascension ", row.longitude, end=' ')
 
 if "declination" in params:
-    print " --declination ", row.latitude,
+    print(" --declination ", row.latitude, end=' ')
 
 if "inclination" in params:
-    print " --inclination ", row.inclination,
+    print(" --inclination ", row.inclination, end=' ')
 
 if "polarization" in params:
-    print " --psi ", row.polarization,
+    print(" --psi ", row.polarization, end=' ')
 
 
 if "phi_orb" in params:
-    print " --phi-orb ", row.coa_phase,
+    print(" --phi-orb ", row.coa_phase, end=' ')
 
 import lal
 if "distance" in params:
-    print " --distance ", row.distance # *lal.LAL_PC_SI*1e6,   # currently, idiotically
+    print(" --distance ", row.distance) # *lal.LAL_PC_SI*1e6,   # currently, idiotically
 
 if "t_ref" in params:
-    print " --time ", row.geocent_end_time + 1.0e-9*row.geocent_end_time_ns
+    print(" --time ", row.geocent_end_time + 1.0e-9*row.geocent_end_time_ns)
 
 #print " --iota", row.inclination, " --psi", row.polarization , " --dec", row.latitude, " --ra", row.longitude, " --dist", row.distance, " --phi", row.coa_phase

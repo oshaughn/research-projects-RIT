@@ -19,6 +19,8 @@
 #
 #   * Compare two NR waveforms that have the same parameters
 
+from __future__ import print_function
+
 import argparse
 import numpy as np
 
@@ -95,7 +97,7 @@ if opts.psd_file:
 
     for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
         if opts.verbose: 
-            print "Reading PSD for instrument %s from %s" % (inst, psdf)
+            print("Reading PSD for instrument %s from %s" % (inst, psdf))
         psd_dict[inst] = lalsimutils.load_resample_and_clean_psd(psdf, inst, df)
 
     ifo_list = psd_dict.keys()
@@ -120,29 +122,29 @@ else:
 ###
 
 if opts.inj is None:
-    print " --inj required"
+    print(" --inj required")
     sys.exit(0)
-print " Reading injection file 1 for comparison ", opts.inj
+print(" Reading injection file 1 for comparison ", opts.inj)
 P1_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj)
 nlines1  = len(P1_list)
-print " Read  ", nlines1, " injections"
+print(" Read  ", nlines1, " injections")
 
 if nlines1 < 1:
-    print " No data in ", opts.inj
+    print(" No data in ", opts.inj)
 
 tref = float( (P1_list[0]).tref ) # default
 if not(opts.tref is None):
     tref = opts.tref
 
 if opts.inj2 is None:
-    print " --inj2 required"
+    print(" --inj2 required")
     sys.exit(0)
-print " Reading injection file 1 for comparison ", opts.inj2
+print(" Reading injection file 1 for comparison ", opts.inj2)
 P2_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj2)
 nlines2  = len(P2_list)
 
 if nlines2 < 1:
-    print " No data in ", opts.inj2
+    print(" No data in ", opts.inj2)
 
 
 
@@ -226,11 +228,11 @@ if group in nrwf.internal_ParametersAreExpressions.keys():
     if opts.use_spec_lev:
             if group == "Sequence-SXS-All":
                 nrwf.internal_FilenamesForParameters[group][param] =nrwf.internal_FilenamesForParameters[group][param].replace("Lev5", "Lev" +str(opts.use_spec_lev))
-                print " OVERRIDE OF SXS LEVEL : ", nrwf.internal_FilenamesForParameters[group][param]
+                print(" OVERRIDE OF SXS LEVEL : ", nrwf.internal_FilenamesForParameters[group][param])
     wfP = nrwf.WaveformModeCatalog(opts.group, param, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, lmax=lmax,align_at_peak_l2_m2_emission=True,perturbative_extraction=opts.use_perturbative_extraction,perturbative_extraction_full=opts.use_perturbative_extraction_full,use_provided_strain=opts.use_provided_strain,reference_phase_at_peak=True,quiet=True)
     wfP.P.fmin  = opts.fmin
 
-    print " WARNING: NR orientation parameters differ, so the waveform CANNOT be identical and will generally differ in at least orbital phase "
+    print(" WARNING: NR orientation parameters differ, so the waveform CANNOT be identical and will generally differ in at least orbital phase ")
 
     def get_hF1_NR(indx,ifo):
         P_here = P1_list[indx % nlines1]
@@ -272,13 +274,13 @@ if group2 in nrwf.internal_ParametersAreExpressions.keys():
     # Check for SXS 
     if group2 == "Sequence-SXS-All":
         nrwf.internal_FilenamesForParameters[group2][param2] =nrwf.internal_FilenamesForParameters[group2][param2].replace("Lev5", "Lev" +str(opts.use_spec_lev))
-        print " OVERRIDE OF SXS LEVEL : ", nrwf.internal_FilenamesForParameters[group2][param2]
+        print(" OVERRIDE OF SXS LEVEL : ", nrwf.internal_FilenamesForParameters[group2][param2])
     if opts.verbose:
-        print "Importing ", group, param , " and ", group2, param2
+        print("Importing ", group, param , " and ", group2, param2)
     wfP2 = nrwf.WaveformModeCatalog(opts.group2, param2, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, lmax=lmax,align_at_peak_l2_m2_emission=True,perturbative_extraction=opts.use_perturbative_extraction,use_provided_strain=opts.use_provided_strain2,reference_phase_at_peak=True,quiet=True)
     wfP2.P.fmin  = opts.fmin
 
-    print " WARNING: NR orientation parameters differ, so the waveform CANNOT be identical and will generally differ in at least orbital phase "
+    print(" WARNING: NR orientation parameters differ, so the waveform CANNOT be identical and will generally differ in at least orbital phase ")
     def get_hF2_NR(indx,ifo):
         P_here = P2_list[indx % nlines2]
 
@@ -327,11 +329,11 @@ dat_out =[]
 
 for indx in np.arange(n_evals):
   if opts.verbose:
-      print indx
+      print(indx)
   if True:
 #  try:
     line = []
-    print P1_list[indx].extract_param('thetaJN'), P1_list[indx].phiref, P1_list[indx].extract_param('beta'),
+    print(P1_list[indx].extract_param('thetaJN'), P1_list[indx].phiref, P1_list[indx].extract_param('beta'), end=' ')
     for ifo in ifo_list: #,'V1']:
         IP = IP_list[ifo]
         hF1 = return_hF1(indx,ifo)
@@ -339,13 +341,13 @@ for indx in np.arange(n_evals):
         hF2 = return_hF2(indx,ifo)
         nm2 = IP.norm(hF2)
         val = np.abs(IP.ip(hF1,hF2,include_epoch_differences=True)/nm1/nm2)  # correct for timeshift issues, if any
-        print " Epoch test ", hF1.epoch, hF2.epoch
+        print(" Epoch test ", hF1.epoch, hF2.epoch)
         line.append(val)
 #        print ifo, IP.ip(hF1,hF2)/nm1/nm2, IP.ip(hF1,hF2),nm1, nm2
-        print  val,
+        print(val, end=' ')
         if opts.save_plots:
             if opts.verbose:
-                print " --- Saving plot for ", ifo, " ----"
+                print(" --- Saving plot for ", ifo, " ----")
             label1 = opts.approx
             label2 = opts.approx2
             hT1 = lalsimutils.DataInverseFourier(hF1)
@@ -355,16 +357,16 @@ for indx in np.arange(n_evals):
                 T_wave =npts*hT1.deltaT
                 hT1 = lalsimutils.DataRollTime(hT1,-0.5*T_wave/2)
                 if opts.verbose:
-                    print " Epoch1 ", float(hT1.epoch)
+                    print(" Epoch1 ", float(hT1.epoch))
                 label1 = group+":"+param
             if not (opts.group2 is None):
                 if opts.verbose:
-                    print " ---> Rolling to fix FT centering <-- "
+                    print(" ---> Rolling to fix FT centering <-- ")
                 npts = hT2.data.length
                 T_wave =npts*hT2.deltaT
                 hT2 = lalsimutils.DataRollTime(hT2,-0.5*T_wave/2)
                 if opts.verbose:
-                    print " Epoch2 ", hT2.epoch
+                    print(" Epoch2 ", hT2.epoch)
                 label2 = group2+":"+param2
             tvals = lalsimutils.evaluate_tvals(hT1) 
             tvals2 = lalsimutils.evaluate_tvals(hT2) 
@@ -380,11 +382,11 @@ for indx in np.arange(n_evals):
             plt.xlim(tmax_offset-0.15, tmax_offset+0.05)  # NR scale, focus on merger
             plt.savefig(opts.fname_output+"_fig_"+str(indx)+"_"+ifo+"_detail.png"); 
             plt.clf()
-    print
+    print()
     dat_out.append(line)
 
 #  except:
   else:
-      print " Skipping ", indx
+      print(" Skipping ", indx)
 
 np.savetxt(opts.fname_output, np.array(dat_out))

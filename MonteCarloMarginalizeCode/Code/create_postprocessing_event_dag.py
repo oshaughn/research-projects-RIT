@@ -136,7 +136,7 @@ def write_CIP_sub(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
         
     
 
@@ -164,7 +164,7 @@ opts=  parser.parse_args()
 
 
 if opts.cip_args is None:
-    print " No arguments provided for low-level job"
+    print(" No arguments provided for low-level job")
     sys.exit(0)
 
 # Load args.txt. Remove first item.  Store
@@ -177,7 +177,7 @@ cip_args = cip_args.replace('[', ' \'[')
 cip_args = cip_args.replace(']', ']\'')
 cip_args=cip_args.rstrip()
 cip_args += ' --no-plots '
-print cip_args
+print(cip_args)
 
 ###
 ### Fiducial fit job (=sanity check that code will run)
@@ -262,7 +262,7 @@ elif opts.workflow=='eos_rank' and not (opts.eos_params is None):
 
     # Look up EOS names
     names_eos = list(np.loadtxt(opts.eos_params,dtype=str).flat)
-    print names_eos
+    print(names_eos)
 
     for name in names_eos:
         if name == 'lal_BBH':

@@ -48,7 +48,7 @@ try:
 
     no_plots=False
 except ImportError:
-    print " - no matplotlib - "
+    print(" - no matplotlib - ")
 
 
 from sklearn.preprocessing import PolynomialFeatures
@@ -57,7 +57,7 @@ if True:
     import ModifiedScikitFit as msf  # altenative polynomialFeatures
 else:
 #except:
-    print " - Faiiled ModifiedScikitFit : No polynomial fits - "
+    print(" - Faiiled ModifiedScikitFit : No polynomial fits - ")
 from sklearn import linear_model
 
 from glue.ligolw import lsctables, utils, ligolw
@@ -68,7 +68,7 @@ try:
     import mcsamplerEnsemble as mcsamplerEnsemble
     mcsampler_gmm_ok = True
 except:
-    print " No mcsamplerEnsemble "
+    print(" No mcsamplerEnsemble ")
     mcsampler_gmm_ok = False
 try:
     import senni
@@ -117,14 +117,14 @@ def extract_combination_from_LI(samples_LI, p):
          return samples_LI[ remap_ILE_2_LI[p] ]
     # Return cartesian components of spin1, spin2.  NOTE: I may already populate these quantities in 'Add important quantities'
     if p == 'chiz_plus':
-        print " Transforming "
+        print(" Transforming ")
         if 'a1z' in samples_LI.dtype.names:
             return (samples_LI['a1z']+ samples_LI['a2z'])/2.
         if 'theta1' in samples_LI.dtype.names:
             return (samples_LI['a1']*np.cos(samples_LI['theta1']) + samples_LI['a2']*np.cos(samples_LI['theta2']) )/2.
 #        return (samples_LI['a1']+ samples_LI['a2'])/2.
     if p == 'chiz_minus':
-        print " Transforming "
+        print(" Transforming ")
         if 'a1z' in samples_LI.dtype.names:
             return (samples_LI['a1z']- samples_LI['a2z'])/2.
         if 'theta1' in samples_LI.dtype.names:
@@ -157,7 +157,7 @@ def extract_combination_from_LI(samples_LI, p):
     if p == 'product(sin_beta,cos_phiJL)':
         return np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.cos(  samples_LI['phi_jl'])
 
-    print " No access for parameter ", p
+    print(" No access for parameter ", p)
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
 
 def add_field(a, descr):
@@ -185,7 +185,7 @@ def add_field(a, descr):
     True
     """
     if a.dtype.fields is None:
-        raise ValueError, "`A' must be a structured numpy array"
+        raise ValueError("`A' must be a structured numpy array")
     b = numpy.empty(a.shape, dtype=a.dtype.descr + descr)
     for name in a.dtype.names:
         b[name] = a[name]
@@ -295,7 +295,7 @@ if opts.using_eos!=None:
     import EOSManager
     eos_name=opts.using_eos
     if opts.verbose:
-        print " Using EOS ", eos_name, opts.eos_param, opts.eos_param_values
+        print(" Using EOS ", eos_name, opts.eos_param, opts.eos_param_values)
 
     if opts.eos_param == 'spectral':
         # Will not work yet -- need to modify to parse command-line arguments
@@ -362,24 +362,24 @@ remap_ILE_2_LI = {
   "DeltaLambdaTilde": "dlambdat"}
 
 if opts.fname_lalinference:
-    print " Loading lalinference samples for direct comparison ", opts.fname_lalinference
+    print(" Loading lalinference samples for direct comparison ", opts.fname_lalinference)
     samples_LI = np.genfromtxt(opts.fname_lalinference,names=True)
 
-    print " Checking consistency between fref in samples and fref assumed here "
+    print(" Checking consistency between fref in samples and fref assumed here ")
     try:
-        print set(samples_LI['f_ref']), opts.fref
+        print(set(samples_LI['f_ref']), opts.fref)
     except:
-        print " No fref"
+        print(" No fref")
 
-    print " Checking LI samples have desired parameters "
+    print(" Checking LI samples have desired parameters ")
     try:
       for p in opts.parameter:
         if p in remap_ILE_2_LI:
-            print p , " -> ", remap_ILE_2_LI[p]
+            print(p , " -> ", remap_ILE_2_LI[p])
         else:
-            print p, " NOT LISTED IN KEYS"
+            print(p, " NOT LISTED IN KEYS")
     except:
-        print "remap check failed"
+        print("remap check failed")
 
     ###
     ### Add important quantities easily derived from the samples but not usually provided
@@ -433,7 +433,7 @@ else:
     dlist = []
     dlist_ranges = []
 if len(dlist) != len(dlist_ranges):
-    print " downselect parameters inconsistent", dlist, dlist_ranges
+    print(" downselect parameters inconsistent", dlist, dlist_ranges)
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
@@ -485,11 +485,11 @@ if opts.fit_uses_reported_error:
     error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
 # TeX dictionary
 tex_dictionary = lalsimutils.tex_dictionary
-print " Coordinate names for fit :, ", coord_names
-print " Rendering coordinate names : ",  render_coordinates(coord_names)  # map(lambda x: tex_dictionary[x], coord_names)
-print " Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names)
-print " Coordinate names for Monte Carlo :, ", low_level_coord_names
-print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_level_coord_names)
+print(" Coordinate names for fit :, ", coord_names)
+print(" Rendering coordinate names : ",  render_coordinates(coord_names))  # map(lambda x: tex_dictionary[x], coord_names)
+print(" Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names))
+print(" Coordinate names for Monte Carlo :, ", low_level_coord_names)
+print(" Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_level_coord_names))
 
 
 ###
@@ -656,11 +656,11 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'phi2':[0,2*np.pi],
 }
 if not (opts.chiz_plus_range is None):
-    print " Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range
+    print(" Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range)
     prior_range_map['chiz_plus']=eval(opts.chiz_plus_range)
 
 if not (opts.eta_range is None):
-    print " Warning: Overriding default eta range. USE WITH CARE"
+    print(" Warning: Overriding default eta range. USE WITH CARE")
     eta_range=prior_range_map['eta'] = eval(opts.eta_range)  # really only useful if eta is a coordinate.  USE WITH CARE
     prior_range_map['delta_mc'] = np.sqrt(1-4*np.array(prior_range_map['eta']))[::-1]  # reverse
 
@@ -702,7 +702,7 @@ if opts.pseudo_uniform_magnitude_prior and opts.pseudo_uniform_magnitude_prior_a
         prior_map['s1z'] = s_component_gaussian_prior
         prior_map['s2z'] = s_component_gaussian_prior
     elif 'chiz_plus' in low_level_coord_names:  # because of rotated coordinate system. This matches in interior
-        print " CODE PATH NOT YET WORKING "
+        print(" CODE PATH NOT YET WORKING ")
         sys.exit(0)
         prior_map['chiz_plus'] = s_component_gaussian_prior #lambda x: s_component_gaussian_prior(x, R=chi_max/3.)
         prior_map['chiz_minus'] = s_component_gaussian_prior #lambda x: s_component_gaussian_prior(x, R=chi_max/3.) 
@@ -711,32 +711,32 @@ if opts.pseudo_uniform_magnitude_prior and opts.pseudo_uniform_magnitude_prior_a
 
 if opts.prior_gaussian_spin1_magnitude:
     if not  'chi1' in low_level_coord_names:
-        print " Incompatible options: gaussian spin1 prior requires polar coordinates"
-        sys.exit(1)
+        print(" Incompatible options: gaussian spin1 prior requires polar coordinates")
+        sys.exit(0)
     prior_map['chi1'] =functools.partial(gaussian_mass_prior,mu=0.7,sigma=0.1)  # not fully normalized particularly if chimax <1! Dangerous, fixme eventually
 
 if opts.prior_tapered_spin1_magnitude:
     if not  'chi1' in low_level_coord_names:
-        print " Incompatible options: tapered spin1 prior requires polar coordinates"
-        sys.exit(1)
+        print(" Incompatible options: tapered spin1 prior requires polar coordinates")
+        sys.exit(0)
     prior_map['s1z'] =tapered_magnitude_prior
 
 if opts.prior_tapered_spin1z:
     if not  's1z' in low_level_coord_names:
-        print " Incompatible options: tapered spin1z prior requires cartesian coordinates"
-        sys.exit(1)
+        print(" Incompatible options: tapered spin1z prior requires cartesian coordinates")
+        sys.exit(0)
     prior_map['s1z'] =tapered_magnitude_prior
 
 if opts.prior_gaussian_mass_ratio:
     if not  'q' in low_level_coord_names:
-        print " Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)"
-        sys.exit(1)
+        print(" Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)")
+        sys.exit(0)
     prior_map['q'] = functools.partial(gaussian_mass_prior,mu=0.5,sigma=0.2)  # not fully normalized, and very ad-hoc
 
 if opts.prior_tapered_mass_ratio:
     if not  'q' in low_level_coord_names:
-        print " Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)"
-        sys.exit(1)
+        print(" Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)")
+        sys.exit(0)
     prior_map['q'] = functools.partial(tapered_magnitude_prior_alt,loc=0.8,kappa=20.)  # not fully normalized, and very ad-hoc
 
 if opts.prior_lambda_linear:
@@ -785,8 +785,8 @@ def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False):
 
     bic  =-2*( -0.5*np.sum(np.power((y - fn_estimate(x)),2))/2 - 0.5* len(y)*np.log(len(x[0])) )
 
-    print "  Fit: std :" , np.std( y-fn_estimate(x))
-    print "  Fit: BIC :" , bic
+    print("  Fit: std :" , np.std( y-fn_estimate(x)))
+    print("  Fit: BIC :" , bic)
 
     return fn_estimate
 
@@ -804,8 +804,8 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
         X_  = poly.fit_transform(x)
 
         if opts.verbose:
-            print " Fit : poly: RAW :", poly.get_feature_names()
-            print " Fit : ", poly.powers_
+            print(" Fit : poly: RAW :", poly.get_feature_names())
+            print(" Fit : ", poly.powers_)
 
         # Strip things with inappropriate symmetry: IMPOSSIBLE
         # powers_new = []
@@ -831,12 +831,12 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
 
         clf_list.append(clf)
 
-        print  " Fit: Testing order ", indx
-        print  " Fit: std: ", np.std(y - clf.predict(X_)),  "using number of features ", len(y)  # should NOT be perfect
+        print(" Fit: Testing order ", indx)
+        print(" Fit: std: ", np.std(y - clf.predict(X_)),  "using number of features ", len(y))  # should NOT be perfect
         if not (y_errors is None):
-            print " Fit: weighted error ", np.std( (y - clf.predict(X_))/y_errors)
+            print(" Fit: weighted error ", np.std( (y - clf.predict(X_))/y_errors))
         bic = -2*( -0.5*np.sum(np.power(y - clf.predict(X_),2))  - 0.5*len(y)*np.log(len(x[0])))
-        print  " Fit: BIC:", bic
+        print(" Fit: BIC:", bic)
         bic_list.append(bic)
 
     clf = clf_list[np.argmin(np.array(bic_list) )]
@@ -858,7 +858,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
 
     # If we are loading a fit, override everything else
     if opts.fit_load_gp:
-        print " WARNING: Do not re-use fits across architectures or versions : pickling is not transferrable "
+        print(" WARNING: Do not re-use fits across architectures or versions : pickling is not transferrable ")
         my_gp=joblib.load(opts.fit_load_gp)
         if opts.protect_coordinate_conversions:
             return lalsimutils.RangeProtectReduce(lambda x: my_gp.predict(x), -np.inf)
@@ -880,13 +880,13 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
         length_scale_min_here= np.max([1e-3,0.2*np.std(x[:,indx]/np.sqrt(len(x)))])
         if indx == mc_index:
             length_scale_min_here= 0.2*np.std(x[:,indx]/np.sqrt(len(x)))
-            print " Setting mc range: retained point range is ", np.std(x[:,indx]), " and target min is ", length_scale_min_here
+            print(" Setting mc range: retained point range is ", np.std(x[:,indx]), " and target min is ", length_scale_min_here)
         length_scale_bounds_est.append( (length_scale_min_here , 5*np.std(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
 
-    print " GP: Input sample size ", len(x), len(y)
-    print " GP: Estimated length scales "
-    print length_scale_est
-    print length_scale_bounds_est
+    print(" GP: Input sample size ", len(x), len(y))
+    print(" GP: Estimated length scales ")
+    print(length_scale_est)
+    print(length_scale_bounds_est)
 
     if not (hypercube_rescale):
         # These parameters have been hand-tuned by experience to try to set to levels comparable to typical lnL Monte Carlo error
@@ -895,10 +895,10 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
 
         gp.fit(x,y)
 
-        print  " Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y) 
+        print(" Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y))
 
         if opts.fit_save_gp:
-            print " Attempting to save fit ", opts.fit_save_gp+".pkl"
+            print(" Attempting to save fit ", opts.fit_save_gp+".pkl")
             joblib.dump(gp,opts.fit_save_gp+".pkl")
         
         if not (opts.fit_uncertainty_added):
@@ -911,7 +911,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
         x_scaled = np.zeros(x.shape)
         x_center = np.zeros(len(length_scale_est))
         x_center = np.mean(x)
-        print " Scaling data to central point ", x_center
+        print(" Scaling data to central point ", x_center)
         for indx in np.arange(len(x)):
             x_scaled[indx] = (x[indx] - x_center)/length_scale_est # resize
 
@@ -919,7 +919,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
         gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=8)
         
         gp.fit(x_scaled,y)
-        print  " Fit: std: ", np.std(y - gp.predict(x_scaled)),  "using number of features ", len(y)  # should NOT be perfect
+        print(" Fit: std: ", np.std(y - gp.predict(x_scaled)),  "using number of features ", len(y))  # should NOT be perfect
 
         return lambda x,x0=x_center,scl=length_scale_est: gp.predict( (x-x0 )/scl)
 
@@ -936,10 +936,10 @@ def fit_gp_pool(x,y,n_pool=10,**kwargs):
     partition_list = np.array_split(indx_list,n_pool)
     gp_fit_list =[]
     for part in partition_list:
-        print " Fitting partition "
+        print(" Fitting partition ")
         gp_fit_list.append(fit_gp(x[part],y[part],**kwargs))
     fn_out =  lambda x: np.mean( map_funcs( gp_fit_list,x), axis=0)
-    print " Testing ", fn_out([x[0]])
+    print(" Testing ", fn_out([x[0]]))
     return fn_out
 
 def fit_nn(x,y,y_errors=None,fname_export='nn_fit'):
@@ -1050,14 +1050,14 @@ n_params = -1
 #  id m1 m2  lnL sigma/L  neff
 col_lnL = 9
 if opts.input_tides:
-    print " Tides input"
+    print(" Tides input")
     col_lnL +=2
 if opts.input_distance:
-    print " Distance input"
+    print(" Distance input")
     col_lnL +=1
 dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
-print " Original data size = ", len(dat), dat.shape
+print(" Original data size = ", len(dat), dat.shape)
 
  ###
  ### Convert data.  Use lalsimutils for flexibility
@@ -1067,10 +1067,10 @@ dat_out =[]
  
 extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['mc', 'eta'], ['m1', 'm2'], ['s1z','s2z'] ] # replot
 if 's1x' in opts.parameter:  # in practice, we always use the transverse cartesian components 
-    print " Plotting coordinates include spin magnitude and transverse spins "
+    print(" Plotting coordinates include spin magnitude and transverse spins ")
     extra_plot_coord_names += [['chi1_perp', 's1z'], ['chi2_perp','s2z'],['chi1','chi2'],['cos_theta1','cos_theta2']]
 if 'lambda1' in opts.parameter or 'LambdaTilde' in opts.parameter or (not( opts.parameter_implied is None) and  ( 'LambdaTilde' in opts.parameter_implied)):
-    print " Plotting coordinates include tides"
+    print(" Plotting coordinates include tides")
     extra_plot_coord_names += [['mc', 'eta', 'LambdaTilde'],['lambda1', 'lambda2'], ['LambdaTilde', 'DeltaLambdaTilde'], ['m1','lambda1'], ['m2','lambda2']]
 dat_out_low_level_coord_names = []
 dat_out_extra = []
@@ -1088,17 +1088,17 @@ if opts.mc_range:
     mc_cut_range = eval(opts.mc_range)  # throw out samples outside this range.
     if opts.source_redshift>0:
         mc_cut_range =np.array(mc_cut_range)*(1+opts.source_redshift)  # prevent stupidity in grid selection
-print " Stripping samples outside of ", mc_cut_range, " in mc"
+print(" Stripping samples outside of ", mc_cut_range, " in mc")
 P= lalsimutils.ChooseWaveformParams()
 P_list_in = []
 for line in dat:
   # Skip precessing binaries unless explicitly requested not to!
   if not opts.use_precessing and (line[3]**2 + line[4]**2 + line[6]**2 + line[7]**2)>0.01:
-      print " Skipping precessing binaries "
+      print(" Skipping precessing binaries ")
       continue
   if line[1]+line[2] > opts.M_max_cut:
       if opts.verbose:
-          print " Skipping ", line, " as too massive, with mass ", line[1]+line[2]
+          print(" Skipping ", line, " as too massive, with mass ", line[1]+line[2])
       continue
   if line[col_lnL+1] > opts.sigma_cut:
 #      if opts.verbose:
@@ -1109,7 +1109,7 @@ for line in dat:
   mc_here = lalsimutils.mchirp(line[1],line[2])
   if  (not opts.no_downselect_grid) and (mc_here < mc_cut_range[0] or mc_here > mc_cut_range[1]):
       if False and opts.verbose:
-          print "Stripping because sample outside of target  mc range ", line
+          print("Stripping because sample outside of target  mc range ", line)
       continue
   if line[col_lnL] < opts.lnL_peak_insane_cut:
     P.fref = opts.fref  # IMPORTANT if you are using a quantity that depends on J
@@ -1201,7 +1201,7 @@ Pref_default = P.copy()  # keep this around to fix the masses, if we don't have 
 
 # Force 32 bit dype
 dat_out = np.array(dat_out,dtype=internal_dtype)
-print " Stripped size  = ", dat_out.shape,  " with memory usage (bytes) ", sys.getsizeof(dat_out)
+print(" Stripped size  = ", dat_out.shape,  " with memory usage (bytes) ", sys.getsizeof(dat_out))
 dat_out_low_level_coord_names = np.array(dat_out_low_level_coord_names)
  # scale out mass units
 for p in ['mc', 'm1', 'm2', 'mtot']:
@@ -1242,9 +1242,9 @@ indx_ok = Y>np.max(Y)-opts.lnL_offset
 if opts.lnL_offset_n_random>0:
     p_select = np.min([opts.lnL_offset_n_random*1.0/len(Y),1])
     indx_ok = np.logical_or(indx_ok, np.random.choice([True,False],size=len(indx_ok),p=[p_select,1-p_select]))
-print " Points used in fit : ", sum(indx_ok), " given max lnL ", max_lnL
+print(" Points used in fit : ", sum(indx_ok), " given max lnL ", max_lnL)
 if max_lnL < 10 and np.mean(Y) > -10: # second condition to allow synthetic tests not to fail, as these often have maxlnL not large
-    print " Resetting to use ALL input data -- beware ! "
+    print(" Resetting to use ALL input data -- beware ! ")
     # nothing matters, we will reject it anyways
     indx_ok = np.ones(len(Y),dtype=bool)
 elif sum(indx_ok) < 10: # and max_lnL > 30:
@@ -1254,12 +1254,12 @@ elif sum(indx_ok) < 10: # and max_lnL > 30:
     indx_list = np.array( [[k, Y[k]] for k in idx_sorted_index])     # pair up with the weights again
     indx_list = indx_list[::-1]  # reverse, so most significant are first
     indx_ok = map(int,indx_list[:10,0])
-    print " Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:10]
+    print(" Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:10])
 X_raw = X.copy()
 
 my_fit= None
 if opts.fit_method == "quadratic":
-    print " FIT METHOD ", opts.fit_method, " IS QUADRATIC"
+    print(" FIT METHOD ", opts.fit_method, " IS QUADRATIC")
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
@@ -1284,13 +1284,13 @@ if opts.fit_method == "quadratic":
                 p_to_assign = "chieff_aligned"
             P.assign_param(p_to_assign,pt_best_X[indx]*fac) 
            
-        print " ====BEST BINARY ===="
-        print " Parameters from fit ", pt_best_X
+        print(" ====BEST BINARY ====")
+        print(" Parameters from fit ", pt_best_X)
         P.print_params()
         sys.exit(0)
     my_fit = fit_quadratic_alt(X,Y,symmetry_list=symmetry_list,verbose=opts.verbose)
 elif opts.fit_method == "polynomial":
-    print " FIT METHOD ", opts.fit_method, " IS POLYNOMIAL"
+    print(" FIT METHOD ", opts.fit_method, " IS POLYNOMIAL")
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
@@ -1305,9 +1305,9 @@ elif opts.fit_method == "polynomial":
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_polynomial(X,Y,symmetry_list=symmetry_list,y_errors=Y_err)
 elif opts.fit_method == 'gp_hyper':
-    print " FIT METHOD ", opts.fit_method, " IS GP with hypercube rescaling"
+    print(" FIT METHOD ", opts.fit_method, " IS GP with hypercube rescaling")
     # some data truncation IS used for the GP, but beware
-    print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
+    print(" Truncating data set used for GP, to reduce memory usage needed in matrix operations")
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
@@ -1322,9 +1322,9 @@ elif opts.fit_method == 'gp_hyper':
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp(X,Y,y_errors=Y_err,hypercube_rescale=True)
 elif opts.fit_method == 'gp':
-    print " FIT METHOD ", opts.fit_method, " IS GP"
+    print(" FIT METHOD ", opts.fit_method, " IS GP")
     # some data truncation IS used for the GP, but beware
-    print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
+    print(" Truncating data set used for GP, to reduce memory usage needed in matrix operations")
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
@@ -1339,9 +1339,9 @@ elif opts.fit_method == 'gp':
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'gp-pool':
-    print " FIT METHOD ", opts.fit_method, " IS GP (pooled) with pool size ", opts.pool_size
+    print(" FIT METHOD ", opts.fit_method, " IS GP (pooled) with pool size ", opts.pool_size)
     # some data truncation IS used for the GP, but beware
-    print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
+    print(" Truncating data set used for GP, to reduce memory usage needed in matrix operations")
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
@@ -1560,7 +1560,7 @@ if len(low_level_coord_names) ==10:
 n_step = 1e5
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
-print " Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto"
+print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto")
 
 
 extra_args={}
@@ -1573,16 +1573,16 @@ res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
     if neff < opts.fail_unless_n_eff:
-        print " FAILURE: n_eff too small"
+        print(" FAILURE: n_eff too small")
         sys.exit(1)
 if neff < opts.n_eff:   
-    print " ==> neff (={}) is low <==".format(neff)
+    print(" ==> neff (={}) is low <==".format(neff))
     if opts.contingency_unevolved_neff == 'quadpuff'  and neff < np.min([500,opts.n_eff]): # we can usually get by with about 500 points
         # Add errors
         # Note we only want to add errors to RETAINED points
-        print " Contingency: quadpuff: take covariance of points, draw from it again, add to existing points as offsets (i.e. a puffball) "
+        print(" Contingency: quadpuff: take covariance of points, draw from it again, add to existing points as offsets (i.e. a puffball) ")
         n_output_size = np.min([len(P_list_in),opts.n_output_samples])
-        print " Preparing to write ", n_output_size , " samples "
+        print(" Preparing to write ", n_output_size , " samples ")
 
         my_cov = np.cov(X.T)  # covariance of data points
         rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X[0])), cov=my_cov,allow_singular=True)  # they are just complaining about dynamic range
@@ -1636,19 +1636,19 @@ with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 
 if neff < len(low_level_coord_names):
-    print " PLOTS WILL FAIL "
-    print " Not enough independent Monte Carlo points to generate useful contours"
+    print(" PLOTS WILL FAIL ")
+    print(" Not enough independent Monte Carlo points to generate useful contours")
 
 
 
 
 samples = sampler._rvs
-print samples.keys()
+print(samples.keys())
 n_params = len(coord_names)
 dat_mass = np.zeros((len(samples[low_level_coord_names[0]]),n_params+3))
 dat_logL = np.log(samples["integrand"])
 lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
-print " Max lnL ", np.max(dat_logL)
+print(" Max lnL ", np.max(dat_logL))
 
 # Throw away stupid points that don't impact the posterior
 indx_ok = np.logical_and(dat_logL > lnLmax-opts.lnL_offset ,samples["joint_s_prior"]>0)
@@ -1785,7 +1785,7 @@ if not no_plots:
    try:
     dat_out = []; dat_out_LI=[]
     p = low_level_coord_names[indx]
-    print " -- 1d cumulative "+ str(indx)+ ":"+ low_level_coord_names[indx]+" ----"
+    print(" -- 1d cumulative "+ str(indx)+ ":"+ low_level_coord_names[indx]+" ----")
     dat_here = samples[low_level_coord_names[indx]]
     range_x = [np.min(dat_here), np.max(dat_here)]
     if opts.fname_lalinference:
@@ -1814,7 +1814,7 @@ if not no_plots:
     if p in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
     here_val = here_val/fac
-    print " Vertical line ", p, " ", here_val
+    print(" Vertical line ", p, " ", here_val)
     plt.axvline(here_val,color='k',linestyle='dashed')
 
     x_name = render_coord(p)
@@ -1826,7 +1826,7 @@ if not no_plots:
     plt.savefig(p+"_cdf_nocut_beware.png"); plt.clf()
    except:
       plt.clf()  # clear plot, just in case
-      print " No 1d plot for variable"
+      print(" No 1d plot for variable")
 
 
 ###
@@ -1850,7 +1850,7 @@ if not no_plots:
         line_handles = [black_line,red_line,green_line,blue_line]
 
 
-print " ---- Corner 1: Sampling coordinates (NO CONSTRAINTS APPLIED HERE: BIASED) ---- "
+print(" ---- Corner 1: Sampling coordinates (NO CONSTRAINTS APPLIED HERE: BIASED) ---- ")
 dat_mass = np.zeros( (len(lnL),len(low_level_coord_names)),dtype=np.float64)
 dat_mass_LI = []
 if opts.fname_lalinference:
@@ -1865,7 +1865,7 @@ if not no_plots:
      if remap_ILE_2_LI[low_level_coord_names[indx]] in samples_LI.dtype.names:
         dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[low_level_coord_names[indx]] ]
     if opts.fname_lalinference and low_level_coord_names[indx] in ["lambda1", "lambda2"]:
-        print " populating ", low_level_coord_names[indx], " via _extract "
+        print(" populating ", low_level_coord_names[indx], " via _extract ")
         dat_mass_LI[:,indx] = extract_combination_from_LI(samples_LI, low_level_coord_names[indx])  # requires special extraction technique, since it needs to be converted
 
 truth_here = []
@@ -1900,20 +1900,20 @@ if not no_plots:
     if opts.fname_lalinference:
         # If LI samples are shown, make sure their full posterior range is plotted.
       try:
-        print p
+        print(p)
         p_LI  = remap_ILE_2_LI[p]
         if range_here[-1][0] > np.min(samples_LI[p_LI]):
             range_here[-1][0] = np.min(samples_LI[p_LI])
         if range_here[-1][1] < np.max(samples_LI[p_LI]):
             range_here[-1][1] = np.max(samples_LI[p_LI])
       except:
-          print " Parameter failure with LI, trying extract_combination_... "
+          print(" Parameter failure with LI, trying extract_combination_... ")
           tmp = extract_combination_from_LI(samples_LI, p)
           if range_here[-1][0] > np.min(tmp):
             range_here[-1][0] = np.min(tmp)
           if range_here[-1][1] < np.max(tmp):
             range_here[-1][1] = np.max(tmp)
-    print p, range_here[-1]  # print out range to be used in plots.
+    print(p, range_here[-1])  # print out range to be used in plots.
 
 if not no_plots:
     labels_tex = map(lambda x: tex_dictionary[x], low_level_coord_names)
@@ -1938,23 +1938,23 @@ if not no_plots:
 
     #except:
     else:
-        print " Some ridiculous range error with the corner plots, again"
+        print(" Some ridiculous range error with the corner plots, again")
 
     if opts.fname_lalinference:
       try:
         corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs) #,range=range_here)
       except:
-          print " Failed !"
+          print(" Failed !")
     plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
     plt.savefig("posterior_corner_nocut_beware.png"); plt.clf()
 
-print " ---- Subset for posterior samples (and further corner work) --- " 
+print(" ---- Subset for posterior samples (and further corner work) --- ")
 
 # pick random numbers
 p_threshold_size = np.min([5*opts.n_output_samples,len(weights)])
 p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=p_threshold_size)#opts.n_output_samples)
 if opts.verbose:
-    print " output size: selected thresholds N=", len(p_thresholds)
+    print(" output size: selected thresholds N=", len(p_thresholds))
 # find sample indexes associated with the random numbers
 #    - FIXME: first truncate the bad ones
 # idx_sorted_index = numpy.lexsort((numpy.arange(len(weights)), weights))  # Sort the array of weights, recovering index values
@@ -1966,7 +1966,7 @@ cum_sum  = np.cumsum(weights)
 cum_sum = cum_sum/cum_sum[-1]
 indx_list = map(lambda x : np.sum(cum_sum < x),  p_thresholds)  # this can lead to duplicates
 if opts.verbose:
-    print " output size: selected random indices N=", len(indx_list)
+    print(" output size: selected random indices N=", len(indx_list))
 lnL_list = []
 P_list =[]
 P = lalsimutils.ChooseWaveformParams()
@@ -2000,7 +2000,7 @@ for indx_here in indx_list:
             if val < downselect_dict[p][0] or val > downselect_dict[p][1]:
                     include_item = False
                     if opts.verbose:
-                        print " Sample: Skipping " , line, ' due to ', p, val, downselect_dict[p]
+                        print(" Sample: Skipping " , line, ' due to ', p, val, downselect_dict[p])
 
         # Set some superfluous quantities, needed only for PN approximants, so the result is generated sensibly
         Pgrid.ampO =opts.amplitude_order
@@ -2102,7 +2102,7 @@ for indx in np.arange(len(coord_names)):
         range_here[-1] = [-1,1]
     if coord_names[indx] in ['chi1_perp', 'chi2_perp']:
         range_here[-1] = [0,1]
-    print coord_names[indx], range_here[-1]
+    print(coord_names[indx], range_here[-1])
 
 if opts.fname_lalinference:
     dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names)), dtype=np.float64)
@@ -2112,7 +2112,7 @@ if opts.fname_lalinference:
             if not (tmp is None):
                 dat_mass_LI[:,indx] = tmp
         if coord_names[indx] in ["lambda1", "lambda2"]:
-            print " populating ", coord_names[indx], " via _extract "
+            print(" populating ", coord_names[indx], " via _extract ")
             dat_mass_LI[:,indx] = extract_combination_from_LI(samples_LI, coord_names[indx])  # requires special extraction technique, since it needs to be converted
 
         if range_here[indx][0] > np.min(dat_mass_LI[:,indx]):
@@ -2120,11 +2120,11 @@ if opts.fname_lalinference:
         if range_here[indx][1] < np.max(dat_mass_LI[:,indx]):
             range_here[indx][1] = np.max(dat_mass_LI[:,indx])
 
-print " ---- 1d cumulative on fitting coordinates (NOT biased: FROM SAMPLES, including downselect) --- " 
+print(" ---- 1d cumulative on fitting coordinates (NOT biased: FROM SAMPLES, including downselect) --- ")
 for indx in np.arange(len(coord_names)):
     p = coord_names[indx]
     dat_out = []; dat_out_LI=[]
-    print " -- 1d cumulative "+ str(indx)+ ":"+ coord_names[indx]+" ----"
+    print(" -- 1d cumulative "+ str(indx)+ ":"+ coord_names[indx]+" ----")
     dat_here = dat_mass_post[:,indx]
     wt_here = np.ones(len(dat_here))
     range_x = [np.min(dat_here), np.max(dat_here)]
@@ -2149,14 +2149,14 @@ for indx in np.arange(len(coord_names)):
         try:
             plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label="LI:"+opts.desc_lalinference,color='r')
         except:
-            print "  - plot failure - "
+            print("  - plot failure - ")
     # Add vertical line
     here_val = Pref.extract_param(p)
     fac = 1
     if p in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
     here_val = here_val/fac
-    print " Vertical line ", p, " ", here_val
+    print(" Vertical line ", p, " ", here_val)
     plt.axvline(here_val,color='k',linestyle='dashed')
 
 
@@ -2168,7 +2168,7 @@ for indx in np.arange(len(coord_names)):
     plt.savefig(p+"_alt_cdf.png"); plt.clf()
 
 
-print " ---- Corner 2: Fitting coordinates (+ original sample point overlay) ---- "
+print(" ---- Corner 2: Fitting coordinates (+ original sample point overlay) ---- ")
 
 ###
 ### Corner plot.  Also overlay sample points
@@ -2203,20 +2203,20 @@ try:
 
 except:
 #else:
-    print " No corner 2"
+    print(" No corner 2")
 
 
 ###
 ### Corner plot 3
 ###
-print " ---- Corner 3: Bonus corner plots ---- "
+print(" ---- Corner 3: Bonus corner plots ---- ")
 for indx in np.arange(len(extra_plot_coord_names)):
  if True:
 # try:
     fig_base =None
     coord_names_here = extra_plot_coord_names[indx]
     str_name = '_'.join(coord_names_here)
-    print " Generating corner for ", str_name
+    print(" Generating corner for ", str_name)
     dat_here = dat_extra_post[indx]
     dat_points_here  = dat_out_extra[indx]
     labels_tex = render_coordinates(coord_names_here)#map(lambda x: tex_dictionary[x], coord_names_here)
@@ -2226,16 +2226,16 @@ for indx in np.arange(len(extra_plot_coord_names)):
     can_render_LI = opts.fname_lalinference and  ( set(coord_names_here) < (set(samples_LI.dtype.names) | set(remap_ILE_2_LI.keys()) | set(['lambda1','lambda2','LambdaTilde','DeltaLambdaTilde'])) )
 
     if  can_render_LI:
-        print "   - LI parameters available for ", coord_names_here
+        print("   - LI parameters available for ", coord_names_here)
         dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names_here)), dtype=np.float64)
         for x in np.arange(len(coord_names_here)):
-            print "    ... extracting ", coord_names_here[x]
+            print("    ... extracting ", coord_names_here[x])
             tmp = extract_combination_from_LI(samples_LI, coord_names_here[x])
             if not (tmp is None):
                 dat_mass_LI[:,x] = tmp
 #                print "   .....   ", tmp[:3]
             else:
-                print "   ... warning, extraction failed for ", coord_names_here[x]
+                print("   ... warning, extraction failed for ", coord_names_here[x])
     for z in np.arange(len(coord_names_here)):    
         range_here.append( [np.min(dat_points_here[:, z]),np.max(dat_points_here[:, z])])
         if not (opts.plots_do_not_force_large_range):
@@ -2256,7 +2256,7 @@ for indx in np.arange(len(extra_plot_coord_names)):
         if coord_names_here[z] in prior_range_map.keys():
             range_here[-1][1] = np.min( [range_here[-1][1], prior_range_map[coord_names_here[z]][1]])  # override the limits, if I have a prior.
 
-        print '   - Range ', coord_names_here[z], range_here[-1]
+        print('   - Range ', coord_names_here[z], range_here[-1])
       
     truth_here = []
     for z in np.arange(len(coord_names_here)):
@@ -2265,31 +2265,31 @@ for indx in np.arange(len(extra_plot_coord_names)):
             fac = lal.MSUN_SI
         truth_here.append(Pref.extract_param(coord_names_here[z])/fac)
 
-    print  " Truth here for ", coord_names_here, truth_here
+    print(" Truth here for ", coord_names_here, truth_here)
 
-    print " Generating figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), " from the posterior and ",  len(dat_points_here) , len(Y_orig), " from the original data set "
+    print(" Generating figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), " from the posterior and ",  len(dat_points_here) , len(Y_orig), " from the original data set ")
     fig_base = corner.corner(dat_here, weights=np.ones(len(dat_here))*1.0/len(dat_here), labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range=range_here,truths=truth_here)
                 
     if can_render_LI:
         corner.corner( dat_mass_LI, weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI), color='r',labels=labels_tex,fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
 
 
-    print " Rendering past samples for ",  extra_plot_coord_names[indx], " based on ", len(dat_points_here)
+    print(" Rendering past samples for ",  extra_plot_coord_names[indx], " based on ", len(dat_points_here))
     fig_base = corner.corner(dat_points_here,weights=np.ones(len(dat_points_here))*1.0/len(dat_points_here), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
     # Render points available. Note we use the ORIGINAL data set, and truncate it
     indx_ok = Y_orig > Y_orig.max() - scipy.stats.chi2.isf(0.1,len(low_level_coord_names))/2  # approximate threshold for significant points,from inverse cdf 90%
     n_ok = np.sum(indx_ok)
-    print " Adding points for figure ", n_ok, extra_plot_coord_names[indx], " drawn from original  "
+    print(" Adding points for figure ", n_ok, extra_plot_coord_names[indx], " drawn from original  ")
     fig_base  = corner.corner(dat_points_here[indx_ok],weights=np.ones(n_ok)*1.0/n_ok, plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':'b'},hist_kwargs={'color':'b', 'linestyle':'dashed'},range=range_here)
 
 
     plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
-    print " Writing coord ", str_name
+    print(" Writing coord ", str_name)
     plt.savefig("posterior_corner_extra_coords_"+str_name+".png"); plt.clf()
 
 # except:
  else:
-     print " Failed to generate corner for ", extra_plot_coord_names[indx]
+     print(" Failed to generate corner for ", extra_plot_coord_names[indx])
 
 sys.exit(0)
 

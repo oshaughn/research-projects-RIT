@@ -44,7 +44,7 @@ coord_names = opts.parameter # Used  in fit
 param_ranges = map(eval,opts.parameter_range)
 if coord_names is None:
     sys.exit(0)
-print coord_names
+print(coord_names)
 
 
 # Load data

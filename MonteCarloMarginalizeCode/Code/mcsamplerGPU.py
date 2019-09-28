@@ -2,6 +2,7 @@
 #   From Dan Wysocki based on code by C. Pankow
 #   From fork https://github.com/oshaughn/research-projects-RIT/blob/GPU-danw-merge/MonteCarloMarginalizeCode/Code/mcsampler.py
 
+from __future__ import print_function
 
 import sys
 import math
@@ -24,7 +25,7 @@ try:
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
   cupy_ok = True
 except:
-  print ' no cupy (mcsamplerGPU)'
+  print(' no cupy (mcsamplerGPU)')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
@@ -46,7 +47,7 @@ if 'PROFILE' not in os.environ:
 try:
     import healpy
 except:
-    print " - No healpy - "
+    print(" - No healpy - ")
 
 from statutils import cumvar
 
@@ -57,7 +58,7 @@ import vectorized_general_tools
 try:
     import vegas
 except:
-    print " - No vegas - "
+    print(" - No vegas - ")
 
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
@@ -160,7 +161,7 @@ class MCSampler(object):
         self.params.add(params) # does NOT preserve order in which parameters are provided
         self.params_ordered.append(params)
         if rosDebugMessages: 
-            print " Adding parameter ", params, " with limits ", [left_limit, right_limit]
+            print(" Adding parameter ", params, " with limits ", [left_limit, right_limit])
         if isinstance(params, tuple):
             assert all(map(lambda lim: lim[0] < lim[1], zip(left_limit, right_limit)))
             if left_limit is None:
@@ -195,7 +196,7 @@ class MCSampler(object):
         self.prior_pdf[params] = prior_pdf
 
         if adaptive_sampling:
-            print "   Adapting ", params
+            print("   Adapting ", params)
             self.adaptive.append(params)
 
     def reset_sampling(self,param):
@@ -546,7 +547,7 @@ class MCSampler(object):
         if not tempering_adapt:
             tempering_exp_running=tempering_exp
         else:
-            print " Adaptive tempering "
+            print(" Adaptive tempering ")
             #tempering_exp_running=0.01  # decent place to start for the first step. Note starting at zero KEEPS it at zero.
             tempering_exp_running=tempering_exp
             
@@ -566,10 +567,10 @@ class MCSampler(object):
         bShowEveryEvaluation = kwargs['extremely_verbose'] if kwargs.has_key('extremely_verbose') else False
 
         if bShowEvaluationLog:
-            print " .... mcsampler : providing verbose output ..... "
+            print(" .... mcsampler : providing verbose output ..... ")
         if bUseMultiprocessing:
             if rosDebugMessages:
-                print " Initiating multiprocessor pool : ", nProcesses
+                print(" Initiating multiprocessor pool : ", nProcesses)
             p = Pool(nProcesses)
 
         int_val1 = numpy.float128(0)
@@ -580,7 +581,7 @@ class MCSampler(object):
         mean, var = None, numpy.float128(0)    # to prevent infinite variance due to overflow
 
         if bShowEvaluationLog:
-            print "iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var"
+            print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
         if convergence_tests:
             bConvergenceTests = False   # start out not converged, if tests are on
@@ -601,7 +602,7 @@ class MCSampler(object):
             if any(joint_p_s <= 0):
                 for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
-                print >>sys.stderr, "Zero prior value detected, skipping."
+                print("Zero prior value detected, skipping.", file=sys.stderr)
                 continue
 
             #
@@ -633,7 +634,7 @@ class MCSampler(object):
             if fval.sum() == 0:
                 for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
-                print >>sys.stderr, "No contribution to integral, skipping."
+                print("No contribution to integral, skipping.", file=sys.stderr)
                 continue
 
             if save_intg:
@@ -664,7 +665,7 @@ class MCSampler(object):
 
             if bShowEveryEvaluation:
                 for i in range(n):
-                    print " Evaluation details: p,ps, L = ", joint_p_prior[i], joint_p_s[i], fval[i]
+                    print(" Evaluation details: p,ps, L = ", joint_p_prior[i], joint_p_s[i], fval[i])
 
             # Calculate max L (a useful convergence feature) for debug 
             # reporting.  Not used for integration
@@ -697,10 +698,10 @@ class MCSampler(object):
                 raise NanOrInf("maxlnL = inf")
 
             if bShowEvaluationLog:
-                print " :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/self.ntotal)), numpy.log(int_val1/self.ntotal)-maxlnL, numpy.sqrt(var*self.ntotal)/int_val1
+                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/self.ntotal)), numpy.log(int_val1/self.ntotal)-maxlnL, numpy.sqrt(var*self.ntotal)/int_val1)
 
             if (not convergence_tests) and self.ntotal >= nmax and neff != float("inf"):
-                print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
+                print("WARNING: User requested maximum number of samples reached... bailing.", file=sys.stderr)
 
             # Convergence tests:
             if convergence_tests:
@@ -712,7 +713,7 @@ class MCSampler(object):
 
             if convergence_tests  and bShowEvaluationLog:  # Print status of each test
                 for key in convergence_tests:
-                    print "   -- Convergence test status : ", key, last_convergence_test[key]
+                    print("   -- Convergence test status : ", key, last_convergence_test[key])
 
             #
             # The total number of adaptive steps is reached
@@ -952,6 +953,6 @@ def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativ
     igrandValues= numpy.sort(igrandValues)#[2:]                            # Sort.  Useful in reports 
     valTest = stats.normaltest(igrandValues)[1]                              # small value is implausible
     igrandSigma = (numpy.std(igrandValues))/numpy.sqrt(ncopies)   # variance in *overall* integral, estimated from variance of sub-integrals
-    print " Test values on distribution of log evidence:  (gaussianity p-value; standard deviation of ln evidence) ", valTest, igrandSigma
-    print " Ln(evidence) sub-integral values, as used in tests  : ", igrandValues
+    print(" Test values on distribution of log evidence:  (gaussianity p-value; standard deviation of ln evidence) ", valTest, igrandSigma)
+    print(" Ln(evidence) sub-integral values, as used in tests  : ", igrandValues)
     return valTest> pcutNormalTest and igrandSigma < sigmaCutRelativeErrorThreshold   # Test on left returns a small value if implausible. Hence pcut ->0 becomes increasingly difficult (and requires statistical accidents). Test on right requires relative error in integral also to be small when pcut is small.   FIXME: Give these variables two different names

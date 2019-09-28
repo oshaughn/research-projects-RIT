@@ -22,6 +22,8 @@ and computes the log likelihood for given values of extrinsic parameters
 Requires python SWIG bindings of the LIGO Algorithms Library (LAL)
 """
 
+from __future__ import print_function
+
 import lal
 import lalsimulation as lalsim
 import lalsimutils as lsu
@@ -33,7 +35,7 @@ try:
   xpy_default=cupy
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
 except:
-  print ' no cupy'
+  print(' no cupy')
   import numpy as cupy
   optimized_gpu_tools=None
   Q_inner_product=None
@@ -55,25 +57,25 @@ import vectorized_lal_tools
 import os
 if 'PROFILE' not in os.environ:
    def profile(fn):
-	return fn
+      return fn
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 try:
-	import NRWaveformCatalogManager as nrwf
-	useNR =True
-        print " factored_likelihood.py : NRWaveformCatalogManager available "
+        import NRWaveformCatalogManager as nrwf
+        useNR =True
+        print(" factored_likelihood.py : NRWaveformCatalogManager available ")
 except ImportError:
-	useNR=False
+        useNR=False
 
 try:
         import ROMWaveformManager as romwf
-        print " factored_likelihood.py: ROMWaveformManager as romwf"
+        print(" factored_likelihood.py: ROMWaveformManager as romwf")
         useROM=True
         rom_basis_scale = 1.0*1e-21   # Fundamental problem: Inner products with ROM basis vectors/Sh are tiny. Need to rescale to avoid overflow/underflow and simplify comparisons
 except ImportError:
         useROM=False
-        print " factored_likelihood.py: - no ROM - "
+        print(" factored_likelihood.py: - no ROM - ")
         rom_basis_scale =1
 
 try:
@@ -82,7 +84,7 @@ try:
 #    import EOBTidalExternal as eobwf
 except:
     hasEOB=False
-    print " factored_likelihood: no EOB "
+    print(" factored_likelihood: no EOB ")
 
 distMpcRef = 1000 # a fiducial distance for the template source.
 tWindowExplore = [-0.15, 0.15] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
@@ -126,12 +128,12 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     P.dist = distMpcRef*1e6*lsu.lsu_PC
 
     if not quiet:
-            print "  ++++ Template data being computed for the following binary +++ "
+            print("  ++++ Template data being computed for the following binary +++ ")
             P.print_params()
     if use_external_EOB:
             # Mass sanity check "
             if  (P.m1/lal.MSUN_SI)>3 or P.m2/lal.MSUN_SI>3:
-                    print " ----- external EOB code: MASS DANGER ---"
+                    print(" ----- external EOB code: MASS DANGER ---")
     # Compute all hlm modes with l <= Lmax
     detectors = data_dict.keys()
     # Zero-pad to same length as data - NB: Assuming all FD data same resolution
@@ -143,7 +145,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             if hybrid_use:
                # WARNING
                #    - Hybridization is NOT enabled 
-                    print " WARNING: Hybridization will not be applied (obviously) if you are using a ROM basis. "
+                    print(" WARNING: Hybridization will not be applied (obviously) if you are using a ROM basis. ")
             bT = acatHere.basis_oft(P,return_numpy=False,force_T=1./P.deltaF)
             # Fake names, to re-use the code below.  
             hlms = {}
@@ -151,7 +153,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             for mode in bT:
               if mode[0]<=Lmax:  # don't report waveforms from modes outside the target L range
                 if rosDebugMessagesDictionary["DebugMessagesLong"]:
-                        print " FFT for mode ", mode, bT[mode].data.length, " note duration = ", bT[mode].data.length*bT[mode].deltaT
+                        print(" FFT for mode ", mode, bT[mode].data.length, " note duration = ", bT[mode].data.length*bT[mode].deltaT)
                 hlms[mode] = lsu.DataFourier(bT[mode])
 #                print " FFT for conjugate mode ", mode, bT[mode].data.length
                 bT[mode].data.data = np.conj(bT[mode].data.data)
@@ -168,7 +170,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
            for mode in mode_list:
                    if no_memory and mode[1]==0 and P.SoftAlignedQ():
                            # skip memory modes if requested to do so. DANGER
-                        print " WARNING: Deleting memory mode in precompute stage ", mode
+                        print(" WARNING: Deleting memory mode in precompute stage ", mode)
                         del hlms[mode]
                         del hlms_conj[mode]
                         continue
@@ -176,7 +178,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
 
     elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx ==lsu.lalSEOBNRv4HM or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4 ):
         if not quiet:
-                print "  FACTORED LIKELIHOOD WITH SEOB "    
+                print("  FACTORED LIKELIHOOD WITH SEOB ")
         hlmsT = {}
         hlmsT = lsu.hlmoft(P,Lmax)  # do a standard function call NOT anything special; should be wrapped properly now!
         # if P.approx == lalsim.SEOBNRv3:
@@ -187,13 +189,13 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
 
         #         hlmsT = lsu.hlmoft_SEOB_dict(P, Lmax)  # only 2,2 modes -- Lmax irrelevant
         if not quiet:
-                print "  hlm generation complete "    
+                print("  hlm generation complete ")
         if P.approx == lalsim.SEOBNRv3 or  P.deltaF == None: # h_lm(t) should be zero-padded properly inside code
                 TDlen = int(1./(P.deltaF*P.deltaT))#TDlen = lsu.nextPow2(hlmsT[(2,2)].data.length)
                 if not quiet:
-                        print " Resizing to ", TDlen, " from ", hlmsT[(2,2)].data.length
-		for mode in hlmsT:
-			hlmsT[mode] = lal.ResizeCOMPLEX16TimeSeries(hlmsT[mode],0, TDlen)
+                        print(" Resizing to ", TDlen, " from ", hlmsT[(2,2)].data.length)
+                for mode in hlmsT:
+                        hlmsT[mode] = lal.ResizeCOMPLEX16TimeSeries(hlmsT[mode],0, TDlen)
                 #h22 = hlmsT[(2,2)]
                 #h2m2 = hlmsT[(2,-2)]
                 #hlmsT[(2,2)] = lal.ResizeCOMPLEX16TimeSeries(h22, 0, TDlen)
@@ -202,11 +204,11 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         hlms_conj = {}
         for mode in hlmsT:
                 if verbose:
-                        print " FFT for mode ", mode, hlmsT[mode].data.length, " note duration = ", hlmsT[mode].data.length*hlmsT[mode].deltaT
+                        print(" FFT for mode ", mode, hlmsT[mode].data.length, " note duration = ", hlmsT[mode].data.length*hlmsT[mode].deltaT)
                 hlms[mode] = lsu.DataFourier(hlmsT[mode])
                 if verbose:
-                        print  " -> ", hlms[mode].data.length
-                        print " FFT for conjugate mode ", mode, hlmsT[mode].data.length
+                        print(" -> ", hlms[mode].data.length)
+                        print(" FFT for conjugate mode ", mode, hlmsT[mode].data.length)
                 hlmsT[mode].data.data = np.conj(hlmsT[mode].data.data)
                 hlms_conj[mode] = lsu.DataFourier(hlmsT[mode])
     elif (not (NR_group) or not (NR_param)) and  (not use_external_EOB) and (not nr_lookup):
@@ -223,7 +225,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     elif (nr_lookup or NR_group) and useNR:
 	    # look up simulation
 	    # use nrwf to get hlmf
-        print " Using NR waveforms "
+        print(" Using NR waveforms ")
         group = None
         param = None
         if nr_lookup:
@@ -235,23 +237,23 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 compare_dict['s2z'] = P.s2z
                 compare_dict['s2x'] = P.s2x
                 compare_dict['s2y'] = P.s2y
-                print " Parameter matching condition ", compare_dict
+                print(" Parameter matching condition ", compare_dict)
                 good_sim_list = nrwf.NRSimulationLookup(compare_dict,valid_groups=nr_lookup_valid_groups)
                 if len(good_sim_list)< 1:
-                        print " ------- NO MATCHING SIMULATIONS FOUND ----- "
+                        print(" ------- NO MATCHING SIMULATIONS FOUND ----- ")
                         import sys
                         sys.exit(0)
-                        print " Identified set of matching NR simulations ", good_sim_list
+                        print(" Identified set of matching NR simulations ", good_sim_list)
                 try:
-                        print  "   Attempting to pick longest simulation matching  the simulation  "
+                        print("   Attempting to pick longest simulation matching  the simulation  ")
                         MOmega0  = 1
                         good_sim = None
                         for key in good_sim_list:
-                                print key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+                                print(key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]])
                                 if nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0'] < MOmega0:
                                         good_sim = key
                                         MOmega0 = nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0']
-                                print " Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+                                print(" Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]])
                 except:
                         good_sim  = good_sim_list[0] # pick the first one.  Note we will want to reduce /downselect the lookup process
                 group = good_sim[0]
@@ -259,8 +261,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         else:
                 group = NR_group
                 param = NR_param
-        print " Identified matching NR simulation ", group, param
-	mtot = P.m1 + P.m2
+        print(" Identified matching NR simulation ", group, param)
+        mtot = P.m1 + P.m2
         q = P.m2/P.m1
         # Load the catalog
         wfP = nrwf.WaveformModeCatalog(group, param, \
@@ -278,7 +280,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         hlms_conj = wfP.conj_hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF,hybrid_use=hybrid_use)  # force a window.  Check the time
 
         if rosDebugMessages:
-                print "NR variant: Length check: ",hlms[(2,2)].data.length, data_dict[detectors[0]].data.length
+                print("NR variant: Length check: ",hlms[(2,2)].data.length, data_dict[detectors[0]].data.length)
         # Remove memory modes (ALIGNED ONLY: Dangerous for precessing spins)
         if no_memory and wfP.P.SoftAlignedQ():
                 for key in hlms.keys():
@@ -288,7 +290,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
 
 
     elif hasEOB and use_external_EOB:
-            print "    Using external EOB interface (Bernuzzi)    "
+            print("    Using external EOB interface (Bernuzzi)    ")
             # Code WILL FAIL IF LAMBDA=0
             P.taper = lsu.lsu_TAPER_START
             lambda_crit=1e-3  # Needed to have adequate i/o output 
@@ -297,20 +299,20 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             if P.lambda2<lambda_crit:
                     P.lambda2=lambda_crit
             if P.deltaT > 1./16384:
-                    print " Bad idea to use such a low sampling rate for EOB tidal "
+                    print(" Bad idea to use such a low sampling rate for EOB tidal ")
             wfP = eobwf.WaveformModeCatalog(P,lmax=Lmax)
             hlms = wfP.hlmoff(force_T=1./P.deltaF,deltaT=P.deltaT)
             # Reflection symmetric
             hlms_conj = wfP.conj_hlmoff(force_T=1./P.deltaF,deltaT=P.deltaT)
 
             # Code will not make the EOB waveform shorter, so the code can fail if you have insufficient data, later
-            print " External EOB length check ", hlms[(2,2)].data.length, data_dict[detectors[0]].data.length, data_dict[detectors[0]].data.length*P.deltaT
-            print " External EOB length check (in M) " , 
-            print " Comparison EOB duration check vs epoch vs window size (sec) ", wfP.estimateDurationSec(),  -hlms[(2,2)].epoch, 1./hlms[(2,2)].deltaF
+            print(" External EOB length check ", hlms[(2,2)].data.length, data_dict[detectors[0]].data.length, data_dict[detectors[0]].data.length*P.deltaT)
+            print(" External EOB length check (in M) ", end=' ')
+            print(" Comparison EOB duration check vs epoch vs window size (sec) ", wfP.estimateDurationSec(),  -hlms[(2,2)].epoch, 1./hlms[(2,2)].deltaF)
             assert hlms[(2,2)].data.length ==data_dict[detectors[0]].data.length
             if rosDebugMessagesDictionary["DebugMessagesLong"]:
                     hlmT_ref = lsu.DataInverseFourier(hlms[(2,2)])
-                    print  " External EOB: Time offset of largest sample (should be zero) ", hlms[(2,2)].epoch + np.argmax(np.abs(hlmT_ref.data.data))*P.deltaT
+                    print(" External EOB: Time offset of largest sample (should be zero) ", hlms[(2,2)].epoch + np.argmax(np.abs(hlmT_ref.data.data))*P.deltaT)
     elif useNR: # NR signal required
         mtot = P.m1 + P.m2
         # Load the catalog
@@ -325,7 +327,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
 
         hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window
     else:
-            print " No waveform available "
+            print(" No waveform available ")
             import sys
             sys.exit(0)
 
@@ -336,7 +338,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             theWorthwhileModes =  IdentifyEffectiveModesForDetector(crossTermsFiducial, ignore_threshold, detectors)
             # Make sure worthwhile modes satisfy reflection symmetry! Do not truncate egregiously!
             theWorthwhileModes  = theWorthwhileModes.union(  set([(p,-q) for (p,q) in theWorthwhileModes]))
-            print "  Worthwhile modes : ", theWorthwhileModes
+            print("  Worthwhile modes : ", theWorthwhileModes)
             hlmsNew = {}
             hlmsConjNew = {}
             for pair in theWorthwhileModes:
@@ -345,16 +347,16 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             hlms =hlmsNew
             hlms_conj= hlmsConjNew
             if len(hlms.keys()) == 0:
-                    print " Failure "
+                    print(" Failure ")
                     import sys
                     sys.exit(0)
 
 
     # Print statistics on timeseries provided
     if verbose:
-      print " Mode  npts(data)   npts epoch  epoch/deltaT "
+      print(" Mode  npts(data)   npts epoch  epoch/deltaT ")
       for mode in hlms.keys():
-        print mode, data_dict[detectors[0]].data.length, hlms[mode].data.length, hlms[mode].data.length*P.deltaT, hlms[mode].epoch, hlms[mode].epoch/P.deltaT
+        print(mode, data_dict[detectors[0]].data.length, hlms[mode].data.length, hlms[mode].data.length*P.deltaT, hlms[mode].epoch, hlms[mode].epoch/P.deltaT)
 
     for det in detectors:
         # This is the event time at the detector
@@ -390,17 +392,17 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         t = np.arange(N_window) * P.deltaT\
                 + float(rho_epoch + N_shift * P.deltaT )
         if verbose:
-            print "For detector", det, "..."
-            print "\tData starts at %.20g" % float(data_dict[det].epoch)
-            print "\trholm starts at %.20g" % float(rho_epoch)
-            print "\tEvent time at detector is: %.18g" % float(t_det)
-            print "\tInterpolation window has half width %g" % t_window
-            print "\tComputed t_shift = %.20g" % t_shift
-            print "\t(t_shift should be t_det - t_window - t_rholm = %.20g)" %\
-                    (t_det - t_window - float(rho_epoch))
-            print "\tInterpolation starts at time %.20g" % t[0]
-            print "\t(Should start at t_event - t_window = %.20g)" %\
-                    (float(rho_epoch + N_shift * P.deltaT))
+            print("For detector", det, "...")
+            print("\tData starts at %.20g" % float(data_dict[det].epoch))
+            print("\trholm starts at %.20g" % float(rho_epoch))
+            print("\tEvent time at detector is: %.18g" % float(t_det))
+            print("\tInterpolation window has half width %g" % t_window)
+            print("\tComputed t_shift = %.20g" % t_shift)
+            print("\t(t_shift should be t_det - t_window - t_rholm = %.20g)" %\
+                    (t_det - t_window - float(rho_epoch)))
+            print("\tInterpolation starts at time %.20g" % t[0])
+            print("\t(Should start at t_event - t_window = %.20g)" %\
+                    (float(rho_epoch + N_shift * P.deltaT)))
         # The minus N_shift indicates we need to roll left
         # to bring the desired samples to the front of the array
         if not skip_interpolation:
@@ -454,7 +456,7 @@ def ReconstructPrecomputedLikelihoodTermsROM(P,acat_rom,rho_intp_rom,crossTerms_
                 # Interpolated case
                 #   - create a lambda structure for it, holding the coefficients.  NOT IMPLEMENTED since not used in production
                 if verbose:
-                        print " factored_likelihood: ROM: interpolated timeseries ", det, mode, " NOT CREATED"
+                        print(" factored_likelihood: ROM: interpolated timeseries ", det, mode, " NOT CREATED")
                 wt_list_here = np.array(wt_list_here)
                 rholms_intp[det][mode] = lambda t, fns=fn_list_here, wts=wt_list_here: np.sum(np.array(map(fn_list_here,t))*wt_list_here )
         # Reproduce  crossTerms, crossTermsV
@@ -469,8 +471,8 @@ def ReconstructPrecomputedLikelihoodTermsROM(P,acat_rom,rho_intp_rom,crossTerms_
                               crossTerms[det][(mode1,mode2)] = np.sum(np.array([ np.conj(coefs[indx1])*coefs[indx2]*crossTerms_rom[det][(indx1,indx2)] for indx1 in indx_list_ok1 for indx2 in indx_list_ok2]))
                               crossTermsV[det][(mode1,mode2)] = np.sum(np.array([ coefs[indx1]*coefs[indx2]*crossTermsV_rom[det][(indx1,indx2)] for indx1 in indx_list_ok1 for indx2 in indx_list_ok2]))
                               if verbose:
-                                      print "       : U populated ", (mode1, mode2), "  = ",crossTerms[det][(mode1,mode2) ]
-                                      print "       : V populated ", (mode1, mode2), "  = ",crossTermsV[det][(mode1,mode2) ]
+                                      print("       : U populated ", (mode1, mode2), "  = ",crossTerms[det][(mode1,mode2) ])
+                                      print("       : V populated ", (mode1, mode2), "  = ",crossTermsV[det][(mode1,mode2) ])
                     
         return rholms_intp, crossTerms, crossTermsV, rholms, None  # Same return pattern as Precompute...
 
@@ -796,13 +798,13 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms,crossTermsV, Ylms, F, dis
 def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
         N_shift, N_window, analyticPSD_Q=False,
         inv_spec_trunc_Q=False, T_spec=0.):
-    """
+    r"""
     Compute the complex-valued overlap between
     each member of a SphHarmFrequencySeries 'hlms'
     and the interferometer data COMPLEX16FrequencySeries 'data',
     weighted the power spectral density REAL8FrequencySeries 'psd'.
 
-    The integrand is non-zero in the range: [-fNyq, -fmin] \union [fmin, fNyq].
+    The integrand is non-zero in the range: [-fNyq, -fmin] union [fmin, fNyq].
     This integrand is then inverse-FFT'd to get the inner product
     at a discrete series of time shifts.
 
@@ -833,7 +835,7 @@ def InterpolateRholm(rholm, t,verbose=False):
     h_re = np.real(rholm.data.data)
     h_im = np.imag(rholm.data.data)
     if verbose:
-        print "Interpolation length check ", len(t), len(h_re)
+        print("Interpolation length check ", len(t), len(h_re))
     # spline interpolate the real and imaginary parts of the time series
     h_real = interpolate.InterpolatedUnivariateSpline(t, h_re[:len(t)], k=3,ext='zeros')
     h_imag = interpolate.InterpolatedUnivariateSpline(t, h_im[:len(t)], k=3,ext='zeros')
@@ -892,7 +894,7 @@ def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF,
     Compute the 'cross terms' between waveform modes, i.e.
     < h_lm | h_l'm' >.
     The inner product is weighted by power spectral density 'psd' and
-    integrated over the interval [-fNyq, -fmin] \union [fmin, fNyq]
+    integrated over the interval [-fNyq, -fmin] union [fmin, fNyq]
 
     Returns a dictionary of inner product values keyed by tuples of mode indices
     i.e. ((l,m),(l',m'))
@@ -907,8 +909,8 @@ def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF,
         for mode2 in hlmsB.keys():
             crossTerms[ (mode1,mode2) ] = IP.ip(hlmsA[mode1], hlmsB[mode2])
             if verbose:
-                print "       : ", prefix, " populated ", (mode1, mode2), "  = ",\
-                        crossTerms[(mode1,mode2) ]
+                print("       : ", prefix, " populated ", (mode1, mode2), "  = ",\
+                        crossTerms[(mode1,mode2) ])
 
     return crossTerms
 
@@ -972,7 +974,7 @@ def ComputeArrivalTimeAtDetectorWithoutShift(det, RA, DEC, tref):
     'tref' is the reference time at the geocenter.  It can be either a float (in which case the return is a float) or a GPSTime object (in which case it returns a GPSTime)
     """
     detector = lalsim.DetectorPrefixToLALDetector(det)
-    print detector, detector.location
+    print(detector, detector.location)
     # if tref is a float or a GPSTime object,
     # it shoud be automagically converted in the appropriate way
     return lal.TimeDelayFromEarthCenter(detector.location, RA, DEC, tref)
@@ -993,10 +995,10 @@ def non_herm_hoff(P):
              P.phi,  P.theta, P.psi,
             lalsim.InstrumentNameToLALDetector(str(P.detector)))  # Propagates signal to the detector, including beampattern and time delay
     if rosDebugMessages:
-        print " +++ Injection creation for detector ", P.detector, " ++ "
-        print  "   : Creating signal for injection with epoch ", float(hp.epoch), " and event time centered at ", lsu.stringGPSNice(P.tref)
+        print(" +++ Injection creation for detector ", P.detector, " ++ ")
+        print("   : Creating signal for injection with epoch ", float(hp.epoch), " and event time centered at ", lsu.stringGPSNice(P.tref))
         Fp, Fc = lal.ComputeDetAMResponse(lalsim.InstrumentNameToLALDetector(str(P.detector)).response, P.phi, P.theta, P.psi, lal.GreenwichMeanSiderealTime(hp.epoch))
-        print "  : creating signal for injection with (det, t,RA, DEC,psi,Fp,Fx)= ", P.detector, float(P.tref), P.phi, P.theta, P.psi, Fp, Fc
+        print("  : creating signal for injection with (det, t,RA, DEC,psi,Fp,Fx)= ", P.detector, float(P.tref), P.phi, P.theta, P.psi, Fp, Fc)
     if P.taper != lsu.lsu_TAPER_NONE: # Taper if requested
         lalsim.SimInspiralREAL8WaveTaper(hoft.data, P.taper)
     if P.deltaF == None:
@@ -1093,7 +1095,7 @@ def NetworkLogLikelihoodTimeMarginalizedDiscrete(epoch,rholmsDictionary,crossTer
     term2 = -np.real(term2) / 4. /(distMpc/distMpcRef)**2
 
 
-    print detList
+    print(detList)
     rho22 = rholmsDictionary[detList[0]][( 2,2)]
 
     nBins =int( (deltaTWindow[1]-deltaTWindow[0])/rho22.deltaT)
@@ -1190,7 +1192,7 @@ def IdentifyEffectiveModesForDetector(crossTermsOneDetector, fac,det):
         if not isEffective:
             pairsIneffective.append(pair)
             if rosDebugMessagesDictionary["DebugMessages"]:
-                print "   ", pair, " - no significant impact on U, less than ", threshold
+                print("   ", pair, " - no significant impact on U, less than ", threshold)
 
     return pairsUnion - set(pairsIneffective)
 
@@ -1237,7 +1239,7 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
 #            pair1New = (pair1[0], -pair1[1])
 #            crossTermsArrayV[indx1][indx2] = (-1)**pair1[0]*crossTermsForDetector[(pair1New,pair2)]   # this actually should be a seperate array in general; we are assuming reflection symmetry to populate it
     if rosDebugMessagesDictionary["DebugMessagesLong"]:
-        print  " Built cross-terms matrix ", crossTermsArray
+        print(" Built cross-terms matrix ", crossTermsArray)
 
     ### Step 2: Convert rholmsDictionaryForDetector
     rholmArray = np.zeros((nKeys,npts),dtype=np.complex)
@@ -1908,7 +1910,7 @@ try:
         import numba
         from numba import vectorize, complex128, float64, int64
         numba_on = True
-        print " Numba on "
+        print(" Numba on ")
 
         # Very inefficient : decorating
         # Problem - lately, compiler not correctly identifying return value of code
@@ -1936,7 +1938,7 @@ try:
 
 except:
         numba_on = False
-        print " Numba off "
+        print(" Numba off ")
         # Very inefficient
         def lalylm(th,ph,s,l,m):
                 return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)

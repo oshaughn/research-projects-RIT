@@ -34,13 +34,15 @@
 
 #        python ../../Code/test_response_functions_Q.py --cache s5_noise.cache  --psd-file HLV-ILIGO_PSD.xml.gz   --channel V1=FAKE-STRAIN --channel H1=FAKE-STRAIN --channel L1=FAKE-STRAIN  --inj mdc.xml.gz  --seglen 31 --fref 0 --Lmax 3 --amporder -1 --psd-truncate-inverse --show-likelihood-versus-time --show-psd; open test-Q-* FLT-*
 
+from __future__ import print_function
+
 try:
     import matplotlib
     #matplotlib.use("Agg")
     matplotlib.use("GDK")
     from matplotlib import pylab as plt
 except:
-    print "- no matplotlib -"
+    print("- no matplotlib -")
 
 
 import lalsimutils
@@ -61,7 +63,7 @@ try:
     from lalinference.bayestar import fits as bfits
     from lalinference.bayestar import plot as bplot
 except:
-    print " -no skymaps - "
+    print(" -no skymaps - ")
 
 
 from glue.lal import Cache
@@ -74,11 +76,11 @@ import ourio
 opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 factored_likelihood.rosDebugMessagesDictionary = rosDebugMessagesDictionary
 lalsimutils.rosDebugMessagesDictionary            = rosDebugMessagesDictionary
-print opts
-print rosDebugMessagesDictionary
+print(opts)
+print(rosDebugMessagesDictionary)
 
-print " ======= TESTING RESPONSE FUNCTION AND DISCONTINITY ===="
-print "   Edit code variables 'bUseWindow' and 'bAddDiscontinity' to insert a plausible discontinuity "
+print(" ======= TESTING RESPONSE FUNCTION AND DISCONTINITY ====")
+print("   Edit code variables 'bUseWindow' and 'bAddDiscontinity' to insert a plausible discontinuity ")
 bUseWindow = True
 bAddDiscontinuity = False
 window_beta = 0.01
@@ -201,7 +203,7 @@ def truncate_inverse_psd(swig_psd,Tkeep,fmin,fmax):
     swig_psd_out.data.data *= 1/np.power(wtScale,2)  # re-insert scale factor. Remember wt scales as longweights. This tries to keep numbers in the FFT's of order unity, to avoid precision loss
 
     # Return truncated PSD
-    print "   Truncated PSD created "
+    print("   Truncated PSD created ")
     return swig_psd_out
 
 
@@ -211,20 +213,20 @@ def fakeGaussianDataFrequency(amp, sigma,deltaT,npts,window='Tukey', window_beta
 if opts.verbose:
     try:
         from subprocess import call
-        print " ---- LAL Version ----"
+        print(" ---- LAL Version ----")
         call(["lal-version"])
-        print " ---- GLUE Version ----"
+        print(" ---- GLUE Version ----")
         call(["ligolw_print",  "--version"])
-        print " ---- pylal Version ----"
+        print(" ---- pylal Version ----")
         call(["pylal_version"])
     except:
-        print "  ... trouble printing version numbers "
-    print " Glue tag ", git_version.id
+        print("  ... trouble printing version numbers ")
+    print(" Glue tag ", git_version.id)
     try:
         import scipy   # used in lalsimutils; also printed in pylal-version
-        print " Scipy: ", scipy.__version__
+        print(" Scipy: ", scipy.__version__)
     except:
-        print " trouble printing scipy version"
+        print(" trouble printing scipy version")
 
 def mean_and_dev(arr, wt):
     av = np.average(arr, weights=wt)
@@ -251,7 +253,7 @@ rosShowTerminalSampleHistograms = True
 rosUseMultiprocessing= False
 rosDebugCheckPriorIntegral = False
 nMaxEvals = int(opts.nmax)
-print " Running at most ", nMaxEvals, " iterations"
+print(" Running at most ", nMaxEvals, " iterations")
 
 fracThreshold = opts.points_threshold_match
 
@@ -277,15 +279,15 @@ fmaxSNR =opts.fmax_SNR
 fSample = opts.srate
 
 if ampO ==-1 and Lmax < 5:
-    print " +++ WARNING ++++ "
-    print "  : Lmax is ", Lmax, " which may be insufficient to resolve all higher harmonics in the signal! "
+    print(" +++ WARNING ++++ ")
+    print("  : Lmax is ", Lmax, " which may be insufficient to resolve all higher harmonics in the signal! ")
 
 if (ampO+2)> Lmax:
-    print " +++ WARNING ++++ "
-    print "  : Lmax is ", Lmax, " which may be insufficient to resolve all higher harmonics in the signal! "
+    print(" +++ WARNING ++++ ")
+    print("  : Lmax is ", Lmax, " which may be insufficient to resolve all higher harmonics in the signal! ")
 
 if opts.channel_name is not None and opts.cache_file is None:
-    print >>sys.stderr, "Cache file required when requesting channel data."	
+    print("Cache file required when requesting channel data.", file=sys.stderr)
     exit(-1)
 elif opts.channel_name is not None:
     det_dict = dict(map(lambda cname: cname.split("="), opts.channel_name))
@@ -301,7 +303,7 @@ Psig = None
 
 # Read in *coincidence* XML (overridden by injection, if present)
 if opts.coinc:
-    print "Loading coinc XML:", opts.coinc
+    print("Loading coinc XML:", opts.coinc)
     xmldoc = utils.load_filename(opts.coinc)
     coinc_table = table.get_table(xmldoc, lsctables.CoincInspiralTable.tableName)
     assert len(coinc_table) == 1
@@ -311,7 +313,7 @@ if opts.coinc:
     event_time_gps.gpsSeconds = int(event_time)
     event_time_gps.gpsNanoSeconds = int(1e9*(event_time -event_time_gps.gpsSeconds))
     theEpochFiducial = event_time_gps       # really should avoid duplicate names
-    print "Coinc XML loaded, event time: %s" % str(coinc_row.get_end())
+    print("Coinc XML loaded, event time: %s" % str(coinc_row.get_end()))
     # Populate the SNR sequence and mass sequence
     sngl_inspiral_table = table.get_table(xmldoc, lsctables.SnglInspiralTable.tableName)
     m1, m2 = None, None
@@ -322,14 +324,14 @@ if opts.coinc:
         rhoExpected[str(sngl_row.ifo)] = sngl_row.snr  # record for comparisons later
         if rosDebugMessagesDictionary["DebugMessages"]:
             det = str(sngl_row.ifo)
-            print det, rhoExpected[det]
+            print(det, rhoExpected[det])
     m1 = m1*lal.LAL_MSUN_SI
     m2 = m2*lal.LAL_MSUN_SI
     rho2Net = 0
     for det in rhoExpected:
         rho2Net += rhoExpected[det]**2
     if rosDebugMessagesDictionary["DebugMessages"]:
-        print " Network :", np.sqrt(rho2Net)
+        print(" Network :", np.sqrt(rho2Net))
     # Create a 'best recovered signal'
     Psig = lalsimutils.ChooseWaveformParams(
         m1=m1,m2=m2,approx=approxSignal,
@@ -340,12 +342,12 @@ if opts.coinc:
         ampO=ampO      
         )  # FIXME: Parameter mapping from trigger space to search space
     if rosDebugMessagesDictionary["DebugMessages"]:
-        print " === Coinc table : estimated signal [overridden if injection] ==="
+        print(" === Coinc table : estimated signal [overridden if injection] ===")
         Psig.print_params()
 
 # Read in *injection* XML
 if opts.inj:
-    print "Loading injection XML:", opts.inj
+    print("Loading injection XML:", opts.inj)
     Psig = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))[opts.event_id]  # Load in the physical parameters of the injection.  
     m1 = Psig.m1
     m2 = Psig.m2
@@ -353,11 +355,11 @@ if opts.inj:
     Psig.deltaF = 1./lalsimutils.nextPow2(opts.seglen)       # Frequency binning needs to account for target segment length
     theEpochFiducial = Psig.tref  # Reset
     tEventFiducial = 0               # Reset
-    print " ++ Targeting event at time ++ ", lalsimutils.stringGPSNice(Psig.tref)
-    print " +++ WARNING: ADOPTING STRONG PRIORS +++ "
+    print(" ++ Targeting event at time ++ ", lalsimutils.stringGPSNice(Psig.tref))
+    print(" +++ WARNING: ADOPTING STRONG PRIORS +++ ")
     rosUseStrongPriorOnParameters= True
     Psig.print_params()
-    print "---- End injeciton parameters ----"
+    print("---- End injeciton parameters ----")
 
 # Use forced parameters, if provided
 if opts.template_mass1:
@@ -367,10 +369,10 @@ if opts.template_mass2:
 
 # Reset origin of time, if required. (This forces different parts of data to be read- important! )
 if opts.force_gps_time:
-    print " +++ USER HAS OVERRIDDEN FIDUCIAL EPOCH +++ "
-    print "  The zero of time (and the region to be windowed) will be changed; you had better know what you are doing.  "
-    print "    original " ,lalsimutils.stringGPSNice(theEpochFiducial)
-    print "    new      ", opts.force_gps_time
+    print(" +++ USER HAS OVERRIDDEN FIDUCIAL EPOCH +++ ")
+    print("  The zero of time (and the region to be windowed) will be changed; you had better know what you are doing.  ")
+    print("    original " ,lalsimutils.stringGPSNice(theEpochFiducial))
+    print("    new      ", opts.force_gps_time)
     theEpochFiducial = lal.GPSTimeNow()
     theEpochFiducial.gpsSeconds = int(opts.force_gps_time)
     theEpochFiducial.gpsNanoSeconds =  int(1e9*(opts.force_gps_time - int(opts.force_gps_time)))
@@ -382,7 +384,7 @@ if opts.force_gps_time:
 #       WARNING: Test code plots will not look perfect, because we don't know the true sky location (or phase, polarization, ...)
 if  not Psig and opts.channel_name:  # If data loaded but no signal generated
     if (not opts.template_mass1) or (not opts.template_mass2) or (not opts.force_gps_time):
-        print " CANCEL: Specifying parameters via m1, m2, and time on the command line "
+        print(" CANCEL: Specifying parameters via m1, m2, and time on the command line ")
         sys.exit(0)
     Psig = lalsimutils.ChooseWaveformParams(approx=approxSignal,
         fmin = fminWavesSignal, 
@@ -398,25 +400,25 @@ if  not Psig and opts.channel_name:  # If data loaded but no signal generated
 if Psig:
     timeSegmentLength  = float(-lalsimutils.hoft(Psig).epoch)
     if rosDebugMessagesDictionary["DebugMessages"]:
-        print " Template duration : ", timeSegmentLength
+        print(" Template duration : ", timeSegmentLength)
     if timeSegmentLength > opts.seglen:
-        print " +++ CATASTROPHE : You are requesting less data than your template target needs!  +++"
-        print "    Requested data size: ", opts.seglen
-        print "    Template duration  : ", timeSegmentLength
+        print(" +++ CATASTROPHE : You are requesting less data than your template target needs!  +++")
+        print("    Requested data size: ", opts.seglen)
+        print("    Template duration  : ", timeSegmentLength)
         sys.exit(0)
 
 
 # TRY TO READ IN DATA: if data specified, use it and construct the detector list from it. Otherwise...
 if opts.channel_name and    (opts.opt_ReadWholeFrameFilesInCache):
     for inst, chan in map(lambda c: c.split("="), opts.channel_name):
-        print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
+        print("Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
         data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan,window_shape=window_beta)
         fSample = len(data_dict[inst].data.data)*data_dict[inst].deltaF
         df = data_dict[inst].deltaF
         if Psig:
             Psig.deltaF = df
-        print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF, len(data_dict[inst].data.data))
-        print "Sampling rate ", fSample
+        print("Frequency binning: %f, length %d" % (data_dict[inst].deltaF, len(data_dict[inst].data.data)))
+        print("Sampling rate ", fSample)
     detDefault = (data_dict.keys())[0]
 if opts.channel_name and not (opts.opt_ReadWholeFrameFilesInCache):
     if Psig:
@@ -425,7 +427,7 @@ if opts.channel_name and not (opts.opt_ReadWholeFrameFilesInCache):
         event_time = theEpochFiducial  # For now...get from XML if that is the option
     start_pad, end_pad = opts.seglen-opts.padding, opts.padding 
     for inst, chan in map(lambda c: c.split("="), opts.channel_name):
-        print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
+        print("Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
         # FIXME: Assumes a frame file exists covering EXACTLY the needed interval!
         taper = lalsim.LAL_SIM_INSPIRAL_TAPER_STARTEND
         data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file, inst+":"+chan, start=int(event_time)-start_pad, stop=int(event_time)+end_pad,window_shape=window_beta)
@@ -433,8 +435,8 @@ if opts.channel_name and not (opts.opt_ReadWholeFrameFilesInCache):
         df = data_dict[inst].deltaF
         if Psig:
             Psig.deltaF =df
-        print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF, len(data_dict[inst].data.data))
-        print "Sampling rate ", fSample
+        print("Frequency binning: %f, length %d" % (data_dict[inst].deltaF, len(data_dict[inst].data.data)))
+        print("Sampling rate ", fSample)
 
     detDefault = (data_dict.keys())[0]
 #        print " Sampling rate of data ", fSample
@@ -462,9 +464,9 @@ if len(data_dict) is 0:
                                 )
         timeSegmentLength  = -float(lalsimutils.hoft(Psig).epoch)
         if timeSegmentLength > opts.seglen:
-            print " +++ CATASTROPHE : You are requesting less data than your template target needs!  +++"
-            print "    Requested data size: ", opts.seglen
-            print "    Template duration  : ", timeSegmentLength
+            print(" +++ CATASTROPHE : You are requesting less data than your template target needs!  +++")
+            print("    Requested data size: ", opts.seglen)
+            print("    Template duration  : ", timeSegmentLength)
             sys.exit(0)
 
     if opts.signal_incl:
@@ -505,8 +507,8 @@ if len(data_dict) is 0:
 
 
     # Report on fake data
-    print " ============"
-    print " Fake data report : (n,df,fNyq) ", data_dict[detDefault].data.length, data_dict[detDefault].deltaF, data_dict[detDefault].deltaF*data_dict[detDefault].data.length/2
+    print(" ============")
+    print(" Fake data report : (n,df,fNyq) ", data_dict[detDefault].data.length, data_dict[detDefault].deltaF, data_dict[detDefault].deltaF*data_dict[detDefault].data.length/2)
 
 
 
@@ -522,37 +524,37 @@ else:
     detectors = data_dict.keys()
     df = data_dict[detectors[0]].deltaF
     fNyq = (len(data_dict[detectors[0]].data.data)/2)*df
-    print " == Loading numerical PSD =="
+    print(" == Loading numerical PSD ==")
     for det in detectors:
-        print "Reading PSD for instrument %s from %s" % (det, opts.psd_file)
+        print("Reading PSD for instrument %s from %s" % (det, opts.psd_file))
 
         # "Standard" PSD parsing code used on master.
         psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(opts.psd_file, det)  # pylal type!
         tmp = psd_dict[det].data
-        print "Sanity check reporting : pre-extension, min is ", np.min(tmp), " and maximum is ", np.max(tmp)
+        print("Sanity check reporting : pre-extension, min is ", np.min(tmp), " and maximum is ", np.max(tmp))
         deltaF = data_dict[det].deltaF
         fmin = psd_dict[det].f0
         fmax = fmin + psd_dict[det].deltaF*len(psd_dict[det].data)-deltaF
-        print "PSD deltaF before interpolation %f" % psd_dict[det].deltaF
+        print("PSD deltaF before interpolation %f" % psd_dict[det].deltaF)
         psd_dict[det] = lalsimutils.resample_psd_series(psd_dict[det], deltaF)
-        print "PSD deltaF after interpolation %f" % psd_dict[det].deltaF
-        print "Post-extension the new PSD has 1/df = ", 1./psd_dict[det].deltaF, " (data 1/df = ", 1./deltaF, ") and length ", len(psd_dict[det].data.data)
+        print("PSD deltaF after interpolation %f" % psd_dict[det].deltaF)
+        print("Post-extension the new PSD has 1/df = ", 1./psd_dict[det].deltaF, " (data 1/df = ", 1./deltaF, ") and length ", len(psd_dict[det].data.data))
         tmp = psd_dict[det].data.data
         nBad = np.argmin(tmp[np.nonzero(tmp)])
         fBad = nBad*deltaF
-        print "Post-extension sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), "(at n=", np.argmin(tmp[np.nonzero(tmp)])," or f=", fBad, ")  and maximum is ", np.max(psd_dict[det].data.data)
-        print
+        print("Post-extension sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), "(at n=", np.argmin(tmp[np.nonzero(tmp)])," or f=", fBad, ")  and maximum is ", np.max(psd_dict[det].data.data))
+        print()
 
         # Inverse PSD truncation (optional)
         if opts.psd_TruncateInverse:
             Tleft = opts.psd_TruncateInverseTime
-            print "  Attempting to truncate inverse PSD, using target length ", Tleft
+            print("  Attempting to truncate inverse PSD, using target length ", Tleft)
             psd_dict[det] = truncate_inverse_psd(psd_dict[det],Tleft,opts.fmin_SNR,opts.fmax_SNR)
-            print "  Confirm returned PSD is sane " , psd_dict[det].data.data[0], psd_dict[det].data.data[-1]
+            print("  Confirm returned PSD is sane " , psd_dict[det].data.data[0], psd_dict[det].data.data[-1])
             
-            print " To use this PSD *precisely* will require changing fminSNR and fmaxSNR "
+            print(" To use this PSD *precisely* will require changing fminSNR and fmaxSNR ")
             fminSNR=5
-            print "   SNR integrand ", [fminSNR, fNyq]
+            print("   SNR integrand ", [fminSNR, fNyq])
 
 
         #ARCHIVAL: Original non-interpolated method. Seems to fail asymptomatically (memory management?) for some PSD files
@@ -576,9 +578,9 @@ else:
 # I use this threshold to identify points for further investigation.
 detectors = data_dict.keys()
 if False: #not (opts.coinc) :
-    print " == Data report [USELESS IF NOISY DATA] == "  
+    print(" == Data report [USELESS IF NOISY DATA] == ")
     rho2Net = 0
-    print  " Amplitude report *from data*:"
+    print(" Amplitude report *from data*:")
     for det in detectors:
         if analyticPSD_Q:
             IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det])
@@ -586,12 +588,12 @@ if False: #not (opts.coinc) :
             IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[det].data.data,analyticPSD_Q=False)
         rhoExpected[det] = rhoDet = IP.norm(data_dict[det])
         rho2Net += rhoDet*rhoDet
-        print det, " rho = ", rhoDet
-    print "Network : ", np.sqrt(rho2Net)
+        print(det, " rho = ", rhoDet)
+    print("Network : ", np.sqrt(rho2Net))
 
 if opts.plot_ShowH: 
-    print " == Plotting *raw* detector data data (time domain) via MANUAL INVERSE FFT  == "
-    print "     [This plot includes any windowing and data padding]   "
+    print(" == Plotting *raw* detector data data (time domain) via MANUAL INVERSE FFT  == ")
+    print("     [This plot includes any windowing and data padding]   ")
     for det in detectors:
         revplan = lal.CreateReverseCOMPLEX16FFTPlan(len(data_dict[det].data.data), 0)
         ht = lal.CreateCOMPLEX16TimeSeries("ht", 
@@ -605,7 +607,7 @@ if opts.plot_ShowH:
     plt.legend()
     plt.show()
 
-    print " == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == "
+    print(" == Plotting detector data (time domain; requires regeneration, MANUAL TIMESHIFTS,  and seperate code path! Argh!) == ")
     P = Psig.copy()
     P.tref = Psig.tref
     for det in detectors:
@@ -623,8 +625,8 @@ if opts.plot_ShowH:
 
 # Load skymap, if present
 if opts.opt_UseSkymap:
-    print " ==Loading skymap=="
-    print "   skymap file ", opts.opt_UseSkymap
+    print(" ==Loading skymap==")
+    print("   skymap file ", opts.opt_UseSkymap)
     smap, smap_meta = bfits.read_sky_map(opts.opt_UseSkymap)
     sides = healpy.npix2nside(len(smap))
 
@@ -635,7 +637,7 @@ if opts.opt_UseSkymap:
             plot.healpix_heatmap(smap)
             plt.show()
         except:
-            print " No skymap for you "
+            print(" No skymap for you ")
 
 
 #     import bisect
@@ -681,7 +683,7 @@ if opts.template_mass2:
 
 timeWaveformTemplate = float(-lalsimutils.hoft(P).epoch)
 timeWaveform             = float(-lalsimutils.hoft(Psig).epoch)
-print " Reminder: signal duration, template duration, PSD truncQ, psdTruncT ", timeWaveform, timeWaveformTemplate #, opts.psd_TruncateInverse, opts.psd_TruncateInverseTime
+print(" Reminder: signal duration, template duration, PSD truncQ, psdTruncT ", timeWaveform, timeWaveformTemplate) #, opts.psd_TruncateInverse, opts.psd_TruncateInverseTime
 
 
 #
@@ -691,13 +693,13 @@ print " Reminder: signal duration, template duration, PSD truncQ, psdTruncT ", t
 #
 #tWindowReference[1] = Psig.deltaT*len(data_dict[detectors[0]].data.data)
 #print tWindowReference[1]
-print "  ---- > Problem : Master automatically clips the timeseries duration; use a *hardcoded* large window, for now, to retain as much as plausible "
-print "          Note: if the window is too large, you hit t_shift < 0 "
+print("  ---- > Problem : Master automatically clips the timeseries duration; use a *hardcoded* large window, for now, to retain as much as plausible ")
+print("          Note: if the window is too large, you hit t_shift < 0 ")
 det0 = detectors[0]
 tWindowReference[1]= timeWaveformTemplate # data_dict[det0].data.epoch - 
 rholms_intp, crossTerms, rholms = factored_likelihood.PrecomputeLikelihoodTerms(theEpochFiducial,tWindowReference[1], P, data_dict,psd_dict, Lmax, fmaxSNR, analyticPSD_Q)
-print "Done with precompute"
-print detectors, rholms.keys()
+print("Done with precompute")
+print(detectors, rholms.keys())
 
 # Plot h(t)
 plt.figure(0)
@@ -740,7 +742,7 @@ plt.savefig("test-Q-response-log-rho22.jpeg")
 #
 plt.clf()
 tStartOffsetDiscrete = tvals[0]
-print " Plotting lnLData from ", float(theEpochFiducial+tStartOffsetDiscrete), " onward "
+print(" Plotting lnLData from ", float(theEpochFiducial+tStartOffsetDiscrete), " onward ")
 for det in detectors:
     nBinsDiscrete = len(data_dict[det].data.data)
     lnLDataDiscrete = factored_likelihood.DiscreteSingleDetectorLogLikelihoodData(theEpochFiducial,rholms, theEpochFiducial+tStartOffsetDiscrete, nBinsDiscrete, Psig.phi, Psig.theta, Psig.incl, Psig.phiref,Psig.psi, Psig.dist, Lmax, det)
@@ -755,7 +757,7 @@ plt.savefig("test-Q-response-lnLData-Zoom.jpeg")
 # Plot lnL(t) around the event (interpolated, remember)
 #
 nptsMore = int(fSample*(tWindowExplore[1]-tWindowExplore[0]))
-print nptsMore
+print(nptsMore)
 tvals = np.linspace(tWindowExplore[0],tWindowExplore[1], nptsMore)
 lnL = np.zeros(len(tvals))
 for indx in np.arange(len(tvals)):
@@ -820,5 +822,5 @@ TestDictionary["lnLDataPlot"]            = opts.plot_ShowLikelihoodVersusTime   
 TestDictionary["lnLDataPlotVersusPsi"] = opts.plot_ShowLikelihoodVersusTime
 TestDictionary["lnLDataPlotVersusPhi"] = opts.plot_ShowLikelihoodVersusTime
 TestDictionary["lnLDataPlotVersusPhiPsi"] = opts.plot_ShowLikelihoodVersusTime
-print " Detectors ", detectors
+print(" Detectors ", detectors)
 factored_likelihood_test.TestLogLikelihoodInfrastructure(TestDictionary,theEpochFiducial,  data_dict, psd_dict,fmaxSNR, analyticPSD_Q, Psig, rholms,rholms_intp, crossTerms, detectors,Lmax)

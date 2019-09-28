@@ -56,7 +56,7 @@ param_names = opts.parameter
 for param in param_names:
     # Check if in the valid list
     if not(param in lalsimutils.valid_params):
-        print ' Invalid param ', param, ' not in ', lalsimutils.valid_params
+        print(' Invalid param ', param, ' not in ', lalsimutils.valid_params)
         sys.exit(0)
 
 param_values = []
@@ -76,7 +76,7 @@ for p in ['dist']:
 for indx in np.arange(len(param_values)):
     P.assign_param(param_names[indx], param_values[indx])
 
-print " ------- WRITING INJECTION FILE ----- "
+print(" ------- WRITING INJECTION FILE ----- ")
 P.print_params()
 
 P_list = [P]

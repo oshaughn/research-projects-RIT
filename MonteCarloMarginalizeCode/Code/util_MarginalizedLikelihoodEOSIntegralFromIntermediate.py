@@ -46,7 +46,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
 
     # If we are loading a fit, override everything else
     if opts.fit_save_gp and os.path.isfile(opts.fit_save_gp):
-        print " WARNING: Do not re-use fits across architectures or versions : pickling is not transferrable "
+        print(" WARNING: Do not re-use fits across architectures or versions : pickling is not transferrable ")
         my_gp=joblib.load(opts.fit_save_gp)
         return lambda x:my_gp.predict(x)
 
@@ -66,10 +66,10 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
         length_scale_min_here= np.max([1e-3,0.2*np.std(x[:,indx]/np.sqrt(len(x)))])
         length_scale_bounds_est.append( (length_scale_min_here , 5*np.std(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
 
-    print " GP: Input sample size ", len(x), len(y)
-    print " GP: Estimated length scales "
-    print length_scale_est
-    print length_scale_bounds_est
+    print(" GP: Input sample size ", len(x), len(y))
+    print(" GP: Estimated length scales ")
+    print(length_scale_est)
+    print(length_scale_bounds_est)
 
         # These parameters have been hand-tuned by experience to try to set to levels comparable to typical lnL Monte Carlo error
     kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
@@ -77,10 +77,10 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
 
     gp.fit(x,y)
 
-    print  " Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y) 
+    print(" Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y))
 
     if opts.fit_save_gp:
-        print " Attempting to save fit ", opts.fit_save_gp
+        print(" Attempting to save fit ", opts.fit_save_gp)
         joblib.dump(gp,opts.fit_save_gp)
         
     return lambda x: gp.predict(x)
@@ -105,7 +105,7 @@ for indx  in np.arange(len(opts.parameter)):
     eos_params[param] = opts.parameter_value[indx]
 
 if not opts.intermediate_file and not opts.pkl_file:
-    print " FAILURE: need input data"
+    print(" FAILURE: need input data")
     sys.exit(0)
 
 
@@ -114,7 +114,7 @@ if not opts.intermediate_file and not opts.pkl_file:
 ###
 
 if opts.mcz is None:
-    print "FAILURE: Need redshifted chirp mass. (Should be able to retrieve from injection xml with detector-frame masses)"
+    print("FAILURE: Need redshifted chirp mass. (Should be able to retrieve from injection xml with detector-frame masses)")
     sys.exit(0)
 z=opts.redshift
 mc_source = opts.mcz/(1+z)
@@ -129,14 +129,14 @@ if opts.fit_save_gp:
 else:
     dat = np.loadtxt(opts.intermediate_file)  # delta LambdaTilde lnG
 
-print "TEMPORARY HACK: Use small data set, to get code to run"
+print("TEMPORARY HACK: Use small data set, to get code to run")
 dat=dat[:500]  # temporary
 
 X =dat[:,0:1]
 Y = dat[:,-1]
 my_fit = fit_gp(X,Y)
 
-print my_fit(np.c_[[0,500]])[0]
+print(my_fit(np.c_[[0,500]])[0])
 
 ###
 ### Build EOS: lambda(m) curves
@@ -156,7 +156,7 @@ if not 'epsilon0' in eos_params:
 if not 'xmax' in eos_params:
     eos_params['xmax'] = xmax_ref
 
-print eos_params
+print(eos_params)
 my_eos = EOSManager.EOSLindblomSpectral(name="internal",spec_params=eos_params)
 dat_mr = EOSManager.make_mr_lambda(my_eos.eos)  # r m(Msun) lambda
 lam_fit = scipy.interpolate.interp1d(dat_mr[:,1], dat_mr[:,2])
@@ -201,7 +201,7 @@ res = scipy.integrate.quad(likelihood_function,0, 0.5)
 ### Save result
 ###
 I = res[0]
-print np.log(I), I
+print(np.log(I), I)
 vals = [np.log(I), eos_params["gamma1"],eos_params["gamma2"],eos_params["gamma3"], np.log10(float(eos_params["p0"])), np.log10(float(eos_params["epsilon0"])), eos_params["xmax"]]
-print vals
+print(vals)
 np.savetxt(opts.integral_output,np.array(vals).T)
