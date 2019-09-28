@@ -245,6 +245,7 @@ parser.add_argument("--lambda-plus-max", default=None,type=float,help="Maximum r
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
 parser.add_argument("--lnL-shift-prevent-overflow",default=None,type=float,help="Define this quantity to be a large positive number to avoid overflows. Note that we do *not* define this dynamically based on sample values, to insure reproducibility and comparable integral results. BEWARE: If you shift the result to be below zero, because the GP relaxes to 0, you will get crazy answers.")
+parser.add_argument("--lnL-protect-overflow",action='store_true',help="Before fitting, subtract lnLmax - 100.  Add this quantity back at the end.")
 parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset. ONLY POINTS within lnLmax - lnLoffset are used in the calculation!  VERY IMPORTANT - default value chosen for production, but very much not suitable for early iterations / exploration mode")
 parser.add_argument("--lnL-offset-n-random",type=int,default=0,help="Add this many random points past the threshold")
 parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]. Remove points below this likelihood value from consideration.  Generally should not use")
@@ -1568,6 +1569,7 @@ if opts.sampler_method == "GMM":
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
     extra_args = {'n_comp':3,'max_iter':n_max_blocks}  # made up for now, should adjust
 
+# Result shifted by lnL_shift
 res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 # Test n_eff threshold
@@ -1617,7 +1619,7 @@ if neff < opts.n_eff:
 
 # Save result -- needed for odds ratios, etc.
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
-np.savetxt(opts.fname_output_integral+".dat", [np.log(res)])
+np.savetxt(opts.fname_output_integral+".dat", [np.log(res)+lnL_shift])
 eos_extra = []
 annotation_header = "lnL sigmaL neff "
 if opts.using_eos:
@@ -1649,6 +1651,8 @@ dat_mass = np.zeros((len(samples[low_level_coord_names[0]]),n_params+3))
 dat_logL = np.log(samples["integrand"])
 lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
 print " Max lnL ", np.max(dat_logL)
+if opts.lnL_protect_overflow:
+    lnL_shift = lnLmax - 100.
 
 # Throw away stupid points that don't impact the posterior
 indx_ok = np.logical_and(dat_logL > lnLmax-opts.lnL_offset ,samples["joint_s_prior"]>0)
