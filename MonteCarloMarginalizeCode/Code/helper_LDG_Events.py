@@ -275,7 +275,7 @@ for cal in cal_versions:
         if cal is 'C01':
             standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_C01" 
         if cal is 'C01_nonlinear':
-            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN-SUB60HZ_C01" 
+            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_SUB60HZ_C01" 
             data_types["O3"][(cal,ifo)] = ifo+"_HOFT_CLEAN_SUB60HZ_C01"
 data_types["O3"][("C00", "V1")] = "V1Online"
 data_types["O3"][("X01", "V1")] = "V1Online"
