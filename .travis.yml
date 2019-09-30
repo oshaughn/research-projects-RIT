@@ -1,0 +1,30 @@
+language: python
+
+python:
+  - '2.7'
+
+before_install:
+  # upgrade pip
+  - pip install --quiet --upgrade pip
+  # install requirements
+  - pip install -r requirements.txt
+  # install test-only requirements
+  - pip install coveralls
+
+install:
+  # install this package (need editable for coverage)
+  - pip install --editable .
+
+script:
+  # test --help for all executables
+  - . .travis/test-all-bin.sh
+  # test import statement for all declared packages
+  - python .travis/test-all-mod.py
+
+after_success:
+  # submit coverage to coveralls.io
+  - coverage report
+  - coveralls
+
+cache:
+  pip: true
