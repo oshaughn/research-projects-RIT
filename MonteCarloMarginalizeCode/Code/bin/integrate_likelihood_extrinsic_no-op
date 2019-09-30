@@ -19,8 +19,8 @@ from glue.ligolw.utils import process
 import glue.lal
 #import pylal
 
-import lalsimutils
-import xmlutils
+import RIFT.lalsimutils as lalsimutils
+import RIFT.xmlutils as xmlutils
 
 #from lalinference.bayestar import fits as bfits
 
