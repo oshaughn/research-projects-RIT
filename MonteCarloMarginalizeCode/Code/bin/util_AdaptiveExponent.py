@@ -1,4 +1,6 @@
 #! /usr/bin/env python
+#
+# Do not use this code.
 
 import sys
 
@@ -6,7 +8,7 @@ import numpy as np
 
 from glue.ligolw import utils, lsctables, table, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
-from pylal.series import read_psd_xmldoc
+from lal.series import read_psd_xmldoc
 
 import lal
 

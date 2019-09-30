@@ -1,2 +1,4 @@
 include *.md Dockerfile requirements.txt
 include MonteCarloMarginalizeCode/Code/bin/*  
+include MonteCarloMarginalizeCode/Code/RIFT/physics/*  
+include MonteCarloMarginalizeCode/Code/RIFT/integrators/*  

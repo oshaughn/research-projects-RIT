@@ -1,5 +1,4 @@
 import setuptools
-import numpy as np
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
@@ -7,7 +6,7 @@ with open("README.md", "r") as fh:
 
 with open("requirements.txt",'r') as f:
     lines = f.readlines()
-    for indx in np.arange(len(lines)):
+    for indx in range(len(lines)):
         lines[indx]=lines[indx].rstrip()
 REQUIREMENTS = {
   "install" : lines #["numpy>=1.14.0","scipy>=1.0.1","h5py", "corner", "numba", "scikit-learn<=0.20"]
@@ -35,7 +34,7 @@ my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/RIFT/likelihood/cud
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.13.1", # do not build on OSX machine, side effects
+    version="0.0.14.3", # do not build on OSX machine, side effects
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_master-GPUIntegration!",

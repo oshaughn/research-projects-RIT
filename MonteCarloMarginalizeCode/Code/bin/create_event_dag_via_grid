@@ -24,7 +24,7 @@ from glue.ligolw import utils, ligolw, lsctables, table
 from glue.ligolw.utils import process
 from glue import pipeline
 
-import RIFT.lalsimutils as lalsimutils as lsu
+import RIFT.lalsimutils as  lsu
 import effectiveFisher as eff
 import RIFT.misc.dag_utils as dag_utils
 
