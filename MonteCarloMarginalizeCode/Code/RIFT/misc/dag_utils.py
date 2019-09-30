@@ -698,7 +698,7 @@ echo Starting ...
         requirements.append("HAS_LIGO_FRAMES=?=TRUE")
         ile_job.add_condor_cmd('use_x509userproxy','True')
         if 'X509_USER_PROXY' in os.environ.keys():
-            print " Storing copy of X509 user proxy -- beware expiration! "
+            print(" Storing copy of X509 user proxy -- beware expiration! ")
             cwd = os.getcwd()
             fname_proxy ="cp ${X509_USER_PROXY} "  + cwd +"/my_proxy"  # this can get overwritten, that's fine - just renews, feature not bug
             os.cmd("cp ${X509_USER_PROXY} "  + cwd +"/my_proxy")
