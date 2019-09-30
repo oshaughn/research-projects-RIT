@@ -1,1 +1,1 @@
-__all__ = [EOSManager','PrecessingFisherMatrix','MonotonicSpline']
+__all__ = ['EOSManager','PrecessingFisherMatrix','MonotonicSpline']
