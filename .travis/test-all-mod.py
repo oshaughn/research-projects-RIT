@@ -21,12 +21,12 @@ EXCLUDE = re.compile(
 
 def iter_all_modules(path, exclude=EXCLUDE):
     name = os.path.basename(path)
-    for mod in pkgutil.iter_modules(path=[path]):
-        if exclude and exclude.search(mod.name):
+    for _, modname, ispkg in pkgutil.iter_modules(path=[path]):
+        if exclude and exclude.search(modname):
             continue
-        yield "{}.{}".format(name, mod.name)
-        if mod.ispkg:
-            for mod2 in iter_all_modules(os.path.join(path, mod.name), exclude=exclude):
+        yield "{}.{}".format(name, modname)
+        if ispkg:
+            for mod2 in iter_all_modules(os.path.join(path, modname), exclude=exclude):
                 yield "{}.{}".format(name, mod2)
 
 
