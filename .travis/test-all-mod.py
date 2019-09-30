@@ -1,4 +1,6 @@
-#! /usr/bin/env python
+#!/usr/bin/env python
+
+from __future__ import print_function
 
 import os.path
 import pkgutil
@@ -6,7 +8,9 @@ import re
 import sys
 from importlib import import_module
 
-pkgname = sys.argv[1]
+import pytest
+
+pkgname = "RIFT"
 package = import_module(pkgname)
 
 EXCLUDE = re.compile(
@@ -30,6 +34,13 @@ def iter_all_modules(path, exclude=EXCLUDE):
                 yield "{}.{}".format(name, mod2)
 
 
-for mod in iter_all_modules(package.__path__[0]):
-    print(mod)
-    import_module(mod)
+@pytest.mark.parametrize("modname", iter_all_modules(package.__path__[0]))
+def test_import(modname):
+    import_module(modname)
+
+
+if __name__ == "__main__":
+    if "-v" not in " ".join(sys.argv[1:]):  # default to verbose
+        sys.argv.append("-v")
+    sys.argv.append("-rs")
+    sys.exit(pytest.main(args=[__file__] + sys.argv[1:]))
