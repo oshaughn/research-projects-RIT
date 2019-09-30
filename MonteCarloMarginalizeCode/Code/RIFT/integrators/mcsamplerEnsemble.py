@@ -242,6 +242,8 @@ class MCSampler(object):
         var_thresh = kwargs['var_thres'] if kwargs.has_key('var_thresh') else 0.05
         write_to_file = kwargs['write_to_file'] if kwargs.has_key('write_to_file') else False
 
+        L_cutoff = kwargs["L_cutoff"] if kwargs.has_key("L_cutoff") else None
+
         # set up a lot of preliminary stuff
         self.func = func
         self.curr_args = args
@@ -265,7 +267,7 @@ class MCSampler(object):
         # do the integral
 
         integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=n, prior=self.calc_pdf,
-                         user_func=integrator_func, proc_count=proc_count) # reflect=reflect,
+                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff) # reflect=reflect,
         if not direct_eval:
             func = self.evaluate
         integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax)
