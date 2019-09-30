@@ -15,7 +15,7 @@ try:
 except:
     print(" - No healpy - ")
 
-from statutils import cumvar, welford
+from ..integrators.statutils import cumvar, welford
 
 from multiprocessing import Pool
 
