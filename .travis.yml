@@ -18,6 +18,8 @@ install:
 script:
   # test --help for all executables
   - . .travis/test-all-bin.sh
+  # test import statement for all declared packages
+  - python .travis/test-all-mod.py
 
 after_success:
   # submit coverage to coveralls.io
