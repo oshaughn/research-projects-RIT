@@ -40,7 +40,7 @@ class estimator:
         self.p_nk = None
         self.log_prob = None
         self.cov_avg_ratio = 0.05
-        self.epsilon = 0.1
+        self.epsilon = 1e-4
         self.tempering_coeff = tempering_coeff
 
     def _initialize(self, n, sample_array, sample_weights=None):
@@ -109,13 +109,16 @@ class estimator:
         Code from here:
         https://stackoverflow.com/questions/10939213/how-can-i-calculate-the-nearest-positive-semi-definite-matrix
 	'''
+        n = x.shape[0]
+        var_list = np.array([np.sqrt(x[i,i]) for i in xrange(n)])
+        y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
         while True:
             epsilon = self.epsilon
-            if min(np.linalg.eigvals(x)) > epsilon:
+            if min(np.linalg.eigvals(y)) > epsilon:
                 return x
 
             # Removing scaling factor of covariance matrix
-            n = x.shape[0]
+#            n = x.shape[0]
             var_list = np.array([np.sqrt(x[i,i]) for i in xrange(n)])
             y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
 
@@ -207,7 +210,7 @@ class gmm:
         self.p_nk = None
         self.log_prob = None
         self.N = 0
-        self.epsilon = 0.1
+        self.epsilon = 1e-4  # allow very strong correlations
         self.tempering_coeff = 0.01
 
     def fit(self, sample_array, sample_weights=None):
@@ -299,13 +302,16 @@ class gmm:
         Code from here:
         https://stackoverflow.com/questions/10939213/how-can-i-calculate-the-nearest-positive-semi-definite-matrix
 	'''
+        n = x.shape[0]
+        var_list = np.array([np.sqrt(x[i,i]) for i in xrange(n)])
+        y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
         while True:
             epsilon = self.epsilon
-            if min(np.linalg.eigvals(x)) > epsilon:
+            if min(np.linalg.eigvals(y)) > epsilon:
                 return x
 
             # Removing scaling factor of covariance matrix
-            n = x.shape[0]
+#            n = x.shape[0]
             var_list = np.array([np.sqrt(x[i,i]) for i in xrange(n)])
             y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
 
