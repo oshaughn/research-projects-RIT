@@ -19,10 +19,10 @@ try:
 except:
     print " - no NRSur7dq2 - "
 
-import lalsimutils
 import lalsimulation as lalsim
 import lal
 
+from .. import lalsimutils
 try:
     import LALHybrid
 except:
