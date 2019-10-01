@@ -13,14 +13,19 @@ import pytest
 pkgname = "RIFT"
 package = import_module(pkgname)
 
-EXCLUDE = re.compile(
-    "("
-    r"\Atests\Z|"
-    r"\Atest_|"
-    r"\Aconftest\Z|"
-    r"\A_"
-    ")"
-)
+# files to ignore
+EXCLUDE = re.compile("({})".format("|".join([
+    r"\Atests\Z",
+    r"\Atest_",
+    r"\Aconftest\Z",
+    r"\A_",
+])))
+
+# ignorable failures
+IGNORE = re.compile("({})".format("|".join([
+    r"\ANo module named torch\Z",
+    r"\ANo module named cupy\Z",
+])))
 
 
 def iter_all_modules(path, exclude=EXCLUDE):
@@ -36,7 +41,12 @@ def iter_all_modules(path, exclude=EXCLUDE):
 
 @pytest.mark.parametrize("modname", iter_all_modules(package.__path__[0]))
 def test_import(modname):
-    import_module(modname)
+    try:
+        import_module(modname)
+    except Exception as exc:
+        if IGNORE.search(str(exc)):
+            pytest.skip(str(exc))
+        raise
 
 
 if __name__ == "__main__":
