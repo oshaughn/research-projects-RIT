@@ -542,7 +542,8 @@ for ifo in psd_names.keys():
 
 mc_center = event_dict["MChirp"]
 v_PN_param = (np.pi* mc_center*opts.fmin*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
-v_PN_param = np.min([v_PN_param,1])
+v_PN_param_max = 0.2
+v_PN_param = np.min([v_PN_param,v_PN_param_max])
 # Estimate width. Note this must *also* account for search error (if we are using search triggers), so it is double-counted and super-wide
 # Note I have TWO factors to set: the absolute limits on the CIP, and the grid spacing (which needs to be narrower) for PE placement
 fac_search_correct=1.
@@ -550,7 +551,7 @@ if opts.gracedb_id: #opts.propose_initial_grid_includes_search_error:
     fac_search_correct = 1.5   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
 if opts.force_grid_stretch_mc_factor:
     fac_search_correct =  opts.force_grid_stretch_mc_factor
-ln_mc_error_pseudo_fisher = 1.5*np.array([1,fac_search_correct])*0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
+ln_mc_error_pseudo_fisher = 1.5*np.array([1,fac_search_correct])*0.3*(v_PN_param/v_PN_param_max)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
 print "  Logarithmic mass error interval base ", ln_mc_error_pseudo_fisher
 if ln_mc_error_pseudo_fisher[0] >1:
     ln_mc_errors_pseudo_fisher =np.array([0.8,0.8])   # stabilize
