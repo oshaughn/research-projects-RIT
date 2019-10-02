@@ -52,7 +52,7 @@ from statutils import cumvar
 
 from multiprocessing import Pool
 
-import vectorized_general_tools
+from RIFT.likelihood import vectorized_general_tools
 
 try:
     import vegas

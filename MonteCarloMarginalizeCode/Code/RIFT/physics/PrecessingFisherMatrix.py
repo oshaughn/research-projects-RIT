@@ -1,6 +1,5 @@
 
 import numpy as np
-import RIFT.lalsimutils as lalsimutils
 import lal
 import sys
 
@@ -8,6 +7,7 @@ from scipy.optimize import leastsq, brentq
 from scipy.linalg import eig, inv
 from scipy.interpolate import interp1d
 
+from .. import lalsimutils
 
 rosDebug=True
 #from matplotlib import pyplot as plt

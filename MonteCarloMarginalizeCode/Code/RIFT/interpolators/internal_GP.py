@@ -24,7 +24,6 @@ book on Gaussian Processes and Machine Learning.
 from __future__ import print_function, division, unicode_literals
 ######## Kernels ########
 
-from sksparse.cholmod import cholesky
 from scipy.sparse import csc_matrix, linalg as sla
 
 def compact_kernel(Xp, Xq,
@@ -98,6 +97,7 @@ def GP_fit_function(x_train, y_train, thetas, white_noise,
         with only the test inputs as an input.
         This function only needs to return a mean.
     '''
+    from sksparse.cholmod import cholesky
     ## Guarantee dimensionality ##
     ## Find initial kernel ##
     K = kernel_function(x_train, x_train, thetas, white_noise)

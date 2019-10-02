@@ -20,13 +20,14 @@ import numpy as np
 import os
 import sys
 import shutil
-import lalsimutils
 import lalsimulation as lalsim
 import lal
 
 from scipy.interpolate import interp1d
 
 import pickle
+
+from .. import lalsimutils
 
 rosUseArchivedWaveforms = True
 
