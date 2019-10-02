@@ -14,8 +14,24 @@ import pytest
 import os
 if not('GW_SURROGATE' in os.environ.keys()):
    os.environ["GW_SURROGATE"]=''
+# EOBTidalExternal
 if not('EOB_BASE' in os.environ.keys()):
    os.environ["EOB_BASE"]=''
+if not('EOB_ARCHIVE' in os.environ.keys()):
+   os.environ["EOB_ARCHIVE"]='~/'
+if not('EOB_C_BASE' in os.environ.keys()):
+   os.environ["EOB_C_BASE"]=''
+if not('EOB_C_ARCHIVE' in os.environ.keys()):
+   os.environ["EOB_C_ARCHIVE"]='~/'
+if not('EOB_C_ARCHIVE_NMAX' in os.environ.keys()):
+   os.environ["EOB_C_ARCHIVE_NMAX"]='1'
+# EOSManager
+if not('EOS_TABLES' in os.environ.keys()):
+   os.environ["EOS_TABLES"]='~/'
+# lalsuite
+if not('LALSIMULATION_DATADIR' in os.environ.keys()):
+   os.environ["LALSIMULATION_DATADIR"]='~/'
+
 
 
 pkgname = "RIFT"
