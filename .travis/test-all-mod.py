@@ -10,6 +10,14 @@ from importlib import import_module
 
 import pytest
 
+# Set environment variables as needed
+import os
+if not('GW_SURROGATE' in os.environ.keys()):
+   os.environ["GW_SURROGATE"]=''
+if not('EOB_BASE' in os.environ.keys()):
+   os.environ["EOB_BASE"]=''
+
+
 pkgname = "RIFT"
 package = import_module(pkgname)
 
