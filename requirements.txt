@@ -13,4 +13,3 @@ lalsuite
 gwdatafind 
 ligo-segments 
 python-ligo-lw 
-gwsurrogate==0.9.3
