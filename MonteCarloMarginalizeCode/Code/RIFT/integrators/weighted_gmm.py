@@ -19,7 +19,7 @@ from time import time
 from sklearn.base import BaseEstimator
 from sklearn.utils import check_random_state, check_array
 #from sklearn.utils.extmath import logsumexp
-from scipy.misc import logsumexp
+from scipy.special import logsumexp  # error in scipy docs
 from sklearn.utils.validation import check_is_fitted
 from sklearn import cluster
 
