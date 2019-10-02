@@ -14,11 +14,14 @@ import pytest
 import os
 if not('GW_SURROGATE' in os.environ.keys()):
    os.environ["GW_SURROGATE"]=''
-# EOBTidalExternal
+# EOBTidalExternal - no one should ever use this code
 if not('EOB_BASE' in os.environ.keys()):
    os.environ["EOB_BASE"]=''
 if not('EOB_ARCHIVE' in os.environ.keys()):
    os.environ["EOB_ARCHIVE"]='~/'
+if not('MATLAB_BASE' in os.environ.keys()):
+   os.environ["MATLAB_BASE"]=''
+# EOBTidalExternalC - probably ditto
 if not('EOB_C_BASE' in os.environ.keys()):
    os.environ["EOB_C_BASE"]=''
 if not('EOB_C_ARCHIVE' in os.environ.keys()):
