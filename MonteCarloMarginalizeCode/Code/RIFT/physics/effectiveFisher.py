@@ -25,6 +25,8 @@ import numpy as np
 from scipy.optimize import leastsq, brentq
 from scipy.linalg import eig, inv
 
+from .. import lalsimutils as lsu
+
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>"
 
 

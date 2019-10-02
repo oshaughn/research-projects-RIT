@@ -23,7 +23,7 @@ import scipy
 
 #import gwemlightcurves.table as gw_eos_table
 
-import MonotonicSpline as ms
+from . import MonotonicSpline as ms
 
 
 C_CGS=2.997925*10**10 # Argh, Monica!

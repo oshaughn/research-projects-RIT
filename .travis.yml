@@ -9,7 +9,7 @@ before_install:
   # install requirements
   - pip install -r requirements.txt
   # install test-only requirements
-  - pip install coveralls
+  - pip install pytest coveralls
 
 install:
   # install this package (need editable for coverage)
@@ -20,6 +20,8 @@ script:
   - . .travis/test-all-bin.sh
   # test import statement for all declared packages
   - python .travis/test-all-mod.py
+  -  . .travis/test-posterior.sh
+  -  . .travis/test-run.sh
 
 after_success:
   # submit coverage to coveralls.io

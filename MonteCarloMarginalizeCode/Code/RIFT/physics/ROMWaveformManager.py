@@ -19,10 +19,10 @@ try:
 except:
     print(" - no NRSur7dq2 - ")
 
-import lalsimutils
 import lalsimulation as lalsim
 import lal
 
+from .. import lalsimutils
 try:
     import LALHybrid
 except:
@@ -38,8 +38,8 @@ import h5py
 try:
     dirBaseFiles =os.environ["GW_SURROGATE"] # surrogate base directory
 except:
-    print(" Make sure you set the GW_SURROGATE environment variable")
-    sys.exit(0)
+    print( " ==> WARNING:  GW_SURROGATE environment variable is not set <== ")
+    print( "    Only surrogates with direct implementation are available (NRSur7dq2) ")
 
 print(" ROMWaveformManager: ILE version")
 
