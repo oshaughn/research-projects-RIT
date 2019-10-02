@@ -20,6 +20,7 @@ script:
   - . .travis/test-all-bin.sh
   # test import statement for all declared packages
   - python .travis/test-all-mod.py
+  -  . .travis/test-posterior.sh
   -  . .travis/test-run.sh
 
 after_success:
