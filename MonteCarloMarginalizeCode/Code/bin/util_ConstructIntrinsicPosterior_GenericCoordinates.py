@@ -959,18 +959,18 @@ def fit_nn(x,y,y_errors=None,fname_export='nn_fit'):
 #    nn_interpolator.loss_func='chi2'; nn_interpolator.epochs = 120
     nn_interpolator.train()
     if opts.fit_save_gp:
-        print " Attempting to save NN fit ", opts.fit_save_gp+".network"
+        print( " Attempting to save NN fit ", opts.fit_save_gp+".network")
         nn_interpolator.save(opts.fit_save_gp+".network")
 
     def fn_return(x):
         x_in = np.copy(x)  # need to make a copy to avoid altering input/changing response
         return nn_interpolator.evaluate(x_in)
 
-    print " Demonstrating NN"   # debugging
+    print( " Demonstrating NN")   # debugging
 #    print x, fn_return(x),nn_interpolator.evaluate(x),y
     residuals2 = fn_return(x) - y
     residuals = nn_interpolator.evaluate(x)-y
-    print "    std ", np.std(residuals), np.std(residuals2), np.max(y), np.max(fn_return(x))
+    print( "    std ", np.std(residuals), np.std(residuals2), np.max(y), np.max(fn_return(x)))
     return fn_return
 
 
@@ -988,9 +988,9 @@ def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
 
     fn_return = lambda x_in: rf.predict(x_in) 
 
-    print " Demonstrating RF"   # debugging
+    print( " Demonstrating RF")   # debugging
     residuals = rf.predict(x)-y
-    print "    std ", np.std(residuals), np.max(y), np.max(fn_return(x))
+    print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
     return fn_return
 
 def fit_nn_rfwrapper(x,y,y_errors=None,fname_export='nn_fit'):
@@ -1024,9 +1024,9 @@ def fit_nn_rfwrapper(x,y,y_errors=None,fname_export='nn_fit'):
         vals_nn = nn_interpolator.evaluate(x)
         return np.where(vals_rf > y_max-15, vals_nn, vals_rf)
 
-    print " Demonstrating RF"   # debugging
+    print( " Demonstrating NN")   # debugging
     residuals = fn_return(x)-y
-    print "    std ", np.std(residuals), np.max(y), np.max(fn_return(x))
+    print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
     return fn_return
 
 if internalGP_ok:
@@ -1359,7 +1359,7 @@ elif opts.fit_method == 'gp-pool':
         opts.pool_size = np.max([2,np.round(4000/len(X))])  # pick a pool size that has no more than 4000 members per pool
     my_fit = fit_gp_pool(X,Y,y_errors=Y_err,n_pool=opts.pool_size)
 elif opts.fit_method == 'nn':
-    print " FIT METHOD ", opts.fit_method, " IS NN "
+    print( " FIT METHOD ", opts.fit_method, " IS NN ")
     # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
@@ -1375,7 +1375,7 @@ elif opts.fit_method == 'nn':
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_nn(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'rf':
-    print " FIT METHOD ", opts.fit_method, " IS RF "
+    print( " FIT METHOD ", opts.fit_method, " IS RF ")
     # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
@@ -1391,7 +1391,7 @@ elif opts.fit_method == 'rf':
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_rf(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'nn_rfwrapper':
-    print " FIT METHOD ", opts.fit_method, " IS NN with RF wrapper "
+    print( " FIT METHOD ", opts.fit_method, " IS NN with RF wrapper ")
     # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
@@ -1407,9 +1407,9 @@ elif opts.fit_method == 'nn_rfwrapper':
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_nn_rfwrapper(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'gp-sparse':
-    print " FIT METHOD ", opts.fit_method, " IS gp-sparse "
+    print( " FIT METHOD ", opts.fit_method, " IS gp-sparse ")
     if not internalGP_ok:
-        print " FAILED "
+        print( " FAILED ")
         sys.exit(1)
     # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
     X=X[indx_ok]
