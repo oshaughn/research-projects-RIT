@@ -74,14 +74,14 @@ try:
     import RIFT.interpolators.senni as senni
     senni_ok = True
 except:
-    print " No senni "
+    print( " No senni ")
     senni_ok = False
 
 try:
-    import internal_GP
+    import RIFT.interpolators.internal_GP
     internalGP_ok = True
 except:
-    print " - no internal_GP -  "
+    print( " - no internal_GP -  ")
     internalGP_ok = False
 
 
