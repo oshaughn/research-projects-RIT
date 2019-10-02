@@ -6,7 +6,7 @@ Perform an adaptive monte carlo integral.
 '''
 from __future__ import print_function
 import numpy as np
-import gaussian_mixture_model as GMM
+from . import gaussian_mixture_model as GMM
 import traceback
 import time
 

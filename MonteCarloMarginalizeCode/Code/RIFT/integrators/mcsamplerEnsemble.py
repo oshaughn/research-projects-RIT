@@ -13,7 +13,7 @@ import functools
 
 from multiprocessing import Pool
 
-import MonteCarloEnsemble as monte_carlo
+from . import MonteCarloEnsemble as monte_carlo
 
 __author__ = "Ben Champion"
 

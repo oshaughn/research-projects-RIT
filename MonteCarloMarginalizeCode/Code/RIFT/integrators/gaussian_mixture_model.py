@@ -106,12 +106,12 @@ class estimator:
         return (self.d * self.k * n) * 10e-4
 
     def _near_psd(self, x):
-	'''
-	Calculates the nearest postive semi-definite matrix for a correlation/covariance matrix
-
+        '''
+        Calculates the nearest postive semi-definite matrix for a correlation/covariance matrix
+        
         Code from here:
         https://stackoverflow.com/questions/10939213/how-can-i-calculate-the-nearest-positive-semi-definite-matrix
-	'''
+        '''
         while True:
             epsilon = self.epsilon
             if min(np.linalg.eigvals(x)) > epsilon:

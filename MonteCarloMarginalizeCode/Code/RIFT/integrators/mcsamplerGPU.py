@@ -359,7 +359,7 @@ class MCSampler(object):
             args = self.params
 
         n_params = len(args)
-
+        
         save_no_samples = kwargs.get("save_no_samples", False)
 
         # Allocate memory.
