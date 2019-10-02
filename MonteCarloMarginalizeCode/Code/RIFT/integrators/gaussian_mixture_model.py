@@ -137,7 +137,7 @@ class estimator:
                 break
             else:
                 x = near_cov.real
-	return near_cov
+        return near_cov
     
     def fit(self, sample_array, sample_weights):
         '''
@@ -327,7 +327,7 @@ class gmm:
                 break
             else:
                 x = near_cov.real
-	return near_cov
+        return near_cov
 
     def update(self, sample_array, sample_weights=None):
         '''
