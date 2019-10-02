@@ -38,8 +38,9 @@ import h5py
 try:
     dirBaseFiles =os.environ["GW_SURROGATE"] # surrogate base directory
 except:
-    print " Make sure you set the GW_SURROGATE environment variable"
-    sys.exit(0)
+    print " ==> WARNING:  GW_SURROGATE environment variable is not set <== "
+    print "    Only surrogates with direct implementation are available (NRSur7dq2) "
+#    sys.exit(0)
 
 print " ROMWaveformManager: ILE version"
 
