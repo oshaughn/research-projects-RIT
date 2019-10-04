@@ -1567,8 +1567,10 @@ print " Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.
 extra_args={}
 if opts.sampler_method == "GMM":
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
-    extra_args = {'n_comp':3,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - opts.lnL_offset))}  # made up for now, should adjust
+    gmm_dict = {tuple(range(len(low_level_coord_names))):None} # integrate *jointly* in all parameters together
 
+    extra_args = {'n_comp':3,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - opts.lnL_offset)),'gmm_dict':gmm_dict}  # made up for now, should adjust
+    
 # Result shifted by lnL_shift
 res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
