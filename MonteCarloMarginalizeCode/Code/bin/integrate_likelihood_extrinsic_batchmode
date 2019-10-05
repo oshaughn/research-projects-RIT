@@ -44,6 +44,12 @@ import RIFT.lalsimutils as lalsimutils
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 import RIFT.integrators.mcsampler as mcsampler
 try:
+    import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
+    mcsampler_gmm_ok = True
+except:
+    print " No mcsamplerEnsemble "
+    mcsampler_gmm_ok = False
+try:
     import RIFT.integrators.mcsamplerGPU as mcsamplerGPU
     mcsampler_gpu_ok = True
 except:
@@ -493,6 +499,8 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
       mcsampler.set_xpy_to_numpy()
       sampler.xpy= numpy
       sampler.identity_convert= lambda x: x
+if opts.sampler_method == "GMM":
+    sampler = mcsamplerEnsemble.MCSampler()
 
 
 #
@@ -747,6 +755,18 @@ pinned_params.update({
 })
 if opts.sampler_method == "adaptive_cartesian_gpu":
   pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
+if opts.sampler_method == "GMM":
+    n_max_blocks = ((1.0*int(opts.n_max))/n_step)
+    # pairing coordinates for adaptive integration
+    # Order: psi:0, phi:1, incl:2, distance:3, right_ascension:4, declination:5
+    #    (distance,inclination)
+    #    (ra, dec)
+    #    (time) (phase)   # only do 1d adaptivity there, 
+    gmm_dict = {tuple([0]):None,tuple([1]):None,(2,3):None,(4,5):None} 
+
+    extra_args = {'n_comp':4,'max_iter':n_max_blocks,'gmm_dict':gmm_dict}  # made up for now, should adjust
+    
+
 
 def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
     nEvals=0
