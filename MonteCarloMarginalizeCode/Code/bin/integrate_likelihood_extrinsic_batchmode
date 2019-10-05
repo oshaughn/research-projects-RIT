@@ -756,6 +756,7 @@ pinned_params.update({
 if opts.sampler_method == "adaptive_cartesian_gpu":
   pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
 if opts.sampler_method == "GMM":
+    n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
     # pairing coordinates for adaptive integration
     # Order: psi:0, phi:1, incl:2, distance:3, right_ascension:4, declination:5
