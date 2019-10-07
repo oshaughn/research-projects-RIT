@@ -4,7 +4,7 @@
 # Author: Duncan Macleod <duncan.macleod@ligo.org> (2016)
 
 # loop over all bin/ scripts
-for EXE in bin/*; do
+for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
     # get file-name as PATH executable
     EXENAME=`basename ${EXE}`
     EXEPATH=`which ${EXENAME}`
