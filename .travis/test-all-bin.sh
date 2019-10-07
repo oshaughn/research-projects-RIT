@@ -34,7 +34,8 @@ for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
         continue
     fi
    # skip tests that require NR
-   if  [[ ${EXE} == *"util_NR"* ]]; then
+   if  [[ ${EXE} == *"util_"*"NR"* ]]; then
+        echo " NR-based code : " ${EXE}
         continue
     fi
    if  [[ ${EXE} == *"util_CompareWaveformsInDetectors.py"* ]]; then
