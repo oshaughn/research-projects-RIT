@@ -25,8 +25,8 @@ script:
 
 after_success:
   # submit coverage to coveralls.io
-  - coverage report
-  - coveralls
+  #- coverage report
+#  - coveralls
 
 cache:
   pip: true
