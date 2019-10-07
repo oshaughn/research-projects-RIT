@@ -15,7 +15,7 @@
 #
 
 
-import BayesianLeastSquares
+import RIFT.interpolators.BayesianLeastSquares as BayesianLeastSquares
 
 import argparse
 import sys

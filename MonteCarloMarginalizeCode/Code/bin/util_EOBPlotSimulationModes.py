@@ -20,7 +20,7 @@ import lalsimulation as lalsim
 import lal
 import sys
 
-import EOBTidalExternalC as eobT
+import RIFT.physics.EOBTidalExternalC as eobT
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--group", default="Sequence-GT-Aligned-UnequalMass",help="inspiral XML file containing injection information.")

@@ -17,7 +17,7 @@
 # EXAMPLE:
 #   python `which util_ConstructEOSPosterior.py` --fname fake_int_grid.dat  --parameter gamma1 --parameter gamma2 --lnL-offset 50
 
-import BayesianLeastSquares
+import RIFT.interpolators.BayesianLeastSquares as BayesianLeastSquares
 
 import argparse
 import sys
