@@ -9,8 +9,11 @@ export EOB_BASE=''
 export EOB_ARCHVE=''
 export EOB_C_BASE=''
 export EOB_C_ARCHIVE=''
+export EOB_C_ARCHIVE_NMAX=1
 export EOS_TABLES=''
 export LALSIMULATION_DATADIR=''
+
+set -e
 
 # loop over all bin/ scripts
 for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
