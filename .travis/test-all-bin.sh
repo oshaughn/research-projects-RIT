@@ -5,6 +5,9 @@
 
 # loop over all bin/ scripts
 for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
+   if  [[ ${EXE} == *"util_CacheFileConvert"* ]]; then
+        continue
+    fi
     # get file-name as PATH executable
     EXENAME=`basename ${EXE}`
     EXEPATH=`which ${EXENAME}`
