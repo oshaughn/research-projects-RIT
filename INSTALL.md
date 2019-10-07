@@ -1,9 +1,9 @@
 We have very recently refactored the code to make it properly use setuptools.  
 If you as an 
 
- * **pip install**: Installation with pip is the easiest.   Until we remove a namespace squatter, we are using ``test.pypi.org``.
+ * **pip install**: Installation with pip is the easiest.  
 ```
-  pip install  --user --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple  RIFT
+  pip install  --user  RIFT
 ```
  * **source install with setup.py**: If you retrieve the source code, you can run the setup script directly.  That's very helpful if you need to edit the source
 ```
