@@ -87,7 +87,7 @@ except:
 ### Linear fits. Resampling a quadratic. (Export me)
 ###
 
-import BayesianLeastSquares
+import RIFT.interpolators.BayesianLeastSquares as BayesianLeastSquares
 
 param_priors_gamma = {'s1z':0.01, 's2z': 0.01, 'xi':0.1}  # weak constraints on s1z, s2z
 

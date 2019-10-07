@@ -4,13 +4,13 @@
 # Author: Duncan Macleod <duncan.macleod@ligo.org> (2016)
 
 # Environment variables
-GW_SURROGATE=''
-EOB_BASE=''
-EOB_ARCHVE=''
-EOB_C_BASE=''
-EOB_C_ARCHIVE=''
-EOS_TABLES=''
-LALSIMULATION_DATADIR=''
+export GW_SURROGATE=''
+export EOB_BASE=''
+export EOB_ARCHVE=''
+export EOB_C_BASE=''
+export EOB_C_ARCHIVE=''
+export EOS_TABLES=''
+export LALSIMULATION_DATADIR=''
 
 # loop over all bin/ scripts
 for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
