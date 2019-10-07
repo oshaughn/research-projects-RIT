@@ -19,7 +19,7 @@ import lalsimulation as lalsim
 import lalframe
 import lal
 
-import ROMWaveformManager as romwf
+import RIFT.physics.ROMWaveformManager as romwf
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--group", default="my_surrogates/nr_surrogates/",help="Surrogate example tutorial/TutorialSurrogate")

@@ -59,7 +59,7 @@ import itertools
 from scipy.optimize import brentq
 
 
-import effectiveFisher  as eff   # for the mesh grid generation
+import RIFT.physics.effectiveFisher  as eff   # for the mesh grid generation
 import PrecessingFisherMatrix   as pcf   # Superior tools to perform overlaps. Will need to standardize with Evans' approach in effectiveFisher.py
 
 from multiprocessing import Pool

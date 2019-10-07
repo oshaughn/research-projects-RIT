@@ -9,7 +9,7 @@
 #    - util_TestSpokesIO.py   --fname-dat ~/g184098-RIT-Generic-v0dfix.dat  --verbose --test-refinement
 # EXAMPLE FULL REFINEMENT
 #   python util_TestSpokesIO.py   --fname-dat ~/g184098-FlipFlop.dat  --fname overlap-grid.xml.gz   --test-refinement
-import spokes
+import RIFT.misc.spokes as spokes
 
 import argparse
 import sys

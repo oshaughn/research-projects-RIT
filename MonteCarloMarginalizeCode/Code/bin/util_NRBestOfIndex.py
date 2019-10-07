@@ -19,7 +19,7 @@ import lalsimulation as lalsim
 import lalframe
 import lal
 import functools
-import gp
+import RIFT.interpolators.gp as gp
 
 from multiprocessing import Pool
 try:

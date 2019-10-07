@@ -9,7 +9,7 @@ Used to generate ascii dumps summarizing runs
 """
 import sys
 import os
-import xmlutils
+import RIFT.misc.xmlutils as xmlutils
 from optparse import OptionParser
 from glue.ligolw import lsctables, table, utils
 

@@ -5,7 +5,12 @@
 
 # loop over all bin/ scripts
 for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
+   # skip tests that have no --help
    if  [[ ${EXE} == *"util_CacheFileConvert"* ]]; then
+        continue
+    fi
+   # skip tests that require NR
+   if  [[ ${EXE} == *"util_NR"* ]]; then
         continue
     fi
     # get file-name as PATH executable
