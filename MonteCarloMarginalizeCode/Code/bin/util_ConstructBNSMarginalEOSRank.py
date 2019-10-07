@@ -9,7 +9,7 @@ import argparse
 
 #from lalinference.rapid_pe import RIFT.lalsimutils as lalsimutils
 import RIFT.lalsimutils as lalsimutils
-import RIFT.physics.EOSManager
+import RIFT.physics.EOSManager as EOSManager
 #import lalsim_EOS_tools as let
 from scipy.integrate import nquad
 #import EOS_param as ep

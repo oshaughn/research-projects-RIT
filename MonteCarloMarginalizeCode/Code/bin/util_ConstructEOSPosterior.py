@@ -53,7 +53,7 @@ except ImportError:
 from sklearn.preprocessing import PolynomialFeatures
 if True:
 #try:
-    import ModifiedScikitFit as msf  # altenative polynomialFeatures
+    import RIFT.misc.ModifiedScikitFit as msf  # altenative polynomialFeatures
 else:
 #except:
     print " - Faiiled ModifiedScikitFit : No polynomial fits - "
