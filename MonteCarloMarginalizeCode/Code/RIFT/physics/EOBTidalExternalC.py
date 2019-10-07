@@ -39,7 +39,10 @@ n_max_dirs = 1+ int(os.environ["EOB_C_ARCHIVE_NMAX"])
 
 # PRINT GIT REPO IN LOG
 print " EOB resumS git hash "
-os.system("(cd " + dirBaseFiles +"; git rev-parse HEAD)")
+if os.path.exists(dirBaseFiles):
+    os.system("(cd " + dirBaseFiles +"; git rev-parse HEAD)")
+else:
+    print " No EOBResumS C external!"
 
 default_interpolation_kind = 'linear'  # spline interpolation   # very slow! 
 
