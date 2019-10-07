@@ -44,7 +44,7 @@ except ImportError:
 
 
 from sklearn.preprocessing import PolynomialFeatures
-import ModifiedScikitFit as msf  # altenative polynomialFeatures
+import RIFT.misc.ModifiedScikitFit as msf  # altenative polynomialFeatures
 from sklearn import linear_model
 
 from glue.ligolw import lsctables, utils, ligolw
