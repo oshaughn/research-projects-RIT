@@ -137,6 +137,7 @@ optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm 
 optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
+optp.add_option("--output-pinned-parameters",action='store_true',help="If active, the pinned parameters are exported in the .dat output. Be very careful, downstream codes need to use this correctly")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
@@ -984,11 +985,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             event_id = -1
         if opts.event == None:
             event_id = -1
+        line_out = [event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z]
         if not (P.lambda1>0 or P.lambda2>0):
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-        else:
-            # Alternative output format if lambda is active
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+          line_out += [P.lambda1, P.lambda2]
+        # output pinned parameters, since we have marginalized with them active
+        if len(pinned_params.keys())>0 and opts.output_pinned_parameters:
+           for param in pinned_params.keys():
+             line_out += [pinned_params[param]]
+        line_out += [numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff]
+        numpy.savetxt(fname_output_txt, numpy.array([line_out]))  #dict_return["convergence_test_results"]["normal_integral]"
 
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
