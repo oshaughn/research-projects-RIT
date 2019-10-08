@@ -256,13 +256,10 @@ class MCSampler(object):
             bounds.append([self.llim[param], self.rlim[param]])
         bounds = np.array(bounds)
 
-        # for now, we hardcode the assumption that there are no correlated dimensions,
-        # unless otherwise specified
+        # if the user does not provide gmm_dict, assume ALL dimensions are correlated
 
         if gmm_dict is None:
-            gmm_dict = {}
-            for x in range(dim):
-                gmm_dict[(x,)] = None
+            gmm_dict = {tuple(range(dim)):None}
 
         # do the integral
 
