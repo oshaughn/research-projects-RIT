@@ -241,6 +241,7 @@ class MCSampler(object):
         max_iter = kwargs['max_iter'] if kwargs.has_key('max_iter') else 20
         var_thresh = kwargs['var_thres'] if kwargs.has_key('var_thresh') else 0.05
         write_to_file = kwargs['write_to_file'] if kwargs.has_key('write_to_file') else False
+        correlate_all_dims = kwargs['correlate_all_dims'] if kwargs.has_key('correlate_all_dims') else False
 
         L_cutoff = kwargs["L_cutoff"] if kwargs.has_key("L_cutoff") else None
 
@@ -256,10 +257,14 @@ class MCSampler(object):
             bounds.append([self.llim[param], self.rlim[param]])
         bounds = np.array(bounds)
 
-        # if the user does not provide gmm_dict, assume ALL dimensions are correlated
-
+        # generate default gmm_dict if not specified
         if gmm_dict is None:
-            gmm_dict = {tuple(range(dim)):None}
+            if correlate_all_dims:
+                gmm_dict = {tuple(range(dim)):None}
+            else:
+                gmm_dict = {}
+                for i in range(dim):
+                    gmm_dict[(i,)] = None
 
         # do the integral
 
