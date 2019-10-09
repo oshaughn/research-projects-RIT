@@ -281,8 +281,8 @@ class MCSampler(object):
         eff_samp = integrator.eff_samp
         sample_array = integrator.cumulative_samples
         value_array = integrator.cumulative_values
-        p_array = integrator.cumulative_p
-        prior_array = integrator.cumulative_p_s
+        p_array = integrator.cumulative_p_s
+        prior_array = integrator.cumulative_p
 
         # user-defined function
         if mcsamp_func is not None:
