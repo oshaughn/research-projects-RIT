@@ -1568,10 +1568,11 @@ print " Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.
 extra_args={}
 if opts.sampler_method == "GMM":
     n_max_blocks = ((1.0*int(opts.n_max))/n_step) 
-    if opts.internal_correlate_parameters == 'all':
-        gmm_dict = {tuple(range(len(low_level_coord_names))):None} # integrate *jointly* in all parameters together
-    elif not (opts.internal_correlate_parameters is None):
-        corr_param_names = opts.internal_correlate_parameters.replace(',',' ').split()
+    def parse_corr_params(my_str):
+        """
+        Takes a string with no spaces, and returns a tuple
+        """
+        corr_param_names = my_str.replace(',',' ').split()
         corr_param_indexes = []
         for param in corr_param_names:
             try:
@@ -1579,8 +1580,14 @@ if opts.sampler_method == "GMM":
                 corr_param_indexes.append(indx)
             except:
                 continue
-        gmm_dict = {tuple(corr_param_indexes):None}
-        print " Using correlated GMM sampling on sampling variable indexes " , gmm_dict
+        return tuple(corr_param_indexes)
+    if opts.internal_correlate_parameters == 'all':
+        gmm_dict = {tuple(range(len(low_level_coord_names))):None} # integrate *jointly* in all parameters together
+    elif not (opts.internal_correlate_parameters is None):
+        my_blocks = opts.internal_correlate_parameters.split()
+        my_tuples = list(map( parse_corr_params, my_blocks))
+        gmm_dict = {x:None for x in my_tuples}
+        print " Using correlated GMM sampling on sampling variable indexes " , gmm_dict, " out of ", low_level_coord_names
     else:
         param_indexes = range(len(low_level_coord_names))
         gmm_dict  = {(k,):None for k in param_indexes} # no correlations
