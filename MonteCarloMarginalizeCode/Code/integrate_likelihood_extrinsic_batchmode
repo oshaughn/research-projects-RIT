@@ -980,7 +980,6 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 lnL_sofar = -np.inf
 no_adapt_sky = False
 for indx in numpy.arange(len(P_list)):
- try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.no_adapt_after_first and (not no_adapt_sky):
@@ -989,11 +988,21 @@ for indx in numpy.arange(len(P_list)):
       params_adapt = sampler.adaptive
       params_adapt  = list(set(params_adapt) - set(['right_ascension','declination']))
       sampler.adaptive = params_adapt
- except Exception as exception_failure:
-  print "  ===> FAILED ANALYSIS <==== "
-  print " Probable reasons: SEOB nyquist or starting frequency limit or signal duration "
-  print exception_failure
-  print " Skipping the following binary! "
+ 
+# try:
+#  res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
+#  lnL_sofar = np.max([lnL_sofar,res])
+#  if opts.no_adapt_after_first and (not no_adapt_sky):
+#    if lnL_sofar > 20:  # Use absolute threshold.  Expect this will give modest sky localization.
+      # remove right_ascension, declination from adaptive parameters
+#      params_adapt = sampler.adaptive
+#      params_adapt  = list(set(params_adapt) - set(['right_ascension','declination']))
+#      sampler.adaptive = params_adapt
+# except Exception as exception_failure:
+#  print "  ===> FAILED ANALYSIS <==== "
+#  print " Probable reasons: SEOB nyquist or starting frequency limit or signal duration "
+#  print exception_failure
+#  print " Skipping the following binary! "
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
-  P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
-  P_list[indx].print_params()
+#  P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
+#  P_list[indx].print_params()

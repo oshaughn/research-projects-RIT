@@ -263,7 +263,6 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
 	mtot = P.m1 + P.m2
         q = P.m2/P.m1
         # Load the catalog
-        print perturbative_extraction_full
         wfP = nrwf.WaveformModeCatalog(group, param, \
                                        clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True,perturbative_extraction_full=perturbative_extraction_full,perturbative_extraction=perturbative_extraction,lmax=Lmax,align_at_peak_l2_m2_emission=True, build_strain_and_conserve_memory=True,use_provided_strain=use_provided_strain)
         # Overwrite the parameters in wfP to set the desired scale
@@ -1914,13 +1913,13 @@ try:
         # Very inefficient : decorating
         @vectorize([complex128(float64,float64,int64,int64,int64)])
         def lalylm(th,ph,s,l,m):
-                return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
+          return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
         # @vectorize
         # def lalF(det, RA,DEC,psi,tref):
         #         return ComplexAntennaFactor(det, RA, DEC, psi, tref)
         # @vectorize
         # def lalT(deta, RA, DEC, tref):
-                return ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
+#                return ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
 
         def lalF(det, RA, DEC,psi,tref): # note tref is a SCALAR
                 F = np.zeros( len(RA), dtype=complex)
@@ -1938,7 +1937,7 @@ except:
         print " Numba off "
         # Very inefficient
         def lalylm(th,ph,s,l,m):
-                return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
+          return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
         def lalF(det, RA, DEC,psi,tref):
                 if isinstance(RA, float):
                         return ComplexAntennaFactor(det, RA, DEC, psi,tref)
