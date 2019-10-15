@@ -26,6 +26,11 @@ from glue.lal import CacheEntry
 import ConfigParser
 
 
+def unsafe_config_get(config,args,verbose=False):
+    if verbose:
+        print " Retrieving ", args, 
+        print " Found ",eval(config.get(*args))
+    return eval( config.get(*args))
 
 def query_available_ifos(ifos_all,types,server,data_start,data_end,datafind_exe='gw_data_find'):
     ifos_out = []
@@ -511,20 +516,40 @@ if not(opts.use_ini is None):
     config.read(opts.use_ini)
 
     # Overwrite general settings
-    ifos = config.get('analysis','ifos')
+    ifos = unsafe_config_get(config,['analysis','ifos'])
+    event_dict["IFOs"] = ifos # overwrite this
+    opts.assume_fiducial_psd_files=True # for now.  
+    for ifo in ifos:
+        if not ifo in psd_names:
+            # overwrite PSD names
+            psd_names[ifo] = opts.working_directory+"/"+ifo+"-psd.xml.gz"
+
+    
     # opts.use_osg = config.get('analysis','osg')
+
 
     # Overwrite executables ? Not for this script
 
     # overwrite channel names
+    fmin_vals ={}
+    fmin_fiducial = -1
     for ifo in ifos:
-        channel_names[ifo] = config.get('data','channels')[ifo]
+        channel_names[ifo] = unsafe_config_get(config,['data','channels'])[ifo]
+        fmin_vals[ifo] = unsafe_config_get(config,['lalinference','flow'])[ifo]
+        fmin_fiducial = fmin_vals[ifo]
 
     # overwrite arguments associated with seglen
     opts.choose_LI_data_seglen=False
-    opts.data_LI_seglen = config.get('engine','seglen')
+    opts.data_LI_seglen = unsafe_config_get(config,['engine','seglen'])
+
+    # overwrite arguments used with fmax
+    opts.fmax = unsafe_config_get(config,['engine','srate'])/2
+    
+    opts.fmin = fmin_fiducial # used only to estimate length; overridden later
 
     # Use ini file arguments, unless override
+
+    # Force safe PSD
 
 # Set up, perform datafind (if not fake data)
 if not (opts.fake_data):
@@ -532,7 +557,7 @@ if not (opts.fake_data):
         data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
         # LI-style parsing
         if use_ini:
-            data_type_here = config.get('datafind','types')[ifo]
+            data_type_here = unsafe_config_get(config,['datafind','types'])[ifo]
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
 if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
@@ -641,9 +666,9 @@ if chieff_min >0 and use_gracedb_event:
 
 
 if use_ini:
-    mc_min = config.get('engine','chirpmass-min')
-    mc_max = config.get('engine','chirpmass-max')
-    q_min = config.get('engine','q-min')
+    mc_min = unsafe_config_get(config,['engine','chirpmass-min'])
+    mc_max = float(config.get('engine','chirpmass-max'))
+    q_min = float(config.get('engine','q-min'))
     eta_min = q_min/(1.+q_min)**2
 
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
@@ -692,10 +717,13 @@ for ifo in ifos:
       if not (opts.fmin is None):
         helper_ile_args += " --fmin-ifo "+ifo+"="+str(opts.fmin)
     else:
-        helper_ile_args += " --fmin-ifo "+ifo+"="+str(engine.get('lalinference','flow')[ifo])
+        helper_ile_args += " --fmin-ifo "+ifo+"="+str(unsafe_config_get(config,['lalinference','flow'])[ifo])
 #helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
-helper_ile_args += " --reference-freq " + str(opts.fmin_template)  # in case we are using a code which allows this to be specified
+if not use_ini:
+    helper_ile_args += " --reference-freq " + str(opts.fmin_template)  # in case we are using a code which allows this to be specified
+else:
+    helper_ile_args += " --reference-freq " + str(unsafe_config_get(config,['engine','fref']))
 approx_str= "SEOBNRv4"  # default, should not be used.  See also cases where grid is tuned
 if opts.lowlatency_propose_approximant:
 #    approx  = lalsim.TaylorF2
@@ -722,7 +750,7 @@ if opts.lowlatency_propose_approximant:
         data_end_time = int(P.tref + 2)
         helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
     if use_ini:
-        T_window_raw = config.get('engine','seglen')
+        T_window_raw = unsafe_config_get(config,['engine','seglen'])
         data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
         data_end_time = int(P.tref + 2)
         helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
