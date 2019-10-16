@@ -55,3 +55,12 @@ The following authors should be contacted
 
 ## Relationship to version of rapid_pe in lalsuite
 Chris Pankow has also been maintaining a [port of the original rapid_pe as part of lalsuite](https://github.com/lscsoft/lalsuite/tree/master/lalinference/python/lalinference/rapid_pe). While this code is unreviewed and has many API and workflow differences, the underlying likelihood evaluation procedure has been the same (until the recent GPU rewrite).  We hope to eventually merge the codebases, likely by modernizing the version in lalsuite and/or by ports of rapid_pe techniques to next-generation PE codes.
+
+
+## Version numbers
+
+Short term: roughly major.minor.feature_upgrade.internal_rc_candidates.   So the 4th number are upgraded every few major bugfixes or moves; the 3rd number will upgrade if we add a feature; and we will eventually get to 0.1 for a production O3 analysis (O3b).
+
+Medium-term: Amajor API change or two we are thinking about for how the users specify workflows should be 0.2
+
+Long-term: Version 1 will reduce dependency on hardcoded parameter names. More flexibility in how inference is done. May be a different repo.
