@@ -766,8 +766,13 @@ if opts.sampler_method == "GMM":
     gmm_dict = {tuple([0]):None,tuple([1]):None,(2,3):None,(4,5):None} 
 
     extra_args = {'n_comp':4,'max_iter':n_max_blocks,'gmm_dict':gmm_dict}  # made up for now, should adjust
-    
 
+    # cannot pin params at present
+    # unpinned params MUST be full call signature of likelihood, IN ORDER
+    if not(opts.time_marginalization):
+      unpinned_params =['right_ascension','declination', 't_ref','phi_orb','inclination','psi','distance']
+    else:
+      unpinned_params =['right_ascension','declination', 'phi_orb','inclination','psi','distance']
 
 def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
     nEvals=0
