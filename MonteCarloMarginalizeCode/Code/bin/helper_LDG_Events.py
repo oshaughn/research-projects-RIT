@@ -312,6 +312,7 @@ try:
    print " LIGO_DATAFIND_SERVER ", datafind_server
 except:
   print " No LIGO_DATAFIND_SERVER "
+  datafind_server = "datafind.ligo.org:443"
 if opts.datafind_server:
     datafind_server = opts.datafind_server
 if (datafind_server is None) and not (opts.fake_data):
@@ -444,7 +445,7 @@ else:
 if (opts.observing_run is None) and not opts.fake_data:
     tref = event_dict["tref"]
     opts.observing_run = get_observing_run(tref)
-    if opts.calibration_version is None:
+    if opts.calibration_version is None and (opts.use_ini is None):
         # This should be a dictionary lookup.
         if opts.observing_run is "O2":
             opts.calibration_version = "C02"
@@ -498,7 +499,8 @@ if opts.check_ifo_availability and not opts.use_online_psd:  # online PSD only a
 # define channel names
 ifos = event_dict["IFOs"]
 channel_names = {}
-for ifo in ifos:
+if opts.use_ini is None:
+  for ifo in ifos:
     if opts.fake_data:
         channel_names[ifo] = "FAKE-STRAIN"
     else:
@@ -554,10 +556,11 @@ if not(opts.use_ini is None):
 # Set up, perform datafind (if not fake data)
 if not (opts.fake_data):
     for ifo in ifos:
-        data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
         # LI-style parsing
         if use_ini:
             data_type_here = unsafe_config_get(config,['datafind','types'])[ifo]
+        else:
+            data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
 if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
