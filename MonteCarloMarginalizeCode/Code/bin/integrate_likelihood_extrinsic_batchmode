@@ -53,7 +53,7 @@ try:
     import RIFT.integrators.mcsamplerGPU as mcsamplerGPU
     mcsampler_gpu_ok = True
 except:
-    printi( " No mcsamplerGPU ")
+    print( " No mcsamplerGPU ")
     mcsampler_gpu_ok = False
 
 import RIFT.likelihood.priors_utils as priors_utils
