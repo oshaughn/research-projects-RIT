@@ -61,7 +61,7 @@ for param in param_names:
 
 param_values = []
 if len(param_names) == len(opts.parameter_value):
-    param_values = map(eval, opts.parameter_value)
+    param_values = list(map(eval, opts.parameter_value))
 for p in ['mc', 'm1', 'm2', 'mtot']:
     if p in param_names:
         indx = param_names.index(p)
