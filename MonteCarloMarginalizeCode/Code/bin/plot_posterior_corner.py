@@ -28,7 +28,7 @@ try:
         fig_extension = '.png'
         bNoInteractivePlots=True
     else:
-	matplotlib.use('agg')
+        matplotlib.use('agg')
         fig_extension = '.png'
         bNoInteractivePlots =True
     from matplotlib import pyplot as plt
