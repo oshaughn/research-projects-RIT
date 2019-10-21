@@ -1657,7 +1657,7 @@ if opts.using_eos:
 #        eos_extra += opts.eos_param
         annotation_header += "gamma1 gamma2 gamma3 gamma4 p0 epsilon0 xmax"
 with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
-    str_out = map(str,[np.log(res), np.sqrt(var)/res, neff])
+    str_out =list( map(str,[np.log(res), np.sqrt(var)/res, neff]))
     file_out.write("# " + annotation_header + "\n")
     file_out.write(' '.join( str_out + eos_extra + ["\n"]))
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
