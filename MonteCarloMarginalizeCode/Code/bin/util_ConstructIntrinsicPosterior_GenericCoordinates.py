@@ -1587,7 +1587,7 @@ if opts.sampler_method == "GMM":
         my_blocks = opts.internal_correlate_parameters.split()
         my_tuples = list(map( parse_corr_params, my_blocks))
         gmm_dict = {x:None for x in my_tuples}
-        print " Using correlated GMM sampling on sampling variable indexes " , gmm_dict, " out of ", low_level_coord_names
+        print( " Using correlated GMM sampling on sampling variable indexes " , gmm_dict, " out of ", low_level_coord_names)
     else:
         param_indexes = range(len(low_level_coord_names))
         gmm_dict  = {(k,):None for k in param_indexes} # no correlations
