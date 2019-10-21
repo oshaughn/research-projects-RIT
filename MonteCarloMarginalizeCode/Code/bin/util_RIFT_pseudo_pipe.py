@@ -45,13 +45,13 @@ def get_observing_run(t):
     for run in observing_run_time:
         if  t > observing_run_time[run][0] and t < observing_run_time[run][1]:
             return run
-    print " No run available for time ", t, " in ", observing_run_time
+    print( " No run available for time ", t, " in ", observing_run_time)
     return None
 
 def unsafe_config_get(config,args,verbose=False):
     if verbose:
-        print " Retrieving ", args, 
-        print " Found ",eval(config.get(*args))
+        print( " Retrieving ", args)
+        print( " Found ",eval(config.get(*args)))
     return eval( config.get(*args))
 
 
@@ -69,7 +69,7 @@ def retrieve_event_from_coinc(fname_coinc):
         try:
             event_duration = row.event_duration # may not exist
         except:
-            print " event_duration field not in XML "
+            print( " event_duration field not in XML ")
     event_dict["m1"] = row.mass1
     event_dict["m2"] = row.mass2
     event_dict["s1z"] = row.spin1z
@@ -128,9 +128,9 @@ if (opts.approx is None) and not (opts.use_ini is None):
     approx_name_ini = config.get('engine','approx')
     approx_name_cleaned = lalsim.GetStringFromApproximant(lalsim.GetApproximantFromString(approx_name_ini))
     opts.approx = approx_name_cleaned
-    print " Approximant provided in ini file: ",approx_name_cleaned
+    print( " Approximant provided in ini file: ",approx_name_cleaned)
 elif opts.approx is None:
-    print " Approximant required! "
+    print( " Approximant required! ")
     sys.exit(1)
 
 if opts.use_osg:
@@ -138,19 +138,19 @@ if opts.use_osg:
 
 if opts.make_bw_psds:
     if not(opts.choose_data_LI_seglen) and (opts.data_LI_seglen is None):
-        print " To use the BW PSD, you MUST provide a default analysis seglen "
+        print( " To use the BW PSD, you MUST provide a default analysis seglen ")
         sys.exit(1)
 
 if opts.online:
         opts.use_online_psd =True
         if opts.link_bw_psds:
-            print " Inconsistent options for PSDs "
+            print( " Inconsistent options for PSDs ")
             sys.exit(1)
 
 fmin = opts.fmin
 fmin_template  = opts.fmin
 if opts.l_max > 2:
-    print " ==> Reducing minimum template frequency because of HM <== "
+    print( " ==> Reducing minimum template frequency because of HM <== ")
     fmin_template = opts.fmin * 2./opts.l_max
 if not(opts.fmin_template is None):
     fmin_template = opts.fmin_template
@@ -161,9 +161,9 @@ if opts.gracedb_id is None:
         gwid = ''
 else:
     if not("X509_USER_PROXY" in os.environ.keys()):
-        print " Run ligo-proxy-init ! "
+        print( " Run ligo-proxy-init ! ")
         sys.exit(1)
-print " Event ", gwid
+print( " Event ", gwid)
 base_dir = os.getcwd()
 if opts.use_ini:
     base_dir =''  # all directories are provided as full path names
@@ -182,17 +182,17 @@ if opts.choose_data_LI_seglen:
     # For frequency-domain approximants, I need another factor of 2!
     # We have an extra buffer
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
-            print " FD approximant, needs extra buffer for RIFT at present "
+            print( " FD approximant, needs extra buffer for RIFT at present ")
             T_wave_round *=2 
 
-    print " Assigning auto-selected segment length ", T_wave_round
+    print( " Assigning auto-selected segment length ", T_wave_round)
     opts.data_LI_seglen  = T_wave_round
 
     # Problem with SEOBNRv3 starting frequencies
     mtot_msun = event_dict["m1"]+event_dict["m2"] 
     if ('SEOB' in opts.approx) and mtot_msun > 90*(20./opts.fmin):
             fmin_template = int(14*(90/mtot_msun))   # should also decrease this due to lmax!
-            print "  SEOB starting frequencies need to be reduced for this event; trying ", fmin_template
+            print( "  SEOB starting frequencies need to be reduced for this event; trying ", fmin_template)
 
 
 is_analysis_precessing =False
@@ -231,7 +231,7 @@ os.chdir(dirname_run)
 
 if not(opts.use_ini is None):
     if opts.use_coinc is None:
-        print " coinc required for ini file operation at present "
+        print( " coinc required for ini file operation at present ")
         sys.exit(1)
     # Load in event dictionary
     event_dict = retrieve_event_from_coinc(opts.use_coinc)
@@ -248,7 +248,7 @@ if not(opts.use_ini is None):
         fmin_vals[ifo] = unsafe_config_get(config,['lalinference','flow'])[ifo]
         fmin_fiducial = fmin_vals[ifo]
     event_dict["IFOs"] = ifo_list
-    print "IFO list from ini ", ifo_list
+    print( "IFO list from ini ", ifo_list)
     P.fmin = fmin_fiducial
     P.fref = unsafe_config_get(config,['engine','fref'])
     # Write 'target_params.xml.gz' file
@@ -282,7 +282,7 @@ if True:
                         exec("import "+ name+"; val = "+name+".__version__")
                         f.write(name +" " +val+"\n")
                     except:
-                        print " No provenance for ", name
+                        print( " No provenance for ", name)
 
 # Run helper command
 npts_it = 500
@@ -331,7 +331,7 @@ if opts.use_online_psd_file:
     for ifo in ifo_list:
         cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
 
-print cmd
+print( cmd)
 os.system(cmd)
 #sys.exit(0)
 
@@ -348,7 +348,7 @@ if (opts.use_ini is None):
         if 'hirp' in line:
             mc_Msun = float(line.split(' ')[-1])
  except:
-   print " Failure parsing event.log"
+   print( " Failure parsing event.log")
 else:
     # use sim_xml produced above to generate necessary parameters
     t_ref = P.tref
@@ -359,7 +359,7 @@ try:
     dmax_guess =(1./snr_fac)* 2.5*2.26*typical_bns_range_Mpc[observing_run]* (mc_Msun/1.2)**(5./6.)
     dmax_guess = np.min([dmax_guess,10000]) # place ceiling
 except:
-    print " ===> Defaulting to maximum distance <=== "
+    print( " ===> Defaulting to maximum distance <=== ")
     dmax_guess = 10000
 # Last stage of commands done by other tools: too annoying to copy stuff over and run the next generation of the pipeline
 instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
@@ -375,7 +375,7 @@ elif "NRSur7d" in opts.approx:
 elif "SEOBNR" in opts.approx: 
         line += " --approx " + opts.approx
 else:
-        print " Unknown approx ", opts.approx
+        print( " Unknown approx ", opts.approx)
         sys.exit(1)
 if not(opts.manual_extra_ile_args is None):
     line += opts.manual_extra_ile_args
@@ -439,7 +439,7 @@ try:
     with open("helper_puff_max_it.txt",'r') as f:
         puff_max_it = int(f.readline())
 except:
-    print " No puff file "
+    print( " No puff file ")
 if opts.assume_matter:
     puff_params += " --parameter LambdaTilde "
     puff_max_it +=5   # make sure we resolve the correlations
@@ -466,5 +466,5 @@ if opts.cip_explode_jobs:
 if opts.use_osg:
     cmd += " --use-osg --use-singularity --use-cvmfs-frames --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  Note with CVMFS frames we need to provide the cache
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
-print cmd
+print( cmd)
 os.system(cmd)
