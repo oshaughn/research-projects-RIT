@@ -630,7 +630,7 @@ for indx in np.arange(len(samples_rec[params_rec[0]])):
     P = P_base.manual_copy()
     for param in params_rec:
         val = samples_rec[param][indx]
-	fac=1
+        fac=1
         if param in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
         P.assign_param(param,fac*val)
