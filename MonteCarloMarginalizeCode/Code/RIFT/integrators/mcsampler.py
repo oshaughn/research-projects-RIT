@@ -1,4 +1,4 @@
-from __future__ import print_function
+
 
 import sys
 import math
@@ -60,11 +60,11 @@ class MCSampler(object):
             # no extraneous params in args
             return False
 
-        to_match, against = filter(lambda i: not isinstance(i, tuple), not_common), filter(lambda i: isinstance(i, tuple), not_common)
+        to_match, against = [i for i in not_common if not isinstance(i, tuple)], [i for i in not_common if isinstance(i, tuple)]
 
         matched = []
         import itertools
-        for i in range(2, max(map(len, against))+1):
+        for i in range(2, max(list(map(len, against)))+1):
             matched.extend([t for t in itertools.permutations(to_match, i) if t in against])
         return (set(matched) ^ set(against)) == set()
 
@@ -122,7 +122,7 @@ class MCSampler(object):
         if rosDebugMessages: 
             print(" Adding parameter ", params, " with limits ", [left_limit, right_limit])
         if isinstance(params, tuple):
-            assert all(map(lambda lim: lim[0] < lim[1], zip(left_limit, right_limit)))
+            assert all([lim[0] < lim[1] for lim in zip(left_limit, right_limit)])
             if left_limit is None:
                 self.llim[params] = list(float("-inf"))*len(params)
             else:
@@ -204,7 +204,7 @@ class MCSampler(object):
         if len(args) == 0:
             args = self.params
 
-        no_cache_samples = kwargs["no_cache_samples"] if kwargs.has_key("no_cache_samples") else False
+        no_cache_samples = kwargs["no_cache_samples"] if "no_cache_samples" in kwargs else False
 
 
         if isinstance(rvs, int) or isinstance(rvs, float):
@@ -213,7 +213,7 @@ class MCSampler(object):
             #
             # FIXME: UGH! Really? This was the most elegant thing you could come
             # up with?
-            rvs_tmp = [numpy.random.uniform(0,1,(len(p), int(rvs))) for p in map(lambda i: (i,) if not isinstance(i, tuple) else i, args)]
+            rvs_tmp = [numpy.random.uniform(0,1,(len(p), int(rvs))) for p in [(i,) if not isinstance(i, tuple) else i for i in args]]
             rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)], dtype=numpy.object)
         else:
             rvs_tmp = numpy.array(rvs)
@@ -237,9 +237,9 @@ class MCSampler(object):
         #
         if not no_cache_samples:  # more efficient memory usage. Note adaptation will not wor
           if len(self._rvs) == 0:
-            self._rvs = dict(zip(args, rvs_tmp))
+            self._rvs = dict(list(zip(args, rvs_tmp)))
           else:
-            rvs_tmp = dict(zip(args, rvs_tmp))
+            rvs_tmp = dict(list(zip(args, rvs_tmp)))
             #for p, ar in self._rvs.items():
             for p in self.params_ordered:
                 self._rvs[p] = numpy.hstack( (self._rvs[p], rvs_tmp[p]) )
@@ -253,9 +253,9 @@ class MCSampler(object):
         #
         # Pack up the result if the user wants a dictonary instead
         #
-        if kwargs.has_key("rdict"):
-            return dict(zip(args, res))
-        return zip(*res)
+        if "rdict" in kwargs:
+            return dict(list(zip(args, res)))
+        return list(zip(*res))
 
 
     def integrate_vegas(self, func, *args, **kwargs):
@@ -269,7 +269,7 @@ class MCSampler(object):
         #
         tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
         temppdfnormdict = defaultdict(lambda: 1.0)
-        for p, val in kwargs.items():
+        for p, val in list(kwargs.items()):
             if p in self.params_ordered:
                 # Store the previous pdf/cdf in case it's already defined
                 tempcdfdict[p] = self.cdf_inv[p]
@@ -285,9 +285,9 @@ class MCSampler(object):
         #
         # Determine stopping conditions
         #
-        nmax = kwargs["nmax"] if kwargs.has_key("nmax") else 1e6
-        neff = kwargs["neff"] if kwargs.has_key("neff") else 1000
-        n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)  # chunk size
+        nmax = kwargs["nmax"] if "nmax" in kwargs else 1e6
+        neff = kwargs["neff"] if "neff" in kwargs else 1000
+        n = kwargs["n"] if "n" in kwargs else min(1000, nmax)  # chunk size
         nBlocks = 10
         n_itr = numpy.max([10,numpy.min([20,int(nmax/nBlocks/n)])])  # largest number to use
 
@@ -364,7 +364,7 @@ class MCSampler(object):
         #
         tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
         temppdfnormdict = defaultdict(lambda: 1.0)
-        for p, val in kwargs.items():
+        for p, val in list(kwargs.items()):
             if p in self.params_ordered:  
                 # Store the previous pdf/cdf in case it's already defined
                 tempcdfdict[p] = self.cdf_inv[p]
@@ -382,7 +382,7 @@ class MCSampler(object):
         # This is a semi-hack to ensure that the integrand is called with
         # the arguments in the right order
         # FIXME: How dangerous is this?
-        args = func.func_code.co_varnames[:func.func_code.co_argcount]
+        args = func.__code__.co_varnames[:func.__code__.co_argcount]
 
         #if set(args) & set(params) != set(args):
         # DISABLE THIS CHECK
@@ -392,21 +392,21 @@ class MCSampler(object):
         #
         # Determine stopping conditions
         #
-        nmax = kwargs["nmax"] if kwargs.has_key("nmax") else float("inf")
-        neff = kwargs["neff"] if kwargs.has_key("neff") else numpy.float128("inf")
-        n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
-        convergence_tests = kwargs["convergence_tests"] if kwargs.has_key("convergence_tests") else None
+        nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
+        neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
+        n = kwargs["n"] if "n" in kwargs else min(1000, nmax)
+        convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
 
 
         #
         # Adaptive sampling parameters
         #
-        n_history = int(kwargs["history_mult"]*n) if kwargs.has_key("history_mult") else None
-        tempering_exp = kwargs["tempering_exp"] if kwargs.has_key("tempering_exp") else 0.0
-        n_adapt = int(kwargs["n_adapt"]*n) if kwargs.has_key("n_adapt") else 0
-        floor_integrated_probability = kwargs["floor_level"] if kwargs.has_key("floor_level") else 0
-        temper_log = kwargs["tempering_log"] if kwargs.has_key("temper_log") else False
-        tempering_adapt = kwargs["tempering_adapt"] if kwargs.has_key("tempering_adapt") else False
+        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else None
+        tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
+        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 0
+        floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
+        temper_log = kwargs["tempering_log"] if "temper_log" in kwargs else False
+        tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
         if not tempering_adapt:
             tempering_exp_running=tempering_exp
         else:
@@ -415,9 +415,9 @@ class MCSampler(object):
             tempering_exp_running=tempering_exp
             
 
-        save_intg = kwargs["save_intg"] if kwargs.has_key("save_intg") else False
-        force_no_adapt = kwargs["force_no_adapt"] if kwargs.has_key("force_no_adapt") else False
-        save_no_samples = kwargs["save_no_samples"] if kwargs.has_key("save_no_samples") else False
+        save_intg = kwargs["save_intg"] if "save_intg" in kwargs else False
+        force_no_adapt = kwargs["force_no_adapt"] if "force_no_adapt" in kwargs else False
+        save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else False
         if save_no_samples:   # can't adapt without saved samples
             force_no_adapt = True
         # FIXME: The adaptive step relies on the _rvs cache, so this has to be
@@ -425,13 +425,13 @@ class MCSampler(object):
         if n_adapt > 0 and tempering_exp > 0.0:
             save_intg = True
 
-        deltalnL = kwargs['igrand_threshold_deltalnL'] if kwargs.has_key('igrand_threshold_deltalnL') else float("Inf") # default is to return all
-        deltaP    = kwargs["igrand_threshold_p"] if kwargs.has_key('igrand_threshold_p') else 0 # default is to omit 1e-7 of probability
+        deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
+        deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
 
-        bUseMultiprocessing = kwargs['use_multiprocessing'] if kwargs.has_key('use_multiprocessing') else False
-        nProcesses = kwargs['nprocesses'] if kwargs.has_key('nprocesses') else 2
-        bShowEvaluationLog = kwargs['verbose'] if kwargs.has_key('verbose') else False
-        bShowEveryEvaluation = kwargs['extremely_verbose'] if kwargs.has_key('extremely_verbose') else False
+        bUseMultiprocessing = kwargs['use_multiprocessing'] if 'use_multiprocessing' in kwargs else False
+        nProcesses = kwargs['nprocesses'] if 'nprocesses' in kwargs else 2
+        bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
+        bShowEveryEvaluation = kwargs['extremely_verbose'] if 'extremely_verbose' in kwargs else False
 
         if bShowEvaluationLog:
             print(" .... mcsampler : providing verbose output ..... ")
@@ -498,8 +498,8 @@ class MCSampler(object):
                 else:
                     params.append(item)
             unpacked = unpacked0 = numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
-            unpacked = dict(zip(params, unpacked))
-            if kwargs.has_key('no_protect_names'):
+            unpacked = dict(list(zip(params, unpacked)))
+            if 'no_protect_names' in kwargs:
                 fval = func(*unpacked0)  # do not protect order
             else:
                 fval = func(**unpacked) # Chris' original plan: note this insures the function arguments are tied to the parameters, using a dictionary. 
@@ -527,7 +527,7 @@ class MCSampler(object):
                 # FIXME: See warning at beginning of function. The prior values
                 # need to be moved out of this, as they are not part of MC
                 # integration
-                if self._rvs.has_key("integrand"):
+                if "integrand" in self._rvs:
                     self._rvs["integrand"] = numpy.hstack( (self._rvs["integrand"], fval) )
                     self._rvs["joint_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
                     self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_s_prior"], joint_p_s) )
@@ -584,7 +584,7 @@ class MCSampler(object):
             # Convergence tests:
             if convergence_tests:
                 bConvergedThisIteration = True  # start out optimistic
-                for key in convergence_tests.keys():
+                for key in list(convergence_tests.keys()):
                     last_convergence_test[key] =  convergence_tests[key](self._rvs, self.params_ordered)
                     bConvergedThisIteration = bConvergedThisIteration  and                      last_convergence_test[key]
                 bConvergenceTests = bConvergedThisIteration
@@ -614,7 +614,7 @@ class MCSampler(object):
             for itr, p in enumerate(self.params_ordered):
                 # FIXME: The second part of this condition should be made more
                 # specific to pinned parameters
-                if p not in self.adaptive or p in kwargs.keys():
+                if p not in self.adaptive or p in list(kwargs.keys()):
                     continue
                 points = self._rvs[p][-n_history:]
 #                print "      Points", p, type(points),points.dtype
@@ -676,7 +676,7 @@ class MCSampler(object):
             # FIXME: This is an unncessary initial copy, the second step (cum i
             # prob) can be accomplished with indexing first then only pare at
             # the end
-            for key in self._rvs.keys():
+            for key in list(self._rvs.keys()):
                 if isinstance(key, tuple):
                     self._rvs[key] = self._rvs[key][:,indx_list]
                 else:
@@ -689,7 +689,7 @@ class MCSampler(object):
             cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
             indx_list = [int(indx_list[k, 0]) for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability. RECAST TO INTEGER
             # FIXME: See previous FIXME
-            for key in self._rvs.keys():
+            for key in list(self._rvs.keys()):
                 if isinstance(key, tuple):
                     self._rvs[key] = self._rvs[key][:,indx_list]
                 else:
