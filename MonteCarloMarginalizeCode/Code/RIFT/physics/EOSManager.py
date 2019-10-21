@@ -199,7 +199,7 @@ class EOSLALSimulation(EOSConcrete):
 #dirEOSTablesBase = os.environ["EOS_TABLES"]
 dirLALSimulationBase = os.environ["LALSIMULATION_DATADIR"]  # LAL table data
 ## Add routines to find, parse standard directory of EOS files and load suitable metadata into memory
-## Follow framework of NRWaveformCatalogManager
+## Follow framework of NRWaveformCatalogManager3
 
 
 class EOSFromDataFile(EOSConcrete):

@@ -30,7 +30,7 @@ opts=  parser.parse_args()
 
 hasNR = False
 if opts.group:
-    import NRWaveformCatalogManager as nrwf
+    import NRWaveformCatalogManager3 as nrwf
     hasNR=True
 
 

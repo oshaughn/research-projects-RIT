@@ -15,7 +15,7 @@ import os
 import subprocess
 from shutil import copyfile
 
-import NRWaveformCatalogManager as nrwf
+import NRWaveformCatalogManager3 as nrwf
 import lal
 import RIFT.lalsimutils as lalsimutils
 

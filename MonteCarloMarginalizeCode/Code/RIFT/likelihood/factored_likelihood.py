@@ -62,9 +62,9 @@ if 'PROFILE' not in os.environ:
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 try:
-        import NRWaveformCatalogManager as nrwf
+        import NRWaveformCatalogManager3 as nrwf
         useNR =True
-        print(" factored_likelihood.py : NRWaveformCatalogManager available ")
+        print(" factored_likelihood.py : NRWaveformCatalogManager3 available ")
 except ImportError:
         useNR=False
 

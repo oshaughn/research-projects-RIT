@@ -143,7 +143,7 @@ if opts.use_NR:
 	 if "--nr-lookup-group" in opts_list:
                 nr_group=opts_list[opts_list.index("--nr-lookup-group")+1]
 		import RIFT.lalsimutils as lalsimutils
-		import NRWaveformCatalogManager as nrwf
+		import NRWaveformCatalogManager3 as nrwf
 	        nr_group = opts_list[opts_list.index("--nr-lookup-group")+1]
 	        print " Looking up NR parameters from best fit parameters"
 	        P_list = lalsimutils.xml_to_ChooseWaveformParams_array(infile)

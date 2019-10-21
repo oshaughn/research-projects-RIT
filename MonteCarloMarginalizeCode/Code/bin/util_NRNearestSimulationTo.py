@@ -28,7 +28,7 @@ from scipy.optimize import brentq
 
 
 
-import NRWaveformCatalogManager as nrwf
+import NRWaveformCatalogManager3 as nrwf
 import scipy.optimize as optimize
 
 parser = argparse.ArgumentParser()

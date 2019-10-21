@@ -7,7 +7,7 @@ import lal
 import numpy as np
 import RIFT.lalsimutils as lalsimutils
 
-import NRWaveformCatalogManager as nrwf
+import NRWaveformCatalogManager3 as nrwf
 
 ###
 ### Get hdot

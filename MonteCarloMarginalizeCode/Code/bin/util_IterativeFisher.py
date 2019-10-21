@@ -72,7 +72,7 @@ except:
     print(" - No multiprocessing - ")
 
 try:
-	import NRWaveformCatalogManager as nrwf
+	import NRWaveformCatalogManager3 as nrwf
 	hasNR =True
 except:
 	hasNR=False

@@ -29,7 +29,7 @@ import lalsimulation as lalsim
 import lal
 import sys
 
-import NRWaveformCatalogManager as nrwf
+import NRWaveformCatalogManager3 as nrwf
 from matplotlib import pyplot as plt
 
 

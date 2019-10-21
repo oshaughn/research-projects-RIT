@@ -260,7 +260,7 @@ if opts.data_end_time is None and opts.data_start_time is not None:
 NR_template_group=None
 NR_template_param=None
 if opts.nr_group and opts.nr_param:
-    import NRWaveformCatalogManager as nrwf
+    import NRWaveformCatalogManager3 as nrwf
     NR_template_group = opts.nr_group
     if nrwf.internal_ParametersAreExpressions[NR_template_group]:
         NR_template_param = eval(opts.nr_param)

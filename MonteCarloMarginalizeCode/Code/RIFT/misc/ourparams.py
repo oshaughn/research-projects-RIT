@@ -16,7 +16,7 @@ from glue.ligolw import utils, lsctables, table, ligolw
 
 try:
     hasNR=True
-    import NRWaveformCatalogManager as nrwf
+    import NRWaveformCatalogManager3 as nrwf
 except:
     hasNR=False
     print(" - no NR waveforms - ")

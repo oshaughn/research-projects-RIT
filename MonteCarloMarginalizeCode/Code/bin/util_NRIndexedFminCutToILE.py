@@ -13,7 +13,7 @@
 import argparse
 import numpy as np
 import RIFT.lalsimutils as lalsimutils
-import NRWaveformCatalogManager as nrwf
+import NRWaveformCatalogManager3 as nrwf
 
 import lal
 MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3

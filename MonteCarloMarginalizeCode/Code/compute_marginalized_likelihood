@@ -32,7 +32,7 @@ import dag_utils
 import regions
 
 try:
-	import NRWaveformCatalogManager as nrwf
+	import NRWaveformCatalogManager3 as nrwf
 	useNR =True
 except:
 	useNR=False

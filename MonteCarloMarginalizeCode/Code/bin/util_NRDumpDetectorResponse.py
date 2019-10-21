@@ -16,7 +16,7 @@ import lalsimulation as lalsim
 import lal
 import sys
 
-import NRWaveformCatalogManager as nrwf
+import NRWaveformCatalogManager3 as nrwf
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--inj",default=None)

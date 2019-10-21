@@ -97,7 +97,7 @@ import lalsimulation as lalsim
 import lalsimutils
 try:
     hasNR=True
-    import NRWaveformCatalogManager as nrwf
+    import NRWaveformCatalogManager3 as nrwf
 except:
     hasNR=False
     print(" - no NR waveforms -")

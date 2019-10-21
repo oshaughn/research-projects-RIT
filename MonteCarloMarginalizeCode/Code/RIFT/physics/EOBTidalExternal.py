@@ -11,7 +11,7 @@
 #    - hlmoft
 #
 # COMPARE TO
-#    NRWaveformCatalogManager   : very similar interface
+#    NRWaveformCatalogManager3   : very similar interface
 
 
 debug_output = False
