@@ -35,13 +35,13 @@ def get_pinned_params(opts):
     """
     Retrieve a dictionary of user pinned parameters and their pin values.
     """
-    return dict([(p,v) for p, v in opts.__dict__.iteritems() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None]) 
+    return dict([(p,v) for p, v in opts.__dict__.items() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None]) 
 
 def get_unpinned_params(opts, params):
     """
     Retrieve a set of unpinned parameters.
     """
-    return params - set([p for p, v in opts.__dict__.iteritems() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None])
+    return params - set([p for p, v in opts.__dict__.items() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None])
 
 #
 # Option parsing
@@ -175,10 +175,10 @@ if opts.coinc_xml is not None:
     assert len(coinc_table) == 1
     coinc_row = coinc_table[0]
     event_time = coinc_row.get_end()
-    print "Coinc XML loaded, event time: %s" % str(coinc_row.get_end())
+    print("Coinc XML loaded, event time: %s" % str(coinc_row.get_end()))
 elif opts.event_time is not None:
     event_time = glue.lal.LIGOTimeGPS(opts.event_time)
-    print "Event time from command line: %s" % str(event_time)
+    print("Event time from command line: %s" % str(event_time))
 else:
     raise ValueError("Either --coinc-xml or --event-time must be provided to parse event time.")
 
@@ -211,7 +211,7 @@ fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more di
 
 # Struct to hold template parameters
 if opts.sim_xml:
-    print "====Loading injection XML:", opts.sim_xml, opts.event, " ======="
+    print("====Loading injection XML:", opts.sim_xml, opts.event, " =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
     P = P_list[opts.event]
     m1 = P.m1/lal.MSUN_SI
@@ -251,7 +251,7 @@ else:
     )
 
 
-print " --- Template for intrinsic parameters ---- " 
+print(" --- Template for intrinsic parameters ---- ") 
 P.print_params()
 
 
@@ -272,7 +272,7 @@ rv_list = []
 sigma_1d = 0.1
 x_0 = numpy.array([35,30,0.0,0.0,0.0,0,0,0])
 Sigma= numpy.diag( [16,16, 0.01, 0.01, 0.01, 0.01,0.01,0.01])
-print x_0.shape, Sigma.shape
+print(x_0.shape, Sigma.shape)
 Sigma_list.append(Sigma)
 rv_list.append( scipy.stats.multivariate_normal(mean=x_0, cov=Sigma))  # one-dimensional in one parameter
 # for indx in np.arange(n_gauss):
