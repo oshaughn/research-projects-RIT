@@ -49,7 +49,7 @@ try:
 except:
     print(" - No healpy - ")
 
-from . import statutils.cumvar  as cumvar
+from ..integrators.statutils import  cumvar
 
 from multiprocessing import Pool
 
