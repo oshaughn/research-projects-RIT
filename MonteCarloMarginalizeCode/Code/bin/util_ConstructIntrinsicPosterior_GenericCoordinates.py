@@ -93,15 +93,15 @@ def render_coord(x):
         a = a[:len(a)-1] # drop last
         a = a[8:]
         terms = a.split(',')
-        exprs =map(render_coord, terms)
-        exprs = map( lambda x: x.replace('$', ''), exprs)
+        exprs =list(map(render_coord, terms))
+        exprs = list(map( lambda x: x.replace('$', ''), exprs))
         my_label = ' '.join(exprs)
         return '$'+my_label+'$'
     else:
         return x
 
 def render_coordinates(coord_names):
-    return map(render_coord, coord_names)
+    return list(map(render_coord, coord_names))
 
 
 def extract_combination_from_LI(samples_LI, p):
@@ -430,7 +430,7 @@ dlist = []
 dlist_ranges=[]
 if opts.downselect_parameter:
     dlist = opts.downselect_parameter
-    dlist_ranges  = map(eval,opts.downselect_parameter_range)
+    dlist_ranges  = list(map(eval,opts.downselect_parameter_range))
 else:
     dlist = []
     dlist_ranges = []
@@ -491,7 +491,7 @@ print(" Coordinate names for fit :, ", coord_names)
 print(" Rendering coordinate names : ",  render_coordinates(coord_names))  # map(lambda x: tex_dictionary[x], coord_names)
 print(" Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names))
 print(" Coordinate names for Monte Carlo :, ", low_level_coord_names)
-print(" Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_level_coord_names))
+print(" Rendering coordinate names : ", list(map(lambda x: tex_dictionary[x], low_level_coord_names)))
 
 
 ###
@@ -1653,7 +1653,7 @@ if opts.using_eos:
     if opts.eos_param == 'spectral':
         # Should also 
         my_eos_params = my_eos.spec_params
-        eos_extra += map( lambda x: str(my_eos_params[x]), ["gamma1", "gamma2", "gamma3", "gamma4", "p0", "epsilon0", "xmax"])
+        eos_extra += list(map( lambda x: str(my_eos_params[x]), ["gamma1", "gamma2", "gamma3", "gamma4", "p0", "epsilon0", "xmax"]))
 #        eos_extra += opts.eos_param
         annotation_header += "gamma1 gamma2 gamma3 gamma4 p0 epsilon0 xmax"
 with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
@@ -1794,7 +1794,7 @@ sigma_reweighted= np.std(weights,dtype=np.float128)/np.mean(weights)
 neff_reweighted = np.sum(weights)/np.max(weights)
 np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [log_res_reweighted])  # should agree with the usual result, if no prior changes
 with open(opts.fname_output_integral+"_withpriorchange+annotation.dat", 'w') as file_out:
-    str_out = map(str,[log_res_reweighted, sigma_reweighted, neff])
+    str_out = list(map(str,[log_res_reweighted, sigma_reweighted, neff]))
     file_out.write("# " + annotation_header + "\n")
     file_out.write(' '.join( str_out + eos_extra + ["\n"]))
 #np.savetxt(opts.fname_output_integral+"_withpriorchange+annotation.dat", np.array([[log_res_reweighted,sigma_reweighted, neff]]),header=eos_extra)
@@ -1945,7 +1945,7 @@ if not no_plots:
     print(p, range_here[-1])  # print out range to be used in plots.
 
 if not no_plots:
-    labels_tex = map(lambda x: tex_dictionary[x], low_level_coord_names)
+    labels_tex = list(map(lambda x: tex_dictionary[x], low_level_coord_names))
     fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,truths=truth_here,range=range_here)
     my_cmap_values = 'g' # default color
     if True:
@@ -1993,7 +1993,7 @@ if opts.verbose:
 # indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probabilit
 cum_sum  = np.cumsum(weights)
 cum_sum = cum_sum/cum_sum[-1]
-indx_list = map(lambda x : np.sum(cum_sum < x),  p_thresholds)  # this can lead to duplicates
+indx_list = list(map(lambda x : np.sum(cum_sum < x),  p_thresholds))  # this can lead to duplicates
 if opts.verbose:
     print(" output size: selected random indices N=", len(indx_list))
 lnL_list = []
