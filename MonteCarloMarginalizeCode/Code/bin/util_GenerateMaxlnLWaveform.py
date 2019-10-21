@@ -38,26 +38,26 @@ bestline = []; lnl_vals=[]; fnums=[]
 if opts.run_dir:
     for file in os.listdir(str(opts.run_dir)):
        if str(file).endswith(".dat") and str(file).startswith("CME"):
-	   with open(str(opts.run_dir)+"/"+str(file), 'r') as f:
-	       cme_file=str(opts.run_dir)+"/"+str(file)
+           with open(str(opts.run_dir)+"/"+str(file), 'r') as f:
+               cme_file=str(opts.run_dir)+"/"+str(file)
                fnum=str(file).split('-')[2].replace('EVENT_','')
                fnums.append(fnum)
-	       line = f.read().split(' ')
-	       lnl = float(line[9])
-	       sigma_lnL = float(line[10])
-	       if np.isnan(sigma_lnL):
-		  print " Skipping "
-		  fnums.pop()
-		  continue
+               line = f.read().split(' ')
+               lnl = float(line[9])
+               sigma_lnL = float(line[10])
+               if np.isnan(sigma_lnL):
+                   print " Skipping "
+                   fnums.pop()
+                   continue
                if len(lnl_vals) > 0 and  lnl > np.max(lnl_vals) and sigma_lnL<opts.sigma_cut:
                   bestline =line
-	          print "Updating bestline ", lnl, max(lnl_vals), bestline
+                  print "Updating bestline ", lnl, max(lnl_vals), bestline
                lnl_vals.append(float(lnl)) 
 	      # print lnl, sigma_lnL, float(line[1])+float(line[2]), fnum
-	       if float(sigma_lnL) > opts.sigma_cut:
+               if float(sigma_lnL) > opts.sigma_cut:
                   print " skipping "
-		  fnums.pop(); lnl_vals.pop()
-	          continue
+                  fnums.pop(); lnl_vals.pop()
+                  continue
                     
 else:
    print "Please specify run directory"
@@ -83,34 +83,34 @@ if opts.use_NR:
 
     # create single event to find maxpt if not already in existance
     if infile=='':
-	cme_file = ""
-	for file in os.listdir(str(opts.run_dir)):
-	    if ("EVENT_"+indx+"-") in file and file.endswith(".xml.gz.dat"):
-	         cme_file = file
+        cme_file = ""
+        for file in os.listdir(str(opts.run_dir)):
+            if ("EVENT_"+indx+"-") in file and file.endswith(".xml.gz.dat"):
+                cme_file = file
 
-	print " Loading ", cme_file
-	param = np.loadtxt(cme_file)
+        print " Loading ", cme_file
+        param = np.loadtxt(cme_file)
         param = np.array(map(int,param*1000))/1000.  # prevent scientific notation from appearing in arguments!
-	print param
+        print param
 #        with open(cme_file, 'r') as params:
 #		param=params.read().split()
 #                param=[float(i) for i in param]
 #		param=["%.20f" % i for i in param]
         write_xml = "util_WriteInjectionFile.py --parameter m1 --parameter-value "+str(param[1])+" --parameter m2 --parameter-value "+str(param[2])+" --parameter s1x --parameter-value "+str(param[3])+" --parameter s1y --parameter-value "+str(param[4])+" --parameter s1z --parameter-value "+str(param[5])+" --parameter s2x --parameter-value "+str(param[6])+" --parameter s2y --parameter-value "+str(param[7])+" --parameter s2z --parameter-value "+str(param[8])+" --approximant SEOBNRv4 --fname single-pt" 
         os.chdir(opts.run_dir)
-	os.system(write_xml)
+        os.system(write_xml)
         
         with open(str(opts.run_dir)+"/command-single.sh",'r') as runfile:
            rf=str(runfile.readlines()[1])
            rf=rf.replace('create_event_dag_via_grid', 'integrate_likelihood_extrinsic')
-	   rf+=" --maximize-only"
-	   rf=rf.split()
-	   rf[rf.index("--sim-xml")+1]="single-pt.xml.gz"
- 	   rf[rf.index("--output-file")+1]="ILE-single.xml.gz"  
-	   if "--n-copies" in rf:
+           rf+=" --maximize-only"
+           rf=rf.split()
+           rf[rf.index("--sim-xml")+1]="single-pt.xml.gz"
+           rf[rf.index("--output-file")+1]="ILE-single.xml.gz"  
+           if "--n-copies" in rf:
               rf[rf.index("--n-copies")+1]=""
            rf_submit = ' '.join(rf)
-	   if "--n-copies" in rf:
+           if "--n-copies" in rf:
               rf_submit=rf_submit.replace("--n-copies","")
         
         print rf_submit
@@ -137,17 +137,17 @@ if opts.use_NR:
              Lmax_used = int(opts_list[opts_list.index("--l-max")+1])
              if (Lmax_used != Lmax):
                     print " ---- WARNING, YOU WILL OVERRIDE THE MAXIMUM L USED  --"
-	 if "--nr-group" in opts_list:
-         	nr_group=opts_list[opts_list.index("--nr-group")+1]
-         	nr_params=opts_list[opts_list.index("--nr-param")+1]
-	 if "--nr-lookup-group" in opts_list:
+         if "--nr-group" in opts_list:
+             nr_group=opts_list[opts_list.index("--nr-group")+1]
+             nr_params=opts_list[opts_list.index("--nr-param")+1]
+         if "--nr-lookup-group" in opts_list:
                 nr_group=opts_list[opts_list.index("--nr-lookup-group")+1]
-		import RIFT.lalsimutils as lalsimutils
-		import NRWaveformCatalogManager3 as nrwf
-	        nr_group = opts_list[opts_list.index("--nr-lookup-group")+1]
-	        print " Looking up NR parameters from best fit parameters"
-	        P_list = lalsimutils.xml_to_ChooseWaveformParams_array(infile)
-	        P = P_list[0]
+                import RIFT.lalsimutils as lalsimutils
+                import NRWaveformCatalogManager3 as nrwf
+                nr_group = opts_list[opts_list.index("--nr-lookup-group")+1]
+                print " Looking up NR parameters from best fit parameters"
+                P_list = lalsimutils.xml_to_ChooseWaveformParams_array(infile)
+                P = P_list[0]
                 compare_dict = {}
                 compare_dict['q'] = P.m2/P.m1 # Need to match the template parameter. NOTE: VERY IMPORTANT that P is updated with the event params
                 compare_dict['s1z'] = P.s1z
@@ -183,7 +183,7 @@ if opts.use_NR:
         cmd = cmd+ " --no-memory "
     
     if opts.save_plots:
-	cmd+=" --save-plots --verbose"
+        cmd+=" --save-plots --verbose"
 
 else:
    #get name of maxpt file
@@ -245,7 +245,7 @@ else:
 
     cmd = "util_LALDumpDetectorResponse.py --inj "+infile+" --event 0 --t-ref "+str(event_time)+ " --approximant " + approx
     if opts.save_plots:
-	cmd+=" --save-plots --verbose"
+        cmd+=" --save-plots --verbose"
 
 os.chdir(opts.run_dir)
 print cmd
