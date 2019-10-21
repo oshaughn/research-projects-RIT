@@ -80,9 +80,9 @@ fi
 #EVENT_TIME=${EVENT_TIME##* }   #  http://stackoverflow.com/questions/3162385/how-to-split-a-string-in-shell-and-get-the-last-field
 EVENT_TIME=`ligolw_print -c geocent_end_time ${INJ_XML}`
 # Modified so the buffer has a power-of-2 length
-START=`python -c "print int(${EVENT_TIME}-${DUR})"`
-STOP=`python -c "print int(${EVENT_TIME}+${DUR})"`
-DUR_REVISED=`python -c "print int(${STOP}-${START})"`
+START=`python -c "print( int(${EVENT_TIME}-${DUR}))"`
+STOP=`python -c "print( int(${EVENT_TIME}+${DUR}))"`
+DUR_REVISED=`python -c "print( int(${STOP}-${START}))"`
 
 echo " Duration estimates :"  ${START} ${STOP}  ${DUR_EST} ${DUR} ${DUR_REVISED}
 
