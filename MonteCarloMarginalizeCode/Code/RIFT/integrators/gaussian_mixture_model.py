@@ -11,7 +11,8 @@ from six.moves import range
 
 import numpy as np
 from scipy.stats import multivariate_normal
-from scipy.misc import logsumexp
+#from scipy.misc import logsumexp
+from scipy.special import logsumexp
 import multivariate_truncnorm as truncnorm
 import itertools
 
