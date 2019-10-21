@@ -428,7 +428,7 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
 
 
     def gauss_samp_withfloor(mu, std, myfloor, x):
-	return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2) + myfloor
+        return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2) + myfloor
     
     sampler.add_parameter("t_ref", functools.partial(mcsampler.gauss_samp_withfloor, tEventFiducial, 0.01,0.001), None, tref_min, tref_max, 
                       prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
