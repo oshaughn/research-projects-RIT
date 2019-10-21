@@ -47,7 +47,7 @@ try:
     import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
     mcsampler_gmm_ok = True
 except:
-    print " No mcsamplerEnsemble "
+    print(" No mcsamplerEnsemble ")
     mcsampler_gmm_ok = False
 try:
     import RIFT.integrators.mcsamplerGPU as mcsamplerGPU
