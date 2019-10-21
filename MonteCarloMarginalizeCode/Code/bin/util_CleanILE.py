@@ -8,7 +8,7 @@
 import sys
 import os
 import RIFT.misc.xmlutils as xmlutils
-from optparse import OptionParser
+#from optparse import OptionParser
 from glue.ligolw import lsctables, table, utils
 
 import numpy as np
@@ -25,8 +25,14 @@ tides_on = False
 distance_on = False  
 col_intrinsic = 9
 
+import argparse
+parser = argparse.ArgumentParser(usage="util_CleanILE.py fname1.dat fname2.dat ... ")
+parser.add_argument("fname",action='append',nargs='+')
+opts = parser.parse_args()
 
-for fname in sys.argv[1:]:
+#print opts.fname
+
+for fname in opts.fname[0]: #sys.argv[1:]:
     sys.stderr.write(fname)
 #    data = np.loadtxt(fname)  # this will FAIL if we have a heterogeneous data source!  BE CAREFUL
     data = np.genfromtxt(fname,invalid_raise=False)  #  Protect against inhomogeneous data

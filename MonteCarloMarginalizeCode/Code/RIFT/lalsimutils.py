@@ -2421,9 +2421,14 @@ def hoff_FD(P, Fp=None, Fc=None):
         raise ValueError('None given for freq. bin size P.deltaF')
 
     hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(P.phiref, P.deltaF,
-            P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin,
-            P.fmax, P.fref, P.dist, P.incl, P.lambda1, P.lambda2, P.waveFlags,
-            P.nonGRparams, P.ampO, P.phaseO, P.approx)
+             P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
+             P.dist, P.incl, P.phiref, P.psi,
+             P.eccentricity, P.meanPerAno, P.deltaF, 
+             P.fmin, P.fmax, P.fref, 
+             P.nonGRparams, P.approx)
+#            P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin,
+#            P.fmax, P.fref, P.dist, P.incl, P.lambda1, P.lambda2, P.waveFlags,
+#            P.nonGRparams, P.ampO, P.phaseO, P.approx)
     if Fp is not None and Fc is not None:
         hptilde.data.data *= Fp
         hctilde.data.data *= Fc

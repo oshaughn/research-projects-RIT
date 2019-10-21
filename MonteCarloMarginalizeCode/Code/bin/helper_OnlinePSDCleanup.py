@@ -9,7 +9,7 @@
 
 
 import numpy as np
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import lal
 from optparse import OptionParser
 

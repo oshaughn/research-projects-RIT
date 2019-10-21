@@ -17,7 +17,7 @@
 # EXAMPLE:
 #   python `which util_ConstructEOSPosterior.py` --fname fake_int_grid.dat  --parameter gamma1 --parameter gamma2 --lnL-offset 50
 
-import BayesianLeastSquares
+import RIFT.interpolators.BayesianLeastSquares as BayesianLeastSquares
 
 import argparse
 import sys
@@ -53,7 +53,7 @@ except ImportError:
 from sklearn.preprocessing import PolynomialFeatures
 if True:
 #try:
-    import ModifiedScikitFit as msf  # altenative polynomialFeatures
+    import RIFT.misc.ModifiedScikitFit as msf  # altenative polynomialFeatures
 else:
 #except:
     print(" - Faiiled ModifiedScikitFit : No polynomial fits - ")

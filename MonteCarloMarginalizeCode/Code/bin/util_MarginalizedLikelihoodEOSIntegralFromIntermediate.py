@@ -18,7 +18,7 @@
 #   python `which util_MarginalizedLikelihoodEOSIntegralFromIntermediate.py`  --intermediate-file analyze_27/qt/intermediate_nospin.dat  --parameter gamma1 --parameter-value 0.707 --parameter gamma2 --parameter-value 0.707 --mcz 1.26940994223 --redshift `cat redshift_of_27.dat`
 
 
-import EOSManager
+import RIFT.physics.EOSManager as EOSManager
 
 import argparse
 import sys

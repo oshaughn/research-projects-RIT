@@ -222,7 +222,7 @@ parser.add_argument("--no-downselect",action='store_true',help='Prevent using do
 parser.add_argument("--no-downselect-grid",action='store_true',help='Prevent using downselection on input points. Applied only to mc range' )
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
 parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
-parser.add_argument("--prior-gaussian-mass-ratio",action='store_true',help="Applies a gaussian mass ratio prior (mean=0.5, width=0.2 by default). Only viable in mtot, q coordinates. Not properly normalized, so will break bayes factors by about 2%")
+parser.add_argument("--prior-gaussian-mass-ratio",action='store_true',help="Applies a gaussian mass ratio prior (mean=0.5, width=0.2 by default). Only viable in mtot, q coordinates. Not properly normalized, so will break bayes factors by about 2%%")
 parser.add_argument("--prior-tapered-mass-ratio",action='store_true',help="Applies a tapered mass ratio prior (transition 0.8, kappa=20). Only viable in mtot, q coordinates. Not properly normalized, a tapering factor instread")
 parser.add_argument("--prior-gaussian-spin1-magnitude",action='store_true',help="Applies a gaussian spin magnitude prior (mean=0.7, width=0.1 by default) for FIRST spin. Only viable in polar spin coordinates. Not properly normalized, so will break bayes factors by a small amount (depending on chi_max).  Used for 2g+1g merger arguments")
 parser.add_argument("--prior-tapered-spin1-magnitude",action='store_true',help="Applies a tapered prior to spin1 magnitude")
@@ -281,6 +281,7 @@ parser.add_argument("--source-redshift",default=0,type=float,help="Source redshi
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
+parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
 opts=  parser.parse_args()
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
@@ -1566,9 +1567,32 @@ print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.
 
 extra_args={}
 if opts.sampler_method == "GMM":
-    n_max_blocks = ((1.0*int(opts.n_max))/n_step)
-    extra_args = {'n_comp':3,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - opts.lnL_offset))}  # made up for now, should adjust
-
+    n_max_blocks = ((1.0*int(opts.n_max))/n_step) 
+    def parse_corr_params(my_str):
+        """
+        Takes a string with no spaces, and returns a tuple
+        """
+        corr_param_names = my_str.replace(',',' ').split()
+        corr_param_indexes = []
+        for param in corr_param_names:
+            try:
+                indx = low_level_coord_names.index(param)
+                corr_param_indexes.append(indx)
+            except:
+                continue
+        return tuple(corr_param_indexes)
+    if opts.internal_correlate_parameters == 'all':
+        gmm_dict = {tuple(range(len(low_level_coord_names))):None} # integrate *jointly* in all parameters together
+    elif not (opts.internal_correlate_parameters is None):
+        my_blocks = opts.internal_correlate_parameters.split()
+        my_tuples = list(map( parse_corr_params, my_blocks))
+        gmm_dict = {x:None for x in my_tuples}
+        print " Using correlated GMM sampling on sampling variable indexes " , gmm_dict, " out of ", low_level_coord_names
+    else:
+        param_indexes = range(len(low_level_coord_names))
+        gmm_dict  = {(k,):None for k in param_indexes} # no correlations
+    extra_args = {'n_comp':3,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - opts.lnL_offset)),'gmm_dict':gmm_dict}  # made up for now, should adjust
+    
 # Result shifted by lnL_shift
 res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 

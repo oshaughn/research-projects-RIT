@@ -22,7 +22,7 @@ import lalsimulation as lalsim
 import lalframe
 import lal
 
-import EOBTidalExternalC as eobwf
+import RIFT.physics.EOBTidalExternalC as eobwf
 
 
 parser = argparse.ArgumentParser()

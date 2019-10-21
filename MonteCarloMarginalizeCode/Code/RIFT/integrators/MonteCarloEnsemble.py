@@ -231,7 +231,7 @@ class integrator:
         if nmax is None:
             nmax = max_iter * self.n
         while self.iterations < max_iter and self.ntotal < nmax and self.eff_samp < neff:
-            print('Iteration:', self.iterations)
+#            print('Iteration:', self.iterations)
             if err_count >= max_err:
                 print('Exiting due to errors...')
                 break
@@ -279,6 +279,6 @@ class integrator:
                 self._reset()
             if verbose:
                 # Standard mcsampler message, to monitor convergence
-                print(" : {} {} {} {} ".format(self.iterations*self.n, self.eff_samp, np.sqrt(2*np.log(np.max(self.cumulative_values))), 0 ) )
+                print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.log(np.max(self.cumulative_values))), np.sqrt(2*np.log(self.integral)), "-" ) )
         print('cumulative eval time: ', cumulative_eval_time)
         print('integrator iterations: ', self.iterations)

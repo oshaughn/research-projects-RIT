@@ -9,12 +9,12 @@ Used to generate ascii dumps summarizing runs
 """
 import sys
 import os
-import xmlutils
+import RIFT.misc.xmlutils as xmlutils
 from optparse import OptionParser
 from glue.ligolw import lsctables, table, utils
 
 import numpy as np
-import weight_simulations
+import RIFT.misc.weight_simulations as weight_simulations
 
 # optp= OptionParser()
 # opts, args = optp.parse_args()

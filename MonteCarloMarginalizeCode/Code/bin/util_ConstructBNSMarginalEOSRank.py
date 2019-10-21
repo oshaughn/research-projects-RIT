@@ -9,13 +9,13 @@ import argparse
 
 #from lalinference.rapid_pe import RIFT.lalsimutils as lalsimutils
 import RIFT.lalsimutils as lalsimutils
-import EOSManager
+import RIFT.physics.EOSManager as EOSManager
 #import lalsim_EOS_tools as let
 from scipy.integrate import nquad
 #import EOS_param as ep
 import os
 
-import MonotonicSpline as ms 
+import RIFT.physics.MonotonicSpline as ms 
 
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as C
