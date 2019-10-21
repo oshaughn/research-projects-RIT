@@ -1256,7 +1256,7 @@ elif sum(indx_ok) < 10: # and max_lnL > 30:
     idx_sorted_index = np.lexsort((np.arange(len(Y)), Y))  # Sort the array of Y, recovering index values
     indx_list = np.array( [[k, Y[k]] for k in idx_sorted_index])     # pair up with the weights again
     indx_list = indx_list[::-1]  # reverse, so most significant are first
-    indx_ok = map(int,indx_list[:10,0])
+    indx_ok = list(map(int,indx_list[:10,0]))
     print(" Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:10])
 X_raw = X.copy()
 
