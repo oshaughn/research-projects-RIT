@@ -46,32 +46,32 @@ if opts.run_dir:
                lnl = float(line[9])
                sigma_lnL = float(line[10])
                if np.isnan(sigma_lnL):
-                   print " Skipping "
+                   print(" Skipping ")
                    fnums.pop()
                    continue
                if len(lnl_vals) > 0 and  lnl > np.max(lnl_vals) and sigma_lnL<opts.sigma_cut:
                   bestline =line
-                  print "Updating bestline ", lnl, max(lnl_vals), bestline
+                  print("Updating bestline ", lnl, max(lnl_vals), bestline)
                lnl_vals.append(float(lnl)) 
 	      # print lnl, sigma_lnL, float(line[1])+float(line[2]), fnum
                if float(sigma_lnL) > opts.sigma_cut:
-                  print " skipping "
+                  print(" skipping ")
                   fnums.pop(); lnl_vals.pop()
                   continue
                     
 else:
-   print "Please specify run directory"
+   print("Please specify run directory")
 
 # print max lnl value 
-print "Max lnL value: "+ str(max(lnl_vals))
+print("Max lnL value: "+ str(max(lnl_vals)))
 indx=fnums[lnl_vals.index(max(lnl_vals))]
-print indx, bestline
+print(indx, bestline)
 
 
 Lmax = opts.l_max
         
 if opts.use_NR:
-    print "Using NR data: "
+    print("Using NR data: ")
   
     infile = "" 
     #get name of maxpt file
@@ -88,10 +88,10 @@ if opts.use_NR:
             if ("EVENT_"+indx+"-") in file and file.endswith(".xml.gz.dat"):
                 cme_file = file
 
-        print " Loading ", cme_file
+        print(" Loading ", cme_file)
         param = np.loadtxt(cme_file)
-        param = np.array(map(int,param*1000))/1000.  # prevent scientific notation from appearing in arguments!
-        print param
+        param = np.array(list(map(int,param*1000)))/1000.  # prevent scientific notation from appearing in arguments!
+        print(param)
 #        with open(cme_file, 'r') as params:
 #		param=params.read().split()
 #                param=[float(i) for i in param]
@@ -113,7 +113,7 @@ if opts.use_NR:
            if "--n-copies" in rf:
               rf_submit=rf_submit.replace("--n-copies","")
         
-        print rf_submit
+        print(rf_submit)
         os.system(rf_submit)
        
         for file in os.listdir(str(opts.run_dir)): 
@@ -136,7 +136,7 @@ if opts.use_NR:
          if "--l-max" in opts_list:
              Lmax_used = int(opts_list[opts_list.index("--l-max")+1])
              if (Lmax_used != Lmax):
-                    print " ---- WARNING, YOU WILL OVERRIDE THE MAXIMUM L USED  --"
+                    print(" ---- WARNING, YOU WILL OVERRIDE THE MAXIMUM L USED  --")
          if "--nr-group" in opts_list:
              nr_group=opts_list[opts_list.index("--nr-group")+1]
              nr_params=opts_list[opts_list.index("--nr-param")+1]
@@ -145,7 +145,7 @@ if opts.use_NR:
                 import RIFT.lalsimutils as lalsimutils
                 import NRWaveformCatalogManager3 as nrwf
                 nr_group = opts_list[opts_list.index("--nr-lookup-group")+1]
-                print " Looking up NR parameters from best fit parameters"
+                print(" Looking up NR parameters from best fit parameters")
                 P_list = lalsimutils.xml_to_ChooseWaveformParams_array(infile)
                 P = P_list[0]
                 compare_dict = {}
@@ -156,23 +156,23 @@ if opts.use_NR:
                 compare_dict['s2z'] = P.s2z
                 compare_dict['s2x'] = P.s2x
                 compare_dict['s2y'] = P.s2y
-                print " Parameter matching condition ", compare_dict
+                print(" Parameter matching condition ", compare_dict)
                 good_sim_list = nrwf.NRSimulationLookup(compare_dict,valid_groups=[nr_group])
                 if len(good_sim_list)< 1:
-                        print " ------- NO MATCHING SIMULATIONS FOUND ----- "
+                        print(" ------- NO MATCHING SIMULATIONS FOUND ----- ")
                         import sys
                         sys.exit(0)
-                        print " Identified set of matching NR simulations ", good_sim_list
+                        print(" Identified set of matching NR simulations ", good_sim_list)
                 try:
-                        print  "   Attempting to pick longest simulation matching  the simulation  "
+                        print("   Attempting to pick longest simulation matching  the simulation  ")
                         MOmega0  = 1
                         good_sim = None
                         for key in good_sim_list:
-                                print key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+                                print(key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]])
                                 if nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0'] < MOmega0:
                                         good_sim = key
                                         MOmega0 = nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0']
-                                print " Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+                                print(" Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]])
                 except:
                         good_sim  = good_sim_list[0] # pick the first one.  Note we will want to reduce /downselect the lookup process
                 group = good_sim[0]
@@ -219,7 +219,7 @@ else:
            if "--n-copies" in rf:
               rf_submit=rf_submit.replace("--n-copies","")
 
-        print rf_submit
+        print(rf_submit)
         os.system(rf_submit)
 
         for file in os.listdir(str(opts.run_dir)):
@@ -248,6 +248,6 @@ else:
         cmd+=" --save-plots --verbose"
 
 os.chdir(opts.run_dir)
-print cmd
+print(cmd)
 os.system(cmd)
 
