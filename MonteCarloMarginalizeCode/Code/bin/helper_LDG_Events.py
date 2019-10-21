@@ -28,8 +28,8 @@ import ConfigParser
 
 def unsafe_config_get(config,args,verbose=False):
     if verbose:
-        print " Retrieving ", args, 
-        print " Found ",eval(config.get(*args))
+        print( " Retrieving ", args) 
+        print( " Found ",eval(config.get(*args)))
     return eval( config.get(*args))
 
 def query_available_ifos(ifos_all,types,server,data_start,data_end,datafind_exe='gw_data_find'):
@@ -494,7 +494,7 @@ if opts.check_ifo_availability and not opts.use_online_psd:  # online PSD only a
     # Do not override the original IFO list, build from the list of PSD files or otherwise
     original_list = event_dict["IFOs"] 
     event_dict["IFOs"] = list( set( original_list+query_available_ifos_viadq(["H1","L1","V1"],data_start_time_orig,data_end_time)))
-    print " IFO list to use ", event_dict["IFOs"]
+    print( " IFO list to use ", event_dict["IFOs"])
 
 # define channel names
 ifos = event_dict["IFOs"]
