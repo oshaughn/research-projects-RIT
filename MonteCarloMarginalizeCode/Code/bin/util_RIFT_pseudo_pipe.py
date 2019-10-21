@@ -21,6 +21,7 @@ import sys
 import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
+import configparser as ConfigParser
 
 import shutil
 
@@ -122,7 +123,6 @@ parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE 
 opts=  parser.parse_args()
 
 if (opts.approx is None) and not (opts.use_ini is None):
-    import ConfigParser
     config = ConfigParser.ConfigParser()
     config.read(opts.use_ini)
     approx_name_ini = config.get('engine','approx')

@@ -23,7 +23,7 @@ import lalsimulation as lalsim
 from glue.ligolw import lsctables, table, utils
 from glue.lal import CacheEntry
 
-import ConfigParser
+import configparser as ConfigParser
 
 
 def unsafe_config_get(config,args,verbose=False):
