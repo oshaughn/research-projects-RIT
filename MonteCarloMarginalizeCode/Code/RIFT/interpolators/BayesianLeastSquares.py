@@ -94,7 +94,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
     if verbose:
         print(" Generating predictive function ")
     def fit_here(x):
-        return  np.sum(map(lambda z: z[1]*z[0](x), zip(f_list,lambdaHat) ),axis=0)
+        return  np.sum(list(map(lambda z: z[1]*z[0](x), zip(f_list,lambdaHat) )),axis=0)
     if verbose:
         my_resid = y - fit_here(x)
         print(" Fisher: Residuals ", np.std(my_resid))
