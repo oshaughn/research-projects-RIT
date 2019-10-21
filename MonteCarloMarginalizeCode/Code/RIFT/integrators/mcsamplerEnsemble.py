@@ -1,4 +1,4 @@
-from __future__ import print_function
+
 import sys
 import math
 import bisect
@@ -55,12 +55,12 @@ class MCSampler(object):
             # no extraneous params in args
             return False
 
-        to_match = filter(lambda i: not isinstance(i, tuple), not_common)
-        against = filter(lambda i: isinstance(i, tuple), not_common)
+        to_match = [i for i in not_common if not isinstance(i, tuple)]
+        against = [i for i in not_common if isinstance(i, tuple)]
         
         matched = []
         import itertools
-        for i in range(2, max(map(len, against))+1):
+        for i in range(2, max(list(map(len, against)))+1):
             matched.extend([t for t in itertools.permutations(to_match, i) if t in against])
         return (set(matched) ^ set(against)) == set()
 
@@ -133,7 +133,7 @@ class MCSampler(object):
         if rosDebugMessages:
             print(" mcsampler: Adding parameter ", params, " with limits ", [left_limit, right_limit])
         if isinstance(params, tuple):
-            assert all(map(lambda lim: lim[0] < lim[1], zip(left_limit, right_limit)))
+            assert all([lim[0] < lim[1] for lim in zip(left_limit, right_limit)])
             if left_limit is None:
                 self.llim[params] = list(float("-inf"))*len(params)
             else:
@@ -224,25 +224,25 @@ class MCSampler(object):
 
         proc_count: size of multiprocessing pool. set to None to not use multiprocessing
         '''
-        nmax = kwargs["nmax"] if kwargs.has_key("nmax") else 1e6
-        neff = kwargs["neff"] if kwargs.has_key("neff") else 1000
-        n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)  # chunk size
-        n_comp = kwargs["n_comp"] if kwargs.has_key("n_comp") else 1
-        if 'gmm_dict' in kwargs.keys():
+        nmax = kwargs["nmax"] if "nmax" in kwargs else 1e6
+        neff = kwargs["neff"] if "neff" in kwargs else 1000
+        n = kwargs["n"] if "n" in kwargs else min(1000, nmax)  # chunk size
+        n_comp = kwargs["n_comp"] if "n_comp" in kwargs else 1
+        if 'gmm_dict' in list(kwargs.keys()):
             gmm_dict = kwargs['gmm_dict']  # required
         else:
             gmm_dict = None
-        reflect = kwargs['reflect'] if kwargs.has_key('reflect') else False
-        integrator_func  = kwargs['integrator_func'] if kwargs.has_key('integrator_func') else None
-        mcsamp_func  = kwargs['mcsamp_func'] if kwargs.has_key('mcsamp_func') else None
-        proc_count = kwargs['proc_count'] if kwargs.has_key('proc_count') else None
-        direct_eval = kwargs['direct_eval'] if kwargs.has_key('direct_eval') else False
-        min_iter = kwargs['min_iter'] if kwargs.has_key('min_iter') else 10
-        max_iter = kwargs['max_iter'] if kwargs.has_key('max_iter') else 20
-        var_thresh = kwargs['var_thres'] if kwargs.has_key('var_thresh') else 0.05
-        write_to_file = kwargs['write_to_file'] if kwargs.has_key('write_to_file') else False
+        reflect = kwargs['reflect'] if 'reflect' in kwargs else False
+        integrator_func  = kwargs['integrator_func'] if 'integrator_func' in kwargs else None
+        mcsamp_func  = kwargs['mcsamp_func'] if 'mcsamp_func' in kwargs else None
+        proc_count = kwargs['proc_count'] if 'proc_count' in kwargs else None
+        direct_eval = kwargs['direct_eval'] if 'direct_eval' in kwargs else False
+        min_iter = kwargs['min_iter'] if 'min_iter' in kwargs else 10
+        max_iter = kwargs['max_iter'] if 'max_iter' in kwargs else 20
+        var_thresh = kwargs['var_thres'] if 'var_thresh' in kwargs else 0.05
+        write_to_file = kwargs['write_to_file'] if 'write_to_file' in kwargs else False
 
-        L_cutoff = kwargs["L_cutoff"] if kwargs.has_key("L_cutoff") else None
+        L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
 
         # set up a lot of preliminary stuff
         self.func = func
