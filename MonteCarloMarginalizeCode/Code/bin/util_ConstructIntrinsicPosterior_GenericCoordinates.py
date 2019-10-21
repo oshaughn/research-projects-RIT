@@ -1106,7 +1106,8 @@ for line in dat:
 #      if opts.verbose:
 #          print " Skipping ", line
       continue
-  if line[col_lnL] < opts.lnL_cut:
+  if not (opts.lnL_cut is None):
+    if line[col_lnL] < opts.lnL_cut:
       continue  # strip worthless points.  DANGEROUS
   mc_here = lalsimutils.mchirp(line[1],line[2])
   if  (not opts.no_downselect_grid) and (mc_here < mc_cut_range[0] or mc_here > mc_cut_range[1]):
