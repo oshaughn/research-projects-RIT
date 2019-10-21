@@ -132,10 +132,10 @@ optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
 
-print opts
+print(opts)
 
 if not opts.output_file:
-    print " Output file required "
+    print(" Output file required ")
     sys.exit(0)
 
 
@@ -181,8 +181,8 @@ mkdir(log_dir) # Make a directory to hold log files of jobs
 args_pinned = {}
 opts_raw  = vars(opts)  # convert namespace to dictionary
 for arg in ['right_ascension', 'declination']:
-    if opts_raw.has_key(arg):
-        print " --- WARNING: PINNING PARAMETER FOR DAG -- ", arg, " -> ", opts_raw[arg]
+    if arg in opts_raw:
+        print(" --- WARNING: PINNING PARAMETER FOR DAG -- ", arg, " -> ", opts_raw[arg])
         args_pinned[arg] = opts_raw[arg]
 
 # Single-use arguments: if present, add to list 
@@ -255,10 +255,10 @@ try:
         # Read SimInspiralTable from the xml file, set row bounds
         sim_insp = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
         n_events = len(sim_insp)
-        print " === NUMBER OF EVENTS === "
-        print n_events
+        print(" === NUMBER OF EVENTS === ")
+        print(n_events)
 except ValueError:
-        print >>sys.stderr, "No SimInspiral table found in xml file"
+        print("No SimInspiral table found in xml file", file=sys.stderr)
 
 
 if not (opts.cap_points is None):
@@ -285,6 +285,6 @@ dag_name="marginalize_extrinsic_parameters_grid"
 dag.set_dag_file(dag_name)
 dag.write_concrete_dag()
 
-print "Created a DAG named %s\n" % dag_name
-print "This will run %i instances of %s in parallel\n" % (n_events, ile_sub_name)
+print("Created a DAG named %s\n" % dag_name)
+print("This will run %i instances of %s in parallel\n" % (n_events, ile_sub_name))
 
