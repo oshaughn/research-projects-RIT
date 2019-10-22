@@ -3,6 +3,7 @@
 ---------------------------
 Since last release
    - pipline script in main repo (rc1)
+   - bugfix in GMM integrator interface; in pipeline interface (rc2)
 
 
 
