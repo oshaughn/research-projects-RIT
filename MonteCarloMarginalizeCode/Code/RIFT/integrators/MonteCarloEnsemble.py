@@ -279,6 +279,6 @@ class integrator:
                 self._reset()
             if verbose:
                 # Standard mcsampler message, to monitor convergence
-                print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.log(np.max(self.cumulative_values))), np.sqrt(2*np.log(self.integral)), "-" ) )
+                print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*np.log(self.integral)), "-" ) )
         print('cumulative eval time: ', cumulative_eval_time)
         print('integrator iterations: ', self.iterations)
