@@ -23,6 +23,14 @@ import lalsimulation as lalsim
 from glue.ligolw import lsctables, table, utils
 from glue.lal import CacheEntry
 
+import ConfigParser
+
+
+def unsafe_config_get(config,args,verbose=False):
+    if verbose:
+        print " Retrieving ", args, 
+        print " Found ",eval(config.get(*args))
+    return eval( config.get(*args))
 
 def query_available_ifos(ifos_all,types,server,data_start,data_end,datafind_exe='gw_data_find'):
     ifos_out = []
@@ -172,6 +180,7 @@ parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use 
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-osg",action='store_true',help="If true, use pathnames consistent with OSG")
 parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.  This option insures that the cache file is properly transferred (because you have generated it)")
+parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
@@ -303,6 +312,7 @@ try:
    print " LIGO_DATAFIND_SERVER ", datafind_server
 except:
   print " No LIGO_DATAFIND_SERVER "
+  datafind_server = "datafind.ligo.org:443"
 if opts.datafind_server:
     datafind_server = opts.datafind_server
 if (datafind_server is None) and not (opts.fake_data):
@@ -435,7 +445,7 @@ else:
 if (opts.observing_run is None) and not opts.fake_data:
     tref = event_dict["tref"]
     opts.observing_run = get_observing_run(tref)
-    if opts.calibration_version is None:
+    if opts.calibration_version is None and (opts.use_ini is None):
         # This should be a dictionary lookup.
         if opts.observing_run is "O2":
             opts.calibration_version = "C02"
@@ -489,7 +499,8 @@ if opts.check_ifo_availability and not opts.use_online_psd:  # online PSD only a
 # define channel names
 ifos = event_dict["IFOs"]
 channel_names = {}
-for ifo in ifos:
+if opts.use_ini is None:
+  for ifo in ifos:
     if opts.fake_data:
         channel_names[ifo] = "FAKE-STRAIN"
     else:
@@ -499,10 +510,57 @@ for ifo in ifos:
             if ifo in ['H1', 'L1']:
                 channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo,"BeforeMay1")]
 
+# Parse LI ini
+use_ini=False
+if not(opts.use_ini is None):
+    use_ini=True
+    config = ConfigParser.ConfigParser()
+    config.read(opts.use_ini)
+
+    # Overwrite general settings
+    ifos = unsafe_config_get(config,['analysis','ifos'])
+    event_dict["IFOs"] = ifos # overwrite this
+    opts.assume_fiducial_psd_files=True # for now.  
+    for ifo in ifos:
+        if not ifo in psd_names:
+            # overwrite PSD names
+            psd_names[ifo] = opts.working_directory+"/"+ifo+"-psd.xml.gz"
+
+    
+    # opts.use_osg = config.get('analysis','osg')
+
+
+    # Overwrite executables ? Not for this script
+
+    # overwrite channel names
+    fmin_vals ={}
+    fmin_fiducial = -1
+    for ifo in ifos:
+        channel_names[ifo] = unsafe_config_get(config,['data','channels'])[ifo]
+        fmin_vals[ifo] = unsafe_config_get(config,['lalinference','flow'])[ifo]
+        fmin_fiducial = fmin_vals[ifo]
+
+    # overwrite arguments associated with seglen
+    opts.choose_LI_data_seglen=False
+    opts.data_LI_seglen = unsafe_config_get(config,['engine','seglen'])
+
+    # overwrite arguments used with fmax
+    opts.fmax = unsafe_config_get(config,['engine','srate'])/2
+    
+    opts.fmin = fmin_fiducial # used only to estimate length; overridden later
+
+    # Use ini file arguments, unless override
+
+    # Force safe PSD
+
 # Set up, perform datafind (if not fake data)
 if not (opts.fake_data):
     for ifo in ifos:
-        data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
+        # LI-style parsing
+        if use_ini:
+            data_type_here = unsafe_config_get(config,['datafind','types'])[ifo]
+        else:
+            data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
 if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
@@ -609,6 +667,13 @@ chieff_max = np.max([chieff_center +0.3,1])/snr_fac
 if chieff_min >0 and use_gracedb_event:
     chieff_min = -0.1   # make sure to cover spin zero, most BBH have zero spin and missing zero is usually an accident of the search recovered params
 
+
+if use_ini:
+    mc_min = unsafe_config_get(config,['engine','chirpmass-min'])
+    mc_max = float(config.get('engine','chirpmass-max'))
+    q_min = float(config.get('engine','q-min'))
+    eta_min = q_min/(1.+q_min)**2
+
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
 if not(opts.manual_mc_min is None):
     mc_min = opts.manual_mc_min
@@ -617,6 +682,7 @@ if not(opts.manual_mc_max is None):
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 eta_range_str = "  ["+str(eta_min_tight) +","+str(eta_max_tight)+"]"  # default will include  1, as we work with BBHs
 eta_range_str_cip = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
+
 
 ###
 ### Write arguments
@@ -650,11 +716,17 @@ helper_ile_args += " --event-time " + str(event_dict["tref"])
 for ifo in ifos:
     helper_ile_args += " --channel-name "+ifo+"="+channel_names[ifo]
     helper_ile_args += " --psd-file "+ifo+"="+psd_names[ifo]
-    if not (opts.fmin is None):
+    if use_ini is None:
+      if not (opts.fmin is None):
         helper_ile_args += " --fmin-ifo "+ifo+"="+str(opts.fmin)
+    elif not(opts.use_ini is None):
+        helper_ile_args += " --fmin-ifo "+ifo+"="+str(unsafe_config_get(config,['lalinference','flow'])[ifo])
 #helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
-helper_ile_args += " --reference-freq " + str(opts.fmin_template)  # in case we are using a code which allows this to be specified
+if not use_ini:
+    helper_ile_args += " --reference-freq " + str(opts.fmin_template)  # in case we are using a code which allows this to be specified
+else:
+    helper_ile_args += " --reference-freq " + str(unsafe_config_get(config,['engine','fref']))
 approx_str= "SEOBNRv4"  # default, should not be used.  See also cases where grid is tuned
 if opts.lowlatency_propose_approximant:
 #    approx  = lalsim.TaylorF2
@@ -671,12 +743,17 @@ if opts.lowlatency_propose_approximant:
     dmax_guess = np.min([dmax_guess,10000]) # place ceiling
     helper_ile_args +=  " --d-max " + str(int(dmax_guess))
 
-    if (opts.data_LI_seglen is None) and  (opts.data_start_time is None):
+    if (opts.data_LI_seglen is None) and  (opts.data_start_time is None) and not(use_ini):
         # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
         #   ... note that data_start_time was defined BEFORE with the datafind job
         T_window_raw = 1.1/lalsimutils.estimateDeltaF(P)  # includes going to next power of 2, AND a bonus factor of a few
         T_window_raw = np.max([T_window_raw,4])  # can't be less than 4 seconds long
         print " Time window : ", T_window_raw, " based on fmin  = ", P.fmin
+        data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
+        data_end_time = int(P.tref + 2)
+        helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
+    if use_ini:
+        T_window_raw = unsafe_config_get(config,['engine','seglen'])
         data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
         data_end_time = int(P.tref + 2)
         helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
