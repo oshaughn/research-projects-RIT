@@ -1243,15 +1243,15 @@ if opts.output_file:
         event_id = -1
     if opts.event == None:
         event_id = -1
+    line_out = [event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z]
     if not (P.lambda1>0 or P.lambda2>0):
-      if not opts.pin_distance_to_sim:
-        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-      else:
-        # Use case for this scenario is NR, where lambda is not present
-        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["distance"],  numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-    else:
-        # Alternative output format if lambda is active
-        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+      line_out += [P.lambda1, P.lambda2]
+        # output pinned parameters, since we have marginalized with them active
+    if len(pinned_params.keys())>0 and opts.output_pinned_parameters:
+      for param in pinned_params.keys().sorted():
+        line_out += [pinned_params[param]]
+    line_out += [numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff]
+    numpy.savetxt(fname_output_txt, numpy.array([line_out]))  #dict_return["convergence_test_results"]["normal_integral]"
 
 # Standard XML output
 #   ONLY KEEPS MASSES
