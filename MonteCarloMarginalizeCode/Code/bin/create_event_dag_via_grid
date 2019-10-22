@@ -120,6 +120,14 @@ optp.add_option("--parameter",action='append')
 optp.add_option("--parameter-range",action='append',type=str)
 optp.add_option("--fix-distance-to-input",action='store_true')
 
+optp.add_option("--ile-args",default=None,type='str',help="Argument syntax as in main loop")
+optp.add_option("--ile-exe",default=None,type='str',help="Argument syntax as in main loop")
+optp.add_option("--request-memory-ILE",default=4096,type=int,help="Memory request for condor (in Mb) for ILE jobs.")
+optp.add_option("--request-gpu-ILE",action='store_true',help="ILE will request a GPU. [Note: if you do this, your code will only run on GPU-enabled slots]")
+optp.add_option("--use-singularity",action='store_true',help="Attempts to use a singularity image in SINGULARITY_RIFT_IMAGE")
+optp.add_option("--use-osg",action='store_true',help="Attempts to set up an OSG workflow.  Must submit from an osg allowed submit machine")
+optp.add_option("--frames-dir",default=None,help="If you are using synthetic dat")
+optp.add_option("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.")
 
 
 #
@@ -191,7 +199,8 @@ if opts.fix_distance_to_input:
 # Single-use arguments: if present, add to list 
 
 
-ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid_sub(
+if not opts.ile_args:
+    ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid_sub(
         tag='integrate',
         log_dir=log_dir,
         cache_file=opts.cache_file,
@@ -247,6 +256,28 @@ ile_job_type, ile_sub_name = dag_utils.write_integrate_likelihood_extrinsic_grid
         nr_use_provided_strain=opts.nr_use_provided_strain,
         **args_pinned
         )
+else:
+    with open(opts.ile_args) as f:
+        ile_args_list = f.readlines()
+    ile_args = ' '.join( map( lambda x: x.replace('\\',''),ile_args_list) )
+    ile_args = ' '.join(ile_args.split(' ')[1:])
+    # Some argument protection for later
+    ile_args = ile_args.replace('[', ' \'[')
+    ile_args = ile_args.replace(']', ']\'')
+    ile_args=ile_args.rstrip()
+    if opts.request_gpu_ILE:
+        ile_args+=" --vectorized --gpu "  # append this
+    if opts.pin_distance_to_sim:
+        ile_args += " --distance $(macrodistance) "
+    transfer_file_names=None
+    output_file_names=None
+    ile_exe =opts.ile_exe
+
+#    if opts.ile_n_events_to_analyze > 1:
+#        ile_args+= " --n-events-to-analyze " + str(opts.ile_n_events_to_analyze)
+    ile_job_type, ile_job_name = dag_utils.write_ILE_sub_simple(tag='integrate',log_dir=log_dir,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,transfer_output_files=output_file_names,request_memory=opts.request_memory_ILE,request_gpu=opts.request_gpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames)
+
+
 ile_job_type.write_sub_file()
 
 
