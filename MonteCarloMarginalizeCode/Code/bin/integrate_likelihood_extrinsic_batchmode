@@ -996,7 +996,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           line_out += [P.lambda1, P.lambda2]
         # output pinned parameters, since we have marginalized with them active
         if len(pinned_params.keys())>0 and opts.output_pinned_parameters:
-           for param in pinned_params.keys():
+           for param in pinned_params.keys().sorted():
              line_out += [pinned_params[param]]
         line_out += [numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff]
         numpy.savetxt(fname_output_txt, numpy.array([line_out]))  #dict_return["convergence_test_results"]["normal_integral]"
