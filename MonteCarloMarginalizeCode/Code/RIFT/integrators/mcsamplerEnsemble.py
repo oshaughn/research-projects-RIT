@@ -242,7 +242,7 @@ class MCSampler(object):
         var_thresh = kwargs['var_thres'] if kwargs.has_key('var_thresh') else 0.05
         write_to_file = kwargs['write_to_file'] if kwargs.has_key('write_to_file') else False
         correlate_all_dims = kwargs['correlate_all_dims'] if kwargs.has_key('correlate_all_dims') else False
-
+        gmm_adapt = kwargs['gmm_adapt'] if kwargs.has_key('gmm_adapt') else None
         L_cutoff = kwargs["L_cutoff"] if kwargs.has_key("L_cutoff") else None
 
         # set up a lot of preliminary stuff

@@ -158,9 +158,10 @@ class integrator:
                 # model doesn't exist yet
                 if isinstance(self.n_comp, int):
                     model = GMM.gmm(self.n_comp)
-                else:
+                    model.fit(temp_samples, sample_weights=weights)
+                elif self.n_comp[dim_group] != 0:
                     model = GMM.gmm(self.n_comp[dim_group])
-                model.fit(temp_samples, sample_weights=weights)
+                    model.fit(temp_samples, sample_weights=weights)
             else:
                 model.update(temp_samples, sample_weights=weights)
             self.gmm_dict[dim_group] = model
