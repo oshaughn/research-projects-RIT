@@ -1,5 +1,13 @@
 
-0.0.14.5 (in progress)
+0.0.14.6 (in progress)
+---------------------------
+Since last release
+   - pipline script in main repo (rc1)
+   - bugfix in GMM integrator interface; in pipeline interface (rc2)
+
+
+
+0.0.14.5
 ---------------------------
 Since last release
    - packaging improvements and fixing bugs introduced in restructuring (rc1-rc4)

@@ -282,7 +282,7 @@ class MCSampler(object):
         var = integrator.var
         eff_samp = integrator.eff_samp
         sample_array = integrator.cumulative_samples
-        value_array = integrator.cumulative_values
+        value_array = np.exp(integrator.cumulative_values)  # stored as ln(integrand) !
         p_array = integrator.cumulative_p_s
         prior_array = integrator.cumulative_p
 
