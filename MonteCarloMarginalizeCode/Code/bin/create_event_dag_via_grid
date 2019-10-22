@@ -118,6 +118,7 @@ optp.add_option("--rom-limit-basis-size-to",default=None,type=int)
 optp.add_option("--rom-integrate-intrinsic",default=False,action='store_true',help='Integrate over intrinsic variables. REQUIRES rom_use_basis at present. ONLY integrates in mass ratio as present')
 optp.add_option("--parameter",action='append')
 optp.add_option("--parameter-range",action='append',type=str)
+optp.add_option("--fix-distance-to-input",action='store_true')
 
 
 
@@ -184,6 +185,8 @@ for arg in ['right_ascension', 'declination']:
     if opts_raw.has_key(arg):
         print " --- WARNING: PINNING PARAMETER FOR DAG -- ", arg, " -> ", opts_raw[arg]
         args_pinned[arg] = opts_raw[arg]
+if opts.fix_distance_to_input:
+    args_pinned['distance']='$(macrodistance)'
 
 # Single-use arguments: if present, add to list 
 
@@ -260,6 +263,10 @@ try:
 except ValueError:
         print >>sys.stderr, "No SimInspiral table found in xml file"
 
+P_list = []
+if opts.fix_distance_to_input:
+    P_list =   lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
+
 
 if not (opts.cap_points is None):
     if n_events > opts.cap_points:
@@ -276,6 +283,8 @@ for i in np.arange(n_events):
 
     # This is to identify output from groupings of the sane mass point
     ile_node.add_macro("macromassid", mass_grouping)
+    if opts.fix_distance_to_input:
+        ile_node.add_macro('macrodistance', P_list[i].dist/(lal.PC_SI*1e6) )
 
     ile_node.set_category("ILE")
     dag.add_node(ile_node)
@@ -287,4 +296,6 @@ dag.write_concrete_dag()
 
 print "Created a DAG named %s\n" % dag_name
 print "This will run %i instances of %s in parallel\n" % (n_events, ile_sub_name)
+if opts.fix_distance_to_input:
+    print " Distances fixed to input values !"
 
