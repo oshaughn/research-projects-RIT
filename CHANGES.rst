@@ -4,7 +4,7 @@
 Since last release
    - pipline script in main repo (rc1)
    - bugfix in GMM integrator interface; in pipeline interface (rc2)
-
+   - more bugfixes in GMM (rc3)
 
 
 0.0.14.5
