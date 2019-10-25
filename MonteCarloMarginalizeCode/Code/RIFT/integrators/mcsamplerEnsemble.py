@@ -142,6 +142,9 @@ class MCSampler(object):
                 self.rlim[params] = list(float("+inf"))*len(params)
             else:
                 self.rlim[params] = right_limit
+            if prior_pdf is not None:
+                for p in params:
+                    self.prior_pdf[p] = prior_pdf
         else:
             assert left_limit < right_limit
             if left_limit is None:
@@ -152,6 +155,8 @@ class MCSampler(object):
                 self.rlim[params] = float("+inf")
             else:
                 self.rlim[params] = right_limit
+            if prior_pdf is not None:
+                self.prior_pdf[params] = prior_pdf
 
     def evaluate(self, samples):
         '''
@@ -175,8 +180,8 @@ class MCSampler(object):
         temp_ret = np.ones((n, 1))
         # pdf functions expect 1D rows
         for index in range(len(self.curr_args)):
-            if self.curr_args[index] in self.pdf:
-                pdf_func = self.pdf[self.curr_args[index]]
+            if self.curr_args[index] in self.prior_pdf:
+                pdf_func = self.prior_pdf[self.curr_args[index]]
                 temp_samples = samples[:,index]
                 # monte carlo integrator expects a column
                 temp_ret *= np.rot90([pdf_func(temp_samples)], -1)
