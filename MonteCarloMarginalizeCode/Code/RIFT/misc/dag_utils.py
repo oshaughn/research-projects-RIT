@@ -56,8 +56,8 @@ def generate_job_id():
     Generate a unique md5 hash for use as a job ID.
     Borrowed and modified from the LAL code in glue/glue/pipeline.py
     """
-    t = str( long( time() * 1000 ) )
-    r = str( long( np.random.random() * 100000000000000000 ) )
+    t = str( int( time() * 1000 ) )
+    r = str( int( np.random.random() * 100000000000000000 ) )
     return md5(t + r).hexdigest()
 
 
@@ -108,7 +108,7 @@ def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
-    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+    if "output_file" in kwargs and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -116,7 +116,7 @@ def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
-        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+        if "save_samples" in kwargs and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
@@ -124,7 +124,7 @@ def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.items():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -206,7 +206,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
-    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+    if "output_file" in kwargs and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -214,7 +214,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
-        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+        if "save_samples" in kwargs and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
@@ -222,7 +222,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.items():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -420,14 +420,14 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
-    if kwargs.has_key("fname_output_samples") and kwargs["fname_output_samples"] is not None:
+    if "fname_output_samples" in kwargs and kwargs["fname_output_samples"] is not None:
         #
         # Need to modify the output file so it's unique
         #
         ofname = kwargs["fname_output_samples"].split(".")
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
-    if kwargs.has_key("fname_output_integral") and kwargs["fname_output_integral"] is not None:
+    if "fname_output_integral" in kwargs and kwargs["fname_output_integral"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -439,7 +439,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.items():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -513,7 +513,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.items():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -564,9 +564,9 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     frames_local = None
     if use_singularity:
         path_split = exe.split("/")
-        print(" Executable: name breakdown ", path_split, " from ", exe)
+        print((" Executable: name breakdown ", path_split, " from ", exe))
         singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
-        if 'SINGULARITY_BASE_EXE_DIR' in os.environ.keys() :
+        if 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
             singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
         else:
             singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
@@ -646,7 +646,7 @@ echo Starting ...
 
     # Add lame initial argument
 
-    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+    if "output_file" in kwargs and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -654,7 +654,7 @@ echo Starting ...
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
-        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+        if "save_samples" in kwargs and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
@@ -663,7 +663,7 @@ echo Starting ...
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.items():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -701,7 +701,7 @@ echo Starting ...
     if use_cvmfs_frames:
         requirements.append("HAS_LIGO_FRAMES=?=TRUE")
         ile_job.add_condor_cmd('use_x509userproxy','True')
-        if 'X509_USER_PROXY' in os.environ.keys():
+        if 'X509_USER_PROXY' in list(os.environ.keys()):
             print(" Storing copy of X509 user proxy -- beware expiration! ")
             cwd = os.getcwd()
             fname_proxy ="cp ${X509_USER_PROXY} "  + cwd +"/my_proxy"  # this can get overwritten, that's fine - just renews, feature not bug
@@ -843,7 +843,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.items():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -1184,7 +1184,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
 
 
     # Add lame initial argument
-    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+    if "output_file" in kwargs and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -1192,7 +1192,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
-        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+        if "save_samples" in kwargs and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
@@ -1201,7 +1201,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.items():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -1295,7 +1295,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
         ile_job.add_opt(ifo+"-flow", str(channel_flow))
 
     # Add lame initial argument
-    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+    if "output_file" in kwargs and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -1303,7 +1303,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
-        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+        if "save_samples" in kwargs and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
@@ -1312,7 +1312,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.items():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -1404,7 +1404,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
 
 
     # Add lame initial argument
-    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+    if "output_file" in kwargs and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -1412,7 +1412,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
-        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+        if "save_samples" in kwargs and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
@@ -1421,7 +1421,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.items():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
