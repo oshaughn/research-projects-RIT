@@ -237,18 +237,18 @@ class MCSampler(object):
             gmm_dict = kwargs['gmm_dict']  # required
         else:
             gmm_dict = None
-        reflect = kwargs['reflect'] if kwargs.has_key('reflect') else False
-        integrator_func  = kwargs['integrator_func'] if kwargs.has_key('integrator_func') else None
-        mcsamp_func  = kwargs['mcsamp_func'] if kwargs.has_key('mcsamp_func') else None
-        proc_count = kwargs['proc_count'] if kwargs.has_key('proc_count') else None
-        direct_eval = kwargs['direct_eval'] if kwargs.has_key('direct_eval') else False
-        min_iter = kwargs['min_iter'] if kwargs.has_key('min_iter') else 10
-        max_iter = kwargs['max_iter'] if kwargs.has_key('max_iter') else 20
-        var_thresh = kwargs['var_thres'] if kwargs.has_key('var_thresh') else 0.05
-        write_to_file = kwargs['write_to_file'] if kwargs.has_key('write_to_file') else False
-        correlate_all_dims = kwargs['correlate_all_dims'] if kwargs.has_key('correlate_all_dims') else False
-        gmm_adapt = kwargs['gmm_adapt'] if kwargs.has_key('gmm_adapt') else None
-        L_cutoff = kwargs["L_cutoff"] if kwargs.has_key("L_cutoff") else None
+        reflect = kwargs['reflect'] if "reflect" in kwargs else False
+        integrator_func  = kwargs['integrator_func'] if "integrator_func" in kwargs  else None
+        mcsamp_func  = kwargs['mcsamp_func'] if "mcsamp_func" in kwargs  else None
+        proc_count = kwargs['proc_count'] if "proc_count" in kwargs else None
+        direct_eval = kwargs['direct_eval'] if "direct_eval" in kwargs else False
+        min_iter = kwargs['min_iter'] if "min_iter" in kwargs else 10
+        max_iter = kwargs['max_iter'] if "max_iter" in kwargs else 20
+        var_thresh = kwargs['var_thres'] if "var_thresh" in kwargs else 0.05
+        write_to_file = kwargs['write_to_file'] if "write_to_file" in kwargs else False
+        correlate_all_dims = kwargs['correlate_all_dims'] if  "correlate_all_dims" in kwargs else False
+        gmm_adapt = kwargs['gmm_adapt'] if "gmm_adapt" in kwargs else None
+        L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
 
         # set up a lot of preliminary stuff
         self.func = func
