@@ -1,10 +1,13 @@
 
-0.0.14.6 (in progress)
+0.0.14.6
 ---------------------------
 Since last release
    - pipline script in main repo (rc1)
    - bugfix in GMM integrator interface; in pipeline interface (rc2)
    - more bugfixes in GMM (rc3)
+   - fix access to gp-sparse in CIP
+Note GMM, adapt_cart, gp-sparse, rf all validated with this version.
+Note 0.0.14.x will be the last versions with py27 support; from version 0.0.15 and upward, we should exclusively use py3
 
 
 0.0.14.5
