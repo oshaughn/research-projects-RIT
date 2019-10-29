@@ -142,6 +142,9 @@ class MCSampler(object):
                 self.rlim[params] = list(float("+inf"))*len(params)
             else:
                 self.rlim[params] = right_limit
+            if prior_pdf is not None:
+                for p in params:
+                    self.prior_pdf[p] = prior_pdf
         else:
             assert left_limit < right_limit
             if left_limit is None:
@@ -152,6 +155,8 @@ class MCSampler(object):
                 self.rlim[params] = float("+inf")
             else:
                 self.rlim[params] = right_limit
+            if prior_pdf is not None:
+                self.prior_pdf[params] = prior_pdf
 
     def evaluate(self, samples):
         '''
@@ -175,8 +180,8 @@ class MCSampler(object):
         temp_ret = np.ones((n, 1))
         # pdf functions expect 1D rows
         for index in range(len(self.curr_args)):
-            if self.curr_args[index] in self.pdf:
-                pdf_func = self.pdf[self.curr_args[index]]
+            if self.curr_args[index] in self.prior_pdf:
+                pdf_func = self.prior_pdf[self.curr_args[index]]
                 temp_samples = samples[:,index]
                 # monte carlo integrator expects a column
                 temp_ret *= np.rot90([pdf_func(temp_samples)], -1)
@@ -232,17 +237,18 @@ class MCSampler(object):
             gmm_dict = kwargs['gmm_dict']  # required
         else:
             gmm_dict = None
-        reflect = kwargs['reflect'] if 'reflect' in kwargs else False
-        integrator_func  = kwargs['integrator_func'] if 'integrator_func' in kwargs else None
-        mcsamp_func  = kwargs['mcsamp_func'] if 'mcsamp_func' in kwargs else None
-        proc_count = kwargs['proc_count'] if 'proc_count' in kwargs else None
-        direct_eval = kwargs['direct_eval'] if 'direct_eval' in kwargs else False
-        min_iter = kwargs['min_iter'] if 'min_iter' in kwargs else 10
-        max_iter = kwargs['max_iter'] if 'max_iter' in kwargs else 20
-        var_thresh = kwargs['var_thres'] if 'var_thresh' in kwargs else 0.05
-        write_to_file = kwargs['write_to_file'] if 'write_to_file' in kwargs else False
-
-        L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
+        reflect = kwargs['reflect'] if kwargs.has_key('reflect') else False
+        integrator_func  = kwargs['integrator_func'] if kwargs.has_key('integrator_func') else None
+        mcsamp_func  = kwargs['mcsamp_func'] if kwargs.has_key('mcsamp_func') else None
+        proc_count = kwargs['proc_count'] if kwargs.has_key('proc_count') else None
+        direct_eval = kwargs['direct_eval'] if kwargs.has_key('direct_eval') else False
+        min_iter = kwargs['min_iter'] if kwargs.has_key('min_iter') else 10
+        max_iter = kwargs['max_iter'] if kwargs.has_key('max_iter') else 20
+        var_thresh = kwargs['var_thres'] if kwargs.has_key('var_thresh') else 0.05
+        write_to_file = kwargs['write_to_file'] if kwargs.has_key('write_to_file') else False
+        correlate_all_dims = kwargs['correlate_all_dims'] if kwargs.has_key('correlate_all_dims') else False
+        gmm_adapt = kwargs['gmm_adapt'] if kwargs.has_key('gmm_adapt') else None
+        L_cutoff = kwargs["L_cutoff"] if kwargs.has_key("L_cutoff") else None
 
         # set up a lot of preliminary stuff
         self.func = func
@@ -256,13 +262,14 @@ class MCSampler(object):
             bounds.append([self.llim[param], self.rlim[param]])
         bounds = np.array(bounds)
 
-        # for now, we hardcode the assumption that there are no correlated dimensions,
-        # unless otherwise specified
-
+        # generate default gmm_dict if not specified
         if gmm_dict is None:
-            gmm_dict = {}
-            for x in range(dim):
-                gmm_dict[(x,)] = None
+            if correlate_all_dims:
+                gmm_dict = {tuple(range(dim)):None}
+            else:
+                gmm_dict = {}
+                for i in range(dim):
+                    gmm_dict[(i,)] = None
 
         # do the integral
 
@@ -280,7 +287,7 @@ class MCSampler(object):
         var = integrator.var
         eff_samp = integrator.eff_samp
         sample_array = integrator.cumulative_samples
-        value_array = integrator.cumulative_values
+        value_array = np.exp(integrator.cumulative_values)  # stored as ln(integrand) !
         p_array = integrator.cumulative_p_s
         prior_array = integrator.cumulative_p
 

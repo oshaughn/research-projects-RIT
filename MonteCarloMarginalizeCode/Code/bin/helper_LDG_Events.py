@@ -719,7 +719,7 @@ for ifo in ifos:
     if use_ini is None:
       if not (opts.fmin is None):
         helper_ile_args += " --fmin-ifo "+ifo+"="+str(opts.fmin)
-    else:
+    elif not(opts.use_ini is None):
         helper_ile_args += " --fmin-ifo "+ifo+"="+str(unsafe_config_get(config,['lalinference','flow'])[ifo])
 #helper_ile_args += " --fmax " + str(fmax)
 helper_ile_args += " --fmin-template " + str(opts.fmin_template)
