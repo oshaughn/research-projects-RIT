@@ -375,7 +375,7 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     # PROBLEM: Pool code doesn't work in new configuration.
     if len(grid_revised) ==0 :
         return [],[]
-    grid_out = np.array(map(functools.partial(eval_overlap, grid_revised, P_list,IP), np.arange(len(grid_revised))))
+    grid_out = np.array(list(map(functools.partial(eval_overlap, grid_revised, P_list,IP), np.arange(len(grid_revised)))))
     # Remove mass units at end
     for p in ['mc', 'm1', 'm2', 'mtot']:
         if p in param_names:
