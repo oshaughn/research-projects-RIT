@@ -1,11 +1,16 @@
 
-0.0.14.6 (in progress)
+0.0.15.0 
+---------------------------
+Since last release
+  - py3 port
+
+0.0.14.6
 ---------------------------
 Since last release
    - pipline script in main repo (rc1)
    - bugfix in GMM integrator interface; in pipeline interface (rc2)
    - more bugfixes in GMM (rc3)
-
+Note that 0.0.14.x will be the last versions providing py27 support.
 
 0.0.14.5
 ---------------------------

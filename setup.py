@@ -34,7 +34,7 @@ my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/RIFT/likelihood/cud
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.14.6rc3", # do not build on OSX machine, side effects
+    version="0.0.15.0", # do not build on OSX machine, side effects
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_master-GPUIntegration!",
@@ -46,7 +46,7 @@ setuptools.setup(
     packages=setuptools.find_packages('MonteCarloMarginalizeCode/Code'),
     include_package_data=True,
     classifiers=[
-        "Programming Language :: Python :: 2",
+        "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
