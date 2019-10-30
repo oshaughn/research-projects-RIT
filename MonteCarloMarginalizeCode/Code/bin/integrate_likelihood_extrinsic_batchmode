@@ -758,14 +758,19 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
 if opts.sampler_method == "GMM":
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
-    # pairing coordinates for adaptive integration
-    # Order: psi:0, phi:1, incl:2, distance:3, right_ascension:4, declination:5
+    # pairing coordinates for adaptive integration: see definition of order below
     #    (distance,inclination)
     #    (ra, dec)
-    #    (time) (phase)   # only do 1d adaptivity there, 
-    gmm_dict = {tuple([0]):None,tuple([1]):None,(2,3):None,(4,5):None} 
+    #    (psi) (orb_phase)   # only do 1d adaptivity there, 
+#    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,(0,1):None} 
+#    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,(0,1):4} 
+    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,tuple([0]):None,tuple([1]):None} 
+    n_sky = 4
+#    if len(psd_dict.keys()) > 2:
+#        n_sky=2  # presumably we have localized better, avoid failure modes
+    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,tuple([0]):n_sky,tuple([1]):n_sky} 
 
-    extra_args = {'n_comp':4,'max_iter':n_max_blocks,'gmm_dict':gmm_dict}  # made up for now, should adjust
+    extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict}  # made up for now, should adjust
     pinned_params.update(extra_args)
 
     # cannot pin params at present
