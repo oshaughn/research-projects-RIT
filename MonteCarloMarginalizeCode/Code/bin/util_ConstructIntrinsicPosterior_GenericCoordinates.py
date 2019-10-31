@@ -78,7 +78,7 @@ except:
     senni_ok = False
 
 try:
-    import internal_GP
+    import RIFT.interpolators.internal_GP
     internalGP_ok = True
 except:
     print " - no internal_GP -  "
@@ -1031,7 +1031,7 @@ def fit_nn_rfwrapper(x,y,y_errors=None,fname_export='nn_fit'):
     return fn_return
 
 if internalGP_ok:
-    from internal_GP import fit_gp as fit_gp_sparse
+    from RIFT.interpolators.internal_GP import fit_gp as fit_gp_sparse
 else:
     def fit_gp_sparse(x):
         sys.exit(1)

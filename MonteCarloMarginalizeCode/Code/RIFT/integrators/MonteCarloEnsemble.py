@@ -37,8 +37,10 @@ class integrator:
         two or more dimensions, they should be grouped. Each value is by default initialized
         to None, and is replaced with the GMM object for its dimension(s).
 
-    n_comp : int
-        The number of Gaussian components per group of dimensions.
+    n_comp : int or {tuple:int}
+        The number of Gaussian components per group of dimensions. If its type is int,
+        this number of components is used for all dimensions. If it is a dict, it maps
+        each key in gmm_dict to an integer number of mixture model components.
 
     n : int
         Number of samples per iteration
@@ -154,8 +156,12 @@ class integrator:
                 index += 1
             if model is None:
                 # model doesn't exist yet
-                model = GMM.gmm(self.n_comp)
-                model.fit(temp_samples, sample_weights=weights)
+                if isinstance(self.n_comp, int) and self.n_comp != 0:
+                    model = GMM.gmm(self.n_comp)
+                    model.fit(temp_samples, sample_weights=weights)
+                elif isinstance(self.n_comp, dict) and self.n_comp[dim_group] != 0:
+                    model = GMM.gmm(self.n_comp[dim_group])
+                    model.fit(temp_samples, sample_weights=weights)
             else:
                 model.update(temp_samples, sample_weights=weights)
             self.gmm_dict[dim_group] = model
