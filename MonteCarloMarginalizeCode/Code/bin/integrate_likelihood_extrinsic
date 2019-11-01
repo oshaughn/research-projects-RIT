@@ -939,7 +939,7 @@ if not opts.time_marginalization:
             P.dist = di* 1.e6 * lalsimutils.lsu_PC # luminosity distance
 
             lnL[i] = factored_likelihood.FactoredLogLikelihood(
-                    P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
+                    P, rholms, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
             i+=1
     
         return numpy.exp(lnL - manual_avoid_overflow_logarithm)
