@@ -568,7 +568,8 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         if 'SINGULARITY_BASE_EXE_DIR' in os.environ.keys() :
             singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
         else:
-            singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
+#            singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
+            singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
         exe=singularity_base_exe_path + path_split[-1]
         if not(frames_dir is None):
             frames_local = frames_dir.split("/")[-1]
