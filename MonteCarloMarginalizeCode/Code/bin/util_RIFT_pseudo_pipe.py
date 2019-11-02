@@ -102,7 +102,8 @@ parser.add_argument("--fmin-template",default=None,type=float,help="Mininum freq
 parser.add_argument("--data-LI-seglen",default=None,type=int,help="If specified, passed to the helper. Uses data selection appropriate to LI. Must specify the specific LI seglen used.")
 parser.add_argument("--choose-data-LI-seglen",action='store_true')
 parser.add_argument("--fix-bns-sky",action='store_true')
-parser.add_argument("--host",default='cit',type=str)
+parser.add_argument("--cip-sampler-method",type=str,default=None)
+parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
 parser.add_argument("--hierarchical-merger-prior-1g",action='store_true',help="As in 1903.06742")
 parser.add_argument("--hierarchical-merger-prior-2g",action='store_true',help="As in 1903.06742")
@@ -220,6 +221,10 @@ if opts.manual_postfix:
     dirname_run += opts.manual_postfix
 if opts.playground_data:
     dirname_run = "playground_" + dirname_run
+if not(opts.cip_sampler_method is None):
+    dirname_run += "_" + opts.cip_sampler_method
+if not(opts.cip_fit_method is None):
+    dirname_run += "_" + opts.cip_fit_method
 if opts.use_osg:
     dirname_run += '_OSG'
 # Override run directory name
@@ -398,6 +403,10 @@ for indx in np.arange(len(instructions_cip)):
     n_iterations += int(instructions_cip[indx][0])
     line = ' ' .join(instructions_cip[indx])
     line +=" --n-output-samples 10000 --n-eff 10000 --n-max 10000000   --downselect-parameter m2 --downselect-parameter-range [1,1000] "
+    if not(opts.cip_fit_method is None):
+        line = line.replace('--fit-method gp', '--fit-method ' + opts.cip_fit_method)
+    if not (opts.cip_sampler_method is None):
+        line += " --sampler-method "+opts.cip_sampler_method
     line += prior_args_lookup[opts.spin_magnitude_prior]
     if opts.hierarchical_merger_prior_1g:
         # Must use mtotal, q coordinates!  Change defaults
