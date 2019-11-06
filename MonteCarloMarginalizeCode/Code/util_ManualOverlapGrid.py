@@ -544,7 +544,7 @@ if not opts.parameter:
     param_names =[ 'eta', 'LambdaTilde']  # override options for now
     param_ranges =[ [0.23, 0.25], [0, 1000]]
     pts_per_dim = [ 10,10]
-else:
+elif not(opts.parameter is None):
     param_names = opts.parameter
     for param in param_names:
         # Check if in the valid list
@@ -552,6 +552,8 @@ else:
             print ' Invalid param ', param, ' not in ', lalsimutils.valid_params
             sys.exit(0)
     npts_per_dim = int(np.power(opts.grid_cartesian_npts, 1./len(param_names)))+1
+    if opts.downselect_parameter:
+        npts_per_dim *= np.power(2*len(opts.downselect_parameter), 1/len(param_names))  # if we provide cutoffs, increase the underlying grid size. Make SURE we get target point size!
     pts_per_dim = npts_per_dim*np.ones(len(param_names))  # ow!
     param_ranges = []
     if len(param_names) == len(opts.parameter_range):
@@ -685,13 +687,15 @@ for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
 # Enforce definition of eta
 downselect_dict['eta'] = [0,0.25]
 
-print " Downselect dictionary ", downselect_dict
+print " Downselect dictionary (before scaling) ", downselect_dict
 
 # downselection procedure: fix units so I can downselect on mass parameters
 for p in ['mc', 'm1', 'm2', 'mtot']:
     if p in downselect_dict.keys():
         downselect_dict[p] = np.array(downselect_dict[p],dtype=np.float64)
         downselect_dict[p] *= lal.MSUN_SI  # add back units
+
+print " Downselect dictionary (with units) ", downselect_dict
 
 
 ###
@@ -720,7 +724,7 @@ grid = eff.multi_dim_grid(*grid_tuples)  # each line in 'grid' is a set of param
 print grid.shape
 
 # Extend to use alternative parameters
-if not (opts.random_parameter is None):
+if not (opts.random_parameter is None) and not(opts.parameter is None):
     indx_base = len(opts.parameter)
 #    print param_names, param_ranges
     param_names += opts.random_parameter
@@ -729,10 +733,23 @@ if not (opts.random_parameter is None):
     grid_extra = np.zeros( (len(grid),len(opts.random_parameter)) )
 #    print grid_extra.shape
     for indx in np.arange(len(opts.random_parameter)):
-        range_here = param_ranges[ indx_base+indx]
+        range_here = np.array(param_ranges[ indx_base+indx])
+        if param_names[indx_base+indx] in ['mc','mtot','m1','m2']:
+            range_here *= lal.MSUN_SI
         grid_extra[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))
 
     grid = np.hstack((grid,grid_extra))
+
+elif opts.parameter is None:
+    param_names =  opts.random_parameter
+    param_ranges = map(eval, opts.random_parameter_range)
+    print param_names, param_ranges
+    grid = np.zeros( (opts.grid_cartesian_npts,len(opts.random_parameter)) )
+    for indx in np.arange(len(opts.random_parameter)):
+        range_here = np.array(param_ranges[ indx])
+        if param_names[indx] in ['mc','mtot','m1','m2']:
+            range_here *= lal.MSUN_SI
+        grid[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))
 
 
 # Special check: m2<m1 : if both names appear, strip parameters from the grid
@@ -942,7 +959,9 @@ if opts.linear_spoked or opts.uniform_spoked:
 ###
 ### Optional: Write grid to XML file (ONLY if using cutoff option)
 ###
-lalsimutils.ChooseWaveformParams_array_to_xml(P_list, fname=opts.fname, fref=P.fref)
+n_out = np.min([opts.grid_cartesian_npts,len(P_list)])
+lalsimutils.ChooseWaveformParams_array_to_xml(P_list[:n_out], fname=opts.fname, fref=P.fref)
+print "  ==> Writing npts = ", n_out, " out of ", len(P_list)
 
 ###
 ### Write output to text file:  p1 p2 p3 ... overlap, only including named params

@@ -34,6 +34,8 @@ parser.add_argument("--fref",default=20,type=float, help="Reference frequency us
 parser.add_argument("--fmin",type=float,default=20)
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
+parser.add_argument("--random-parameter", action='append',help="These parameters are specified at random over the entire range, uncorrelated with the grid used for other parameters.  Use for variables which correlate weakly with others; helps with random exploration")
+parser.add_argument("--random-parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used.  ")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
@@ -42,6 +44,9 @@ parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
 opts=  parser.parse_args()
+
+if opts.random_parameter is None:
+    opts.random_parameter = []
 
 # Extract parameter names
 coord_names = opts.parameter # Used  in fit
@@ -58,6 +63,7 @@ if opts.downselect_parameter:
 else:
     dlist = []
     dlist_ranges = []
+    opts.downselect_parameter =[]
 if len(dlist) != len(dlist_ranges):
     print " downselect parameters inconsistent", dlist, dlist_ranges
 for indx in np.arange(len(dlist_ranges)):
@@ -103,7 +109,7 @@ if len(coord_names) >1:
         cov= np.linalg.inv(icov_proposed)
 
     # Compute errors
-    rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov, allow_singular=opts.allow_singular)
+    rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov,allow_singular=True)  # they are just complaining about dynamic range of parameters, usually
     delta_X = rv.rvs(size=len(X))
     X_out = X+delta_X
 else:
@@ -111,7 +117,6 @@ else:
     cov = sigma*sigma
     delta_X =np.random.normal(size=len(coord_names), scale=sigma)
     X_out = X+delta_X
-
 
 # Sanity check parameters
 for indx in np.arange(len(coord_names)):
@@ -159,6 +164,24 @@ for indx_P in np.arange(len(P_list)):
             include_item =False
     if include_item:
         P_out.append(P)
+
+
+
+
+# Randomize parameters that have been requested to be randomized
+#   - note there is NO SANITY CHECKING if you do this
+#   - target: tidal parameters, more efficiently hammer on low-tide corner if necessary
+if len(opts.random_parameter) >0:
+  random_ranges = {}   
+  for indx in np.arange(len(opts.random_parameter)):
+    param = opts.random_parameter[indx]
+    random_ranges[param] = np.array(eval(opts.random_parameter_range[indx]))
+  for P in P_out: 
+    for param in opts.random_parameter:
+        val = np.random.uniform( random_ranges[param][0], random_ranges[param][1])
+        if param in ['mc','m1','m2','mtot']:
+            val = val* lal.MSUN_SI
+        P.assign_param(param,val)
 
 
 # Export

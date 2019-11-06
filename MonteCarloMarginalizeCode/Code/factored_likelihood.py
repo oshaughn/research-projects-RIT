@@ -1911,6 +1911,8 @@ try:
         print " Numba on "
 
         # Very inefficient : decorating
+        # Problem - lately, compiler not correctly identifying return value of code
+        # Should just use SphericalHarmonicsVectorized
         @vectorize([complex128(float64,float64,int64,int64,int64)])
         def lalylm(th,ph,s,l,m):
           return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
