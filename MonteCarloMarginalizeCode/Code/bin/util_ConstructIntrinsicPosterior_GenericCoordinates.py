@@ -222,6 +222,8 @@ parser.add_argument("--no-downselect",action='store_true',help='Prevent using do
 parser.add_argument("--no-downselect-grid",action='store_true',help='Prevent using downselection on input points. Applied only to mc range' )
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
 parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
+parser.add_argument("--import-prior-dictionary-file",default=None,type=str,help="File with dictionary stored_param_dict = 'name':func and stored_param_ranges = 'name':[left,right].  Use to overwrite priors with user-specified function")
+parser.add_argument("--output-prior-dictionary-file",default=None,type=str,help="File with dictionary 'name':func. ")
 parser.add_argument("--prior-gaussian-mass-ratio",action='store_true',help="Applies a gaussian mass ratio prior (mean=0.5, width=0.2 by default). Only viable in mtot, q coordinates. Not properly normalized, so will break bayes factors by about 2%%")
 parser.add_argument("--prior-tapered-mass-ratio",action='store_true',help="Applies a tapered mass ratio prior (transition 0.8, kappa=20). Only viable in mtot, q coordinates. Not properly normalized, a tapering factor instread")
 parser.add_argument("--prior-gaussian-spin1-magnitude",action='store_true',help="Applies a gaussian spin magnitude prior (mean=0.7, width=0.1 by default) for FIRST spin. Only viable in polar spin coordinates. Not properly normalized, so will break bayes factors by a small amount (depending on chi_max).  Used for 2g+1g merger arguments")
@@ -1491,6 +1493,34 @@ for p in low_level_coord_names:
         range_here = eval(opts.mtot_range)
 
     sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=True)
+
+
+# Import prior
+if not(opts.import_prior_dictionary_file is None):
+    dat  =     joblib.load(opts.import_prior_dictionary_file)
+#    print dat
+    stored_param_prior_pdf = dat[0]
+    stored_param_ranges =dat[1]
+    for param in stored_param_prior_pdf.keys():
+        if param in sampler.prior_pdf.keys():
+            print " OVER-RIDE OF PRIOR FOR ", param, stored_param_prior_pdf[param], stored_param_ranges[param]
+#        stored_param_pdf[param] = sampler.pdf[param]
+            sampler.prior_pdf[param] = stored_param_prior_pdf[param] 
+            sampler.llim[param], sampler.rlim[param] = stored_param_ranges[param]
+        
+
+# Export prior
+if not(opts.output_prior_dictionary_file is None):
+    stored_param_prior_pdf = {}
+    stored_param_ranges = {}
+    for param in sampler.params:
+#        stored_param_pdf[param] = sampler.pdf[param]
+        stored_param_prior_pdf[param] = sampler.prior_pdf[param]
+        stored_param_ranges[param] = [sampler.llim[param],sampler.rlim[param]]
+    joblib.dump([stored_param_prior_pdf,stored_param_ranges],opts.output_prior_dictionary_file)
+#    with open(opts.output_prior_dictionary_file,'w') as f:
+#        pickle.dump([stored_param_prior_pdf,stored_param_ranges],f)
+
 
 likelihood_function = None
 if len(low_level_coord_names) ==1:
