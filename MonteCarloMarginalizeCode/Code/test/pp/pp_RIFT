@@ -153,7 +153,7 @@ for indx in np.arange(n_events):
     os.chdir(working_dir_full+"/"+"signal_frames/event_{}".format(indx))
     # Loop over instruments, write files
     for ifo in ifos:
-        cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --start {}  --stop {}  --instrument {} --approx {}".format(t_start,t_stop,ifo, approx_str)
+        cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {}  --stop {}  --instrument {} --approx {}".format(indx, t_start,t_stop,ifo, approx_str)
         print cmd
         if not opts.test:
             os.system(cmd)
