@@ -225,7 +225,7 @@ for indx in np.arange(n_events):
             psd_name = base_dir +"/"+psd_name
         cmd += " --psd-file {}={} ".format(psd,psd_name)
     # add in run settings
-    cmd += "  --fake-data --propose-fit-strategy --propose-ile-convergence-options --no-propose-limits "
+    cmd += "  --fake-data --propose-initial-grid --propose-fit-strategy --propose-ile-convergence-options --no-propose-limits "
     if no_spin:
         cmd += " --assume-nospin "
     elif not(aligned_spin):
