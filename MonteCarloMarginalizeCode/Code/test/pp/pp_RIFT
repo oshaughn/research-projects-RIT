@@ -172,7 +172,8 @@ print " === Joining synthetic signals to reference noise === "
 seglen_actual = t_stop - t_start
 os.chdir(working_dir_full)
 for indx in np.arange(n_events):
-    mkdir('analysis_event_'.format(indx))
+    os.chdir(working_dir_full)
+    mkdir('analysis_event_{}'.format(indx))
     os.chdir(working_dir_full+"/"+"signal_frames/event_{}".format(indx))
     for ifo in ifos:
         fname_input = working_dir_full+"/signal_frames/event_{}/{}-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_actual)
@@ -195,7 +196,7 @@ psd_dict = unsafe_config_get(config,["make_psd",'fiducial_psds'])
 
 for indx in np.arange(n_events):
     print " ::: Event {} ::: ".format(indx)
-    mkdir(working_dir_full+'/analysis_event_{}'.format(indx))
+#    mkdir(working_dir_full+'/analysis_event_{}'.format(indx))
     os.chdir(working_dir_full+'/analysis_event_{}'.format(indx))
     here = os.getcwd()
     cmd = "helper_LDG_Events.py --sim-xml "+working_dir_full + "/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache  ".format(indx,P_list[indx].tref,here)
