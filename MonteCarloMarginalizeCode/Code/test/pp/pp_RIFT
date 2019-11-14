@@ -35,9 +35,8 @@ def unsafe_config_get(config,args,verbose=False):
 activate_env ="source /cvmfs/oasis.opensciencegrid.org/ligo/sw/pycbc/x86_64_rhel_7/virtualenv/pycbc-v1.6.3/bin/activate"
 def add_frames(channel,input_frame, noise_frame,combined_frame):
     cmd = activate_env +"; add_frames.py " + channel + " " + input_frame + " " + noise_frame + " " + combined_frame #{} {} {} {} ".format(channel,input_frame,noise_frame,combined_frame)
-    if opts.test:
-        print cmd
-    else:
+    print cmd
+    if not opts.test:
         os.system(cmd)
 
 
