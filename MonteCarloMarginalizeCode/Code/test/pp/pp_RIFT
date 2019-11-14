@@ -159,7 +159,7 @@ for indx in np.arange(n_events):
             os.system(cmd)
 
     if not opts.test:
-        cmd = "/bin/find frames/ -name '*.gwf' | lalapps_path2cache > signals.cache"
+        cmd = "/bin/find .  -name '*.gwf' | lalapps_path2cache > signals.cache"
         os.system(cmd)
 
 print " === Using fiducial noise frames === "
@@ -181,7 +181,7 @@ for indx in np.arange(n_events):
         add_frames(ifo+":FAKE_STRAIN",fname_input, fname_noise,fname_output)
 
     if not opts.test:
-        cmd = "/bin/find frames/ -name '*.gwf' | lalapps_path2cache > signals.cache"
+        cmd = "/bin/find . -name '*.gwf' | lalapps_path2cache > signals.cache"
         os.system(cmd)
 
 print " === Building single-event workflows === "
