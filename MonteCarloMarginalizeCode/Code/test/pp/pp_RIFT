@@ -329,7 +329,7 @@ for indx in np.arange(n_events):
 print " === Building master workflow === "
 
 os.chdir(working_dir_full)
-cmd = 'util_ConsolidateDAGUnderMaster.sh analysis_event*'
+cmd = 'util_ConsolidateDAGsUnderMaster.sh analysis_event*'
 print cmd
 if not opts.test:
     os.system(cmd)
