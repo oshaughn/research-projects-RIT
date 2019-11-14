@@ -302,7 +302,7 @@ for indx in np.arange(n_events):
 
     # Build workflow
     cmd = "create_event_parameter_pipeline_BasicIteration --ile-n-events-to-analyze {} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`  --ile-args args_ile.txt --request-memory-ILE 4096 ".format(n_events_per_worker)
-    cmd+= "--cip-args args_cip.txt  --test-args args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd` --n-iterations {} --n-copies {} ".format(n_iterations, n_copies)
+    cmd+= "--cip-args-list args_cip_list.txt  --test-args args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd` --n-iterations {} --n-copies {} ".format(n_iterations, n_copies)
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-max-it 10 --puff-cadence {} --puff-args args_puff.txt".format(puff_cadence)
 
     # Use GPUs if we are not
