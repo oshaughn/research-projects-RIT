@@ -83,6 +83,7 @@ l_max = int(config.get('waveform','lmax')  )
 fmin_template = float(config.get('waveform','fmin_template'))
 srate_data = float(config.get('data', 'srate_data'))
 seglen_data = float(config.get('data','seglen_data'))
+seglen_analysis = float(config.get('data','seglen_analysis'))
 
 
 no_spin =unsafe_config_get(config,['priors','no_spin'])
