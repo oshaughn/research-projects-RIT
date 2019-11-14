@@ -210,6 +210,9 @@ psd_dict = unsafe_config_get(config,["make_psd",'fiducial_psds'])
 
 cip_fit_method = config.get('make_workflow','cip_fit_method')
 cip_sampler_method = config.get('make_workflow','cip_sampler_method')
+add_extrinsic=False
+use_osg=False
+cip_explode_jobs=False
 
 for indx in np.arange(n_events):
     print " ::: Event {} ::: ".format(indx)
@@ -301,13 +304,22 @@ for indx in np.arange(n_events):
 
 
     # Build workflow
-    cmd = "create_event_parameter_pipeline_BasicIteration --ile-n-events-to-analyze {} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`  --ile-args args_ile.txt --request-memory-ILE 4096 ".format(n_events_per_worker)
+    cmd = "create_event_parameter_pipeline_BasicIteration --input-grid proposed-grid.xml.gz --ile-n-events-to-analyze {} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`  --ile-args args_ile.txt --request-memory-ILE 4096 ".format(n_events_per_worker)
     cmd+= "--cip-args-list args_cip_list.txt  --test-args args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd` --n-iterations {} --n-copies {} ".format(n_iterations, n_copies)
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-max-it 10 --puff-cadence {} --puff-args args_puff.txt".format(puff_cadence)
 
     # Use GPUs if we are not
     if use_gpu:
       cmd += " --request-gpu-ILE "
+
+    if add_extrinsic:
+          cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 "
+    if cip_explode_jobs:
+        cmd+= " --cip-explode-jobs  " + str(cip_explode_jobs)
+    if use_osg:
+        cmd += " --use-osg --use-singularity --use-cvmfs-frames --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  Note with CVMFS frames we need to provide the cache
+        cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
+
 
     print cmd
     if not opts.test:
