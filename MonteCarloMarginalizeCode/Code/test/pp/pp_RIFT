@@ -30,7 +30,7 @@ def unsafe_config_get(config,args,verbose=False):
 
 
 activate_env ="source /cvmfs/oasis.opensciencegrid.org/ligo/sw/pycbc/x86_64_rhel_7/virtualenv/pycbc-v1.6.3/bin/activate"
-def add_frames(input_frame, noise_frame,combined_frame,channel):
+def add_frames(channel,input_frame, noise_frame,combined_frame):
     cmd = activate_env +"; add_frames.py " + channel + " " + input_frame + " " + noise_frame + " " + combined_frame #{} {} {} {} ".format(channel,input_frame,noise_frame,combined_frame)
     if opts.test:
         print cmd
@@ -145,7 +145,6 @@ print " === Writing signal files === "
 t_start = fiducial_event_time-150
 t_stop = fiducial_event_time+150
 
-print n_events
 mkdir('signal_frames')
 for indx in np.arange(n_events):
     print " Writing ", indx
@@ -170,14 +169,15 @@ noise_frame_dir = config.get("make_data","fiducial_noise_frames")
 print " === Joining synthetic signals to reference noise === "
 
 
+seglen_actual = t_stop - t_start
 os.chdir(working_dir_full)
 for indx in np.arange(n_events):
     mkdir('analysis_event_'.format(indx))
     os.chdir(working_dir_full+"/"+"signal_frames/event_{}".format(indx))
     for ifo in ifos:
-        fname_input = working_dir_full+"/signal_frames/event_{}/{}-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_data)
+        fname_input = working_dir_full+"/signal_frames/event_{}/{}-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_actual)
         fname_noise= noise_frame_dir + "/" + ifo + ("/%08d.gwf" % indx)
-        fname_output = working_dir_full+"/analysis_event_{}/{}-combined-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_data)
+        fname_output = working_dir_full+"/analysis_event_{}/{}-combined-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_actual)
         add_frames(ifo+":FAKE_STRAIN",fname_input, fname_noise,fname_output)
 
     if not opts.test:
@@ -221,7 +221,7 @@ for indx in np.arange(n_events):
     # Build workflow
     cmd = "create_event_parameter_pipeline_BasicIteration --ile-n-events-to-analyze {} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`  --ile-args args_ile.txt --request-memory-ILE 4096 ".format(n_events_per_worker)
     cmd+= "--cip-args args_cip.txt  --test-args args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd` --n-iterations {} --n-copies {} ".format(n_iterations, n_copies)
-    cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-max-it 10 --puff-cadence {}--puff-args args_puff.txt"
+    cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-max-it 10 --puff-cadence {} --puff-args args_puff.txt"
 
     # Use GPUs if we are not
     if use_gpu:
@@ -233,3 +233,9 @@ for indx in np.arange(n_events):
 
 
 print " === Building master workflow === "
+
+os.chdir(working_dir_full)
+cmd = 'util_ConsolidateDAGUnderMaster.sh analysis_event*'
+print cmd
+if not opts.test:
+    os.system(cmd)
