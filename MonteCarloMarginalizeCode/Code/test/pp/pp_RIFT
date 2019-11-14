@@ -5,6 +5,9 @@
 #
 # EXAMPLES
 #    python pp_RIFT --use-ini sample_pp_config.ini --test
+#
+# REFERENCES
+#   util_RIFT_pseudo_pipe  (for parsing/restructuring arguments)
 
 import numpy as np
 import argparse
@@ -194,6 +197,9 @@ puff_cadence = int(config.get('make_workflow','puff_cadence'))
 
 psd_dict = unsafe_config_get(config,["make_psd",'fiducial_psds'])
 
+cip_fit_method = config.get('make_workflow','cip_fit_method')
+cip_sampler_method = config.get('make_workflow','cip_sampler_method')
+
 for indx in np.arange(n_events):
     print " ::: Event {} ::: ".format(indx)
 #    mkdir(working_dir_full+'/analysis_event_{}'.format(indx))
@@ -213,12 +219,75 @@ for indx in np.arange(n_events):
     elif not(aligned_spin):
         cmd += " --assume-precessing "
 
-    # Override range for mc, eta in prior
-    
     print cmd
     if not opts.test:
         os.system(cmd)
+
+    if not opts.test:
+    ## Override /augment features of helper (e.g, enforce our prior on mc, eta)
+        # ILE
+        instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
+        line = ' '.join(instructions_ile)
+        line += " --l-max " + str(opts.l_max) 
+        line += " --d-max " + str(d_max)
+        line += " --d-min " + str(d_min)
+        t_start_analysis = fiducial_event_time - (seglen_analysis-2)
+        t_end_analysis = fiducial_event_time +2
+        line += " --inv-spec-trunc-time 0 --data-start-time {} --data-end-time {} --window-shape {}".format(t_start_analysis, t_end_analysis, 2./seglen_analysis)
     
+        if not 'NR' in opts.approx:
+            line += " --approx " + opts.approx
+        elif 'NRHybSur' in opts.approx:
+            line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5  "
+        elif "NRSur7d" in opts.approx:
+            line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
+        elif "SEOBNR" in opts.approx: 
+            line += " --approx " + opts.approx
+        else:
+            print " Unknown approx ", opts.approx
+            sys.exit(1)
+        with open('args_ile.txt','w') as f:
+            f.write(line)
+
+        # test
+        os.system("cp helper_test_args.txt args_test.txt")
+
+        # CIP
+        with open("helper_cip_arg_list.txt",'r') as f:
+            raw_lines = f.readlines()
+        instructions_cip = map(lambda x: x.rstrip().split(' '), raw_lines)#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
+        n_iterations =0
+        lines  = []
+        for indx in np.arange(len(instructions_cip)):
+            n_iterations += int(instructions_cip[indx][0])
+            line = ' ' .join(instructions_cip[indx])
+            line +=" --n-output-samples 10000 --n-eff 10000 --n-max 10000000   --downselect-parameter m2 --downselect-parameter-range [1,1000] "
+            if not(cip_fit_method is None):
+                line = line.replace('--fit-method gp', '--fit-method ' + cip_fit_method)
+            if not (cip_sampler_method is None):
+                line += " --sampler-method "+cip_sampler_method
+            line += "\n"
+            lines.append(line)
+
+        with open("args_cip_list.txt",'w') as f: 
+            for line in lines:
+                f.write(line)
+
+        # puff
+        with open("helper_puff_args.txt",'r') as f:
+            raw_lines = f.readlines()
+        line = ' '.join(raw_lines)
+        puff_max_it =4
+        try:
+            with open("helper_puff_max_it.txt",'r') as f:
+                puff_max_it = int(f.readline())
+        except:
+            print " No puff file "
+        with open("args_puff.txt",'w') as f:
+            puff_args = line + "--downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(chi_max,chi_max)
+            f.write("X " + puff_args)
+
+
     # Build workflow
     cmd = "create_event_parameter_pipeline_BasicIteration --ile-n-events-to-analyze {} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`  --ile-args args_ile.txt --request-memory-ILE 4096 ".format(n_events_per_worker)
     cmd+= "--cip-args args_cip.txt  --test-args args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd` --n-iterations {} --n-copies {} ".format(n_iterations, n_copies)
