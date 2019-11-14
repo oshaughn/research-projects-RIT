@@ -215,6 +215,7 @@ for indx in np.arange(n_events):
     os.chdir(working_dir_full+'/analysis_event_{}'.format(indx))
     here = os.getcwd()
     cmd = "helper_LDG_Events.py --sim-xml "+working_dir_full + "/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache  ".format(indx,P_list[indx].tref,here)
+    cmd += " --fmin {} ".format(fmin_template)
     # add in PSDs.  Allow relative names for PSDs relative to ini file
     for psd in psd_dict:
         psd_name = psd_dict[psd]
