@@ -150,10 +150,15 @@ t_stop = int(fiducial_event_time)+150
 
 mkdir('signal_frames')
 for indx in np.arange(n_events):
-    print " Writing ", indx
     os.chdir(working_dir_full)
-    mkdir('signal_frames/event_{}'.format(indx))
-    os.chdir(working_dir_full+"/"+"signal_frames/event_{}".format(indx))
+    target_subdir = 'signal_frames/event_{}'.format(indx)
+    # Test if directory already exists
+    if os.path.exists(target_subdir):
+        print " Signal frames exist for event {}, skipping ".format(indx)
+        continue
+    print " Writing ", indx
+    mkdir(target_subdir)
+    os.chdir(working_dir_full+"/"+target_subdir)
     # Loop over instruments, write files
     for ifo in ifos:
         cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {}  --stop {}  --instrument {} --approx {}".format(indx, t_start,t_stop,ifo, approx_str)
