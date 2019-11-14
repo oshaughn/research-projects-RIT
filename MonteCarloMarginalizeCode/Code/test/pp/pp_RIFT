@@ -99,7 +99,7 @@ fiducial_event_time=float(config.get('priors','fiducial_event_time'))
 ifos = unsafe_config_get(config,['data','ifos'])
 
 if os.path.exists(working_dir_full+"/mdc.xml.gz"):
-    P_list = lalsimutils.xml_to_ChooseWaveformParams_array(P_list,working_dir_full+"/mdc.xml.gz")
+    P_list = lalsimutils.xml_to_ChooseWaveformParams_array(working_dir_full+"/mdc.xml.gz")
 
 else:
   P_list =[]; indx=0
