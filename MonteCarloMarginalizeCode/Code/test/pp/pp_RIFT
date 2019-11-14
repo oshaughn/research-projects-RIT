@@ -65,6 +65,7 @@ n_events = unsafe_config_get(config,['pp','n_events'])
 
 
 # Create injection set
+
 mc_min = float(config.get('priors','mc_min'))
 mc_max = float(config.get('priors','mc_max'))
 m_min=float(config.get('priors','m_min'))
@@ -98,8 +99,13 @@ fiducial_event_time=float(config.get('priors','fiducial_event_time'))
 
 ifos = unsafe_config_get(config,['data','ifos'])
 
-P_list =[]; indx=0
-while len(P_list) < n_events:
+if os.path.exists("mdc.xml.gz"):
+    P_list = lalsimutils
+    P_list = lalsimutils.xml_to_ChooseWaveformParams_array(P_list,"mdc.xml.gz")
+
+else:
+  P_list =[]; indx=0
+  while len(P_list) < n_events:
     P = lalsimutils.ChooseWaveformParams()
     # Randomize (sky location, etc)
     P.randomize(dMax=d_max,dMin=d_min,aligned_spin_Q=aligned_spin,sMax=chi_max)
@@ -133,9 +139,8 @@ while len(P_list) < n_events:
 
     P_list.append(P)
     indx+=1
-#    print indx
 
-lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"mdc")
+  lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"mdc")
 
 
 # Create data files and cache file
