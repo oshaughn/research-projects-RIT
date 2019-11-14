@@ -1,0 +1,235 @@
+#! /usr/bin/env python
+#
+# GOAL
+#
+#
+# EXAMPLES
+#    python pp_RIFT --use-ini sample_pp_config.ini --test
+
+import numpy as np
+import argparse
+import os
+import sys
+import shutil
+
+import ConfigParser
+
+from RIFT.misc.dag_utils import mkdir
+import RIFT.lalsimutils as lalsimutils
+import lal
+import lalsimulation as lalsim
+
+def unsafe_config_get(config,args,verbose=False):
+    """
+    unsafe_config_get(config, args):
+    """
+    if verbose:
+        print " Retrieving ", args, 
+        print " Found ",eval(config.get(*args))
+    return eval( config.get(*args))
+
+
+activate_env ="source /cvmfs/oasis.opensciencegrid.org/ligo/sw/pycbc/x86_64_rhel_7/virtualenv/pycbc-v1.6.3/bin/activate"
+def add_frames(input_frame, noise_frame,combined_frame,channel):
+    cmd = activate_env +"; add_frames.py " + channel + " " + input_frame + " " + noise_frame + " " + combined_frame #{} {} {} {} ".format(channel,input_frame,noise_frame,combined_frame)
+    if opts.test:
+        print cmd
+    else:
+        os.system(cmd)
+
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
+parser.add_argument("--test",default=False,action='store_true',help="Used to test the pipeline : prints out commands, generates workflows as much as possible without high-cost steps")
+opts =  parser.parse_args()
+
+
+config = ConfigParser.ConfigParser()
+config.read(opts.use_ini)
+
+base_dir = os.getcwd() # relative directory, for use if absolute paths not provided
+
+# Create, go to working directory
+working_dir = config.get('pp','working_directory')
+print " Working dir ", working_dir
+mkdir(working_dir)
+os.chdir(working_dir)
+working_dir_full = os.getcwd()
+
+# Define how many events are needed
+n_events = unsafe_config_get(config,['pp','n_events'])
+
+
+# Create injection set
+mc_min = float(config.get('priors','mc_min'))
+mc_max = float(config.get('priors','mc_max'))
+m_min=float(config.get('priors','m_min'))
+mc_range = [mc_min,mc_max]
+eta_min = float(config.get('priors','eta_min'))
+eta_max = float(config.get('priors','eta_max'))
+eta_range = [eta_min,eta_max]
+d_min = float(config.get('priors','d_min'))
+d_max = float(config.get('priors','d_max'))
+chi_max = float(config.get('priors','chi_max'))
+
+
+approx_str = config.get('waveform','approx')
+fmin_template = float(config.get('waveform','fmin_template'))
+srate_data = float(config.get('data', 'srate_data'))
+seglen_data = float(config.get('data','seglen_data'))
+
+
+no_spin =unsafe_config_get(config,['priors','no_spin'])
+aligned_spin =unsafe_config_get(config,['priors','aligned_spin'])
+if aligned_spin:
+    print " === aligned-spin PP ==== "
+elif no_spin:
+    print " === zero-spin PP ==== "
+
+fix_sky_location=bool(config.get('priors','fix_sky_location'))
+fiducial_ra=float(config.get('priors','fiducial_ra'))
+fiducial_dec=float(config.get('priors','fiducial_dec'))
+fiducial_event_time=float(config.get('priors','fiducial_event_time'))
+
+
+ifos = unsafe_config_get(config,['data','ifos'])
+
+P_list =[]; indx=0
+while len(P_list) < n_events:
+    P = lalsimutils.ChooseWaveformParams()
+    # Randomize (sky location, etc)
+    P.randomize(dMax=d_max,dMin=d_min,aligned_spin_Q=aligned_spin,sMax=chi_max)
+    P.tref = fiducial_event_time
+    P.fmin=fmin_template
+    P.deltaF = 1./seglen_data
+    P.deltaT = 1./srate_data
+    # some redundancy
+    if no_spin:
+        P.s1x=P.s1y=P.s1z=0
+        P.s2x=P.s2y=P.s2z=0
+    elif aligned_spin:
+        P.s1x = P.s1y=0
+        P.s2x = P.s2y=0
+    P.approx=lalsim.GetApproximantFromString(approx_str)
+
+    # Uniform in m1 and m2: 
+    m1 = np.random.uniform(mc_range[0],mc_range[1]*2)
+    m2 = np.random.uniform(m_min,mc_range[1]*1.5)
+    m1,m2 = [np.maximum(m1,m2), np.minimum(m1,m2)]
+    P.m1 = m1*lal.MSUN_SI
+    P.m2 = m2*lal.MSUN_SI
+    # ...but downselect in mchirp, eta
+    mc_val = P.extract_param('mc')/lal.MSUN_SI
+    eta_val = P.extract_param('eta')
+    if mc_val < mc_range[0] or mc_val > mc_range[1]:
+        continue
+    if eta_val < eta_range[0] or eta_val > eta_range[1]:
+        continue
+
+
+    P_list.append(P)
+    indx+=1
+#    print indx
+
+lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"mdc")
+
+
+# Create data files and cache file
+#   - probably want to create workflow to build these, rather than do it all in one go... very slow!
+
+print " === Writing signal files === "
+
+# made up durations for now
+# must be compatible with duration of the noise frames
+t_start = fiducial_event_time-150
+t_stop = fiducial_event_time+150
+
+print n_events
+mkdir('signal_frames')
+for indx in np.arange(n_events):
+    print " Writing ", indx
+    os.chdir(working_dir_full)
+    mkdir('signal_frames/event_{}'.format(indx))
+    os.chdir(working_dir_full+"/"+"signal_frames/event_{}".format(indx))
+    # Loop over instruments, write files
+    for ifo in ifos:
+        cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --start {}  --stop {}  --instrument {} --approx {}".format(t_start,t_stop,ifo, approx_str)
+        print cmd
+        if not opts.test:
+            os.system(cmd)
+
+    if not opts.test:
+        cmd = "/bin/find frames/ -name '*.gwf' | lalapps_path2cache > signals.cache"
+        os.system(cmd)
+
+print " === Using fiducial noise frames === "
+
+noise_frame_dir = config.get("make_data","fiducial_noise_frames")
+
+print " === Joining synthetic signals to reference noise === "
+
+
+os.chdir(working_dir_full)
+for indx in np.arange(n_events):
+    mkdir('analysis_event_'.format(indx))
+    os.chdir(working_dir_full+"/"+"signal_frames/event_{}".format(indx))
+    for ifo in ifos:
+        fname_input = working_dir_full+"/signal_frames/event_{}/{}-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_data)
+        fname_noise= noise_frame_dir + "/" + ifo + ("/%08d.gwf" % indx)
+        fname_output = working_dir_full+"/analysis_event_{}/{}-combined-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_data)
+        add_frames(ifo+":FAKE_STRAIN",fname_input, fname_noise,fname_output)
+
+    if not opts.test:
+        cmd = "/bin/find frames/ -name '*.gwf' | lalapps_path2cache > signals.cache"
+        os.system(cmd)
+
+print " === Building single-event workflows === "
+use_gpu = bool(config.get('make_workflow','use_gpu'))
+n_events_per_worker = int(config.get('make_workflow','n_events_per_worker'))
+n_copies = int(config.get('make_workflow','n_copies'))
+n_iterations = int(config.get('make_workflow','n_iterations'))
+puff_cadence = int(config.get('make_workflow','puff_cadence'))
+
+psd_dict = unsafe_config_get(config,["make_psd",'fiducial_psds'])
+
+for indx in np.arange(n_events):
+    print " ::: Event {} ::: ".format(indx)
+    mkdir(working_dir_full+'/analysis_event_{}'.format(indx))
+    os.chdir(working_dir_full+'/analysis_event_{}'.format(indx))
+    here = os.getcwd()
+    cmd = "helper_LDG_Events.py --sim-xml "+working_dir_full + "/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache  ".format(indx,P_list[indx].tref,here)
+    # add in PSDs.  Allow relative names for PSDs relative to ini file
+    for psd in psd_dict:
+        psd_name = psd_dict[psd]
+        if not( '/' in psd_name):
+            psd_name = base_dir +"/"+psd_name
+        cmd += " --psd-file {}={} ".format(psd,psd_name)
+    # add in run settings
+    cmd += "  --fake-data --propose-fit-strategy --propose-ile-convergence-options --no-propose-limits "
+    if no_spin:
+        cmd += " --assume-nospin "
+    elif not(aligned_spin):
+        cmd += " --assume-precessing "
+
+    # Override range for mc, eta in prior
+    
+    print cmd
+    if not opts.test:
+        os.system(cmd)
+    
+    # Build workflow
+    cmd = "create_event_parameter_pipeline_BasicIteration --ile-n-events-to-analyze {} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`  --ile-args args_ile.txt --request-memory-ILE 4096 ".format(n_events_per_worker)
+    cmd+= "--cip-args args_cip.txt  --test-args args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd` --n-iterations {} --n-copies {} ".format(n_iterations, n_copies)
+    cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-max-it 10 --puff-cadence {}--puff-args args_puff.txt"
+
+    # Use GPUs if we are not
+    if use_gpu:
+      cmd += " --request-gpu-ILE "
+
+    print cmd
+    if not opts.test:
+        os.system(cmd)
+
+
+print " === Building master workflow === "
