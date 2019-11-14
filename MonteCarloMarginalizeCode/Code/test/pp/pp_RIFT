@@ -99,8 +99,7 @@ fiducial_event_time=float(config.get('priors','fiducial_event_time'))
 ifos = unsafe_config_get(config,['data','ifos'])
 
 if os.path.exists(working_dir_full+"/mdc.xml.gz"):
-    P_list = lalsimutils
-    P_list = lalsimutils.xml_to_ChooseWaveformParams_array(P_list,"mdc.xml.gz")
+    P_list = lalsimutils.xml_to_ChooseWaveformParams_array(P_list,working_dir_full+"/mdc.xml.gz")
 
 else:
   P_list =[]; indx=0
@@ -238,23 +237,23 @@ for indx in np.arange(n_events):
         # ILE
         instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
         line = ' '.join(instructions_ile)
-        line += " --l-max " + str(opts.l_max) 
+        line += " --l-max " + str(l_max) 
         line += " --d-max " + str(d_max)
         line += " --d-min " + str(d_min)
         t_start_analysis = fiducial_event_time - (seglen_analysis-2)
         t_end_analysis = fiducial_event_time +2
         line += " --inv-spec-trunc-time 0 --data-start-time {} --data-end-time {} --window-shape {}".format(t_start_analysis, t_end_analysis, 2./seglen_analysis)
     
-        if not 'NR' in opts.approx:
-            line += " --approx " + opts.approx
-        elif 'NRHybSur' in opts.approx:
+        if not 'NR' in approx_str:
+            line += " --approx " + approx_str
+        elif 'NRHybSur' in approx_str:
             line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5  "
-        elif "NRSur7d" in opts.approx:
+        elif "NRSur7d" in approx_str:
             line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
-        elif "SEOBNR" in opts.approx: 
-            line += " --approx " + opts.approx
+        elif "SEOBNR" in approx_str: 
+            line += " --approx " + approx_str
         else:
-            print " Unknown approx ", opts.approx
+            print " Unknown approx ", approx_str
             sys.exit(1)
         with open('args_ile.txt','w') as f:
             f.write(line)
