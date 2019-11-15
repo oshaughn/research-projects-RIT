@@ -121,6 +121,10 @@ else:
     P.fmin=fmin_template
     P.deltaF = 1./seglen_data
     P.deltaT = 1./srate_data
+    # sky location
+    if fix_sky_location:
+        P.theta = fiducial_dec
+        P.phi = fiducial_ra
     # some redundancy
     if no_spin:
         P.s1x=P.s1y=P.s1z=0
