@@ -100,7 +100,7 @@ if aligned_spin:
 elif no_spin:
     print " === zero-spin PP ==== "
 
-fix_sky_location=bool(config.get('priors','fix_sky_location'))
+fix_sky_location=unsafe_config_get(config,['priors','fix_sky_location'])
 fiducial_ra=float(config.get('priors','fiducial_ra'))
 fiducial_dec=float(config.get('priors','fiducial_dec'))
 fiducial_event_time=float(config.get('priors','fiducial_event_time'))
@@ -211,7 +211,11 @@ for indx in np.arange(n_events):
         os.system(cmd)
 
 print " === Building single-event workflows === "
-use_gpu = bool(config.get('make_workflow','use_gpu'))
+use_gpu = unsafe_config_get(config,['make_workflow','use_gpu'])
+if use_gpu:
+    print " ====> USING GPUS <=== "
+else:
+    print " ====> NO GPUS <=== "
 n_events_per_worker = int(config.get('make_workflow','n_events_per_worker'))
 n_copies = int(config.get('make_workflow','n_copies'))
 n_iterations = int(config.get('make_workflow','n_iterations'))
@@ -258,6 +262,9 @@ for indx in np.arange(n_events):
         line = ' '.join(instructions_ile)
         if not (use_gpu):
             line = line.replace("--vectorized --gpu","")  # make SURE this option is not set
+        if fix_sky_location:
+            line = line.replace("--declination-cosine-sampler", "")   # fix, so known sky location is interpreted correctly
+            line += " --right-ascension {} --declination {} ".format(fiducial_ra, fiducial_dec)
         line += " --l-max " + str(l_max) 
         line += " --d-max " + str(d_max)
         line += " --d-min " + str(d_min)
