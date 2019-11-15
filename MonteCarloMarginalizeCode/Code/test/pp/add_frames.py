@@ -54,9 +54,12 @@ def main(raw_args):
         # and we simply prepend a zero to the timeseries, making it
         # start at an integer time.
         if delta_t == (start_time - int(start_time)):
-            print("Doing Hack")
+            print("Doing Hack (start)")
             timeseries.prepend_zeros(1)
-        print(timeseries)
+        if  abs(end_time - int(end_time)) > 0:
+            print("Doing Hack (end)")
+            timeseries.append_zeros(1)
+        print(timeseries,len(timeseries))
 
         if output_timeseries is None:
             output_timeseries = timeseries
