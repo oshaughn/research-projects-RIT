@@ -274,7 +274,7 @@ for indx in np.arange(n_events):
         line += " --d-min " + str(d_min)
         t_start_analysis = fiducial_event_time - (seglen_analysis-2)
         t_end_analysis = fiducial_event_time +2
-        line += " --inv-spec-trunc-time 0 --data-start-time {} --data-end-time {} --window-shape {}".format(t_start_analysis, t_end_analysis, 2./seglen_analysis)
+        line += " --inv-spec-trunc-time 0 --data-start-time {} --data-end-time {} --window-shape {}".format(t_start_analysis, t_end_analysis, 0.4/seglen_analysis)
     
         if not 'NR' in approx_str:
             line += " --approx " + approx_str
