@@ -196,7 +196,8 @@ for indx in np.arange(n_events):
         add_frames(ifo+":FAKE-STRAIN",fname_input, fname_noise,fname_output)
 
     if not opts.test:
-        cmd = "/bin/find . -name '*.gwf' | lalapps_path2cache > signals.cache"
+        cmd = "/bin/find . -name '*.gwf' | lalapps_path2cache > local.cache"
+        print cmd
         os.system(cmd)
 
 print " === Building single-event workflows === "
