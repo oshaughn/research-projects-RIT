@@ -33,15 +33,18 @@ def main(raw_args):
 
 
     output_timeseries = None
-
+    print(args.input_frame)
     for frame in args.input_frame:
+        print(frame, args.channel)
         timeseries = pycbc.frame.read_frame(
-            frame, args.channel,
+            frame, args.channel
         )
 
         start_time = timeseries.start_time
         delta_t = timeseries.delta_t
-
+        end_time = timeseries.end_time
+        print("Start Time: ",start_time)
+        print("End Time: ",end_time)
         # A bit of a hack.
         # I've encountered frames that appear to have their first
         # sample discarded. As a result, the start_time is delta_t
@@ -51,9 +54,9 @@ def main(raw_args):
         # and we simply prepend a zero to the timeseries, making it
         # start at an integer time.
         if delta_t == (start_time - int(start_time)):
+            print("Doing Hack")
             timeseries.prepend_zeros(1)
-
-        print(timeseries.start_time)
+        print(timeseries)
 
         if output_timeseries is None:
             output_timeseries = timeseries
