@@ -1,4 +1,10 @@
 
+0.0.14.7
+-----------
+Since last release
+   - bugfix in helper introduced by use_ini. PP pipeline. CIP allows arbitrary user-specified priors. Update
+     singularity_base_exe. Fix bitrot to old FactoredLogLikelihood.  (rc1)
+
 0.0.14.6
 ---------------------------
 Since last release
