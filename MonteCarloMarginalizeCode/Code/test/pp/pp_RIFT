@@ -188,7 +188,7 @@ os.chdir(working_dir_full)
 for indx in np.arange(n_events):
     os.chdir(working_dir_full)
     mkdir('analysis_event_{}'.format(indx))
-    os.chdir(working_dir_full+"/"+"signal_frames/event_{}".format(indx))
+    os.chdir(working_dir_full+"/"+"analysis_event_{}".format(indx))
     for ifo in ifos:
         fname_input = working_dir_full+"/signal_frames/event_{}/{}-fake_strain-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_actual)
         fname_noise= noise_frame_dir + "/" + ifo + ("/%08d.gwf" % indx)
@@ -318,9 +318,11 @@ for indx in np.arange(n_events):
     if cip_explode_jobs:
         cmd+= " --cip-explode-jobs  " + str(cip_explode_jobs)
     if use_osg:
-        cmd += " --use-osg --use-singularity --use-cvmfs-frames --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  Note with CVMFS frames we need to provide the cache
+        print " NOT VALIDATED/IMPLEMENTED for PP use yet"
+        cmd += " --use-osg --use-singularity  --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  
         cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
-
+    else:
+        cmd += " --cache-file {}/local.cache ".format(here)
 
     print cmd
     if not opts.test:
