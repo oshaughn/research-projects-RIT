@@ -79,7 +79,7 @@ chi_max = float(config.get('priors','chi_max'))
 # use matter?
 lambda_max=0
 use_matter=False
-if config.has_option('use_matter'):
+if config.has_option('priors','use_matter'):
     use_matter=True
     lambda_max = float(config.get('priors','lambda_max'))
 
@@ -230,7 +230,7 @@ for indx in np.arange(n_events):
 #    mkdir(working_dir_full+'/analysis_event_{}'.format(indx))
     os.chdir(working_dir_full+'/analysis_event_{}'.format(indx))
     here = os.getcwd()
-    cmd = "helper_LDG_Events.py --sim-xml "+working_dir_full + "/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache  ".format(indx,P_list[indx].tref,here)
+    cmd = "helper_LDG_Events.py --sim-xml "+working_dir_full + "/mdc.xml.gz --event {} --event-time {}  --cache local.cache --working-directory {}  ".format(indx,P_list[indx].tref,here)
     cmd += " --fmin {} ".format(fmin_template)
     # add in PSDs.  Allow relative names for PSDs relative to ini file
     for psd in psd_dict:
@@ -256,6 +256,8 @@ for indx in np.arange(n_events):
         # ILE
         instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
         line = ' '.join(instructions_ile)
+        if not (use_gpu):
+            line = line.replace("--vectorized --gpu","")  # make SURE this option is not set
         line += " --l-max " + str(l_max) 
         line += " --d-max " + str(d_max)
         line += " --d-min " + str(d_min)
@@ -336,7 +338,7 @@ for indx in np.arange(n_events):
         cmd += " --use-osg --use-singularity  --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  
         cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
     else:
-        cmd += " --cache-file local.cache  --working-directory {} ".format(here)
+        cmd += " --cache-file {}/local.cache   ".format(here)
 
     print cmd
     if not opts.test:
