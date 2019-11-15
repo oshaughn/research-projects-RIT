@@ -1247,14 +1247,14 @@ class ChooseWaveformParams:
         else:
             self.phaseO = -1
         self.approx = lalsim.GetApproximantFromString(str(row.waveform))  # this is buggy for SEOB waveforms, adding irrelevant PN terms
-        if row.waveform == lalsim.SEOBNRv3:
-            self.approx = 'SEOBNRv3'
-        if row.waveform == lalsim.SEOBNRv2:
-            self.approx = 'SEOBNRv2'
-        if row.waveform == lalTEOBv4:
-            self.approx = 'SEOBNRv4T'
-        if row.waveform == lalSEOBNRv4HM  and lalSEOBNR4HM > 0 :
-            self.approx = 'SEOBNRv4HM'
+        if row.waveform == 'SEOBNRv3': 
+            self.approx = lalsim.SEOBNRv3
+        if row.waveform == 'SEOBNRv2':
+            self.approx = lalsim.SEOBNRv2
+        if row.waveform ==  'SEOBNRv4T':
+            self.approx = lalTEOBv4
+        if row.waveform == 'SEOBNRv4HM'   and lalSEOBNR4HM > 0 :
+            self.approx = lalSEOBNRv4HM
         if rosDebugMessagesContainer[0]:
             print " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform
         self.theta = row.latitude # Declination
