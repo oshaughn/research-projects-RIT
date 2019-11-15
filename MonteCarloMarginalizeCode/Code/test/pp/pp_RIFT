@@ -47,7 +47,7 @@ parser.add_argument("--test",default=False,action='store_true',help="Used to tes
 opts =  parser.parse_args()
 
 
-config = ConfigParser.ConfigParser()
+config = ConfigParser.SafeConfigParser(allow_no_value=True)
 config.read(opts.use_ini)
 
 base_dir = os.getcwd() # relative directory, for use if absolute paths not provided
@@ -75,6 +75,13 @@ eta_range = [eta_min,eta_max]
 d_min = float(config.get('priors','d_min'))
 d_max = float(config.get('priors','d_max'))
 chi_max = float(config.get('priors','chi_max'))
+
+# use matter?
+lambda_max=0
+use_matter=False
+if config.has_option('use_matter'):
+    use_matter=True
+    lambda_max = float(config.get('priors','lambda_max'))
 
 
 approx_str = config.get('waveform','approx')
@@ -121,6 +128,9 @@ else:
     elif aligned_spin:
         P.s1x = P.s1y=0
         P.s2x = P.s2y=0
+    if use_matter:
+        P.lambda1 = np.random.uniform(0,lambda_max)
+        P.lambda2 = np.random.uniform(0,lambda_max)
     P.approx=lalsim.GetApproximantFromString(approx_str)
 
     # Uniform in m1 and m2: 
@@ -234,6 +244,8 @@ for indx in np.arange(n_events):
         cmd += " --assume-nospin "
     elif not(aligned_spin):
         cmd += " --assume-precessing "
+    if use_matter:
+        cmd += " --assume-matter " 
 
     print cmd
     if not opts.test:
@@ -277,6 +289,8 @@ for indx in np.arange(n_events):
         for indx in np.arange(len(instructions_cip)):
             n_iterations += int(instructions_cip[indx][0])
             line = ' ' .join(instructions_cip[indx])
+            if use_matter:
+                line += " --lambda-max {} ".format(lambda_max)
             line +=" --n-output-samples 10000 --n-eff 10000 --n-max 10000000   --downselect-parameter m2 --downselect-parameter-range [1,1000] "
             if not(cip_fit_method is None):
                 line = line.replace('--fit-method gp', '--fit-method ' + cip_fit_method)
@@ -322,7 +336,7 @@ for indx in np.arange(n_events):
         cmd += " --use-osg --use-singularity  --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  
         cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
     else:
-        cmd += " --cache-file {}/local.cache ".format(here)
+        cmd += " --cache-file local.cache  --working-directory {} ".format(here)
 
     print cmd
     if not opts.test:
