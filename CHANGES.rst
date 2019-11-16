@@ -4,13 +4,22 @@
 Since last release
   - py3 port (rc1)
 
+
+0.0.14.7 
+--------------------------
+   - bugfix in helper introduced by use_ini. PP pipeline. CIP allows arbitrary user-specified priors. Update
+     singularity_base_exe. Fix bitrot to old FactoredLogLikelihood.  (rc1)
+
 0.0.14.6
 ---------------------------
 Since last release
    - pipline script in main repo (rc1)
    - bugfix in GMM integrator interface; in pipeline interface (rc2)
    - more bugfixes in GMM (rc3)
-Note that 0.0.14.x will be the last versions providing py27 support.
+   - fix access to gp-sparse in CIP
+Note GMM, adapt_cart, gp-sparse, rf all validated with this version.
+Note 0.0.14.x will be the last versions with py27 support; from version 0.0.15 and upward, we should exclusively use py3
+
 
 0.0.14.5
 ---------------------------

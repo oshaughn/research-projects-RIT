@@ -884,11 +884,11 @@ class ChooseWaveformParams:
         sys.exit(0)
 
 
-    def randomize(self,zero_spin_Q=False,aligned_spin_Q=False,default_inclination=None,default_phase=None,default_polarization=None,dMax=500.,dMin=1.):
+    def randomize(self,zero_spin_Q=False,aligned_spin_Q=False,default_inclination=None,default_phase=None,default_polarization=None,dMax=500.,dMin=1.,sMax=1):
         mMin = 2.   # min component mass (Msun)
         mMax = 10.  # max component mass (Msun)
         sMin = 0.   # min spin magnitude
-        sMax = 1.   # max spin magnitude
+#        sMax = 1.   # max spin magnitude
 #        dMin = float(dMin)   # min distance (Mpc)
 #        dMax = float(dMax) # max distance (Mpc)
         self.m1 = np.random.uniform(mMin,mMax)
@@ -926,18 +926,18 @@ class ChooseWaveformParams:
             self.s2y = s2mag * sin(s2theta) * sin(s2phi)
             self.s2z = s2mag * cos(s2theta)
         if aligned_spin_Q:
-            s1mag = np.random.uniform(sMin,sMax)
-            s1theta = self.incl
-            s1phi = 0.
-            s2mag = np.random.uniform(sMin,sMax)
-            s2theta = self.incl
-            s2phi = 0.
-            self.s1x = s1mag * sin(s1theta) * cos(s1phi)
-            self.s1y = s1mag * sin(s1theta) * sin(s1phi)
-            self.s1z = s1mag * cos(s1theta)
-            self.s2x = s2mag * sin(s2theta) * cos(s2phi)
-            self.s2y = s2mag * sin(s2theta) * sin(s2phi)
-            self.s2z = s2mag * cos(s2theta)
+            s1mag = np.random.uniform(-sMax,sMax)
+#            s1theta = self.incl
+#            s1phi = 0.
+            s2mag = np.random.uniform(-sMax,sMax)
+#            s2theta = self.incl
+#            s2phi = 0.
+            self.s1x = 0 # s1mag * sin(s1theta) * cos(s1phi)
+            self.s1y = 0 # s1mag * sin(s1theta) * sin(s1phi)
+            self.s1z = s1mag # s1mag * cos(s1theta)
+            self.s2x = 0#s2mag * sin(s2theta) * cos(s2phi)
+            self.s2y = 0 #s2mag * sin(s2theta) * sin(s2phi)
+            self.s2z = s2mag #  s2mag * cos(s2theta)
         if np.isnan(s1mag):
             print( " catastrophe ")
             sys.exit(0)
@@ -1249,14 +1249,14 @@ class ChooseWaveformParams:
         else:
             self.phaseO = -1
         self.approx = lalsim.GetApproximantFromString(str(row.waveform))  # this is buggy for SEOB waveforms, adding irrelevant PN terms
-        if row.waveform == lalsim.SEOBNRv3:
-            self.approx = 'SEOBNRv3'
-        if row.waveform == lalsim.SEOBNRv2:
-            self.approx = 'SEOBNRv2'
-        if row.waveform == lalTEOBv4:
-            self.approx = 'SEOBNRv4T'
-        if row.waveform == lalSEOBNRv4HM  and lalSEOBNR4HM > 0 :
-            self.approx = 'SEOBNRv4HM'
+        if row.waveform == 'SEOBNRv3': 
+            self.approx = lalsim.SEOBNRv3
+        if row.waveform == 'SEOBNRv2':
+            self.approx = lalsim.SEOBNRv2
+        if row.waveform ==  'SEOBNRv4T':
+            self.approx = lalTEOBv4
+        if row.waveform == 'SEOBNRv4HM'   and lalSEOBNR4HM > 0 :
+            self.approx = lalSEOBNRv4HM
         if rosDebugMessagesContainer[0]:
             print( " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform)
         self.theta = row.latitude # Declination

@@ -716,7 +716,7 @@ helper_ile_args += " --event-time " + str(event_dict["tref"])
 for ifo in ifos:
     helper_ile_args += " --channel-name "+ifo+"="+channel_names[ifo]
     helper_ile_args += " --psd-file "+ifo+"="+psd_names[ifo]
-    if use_ini is None:
+    if (not use_ini):
       if not (opts.fmin is None):
         helper_ile_args += " --fmin-ifo "+ifo+"="+str(opts.fmin)
     elif not(opts.use_ini is None):
