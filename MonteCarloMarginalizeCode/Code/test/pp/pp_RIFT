@@ -327,7 +327,7 @@ for indx in np.arange(n_events):
         except:
             print " No puff file "
         with open("args_puff.txt",'w') as f:
-            puff_args = line + "--downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(chi_max,chi_max)
+            puff_args = line + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(chi_max,chi_max)
             f.write("X " + puff_args)
 
 
