@@ -1504,7 +1504,7 @@ if not(opts.import_prior_dictionary_file is None):
     stored_param_ranges =dat[1]
     for param in stored_param_prior_pdf.keys():
         if param in sampler.prior_pdf.keys():
-            print " OVER-RIDE OF PRIOR FOR ", param, stored_param_prior_pdf[param], stored_param_ranges[param]
+            print(" OVER-RIDE OF PRIOR FOR ", param, stored_param_prior_pdf[param], stored_param_ranges[param])
 #        stored_param_pdf[param] = sampler.pdf[param]
             sampler.prior_pdf[param] = stored_param_prior_pdf[param] 
             sampler.llim[param], sampler.rlim[param] = stored_param_ranges[param]
