@@ -302,6 +302,8 @@ for indx in np.arange(n_events):
         for indx in np.arange(len(instructions_cip)):
             n_iterations += int(instructions_cip[indx][0])
             line = ' ' .join(instructions_cip[indx])
+            # Add CIP range
+            line += " --mc-range [{},{}] --eta-range [{},{}] ".format(mc_min, mc_max,eta_min,eta_max)
             if use_matter:
                 line += " --lambda-max {} ".format(lambda_max)
             line +=" --n-output-samples 10000 --n-eff 10000 --n-max 10000000   --downselect-parameter m2 --downselect-parameter-range [1,1000] "
