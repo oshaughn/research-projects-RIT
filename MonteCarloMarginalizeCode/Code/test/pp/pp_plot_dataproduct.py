@@ -5,11 +5,11 @@
 
 import argparse
 import numpy as np
-from samples_utils import add_field
+from RIFT.misc.samples_utils import add_field
 
 import lal
 import lalsimulation as lalsim
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 
 
 remap_ILE_2_LI = {
