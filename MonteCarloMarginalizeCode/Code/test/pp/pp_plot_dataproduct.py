@@ -7,6 +7,8 @@ import argparse
 import numpy as np
 from RIFT.misc.samples_utils import add_field
 
+import sys
+
 import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
@@ -35,8 +37,9 @@ remap_ILE_2_LI = {
   "beta":"beta",
   "LambdaTilde":"lambdat",
   "DeltaLambdaTilde": "dlambdat",
-  "thetaJN":"theta_jn"}
-remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot'}
+  "thetaJN":"theta_jn",
+  "dist":"distance",'phiref':'phiorb'}
+remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot','distance':'dist', 'ra':'phi', 'dec':'theta','phiorb':'phiref'}
 
 
 
@@ -80,12 +83,13 @@ if not 'mtotal' in samples.dtype.names and 'mc' in samples.dtype.names:  # raw L
 
 if (not 'theta1' in samples.dtype.names)  and ('a1x' in samples.dtype.names):  # probably does not have polar coordinates
     chiperp_here = np.sqrt( samples['a1x']**2+ samples['a1y']**2)
-    chi1_here = np.sqrt( samples['a1z']**2 + chiperp_here**2)
-    theta1_here = np.arctan( samples['a1z']/chiperp_here)
-    phi1_here = np.angle(samples['a1x']+1j*samples['a1y'])
-    samples = add_field(samples, [('chi1', float)]); samples['chi1'] = chi1_here
-    samples = add_field(samples, [('theta1', float)]); samples['theta1'] = theta1_here
-    samples = add_field(samples, [('phi1', float)]); samples['phi1'] = phi1_here
+    if any(chiperp_here > 0):
+     chi1_here = np.sqrt( samples['a1z']**2 + chiperp_here**2)
+     theta1_here = np.arctan( samples['a1z']/chiperp_here)
+     phi1_here = np.angle(samples['a1x']+1j*samples['a1y'])
+     samples = add_field(samples, [('chi1', float)]); samples['chi1'] = chi1_here
+     samples = add_field(samples, [('theta1', float)]); samples['theta1'] = theta1_here
+     samples = add_field(samples, [('phi1', float)]); samples['phi1'] = phi1_here
 
 elif "theta1" in samples.dtype.names:
     a1x_dat = samples["a1"]*np.sin(samples["theta1"])*np.cos(samples["phi1"])
@@ -133,9 +137,17 @@ if 'chi1_perp' in samples.dtype.names:
 
 # Loop over labelled fields
 for param in opts.parameter:
-    val_here = P_ref.extract_param(param)
+    param_here = param
+    if param_here in remap_LI_to_ILE.keys():
+	param_here = remap_LI_to_ILE[param_here]
+    val_here = P_ref.extract_param(param_here)
     if param in [ 'mc', 'm1', 'm2', 'mtotal']:
         val_here= val_here/lal.MSUN_SI
+    if param in ['dist','distance']:
+        val_here = val_here/(1e6*lal.PC_SI)
+ 
+    if param in ['phiref','phiorb', 'psi']:   # BUG in injection file, this is workaround
+	samples[param] = np.mod(samples[param],np.pi)
 
     n_ok = np.sum(samples[param] < val_here)
     print n_ok/(1.*len(samples[param])),
