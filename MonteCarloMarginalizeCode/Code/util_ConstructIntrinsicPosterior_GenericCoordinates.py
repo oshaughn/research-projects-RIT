@@ -64,6 +64,25 @@ from glue.ligolw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 import mcsampler
+try:
+    import mcsamplerEnsemble as mcsamplerEnsemble
+    mcsampler_gmm_ok = True
+except:
+    print " No mcsamplerEnsemble "
+    mcsampler_gmm_ok = False
+try:
+    import senni
+    senni_ok = True
+except:
+    print " No senni "
+    senni_ok = False
+
+try:
+    import internal_GP
+    internalGP_ok = True
+except:
+    print " - no internal_GP -  "
+    internalGP_ok = False
 
 
 def render_coord(x):
@@ -213,6 +232,8 @@ parser.add_argument("--pseudo-uniform-magnitude-prior-alternate-sampling", actio
 parser.add_argument("--pseudo-gaussian-mass-prior",action='store_true', help="Applies a gaussian mass prior in postprocessing. Done via reweighting so we can use arbitrary mass sampling coordinates.")
 parser.add_argument("--pseudo-gaussian-mass-prior-mean",default=1.33,type=float, help="Mean value for reweighting")
 parser.add_argument("--pseudo-gaussian-mass-prior-std",default=0.09, type=float,help="Width for reweighting")
+parser.add_argument("--prior-lambda-linear",action='store_true',help="Use p(lambda) ~ lambdamax -lambda. Intended for first few iterations, to insure strong coverage of the low-lambda_k corner")
+parser.add_argument("--prior-lambda-power",type=float,default=1,help="Use p(lambda) ~ (lambdamax -lambda)^p. Intended for first few iterations, to insure strong coverage of the low-lambda_k corner")
 parser.add_argument("--mirror-points",action='store_true',help="Use if you have many points very near equal mass (BNS). Doubles the number of points in the fit, each of which has a swapped m1,m2")
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
@@ -224,9 +245,10 @@ parser.add_argument("--lambda-plus-max", default=None,type=float,help="Maximum r
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
 parser.add_argument("--lnL-shift-prevent-overflow",default=None,type=float,help="Define this quantity to be a large positive number to avoid overflows. Note that we do *not* define this dynamically based on sample values, to insure reproducibility and comparable integral results. BEWARE: If you shift the result to be below zero, because the GP relaxes to 0, you will get crazy answers.")
-parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset")
+parser.add_argument("--lnL-protect-overflow",action='store_true',help="Before fitting, subtract lnLmax - 100.  Add this quantity back at the end.")
+parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset. ONLY POINTS within lnLmax - lnLoffset are used in the calculation!  VERY IMPORTANT - default value chosen for production, but very much not suitable for early iterations / exploration mode")
 parser.add_argument("--lnL-offset-n-random",type=int,default=0,help="Add this many random points past the threshold")
-parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]")
+parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]. Remove points below this likelihood value from consideration.  Generally should not use")
 parser.add_argument("--M-max-cut",type=float,default=1e5,help="Maximum mass to consider (e.g., if there is a cut on distance, this matters)")
 parser.add_argument("--sigma-cut",type=float,default=0.6,help="Eliminate points with large error from the fit.")
 parser.add_argument("--ignore-errors-in-data",action='store_true',help='Ignore reported error in lnL. Helpful for testing purposes (i.e., if the error is zero)')
@@ -241,6 +263,7 @@ parser.add_argument("--fit-uses-reported-error",action='store_true')
 parser.add_argument("--fit-uses-reported-error-factor",type=float,default=1,help="Factor to add to standard deviation of fit, before adding to lnL. Multiplies number fitting dimensions")
 parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
+parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--fail-unless-n-eff",default=None,type=int,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
@@ -257,6 +280,7 @@ parser.add_argument("--protect-coordinate-conversions", action='store_true', hel
 parser.add_argument("--source-redshift",default=0,type=float,help="Source redshift (used to convert from source-frame mass [integration limits] to arguments of fitting function.  Note that if nonzero, integration done in SOURCE FRAME MASSES, but the fit is calculated using DETECTOR FRAME")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
+parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 opts=  parser.parse_args()
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
@@ -575,7 +599,7 @@ def tapered_magnitude_prior(x,loc=0.65,kappa=19.):   #
     
     return f1/(1+f1)/(1+f2)
 
-def tapered_magnitude_prior_alt(x,loc=0.85,kappa=20.):   # 
+def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   # 
     """ 
     tapered_magnitude_prior is 1 above the scale factor and 0 below it
         1/ (1+f) =
@@ -689,32 +713,40 @@ if opts.pseudo_uniform_magnitude_prior and opts.pseudo_uniform_magnitude_prior_a
 if opts.prior_gaussian_spin1_magnitude:
     if not  'chi1' in low_level_coord_names:
         print " Incompatible options: gaussian spin1 prior requires polar coordinates"
-        sys.exit(0)
+        sys.exit(1)
     prior_map['chi1'] =functools.partial(gaussian_mass_prior,mu=0.7,sigma=0.1)  # not fully normalized particularly if chimax <1! Dangerous, fixme eventually
 
 if opts.prior_tapered_spin1_magnitude:
     if not  'chi1' in low_level_coord_names:
         print " Incompatible options: tapered spin1 prior requires polar coordinates"
-        sys.exit(0)
+        sys.exit(1)
     prior_map['s1z'] =tapered_magnitude_prior
 
 if opts.prior_tapered_spin1z:
     if not  's1z' in low_level_coord_names:
         print " Incompatible options: tapered spin1z prior requires cartesian coordinates"
-        sys.exit(0)
+        sys.exit(1)
     prior_map['s1z'] =tapered_magnitude_prior
 
 if opts.prior_gaussian_mass_ratio:
     if not  'q' in low_level_coord_names:
         print " Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)"
-        sys.exit(0)
+        sys.exit(1)
     prior_map['q'] = functools.partial(gaussian_mass_prior,mu=0.5,sigma=0.2)  # not fully normalized, and very ad-hoc
 
 if opts.prior_tapered_mass_ratio:
     if not  'q' in low_level_coord_names:
         print " Incompatible options: gaussian q prior requires q in coordinates (e.g., mtot,q coordinates)"
-        sys.exit(0)
-    prior_map['q'] = functools.partial(tapered_magnitude_prior_alt,loc=0.85,kappa=20.)  # not fully normalized, and very ad-hoc
+        sys.exit(1)
+    prior_map['q'] = functools.partial(tapered_magnitude_prior_alt,loc=0.8,kappa=20.)  # not fully normalized, and very ad-hoc
+
+if opts.prior_lambda_linear:
+    if opts.prior_lambda_power == 1:
+        prior_map['lambda1'] = functools.partial(mcsampler.linear_down_samp,xmin=0,xmax=lambda_max)
+        prior_map['lambda2'] = functools.partial(mcsampler.linear_down_samp,xmin=0,xmax=lambda_small_max)
+    else:
+        prior_map['lambda1'] = functools.partial(mcsampler.power_down_samp,xmin=0,xmax=lambda_max,alpha=opts.prior_lambda_power+1)
+        prior_map['lambda2'] = functools.partial(mcsampler.power_down_samp,xmin=0,xmax=lambda_small_max,alpha=opts.prior_lambda_power+1)
 
 
 # tex_dictionary  = {
@@ -911,6 +943,100 @@ def fit_gp_pool(x,y,n_pool=10,**kwargs):
     print " Testing ", fn_out([x[0]])
     return fn_out
 
+def fit_nn(x,y,y_errors=None,fname_export='nn_fit'):
+    y_packed = y[:,np.newaxis]
+    if not (y_errors is None):
+        errors_packed = y_errors[:,np.newaxis]
+    else:
+        errors_packed = None
+    import os
+    working_dir = os.getcwd()
+#    for indx in np.arange(len(x[0])):
+#        print np.min(x[:,indx]), np.max(x[:,indx]), (np.max(x[:,indx])-np.mean(x[:,indx]))/np.std(x[:,indx])
+    # train first with one loss, then the next?
+    nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=60, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='chi2')  # May want to adjust size of network based on data size?
+#    nn_interpolator.train()
+#    nn_interpolator.loss_func='chi2'; nn_interpolator.epochs = 120
+    nn_interpolator.train()
+    if opts.fit_save_gp:
+        print " Attempting to save NN fit ", opts.fit_save_gp+".network"
+        nn_interpolator.save(opts.fit_save_gp+".network")
+
+    def fn_return(x):
+        x_in = np.copy(x)  # need to make a copy to avoid altering input/changing response
+        return nn_interpolator.evaluate(x_in)
+
+    print " Demonstrating NN"   # debugging
+#    print x, fn_return(x),nn_interpolator.evaluate(x),y
+    residuals2 = fn_return(x) - y
+    residuals = nn_interpolator.evaluate(x)-y
+    print "    std ", np.std(residuals), np.std(residuals2), np.max(y), np.max(fn_return(x))
+    return fn_return
+
+
+
+def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
+#    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.ensemble import ExtraTreesRegressor
+    # Instantiate model. Usually not that many structures to find, don't overcomplicate
+    #   - should scale like number of samples
+    rf = ExtraTreesRegressor(n_estimators=100, verbose=True,n_jobs=-1) # no more than 5% of samples in a leaf
+    if y_errors is None:
+        rf.fit(x,y)
+    else:
+        rf.fit(x,y,sample_weight=1./y_errors**2)
+
+    fn_return = lambda x_in: rf.predict(x_in) 
+
+    print " Demonstrating RF"   # debugging
+    residuals = rf.predict(x)-y
+    print "    std ", np.std(residuals), np.max(y), np.max(fn_return(x))
+    return fn_return
+
+def fit_nn_rfwrapper(x,y,y_errors=None,fname_export='nn_fit'):
+    from sklearn.ensemble import RandomForestRegressor
+    # Instantiate model. Usually not that many structures to find, don't overcomplicate
+    #   - should scale like number of samples
+    rf = RandomForestRegressor(n_estimators=100, random_state = 42,verbose=True,n_jobs=-1)
+    if y_errors is None:
+        rf.fit(x,y)
+    else:
+        rf.fit(x,y,sample_weight=1./y_errors**2)
+
+    y_packed = y[:,np.newaxis]
+    if not (y_errors is None):
+        errors_packed = y_errors[:,np.newaxis]
+    else:
+        errors_packed = None
+    import os
+    working_dir = os.getcwd()
+#    for indx in np.arange(len(x[0])):
+#        print np.min(x[:,indx]), np.max(x[:,indx]), (np.max(x[:,indx])-np.mean(x[:,indx]))/np.std(x[:,indx])
+    # train first with one loss, then the next?
+    nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=10, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='mape')  # May want to adjust size of network based on data size?
+    nn_interpolator.train()
+    nn_interpolator.loss_func='chi2'; nn_interpolator.epochs = 50
+    nn_interpolator.train()
+
+    y_max = np.max(y)
+    def fn_return(x):
+        vals_rf = rf.predict(x)
+        vals_nn = nn_interpolator.evaluate(x)
+        return np.where(vals_rf > y_max-15, vals_nn, vals_rf)
+
+    print " Demonstrating RF"   # debugging
+    residuals = fn_return(x)-y
+    print "    std ", np.std(residuals), np.max(y), np.max(fn_return(x))
+    return fn_return
+
+if internalGP_ok:
+    from internal_GP import fit_gp as fit_gp_sparse
+else:
+    def fit_gp_sparse(x):
+        sys.exit(1)
+
+
+
 
 
 
@@ -965,6 +1091,7 @@ if opts.mc_range:
         mc_cut_range =np.array(mc_cut_range)*(1+opts.source_redshift)  # prevent stupidity in grid selection
 print " Stripping samples outside of ", mc_cut_range, " in mc"
 P= lalsimutils.ChooseWaveformParams()
+P_list_in = []
 for line in dat:
   # Skip precessing binaries unless explicitly requested not to!
   if not opts.use_precessing and (line[3]**2 + line[4]**2 + line[6]**2 + line[7]**2)>0.01:
@@ -1002,6 +1129,10 @@ for line in dat:
         P.lambda2 = line[10]
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[9]  # Incompatible with tides, note!
+    
+    if opts.contingency_unevolved_neff == "quadpuff":
+        P_copy = P.manual_copy()  # prevent duplication
+        P_list_in.append(P_copy) # store  it, make sure distinct
 
     # INPUT GRID: Evaluate binary parameters on fitting coordinates
     line_out = np.zeros(len(coord_names)+2)
@@ -1227,6 +1358,74 @@ elif opts.fit_method == 'gp-pool':
     if opts.pool_size == None:
         opts.pool_size = np.max([2,np.round(4000/len(X))])  # pick a pool size that has no more than 4000 members per pool
     my_fit = fit_gp_pool(X,Y,y_errors=Y_err,n_pool=opts.pool_size)
+elif opts.fit_method == 'nn':
+    print " FIT METHOD ", opts.fit_method, " IS NN "
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_nn(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'rf':
+    print " FIT METHOD ", opts.fit_method, " IS RF "
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_rf(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'nn_rfwrapper':
+    print " FIT METHOD ", opts.fit_method, " IS NN with RF wrapper "
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_nn_rfwrapper(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'gp-sparse':
+    print " FIT METHOD ", opts.fit_method, " IS gp-sparse "
+    if not internalGP_ok:
+        print " FAILED "
+        sys.exit(1)
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_gp_sparse(X,Y,y_errors=Y_err)
+
 
 
 
@@ -1267,6 +1466,8 @@ else:
 
 
 sampler = mcsampler.MCSampler()
+if opts.sampler_method == "GMM":
+    sampler = mcsamplerEnsemble.MCSampler()
 
 
 ##
@@ -1362,17 +1563,63 @@ my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to sl
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
 print " Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto"
 
-res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True)  # weight ecponent needs better choice. We are using arbitrary-name functions
+
+extra_args={}
+if opts.sampler_method == "GMM":
+    n_max_blocks = ((1.0*int(opts.n_max))/n_step)
+    extra_args = {'n_comp':3,'max_iter':n_max_blocks}  # made up for now, should adjust
+
+# Result shifted by lnL_shift
+res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
     if neff < opts.fail_unless_n_eff:
         print " FAILURE: n_eff too small"
         sys.exit(1)
+if neff < opts.n_eff:   
+    print " ==> neff (={}) is low <==".format(neff)
+    if opts.contingency_unevolved_neff == 'quadpuff'  and neff < np.min([500,opts.n_eff]): # we can usually get by with about 500 points
+        # Add errors
+        # Note we only want to add errors to RETAINED points
+        print " Contingency: quadpuff: take covariance of points, draw from it again, add to existing points as offsets (i.e. a puffball) "
+        n_output_size = np.min([len(P_list_in),opts.n_output_samples])
+        print " Preparing to write ", n_output_size , " samples "
+
+        my_cov = np.cov(X.T)  # covariance of data points
+        rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X[0])), cov=my_cov,allow_singular=True)  # they are just complaining about dynamic range
+        delta_X = rv.rvs(size=len(X))
+        X_new = X+delta_X
+        P_out_list = []
+        # Loop over points 
+        # Jitter using the parameters we use to fit with
+        for indx_P in np.arange(np.min([len(P_list_in),len(X)])):   # make sure no past-limits errors
+            include_item=True
+            P = P_list_in[indx_P]
+            for indx in np.arange(len(coord_names)):
+                param  = coord_names[indx]
+                fac = 1
+                if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
+                    fac = lal.MSUN_SI
+                    P.assign_param(param, (X_new[indx_P,indx]*fac))
+            for p in downselect_dict.keys():
+                val = P.extract_param(p) 
+                if p in ['mc','m1','m2','mtot']:
+                    val = val/lal.MSUN_SI
+                if val < downselect_dict[p][0] or val > downselect_dict[p][1]:
+                    include_item = False
+            if include_item:
+                P_out_list.append(P)
+
+        # Save output
+        lalsimutils.ChooseWaveformParams_array_to_xml(P_out_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
+        sys.exit(0)
+
+
 
 # Save result -- needed for odds ratios, etc.
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
-np.savetxt(opts.fname_output_integral+".dat", [np.log(res)])
+np.savetxt(opts.fname_output_integral+".dat", [np.log(res)+lnL_shift])
 eos_extra = []
 annotation_header = "lnL sigmaL neff "
 if opts.using_eos:
@@ -1402,14 +1649,16 @@ print samples.keys()
 n_params = len(coord_names)
 dat_mass = np.zeros((len(samples[low_level_coord_names[0]]),n_params+3))
 dat_logL = np.log(samples["integrand"])
+lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
 print " Max lnL ", np.max(dat_logL)
+if opts.lnL_protect_overflow:
+    lnL_shift = lnLmax - 100.
 
 # Throw away stupid points that don't impact the posterior
-indx_ok = np.logical_and(dat_logL > np.max(dat_logL)-opts.lnL_offset ,samples["joint_s_prior"]>0)
+indx_ok = np.logical_and(dat_logL > lnLmax-opts.lnL_offset ,samples["joint_s_prior"]>0)
 for p in low_level_coord_names:
     samples[p] = samples[p][indx_ok]
 dat_logL  = dat_logL[indx_ok]
-print samples.keys()
 samples["joint_prior"] =samples["joint_prior"][indx_ok]
 samples["joint_s_prior"] =samples["joint_s_prior"][indx_ok]
 

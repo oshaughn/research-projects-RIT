@@ -34,6 +34,10 @@ If you are working with this development repository, please try to add your name
      c.  NR interface (parts inside ILE): Lange et al 2017 PRD 96, 404 [NR comparison methods paper](http://adsabs.harvard.edu/abs/2017PhRvD..96j4041L)
      d.  NRSur7dq2 interface: Lange et al 2018 (RIFT) [paper](https://arxiv.org/abs/1805.10457), and ...
 
+  5. If you are using an updated Monte Carlo integration package, please acknowledge the authors; papers will be prepared soon
+     a.  GMM integrator: Ben Champion; see [repo](https://git.ligo.org/benjamin.champion/Monte-Carlo-Integrator), see MonteCarloEnsemble and mcsamplerEnsemble
+     b.  GPU MC integrator:  Wysocki, O'Shaughnessy 
+
 ## Authorlists: Opt-in model
 Several aspects of this code are very actively developed.  We encourage  close collaboration with the lead developers (O'Shaughnessy and Lange) to produce the best possible results, particularly given comparatively rapid changes to the interface and pipeline in the past and planned for the future as the user- and developer-base expands.
 

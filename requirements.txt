@@ -1,12 +1,13 @@
 setuptools 
 pip 
 #cupy  
+numpy
 h5py 
 numba 
-vegas 
+#vegas 
 corner 
 scikit-learn 
-healpy 
+#healpy 
 matplotlib 
 lalsuite 
 gwdatafind 

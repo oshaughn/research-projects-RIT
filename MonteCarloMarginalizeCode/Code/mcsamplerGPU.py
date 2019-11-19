@@ -1,21 +1,58 @@
+# mcsamplerGPU.py
+#   From Dan Wysocki based on code by C. Pankow
+#   From fork https://github.com/oshaughn/research-projects-RIT/blob/GPU-danw-merge/MonteCarloMarginalizeCode/Code/mcsampler.py
+
+
 import sys
 import math
 import bisect
 from collections import defaultdict
 
 import numpy
+import numpy as np
 from scipy import integrate, interpolate
 import itertools
 import functools
+
+import os
+
+try:
+  import cupy
+  xpy_default=cupy
+  identity_convert = cupy.asnumpy
+  identity_convert_togpu = cupy.asarray
+  junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
+  cupy_ok = True
+except:
+  print ' no cupy (mcsamplerGPU)'
+#  import numpy as cupy  # will automatically replace cupy calls with numpy!
+  xpy_default=numpy  # just in case, to make replacement clear and to enable override
+  identity_convert = lambda x: x  # trivial return itself
+  identity_convert_togpu = lambda x: x
+  cupy_ok = False
+
+
+def set_xpy_to_numpy():
+   xpy_default=numpy
+   identity_convert = lambda x: x  # trivial return itself
+   identity_convert_togpu = lambda x: x
+   cupy_ok = False
+   
+
+if 'PROFILE' not in os.environ:
+   def profile(fn):
+        return fn
 
 try:
     import healpy
 except:
     print " - No healpy - "
 
-from statutils import cumvar, welford
+from statutils import cumvar
 
 from multiprocessing import Pool
+
+import vectorized_general_tools
 
 try:
     import vegas
@@ -41,9 +78,7 @@ class MCSampler(object):
     def match_params_from_args(args, params):
         """
         Given two unordered sets of parameters, one a set of all "basic" elements (strings) possible, and one a set of elements both "basic" strings and "combined" (basic strings in tuples), determine whether the sets are equivalent if no basic element is repeated.
-
         e.g. set A ?= set B
-
         ("a", "b", "c") ?= ("a", "b", "c") ==> True
         (("a", "b", "c")) ?= ("a", "b", "c") ==> True
         (("a", "b"), "d")) ?= ("a", "b", "c") ==> False  # basic element 'd' not in set B
@@ -75,6 +110,7 @@ class MCSampler(object):
         self.params_ordered = []  # keep them in order. Important to break likelihood function need for names
         # parameter -> pdf function object
         self.pdf = {}
+        self.pdf_initial = {}
         # If the pdfs aren't normalized, this will hold the normalization 
         # constant
         self._pdf_norm = defaultdict(lambda: 1)
@@ -83,6 +119,7 @@ class MCSampler(object):
         # parameter -> cdf^{-1} function object
         self.cdf = {}
         self.cdf_inv = {}
+        self.cdf_inv_initial = {}
         # params for left and right limits
         self.llim, self.rlim = {}, {}
         # Keep track of the adaptive parameters
@@ -94,6 +131,11 @@ class MCSampler(object):
         # MEASURES (=priors): ROS needs these at the sampler level, to clearly separate their effects
         # ASSUMES the user insures they are normalized
         self.prior_pdf = {}
+
+        # histogram setup
+        self.setup_hist()
+        self.xpy = numpy
+        self.identity_convert = lambda x: x  # if needed, convert to numpy format  (e.g, cupy.asnumpy)
 
     def clear(self):
         """
@@ -142,6 +184,8 @@ class MCSampler(object):
         self.pdf[params] = pdf
         # FIXME: This only works automagically for the 1d case currently
         self.cdf_inv[params] = cdf_inv or self.cdf_inverse(params)
+        self.pdf_initial[params] = pdf
+        self.cdf_inv_initial[params] = self.cdf_inv[params]
         if not isinstance(params, tuple):
             self.cdf[params] =  self.cdf_function(params)
             if prior_pdf is None:
@@ -153,6 +197,97 @@ class MCSampler(object):
         if adaptive_sampling:
             print "   Adapting ", params
             self.adaptive.append(params)
+
+    def reset_sampling(self,param):
+      self.pdf[param] = self.pdf_initial[param]
+      self.cdf_inv[param] = self.cdf_inv_initial[param]
+
+    def setup_hist(self):
+        """
+        Initializes dictionaries for all of the info that needs to be stored for
+        the histograms, across every parameter.
+        """
+        self.x_min = {}
+        self.x_max = {}
+        self.x_max_minus_min = {}
+        self.dx = {}
+        self.n_bins = {}
+
+        self.histogram_edges = {}
+        self.histogram_values = {}
+        self.histogram_cdf = {}
+
+
+    def setup_hist_single_param(self, x_min, x_max, n_bins, param):
+        # Compute the range of allowed values.
+        x_max_minus_min = x_max - x_min
+        # Compute the points at which the histogram will be evaluated, and store
+        # the spacing used.
+        histogram_edges, dx = self.xpy.linspace(
+            0.0, 1.0, n_bins+1,
+            retstep=True,
+        )
+
+        # Initialize output array for CDF.
+        histogram_cdf = self.xpy.empty(n_bins+1, dtype=numpy.float64)
+
+        # Store basic setup parameters
+        self.x_min[param] = x_min
+        self.x_max[param] = x_max
+        self.x_max_minus_min[param] = x_max_minus_min
+        self.dx[param] = dx
+        self.n_bins[param] = n_bins
+
+        self.histogram_edges[param] = histogram_edges
+        self.histogram_cdf[param] = histogram_cdf
+
+
+    def compute_hist(self, x_samples, param):
+        # Rescale the samples to [0, 1]
+        y_samples = (
+            (x_samples - self.x_min[param]) / self.x_max_minus_min[param]
+        )
+        # Evaluate the histogram at each of the bins.
+        histogram_values = vectorized_general_tools.histogram(
+            y_samples, self.n_bins[param],
+            xpy=self.xpy,
+        )
+        # Evaluate the CDF by taking a cumulative sum of the histogram.
+        n_bins = len(self.histogram_cdf[param]) 
+        self.xpy.cumsum(histogram_values[:n_bins-1], out=self.histogram_cdf[param][1:])
+        self.histogram_cdf[param] *= self.dx[param]
+        self.histogram_cdf[param][0] = 0.0
+
+        # Renormalize histogram.
+        histogram_values /= self.x_max_minus_min[param]
+
+        # Store histogram values.
+        self.histogram_values[param] = histogram_values
+
+
+    def cdf_inverse_from_hist(self, P, param):
+        # Compute the value of the inverse CDF, but scaled to [0, 1].
+       """
+        cdf_inverse_from_hist
+           - for now, do on the CPU, since this is done rarely and involves fairly small arrays
+           - this is very wasteful, since we are casting back to the CPU for ALL our sampling points
+       """
+       dat_cdf = identity_convert(self.histogram_cdf[param])
+       dat_edges = identity_convert(self.histogram_edges[param])
+       y = np.interp(
+            identity_convert(P), dat_cdf,
+            dat_edges,
+        )
+       # Return the value in the original scaling.
+       return identity_convert_togpu(y)*self.x_max_minus_min[param] + self.x_min[param]
+
+    def pdf_from_hist(self, x, param):
+        # Rescale `x` to [0, 1].
+        y = (x - self.x_min[param]) / self.x_max_minus_min[param]
+        # Compute the indices of the histogram bins that `x` falls into.
+        indices = self.xpy.trunc(y / self.dx[param], out=y).astype(np.int32)
+        # Return the value of the histogram.
+        return self.histogram_values[param][indices]
 
 
     def cdf_function(self, param):
@@ -175,6 +310,28 @@ class MCSampler(object):
         # Interpolate the inverse
         return interpolate.interp1d( x_i,cdf)
 
+    def cdf_function_from_histogram(self, x):
+        """
+        Computes the CDF from a histogram at the points `x`.
+        Params
+        ------
+        x : array_like, shape = sample_shape
+        Returns
+        -------
+        P(x) : array_like, shape = sample_shape
+        """
+        float_indices = (x - self.x0) / self.dx
+        indices, fractions = self.xpy.modf(float_indices)
+
+        cdf_before = self.partial_cdfs[indices]
+        cdf_after = self.dx * fractions * (
+            self.bin_heights[indices] +
+            fractions * self.bin_deltas[indices]
+        )
+
+        return self.xpy.add(cdf_before, cdf_after, out=cdf_before)
+
+
     def cdf_inverse(self, param):
         """
         Numerically determine the inverse CDF from a given sampling PDF. If the PDF itself is not normalized, the class will keep an internal record of the normalization and adjust the PDF values as necessary. Returns a function object which is the interpolated CDF inverse.
@@ -195,14 +352,59 @@ class MCSampler(object):
         # Interpolate the inverse
         return interpolate.interp1d(cdf, x_i)
 
-    def draw(self, rvs, *args, **kwargs):
+    @profile
+    def draw_simplified(self, n_samples, *args, **kwargs):
+        if len(args) == 0:
+            args = self.params
+
+        n_params = len(args)
+
+        save_no_samples = kwargs.get("save_no_samples", False)
+
+        # Allocate memory.
+        rv = self.xpy.empty((n_params, n_samples), dtype=numpy.float64)
+        joint_p_s = self.xpy.ones(n_samples, dtype=numpy.float64)
+        joint_p_prior = self.xpy.ones(n_samples, dtype=numpy.float64)
+
+        # Iterate over the parameters.
+        for i, param in enumerate(args):
+            # Do inverse CDF sampling for the parameter.
+            unif_samples = self.xpy.random.uniform(0.0, 1.0, n_samples)
+            param_samples = self.cdf_inv[param](unif_samples)
+
+            # Store the random samples, and multiply on the contribution to the
+            # joint PDF and joint prior at those samples.
+            rv[i] = param_samples
+            joint_p_s *= self.pdf[param](param_samples)
+            joint_p_prior *= self.prior_pdf[param](param_samples)
+
+
+        #
+        # Cache the samples we chose
+        #
+        if not save_no_samples:
+            if len(self._rvs) == 0:
+               self._rvs = dict(zip(args, rv))
+            else:
+               rvs_tmp = dict(zip(args, rv))
+               #for p, ar in self._rvs.iteritems():
+               for p in self.params_ordered:
+                   self._rvs[p] = self.xpy.hstack((self._rvs[p], rvs_tmp[p]))
+
+
+        return joint_p_s, joint_p_prior, rv
+
+    #@profile
+    def draw(self, rvs, *args,**kwargs):
         """
         Draw a set of random variates for parameter(s) args. Left and right limits are handed to the function. If args is None, then draw *all* parameters. 'rdict' parameter is a boolean. If true, returns a dict matched to param name rather than list. rvs must be either a list of uniform random variates to transform for sampling, or an integer number of samples to draw.
         """
         if len(args) == 0:
             args = self.params
 
-        no_cache_samples = kwargs["no_cache_samples"] if kwargs.has_key("no_cache_samples") else False
+        save_no_samples= False
+        if 'save_no_samples' in kwargs.keys():
+            save_no_samples = kwargs['save_no_samples']
 
 
         if isinstance(rvs, int) or isinstance(rvs, float):
@@ -211,10 +413,16 @@ class MCSampler(object):
             #
             # FIXME: UGH! Really? This was the most elegant thing you could come
             # up with?
-            rvs_tmp = [numpy.random.uniform(0,1,(len(p), int(rvs))) for p in map(lambda i: (i,) if not isinstance(i, tuple) else i, args)]
-            rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)], dtype=numpy.object)
-        else:
-            rvs_tmp = numpy.array(rvs)
+            rvs_tmp = [
+                numpy.random.uniform(0,1,(len(p), int(rvs)))
+                for p in
+                map(lambda i: (i,) if not isinstance(i, tuple) else i, args)
+            ]
+            rvs_tmp = numpy.array([
+                self.cdf_inv[param](*rv)
+                for (rv, param)
+                in zip(rvs_tmp, args)
+            ], dtype=numpy.float64)
 
         # FIXME: ELegance; get some of that...
         # This is mainly to ensure that the array can be "splatted", e.g.
@@ -233,20 +441,14 @@ class MCSampler(object):
         #
         # Cache the samples we chose
         #
-        if not no_cache_samples:  # more efficient memory usage. Note adaptation will not wor
-          if len(self._rvs) == 0:
+        if not save_no_samples:
+         if len(self._rvs) == 0:
             self._rvs = dict(zip(args, rvs_tmp))
-          else:
+         else:
             rvs_tmp = dict(zip(args, rvs_tmp))
             #for p, ar in self._rvs.iteritems():
             for p in self.params_ordered:
                 self._rvs[p] = numpy.hstack( (self._rvs[p], rvs_tmp[p]) )
-        else:  
-            # if we are not caching samples, DELETE the sample record.  Saves memory!
-            if len(self._rvs) >0:
-                for p in self.params_ordered:
-                    del self._rvs[p]
-            self._rvs = {}
 
         #
         # Pack up the result if the user wants a dictonary instead
@@ -256,12 +458,38 @@ class MCSampler(object):
         return zip(*res)
 
 
-    def integrate_vegas(self, func, *args, **kwargs):
+    #
+    # FIXME: The priors are not strictly part of the MC integral, and so any
+    # internal reference to them needs to be moved to a subclass which handles
+    # the incovnenient part os doing the \int p/p_s L d\theta integral.
+    #
+    @profile
+    def integrate(self, func, *args, **kwargs):
         """
-        Uses vegas to do the integral.  Does not return sample points
-        Remember:   pdf, cdf_inv refer to the *sampling* prior, so I need to multiply the integrand by a PDF ratio product!
+        Integrate func, by using n sample points. Right now, all params defined must be passed to args must be provided, but this will change soon.
+        Does NOT allow for tuples of arguments, an unused feature in mcsampler
+
+        kwargs:
+        nmax -- total allowed number of sample points, will throw a warning if this number is reached before neff.
+        neff -- Effective samples to collect before terminating. If not given, assume infinity
+        n -- Number of samples to integrate in a 'chunk' -- default is 1000
+        save_integrand -- Save the evaluated value of the integrand at the sample points with the sample point
+        history_mult -- Number of chunks (of size n) to use in the adaptive histogramming: only useful if there are parameters with adaptation enabled
+        tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
+        temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
+        tempering_adapt -- Gradually evolve the tempering_exp based on previous history.
+        floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
+        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
+        convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
+        Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """
-        # Method: use loop over params (=args), 
+        # Setup histogram data
+        n_bins = 100
+        for p in self.params_ordered:
+            self.setup_hist_single_param(self.llim[p], self.rlim[p], n_bins, p)
+
+        xpy_here = self.xpy
+
         #
         # Pin values
         #
@@ -280,107 +508,16 @@ class MCSampler(object):
                 self.prior_pdf[p] = functools.partial(delta_func_pdf_vector, val)
                 self.cdf_inv[p] = functools.partial(delta_func_samp_vector, val)
 
-        #
-        # Determine stopping conditions
-        #
-        nmax = kwargs["nmax"] if kwargs.has_key("nmax") else 1e6
-        neff = kwargs["neff"] if kwargs.has_key("neff") else 1000
-        n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)  # chunk size
-        nBlocks = 10
-        n_itr = numpy.max([10,numpy.min([20,int(nmax/nBlocks/n)])])  # largest number to use
-
-
-        # What I am actually doing: an n-dimensional integral with vegas, using the CDF function to generate the parameter
-        # range.
-        paramListDefault = kwargs['param_order'] # do not try to get it from the function
-        strToEval = "lambda x: func("
-        for indx in numpy.arange(len(paramListDefault)):
-            strToEval+= 'self.cdf_inv["'+str(paramListDefault[indx])+'"](x['+str(indx)+']),'
-        strToEval=strToEval[:len(strToEval)-1]  # drop last comma
-        strToEval += ')'
-        # multiply by ratio of p/ps
-        for indx in numpy.arange(len(paramListDefault)):
-            strToEval+= '*( self.prior_pdf["'+str(paramListDefault[indx])+'"](x['+str(indx)+'])/(self.pdf["'+str(paramListDefault[indx])+'"](x['+str(indx)+'])/self._pdf_norm["'  +str(paramListDefault[indx])+ '"] ))'
-        print strToEval
-        fnToUse = eval(strToEval,{'func':func, 'self':self})  # evaluate in context
-#        fnToUse =vegas.batchintegrand(fnToUse)   # batch mode
-#        print fnToUse
-#        grid = numpy.zeros((len(paramListDefault), 2))
-#        grid[:,1] = numpy.ones(len(paramListDefault))
-        integ = vegas.Integrator( len(paramListDefault)*[[0,1]]) # generate the grid
-        # quick and dirty training
-        print 'Start training'
-        result = integ(fnToUse,nitn=10, neval=1000)
-        print result.summary()
-        # result -- problem of very highly peaked function, not clear if vanilla vegas is smart enough.
-        # Loop over blocks of 1000 evaluations, and check that final chi2/dof  is within 0.05 of 1
-        bDone = False
-        alphaRunning = numpy.min([0.1, 8/numpy.log(result.mean)])   # constrain dynamic range to a reaonsable range
-        print 'Start full  : WARNING VEGAS TENDS TO OVERADAPT given huge dynamic range'
-        while (not bDone and nBlocks):  # this is basically training
-            print " Block run " , n_itr, n
-            result=integ(fnToUse,nitn=n_itr, neval=n)
-            alphaRunning = numpy.min([0.1, 8/numpy.log(result.mean)])   # constrain dynamic range to a reaonsable range
-            print nBlocks, numpy.sqrt(2*numpy.log(result.mean)), result.sdev/result.mean, result.chi2/result.dof, alphaRunning
-            print result.summary()
-            nBlocks+= -1
-            if numpy.abs(result.chi2/result.dof - 1) < 0.05:
-                bDone =True
-        print result.summary()
-        return result
-
-    #
-    # FIXME: The priors are not strictly part of the MC integral, and so any
-    # internal reference to them needs to be moved to a subclass which handles
-    # the incovnenient part os doing the \int p/p_s L d\theta integral.
-    #
-    def integrate(self, func, *args, **kwargs):
-        """
-        Integrate func, by using n sample points. Right now, all params defined must be passed to args must be provided, but this will change soon.
-
-        Limitations:
-            func's signature must contain all parameters currently defined by the sampler, and with the same names. This is required so that the sample values can be passed consistently.
-
-        kwargs:
-        nmax -- total allowed number of sample points, will throw a warning if this number is reached before neff.
-        neff -- Effective samples to collect before terminating. If not given, assume infinity
-        n -- Number of samples to integrate in a 'chunk' -- default is 1000
-        save_integrand -- Save the evaluated value of the integrand at the sample points with the sample point
-        history_mult -- Number of chunks (of size n) to use in the adaptive histogramming: only useful if there are parameters with adaptation enabled
-        tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
-        temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
-        tempering_adapt -- Gradually evolve the tempering_exp based on previous history.
-        floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
-        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
-        convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
-
-        Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
-        """
-
-        #
-        # Pin values
-        #
-        tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
-        temppdfnormdict = defaultdict(lambda: 1.0)
-        for p, val in kwargs.iteritems():
-            if p in self.params_ordered:  
-                # Store the previous pdf/cdf in case it's already defined
-                tempcdfdict[p] = self.cdf_inv[p]
-                temppdfdict[p] = self.pdf[p]
-                temppdfnormdict[p] = self._pdf_norm[p]
-                temppriordict[p] = self.prior_pdf[p]
-                # Set a new one to always return the same value
-                self.pdf[p] = functools.partial(delta_func_pdf_vector, val)
-                self._pdf_norm[p] = 1.0
-                self.prior_pdf[p] = functools.partial(delta_func_pdf_vector, val)
-                self.cdf_inv[p] = functools.partial(delta_func_samp_vector, val)
-
         # put it back in the args
+#        if 'args' in kwargs.keys():
+#            args = kwargs['args']
         #args = tuple(list(args) + filter(lambda p: p in self.params, kwargs.keys()))
         # This is a semi-hack to ensure that the integrand is called with
         # the arguments in the right order
         # FIXME: How dangerous is this?
-        args = func.func_code.co_varnames[:func.func_code.co_argcount]
+#        else:
+#            args = func.func_code.co_varnames[:func.func_code.co_argcount]
+
 
         #if set(args) & set(params) != set(args):
         # DISABLE THIS CHECK
@@ -392,8 +529,9 @@ class MCSampler(object):
         #
         nmax = kwargs["nmax"] if kwargs.has_key("nmax") else float("inf")
         neff = kwargs["neff"] if kwargs.has_key("neff") else numpy.float128("inf")
-        n = kwargs["n"] if kwargs.has_key("n") else min(1000, nmax)
+        n = int(kwargs["n"] if kwargs.has_key("n") else min(1000, nmax))
         convergence_tests = kwargs["convergence_tests"] if kwargs.has_key("convergence_tests") else None
+	save_no_samples = kwargs["save_no_samples"] if kwargs.has_key("save_no_samples") else None
 
 
         #
@@ -414,10 +552,6 @@ class MCSampler(object):
             
 
         save_intg = kwargs["save_intg"] if kwargs.has_key("save_intg") else False
-        force_no_adapt = kwargs["force_no_adapt"] if kwargs.has_key("force_no_adapt") else False
-        save_no_samples = kwargs["save_no_samples"] if kwargs.has_key("save_no_samples") else False
-        if save_no_samples:   # can't adapt without saved samples
-            force_no_adapt = True
         # FIXME: The adaptive step relies on the _rvs cache, so this has to be
         # on in order to work
         if n_adapt > 0 and tempering_exp > 0.0:
@@ -456,22 +590,9 @@ class MCSampler(object):
             last_convergence_test = defaultdict(lambda: False)   # need record of tests to be returned always
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
-            args_draw ={}
-            if force_no_adapt or save_no_samples:  # don't save permanent sample history if not needed
-                args_draw.update({"no_cache_samples":True})
-            p_s, p_prior, rv = self.draw(n, *self.params_ordered,**args_draw)  # keep in order
-
-#            print "Prior ",  type(p_prior[0]), p_prior[0]
-#            print "rv ",  type(rv[0]), rv[0]    # rv generally has dtype = object, to enable joint sampling with multid variables
-#            print "Sampling prior ", type(p_s[0]), p_s[0]  
-                        
-            # Calculate the overall p_s assuming each pdf is independent
-            joint_p_s = numpy.prod(p_s, axis=0)
-            joint_p_prior = numpy.prod(p_prior, axis=0)
-            joint_p_prior = numpy.array(joint_p_prior,dtype=numpy.float128)  # Force type. Some type issues have arisen (dtype=object returns by accident)
-
-#            print "Joint prior ",  type(joint_p_prior), joint_p_prior.dtype, joint_p_prior
-#            print "Joint sampling prior ", type(joint_p_s), joint_p_s.dtype
+            joint_p_s, joint_p_prior, rv = self.draw_simplified(
+                n, *self.params_ordered
+            )
 
             #
             # Prevent zeroes in the sampling prior
@@ -495,12 +616,14 @@ class MCSampler(object):
                     params.extend(item)
                 else:
                     params.append(item)
-            unpacked = unpacked0 = numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
+            unpacked = unpacked0 = rv #numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
             unpacked = dict(zip(params, unpacked))
             if kwargs.has_key('no_protect_names'):
                 fval = func(*unpacked0)  # do not protect order
             else:
                 fval = func(**unpacked) # Chris' original plan: note this insures the function arguments are tied to the parameters, using a dictionary. 
+
+            fval = identity_convert_togpu(fval)  # send to GPU, if not already there
 
             #
             # Check if there is any practical contribution to the integral
@@ -513,11 +636,11 @@ class MCSampler(object):
                 print >>sys.stderr, "No contribution to integral, skipping."
                 continue
 
-            if save_intg and not force_no_adapt:
+            if save_intg:
                 # FIXME: The joint_prior, if not specified is set to one and
                 # will come out as a scalar here, hence the hack
-                if not isinstance(joint_p_prior, numpy.ndarray):
-                    joint_p_prior = numpy.ones(fval.shape)*joint_p_prior
+                if not isinstance(joint_p_prior, xpy_here.ndarray):
+                    joint_p_prior = xpy_here.ones(fval.shape)*joint_p_prior
 
 
 #                print "      Prior", type(joint_p_prior), joint_p_prior.dtype
@@ -526,10 +649,10 @@ class MCSampler(object):
                 # need to be moved out of this, as they are not part of MC
                 # integration
                 if self._rvs.has_key("integrand"):
-                    self._rvs["integrand"] = numpy.hstack( (self._rvs["integrand"], fval) )
-                    self._rvs["joint_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
-                    self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_s_prior"], joint_p_s) )
-                    self._rvs["weights"] = numpy.hstack( (self._rvs["joint_s_prior"], fval*joint_p_prior/joint_p_s) )
+                    self._rvs["integrand"] = xpy_here.hstack( (self._rvs["integrand"], fval) )
+                    self._rvs["joint_prior"] = xpy_here.hstack( (self._rvs["joint_prior"], joint_p_prior) )
+                    self._rvs["joint_s_prior"] = xpy_here.hstack( (self._rvs["joint_s_prior"], joint_p_s) )
+                    self._rvs["weights"] = xpy_here.hstack( (self._rvs["joint_s_prior"], fval*joint_p_prior/joint_p_s) )
                 else:
                     self._rvs["integrand"] = fval
                     self._rvs["joint_prior"] = joint_p_prior
@@ -546,24 +669,24 @@ class MCSampler(object):
             # Calculate max L (a useful convergence feature) for debug 
             # reporting.  Not used for integration
             # Try to avoid nan's
-            maxlnL = numpy.log(numpy.max([numpy.exp(maxlnL), numpy.max(fval),numpy.exp(-100)]))   # note if f<0, this will return nearly 0
+            maxlnL = numpy.log(numpy.max([numpy.exp(maxlnL), identity_convert(xpy_here.max(fval)),numpy.exp(-100)]))   # note if f<0, this will return nearly 0
 
             # Calculate the effective samples via max over the current 
             # evaluations
-            maxval = [max(maxval, int_val[0]) if int_val[0] != 0 else maxval]
-            for v in int_val[1:]:
-                maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
+            maxval = max(maxval, identity_convert(int_val[0])) if int_val[0] != 0 else maxval
+            maxval = identity_convert(max(maxval,xpy_here.amax(int_val)))
+            #for v in int_val[1:]:
+            #    maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
             # running variance
-#            var = cumvar(int_val, mean, var, int(self.ntotal))[-1]
-            var = welford(int_val, mean, var, int(self.ntotal))
+            var = cumvar(identity_convert(int_val), mean, var, int(self.ntotal))[-1]
             # running integral
-            int_val1 += int_val.sum()
+            int_val1 += identity_convert(int_val.sum())
             # running number of evaluations
             self.ntotal += n
             # FIXME: Likely redundant with int_val1
             mean = int_val1/self.ntotal
-            maxval = maxval[-1]
+            #maxval = maxval[-1]
 
             eff_samp = int_val1/maxval
 
@@ -598,64 +721,25 @@ class MCSampler(object):
             if self.ntotal > n_adapt:
                 continue
 
-            if force_no_adapt:
-                continue
-
-            # FIXME: Hardcoding
-            #mixing_floor = 10**(-numpy.sqrt(ntotal))
-            #mixing_floor = 10**-50
-
             #
             # Iterate through each of the parameters, updating the sampling
             # prior PDF according to the 1-D marginalization
             #
+            def function_wrapper(f, p):
+                def inner(arg):
+                    return f(arg, p)
+                return inner
+
             for itr, p in enumerate(self.params_ordered):
-                # FIXME: The second part of this condition should be made more
-                # specific to pinned parameters
+                # # FIXME: The second part of this condition should be made more
+                # # specific to pinned parameters
                 if p not in self.adaptive or p in kwargs.keys():
                     continue
+
                 points = self._rvs[p][-n_history:]
-#                print "      Points", p, type(points),points.dtype
-                # use log weights or weights
-                if not temper_log:
-                    weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp_running
-                else:
-                    weights = numpy.max([1e-5,numpy.log(self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])])**tempering_exp_running
-
-                if tempering_adapt:
-                    # have the adaptive exponent converge to 2/ln(w_max), ln (w)*alpha <= 2. This helps dynamic range
-                    # almost always dominated by the parameters we care about
-                    tempering_exp_running = 0.8 *tempering_exp_running + 0.2*(3./numpy.max([1,numpy.log(numpy.max(weights))]))
-                    if rosDebugMessages:
-                        print "     -  New adaptive exponent  ", tempering_exp_running, " based on max 1d weight ", numpy.max(weights), " based on parameter ", p
-
-#                print "      Weights",  type(weights),weights.dtype
-                self._hist[p], edges = numpy.histogram( points,
-                    bins = 100,
-                    range = (self.llim[p], self.rlim[p]),
-                    weights = weights,
-                    normed = True
-                )
-                # FIXME: numpy.hist can't normalize worth a damn
-                self._hist[p] /= self._hist[p].sum()
-
-                # Mix with uniform distribution
-                self._hist[p] = (1-floor_integrated_probability)*self._hist[p] + numpy.ones(len(self._hist[p]))*floor_integrated_probability/len(self._hist[p])
-                if rosDebugMessages:
-                    print "         Weight entropy (after histogram) ", numpy.sum(-1*self._hist[p]*numpy.log(self._hist[p])), p
-
-                edges = [ (e0+e1)/2.0 for e0, e1 in zip(edges[:-1], edges[1:]) ]
-                edges.append( edges[-1] + (edges[-1] - edges[-2]) )
-                edges.insert( 0, edges[0] - (edges[-1] - edges[-2]) )
-
-                # FIXME: KS test probably has a place here. Not sure yet where.
-                #from scipy.stats import kstest
-                #d, pval = kstest(self._rvs[p][-n_history:], self.cdf[p])
-                #print p, d, pval
-
-                self.pdf[p] = interpolate.interp1d(edges, [0] + list(self._hist[p]) + [0])
-                self.cdf[p] = self.cdf_function(p)
-                self.cdf_inv[p] = self.cdf_inverse(p)
+                self.compute_hist(points, p)
+                self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
+                self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
 
         # If we were pinning any values, undo the changes we did before
         self.cdf_inv.update(tempcdfdict)
@@ -667,7 +751,7 @@ class MCSampler(object):
         #   - find and remove samples with  lnL less than maxlnL - deltalnL (latter user-specified)
         #   - create the cumulative weights
         #   - find and remove samples which contribute too little to the cumulative weights
-        if "integrand" in self._rvs:
+        if (not save_no_samples) and ( "integrand" in self._rvs):
             self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
             # Step 1: Cut out any sample with lnL belw threshold
             indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
@@ -713,17 +797,25 @@ def uniform_samp_cdf_inv_vector(a,b,p):
     out = p*(b-a) + a
     return out
 #uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
-uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
+#uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
+def uniform_samp_vector(a,b,x):
+   """
+   uniform_samp_vector:
+      Implement uniform sampling with np primitives, not np.vectorize !
+   Note NO cupy implementation yet
+   """
+   return numpy.heaviside(x-a,0)*numpy.heaviside(b-x,0)/(b-a)
+def uniform_samp_vector_lazy(a,b,x):
+   """
+   uniform_samp_vector_lazy:
+      Implement uniform sampling as multiplication by a constant.
+      Much faster and lighter weight. We never use the cutoffs anyways, because the limits are hardcoded elsewhere.
+   """
+   return 1./(b-a)  # requires the variable in range.  Needed because there is no cupy implementation of np.heavyside
+if cupy_ok:
+   uniform_samp_vector = uniform_samp_vector_lazy  
 
-# def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
-#     ret =0.
-#     if x<rmaxQuad:
-#         ret+= (1-pFlat)/rmaxQuad
-#     if x<rmaxFlat:
-#         ret +=pFlat/rmaxFlat
-#     return  ret
-# uniform_samp_withfloor_vector = numpy.vectorize(uniform_samp_withfloor, otypes=[numpy.float])
-def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
+def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=xpy_default):
     if isinstance(x, float):
         ret =0.
         if x<rmaxQuad:
@@ -731,38 +823,50 @@ def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
         if x<rmaxFlat:
             ret +=pFlat/rmaxFlat
         return  ret
-    ret = numpy.zeros(x.shape,dtype=numpy.float64)
-    ret += numpy.select([x<rmaxQuad],[(1.-pFlat)/rmaxQuad])
-    ret += numpy.select([x<rmaxFlat],[pFlat/rmaxFlat])
+    ret = xpy.zeros(x.shape,dtype=numpy.float64)
+    ret += xpy.select([x<rmaxQuad],[(1.-pFlat)/rmaxQuad])
+    ret += xpy.select([x<rmaxFlat],[pFlat/rmaxFlat])
     return ret
 
 
 
 # syntatic sugar : predefine the most common distributions
-uniform_samp_phase = numpy.vectorize(lambda x: 1/(2*numpy.pi))
-uniform_samp_psi = numpy.vectorize(lambda x: 1/(numpy.pi))
-uniform_samp_theta = numpy.vectorize(lambda x: numpy.sin(x)/(2))
-uniform_samp_dec = numpy.vectorize(lambda x: numpy.cos(x)/(2))
+def uniform_samp_phase(x,xpy=xpy_default):
+   """
+   Assume range known as 0,2pi
+   """
+   return xpy.ones(len(x))/(2*np.pi) 
+def uniform_samp_psi(x,xpy=xpy_default):
+   """
+   Assume range known as 0,pi
+   """
+   return xpy.ones(len(x))/(np.pi) 
+def uniform_samp_theta(x,xpy=xpy_default):
+   """
+   Assume range known as 
+   """
+   return xpy.sin(x)/(2.) 
+def uniform_samp_dec(x,xpy=xpy_default):
+   """
+   Assume range known as 
+   """
+   return xpy.cos(x)/(2.) 
 
-def quadratic_samp(rmax,x):
-        if x<rmax:
-                return x**2/(3*rmax**3)
-        else:
-                return 0
 
-quadratic_samp_vector = numpy.vectorize(quadratic_samp, otypes=[numpy.float])
+def cos_samp(x,xpy=xpy_default):
+        return xpy.sin(x)/2   # x from 0, pi
 
-def inv_uniform_cdf(a, b, x):
-    return (b-a)*x+a
+def dec_samp(x,xpy=xpy_default):
+        return xpy.sin(x+numpy.pi/2)/2   # x from 0, pi
 
-def gauss_samp(mu, std, x):
-    return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2)
+cos_samp_vector = cos_samp
+dec_samp_vector = dec_samp
+def cos_samp_cdf_inv_vector(p,xpy=xpy_default):
+    return xpy.arccos( 2*p-1)   # returns from 0 to pi
+def dec_samp_cdf_inv_vector(p,xpy=xpy_default):
+    return xpy.arccos(2*p-1) - xpy.pi/2  # target from -pi/2 to pi/2
 
-def gauss_samp_withfloor(mu, std, myfloor, x):
-    return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2) + myfloor
 
-#gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,excluded=['mu','std','myfloor'],otypes=[numpy.float])
-gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,otypes=[numpy.float])
 
 
 # Mass ratio. PDF propto 1/(1+q)^2.  Defined so mass ratio is < 1
@@ -774,27 +878,14 @@ gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,otypes=[numpy
 def q_samp_vector(qmin,qmax,x):
     scale = 1./(1+qmin) - 1./(1+qmax)
     return 1/numpy.power((1+x),2)/scale
-def q_cdf_inv_vector(qmin,qmax,x):
-    return numpy.array((qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x),dtype=np.float128)
+def q_cdf_inv_vector(qmin,qmax,x,xpy=xpy_default):
+    return np.array((qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x),dtype=np.float128)
 
 # total mass. Assumed used with q.  2M/Mmax^2-Mmin^2
 def M_samp_vector(Mmin,Mmax,x):
     scale = 2./(Mmax**2 - Mmin**2)
     return x*scale
 
-
-def cos_samp(x):
-        return numpy.sin(x)/2   # x from 0, pi
-
-def dec_samp(x):
-        return numpy.sin(x+numpy.pi/2)/2   # x from 0, pi
-
-cos_samp_vector = numpy.vectorize(cos_samp,otypes=[numpy.float])
-dec_samp_vector = numpy.vectorize(dec_samp,otypes=[numpy.float])
-def cos_samp_cdf_inv_vector(p):
-    return numpy.arccos( 2*p-1)   # returns from 0 to pi
-def dec_samp_cdf_inv_vector(p):
-    return numpy.arccos(2*p-1) - numpy.pi/2  # target from -pi/2 to pi/2
 
 
 def pseudo_dist_samp(r0,r):
@@ -813,174 +904,6 @@ def delta_func_samp(x_0, x):
 
 delta_func_samp_vector = numpy.vectorize(delta_func_samp, otypes=[numpy.float])
 
-
-def linear_down_samp(x,xmin=0,xmax=1):
-    """
-    distribution p(x) \propto (xmax-x) 
-    """
-    return 2./(xmax-xmin)**2 * numpy.power(xmax-x,1)
-
-def linear_down_samp_cdf(x,xmin=0,xmax=1):
-    """
-    CDF of distribution p(x) \propto (xmax-x) 
-    """
-    return 1.-1./(xmax-xmin)**2 * numpy.power(xmax-x,2)
-
-
-def power_down_samp(x,xmin=0,xmax=1,alpha=3):
-    """
-    distribution p(x) \propto (xmax-x) 
-    """
-    return alpha/(xmax-xmin)**alpha * numpy.power(xmax-x,alpha-1)
-
-def power_down_samp_cdf(x,xmin=0,xmax=1,alpha=3):
-    """
-    CDF of distribution p(x) \propto (xmax-x) 
-    """
-    return 1.-1./(xmax-xmin)**alpha * numpy.power(xmax-x,alpha)
-
-
-class HealPixSampler(object):
-    """
-    Class to sample the sky using a FITS healpix map. Equivalent to a joint 2-D pdf in RA and dec.
-    """
-
-    @staticmethod
-    def thph2decra(th, ph):
-        """
-        theta/phi to RA/dec
-        theta (north to south) (0, pi)
-        phi (east to west) (0, 2*pi)
-        declination: north pole = pi/2, south pole = -pi/2
-        right ascension: (0, 2*pi)
-        
-        dec = pi/2 - theta
-        ra = phi
-        """
-        return numpy.pi/2-th, ph
-
-    @staticmethod
-    def decra2thph(dec, ra):
-        """
-        theta/phi to RA/dec
-        theta (north to south) (0, pi)
-        phi (east to west) (0, 2*pi)
-        declination: north pole = pi/2, south pole = -pi/2
-        right ascension: (0, 2*pi)
-        
-        theta = pi/2 - dec
-        ra = phi
-        """
-        return numpy.pi/2-dec, ra
-
-    def __init__(self, skymap, massp=1.0):
-        self.skymap = skymap
-        self._massp = massp
-        self.renormalize()
-
-    @property
-    def massp(self):
-        return self._massp
-
-    @massp.setter
-    def massp(self, value):
-        assert 0 <= value <= 1
-        self._massp = value
-        norm = self.renormalize()
-
-    def renormalize(self):
-        """
-        Identify the points contributing to the overall cumulative probability distribution, and set the proper normalization.
-        """
-        res = healpy.npix2nside(len(self.skymap))
-        self.pdf_sorted = sorted([(p, i) for i, p in enumerate(self.skymap)], reverse=True)
-        self.valid_points_decra = []
-        cdf, np = 0, 0
-        for p, i in self.pdf_sorted:
-            if p == 0:
-                continue # Can't have a zero prior
-            self.valid_points_decra.append(HealPixSampler.thph2decra(*healpy.pix2ang(res, i)))
-            cdf += p
-            if cdf > self._massp:
-                break
-        self._renorm = cdf
-        # reset to indicate we'd need to recalculate this
-        self.valid_points_hist = None
-        return self._renorm
-
-    def __expand_valid(self, min_p=1e-7):
-        #
-        # Determine what the 'quanta' of probabilty is
-        #
-        if self._massp == 1.0:
-            # This is to ensure we don't blow away everything because the map
-            # is very spread out
-            min_p = min(min_p, max(self.skymap))
-        else:
-            # NOTE: Only valid if CDF descending order is kept
-            min_p = self.pseudo_pdf(*self.valid_points_decra[-1])
-
-        self.valid_points_hist = []
-        ns = healpy.npix2nside(len(self.skymap))
-
-        # Renormalize first so that the vector histogram is properly normalized
-        self._renorm = 0
-        # Account for probability lost due to cut off
-        for i, v in enumerate(self.skymap >= min_p):
-            self._renorm += self.skymap[i] if v else 0
-
-        for pt in self.valid_points_decra:
-            th, ph = HealPixSampler.decra2thph(pt[0], pt[1])
-            pix = healpy.ang2pix(ns, th, ph)
-            if self.skymap[pix] < min_p:
-                continue
-            self.valid_points_hist.extend([pt]*int(round(self.pseudo_pdf(*pt)/min_p)))
-        self.valid_points_hist = numpy.array(self.valid_points_hist).T
-
-    def pseudo_pdf(self, dec_in, ra_in):
-        """
-        Return pixel probability for a given dec_in and ra_in. Note, uses healpy functions to identify correct pixel.
-        """
-        th, ph = HealPixSampler.decra2thph(dec_in, ra_in)
-        res = healpy.npix2nside(len(self.skymap))
-        return self.skymap[healpy.ang2pix(res, th, ph)]/self._renorm
-
-    def pseudo_cdf_inverse(self, dec_in=None, ra_in=None, ndraws=1, stype='vecthist'):
-        """
-        Select points from the skymap with a distribution following its corresponding pixel probability. If dec_in, ra_in are suupplied, they are ignored except that their shape is reproduced. If ndraws is supplied, that will set the shape. Will return a 2xN numpy array of the (dec, ra) values.
-        stype controls the type of sampling done to retrieve points. Valid choices are
-        'rejsamp': Rejection sampling: accurate but slow
-        'vecthist': Expands a set of points into a larger vector with the multiplicity of the points in the vector corresponding roughly to the probability of drawing that point. Because this is not an exact representation of the proability, some points may not be represented at all (less than quantum of minimum probability) or inaccurately (a significant fraction of the fundamental quantum).
-        """
-
-        if ra_in is not None:
-            ndraws = len(ra_in)
-        if ra_in is None:
-            ra_in, dec_in = numpy.zeros((2, ndraws))
-
-        if stype == 'rejsamp':
-            # FIXME: This is only valid under descending ordered CDF summation
-            ceiling = max(self.skymap)
-            i, np = 0, len(self.valid_points_decra)
-            while i < len(ra_in):
-                rnd_n = numpy.random.randint(0, np)
-                trial = numpy.random.uniform(0, ceiling)
-                if trial <= self.pseudo_pdf(*self.valid_points_decra[rnd_n]):
-                    dec_in[i], ra_in[i] = self.valid_points_decra[rnd_n]
-                    i += 1
-            return numpy.array([dec_in, ra_in])
-        elif stype == 'vecthist':
-            if self.valid_points_hist is None:
-                self.__expand_valid()
-            np = self.valid_points_hist.shape[1]
-            rnd_n = numpy.random.randint(0, np, len(ra_in))
-            dec_in, ra_in = self.valid_points_hist[:,rnd_n]
-            return numpy.array([dec_in, ra_in])
-        else:
-            raise ValueError("%s is not a recgonized sampling type" % stype)
-
-#pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
-pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float])
 
 
 def sanityCheckSamplerIntegrateUnity(sampler,*args,**kwargs):
@@ -1032,4 +955,3 @@ def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativ
     print " Test values on distribution of log evidence:  (gaussianity p-value; standard deviation of ln evidence) ", valTest, igrandSigma
     print " Ln(evidence) sub-integral values, as used in tests  : ", igrandValues
     return valTest> pcutNormalTest and igrandSigma < sigmaCutRelativeErrorThreshold   # Test on left returns a small value if implausible. Hence pcut ->0 becomes increasingly difficult (and requires statistical accidents). Test on right requires relative error in integral also to be small when pcut is small.   FIXME: Give these variables two different names
-    

@@ -134,11 +134,14 @@ parser.add_argument("--calibration-version",default=None,help="Calibration versi
 parser.add_argument("--playground-data",default=None,help="Playground data. Modifies channel names used.")
 parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER (will override environment variable, which is used as default)")
 parser.add_argument("--fmin",default=None,type=float,help="Minimum frequency for integration. Used to estimate signal duration")
+parser.add_argument("--manual-mc-min",default=None,type=float,help="Manually input minimum in chirp mass")
+parser.add_argument("--manual-mc-max",default=None,type=float,help="Manually input maximum in chrip mass")
 parser.add_argument("--fmin-template",default=20,type=float,help="Minimum frequency for template. Used to estimate signal duration. If fmin not specified, also the minimum frequency for integration")
 parser.add_argument("--fmax",default=None,type=float,help="fmax. Use this ONLY if you want to override the default settings, which are set based on the PSD used")
 parser.add_argument("--data-start-time",default=None)
 parser.add_argument("--data-end-time",default=None,help="If both data-start-time and data-end-time are provided, this interval will be used.")
 parser.add_argument("--data-LI-seglen",default=None,type=float,help="If provided, use a buffer this long, placing the signal 2s after this, and try to use 0.4s tukey windowing on each side, to be consistent with LI.  ")
+parser.add_argument("--no-enforce-duration-bound",action='store_true',help="Allow user to perform LI-style behavior and reequest signals longer than the seglen. Argh, by request.")
 #parser.add_argument("--enforce-q-min",default=None,type=float,help='float.  If provided ,the grid will go down to this mass ratio. SEGMENT LENGTH WILL BE ADJUSTED')
 parser.add_argument("--working-directory",default=".")
 parser.add_argument("--datafind-exe",default="gw_data_find")
@@ -146,21 +149,29 @@ parser.add_argument("--gracedb-exe",default="gracedb")
 parser.add_argument("--fake-data",action='store_true',help="If this argument is present, the channel names are overridden to FAKE_STRAIN")
 parser.add_argument("--cache",type=str,default=None,help="If this argument is present, the various routines will use the frame files in this cache. The user is responsible for setting this up")
 parser.add_argument("--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.  Required if using --fake-data option")
+parser.add_argument("--assume-fiducial-psd-files", action="store_true", help="Will populate the arguments --psd-file IFO=IFO-psd.xml.gz for all IFOs being used, based on data availability.   Intended for user to specify PSD files later, or for DAG to build BW PSDs. ")
 parser.add_argument("--use-online-psd",action='store_true',help='Use PSD from gracedb, if available')
 parser.add_argument("--assume-matter",action='store_true',help="If present, the code will add options necessary to manage tidal arguments. The proposed fit strategy and initial grid will allow for matter")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
+parser.add_argument("--assume-highq",action='store_true',help="If present, the code will adopt a strategy that drops spin2. Also the precessing strategy will allow perpendicular spin to play a role early on (rather than as a subdominant parameter later)")
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
 parser.add_argument("--online", action='store_true', help="Use online settings")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
+parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,help="A factor to multiply the mc grid width by. By default 1, or 1.5 if search active. Use larger values mainly in synthetic data tests with noise, to insure sufficiently wide coverage around the *true* parameter values.")
 #parser.add_argument("--propose-initial-grid-includes-search-error",action='store_true',help="Searches have paraemter offsets, but injections have known parameters.  You need a wider grid if you are running from a search grid, since they are usually substantiallyoffset from the maximumlikelihood ")
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
+parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
+parser.add_argument("--internal-fit-strategy-enforces-cut",action='store_true',help="Fit strategy enforces lnL-offset (default 15) after the first batch of iterations. ACTUALLY DEFAULT - SHOULD BE REDUNDANT")
+parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
+parser.add_argument("--use-osg",action='store_true',help="If true, use pathnames consistent with OSG")
+parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.  This option insures that the cache file is properly transferred (because you have generated it)")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
@@ -245,7 +256,7 @@ if opts.playground_data:
 # [H1|L1]:GDS-CALIB_STRAIN_CLEAN
 # [H1|L1]:GDS-GATED_STRAIN
 # https://github.com/lpsinger/gwcelery/blob/master/gwcelery/conf/production.py
-cal_versions = {"C00","C01", "X01"}
+cal_versions = {"C00","C01", "X01","X02","C01_nonlinear"}
 for cal in cal_versions:
     for ifo in "H1", "L1":
         data_types["O3"][(cal,ifo)] = ifo+"_HOFT_" + cal
@@ -258,11 +269,24 @@ for cal in cal_versions:
             if opts.online:
                 standard_channel_names["O3"][(cal,ifo)] = "GDS-CALIB_STRAIN" # Do not assume cleaning is available in low latency
         if cal is "X01":  # experimental version of C01 calibration
-            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X01" 
+            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X01"
+        if cal is "X02":
+            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X02" 
+        if cal is 'C01':
+            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_C01" 
+        if cal is 'C01_nonlinear':
+            standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_SUB60HZ_C01" 
+            data_types["O3"][(cal,ifo)] = ifo+"_HOFT_CLEAN_SUB60HZ_C01"
 data_types["O3"][("C00", "V1")] = "V1Online"
 data_types["O3"][("X01", "V1")] = "V1Online"
+data_types["O3"][("X02", "V1")] = "V1Online"
+data_types["O3"][("C01", "V1")] = "V1Online"
+data_types["O3"][("C01_nonlinear", "V1")] = "V1Online"
 standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
 standard_channel_names["O3"][("X01", "V1")] = "Hrec_hoft_16384Hz"
+standard_channel_names["O3"][("X02", "V1")] = "Hrec_hoft_16384Hz"
+standard_channel_names["O3"][("C01", "V1")] = "Hrec_hoft_16384Hz"
+standard_channel_names["O3"][("C01_nonlinear", "V1")] = "Hrec_hoft_16384Hz"
 if opts.online:
     data_types["O3"][("C00", "V1")] = "V1_llhoft"
     standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
@@ -313,31 +337,33 @@ if not (opts.psd_file is None):
             psd_names[inst] = psdf
             ifo_list.append(inst)
     event_dict["IFOs"] = ifo_list
+if not ("IFOs" in event_dict.keys()):  
+    event_dict["IFOs"] = []   # Make sure this is populated, for later
 
 ###
 ### Import event and PSD: GraceDB branch
 ###
 
 if use_gracedb_event:
-    cmd_event = gracedb_exe + download_request + opts.gracedb_id + " event.log"
-    os.system(cmd_event)
-    # Parse gracedb. Note very annoying heterogeneity in event.log files
-    with open("event.log",'r') as f:
+  cmd_event = gracedb_exe + download_request + opts.gracedb_id + " event.log"
+  os.system(cmd_event)
+  # Parse gracedb. Note very annoying heterogeneity in event.log files
+  with open("event.log",'r') as f:
         lines = f.readlines()
         for  line  in lines:
             line = line.split(':')
             param = line[0]
             if opts.verbose:
                 print " Parsing line ", line
-            if param in ['MChirp', 'MTot', "SNR"]:
+            if param in ['MChirp', 'MTot', "SNR","Frequency"]: # add a cwb parameter
                 event_dict[ line[0]]  = float(line[1])
             elif 'ime' in param: # event time
                 event_dict["tref"] = float(line[1])
             elif param == 'IFOs':
                 line[1] = line[1].replace(' ','').rstrip()
                 ifo_list = line[1].split(",")
-                event_dict["IFOs"] = ifo_list
-
+                event_dict["IFOs"] = list(set(event_dict["IFOs"]  +ifo_list))
+  try:
     # Read in event parameters. Use masses as quick estimate
     cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
     os.system(cmd_event)
@@ -372,14 +398,38 @@ if use_gracedb_event:
             psd_names[ifo] = opts.working_directory+"/"+ifo+"-psd.xml.gz"
             cmd += " --ifo " + ifo
         os.system(cmd)
-
+  except:
+      print " ==> probably not a CBC event, attempting to proceed anyways, FAKING central value <=== "
+      P=lalsimutils.ChooseWaveformParams()
+      # For CWB triggers, should use event.log file to pull out a central frequency
+      P.m1=P.m2= 50*lal.MSUN_SI  # make this up completely, just so code will run, goal is higher mass than this, watch out for mc range
+      event_dict["P"]=P
+      event_dict["MChirp"] = P.extract_param('mc')/lal.MSUN_SI
+      event_dict["epoch"]  = 0 # no estimate for now
+      if not "SNR" in event_dict:
+          event_dict["SNR"] = 10  # again made up so code will run
 
 if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
 
 print " Event analysis ", event_dict
-print " == candidate event parameters (as passed to helper) == "
-event_dict["P"].print_params()
+if (opts.event_time is None):
+    print " == candidate event parameters (as passed to helper) == "
+    event_dict["P"].print_params()
+else:
+    print  " == Using event time only; please specify a grid! == "
+    event_dict["tref"]  = opts.event_time
+    event_dict["epoch"] = 4
+    if not("IFOs" in event_dict.keys()):
+        event_dict["IFOs"] = [] # empty list, user must provide later
+#    if not("P" in event_dict.keys()):
+    event_dict["P"] = lalsimutils.ChooseWaveformParams() # default!
+
+    if "MChirp" not in event_dict.keys():
+        event_dict["MChirp"] = event_dict["P"].extract_param('mc')/lal.MSUN_SI  # note this is RANDOM
+    else:
+        event_dict["P"].assign_param('mc', event_dict["MChirp"]*lal.MSUN_SI)
+    print event_dict["MChirp"]
 
 # Use event GPS time to set observing run, if not provided.  Insures automated operation with a trivial settings file does good things.
 if (opts.observing_run is None) and not opts.fake_data:
@@ -429,8 +479,12 @@ if (opts.psd_file is None) and  use_gracedb_event and not opts.use_online_psd:
     data_start_time = psd_data_start_time
 
 # reset IFO list if needed. Do NOT do with online_psd
+#
 if opts.check_ifo_availability and not opts.use_online_psd:  # online PSD only available for some IFOs
-        event_dict["IFOs"] = query_available_ifos_viadq(["H1","L1","V1"],data_start_time_orig,data_end_time)
+    # Do not override the original IFO list, build from the list of PSD files or otherwise
+    original_list = event_dict["IFOs"] 
+    event_dict["IFOs"] = list( set( original_list+query_available_ifos_viadq(["H1","L1","V1"],data_start_time_orig,data_end_time)))
+    print " IFO list to use ", event_dict["IFOs"]
 
 # define channel names
 ifos = event_dict["IFOs"]
@@ -458,29 +512,46 @@ if not opts.cache:  # don't make a cache file if we have one!
     opts.cache = "local.cache" # standard filename populated
 
 # If needed, build PSDs
-if (opts.psd_file is None) and not opts.use_online_psd:
+transfer_files=[]
+if (opts.psd_file is None) and (not opts.use_online_psd) and not (opts.assume_fiducial_psd_files):
     print " PSD construction "
     for ifo in event_dict["IFOs"]:
         print " Building PSD  for ", ifo
         try:
             ldg_make_psd(ifo, channel_names[ifo], psd_data_start_time, psd_data_end_time, working_directory=opts.working_directory)
-            psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            if not opts.use_osg:
+                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            else:
+                psd_names[ifo] =  ifo + "-psd.xml.gz"
         except:
             print "  ... PSD generation failed! "
             sys.exit(1)
+elif (opts.assume_fiducial_psd_files):
+    for ifo in event_dict["IFOs"]:
+            if not opts.use_osg:
+                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            else:
+                psd_names[ifo] =  ifo + "-psd.xml.gz"
+for ifo in psd_names.keys():
+    transfer_files.append(opts.working_directory+"/" + ifo + "-psd.xml.gz")
+
+
 
 # Estimate mc range, eta range
 #   - UPDATE: need to add scaling with SNR too
 
 mc_center = event_dict["MChirp"]
 v_PN_param = (np.pi* mc_center*opts.fmin*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
-v_PN_param = np.min([v_PN_param,1])
+v_PN_param_max = 0.2
+v_PN_param = np.min([v_PN_param,v_PN_param_max])
 # Estimate width. Note this must *also* account for search error (if we are using search triggers), so it is double-counted and super-wide
 # Note I have TWO factors to set: the absolute limits on the CIP, and the grid spacing (which needs to be narrower) for PE placement
 fac_search_correct=1.
 if opts.gracedb_id: #opts.propose_initial_grid_includes_search_error:
     fac_search_correct = 1.5   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
-ln_mc_error_pseudo_fisher = 1.5*np.array([1,fac_search_correct])*0.3*(v_PN_param/0.2)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
+if opts.force_grid_stretch_mc_factor:
+    fac_search_correct =  opts.force_grid_stretch_mc_factor
+ln_mc_error_pseudo_fisher = 1.5*np.array([1,fac_search_correct])*0.3*(v_PN_param/v_PN_param_max)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
 print "  Logarithmic mass error interval base ", ln_mc_error_pseudo_fisher
 if ln_mc_error_pseudo_fisher[0] >1:
     ln_mc_errors_pseudo_fisher =np.array([0.8,0.8])   # stabilize
@@ -519,6 +590,9 @@ elif mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid
    res = scipy.optimize.brentq(crit_m2, 0.001,0.999) # critical value of delta: largest possible for this mc value
    delta_max =np.min([1.1*res,0.99])
    eta_min = 0.25*(1-delta_max*delta_max)
+   if event_dict["SNR"]>15 :  # If loud, allow the upper limit to deviate from the maximum
+       q_max = np.mean( [P.extract_param('q'),1])   # a guess, trying to exclude a significant chunk of space
+       eta_max = q_max/(1.+q_max)**2
 # High mass ratio configuration.  PROTOTYPE, NEEDS LOTS OF WORK FOR BH-NS, should restore use of  fisher grid!
 elif opts.propose_initial_grid and eta_val < 0.1: # this will override the previous work
     eta_min =0.25*eta_val
@@ -536,6 +610,10 @@ if chieff_min >0 and use_gracedb_event:
     chieff_min = -0.1   # make sure to cover spin zero, most BBH have zero spin and missing zero is usually an accident of the search recovered params
 
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
+if not(opts.manual_mc_min is None):
+    mc_min = opts.manual_mc_min
+if not(opts.manual_mc_max is None):
+    mc_max = opts.manual_mc_max
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 eta_range_str = "  ["+str(eta_min_tight) +","+str(eta_max_tight)+"]"  # default will include  1, as we work with BBHs
 eta_range_str_cip = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
@@ -564,7 +642,10 @@ if "SNR" in event_dict.keys():
         helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
         helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
 
-helper_ile_args += " --cache " + opts.working_directory+ "/" + opts.cache
+if not opts.use_osg:
+    helper_ile_args += " --cache " + opts.working_directory+ "/" + opts.cache
+else:
+    helper_ile_args += " --cache local.cache "
 helper_ile_args += " --event-time " + str(event_dict["tref"])
 for ifo in ifos:
     helper_ile_args += " --channel-name "+ifo+"="+channel_names[ifo]
@@ -619,16 +700,16 @@ elif opts.data_LI_seglen:
 
 if opts.propose_initial_grid:
     # add basic mass parameters
-    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap --parameter mc --parameter-range   " + mc_range_str + "  --parameter delta_mc --parameter-range '[" + str(delta_min_tight) +"," + str(delta_max_tight) + "]'  "
+    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap  --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_min_tight) +"," + str(delta_max_tight) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
     cmd += " --fmin " + str(opts.fmin_template)
-    if opts.data_LI_seglen:  
+    if opts.data_LI_seglen and not (opts.no_enforce_duration_bound):  
         cmd += " --enforce-duration-bound " + str(opts.data_LI_seglen)
     cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
     if tune_grid:
         cmd += " --reset-grid-via-match --match-value 0.85 --use-fisher  --use-fisher-resampling --approx  " + approx_str # ow, but useful
     if opts.assume_nospin:
-        cmd += " --grid-cartesian-npts 500 " 
+        grid_size = 500
     else:
         chieff_range = str([chieff_min,chieff_max]).replace(' ', '')   # assumes all chieff are possible
         if opts.propose_fit_strategy:
@@ -639,7 +720,8 @@ if opts.propose_initial_grid:
                 chieff_range = chi_range  # force to be smaller
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
-        cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range+  " --grid-cartesian-npts 4000 "
+        cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
+        grid_size =2500
 
         if opts.assume_precessing_spin:
             # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
@@ -650,22 +732,37 @@ if opts.propose_initial_grid:
         # We will leverage working off this to find the lambdaTilde dependence
 #        cmd += " --use-eos AP4 "  
         cmd += " --random-parameter lambda1 --random-parameter-range [50,1500] --random-parameter lambda2 --random-parameter-range [50,1500] "
+        grid_size *=1  
 
+    if opts.propose_fit_strategy:
+        if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
+            grid_size *=1.5  # denser grid at low mass, because of tight correlations
+
+    if not (opts.force_initial_grid_size is None):
+        grid_size = opts.force_initial_grid_size
+    cmd += " --grid-cartesian-npts  " + str(int(grid_size))
     print " Executing grid command ", cmd
     os.system(cmd)
 
-    if opts.assume_matter:
-        # Now perform a puffball in lambda1 and lambda2
-        cmd_puff = " util_ParameterPuffball.py --parameter LambdaTilde  --inj-file proposed-grid.xml.gz --inj-file-out proposed-grid_puff_lambda --downselect-parameter lambda1 --downselect-parameter-range [0.1,5000] --downselect-parameter lambda2 --downselect-parameter-range [0.1,5000]"
-        os.system(cmd_puff)
-        # Now add these two together
-        # ideally, ligolw_add will work... except it fails
-        P_A = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid.xml.gz")
-        P_B = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid_puff_lambda.xml.gz")
-        lalsimutils.ChooseWaveformParams_array_to_xml(P_A+P_B, "proposed-grid.xml.gz")
+    # if opts.assume_matter:
+    #     # Now perform a puffball in lambda1 and lambda2
+    #     cmd_puff = " util_ParameterPuffball.py --parameter LambdaTilde  --inj-file proposed-grid.xml.gz --inj-file-out proposed-grid_puff_lambda --downselect-parameter lambda1 --downselect-parameter-range [0.1,5000] --downselect-parameter lambda2 --downselect-parameter-range [0.1,5000]"
+    #     os.system(cmd_puff)
+    #     # Now add these two together
+    #     # ideally, ligolw_add will work... except it fails
+    #     P_A = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid.xml.gz")
+    #     P_B = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid_puff_lambda.xml.gz")
+    #     lalsimutils.ChooseWaveformParams_array_to_xml(P_A+P_B, "proposed-grid.xml.gz")
+
+
+if opts.propose_fit_strategy and (not opts.gracedb_id is None):
+    # use a puff factor that depends on mass.  Use a larger puff factor below around 10.
+    if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
+        puff_factor =3  # high q, use more aggressive puff
+
 
 if opts.propose_ile_convergence_options:
-    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler   --n-max 2000000 --n-eff 50 "
+    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler   --n-max 4000000 --n-eff 50 "
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs
     # Note that number of events to analyze is controlled by a different part of the workflow !
@@ -681,8 +778,14 @@ with open("helper_ile_args.txt",'w') as f:
 if not opts.lowlatency_propose_approximant:
     print " helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max "
 
+#if opts.last_iteration_extrinsic:
+#    helper_cip_args += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 5000 "
 
+puff_max_it=0
+puff_factor=1
+helper_puff_args = " --parameter mc --parameter eta "
 if opts.propose_fit_strategy:
+    puff_max_it= 0
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
     print " Fit strategy NOT IMPLEMENTED -- currently just provides basic parameterization options. Need to work in real strategies (e.g., cip-arg-list)"
     lnLoffset_late = 15 # default
@@ -692,49 +795,99 @@ if opts.propose_fit_strategy:
         helper_cip_args += mc_range_str_cip + eta_range_str_cip
 
     helper_cip_arg_list_common = str(helper_cip_args)[1:] # drop X
-    helper_cip_arg_list = ["3 " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
+    n_it_early =3
+    if opts.assume_highq:
+        n_it_early =5
+        qmin_puff = 0.05 # 20:1
+    helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
     if opts.use_quadratic_early:
         helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method gp', 'fit-method quadratic')
 
     if not opts.assume_nospin:
+        helper_puff_args += " --parameter chieff_aligned "
         if not opts.assume_precessing_spin:
-            helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
-            helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
-            helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
-        
+            if not opts.assume_highq:
+                helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
+                helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
+                helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z '
+            else: # highq
+                helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
+                helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z  ' 
+                helper_cip_arg_list[1] += ' --parameter-implied xi   --parameter-nofit s1z   ' 
+                
+            puff_max_it=4
+
         else: #  opts.assume_precessing_spin:
             # # Use cartesian +volumetric for FIRST FEW ITERATIONS (or as default).  
             helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
-            helper_cip_arg_list = ["3 " + helper_cip_arg_list_common, "2 " +  helper_cip_arg_list_common,"2 " +  helper_cip_arg_list_common,"3 " +  helper_cip_arg_list_common  ]
-            helper_cip_arg_list[0] +=  '  --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
-            helper_cip_arg_list[0] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  '
-           
-            helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
-            helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  '
-
-            # this will be perfectly adequate volumetric result
-            helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
-            helper_cip_arg_list[2] +=   ' --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y  '
-            # # Default prior is *volumetric*
-            # helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
-             # helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
+            helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "2 " +  helper_cip_arg_list_common,"2 " +  helper_cip_arg_list_common,"3 " +  helper_cip_arg_list_common  ]
+            if not opts.assume_highq:
+                helper_cip_arg_list[0] +=  '  --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
+                helper_cip_arg_list[0] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  '
             
-            # Last iterations are with a polar spin, to get spin prior  (as usually requested). Fir is the same as before, but sampling is more efficient
-            helper_cip_arg_list[3] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
+                helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
+                helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  '
+
+                # this will be perfectly adequate volumetric result
+                helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
+                helper_cip_arg_list[2] +=   ' --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y  '
+                # # Default prior is *volumetric*
+                # helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
+                # helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
+            
+                # Last iterations are with a polar spin, to get spin prior  (as usually requested). Fir is the same as before, but sampling is more efficient
+                helper_cip_arg_list[3] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
         
-            # Change convergence threshold at late times
-#            helper_cip_arg_list[2].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late)
-            helper_cip_arg_list[3].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late))
+                # Change convergence threshold at late times
+                #            helper_cip_arg_list[2].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late)
+                helper_cip_arg_list[3].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late))
+            else:  # strategy for high q
+                helper_cip_arg_list[0] +=  '  --parameter-implied xi  --parameter-nofit s1z  '  # note PURE ALIGNED SPIN SO FAR
+                helper_cip_arg_list[0] +=   ' --use-precessing  '
+            
+                helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-nofit s1z --parameter-implied chi1_perp --parameter-nofit s1x --parameter-nofit s2x ' 
+                helper_cip_arg_list[1] +=   ' --use-precessing   '
+
+                # this will be perfectly adequate volumetric result
+                helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-nofit s1z  ' 
+                helper_cip_arg_list[2] +=   ' --use-precessing  --parameter s1x --parameter s2x'
+                # # Default prior is *volumetric*
+                # helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
+                # helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
+            
+                # Last iterations are with a polar spin, to get spin prior  (as usually requested). Fir is the same as before, but sampling is more efficient
+                helper_cip_arg_list[3] +=  '  --use-precessing --parameter-implied xi   --parameter-nofit chi1  --parameter-nofit theta1  --parameter-nofit phi1    --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
+        
+                # Change convergence threshold at late times
+                #            helper_cip_arg_list[2].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late)
+                helper_cip_arg_list[3]=helper_cip_arg_list[3].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late))
+
+            n_its = map(lambda x: float(x.split()[0]), helper_cip_arg_list)
+            puff_max_it= n_its[0] + n_its[1] # puff for first 2 types, to insure good coverage in narrow-q cases
+            if event_dict["m2"]/event_dict["m1"] < 0.4: # High q, do even through the full aligned spin model case
+                puff_max_it += n_its[2]
 
 
     if opts.assume_matter:
+        helper_puff_args += " --parameter LambdaTilde  --downselect-parameter s1z --downselect-parameter-range [-0.9,0.9] --downselect-parameter s2z --downselect-parameter-range [-0.9,0.9]  "  # Probably should also aggressively force sampling of low-lambda region
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
         # Add LambdaTilde on top of the aligned spin runs
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " 
+        # Remove LambdaTilde from *first* batch of iterations .. too painful ? NO, otherwise we wander off into wilderness
+#        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('--parameter-implied LambdaTilde','')
         # Add one line with deltaLambdaTilde
         helper_cip_arg_list.append(helper_cip_arg_list[-1]) 
         helper_cip_arg_list[-1] +=  " --parameter-implied DeltaLambdaTilde "
+
+        n_its = map(lambda x: float(x.split()[0]), helper_cip_arg_list)
+        puff_max_it= np.sum(n_its) # puff all the way to the end
+
+# lnL-offset was already enforced
+#    if opts.internal_fit_strategy_enforces_cut:
+#        for indx in np.arange(len(helper_cip_arg_list))[1:]:
+#            helper_cip_arg_list[indx] += " --lnL-offset 20 "  # enforce lnL cutoff past the first iteration. Focuses fit on high-likelihood points as in O1/O2
+
 
 with open("helper_cip_args.txt",'w') as f:
     f.write(helper_cip_args)
@@ -749,3 +902,27 @@ with open("helper_test_args.txt",'w+') as f:
 if opts.assume_matter:
     with open("helper_convert_args.txt",'w+') as f:
         f.write(" --export-tides ")
+
+if opts.propose_fit_strategy:
+    with open("helper_puff_max_it.txt",'w') as f:
+        f.write(str(puff_max_it))
+if opts.propose_fit_strategy:
+    with open("helper_puff_factor.txt",'w') as f:
+        f.write(str(puff_factor))
+
+if opts.propose_fit_strategy:
+    helper_puff_args += " --downselect-parameter eta --downselect-parameter-range ["+str(eta_min) +","+str(eta_max)+"]"
+    helper_puff_args += " --puff-factor " + str(puff_factor)
+    with open("helper_puff_args.txt",'w') as f:
+        f.write(helper_puff_args)
+
+if opts.use_osg:
+    # Write log of extra files to transfer
+    #   - psd files
+    #   - cache file (local.cache), IF using cvmfs frames
+    if opts.use_cvmfs_frames:
+        transfer_files.append(opts.working_directory+"/local.cache")
+    with open("helper_transfer_files.txt","w") as f:
+        for name in transfer_files:
+            f.write(name+"\n")
+        
