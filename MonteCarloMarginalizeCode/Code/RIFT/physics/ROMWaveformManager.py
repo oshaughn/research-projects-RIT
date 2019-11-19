@@ -137,6 +137,21 @@ def ConvertWPtoSurrogateParams(P,**kwargs):
 #    return {"q":1./q}
     return 1./q
 
+def ConvertWPtoSurrogateParamsGeneric(P,**kwargs):
+    """
+    Takes P, returns arguments of the form used in gwsurrogate for a binary
+    """
+    q = P.m2/P.m1
+    chi1 = np.array([0.0,0.0,P.s1z])
+    chi2 = np.array([0.0,0.0,P.s2z])
+    mtot=P.m1+P.m2
+    tidal = {'Lambda1': P.lambda1,'Lambda2': P.lambda2}
+    dist_mpc = P.dist/1e6/lal.PC_SI
+    print "Check Mpc distance: ",dist_mpc
+    val =[1./q, chi1, chi2, mtot, dist_mpc, tidal]
+    return val
+
+
 def ConvertWPtoSurrogateParamsAligned(P,**kwargs):
     """
     Takes P, returns arguments of the form used in gwsurrogate for a nonprecessing binary
@@ -227,16 +242,16 @@ class WaveformModeCatalog:
         if rosDebug:
             print " ROMWaveformManager: Loading restricted mode set ", lm_list
 
-        my_converter = ConvertWPtoSurrogateParams
+        my_converter = ConvertWPtoSurrogateParamsGeneric
         if 'NRSur4d' in param:
             print " GENERATING ROM WAVEFORM WITH SPIN PARAMETERS "
             my_converter = ConvertWPtoSurrogateParamsPrecessing
             reflection_symmetric=False
         if 'NRHybSur3d' in param:
             print " GENERATING hybrid ROM WAVEFORM WITH  aligned SPIN PARAMETERS "
-            my_converter = ConvertWPtoSurrogateParamsAligned
+            my_converter = ConvertWPtoSurrogateParamsGeneric
             self.single_mode_sur=False
-        if 'NRSur7d' in param:
+        if 'NRSur7dq2' in param:
             if  rosDebug:
                 print " GENERATING ROM WAVEFORM WITH FULL SPIN PARAMETERS "
             my_converter = ConvertWPtoSurrogateParamsPrecessingFull
@@ -259,11 +274,11 @@ class WaveformModeCatalog:
             self.modes_available=[]
         elif 'NRHybSur' in param:
             self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group+param)   # get the dimensinoless surrogate file?
-            raw_modes = self.sur.mode_list  # raw modes
+            raw_modes = self.sur._sur_dimless.mode_list  # raw modes
             reflection_symmetric = True
             self.modes_available=[]
 #            self.modes_available=[(2, 0), (2, 1), (2,-1), (2, 2),(2,-2), (3, 0), (3, 1),(3,-1), (3, 2),(3,-2), (3, 3),(3,-3), (4, 2),(4,-2), (4, 3),(4,-3), (4, 4), (4,-4),(5, 5), (5,-5)]  # see sur.mode_list
-            t = self.sur.domain
+            t = self.sur._sur_dimless.domain
             self.ToverMmin = t.min()
             self.ToverMmax = t.max()
             self.ToverM_peak=0   # Need to figure out where this is?  Let's assume it is zero to make my life easier
@@ -669,7 +684,7 @@ class WaveformModeCatalog:
 
         # Option 0: Use NRSur7dsq approach (i.e., generate an hlmoft dictionary)
         hlmT_dimensionless={}
-        if 'NRSur7d' in self.param:
+        if 'NRSur7dq2' in self.param:
             params_here = self.parameter_convert[(2,2)](P)
             tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
             indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
@@ -682,7 +697,7 @@ class WaveformModeCatalog:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
                 hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
         # Option 1: Use NRHybXXX approach (i.e., generate an hlmoft dictionary...but with its OWN time grid and scaling...very annoying)
-        if 'NRHyb' in self.param:
+        elif ('NRHyb' in self.param) or ('NRSur' in param):
             params_here = self.parameter_convert[(2,2)](P)
             f_low = P.fmin  # need to convert to dimensionless time
             tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
@@ -691,7 +706,7 @@ class WaveformModeCatalog:
             taper_end_duration =None
             if rom_taper_end:
                 taper_end_duration =40.0
-            hlmT_dimensionless_narrow = self.sur(params_here,times=tvals_dimensionless[indx_ok],f_low=0,taper_end_duration=taper_end_duration)
+            hlmT_dimensionless_narrow = self.sur(params_here,times=tvals_dimensionless[indx_ok],f_low=0,taper_end_duration=taper_end_duration,ellMax=lmax)
             # Build taper for start
             taper_start_window = np.ones(len(hlmT_dimensionless_narrow[(2,2)]))
             if rom_taper_start or P.taper  != lalsimutils.lsu_TAPER_NONE:
