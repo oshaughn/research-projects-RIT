@@ -52,6 +52,10 @@ config.read(opts.use_ini)
 
 base_dir = os.getcwd() # relative directory, for use if absolute paths not provided
 
+test_convergence=False
+if config.has_option('pp','test_convergence'):
+    test_convergence =unsafe_config_get(['pp','test_convergence'])
+
 # Create, go to working directory
 working_dir = config.get('pp','working_directory')
 print " Working dir ", working_dir
@@ -240,6 +244,8 @@ for indx in np.arange(n_events):
     here = os.getcwd()
     cmd = "helper_LDG_Events.py --sim-xml "+working_dir_full + "/mdc.xml.gz --event {} --event-time {}  --cache local.cache --working-directory {}  ".format(indx,P_list[indx].tref,here)
     cmd += " --fmin {} ".format(fmin_template)
+    if test_convergence:
+        cmd += " --test-convergence "  # removes 'always succeed' as an option (by the helper)
     # add in PSDs.  Allow relative names for PSDs relative to ini file
     for psd in psd_dict:
         psd_name = psd_dict[psd]
