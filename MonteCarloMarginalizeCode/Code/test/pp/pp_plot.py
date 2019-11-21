@@ -1,7 +1,10 @@
 #! /usr/bin/env python
 #
-# Attempt at semi-automated PP plot.
-# Boundary values not working yet
+# Attempt at semi-automated PP plot.  Shows empirical CDF (p value vs estimate), and 90% credible interval of *most extreme* of the N things being plotted
+# 
+# FIXME
+#   - strip data without convergence test
+#   - enable column names 
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -22,7 +25,7 @@ def binomial_credible_interval_default(phat,n,nParams=2):
 
 import sys
 
-dat = np.genfromtxt(sys.argv[1],filling_values=0,invalid_raise=False)
+dat = np.genfromtxt(sys.argv[1],filling_values=0,invalid_raise=False,usecols=tuple(np.arange(int(sys.argv[2])+2)))
 
 for indx in np.arange(len(dat[0]) - 2):
     pvals = np.sort(dat[:,indx])
@@ -36,4 +39,6 @@ pvals_lims = binomial_credible_interval_default(xvals, len(dat))
 plt.plot(xvals,pvals_lims[:,0], color='k',ls=':')
 plt.plot(xvals,pvals_lims[:,1], color='k',ls=':')
 plt.legend()
-plt.savefig("output_pp.png")
+plt.xlabel(r"$P(x_{\rm inj})$")
+plt.ylabel(r"$\hat{P}$")
+plt.savefig("output_pp.pdf")

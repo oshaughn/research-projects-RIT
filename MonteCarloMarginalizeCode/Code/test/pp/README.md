@@ -34,7 +34,13 @@ for  i in  `seq 0 5` ; do
   echo `python pp_plot_dataproduct.py --posterior-file "${HIGHEST_SAMPLE_FILE}" --truth-file ${HERE}/mdc.xml.gz --truth-event ${i}  --parameter mc --parameter q --parameter a1z --parameter a2z --composite-file analysis_event_${i}/all.net | tail -n 1`  `cat analysis_event_${i}/iteration*/logs/test*.out | tail -n 1` ; 
 done > net_pp.dat
 
+grep -v ++ net_pp.dat | grep -v [a-z] > net_pp.dat_clean
+
 ```
 We recommend you review this data visually early on in your run, to be sure you haven't accidentally adopted inconsistent settings between input and output (e.g., inconsistent PSDs).
 
-Finally, load in the data and make a cumulative CDF plot for each variable, with your favorite plotting code.
+Finally, load in the data and make a cumulative CDF plot for each variable, with your favorite plotting code.  For lightweight tests, we provide 'pp_plot.py'
+
+``
+pp_plot.py net_pp.dat_clean 2   # second number indicates number of columns to plot
+``
