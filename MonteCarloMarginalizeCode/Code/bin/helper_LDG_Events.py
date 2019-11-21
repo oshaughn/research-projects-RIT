@@ -808,7 +808,22 @@ if opts.propose_initial_grid:
         # Do the initial grid assuming matter, with tidal parameters set by the AP4 EOS provided by lalsuite
         # We will leverage working off this to find the lambdaTilde dependence
 #        cmd += " --use-eos AP4 "  
-        cmd += " --random-parameter lambda1 --random-parameter-range [50,1500] --random-parameter lambda2 --random-parameter-range [50,1500] "
+        # Choose the lambda range based on chirp mass!  If chirp mass is large, we need to use very low lambda.
+        # based on lambda(m) estimate 3000*((mc_center-2.2)/(1.2))**2
+        # FIXME: Get real EOS limit?
+        def lambda_m_estimate(m):
+            if m>2.2:
+                10
+            else:
+                3000*((2.2-m)/(1.2))**4
+        lambda_grid_min=50
+        P.lambda1 = lambda_m_estimate(m1)
+        P.lambda2 = lambda_m_estimate(m2)
+        lambda1_min = np.min([50,P.lambda1*0.2])
+        lambda1_max = np.min([1500,P.lambda1*2])
+        lambda2_min = np.min([50,P.lambda1*0.2])
+        lambda2_max = np.min([1500,P.lambda2*2])
+        cmd += " --random-parameter lambda1 --random-parameter-range [{},{}] --random-parameter lambda2 --random-parameter-range [{},{}] ".format(lambda1_min,lambda1_max,lambda2_min,lambda2_max)
         grid_size *=1  
 
     if opts.propose_fit_strategy:
