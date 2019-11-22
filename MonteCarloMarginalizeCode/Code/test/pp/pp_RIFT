@@ -54,7 +54,7 @@ base_dir = os.getcwd() # relative directory, for use if absolute paths not provi
 
 test_convergence=False
 if config.has_option('pp','test_convergence'):
-    test_convergence =unsafe_config_get(['pp','test_convergence'])
+    test_convergence =unsafe_config_get(config,['pp','test_convergence'])
 
 # Create, go to working directory
 working_dir = config.get('pp','working_directory')
@@ -193,6 +193,9 @@ for indx in np.arange(n_events):
     if not opts.test:
         cmd = "/bin/find .  -name '*.gwf' | lalapps_path2cache > signals.cache"
         os.system(cmd)
+
+    # Evaluate zero-noise SNR
+    print " --> FIXME: evaluate zero-noise SNR, to use as hint in place of search <-- "
 
 print " === Using fiducial noise frames === "
 
