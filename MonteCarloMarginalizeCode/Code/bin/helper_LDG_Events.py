@@ -824,7 +824,10 @@ if opts.propose_initial_grid:
         lambda2_min = np.min([50,P.lambda1*0.2])
         lambda2_max = np.min([1500,P.lambda2*2])
         cmd += " --random-parameter lambda1 --random-parameter-range [{},{}] --random-parameter lambda2 --random-parameter-range [{},{}] ".format(lambda1_min,lambda1_max,lambda2_min,lambda2_max)
-        grid_size *=1  
+        grid_size *=1.5  # more points for matter
+        if ("SNR" in event_dict.keys()):
+            if event_dict["SNR"] > 16:  # Loud BNS constrain tides, we need more points
+                grid_size *=2
 
     if opts.propose_fit_strategy:
         if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
