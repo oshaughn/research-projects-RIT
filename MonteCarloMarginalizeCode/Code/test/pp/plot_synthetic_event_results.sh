@@ -1,0 +1,9 @@
+HERE=`pwd`
+export run=$1
+export run_dir=analysis_event_${run}
+shift
+cd ${run_dir}
+MAX_LNL=`sort -rg -k10 all.net | awk '{print $10}' | head -n 1`
+EXTRA_ARGS=" --use-title event=${run},lnL=${MAX_LNL} "
+${HERE}/plot_last_iterations_with.sh  $@ --use-legend --plot-1d-extra --truth-file ${HERE}/mdc.xml.gz --truth-event ${run} --composite-file all.net --lnL-cut 15 --quantiles None  --ci-list  '[0.9]' ${EXTRA_ARGS}
+ ${HERE}/plot_last_iterations_with.sh --parameter m1 --parameter m2 --use-legend --plot-1d-extra --truth-file ${HERE}/mdc.xml.gz --truth-event ${run} --composite-file all.net --lnL-cut 15 --quantiles None  --ci-list  '[0.9]'  ${EXTRA_ARGS}

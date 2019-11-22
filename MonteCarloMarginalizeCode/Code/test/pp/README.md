@@ -44,3 +44,22 @@ Finally, load in the data and make a cumulative CDF plot for each variable, with
 ``
 pp_plot.py net_pp.dat_clean 2   # second number indicates number of columns to plot
 ``
+
+
+## Diagnostics and followup
+If you use a different approximant for injections and recovery, you will find substantial biases.
+To follow up the most extreme biases (e.g., as identified as outliers in 'net_pp.dat_clean' above), you can and should make plots which illustrate these injections.
+The tools below make various plots to indicate
+  * the likelihoods (indicated in color scale)
+  * marginal posterior distributions from different iterations (indicated with colored curves)
+  * the true parameters associated with each injection
+
+``
+ln -sf ../plot*.sh .
+for i in `seq 0 5`
+do
+  ./plot_synthetic_event_results.sh $i --parameter mc --parameter q
+done
+``
+
+All of these scripts are built upon the general-purpose tool ``plot_posterior_corner.py``.  You should look at its help string and examples for more information.
