@@ -813,9 +813,9 @@ if opts.propose_initial_grid:
         # FIXME: Get real EOS limit?
         def lambda_m_estimate(m):
             if m>2.2:
-                10
+                return 10
             else:
-                3000*((2.2-m)/(1.2))**4
+                return 3000*((2.2-m)/(1.2))**4
         lambda_grid_min=50
         P.lambda1 = lambda_m_estimate(m1)
         P.lambda2 = lambda_m_estimate(m2)
