@@ -37,7 +37,7 @@ class Net(torch.nn.Module):
 class Interpolator(object): # interpolator
 
 
-      def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=32,
+      def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=16,
                    epochs=100, learning_rate=1e-2, betas=(0.9, 0.99), eps=1e-2, epochs_per_lr=20, 
                    lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True, working_dir='.', 
                    loss_func='chi2', no_pad=False):
