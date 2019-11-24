@@ -247,7 +247,7 @@ for indx in np.arange(n_events):
     print " ::: Event {} ::: ".format(indx)
     mkdir(working_dir_full+'/analysis_event_{}'.format(indx))
     os.chdir(working_dir_full+'/analysis_event_{}'.format(indx))
-    os.cmd("ln -sf ../combined_frames/event_{} .".format(indx))
+    os.system("ln -sf ../combined_frames/event_{} .".format(indx))
     if not opts.test:
         cmd = "/bin/find -L . -name '*.gwf' | lalapps_path2cache > local.cache"
         print cmd
