@@ -220,7 +220,8 @@ for indx in np.arange(n_events):
     for ifo in ifos:
         fname_input = working_dir_full+"/signal_frames/event_{}/{}-fake_strain-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_actual)
         fname_noise= noise_frame_dir + "/" + ifo + ("/%08d.gwf" % indx)
-        fname_output = working_dir_full+"/analysis_event_{}/{}-combined-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_actual)
+#        fname_output = working_dir_full+"/analysis_event_{}/{}-combined-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_actual)
+        fname_output = working_dir_full+"/{}/{}-combined-{}-{}.gwf".format(target_subdir,ifo[0],int(t_start),seglen_actual)
         add_frames(ifo+":FAKE-STRAIN",fname_input, fname_noise,fname_output)
 
 
