@@ -20,7 +20,7 @@ import scipy.stats
 import numpy.linalg as la
 import sys
 
-from RIFT.misc import add_field
+from RIFT.misc.samples_utils import add_field
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--samples", action='append', help="Samples used in convergence test")
