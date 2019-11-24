@@ -423,10 +423,12 @@ if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
 
 print " Event analysis ", event_dict
-if (opts.event_time is None) and not( "P" in event_dict.keys()):
+if ( "P" in event_dict.keys()):
     print " == candidate event parameters (as passed to helper) == "
     event_dict["P"].print_params()
-else:
+    if not(opts.event_time is None):
+        event_dict["tref"] = opts.event_time
+elif not(opts.event_time is None):
     print  " == Using event time only; please specify a grid! == "
     event_dict["tref"]  = opts.event_time
     event_dict["epoch"] = 4
