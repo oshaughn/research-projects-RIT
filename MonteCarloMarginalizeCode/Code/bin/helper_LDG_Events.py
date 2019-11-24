@@ -693,7 +693,7 @@ helper_cip_args = "X "
 helper_cip_arg_list = []
 
 helper_test_args += "  --method lame  --parameter mc "
-if not assume_nospin:
+if not opts.assume_nospin:
     helper_test_args += " --parameter xi "  # require chi_eff distribution to be stable
 if not opts.test_convergence:
     helper_test_args+= " --always-succeed "
