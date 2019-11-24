@@ -50,6 +50,7 @@ parser.add_argument("--posterior-file",action='append',help="filename of *.dat f
 parser.add_argument("--composite-file",type=str,help="filename of all.net file, needed to get peak lnL (i.e., log how much this event is pure noise")
 parser.add_argument("--truth-file",type=str, help="file containing the true parameters")
 parser.add_argument("--truth-event",type=int, default=0,help="file containing the true parameters")
+parser.add_argument("--chi-max",type=int, default=1,help="re-impose chi-max")
 parser.add_argument("--parameter", action='append',help="parameter name (ILE). Note source-frame masses are only natively supported for LI")
 opts=  parser.parse_args()
 
@@ -110,11 +111,18 @@ elif "theta1" in samples.dtype.names:
     if not 'chi_eff' in samples.dtype.names:
         samples = add_field(samples, [('chi_eff',float)]); samples['chi_eff'] = (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["m1"]+samples["m2"])
 
-elif 'a1x' in samples.dtype.names:
-    chi1_perp = np.sqrt(samples['a1x']**2 + samples['a1y']**2)
-    chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
-    samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
-    samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
+# add other derived parameters
+if 'a1x' in samples.dtype.names:
+    if not ('chi1_perp' in samples.dtype.names):
+        chi1_perp = np.sqrt(samples['a1x']**2 + samples['a1y']**2)
+        chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
+        samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
+        samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
+    if not 'chi_eff' in samples.dtype.names:
+        samples = add_field(samples, [('chi_eff',float)]); samples['chi_eff'] = (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["m1"]+samples["m2"])
+        samples = add_field(samples, [('xi',float)]); samples['chi_eff'] = (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["m1"]+samples["m2"])
+
+
 
 if 'lambda1' in samples.dtype.names and not ('lambdat' in samples.dtype.names):
     Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
