@@ -38,7 +38,7 @@ pvalFiducial = 0.9 # fiducial credible level for outermost CI.  (Will change dep
 
 def binomial_credible_interval_default(phat,n,nParams=2):
     z_fiducial = norm.ppf((  np.power(1-(1.-pvalFiducial)/2, 1./nParams)))
-    print "fiducial z", z_fiducial
+    print "fiducial z", z_fiducial, " for nParams = ",nParams
     return  binomial_credible_interval(phat,n, z_fiducial)
 
 import sys
@@ -49,7 +49,8 @@ if len(sys.argv) > 3:
 else:
     param_labels = np.arange(sys.argv[2])
 
-for indx in np.arange(len(dat[0]) - 2):
+nParams = len(dat[0])-2
+for indx in np.arange(nParams):
     pvals = np.sort(dat[:,indx])
     pvals_emp = np.arange(len(dat))*1.0/len(dat) 
     plt.scatter(pvals,pvals_emp,label='$'+param_labels[indx]+'$')
@@ -57,7 +58,7 @@ for indx in np.arange(len(dat[0]) - 2):
 
 xvals = np.linspace(0,1,100)
 plt.plot(xvals,xvals,color='k')
-pvals_lims = binomial_credible_interval_default(xvals, len(dat))
+pvals_lims = binomial_credible_interval_default(xvals, len(dat),nParams=nParams)
 plt.plot(xvals,pvals_lims[:,0], color='k',ls=':')
 plt.plot(xvals,pvals_lims[:,1], color='k',ls=':')
 plt.legend()
