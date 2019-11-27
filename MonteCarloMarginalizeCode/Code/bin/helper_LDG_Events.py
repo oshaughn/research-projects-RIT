@@ -684,11 +684,11 @@ if not(opts.manual_mc_min is None):
 if not(opts.manual_mc_max is None):
     mc_max = opts.manual_mc_max
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
-if opts.force_mc_range:
+if not(opts.force_mc_range is None):
     mc_range_str_cip = " --mc-range " + opts.force_mc_range
 eta_range_str = "  ["+str(eta_min_tight) +","+str(eta_max_tight)+"]"  # default will include  1, as we work with BBHs
 eta_range_str_cip = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
-if opts.force_eta_range:
+if not (opts.force_eta_range is None):
     eta_range_str_cip = " --eta-range " + opts.force_eta_range
 
 
