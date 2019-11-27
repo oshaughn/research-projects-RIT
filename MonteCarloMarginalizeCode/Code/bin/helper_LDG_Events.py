@@ -132,6 +132,8 @@ def get_observing_run(t):
 parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
 parser.add_argument("--force-data-lookup",action='store_true',help='Use this flag if you want to use real data.')
+parser.add_argument("--force-mc-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region. Passed directly to MOG and CIP.")
+parser.add_argument("--force-eta-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region")
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
@@ -682,8 +684,12 @@ if not(opts.manual_mc_min is None):
 if not(opts.manual_mc_max is None):
     mc_max = opts.manual_mc_max
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
+if opts.force_mc_range:
+    mc_range_str_cip = " --mc-range " + opts.force_mc_range
 eta_range_str = "  ["+str(eta_min_tight) +","+str(eta_max_tight)+"]"  # default will include  1, as we work with BBHs
 eta_range_str_cip = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
+if opts.force_eta_range:
+    eta_range_str_cip = " --eta-range " + opts.force_eta_range
 
 
 ###
@@ -783,6 +789,11 @@ if opts.propose_initial_grid:
     # add basic mass parameters
     cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap  --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_min_tight) +"," + str(delta_max_tight) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
+    if opts.force_mc_range:
+        # force downselect based on this range
+        cmd += " --downselect-parameter mc --downselect-parameter-range " + opts.force_mc_range 
+    if opts.force_eta_range:
+        cmd += " --downselect-parameter eta --downselect-parameter-range " + opts.force_eta_range 
     cmd += " --fmin " + str(opts.fmin_template)
     if opts.data_LI_seglen and not (opts.no_enforce_duration_bound):  
         cmd += " --enforce-duration-bound " + str(opts.data_LI_seglen)
