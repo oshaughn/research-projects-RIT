@@ -789,10 +789,10 @@ if opts.propose_initial_grid:
     # add basic mass parameters
     cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap  --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_min_tight) +"," + str(delta_max_tight) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
-    if opts.force_mc_range:
+    if not(opts.force_mc_range is None):
         # force downselect based on this range
         cmd += " --downselect-parameter mc --downselect-parameter-range " + opts.force_mc_range 
-    if opts.force_eta_range:
+    if not(opts.force_eta_range is None):
         cmd += " --downselect-parameter eta --downselect-parameter-range " + opts.force_eta_range 
     cmd += " --fmin " + str(opts.fmin_template)
     if opts.data_LI_seglen and not (opts.no_enforce_duration_bound):  
