@@ -382,3 +382,91 @@ class Interpolator(object): # interpolator
             output += self.target_mu
 
             return output
+
+class AdaptiveInterpolator(Interpolator):
+
+      def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=32,
+                   epochs=100, learning_rate=1e-2, betas=(0.9, 0.99), eps=1e-2, epochs_per_lr=20, 
+                   lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True, working_dir='.',
+                   loss_func='chi2', no_pad=False):
+
+            self.input = input
+            self.target = target
+            self.errors = errors
+            self.frac = frac
+            self.test_frac = test_frac
+            self.hlayer_size = hlayer_size
+            self.epochs = epochs
+            self.learning_rate = learning_rate
+            self.betas = betas
+            self.eps = eps
+            self.epochs_per_lr = epochs_per_lr
+            self.lr_divisions = lr_divisions
+            self.lr_frac = lr_frac
+            self.batch_size = batch_size
+            self.shuffle = shuffle
+            self.working_dir = working_dir
+            self.loss_func = loss_func
+            self.no_pad = no_pad
+
+            Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size,
+                   epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, epochs_per_lr=self.epochs_per_lr, 
+                   lr_divisions=self.lr_divisions, lr_frac=self.lr_frac, batch_size=self.batch_size, shuffle=self.shuffle, working_dir=self.working_dir,
+                   loss_func=self.loss_func, no_pad=self.no_pad)
+
+      def train(self):
+
+            import numpy as np
+
+            print 'Using adaptive training...'
+
+            super(AdaptiveInterpolator, self).train()
+
+            while self.valid_loss < 1e-3:
+
+                  self.hlayer_size /= 2
+
+                  print 'Decreasing until reasonable layer size reached, currently trying %d' % self.hlayer_size
+
+                  Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size,
+                   epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, epochs_per_lr=self.epochs_per_lr, 
+                   lr_divisions=self.lr_divisions, lr_frac=self.lr_frac, batch_size=self.batch_size, shuffle=self.shuffle, working_dir=self.working_dir,
+                   loss_func=self.loss_func, no_pad=self.no_pad)
+
+                  super(AdaptiveInterpolator, self).train()
+
+            if self.valid_loss < 1: self.hlayer_size /= 2
+
+            ceiling = 2*self.hlayer_size
+
+            floor = self.hlayer_size
+
+            layer_sizes = np.linspace(floor, ceiling, 5)
+
+            losses = np.zeros_like(layer_sizes)
+
+            for size in layer_sizes:
+
+                  self.hlayer_size = int(size)
+
+                  print 'Looping through layer sizes, currently at %d' % self.hlayer_size
+
+                  Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size,
+                   epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, epochs_per_lr=self.epochs_per_lr, 
+                   lr_divisions=self.lr_divisions, lr_frac=self.lr_frac, batch_size=self.batch_size, shuffle=self.shuffle, working_dir=self.working_dir,
+                   loss_func=self.loss_func, no_pad=self.no_pad)
+
+                  super(AdaptiveInterpolator, self).train()
+
+                  losses[np.where(layer_sizes==size)] = np.abs(self.valid_loss.detach().cpu().numpy() - 1)
+
+            self.hlayer_size = int(layer_sizes[np.argmin(losses)])
+
+            Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size,
+                   epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, epochs_per_lr=self.epochs_per_lr, 
+                   lr_divisions=self.lr_divisions, lr_frac=self.lr_frac, batch_size=self.batch_size, shuffle=self.shuffle, working_dir=self.working_dir,
+                   loss_func=self.loss_func, no_pad=self.no_pad)
+
+            print '-------OPTIMAL HIDDEN LAYERS FOUND TO BE %d, RE-TRAINING WITH THIS SETTING-------' % self.hlayer_size
+
+            super(AdaptiveInterpolator, self).train()
