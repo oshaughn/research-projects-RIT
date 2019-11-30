@@ -291,7 +291,7 @@ for indx in np.arange(n_events):
             line = line.replace("--declination-cosine-sampler", "")   # fix, so known sky location is interpreted correctly
             line += " --right-ascension {} --declination {} ".format(fiducial_ra, fiducial_dec)
         for ifo in ifos:
-            line =line.replace("--fmin-ifo {}= ".format(ifo, fmin_template),"--fmin-ifo {}= ".format(ifo, flow_dict[ifo]))
+            line =line.replace("--fmin-ifo {}={} ".format(ifo, fmin_template),"--fmin-ifo {}={} ".format(ifo, flow_dict[ifo]))
         line += " --l-max " + str(l_max) 
         line += " --d-max " + str(d_max)
         line += " --d-min " + str(d_min)
