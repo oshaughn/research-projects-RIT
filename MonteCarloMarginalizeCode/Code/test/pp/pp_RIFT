@@ -305,9 +305,9 @@ for indx in np.arange(n_events):
             line += " --approx " + approx_str
         elif 'NRHybSur' in approx_str:
             line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5  "
-        elif "NRSur7d" in approx_str:
+        elif "NRSur7dq2" in approx_str:
             line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
-        elif "SEOBNR" in approx_str: 
+        elif ("SEOBNR" in approx_str) or 'NRTidal' in approx_str: 
             line += " --approx " + approx_str
         else:
             print " Unknown approx ", approx_str
