@@ -89,6 +89,9 @@ if config.has_option('priors','use_matter'):
 
 
 approx_str = config.get('waveform','approx')
+approx_recover_str = approx_str
+if config.has_option('waveform','approx_template'):
+    approx_recover_str = config.get('waveform','approx_template')
 # danger: lmax only used in analysis, not in generation usually
 l_max = int(config.get('waveform','lmax')  )
 fmin_template = float(config.get('waveform','fmin_template'))
@@ -301,16 +304,16 @@ for indx in np.arange(n_events):
         t_end_analysis = fiducial_event_time +2
         line += " --inv-spec-trunc-time 0 --data-start-time {} --data-end-time {} --window-shape {}".format(t_start_analysis, t_end_analysis, 0.4/seglen_analysis)
     
-        if not 'NR' in approx_str:
-            line += " --approx " + approx_str
-        elif 'NRHybSur' in approx_str:
+        if not 'NR' in approx_recover_str:
+            line += " --approx " + approx_recover_str
+        elif 'NRHybSur' in approx_recover_str:
             line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5  "
-        elif "NRSur7dq2" in approx_str:
+        elif "NRSur7dq2" in approx_recover_str:
             line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
-        elif ("SEOBNR" in approx_str) or 'NRTidal' in approx_str: 
-            line += " --approx " + approx_str
+        elif ("SEOBNR" in approx_recover_str) or 'NRTidal' in approx_recover_str: 
+            line += " --approx " + approx_recover_str
         else:
-            print " Unknown approx ", approx_str
+            print " Unknown approx ", approx_recover_str
             sys.exit(1)
         with open('args_ile.txt','w') as f:
             f.write(line)
