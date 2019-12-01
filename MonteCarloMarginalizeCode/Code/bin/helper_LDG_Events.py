@@ -652,9 +652,10 @@ elif mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid
    res = scipy.optimize.brentq(crit_m2, 0.001,0.999) # critical value of delta: largest possible for this mc value
    delta_max =np.min([1.1*res,0.99])
    eta_min = 0.25*(1-delta_max*delta_max)
-   if event_dict["SNR"]>15 :  # If loud, allow the upper limit to deviate from the maximum
-       q_max = np.mean( [P.extract_param('q'),1])   # a guess, trying to exclude a significant chunk of space
-       eta_max = q_max/(1.+q_max)**2
+   if "SNR" in event_dict.keys():
+       if event_dict["SNR"]>15 :  # If loud, allow the upper limit to deviate from the maximum
+           q_max = np.mean( [P.extract_param('q'),1])   # a guess, trying to exclude a significant chunk of space
+           eta_max = q_max/(1.+q_max)**2
 # High mass ratio configuration.  PROTOTYPE, NEEDS LOTS OF WORK FOR BH-NS, should restore use of  fisher grid!
 elif opts.propose_initial_grid and eta_val < 0.1: # this will override the previous work
     eta_min =0.25*eta_val
