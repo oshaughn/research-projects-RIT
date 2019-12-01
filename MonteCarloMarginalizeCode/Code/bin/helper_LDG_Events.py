@@ -832,8 +832,8 @@ if opts.propose_initial_grid:
             else:
                 return 3000*((2.2-m)/(1.2))**4
         lambda_grid_min=50
-        P.lambda1 = lambda_m_estimate(m1)
-        P.lambda2 = lambda_m_estimate(m2)
+        P.lambda1 = lambda_m_estimate(P.m1/lal.MSUN_SI)
+        P.lambda2 = lambda_m_estimate(P.m2/lal.MSUN_SI)
         lambda1_min = np.min([50,P.lambda1*0.2])
         lambda1_max = np.min([1500,P.lambda1*2])
         lambda2_min = np.min([50,P.lambda1*0.2])
