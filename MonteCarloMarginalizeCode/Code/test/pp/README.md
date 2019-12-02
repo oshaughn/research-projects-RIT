@@ -15,7 +15,7 @@ First, build and run the analysis of each event.
 # insure add_frames.py is in your path
 export PATH=${PATH}:`pwd`
 # Generate workflow
-pp_RIFT --ini sample_pp_config.ini
+pp_RIFT --use-ini sample_pp_config.ini
 cd test_pp; condor_submit_dag master.dag
 ```
 
