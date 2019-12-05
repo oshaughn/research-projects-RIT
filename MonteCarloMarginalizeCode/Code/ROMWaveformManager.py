@@ -285,6 +285,7 @@ class WaveformModeCatalog:
             #     self.parameter_convert[mode] =  my_converter #  ConvertWPtoSurrogateParams   # default conversion routine
 #            return
         elif 'NRSur7dq4' in param:
+            print param
             self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group+param)   # get the dimensinoless surrogate file?
             raw_modes = self.sur._sur_dimless.mode_list  # raw modes
             reflection_symmetric = False
@@ -655,7 +656,7 @@ class WaveformModeCatalog:
         return coefs
 
     # See NR code 
-    def hlmoft(self,  P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf,hybrid_time=None,hybrid_use=False,hybrid_method='taper_add',hybrid_frequency=None,verbose=False,rom_taper_start=False,rom_taper_end=True):
+    def hlmoft(self,  P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf,hybrid_time=None,hybrid_use=False,hybrid_method='taper_add',hybrid_frequency=None,verbose=False,rom_taper_start=False,rom_taper_end=True,use_reference_spins=False):
         """
         hlmoft uses the dimensionless ROM basis functions to extract hlm(t) in physical units, in a LAL array.
         The argument 'P' is a ChooseWaveformParaams object
@@ -697,7 +698,7 @@ class WaveformModeCatalog:
 
         # Option 0: Use NRSur7dsq approach (i.e., generate an hlmoft dictionary)
         hlmT_dimensionless={}
-        if 'NRSur7d' in self.param:
+        if 'NRSur7dq2' in self.param:
             params_here = self.parameter_convert[(2,2)](P)
             tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
             indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
@@ -705,11 +706,28 @@ class WaveformModeCatalog:
             taper_end_duration =None
             if rom_taper_end:
                 taper_end_duration =40.0
-            if 'NRSur7dq4' in self.param:
-                print params_here[0],params_here[1],params_here[2]
-                time, hlmT_dimensionless_narrow,dym = self.sur(params_here[0],params_here[1],params_here[2],times=tvals_dimensionless[indx_ok],f_low=0,taper_end_duration=taper_end_duration)
+            if P.fref >0 and use_reference_spins:
+                hlmT_dimensionless_narrow = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, MTot=(P.m1+P.m2)/lal.MSUN_SI, t=tvals_dimensionless[indx_ok]*m_total_s) #,f_low=0)   
             else:
                 hlmT_dimensionless_narrow = self.sur(params_here[0], params_here[1],params_here[2],t=tvals_dimensionless[indx_ok]) #,f_low=0)
+            for mode in self.modes_available:
+                hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
+                hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
+           
+        if 'NRSur7dq4' in self.param:
+            print self.sur
+            params_here = self.parameter_convert[(2,2)](P)
+            tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
+            indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
+            hlmT ={}
+            taper_end_duration =None
+            if rom_taper_end:
+                taper_end_duration =40.0
+                print params_here[0],params_here[1],params_here[2]
+            if P.fref >0 and use_reference_spins:
+                time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, MTot=(P.m1+P.m2)/lal.MSUN_SI, times=tvals_dimensionless[indx_ok]*m_total_s,f_low=0,taper_end_duration=taper_end_duration) #,f_low=0)
+            else:
+                time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0],params_here[1],params_here[2],times=tvals_dimensionless[indx_ok],f_low=0,taper_end_duration=taper_end_duration)
             for mode in self.modes_available:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
                 hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
@@ -747,9 +765,7 @@ class WaveformModeCatalog:
 
             for mode in self.modes_available:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
-                print mode[1],self.reflection_symmetric
                 if mode[1]<0 and self.reflection_symmetric:   
-                    print self.reflection_symmetric
                     # Perform reflection symmetry
                     mode_alt = (mode[0],-mode[1])
                     hlmT_dimensionless[mode][indx_ok] = np.power(-1, mode[0])*np.conj( taper_start_window* hlmT_dimensionless_narrow[mode_alt])

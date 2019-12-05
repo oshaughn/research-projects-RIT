@@ -101,7 +101,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,quiet=False,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False):
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -264,8 +264,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         q = P.m2/P.m1
         # Load the catalog
         wfP = nrwf.WaveformModeCatalog(group, param, \
-                                           clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, perturbative_extraction=perturbative_extraction,
-                                       lmax=Lmax,align_at_peak_l2_m2_emission=True, build_strain_and_conserve_memory=True,use_provided_strain=use_provided_strain)
+                                       clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True,perturbative_extraction_full=perturbative_extraction_full,perturbative_extraction=perturbative_extraction,lmax=Lmax,align_at_peak_l2_m2_emission=True, build_strain_and_conserve_memory=True,use_provided_strain=use_provided_strain)
         # Overwrite the parameters in wfP to set the desired scale
         wfP.P.m1 = mtot/(1+q)
         wfP.P.m2 = mtot*q/(1+q)
@@ -1912,6 +1911,8 @@ try:
         print " Numba on "
 
         # Very inefficient : decorating
+        # Problem - lately, compiler not correctly identifying return value of code
+        # Should just use SphericalHarmonicsVectorized
         @vectorize([complex128(float64,float64,int64,int64,int64)])
         def lalylm(th,ph,s,l,m):
                 return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
@@ -1920,7 +1921,7 @@ try:
         #         return ComplexAntennaFactor(det, RA, DEC, psi, tref)
         # @vectorize
         # def lalT(deta, RA, DEC, tref):
-                return ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
+#                return ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
 
         def lalF(det, RA, DEC,psi,tref): # note tref is a SCALAR
                 F = np.zeros( len(RA), dtype=complex)
