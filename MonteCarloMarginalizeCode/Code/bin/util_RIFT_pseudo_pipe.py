@@ -165,6 +165,7 @@ else:
 # if empty, checks grid-proxy-info -path
 # if empty, fails and tells you to run ligo-proxy-init
     if not("X509_USER_PROXY" in os.environ.keys()):
+        import subprocess
         str_proxy =subprocess.check_output(['grid-proxy-info','-path']).rstrip()
         if len(str_proxy) < 1:
             print " Run ligo-proxy-init  or otherwise have a method to query gracedb / use CVMFS frames as you need! "
