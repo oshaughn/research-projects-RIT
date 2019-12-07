@@ -161,9 +161,14 @@ if opts.gracedb_id is None:
     if not (opts.use_ini is None):
         gwid = ''
 else:
+# checks X509_USER_PROXY env variable
+# if empty, checks grid-proxy-info -path
+# if empty, fails and tells you to run ligo-proxy-init
     if not("X509_USER_PROXY" in os.environ.keys()):
-        print " Run ligo-proxy-init ! "
-        sys.exit(1)
+        str_proxy =subprocess.check_output(['grid-proxy-info','-path']).rstrip()
+        if len(str_proxy) < 1:
+            print " Run ligo-proxy-init  or otherwise have a method to query gracedb / use CVMFS frames as you need! "
+            sys.exit(1)
 print " Event ", gwid
 base_dir = os.getcwd()
 if opts.use_ini:
