@@ -1126,7 +1126,7 @@ if ("declination", "right_ascension") in sampler.params:
     sampler._rvs["declination"], sampler._rvs["right_ascension"] = sampler._rvs[("declination", "right_ascension")]
 
 
-if opts.maximize_only:
+if opts.maximize_only and opts.output_file:
     # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
     indx_guess = numpy.argmax(sampler._rvs["integrand"])   # start search near maximum-likelihood point. (WARNING: can be very close by)
     P.radec=True
