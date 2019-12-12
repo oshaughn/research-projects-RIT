@@ -105,6 +105,7 @@ parser.add_argument("--fix-bns-sky",action='store_true')
 parser.add_argument("--cip-sampler-method",type=str,default=None)
 parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
+parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--hierarchical-merger-prior-1g",action='store_true',help="As in 1903.06742")
 parser.add_argument("--hierarchical-merger-prior-2g",action='store_true',help="As in 1903.06742")
 parser.add_argument("--link-reference-pe",action='store_true',help="If present, creates a directory 'reference_pe' and adds symbolic links to fiducial samples. These can be used by the automated plotting code.  Requires LVC_PE_SAMPLES environment variable defined!")
@@ -426,8 +427,23 @@ for indx in np.arange(len(instructions_cip)):
         line += " --prior-gaussian-mass-ratio --prior-gaussian-spin1-magnitude "   # should require precessing analysis
     elif opts.assume_highq:
         line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
-    if 'NRSur7dq2' in opts.approx:
-        line += " --chi-max 0.8 "  # the model has limited spin range
+    if opts.approx in lalsimutils.waveform_approx_limit_dict:
+        chi_max = lalsimutils.waveform_approx_limit_dict["chi-max"]
+        if not(opts.force_chi_max is None):
+            chi_max = opts.force_chi_max
+        q_min = lalsimutils.waveform_approx_limit_dict["q-min"]
+        eta_min = q_min/(1+q_min)**2
+        line += " --chi-max {}  "
+        # Parse arguments, impose limit based on the approximant used, as described above
+#        import StringIO
+        my_parser = argparse.ArgumentParser()
+        my_parser.add_argument("--eta-range")
+        my_opts=my_parser.parse_args(line.split())
+        eta_range_orig = eval(my_opts.eta_range)
+        eta_range_revised = [np.max([eta_min,eta_range_orig[0]]),np.min([1,eta_range_orig[1]])]
+        line=line.replace("--eta-range "+my_opts.eta_range,"--eta-range "+str(eta_range_revised))
+        # Ideally, load in initial grid, and remove points outside the targeted range
+        # IMPLEMENT THIS
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     line += "\n"
