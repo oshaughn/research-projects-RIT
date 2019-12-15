@@ -730,7 +730,8 @@ echo Starting ...
            ile_job.add_condor_cmd("stream_output",'True')
 
     # Create prescript command to set up local.cache, only if frames are needed
-    if not(frames_local is None):   # should be required for singularity or osg
+    # if we have CVMFS frames, we should be copying local.cache over directly, with it already populated !
+    if not(frames_local is None) and not(use_cvmfs_frames):   # should be required for singularity or osg
         try:
             lalapps_path2cache=os.environ['LALAPPS_PATH2CACHE']
         except KeyError:

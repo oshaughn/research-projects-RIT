@@ -52,6 +52,10 @@ config.read(opts.use_ini)
 
 base_dir = os.getcwd() # relative directory, for use if absolute paths not provided
 
+test_convergence=False
+if config.has_option('pp','test_convergence'):
+    test_convergence =unsafe_config_get(config,['pp','test_convergence'])
+
 # Create, go to working directory
 working_dir = config.get('pp','working_directory')
 print " Working dir ", working_dir
@@ -85,9 +89,14 @@ if config.has_option('priors','use_matter'):
 
 
 approx_str = config.get('waveform','approx')
+approx_recover_str = approx_str
+if config.has_option('waveform','approx_template'):
+    approx_recover_str = config.get('waveform','approx_template')
 # danger: lmax only used in analysis, not in generation usually
 l_max = int(config.get('waveform','lmax')  )
 fmin_template = float(config.get('waveform','fmin_template'))
+fmax = float(config.get('data','fmax'))
+flow_dict = unsafe_config_get(config,['data','flow'])
 srate_data = float(config.get('data', 'srate_data'))
 seglen_data = float(config.get('data','seglen_data'))
 seglen_analysis = float(config.get('data','seglen_analysis'))
@@ -190,6 +199,9 @@ for indx in np.arange(n_events):
         cmd = "/bin/find .  -name '*.gwf' | lalapps_path2cache > signals.cache"
         os.system(cmd)
 
+    # Evaluate zero-noise SNR
+    print " --> FIXME: evaluate zero-noise SNR, to use as hint in place of search <-- "
+
 print " === Using fiducial noise frames === "
 
 noise_frame_dir = config.get("make_data","fiducial_noise_frames")
@@ -199,20 +211,24 @@ print " === Joining synthetic signals to reference noise === "
 
 seglen_actual = t_stop - t_start
 os.chdir(working_dir_full)
+mkdir('combined_frames')
 for indx in np.arange(n_events):
     os.chdir(working_dir_full)
-    mkdir('analysis_event_{}'.format(indx))
-    os.chdir(working_dir_full+"/"+"analysis_event_{}".format(indx))
+#    mkdir('analysis_event_{}'.format(indx))
+    target_subdir='combined_frames/event_{}'.format(indx)
+    if os.path.exists(target_subdir):
+        print " Combined frames exist for event {}, skipping ".format(indx)
+        continue
+    print " Writing ", indx
+    mkdir(target_subdir)
+    os.chdir(working_dir_full+"/"+target_subdir)
     for ifo in ifos:
         fname_input = working_dir_full+"/signal_frames/event_{}/{}-fake_strain-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_actual)
         fname_noise= noise_frame_dir + "/" + ifo + ("/%08d.gwf" % indx)
-        fname_output = working_dir_full+"/analysis_event_{}/{}-combined-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_actual)
+#        fname_output = working_dir_full+"/analysis_event_{}/{}-combined-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_actual)
+        fname_output = working_dir_full+"/{}/{}-combined-{}-{}.gwf".format(target_subdir,ifo[0],int(t_start),seglen_actual)
         add_frames(ifo+":FAKE-STRAIN",fname_input, fname_noise,fname_output)
 
-    if not opts.test:
-        cmd = "/bin/find . -name '*.gwf' | lalapps_path2cache > local.cache"
-        print cmd
-        os.system(cmd)
 
 print " === Building single-event workflows === "
 use_gpu = unsafe_config_get(config,['make_workflow','use_gpu'])
@@ -235,11 +251,21 @@ cip_explode_jobs=False
 
 for indx in np.arange(n_events):
     print " ::: Event {} ::: ".format(indx)
-#    mkdir(working_dir_full+'/analysis_event_{}'.format(indx))
+    mkdir(working_dir_full+'/analysis_event_{}'.format(indx))
     os.chdir(working_dir_full+'/analysis_event_{}'.format(indx))
+    os.system("ln -sf ../combined_frames/event_{} .".format(indx))
+    if not opts.test:
+        cmd = "/bin/find -L . -name '*.gwf' | lalapps_path2cache > local.cache"
+        print cmd
+        os.system(cmd)
     here = os.getcwd()
     cmd = "helper_LDG_Events.py --sim-xml "+working_dir_full + "/mdc.xml.gz --event {} --event-time {}  --cache local.cache --working-directory {}  ".format(indx,P_list[indx].tref,here)
-    cmd += " --fmin {} ".format(fmin_template)
+    cmd += " --fmin {} ".format(fmin_template)  # used for placement, we will be undoing some of these effects later with a 'replace'
+    cmd += " --fmax {} ".format(fmax)
+    cmd += " --fmin-template {} ".format(fmin_template)
+    cmd += " --force-mc-range [{},{}] --force-eta-range [{},{}] ".format(mc_min, mc_max,eta_min,eta_max)
+    if test_convergence:
+        cmd += " --test-convergence "  # removes 'always succeed' as an option (by the helper)
     # add in PSDs.  Allow relative names for PSDs relative to ini file
     for psd in psd_dict:
         psd_name = psd_dict[psd]
@@ -269,6 +295,8 @@ for indx in np.arange(n_events):
         if fix_sky_location:
             line = line.replace("--declination-cosine-sampler", "")   # fix, so known sky location is interpreted correctly
             line += " --right-ascension {} --declination {} ".format(fiducial_ra, fiducial_dec)
+        for ifo in ifos:
+            line =line.replace("--fmin-ifo {}={} ".format(ifo, fmin_template),"--fmin-ifo {}={} ".format(ifo, flow_dict[ifo]))
         line += " --l-max " + str(l_max) 
         line += " --d-max " + str(d_max)
         line += " --d-min " + str(d_min)
@@ -276,16 +304,16 @@ for indx in np.arange(n_events):
         t_end_analysis = fiducial_event_time +2
         line += " --inv-spec-trunc-time 0 --data-start-time {} --data-end-time {} --window-shape {}".format(t_start_analysis, t_end_analysis, 0.4/seglen_analysis)
     
-        if not 'NR' in approx_str:
-            line += " --approx " + approx_str
-        elif 'NRHybSur' in approx_str:
+        if not 'NR' in approx_recover_str:
+            line += " --approx " + approx_recover_str
+        elif 'NRHybSur' in approx_recover_str:
             line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5  "
-        elif "NRSur7d" in approx_str:
+        elif "NRSur7dq2" in approx_recover_str:
             line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
-        elif "SEOBNR" in approx_str: 
-            line += " --approx " + approx_str
+        elif ("SEOBNR" in approx_recover_str) or 'NRTidal' in approx_recover_str: 
+            line += " --approx " + approx_recover_str
         else:
-            print " Unknown approx ", approx_str
+            print " Unknown approx ", approx_recover_str
             sys.exit(1)
         with open('args_ile.txt','w') as f:
             f.write(line)

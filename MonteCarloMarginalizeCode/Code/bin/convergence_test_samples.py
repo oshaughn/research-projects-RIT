@@ -20,6 +20,8 @@ import scipy.stats
 import numpy.linalg as la
 import sys
 
+from RIFT.misc.samples_utils import add_field
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--samples", action='append', help="Samples used in convergence test")
 parser.add_argument("--parameter", action='append', help="Parameters used in convergence test")
@@ -89,6 +91,15 @@ def test_KL1d(dat1_1d,dat2_1d,range1=None, range2=None):
 
 samples1 = np.genfromtxt(opts.samples[0], names=True)
 samples2 = np.genfromtxt(opts.samples[1], names=True)
+
+# Add missing fields needed for some tests
+if not('xi' in samples1.dtype.names):
+            samples1 = add_field(samples1, [('chi_eff',float)]); samples1['chi_eff'] = (samples1["m1"]*samples1["a1z"]+samples1["m2"]*samples1["a2z"])/(samples1["m1"]+samples1["m2"])
+            samples1 = add_field(samples1, [('xi',float)]); samples1['xi'] = (samples1["m1"]*samples1["a1z"]+samples1["m2"]*samples1["a2z"])/(samples1["m1"]+samples1["m2"])
+if not('xi' in samples2.dtype.names):
+            samples2 = add_field(samples2, [('chi_eff',float)]); samples2['chi_eff'] = (samples2["m1"]*samples2["a1z"]+samples2["m2"]*samples2["a2z"])/(samples2["m1"]+samples2["m2"])
+            samples2 = add_field(samples2, [('xi',float)]); samples2['xi'] = (samples2["m1"]*samples2["a1z"]+samples2["m2"]*samples2["a2z"])/(samples2["m1"]+samples2["m2"])
+
 
 param_names1 = samples1.dtype.names; param_names2 = samples2.dtype.names
 npts1 = len(samples1[param_names1[0]])

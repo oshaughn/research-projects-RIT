@@ -5,11 +5,13 @@
 
 import argparse
 import numpy as np
-from samples_utils import add_field
+from RIFT.misc.samples_utils import add_field
+
+import sys
 
 import lal
 import lalsimulation as lalsim
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 
 
 remap_ILE_2_LI = {
@@ -35,8 +37,9 @@ remap_ILE_2_LI = {
   "beta":"beta",
   "LambdaTilde":"lambdat",
   "DeltaLambdaTilde": "dlambdat",
-  "thetaJN":"theta_jn"}
-remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot'}
+  "thetaJN":"theta_jn",
+  "dist":"distance",'phiref':'phiorb'}
+remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot','distance':'dist', 'ra':'phi', 'dec':'theta','phiorb':'phiref'}
 
 
 
@@ -47,6 +50,7 @@ parser.add_argument("--posterior-file",action='append',help="filename of *.dat f
 parser.add_argument("--composite-file",type=str,help="filename of all.net file, needed to get peak lnL (i.e., log how much this event is pure noise")
 parser.add_argument("--truth-file",type=str, help="file containing the true parameters")
 parser.add_argument("--truth-event",type=int, default=0,help="file containing the true parameters")
+parser.add_argument("--chi-max",type=int, default=1,help="re-impose chi-max")
 parser.add_argument("--parameter", action='append',help="parameter name (ILE). Note source-frame masses are only natively supported for LI")
 opts=  parser.parse_args()
 
@@ -80,12 +84,13 @@ if not 'mtotal' in samples.dtype.names and 'mc' in samples.dtype.names:  # raw L
 
 if (not 'theta1' in samples.dtype.names)  and ('a1x' in samples.dtype.names):  # probably does not have polar coordinates
     chiperp_here = np.sqrt( samples['a1x']**2+ samples['a1y']**2)
-    chi1_here = np.sqrt( samples['a1z']**2 + chiperp_here**2)
-    theta1_here = np.arctan( samples['a1z']/chiperp_here)
-    phi1_here = np.angle(samples['a1x']+1j*samples['a1y'])
-    samples = add_field(samples, [('chi1', float)]); samples['chi1'] = chi1_here
-    samples = add_field(samples, [('theta1', float)]); samples['theta1'] = theta1_here
-    samples = add_field(samples, [('phi1', float)]); samples['phi1'] = phi1_here
+    if any(chiperp_here > 0):
+     chi1_here = np.sqrt( samples['a1z']**2 + chiperp_here**2)
+     theta1_here = np.arctan( samples['a1z']/chiperp_here)
+     phi1_here = np.angle(samples['a1x']+1j*samples['a1y'])
+     samples = add_field(samples, [('chi1', float)]); samples['chi1'] = chi1_here
+     samples = add_field(samples, [('theta1', float)]); samples['theta1'] = theta1_here
+     samples = add_field(samples, [('phi1', float)]); samples['phi1'] = phi1_here
 
 elif "theta1" in samples.dtype.names:
     a1x_dat = samples["a1"]*np.sin(samples["theta1"])*np.cos(samples["phi1"])
@@ -106,11 +111,18 @@ elif "theta1" in samples.dtype.names:
     if not 'chi_eff' in samples.dtype.names:
         samples = add_field(samples, [('chi_eff',float)]); samples['chi_eff'] = (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["m1"]+samples["m2"])
 
-elif 'a1x' in samples.dtype.names:
-    chi1_perp = np.sqrt(samples['a1x']**2 + samples['a1y']**2)
-    chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
-    samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
-    samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
+# add other derived parameters
+if 'a1x' in samples.dtype.names:
+    if not ('chi1_perp' in samples.dtype.names):
+        chi1_perp = np.sqrt(samples['a1x']**2 + samples['a1y']**2)
+        chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
+        samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
+        samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
+    if not 'chi_eff' in samples.dtype.names:
+        samples = add_field(samples, [('chi_eff',float)]); samples['chi_eff'] = (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["m1"]+samples["m2"])
+        samples = add_field(samples, [('xi',float)]); samples['chi_eff'] = (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["m1"]+samples["m2"])
+
+
 
 if 'lambda1' in samples.dtype.names and not ('lambdat' in samples.dtype.names):
     Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
@@ -133,9 +145,17 @@ if 'chi1_perp' in samples.dtype.names:
 
 # Loop over labelled fields
 for param in opts.parameter:
-    val_here = P_ref.extract_param(param)
+    param_here = param
+    if param_here in remap_LI_to_ILE.keys():
+	param_here = remap_LI_to_ILE[param_here]
+    val_here = P_ref.extract_param(param_here)
     if param in [ 'mc', 'm1', 'm2', 'mtotal']:
         val_here= val_here/lal.MSUN_SI
+    if param in ['dist','distance']:
+        val_here = val_here/(1e6*lal.PC_SI)
+ 
+    if param in ['phiref','phiorb', 'psi']:   # BUG in injection file, this is workaround
+	samples[param] = np.mod(samples[param],np.pi)
 
     n_ok = np.sum(samples[param] < val_here)
     print n_ok/(1.*len(samples[param])),

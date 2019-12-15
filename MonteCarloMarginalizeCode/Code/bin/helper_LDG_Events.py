@@ -132,6 +132,8 @@ def get_observing_run(t):
 parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
 parser.add_argument("--force-data-lookup",action='store_true',help='Use this flag if you want to use real data.')
+parser.add_argument("--force-mc-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region. Passed directly to MOG and CIP.")
+parser.add_argument("--force-eta-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region")
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
@@ -426,7 +428,9 @@ print(" Event analysis ", event_dict)
 if (opts.event_time is None):
     print( " == candidate event parameters (as passed to helper) == ")
     event_dict["P"].print_params()
-else:
+    if not(opts.event_time is None):
+        event_dict["tref"] = opts.event_time
+elif not(opts.event_time is None):
     print(  " == Using event time only; please specify a grid! == ")
     event_dict["tref"]  = opts.event_time
     event_dict["epoch"] = 4
@@ -648,9 +652,10 @@ elif mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid
    res = scipy.optimize.brentq(crit_m2, 0.001,0.999) # critical value of delta: largest possible for this mc value
    delta_max =np.min([1.1*res,0.99])
    eta_min = 0.25*(1-delta_max*delta_max)
-   if event_dict["SNR"]>15 :  # If loud, allow the upper limit to deviate from the maximum
-       q_max = np.mean( [P.extract_param('q'),1])   # a guess, trying to exclude a significant chunk of space
-       eta_max = q_max/(1.+q_max)**2
+   if "SNR" in event_dict.keys():
+       if event_dict["SNR"]>15 :  # If loud, allow the upper limit to deviate from the maximum
+           q_max = np.mean( [P.extract_param('q'),1])   # a guess, trying to exclude a significant chunk of space
+           eta_max = q_max/(1.+q_max)**2
 # High mass ratio configuration.  PROTOTYPE, NEEDS LOTS OF WORK FOR BH-NS, should restore use of  fisher grid!
 elif opts.propose_initial_grid and eta_val < 0.1: # this will override the previous work
     eta_min =0.25*eta_val
@@ -662,8 +667,8 @@ elif opts.propose_initial_grid and eta_val < 0.1: # this will override the previ
         tune_grid=False
 
 chieff_center = P.extract_param('xi')
-chieff_min = np.max([chieff_center -0.3,-1])/snr_fac
-chieff_max = np.max([chieff_center +0.3,1])/snr_fac
+chieff_min = np.max([chieff_center -0.3/snr_fac,-1])
+chieff_max = np.min([chieff_center +0.3/snr_fac,1])
 if chieff_min >0 and use_gracedb_event:
     chieff_min = -0.1   # make sure to cover spin zero, most BBH have zero spin and missing zero is usually an accident of the search recovered params
 
@@ -680,8 +685,12 @@ if not(opts.manual_mc_min is None):
 if not(opts.manual_mc_max is None):
     mc_max = opts.manual_mc_max
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
+if not(opts.force_mc_range is None):
+    mc_range_str_cip = " --mc-range " + opts.force_mc_range
 eta_range_str = "  ["+str(eta_min_tight) +","+str(eta_max_tight)+"]"  # default will include  1, as we work with BBHs
 eta_range_str_cip = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
+if not (opts.force_eta_range is None):
+    eta_range_str_cip = " --eta-range " + opts.force_eta_range
 
 
 ###
@@ -693,6 +702,8 @@ helper_cip_args = "X "
 helper_cip_arg_list = []
 
 helper_test_args += "  --method lame  --parameter mc "
+if not opts.assume_nospin:
+    helper_test_args += " --parameter xi "  # require chi_eff distribution to be stable
 if not opts.test_convergence:
     helper_test_args+= " --always-succeed "
 
@@ -779,6 +790,11 @@ if opts.propose_initial_grid:
     # add basic mass parameters
     cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap  --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_min_tight) +"," + str(delta_max_tight) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
+    if not(opts.force_mc_range is None):
+        # force downselect based on this range
+        cmd += " --downselect-parameter mc --downselect-parameter-range " + opts.force_mc_range 
+    if not(opts.force_eta_range is None):
+        cmd += " --downselect-parameter eta --downselect-parameter-range " + opts.force_eta_range 
     cmd += " --fmin " + str(opts.fmin_template)
     if opts.data_LI_seglen and not (opts.no_enforce_duration_bound):  
         cmd += " --enforce-duration-bound " + str(opts.data_LI_seglen)
@@ -808,7 +824,22 @@ if opts.propose_initial_grid:
         # Do the initial grid assuming matter, with tidal parameters set by the AP4 EOS provided by lalsuite
         # We will leverage working off this to find the lambdaTilde dependence
 #        cmd += " --use-eos AP4 "  
-        cmd += " --random-parameter lambda1 --random-parameter-range [50,1500] --random-parameter lambda2 --random-parameter-range [50,1500] "
+        # Choose the lambda range based on chirp mass!  If chirp mass is large, we need to use very low lambda.
+        # based on lambda(m) estimate 3000*((mc_center-2.2)/(1.2))**2
+        # FIXME: Get real EOS limit?
+        def lambda_m_estimate(m):
+            if m>2.2:
+                return 10
+            else:
+                return 3000*((2.2-m)/(1.2))**4
+        lambda_grid_min=50
+        P.lambda1 = lambda_m_estimate(P.m1/lal.MSUN_SI)
+        P.lambda2 = lambda_m_estimate(P.m2/lal.MSUN_SI)
+        lambda1_min = np.min([50,P.lambda1*0.2])
+        lambda1_max = np.min([1500,P.lambda1*2])
+        lambda2_min = np.min([50,P.lambda1*0.2])
+        lambda2_max = np.min([1500,P.lambda2*2])
+        cmd += " --random-parameter lambda1 --random-parameter-range [{},{}] --random-parameter lambda2 --random-parameter-range [{},{}] ".format(lambda1_min,lambda1_max,lambda2_min,lambda2_max)
         grid_size *=1  
 
     if opts.propose_fit_strategy:

@@ -946,7 +946,7 @@ def fit_gp_pool(x,y,n_pool=10,**kwargs):
     print(" Testing ", fn_out([x[0]]))
     return fn_out
 
-def fit_nn(x,y,y_errors=None,fname_export='nn_fit'):
+def fit_nn(x,y,y_errors=None,fname_export='nn_fit',adaptive=True):
     y_packed = y[:,np.newaxis]
     if not (y_errors is None):
         errors_packed = y_errors[:,np.newaxis]
@@ -956,10 +956,10 @@ def fit_nn(x,y,y_errors=None,fname_export='nn_fit'):
     working_dir = os.getcwd()
 #    for indx in np.arange(len(x[0])):
 #        print np.min(x[:,indx]), np.max(x[:,indx]), (np.max(x[:,indx])-np.mean(x[:,indx]))/np.std(x[:,indx])
-    # train first with one loss, then the next?
-    nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=60, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='chi2')  # May want to adjust size of network based on data size?
-#    nn_interpolator.train()
-#    nn_interpolator.loss_func='chi2'; nn_interpolator.epochs = 120
+    if adaptive:
+        nn_interpolator = senni.AdaptiveInterpolator(x,y_packed,errors_packed,epochs=60, frac=0.2, hlayer_size=2**(1+len(x[0])), test_frac=0,working_dir=working_dir,loss_func='chi2')  # May want to adjust size of network based on data size?
+    else:
+        nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=60, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='chi2')  # May want to adjust size of network based on data size?
     nn_interpolator.train()
     if opts.fit_save_gp:
         print( " Attempting to save NN fit ", opts.fit_save_gp+".network")

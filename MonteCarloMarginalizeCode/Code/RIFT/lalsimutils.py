@@ -62,6 +62,17 @@ cthdler = ligolw.LIGOLWContentHandler #defines a content handler to load xml gri
 lsctables.use_in(cthdler)
 
 
+waveform_approx_limit_dict = {
+  "NRHybSur3dq8": {  "q-min":1./8, "chi-max":0.8
+     },
+  "NRSur7dq2": {  "q-min":1./2, "chi-max":0.8
+     },
+  "NRSur7dq4": { "q-min":1./2, "chi-max":0.8
+     },
+
+}
+
+
 
 # Check lal version (lal.LAL_MSUN_SI or not).  Enables portability through the version transition.
 try:
