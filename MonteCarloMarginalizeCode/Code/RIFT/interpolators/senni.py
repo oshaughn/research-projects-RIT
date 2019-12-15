@@ -418,7 +418,7 @@ class AdaptiveInterpolator(Interpolator):
 
             import numpy as np
 
-            print 'Using adaptive training...'
+            print('Using adaptive training...')
 
             super(AdaptiveInterpolator, self).train()
 
@@ -426,7 +426,7 @@ class AdaptiveInterpolator(Interpolator):
 
                   self.hlayer_size /= 2
 
-                  print 'Decreasing until reasonable layer size reached, currently trying %d' % self.hlayer_size
+                  print('Decreasing until reasonable layer size reached, currently trying %d' % self.hlayer_size)
 
                   Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size,
                    epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, epochs_per_lr=self.epochs_per_lr, 
@@ -449,7 +449,7 @@ class AdaptiveInterpolator(Interpolator):
 
                   self.hlayer_size = int(size)
 
-                  print 'Looping through layer sizes, currently at %d' % self.hlayer_size
+                  print('Looping through layer sizes, currently at %d' % self.hlayer_size)
 
                   Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size,
                    epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, epochs_per_lr=self.epochs_per_lr, 
@@ -467,6 +467,6 @@ class AdaptiveInterpolator(Interpolator):
                    lr_divisions=self.lr_divisions, lr_frac=self.lr_frac, batch_size=self.batch_size, shuffle=self.shuffle, working_dir=self.working_dir,
                    loss_func=self.loss_func, no_pad=self.no_pad)
 
-            print '-------OPTIMAL HIDDEN LAYERS FOUND TO BE %d, RE-TRAINING WITH THIS SETTING-------' % self.hlayer_size
+            print( '-------OPTIMAL HIDDEN LAYERS FOUND TO BE %d, RE-TRAINING WITH THIS SETTING-------' % self.hlayer_size)
 
             super(AdaptiveInterpolator, self).train()
