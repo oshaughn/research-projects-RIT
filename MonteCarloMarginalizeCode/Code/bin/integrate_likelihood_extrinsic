@@ -484,7 +484,7 @@ if sorted(psd_dict.keys()) != sorted(data_dict.keys()):
 # that of the original TimeSeries that was FFT'd = Nsamples
 # Also, deltaF = 1/T, with T = the duration (in sec) of the original TimeSeries
 # Therefore 1/(data.length*deltaF) = T/Nsamples = deltaT
-P.deltaT = 1./ (data_dict[data_dict.keys()[0]].data.length * deltaF)
+P.deltaT = 1./ (data_dict[list(data_dict.keys())[0]].data.length * deltaF)
 P.deltaF = deltaF
 
 
