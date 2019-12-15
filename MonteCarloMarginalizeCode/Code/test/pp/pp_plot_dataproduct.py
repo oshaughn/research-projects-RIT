@@ -57,7 +57,7 @@ opts=  parser.parse_args()
 # Load in truth file
 P_ref = None
 if opts.truth_file:
-    print " Loading true parameters from  ", opts.truth_file
+    print(" Loading true parameters from  ", opts.truth_file)
     truth_P_list  =lalsimutils.xml_to_ChooseWaveformParams_array(opts.truth_file)
     P_ref = truth_P_list[opts.truth_event]
 else:
@@ -146,7 +146,7 @@ if 'chi1_perp' in samples.dtype.names:
 # Loop over labelled fields
 for param in opts.parameter:
     param_here = param
-    if param_here in remap_LI_to_ILE.keys():
+    if param_here in list(remap_LI_to_ILE.keys()):
 	param_here = remap_LI_to_ILE[param_here]
     val_here = P_ref.extract_param(param_here)
     if param in [ 'mc', 'm1', 'm2', 'mtotal']:
@@ -158,7 +158,7 @@ for param in opts.parameter:
 	samples[param] = np.mod(samples[param],np.pi)
 
     n_ok = np.sum(samples[param] < val_here)
-    print n_ok/(1.*len(samples[param])),
+    print(n_ok/(1.*len(samples[param])), end=' ')
 
 if opts.composite_file:
-    print lnL_max
+    print(lnL_max)
