@@ -52,13 +52,13 @@ def get_pinned_params(opts):
     """
     Retrieve a dictionary of user pinned parameters and their pin values.
     """
-    return dict([(p,v) for p, v in opts.__dict__.iteritems() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None]) 
+    return dict([(p,v) for p, v in opts.__dict__.items() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None]) 
 
 def get_unpinned_params(opts, params):
     """
     Retrieve a set of unpinned parameters.
     """
-    return params - set([p for p, v in opts.__dict__.iteritems() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None])
+    return params - set([p for p, v in opts.__dict__.items() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None])
 
 #
 # Option parsing
