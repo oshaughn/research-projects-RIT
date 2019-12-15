@@ -206,7 +206,7 @@ def LoadSpokeDAT(fname):
 #        spoke_id = str([round(elem, 3) for elem in Line_to_spoke_label(line)])
         spoke_id = str(Line_to_spoke_label(line))
         spoke_contents = Line_to_spoke_entry(line)
-        if sdHere.has_key(spoke_id):
+        if spoke_id in sdHere:
             sdHere[spoke_id].append(spoke_contents)
         else:
             sdHere[spoke_id] = [spoke_contents]
