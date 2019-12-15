@@ -29,7 +29,7 @@ from numpy import sin, cos
 from scipy import interpolate
 from scipy import signal
 import scipy  # for decimate
-sci_ver = map(int, scipy.version.version.split('.'))  # scipy version number as int list.
+sci_ver = list(map(int, scipy.version.version.split('.')))  # scipy version number as int list.
 
 from glue.ligolw import lsctables, table, utils, ligolw,ilwd # check all are needed
 from glue.lal import Cache
