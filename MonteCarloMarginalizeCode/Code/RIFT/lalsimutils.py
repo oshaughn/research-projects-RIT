@@ -3447,9 +3447,9 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
 
     import os
     tmpdir = None
-    if os.environ.has_key('TMP'):
+    if 'TMP' in os.environ:
         tmpdir  = os.environ['TMP']
-    elif os.environ.has_key('TMPDIR'):
+    elif 'TMPDIR' in os.environ:
         tmpdir = os.environ['TMPDIR']
     else:
         tmpdir = '/tmp'

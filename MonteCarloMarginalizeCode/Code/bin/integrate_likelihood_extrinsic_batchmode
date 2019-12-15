@@ -700,7 +700,7 @@ unpinned_params = get_unpinned_params(opts, sampler.params)
 print( "{0:<25s} {1:>5s} {2:>5s} {3:>20s} {4:<10s}".format("parameter", "lower limit", "upper limit", "pinned?", "pin value"))
 plen = len(sorted(sampler.params, key=lambda p: len(p))[-1])
 for p in sampler.params:
-    if pinned_params.has_key(p):
+    if p in pinned_params:
         pinned, value = True, "%1.3g" % pinned_params[p]
     else:
         pinned, value = False, ""
@@ -714,7 +714,7 @@ for p in sampler.params:
         print( "{0:<25s} {1:>1.3g}   {2:>1.3g} {3:>20s} {4:<10s}".format(p, sampler.llim[p], sampler.rlim[p], str(pinned), value))
 
 # Special case: t_ref is assumed to be relative to the epoch
-if pinned_params.has_key("t_ref"):
+if "t_ref" in pinned_params:
     pinned_params["t_ref"] -= float(fiducial_epoch)
 
 #
