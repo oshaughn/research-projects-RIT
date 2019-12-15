@@ -269,7 +269,7 @@ parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
 opts=  parser.parse_args()
 if opts.posterior_file is None:
-    print " No input files "
+    print(" No input files ")
     import sys
     sys.exit(0)
 if opts.pdf:
