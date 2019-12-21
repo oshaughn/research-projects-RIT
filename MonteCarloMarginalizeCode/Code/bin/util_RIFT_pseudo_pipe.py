@@ -438,7 +438,7 @@ for indx in np.arange(len(instructions_cip)):
 #        import StringIO
         my_parser = argparse.ArgumentParser()
         my_parser.add_argument("--eta-range")
-        my_opts=my_parser.parse_args(line.split())
+        my_opts, unknown_opts =my_parser.parse_known_args(line.split())
         eta_range_orig = eval(my_opts.eta_range)
         eta_range_revised = [np.max([eta_min,eta_range_orig[0]]),np.min([1,eta_range_orig[1]])]
         line=line.replace("--eta-range "+my_opts.eta_range,"--eta-range "+str(eta_range_revised))
