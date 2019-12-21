@@ -403,7 +403,7 @@ with open("helper_cip_arg_list.txt",'r') as f:
 
 
 # Add arguments to the file we will use
-instructions_cip = map(lambda x: x.rstrip().split(' '), raw_lines)#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
+instructions_cip = list(map(lambda x: x.rstrip().split(' '), raw_lines))#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
 n_iterations =0
 lines  = []
 for indx in np.arange(len(instructions_cip)):
