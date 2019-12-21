@@ -428,10 +428,10 @@ for indx in np.arange(len(instructions_cip)):
     elif opts.assume_highq:
         line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
     if opts.approx in lalsimutils.waveform_approx_limit_dict:
-        chi_max = lalsimutils.waveform_approx_limit_dict["chi-max"]
+        chi_max = lalsimutils.waveform_approx_limit_dict[opts.approx]["chi-max"]
         if not(opts.force_chi_max is None):
             chi_max = opts.force_chi_max
-        q_min = lalsimutils.waveform_approx_limit_dict["q-min"]
+        q_min = lalsimutils.waveform_approx_limit_dict[opts.approx]["q-min"]
         eta_min = q_min/(1+q_min)**2
         line += " --chi-max {}  "
         # Parse arguments, impose limit based on the approximant used, as described above
