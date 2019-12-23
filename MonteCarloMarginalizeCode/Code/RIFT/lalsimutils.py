@@ -1264,7 +1264,7 @@ class ChooseWaveformParams:
             self.approx = lalsim.SEOBNRv2
         if row.waveform ==  'SEOBNRv4T':
             self.approx = lalTEOBv4
-        if row.waveform == 'SEOBNRv4HM'   and lalSEOBNR4HM > 0 :
+        if row.waveform == 'SEOBNRv4HM'   and lalSEOBNRv4HM > 0 :
             self.approx = lalSEOBNRv4HM
         if rosDebugMessagesContainer[0]:
             print " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform
