@@ -2,7 +2,7 @@
 0.0.15.0 
 ---------------------------
 Since last release
-  - py3 port (rc1)
+  - py3 port, including most of changes up to 0.0.14.7 (rc1)
 
 
 0.0.14.7 
