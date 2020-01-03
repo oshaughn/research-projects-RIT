@@ -177,6 +177,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
 
 
     elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx ==lsu.lalSEOBNRv4HM or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4 ):
+        # note: alternative to this branch is to call hlmoff, which will actually *work* if ChooseTDModes is propertly implemented for that model
+        #   or P.approx == lsu.lalSEOBNRv4PHM or P.approx == lsu.lalSEOBNRv4P  
         if not quiet:
                 print("  FACTORED LIKELIHOOD WITH SEOB ")
         hlmsT = {}
@@ -212,6 +214,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 hlmsT[mode].data.data = np.conj(hlmsT[mode].data.data)
                 hlms_conj[mode] = lsu.DataFourier(hlmsT[mode])
     elif (not (NR_group) or not (NR_param)) and  (not use_external_EOB) and (not nr_lookup):
+        if not quiet:
+                print "  FACTORED LIKELIHOOD WITH hlmoff (default ChooseTDModes) "    
         hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
         if not isinstance(hlms_list, dict):
                 hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
