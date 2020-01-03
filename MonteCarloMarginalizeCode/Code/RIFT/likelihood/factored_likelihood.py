@@ -215,7 +215,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 hlms_conj[mode] = lsu.DataFourier(hlmsT[mode])
     elif (not (NR_group) or not (NR_param)) and  (not use_external_EOB) and (not nr_lookup):
         if not quiet:
-                print "  FACTORED LIKELIHOOD WITH hlmoff (default ChooseTDModes) "    
+                print( "  FACTORED LIKELIHOOD WITH hlmoff (default ChooseTDModes) " )
         hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
         if not isinstance(hlms_list, dict):
                 hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
