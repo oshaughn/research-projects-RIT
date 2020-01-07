@@ -140,7 +140,8 @@ if len(coord_names) >1:
         cov= np.linalg.inv(icov_proposed)
 
     # Remove targeted covariances
-    for my_pair in corr_list:
+    if not(corr_list is None):
+      for my_pair in corr_list:
         if my_pair[0] != my_pair[1]:
             cov[my_pair[0],my_pair[1]]=0
             cov[my_pair[1],my_pair[0]]=0
