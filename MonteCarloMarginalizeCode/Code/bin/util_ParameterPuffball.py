@@ -7,6 +7,10 @@
 #
 # USAGE
 #   - tries to follow util_CIP_GC
+#
+# EXAMPLES
+#    util_ManualOverlapGrid.py  --skip-overlap --parameter mc --parameter-range [1,2] --parameter eta --parameter-range [0.1,0.2] --parameter s1z --parameter-range [-1,1] --parameter s2z --parameter-range [-1,1] 
+#    python util_ParameterPuffball.py  --parameter mc --parameter eta --no-correlation "['mc','eta']" --parameter s1z --parameter s2z --inj-file ./overlap-grid.xml.gz  --no-correlation "['mc','s1z']"
 
 import argparse
 import sys
@@ -32,7 +36,8 @@ parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to u
 parser.add_argument("--fref",default=20,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz)")
 parser.add_argument("--fmin",type=float,default=20)
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
-parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
+parser.add_argument("--no-correlation", type=str,action='append', help="Pairs of parameters, in format [mc,eta]  The corresponding term in the covariance matrix is eliminated")
+#parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
 parser.add_argument("--random-parameter", action='append',help="These parameters are specified at random over the entire range, uncorrelated with the grid used for other parameters.  Use for variables which correlate weakly with others; helps with random exploration")
 parser.add_argument("--random-parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used.  ")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
@@ -55,6 +60,23 @@ if coord_names is None:
     sys.exit(0)
 print coord_names
 
+# match up pairs in --no-correlation
+corr_list = None
+if not(opts.no_correlation is None):
+    corr_list = []
+    corr_name_list = map(eval,opts.no_correlation)
+#    print opts.no_correlation, corr_name_list
+    for my_pair in corr_name_list:
+        
+        i1 = coord_names.index(my_pair[0])
+        i2 = coord_names.index(my_pair[1])
+
+        if i1>-1 and i2 > -1:
+            corr_list.append([i1,i2])
+#        else:
+#            print i1, i2
+#    print opts.no_correlation, coord_names, corr_list
+
 downselect_dict = {}
 if opts.downselect_parameter:
     dlist = opts.downselect_parameter
@@ -67,6 +89,13 @@ if len(dlist) != len(dlist_ranges):
     print " downselect parameters inconsistent", dlist, dlist_ranges
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
+
+
+# Add some pre-built downselects, to avoid common out-of-range-error problems
+downselect_dict['chi1'] = [0,1]
+downselect_dict['chi2'] = [0,1]
+downselect_dict['eta'] = [0,0.25]
+
 
 
 # Load data
@@ -106,6 +135,13 @@ if len(coord_names) >1:
         # 
         icov_proposed = icov_pseudo+np.diag(diag_terms)
         cov= np.linalg.inv(icov_proposed)
+
+    # Remove targeted covariances
+    for my_pair in corr_list:
+        if my_pair[0] != my_pair[1]:
+            cov[my_pair[0],my_pair[1]]=0
+            cov[my_pair[1],my_pair[0]]=0
+            
 
     # Compute errors
     rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov,allow_singular=True)  # they are just complaining about dynamic range of parameters, usually
