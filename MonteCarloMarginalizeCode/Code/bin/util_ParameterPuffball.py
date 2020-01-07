@@ -78,6 +78,14 @@ if not(opts.no_correlation is None):
 #    print opts.no_correlation, coord_names, corr_list
 
 downselect_dict = {}
+
+# Add some pre-built downselects, to avoid common out-of-range-error problems
+downselect_dict['chi1'] = [0,1]
+downselect_dict['chi2'] = [0,1]
+downselect_dict['eta'] = [0,0.25]
+
+
+
 if opts.downselect_parameter:
     dlist = opts.downselect_parameter
     dlist_ranges  = map(eval,opts.downselect_parameter_range)
@@ -90,11 +98,6 @@ if len(dlist) != len(dlist_ranges):
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
-
-# Add some pre-built downselects, to avoid common out-of-range-error problems
-downselect_dict['chi1'] = [0,1]
-downselect_dict['chi2'] = [0,1]
-downselect_dict['eta'] = [0,0.25]
 
 
 
