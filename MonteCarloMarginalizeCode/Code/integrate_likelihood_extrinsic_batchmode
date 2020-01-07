@@ -1053,4 +1053,3 @@ for indx in numpy.arange(len(P_list)):
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
   P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
   P_list[indx].print_params()
-  

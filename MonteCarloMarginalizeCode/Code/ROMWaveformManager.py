@@ -141,7 +141,12 @@ def ConvertWPtoSurrogateParamsAligned(P,**kwargs):
     Takes P, returns arguments of the form used in gwsurrogate for a nonprecessing binary
     """
     q = P.m2/P.m1
-    val =[1./q, P.s1z, P.s2z ]
+    chi1 = np.array([0.0,0.0,P.s1z])
+    chi2 = np.array([0.0,0.0,P.s2z])
+    mtot=P.m1+P.m2
+    tidal = {'Lambda1': P.lambda1,'Lambda2': P.lambda2}
+    dist_mpc = P.dist/1e6/lal.PC_SI
+    val =[1./q, chi1, chi2, mtot, dist_mpc, tidal]
     return val
 
 
@@ -231,13 +236,16 @@ class WaveformModeCatalog:
             print " GENERATING ROM WAVEFORM WITH SPIN PARAMETERS "
             my_converter = ConvertWPtoSurrogateParamsPrecessing
             reflection_symmetric=False
-        if 'NRHybSur3d' in param:
-            print " GENERATING hybrid ROM WAVEFORM WITH  aligned SPIN PARAMETERS "
+        if 'NRHyb' in param and not'Tidal' in param:
+            print " GENERATING hybrid ROM WAVEFORM WITH ALIGNED SPIN PARAMETERS "
+            my_converter = ConvertWPtoSurrogateParamsAligned
+            self.single_mode_sur=False
+        if 'Tidal' in param:
+            print " GENERATING hybrid ROM WAVEFORM WITH ALIGNED SPIN AND TIDAL PARAMETERS "
             my_converter = ConvertWPtoSurrogateParamsAligned
             self.single_mode_sur=False
         if 'NRSur7d' in param:
-            if  rosDebug:
-                print " GENERATING ROM WAVEFORM WITH FULL SPIN PARAMETERS "
+            print " GENERATING ROM WAVEFORM WITH FULL SPIN PARAMETERS "
             my_converter = ConvertWPtoSurrogateParamsPrecessingFull
             self.single_mode_sur=False
             reflection_symmetric=False
@@ -257,12 +265,15 @@ class WaveformModeCatalog:
             raw_modes = self.sur.all_model_modes()
             self.modes_available=[]
         elif 'NRHybSur' in param:
-            self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group+param)   # get the dimensinoless surrogate file?
-            raw_modes = self.sur.mode_list  # raw modes
+            if 'Tidal' in param:
+                self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group,surrogate_name_spliced=param)   # get the dimensinoless surrogate file?
+            else:
+                self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group+param)   # get the dimensinoless surrogate file?
+            raw_modes = self.sur._sur_dimless.mode_list  # raw modes
             reflection_symmetric = True
             self.modes_available=[]
 #            self.modes_available=[(2, 0), (2, 1), (2,-1), (2, 2),(2,-2), (3, 0), (3, 1),(3,-1), (3, 2),(3,-2), (3, 3),(3,-3), (4, 2),(4,-2), (4, 3),(4,-3), (4, 4), (4,-4),(5, 5), (5,-5)]  # see sur.mode_list
-            t = self.sur.domain
+            t = self.sur._sur_dimless.domain
             self.ToverMmin = t.min()
             self.ToverMmax = t.max()
             self.ToverM_peak=0   # Need to figure out where this is?  Let's assume it is zero to make my life easier
@@ -273,6 +284,25 @@ class WaveformModeCatalog:
             #     self.post_dict_complex_coef[mode] = lambda x:x  #  to coefficients.
             #     self.parameter_convert[mode] =  my_converter #  ConvertWPtoSurrogateParams   # default conversion routine
 #            return
+        elif 'NRSur7dq4' in param:
+            print param
+            self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group+param)   # get the dimensinoless surrogate file?
+            raw_modes = self.sur._sur_dimless.mode_list  # raw modes
+            reflection_symmetric = False
+            self.modes_available=[]
+            print raw_modes
+            self.modes_available=raw_modes
+            t = self.sur._sur_dimless.t_coorb
+            self.ToverMmin = t.min()
+            self.ToverMmax = t.max()
+            self.ToverM_peak=0   # Need to figure out where this is?  Let's assume it is zero to make my life easier
+            for mode in raw_modes:
+            #     # Not used, bt populate anyways
+                self.post_dict[mode] = sur_identity
+                self.post_dict_complex[mode]  = lambda x: x   # to mode
+                self.post_dict_complex_coef[mode] = lambda x:x  #  to coefficients.
+                self.parameter_convert[mode] =  my_converter #  ConvertWPtoSurrogateParams   # default conversion routine
+            return
         else:
             self.sur = NRSur7dq2.NRSurrogate7dq2()
             reflection_symmetric = False
@@ -668,15 +698,36 @@ class WaveformModeCatalog:
 
         # Option 0: Use NRSur7dsq approach (i.e., generate an hlmoft dictionary)
         hlmT_dimensionless={}
-        if 'NRSur7d' in self.param:
+        if 'NRSur7dq2' in self.param:
             params_here = self.parameter_convert[(2,2)](P)
             tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
             indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
             hlmT ={}
+            taper_end_duration =None
+            if rom_taper_end:
+                taper_end_duration =40.0
             if P.fref >0 and use_reference_spins:
-                hlmT_dimensionless_narrow = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, MTot=(P.m1+P.m2)/lal.MSUN_SI, t=tvals_dimensionless[indx_ok]*m_total_s) #,f_low=0)                
+                hlmT_dimensionless_narrow = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, MTot=(P.m1+P.m2)/lal.MSUN_SI, t=tvals_dimensionless[indx_ok]*m_total_s) #,f_low=0)   
             else:
                 hlmT_dimensionless_narrow = self.sur(params_here[0], params_here[1],params_here[2],t=tvals_dimensionless[indx_ok]) #,f_low=0)
+            for mode in self.modes_available:
+                hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
+                hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
+           
+        if 'NRSur7dq4' in self.param:
+            print self.sur
+            params_here = self.parameter_convert[(2,2)](P)
+            tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
+            indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
+            hlmT ={}
+            taper_end_duration =None
+            if rom_taper_end:
+                taper_end_duration =40.0
+                print params_here[0],params_here[1],params_here[2]
+            if P.fref >0 and use_reference_spins:
+                time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, MTot=(P.m1+P.m2)/lal.MSUN_SI, times=tvals_dimensionless[indx_ok]*m_total_s,f_low=0,taper_end_duration=taper_end_duration) #,f_low=0)
+            else:
+                time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0],params_here[1],params_here[2],times=tvals_dimensionless[indx_ok],f_low=0,taper_end_duration=taper_end_duration)
             for mode in self.modes_available:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
                 hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
@@ -690,7 +741,12 @@ class WaveformModeCatalog:
             taper_end_duration =None
             if rom_taper_end:
                 taper_end_duration =40.0
-            hlmT_dimensionless_narrow = self.sur(params_here,times=tvals_dimensionless[indx_ok],f_low=0,taper_end_duration=taper_end_duration)
+            if 'Tidal' in self.param:
+                time, hlmT_dimensionless_narrow,dym = self.sur(params_here[0],params_here[1],params_here[2],times=tvals_dimensionless[indx_ok],taper_end_duration=taper_end_duration,f_low=None,tidal_opts=params_here[5])
+            else:
+                time, hlmT_dimensionless_narrow,dym = self.sur(params_here[0],params_here[1],params_here[2],times=tvals_dimensionless[indx_ok],taper_end_duration=taper_end_duration,f_low=0)
+#            hlmT_dimensionless_narrow = self.sur(params_here[0],params_here[1],params_here[2],dt=P.deltaT,f_low=0,mode_list=self.modes_available,M=params_here[3],dist_mpc=params_here[4],tidal_opts=params_here[5])
+#            hlmT_dimensionless_narrow = self.sur(params_here,times=tvals_dimensionless[indx_ok],f_low=0,taper_end_duration=taper_end_duration)
             # Build taper for start
             taper_start_window = np.ones(len(hlmT_dimensionless_narrow[(2,2)]))
             if rom_taper_start or P.taper  != lalsimutils.lsu_TAPER_NONE:
