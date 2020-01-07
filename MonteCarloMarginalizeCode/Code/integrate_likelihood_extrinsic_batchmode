@@ -1023,6 +1023,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 lnL_sofar = -np.inf
 no_adapt_sky = False
 for indx in numpy.arange(len(P_list)):
+ try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.no_adapt_after_first and (not no_adapt_sky):
@@ -1034,21 +1035,21 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
-# except Exception as exception_failure:
-#  print "  ===> FAILED ANALYSIS <==== "
-#  print exception_failure
-#  if opts.internal_make_empty_file_on_error:
-#    fname_output_txt = opts.output_file +"_"+str(indx)+"_" + ".dat"
-#    open(fname_output_txt,'a').close()  # create empty file
-#  if opts.internal_hard_fail_on_error:
-#    sys.exit(1)
+ except Exception as exception_failure:
+  print "  ===> FAILED ANALYSIS <==== "
+  print exception_failure
+  if opts.internal_make_empty_file_on_error:
+    fname_output_txt = opts.output_file +"_"+str(indx)+"_" + ".dat"
+    open(fname_output_txt,'a').close()  # create empty file
+  if opts.internal_hard_fail_on_error:
+    sys.exit(1)
 #  if len(exception_failure) >0:
 #    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
 #      sys.exit(1) 
 #    if "CUDA" in exception_failure[0]: # Hard fail if a cuda error
 #      sys.exit(1)
-#  print " Probable reasons: SEOB nyquist or starting frequency limit or signal duration "
-#  print " Skipping the following binary! "
-#  # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
-#  P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
-#  P_list[indx].print_params()
+  print " Probable reasons: SEOB nyquist or starting frequency limit or signal duration "
+  print " Skipping the following binary! "
+  # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
+  P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
+  P_list[indx].print_params()
