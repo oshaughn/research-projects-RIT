@@ -286,12 +286,12 @@ class WaveformModeCatalog:
             #     self.parameter_convert[mode] =  my_converter #  ConvertWPtoSurrogateParams   # default conversion routine
 #            return
         elif 'NRSur7dq4' in param:
-            print param
+            print(param)
             self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group+param)   # get the dimensinoless surrogate file?
             raw_modes = self.sur._sur_dimless.mode_list  # raw modes
             reflection_symmetric = False
             self.modes_available=[]
-            print raw_modes
+            print(raw_modes)
             self.modes_available=raw_modes
             t = self.sur._sur_dimless.t_coorb
             self.ToverMmin = t.min()
@@ -716,7 +716,7 @@ class WaveformModeCatalog:
                 hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
            
         if 'NRSur7dq4' in self.param:
-            print self.sur
+            print(self.sur)
             params_here = self.parameter_convert[(2,2)](P)
             tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
             indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
@@ -724,7 +724,7 @@ class WaveformModeCatalog:
             taper_end_duration =None
             if rom_taper_end:
                 taper_end_duration =40.0
-                print params_here[0],params_here[1],params_here[2]
+                print(params_here[0],params_here[1],params_here[2])
             if P.fref >0 and use_reference_spins:
                 time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, MTot=(P.m1+P.m2)/lal.MSUN_SI, times=tvals_dimensionless[indx_ok]*m_total_s,f_low=0,taper_end_duration=taper_end_duration) #,f_low=0)
             else:
