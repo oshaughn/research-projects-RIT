@@ -11,6 +11,7 @@
 # EXAMPLES
 #    util_ManualOverlapGrid.py  --skip-overlap --parameter mc --parameter-range [1,2] --parameter eta --parameter-range [0.1,0.2] --parameter s1z --parameter-range [-1,1] --parameter s2z --parameter-range [-1,1] 
 #    python util_ParameterPuffball.py  --parameter mc --parameter eta --no-correlation "['mc','eta']" --parameter s1z --parameter s2z --inj-file ./overlap-grid.xml.gz  --no-correlation "['mc','s1z']"
+#   python util_ParameterPuffball.py  --parameter mc --parameter eta --parameter s1z --parameter s2z --inj-file ./overlap-grid.xml.gz   --force-away 0.4
 
 import argparse
 import sys
@@ -32,6 +33,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--inj-file", help="Name of XML file")
 parser.add_argument("--inj-file-out", default="output-puffball", help="Name of XML file")
 parser.add_argument("--puff-factor", default=1,type=float)
+parser.add_argument("--force-away", default=0,type=float,help="If >0, uses the icov to compute a metric, and discards points which are close to existing points")
 parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
 parser.add_argument("--fref",default=20,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz)")
 parser.add_argument("--fmin",type=float,default=20)
@@ -139,6 +141,7 @@ if len(coord_names) >1:
         icov_proposed = icov_pseudo+np.diag(diag_terms)
         cov= np.linalg.inv(icov_proposed)
 
+    cov_orig = np.array(cov)  # force copy
     # Remove targeted covariances
     if not(corr_list is None):
       for my_pair in corr_list:
@@ -166,7 +169,35 @@ for indx in np.arange(len(coord_names)):
         X_out[:,indx] = np.minimum(X_out[:,indx], 0.99)
         X_out[:,indx] = np.maximum(X_out[:,indx], -0.99)
 
+# Discard points which are 'close' to the original data set
+#   - there are MUCH faster codes eg in scipy which should do this
+if opts.force_away > 0:
+    icov= np.linalg.pinv(cov_orig)
+    def test_point_distance(pt,thresh=opts.force_away):
+        include_point=True
+        for indx in np.arange(len(X)):
+            dist= np.dot((pt - X[indx]).T , np.dot( icov, (pt-X[indx])))/len(pt)  # roughly, get '1' at target puff level offsets
+#            print dist
+            if dist< thresh:
+                include_point=False
+#                print " Rejecting puffed point as too close to existing set ", pt
+                return False
+        return include_point
+    
+    X_out_shorter = []
+    P_list_shorter = []
+    for indx in np.arange(len(X_out)):
+        if test_point_distance(X_out[indx]):
+            X_out_shorter.append(X_out[indx])
+            P_list_shorter.append(P_list[indx])
+    X_out_shorter=np.array(X_out_shorter)
+    print " Puffball distance rejection size change " , len(X_out), len(X_out_shorter)
+    X_out = X_out_shorter
+    P_list = P_list_shorter
 
+
+
+#print X_out
 cov_out = np.cov(X_out.T)
 print " Covariance change: The following two matrices should be (A) and (1+puff^2)A, where puff= ", opts.puff_factor
 print cov
