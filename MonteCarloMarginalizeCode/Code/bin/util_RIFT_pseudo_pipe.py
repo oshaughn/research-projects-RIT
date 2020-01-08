@@ -92,6 +92,7 @@ parser.add_argument("--event-time",default=None,type=float,help="Event time. Int
 parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
 parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED")
+parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
 parser.add_argument("--l-max",default=2,type=int)
 parser.add_argument("--no-matter",action='store_true', help="Force analysis without matter. Really only matters for BNS")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
@@ -204,7 +205,7 @@ if opts.choose_data_LI_seglen:
 
 
 is_analysis_precessing =False
-if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or ('SpinTaylor' in opts.approx):
+if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or ('SpinTaylor' in opts.approx):
         is_analysis_precessing=True
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
@@ -380,11 +381,11 @@ line += " --l-max " + str(opts.l_max)
 line += " --d-max " + str(dmax_guess)
 if not 'NR' in opts.approx:
         line += " --approx " + opts.approx
-elif 'NRHybSur' in opts.approx:
+elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
         line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5  "
-elif "NRSur7d" in opts.approx:
+elif opts.use_gwsurrogate and "NRSur7d" in opts.approx:
         line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
-elif "SEOBNR" in opts.approx: 
+elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in opts.approx): 
         line += " --approx " + opts.approx
 else:
         print " Unknown approx ", opts.approx
@@ -428,17 +429,17 @@ for indx in np.arange(len(instructions_cip)):
     elif opts.assume_highq:
         line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
     if opts.approx in lalsimutils.waveform_approx_limit_dict:
-        chi_max = lalsimutils.waveform_approx_limit_dict["chi-max"]
+        chi_max = lalsimutils.waveform_approx_limit_dict[opts.approx]["chi-max"]
         if not(opts.force_chi_max is None):
             chi_max = opts.force_chi_max
-        q_min = lalsimutils.waveform_approx_limit_dict["q-min"]
+        q_min = lalsimutils.waveform_approx_limit_dict[opts.approx]["q-min"]
         eta_min = q_min/(1+q_min)**2
         line += " --chi-max {}  "
         # Parse arguments, impose limit based on the approximant used, as described above
 #        import StringIO
         my_parser = argparse.ArgumentParser()
         my_parser.add_argument("--eta-range")
-        my_opts=my_parser.parse_args(line.split())
+        my_opts, unknown_opts =my_parser.parse_known_args(line.split())
         eta_range_orig = eval(my_opts.eta_range)
         eta_range_revised = [np.max([eta_min,eta_range_orig[0]]),np.min([1,eta_range_orig[1]])]
         line=line.replace("--eta-range "+my_opts.eta_range,"--eta-range "+str(eta_range_revised))

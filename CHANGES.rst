@@ -5,7 +5,8 @@ Since last release
    - bugfix in helper introduced by use_ini. PP pipeline. CIP allows arbitrary user-specified priors. Update
      singularity_base_exe. Fix bitrot to old FactoredLogLikelihood.  (rc1)
    - automated PP pipeline. Modify BNS tidal grid. CVMFS frames on OSG. Improve NN.  (rc2)
-     Hopefully:  Change  gwsurrogate API to match their head ...
+   - miscellaneous (pp proxies/permissions; pipeline parameter limits; bugfix parsing v4HM in xml) (rc3)
+   - NR surrogates (gwsurrogate API update; lalsim calls to surrogates; lalsim surrogate is default in pipeline); puffball more flexible; NN/senni update    (pending rc4)
 
 Reminder: 0.0.14.x will be the last versions with py27 support; from version 0.0.15 and upward, we should exclusively use py3
 

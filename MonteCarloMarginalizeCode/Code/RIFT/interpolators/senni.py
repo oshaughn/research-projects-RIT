@@ -10,16 +10,23 @@ class Net(torch.nn.Module):
             Network architecture definition
             '''
         
-            def __init__(self, n_inputs, hlayer_size, n_outputs):
+            def __init__(self, n_inputs, hlayer_size, n_outputs, p_drop):
                 super(Net, self).__init__()
                 self.linear1 = torch.nn.Linear(n_inputs, hlayer_size)
                 self.linear2 = torch.nn.Linear(hlayer_size, hlayer_size)
+                self.dropout1 = torch.nn.Dropout(p=p_drop)
                 self.linear3 = torch.nn.Linear(hlayer_size, hlayer_size)
+                self.dropout2 = torch.nn.Dropout(p=p_drop)
                 self.linear4 = torch.nn.Linear(hlayer_size, hlayer_size)
+                self.dropout3 = torch.nn.Dropout(p=p_drop)
                 self.linear5 = torch.nn.Linear(hlayer_size, hlayer_size)
+                self.dropout4 = torch.nn.Dropout(p=p_drop)
                 self.linear6 = torch.nn.Linear(hlayer_size, hlayer_size)
+                self.dropout5 = torch.nn.Dropout(p=p_drop)
                 self.linear7 = torch.nn.Linear(hlayer_size, hlayer_size)
+                self.dropout6 = torch.nn.Dropout(p=p_drop)
                 self.linear8 = torch.nn.Linear(hlayer_size, hlayer_size)
+                self.dropout7 = torch.nn.Dropout(p=p_drop)
                 self.linear9 = torch.nn.Linear(hlayer_size, n_outputs)
       
             def forward(self, x):
@@ -37,10 +44,10 @@ class Net(torch.nn.Module):
 class Interpolator(object): # interpolator
 
 
-      def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=16,
-                   epochs=100, learning_rate=1e-2, betas=(0.9, 0.99), eps=1e-2, epochs_per_lr=20, 
-                   lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True, working_dir='.', 
-                   loss_func='chi2', no_pad=False):
+      def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=32, p_drop=0,
+                   epochs=100, learning_rate=1e-2, betas=(0.9, 0.99), eps=1e-2, weight_decay=1e-6,
+                   epochs_per_lr=20, lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True, 
+                   working_dir='.', loss_func='chi2', no_pad=False):
 
             '''
             :input: Input column vector with each column representing one input with size (n_samples, n_dim)
@@ -57,9 +64,6 @@ class Interpolator(object): # interpolator
             :lr_frac: Fraction by which the learning_rate is multiplied every epochs_per_lr epochs
             :batch_size: Size of the batches used during training
             :shuffle: Boolean deciding whether the data batches are shuffled prior to training
-            :working_dir: Sets the working directory
-            :loss_func: Chooses which loss function is used during training, current options are 'mape' and 'chi2' (see loss function definitions below)
-            :no_pad: Boolean deciding whether to force the function to 0 outside the input values by adding fake zero-valued samples
             '''
 
             import numpy as np
@@ -74,6 +78,7 @@ class Interpolator(object): # interpolator
             self.n_inputs = np.size(input, 1)
             self.n_outputs = np.size(target, 1)
             self.hlayer_size = hlayer_size
+            self.p_drop = p_drop
 
             self.epochs = epochs
             self.batch_size = batch_size
@@ -104,7 +109,7 @@ class Interpolator(object): # interpolator
             target_train_revised = np.array(target_train)
             errors_train_revised = np.array(errors_train)
             
-            p_epsilon =1e-3
+            p_epsilon = 1e-3
             
             if not no_pad:
               for dim in xrange(self.n_inputs):
@@ -166,7 +171,7 @@ class Interpolator(object): # interpolator
 
             self.network_init()
             self.loss_func = loss_func
-            self.optim_init(learning_rate=learning_rate, betas=betas, eps=eps)
+            self.optim_init(learning_rate=learning_rate, betas=betas, eps=eps, weight_decay=weight_decay)
             self.sched_init(epochs_per_lr=epochs_per_lr, lr_divisions=lr_divisions, lr_frac=lr_frac)
 
             return
@@ -235,15 +240,15 @@ class Interpolator(object): # interpolator
                         torch.nn.init.normal_(layer.weight, std=1./np.sqrt(self.hlayer_size))
             
             if torch.cuda.is_available():
-                  self.net = Net(self.n_inputs, self.hlayer_size, self.n_outputs).cuda().apply(weights_init)
+                  self.net = Net(self.n_inputs, self.hlayer_size, self.n_outputs, self.p_drop).cuda().apply(weights_init)
             else:
-                  self.net = Net(self.n_inputs, self.hlayer_size, self.n_outputs).apply(weights_init)
+                  self.net = Net(self.n_inputs, self.hlayer_size, self.n_outputs, self.p_drop).apply(weights_init)
 
-      def optim_init(self, learning_rate, betas, eps):
+      def optim_init(self, learning_rate, betas, eps, weight_decay):
             '''
             Optimizer initialization, specifically Adam for now, using network parameters and specified optimizer parameters
             '''
-            self.optim = torch.optim.Adam(self.net.parameters(), lr=learning_rate, betas=betas, eps=eps)
+            self.optim = torch.optim.Adam(self.net.parameters(), lr=learning_rate, betas=betas, eps=eps, weight_decay=weight_decay)
 
       def sched_init(self, epochs_per_lr, lr_divisions, lr_frac):
             '''
@@ -385,10 +390,10 @@ class Interpolator(object): # interpolator
 
 class AdaptiveInterpolator(Interpolator):
 
-      def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=32,
-                   epochs=100, learning_rate=1e-2, betas=(0.9, 0.99), eps=1e-2, epochs_per_lr=20, 
-                   lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True, working_dir='.',
-                   loss_func='chi2', no_pad=False):
+      def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=32, p_drop=0,
+                   epochs=100, learning_rate=1e-2, betas=(0.9, 0.99), eps=1e-2, weight_decay=1e-6,
+                   epochs_per_lr=20, lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True, 
+                   working_dir='.', loss_func='chi2', no_pad=False):
 
             self.input = input
             self.target = target
@@ -400,6 +405,7 @@ class AdaptiveInterpolator(Interpolator):
             self.learning_rate = learning_rate
             self.betas = betas
             self.eps = eps
+            self.weight_decay = weight_decay
             self.epochs_per_lr = epochs_per_lr
             self.lr_divisions = lr_divisions
             self.lr_frac = lr_frac
@@ -409,8 +415,8 @@ class AdaptiveInterpolator(Interpolator):
             self.loss_func = loss_func
             self.no_pad = no_pad
 
-            Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size,
-                   epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, epochs_per_lr=self.epochs_per_lr, 
+            Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size, p_drop=self.p_drop,
+                   epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, weight_decay=self.weight_decay, epochs_per_lr=self.epochs_per_lr, 
                    lr_divisions=self.lr_divisions, lr_frac=self.lr_frac, batch_size=self.batch_size, shuffle=self.shuffle, working_dir=self.working_dir,
                    loss_func=self.loss_func, no_pad=self.no_pad)
 
@@ -428,8 +434,8 @@ class AdaptiveInterpolator(Interpolator):
 
                   print 'Decreasing until reasonable layer size reached, currently trying %d' % self.hlayer_size
 
-                  Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size,
-                   epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, epochs_per_lr=self.epochs_per_lr, 
+                  Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size, p_drop=self.p_drop,
+                   epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, weight_decay=self.weight_decay, epochs_per_lr=self.epochs_per_lr, 
                    lr_divisions=self.lr_divisions, lr_frac=self.lr_frac, batch_size=self.batch_size, shuffle=self.shuffle, working_dir=self.working_dir,
                    loss_func=self.loss_func, no_pad=self.no_pad)
 
@@ -451,8 +457,8 @@ class AdaptiveInterpolator(Interpolator):
 
                   print 'Looping through layer sizes, currently at %d' % self.hlayer_size
 
-                  Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size,
-                   epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, epochs_per_lr=self.epochs_per_lr, 
+                  Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size, p_drop=self.p_drop,
+                   epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, weight_decay=self.weight_decay, epochs_per_lr=self.epochs_per_lr, 
                    lr_divisions=self.lr_divisions, lr_frac=self.lr_frac, batch_size=self.batch_size, shuffle=self.shuffle, working_dir=self.working_dir,
                    loss_func=self.loss_func, no_pad=self.no_pad)
 
@@ -462,8 +468,11 @@ class AdaptiveInterpolator(Interpolator):
 
             self.hlayer_size = int(layer_sizes[np.argmin(losses)])
 
-            Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size,
-                   epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, epochs_per_lr=self.epochs_per_lr, 
+            self.losses = losses
+            self.layer_sizes = layer_sizes
+
+            Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size, p_drop=self.p_drop,
+                   epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, weight_decay=self.weight_decay, epochs_per_lr=self.epochs_per_lr, 
                    lr_divisions=self.lr_divisions, lr_frac=self.lr_frac, batch_size=self.batch_size, shuffle=self.shuffle, working_dir=self.working_dir,
                    loss_func=self.loss_func, no_pad=self.no_pad)
 

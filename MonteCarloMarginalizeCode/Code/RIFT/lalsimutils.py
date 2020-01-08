@@ -147,6 +147,15 @@ except:
     lalSEOBNRv4P = -6
     lalSEOBNRv4PHM = -7
 
+try:
+    lalNRSur7dq4 = lalsim.NRSur7dq4
+    lalNRSur7dq2 = lalsim.NRSur7dq2
+    lalNRHybSur3dq8 = lalsim.NRHybSur3dq8
+except:
+    lalNRSur7dq4 = -8
+    lalNRSur7dq2 = -9
+    lalNRHybSur3dq8 = -10
+
 MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
 
 
@@ -1264,7 +1273,7 @@ class ChooseWaveformParams:
             self.approx = lalsim.SEOBNRv2
         if row.waveform ==  'SEOBNRv4T':
             self.approx = lalTEOBv4
-        if row.waveform == 'SEOBNRv4HM'   and lalSEOBNR4HM > 0 :
+        if row.waveform == 'SEOBNRv4HM'   and lalSEOBNRv4HM > 0 :
             self.approx = lalSEOBNRv4HM
         if rosDebugMessagesContainer[0]:
             print " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform
@@ -2628,7 +2637,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
-    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM):
+    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8):
+        # approximant likst: see https://git.ligo.org/lscsoft/lalsuite/blob/master/lalsimulation/lib/LALSimInspiral.c#2541
         extra_params = P.to_lal_dict()
         hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
 	    P.s1x, P.s1y, P.s1z, \
