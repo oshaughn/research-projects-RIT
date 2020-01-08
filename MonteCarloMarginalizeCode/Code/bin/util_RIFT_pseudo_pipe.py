@@ -92,6 +92,7 @@ parser.add_argument("--event-time",default=None,type=float,help="Event time. Int
 parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
 parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED")
+parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
 parser.add_argument("--l-max",default=2,type=int)
 parser.add_argument("--no-matter",action='store_true', help="Force analysis without matter. Really only matters for BNS")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
@@ -204,7 +205,7 @@ if opts.choose_data_LI_seglen:
 
 
 is_analysis_precessing =False
-if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or ('SpinTaylor' in opts.approx):
+if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or ('SpinTaylor' in opts.approx):
         is_analysis_precessing=True
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
@@ -380,11 +381,11 @@ line += " --l-max " + str(opts.l_max)
 line += " --d-max " + str(dmax_guess)
 if not 'NR' in opts.approx:
         line += " --approx " + opts.approx
-elif 'NRHybSur' in opts.approx:
+elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
         line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5  "
-elif "NRSur7d" in opts.approx:
+elif opts.use_gwsurrogate and "NRSur7d" in opts.approx:
         line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
-elif "SEOBNR" in opts.approx: 
+elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in opts.approx): 
         line += " --approx " + opts.approx
 else:
         print " Unknown approx ", opts.approx
