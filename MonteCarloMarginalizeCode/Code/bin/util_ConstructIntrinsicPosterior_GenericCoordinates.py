@@ -1040,6 +1040,35 @@ def fit_nn_rfwrapper(x,y,y_errors=None,fname_export='nn_fit'):
     print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
     return fn_return
 
+if not(gpytorch_ok):
+    def fit_gpytorch(x):
+        sys.exit(1)
+else:
+  def fit_gpytorch(x,y,y_errors=None,fname_export='nn_fit',adaptive=True):
+    y_packed = y[:,np.newaxis]
+    if not (y_errors is None):
+        errors_packed = y_errors[:,np.newaxis]
+    else:
+        errors_packed = None
+    import os
+    working_dir = os.getcwd()
+    gp_interpolator = gpytorch_wrapper.Interpolator(x,y_packed,epochs=60) 
+    gp_interpolator.train()
+    if opts.fit_save_gp:
+        print( " FAIL save gp fit - not yet implemented ")
+#        gp_interpolator.save(opts.fit_save_gp+".network")
+
+    def fn_return(x):
+        x_in = np.copy(x)  # need to make a copy to avoid altering input/changing response
+        return gp_interpolator.evaluate(x_in)
+
+    print( " Demonstrating gpytorch fit ")   # debugging
+    residuals2 = fn_return(x) - y
+    residuals = nn_interpolator.evaluate(x)-y
+    print( "    std ", np.std(residuals), np.std(residuals2), np.max(y), np.max(fn_return(x)))
+    return fn_return
+
+
 if internalGP_ok:
     from RIFT.interpolators.internal_GP import fit_gp as fit_gp_sparse
 else:
@@ -1370,6 +1399,22 @@ elif opts.fit_method == 'gp-pool':
     if opts.pool_size == None:
         opts.pool_size = np.max([2,np.round(4000/len(X))])  # pick a pool size that has no more than 4000 members per pool
     my_fit = fit_gp_pool(X,Y,y_errors=Y_err,n_pool=opts.pool_size)
+elif opts.fit_method == 'gp-torch':
+    print( " FIT METHOD ", opts.fit_method, " IS gpytorch ")
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_gpytorch(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'nn':
     print( " FIT METHOD ", opts.fit_method, " IS NN ")
     # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
