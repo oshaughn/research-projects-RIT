@@ -822,7 +822,7 @@ for it in np.arange(it_start,opts.n_iterations):
         dag.add_node(ile_node)
 
     if puff_args and puff_cadence:
-     if it>1 and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
+     if it>0 and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
         print " ILE jobs for puffball on iteration ", it
         for event in np.arange(indx_max):
             ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
