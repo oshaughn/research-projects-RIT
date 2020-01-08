@@ -191,7 +191,7 @@ if opts.force_away > 0:
             X_out_shorter.append(X_out[indx])
             P_list_shorter.append(P_list[indx])
     X_out_shorter=np.array(X_out_shorter)
-    print " Puffball distance rejection size change " , len(X_out), len(X_out_shorter)
+    print(" Puffball distance rejection size change " , len(X_out), len(X_out_shorter))
     X_out = X_out_shorter
     P_list = P_list_shorter
 
