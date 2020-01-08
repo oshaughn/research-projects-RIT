@@ -241,7 +241,7 @@ class WaveformModeCatalog:
             my_converter = ConvertWPtoSurrogateParamsAligned
             self.single_mode_sur=False
         if 'Tidal' in param:
-            print " GENERATING hybrid ROM WAVEFORM WITH ALIGNED SPIN AND TIDAL PARAMETERS "
+            print(" GENERATING hybrid ROM WAVEFORM WITH ALIGNED SPIN AND TIDAL PARAMETERS ")
             my_converter = ConvertWPtoSurrogateParamsAligned
             self.single_mode_sur=False
         if 'NRSur7d' in param:
