@@ -308,7 +308,7 @@ if opts.mc_range:
 param_list = opts.parameter
 
 # Legend
-color_list=['black', 'red', 'green', 'blue','yellow']
+color_list=['black', 'red', 'green', 'blue','yellow','C0','C1','C2','C3']
 if opts.posterior_color:
     color_list  =opts.posterior_color + color_list
 else:
