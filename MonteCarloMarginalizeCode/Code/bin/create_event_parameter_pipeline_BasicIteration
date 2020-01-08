@@ -873,7 +873,7 @@ for it in np.arange(it_start,opts.n_iterations):
 
     # Check if puffball being created, and if so create it *immediately* after CIP job creates the overlap-grid file
     if puff_args and puff_cadence:
-      if it > 0 and it <= puff_max_it and it%puff_cadence ==0:
+      if it > -1 and it <= puff_max_it and it%puff_cadence ==0:
         print(" Puffball for iteration ", it)
         puff_node = pipeline.CondorDAGNode(puff_job)
         puff_node.add_macro("macroiteration", it)
