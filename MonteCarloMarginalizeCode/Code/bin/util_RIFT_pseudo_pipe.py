@@ -93,6 +93,7 @@ parser.add_argument("--event-time",default=None,type=float,help="Event time. Int
 parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
 parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED")
+parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
 parser.add_argument("--l-max",default=2,type=int)
 parser.add_argument("--no-matter",action='store_true', help="Force analysis without matter. Really only matters for BNS")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
@@ -204,7 +205,7 @@ if opts.choose_data_LI_seglen:
 
 
 is_analysis_precessing =False
-if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or ('SpinTaylor' in opts.approx):
+if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or ('SpinTaylor' in opts.approx):
         is_analysis_precessing=True
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
@@ -380,11 +381,11 @@ line += " --l-max " + str(opts.l_max)
 line += " --d-max " + str(dmax_guess)
 if not 'NR' in opts.approx:
         line += " --approx " + opts.approx
-elif 'NRHybSur' in opts.approx:
+elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
         line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5  "
-elif "NRSur7d" in opts.approx:
+elif opts.use_gwsurrogate and "NRSur7d" in opts.approx:
         line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
-elif "SEOBNR" in opts.approx: 
+elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in opts.approx): 
         line += " --approx " + opts.approx
 else:
         print( " Unknown approx ", opts.approx)
@@ -489,7 +490,10 @@ if not (opts.manual_initial_grid is None):
     shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
 
 # Build DAG
-cmd ="create_event_parameter_pipeline_BasicIteration --request-gpu-ILE --ile-n-events-to-analyze 20 --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP 30000 --request-memory-ILE 4096 --n-samples-per-job " + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args args_puff.txt  --ile-retries "+ str(opts.ile_retries)
+cip_mem  = 30000
+if opts.fit_method == 'rf':  # much lower memory requirement
+    cip_mem = 4000
+cmd ="create_event_parameter_pipeline_BasicIteration --request-gpu-ILE --ile-n-events-to-analyze 20 --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args args_puff.txt  --ile-retries "+ str(opts.ile_retries)
 if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 "
 if opts.cip_explode_jobs:

@@ -84,6 +84,14 @@ except:
     print( " - no internal_GP -  ")
     internalGP_ok = False
 
+try:
+    import RIFT.interpolators.gpytorch_wrapper as gpytorch_wrapper
+    gpytorch_ok = True
+except:
+    print( " No gpytorch_wrapper ")
+    gpytorch_ok = False
+
+
 
 def render_coord(x):
     if x in lalsimutils.tex_dictionary.keys():
