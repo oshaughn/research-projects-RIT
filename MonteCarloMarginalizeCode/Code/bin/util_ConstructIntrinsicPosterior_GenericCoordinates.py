@@ -957,9 +957,9 @@ def fit_nn(x,y,y_errors=None,fname_export='nn_fit',adaptive=True):
 #    for indx in np.arange(len(x[0])):
 #        print np.min(x[:,indx]), np.max(x[:,indx]), (np.max(x[:,indx])-np.mean(x[:,indx]))/np.std(x[:,indx])
     if adaptive:
-        nn_interpolator = senni.AdaptiveInterpolator(x,y_packed,errors_packed,epochs=60, frac=0.2, hlayer_size=2**(1+len(x[0])), test_frac=0,working_dir=working_dir,loss_func='chi2')  # May want to adjust size of network based on data size?
+        nn_interpolator = senni.AdaptiveInterpolator(x,y_packed,errors_packed,epochs=60, frac=0.2, hlayer_size=2**(1+len(x[0])), test_frac=0,working_dir=working_dir,loss_func='chi2',p_drop=0.02)  # May want to adjust size of network based on data size?
     else:
-        nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=60, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='chi2')  # May want to adjust size of network based on data size?
+        nn_interpolator = senni.Interpolator(x,y_packed,errors_packed,epochs=100, frac=0.2, test_frac=0,working_dir=working_dir,loss_func='chi2',p_drop=0.03,regularize=False,weight_decay=1e-2)  # May want to adjust size of network based on data size?
     nn_interpolator.train()
     if opts.fit_save_gp:
         print " Attempting to save NN fit ", opts.fit_save_gp+".network"
