@@ -44,7 +44,7 @@ class Net(torch.nn.Module):
 class Interpolator(object): # interpolator
 
 
-      def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=32, p_drop=0,
+      def __init__(self, input, target, errors, frac=0.1, test_frac=0.1, hlayer_size=32, p_drop=0, regularize=False,
                    epochs=100, learning_rate=1e-2, betas=(0.9, 0.99), eps=1e-2, weight_decay=1e-6,
                    epochs_per_lr=20, lr_divisions=5, lr_frac=1./3., batch_size=128, shuffle=True, 
                    working_dir='.', loss_func='chi2', no_pad=False):
@@ -79,6 +79,7 @@ class Interpolator(object): # interpolator
             self.n_outputs = np.size(target, 1)
             self.hlayer_size = hlayer_size
             self.p_drop = p_drop
+            self.regularize=regularize
 
             self.epochs = epochs
             self.batch_size = batch_size
@@ -317,6 +318,26 @@ class Interpolator(object): # interpolator
                   if self.loss_func == 'chi2':
                       validation_loss = self.reducedchisquareloss(self.net(self.input_valid), self.target_valid, self.errors_valid)
 
+                  # L2 regularization on *weights*. 
+                  # ALREADY implemented in the optimizer with weight_decay: redundant to do both!
+                  if self.regularize:
+                      reg_loss = None
+                      for param in self.net.named_parameters():
+                          param_name =param[0]
+                          param=param[1]
+# Don't regularize last layer (as that sets overall scale of function, rather than structure).
+#                      if 'linear9' in param_name:
+#                          continue
+#  do not regularize bias terms?
+#                          if 'bias' in param_name:
+#                              continue
+                          if reg_loss is None:
+                              reg_loss = 0.5 * torch.sum(param**2)
+                          else:
+                              reg_loss = reg_loss + 0.5 * param.norm(2)**2
+                      validation_loss += 0.9*reg_loss
+                  
+
                   if validation_loss < 1e-6:
                       print "   ... should we stop? "
                       break
@@ -401,6 +422,7 @@ class AdaptiveInterpolator(Interpolator):
             self.frac = frac
             self.test_frac = test_frac
             self.hlayer_size = hlayer_size
+            self.p_drop=p_drop
             self.epochs = epochs
             self.learning_rate = learning_rate
             self.betas = betas
