@@ -293,6 +293,11 @@ data_types["O3"][("X01", "V1")] = "V1Online"
 data_types["O3"][("X02", "V1")] = "V1Online"
 data_types["O3"][("C01", "V1")] = "V1Online"
 data_types["O3"][("C01_nonlinear", "V1")] = "V1Online"
+# https://wiki.ligo.org/LSC/JRPComm/ObsRun3#Virgo_AN1
+data_types["O3"][("C01", "V1","September")] = "V1O3Repro1A"
+data_types["O3"][("C01_nonlinear", "V1","September")] = "V1O3ReproA"
+standard_channel_names["O3"][("C01", "V1","September")] = "Hrec_hoft_V1O3ReproA_16384Hz"
+standard_channel_names["O3"][("C01_nonlinear", "V1","September")] = "Hrec_hoft_V1O3ReproA_16384Hz"
 standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
 standard_channel_names["O3"][("X01", "V1")] = "Hrec_hoft_16384Hz"
 standard_channel_names["O3"][("X02", "V1")] = "Hrec_hoft_16384Hz"
@@ -513,6 +518,9 @@ if opts.use_ini is None:
         if opts.observing_run is "O3" and  event_dict["tref"] < 1240750000 and opts.calibration_version is 'C00':
             if ifo in ['H1', 'L1']:
                 channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo,"BeforeMay1")]
+        if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
+            if ifo == 'V1':
+                channel_names[ifo] = standard_channel_names[opts.observing_run](opts.calibration_version, ifo, "September")
 
 # Parse LI ini
 use_ini=False
@@ -565,6 +573,10 @@ if not (opts.fake_data):
             data_type_here = unsafe_config_get(config,['datafind','types'])[ifo]
         else:
             data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
+        # Special lookup for later in O3
+        # https://wiki.ligo.org/LSC/JRPComm/ObsRun3#Virgo_AN1
+        if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
+            data_type_here=data_types["O3"][(opts.calibration_version, ifo,"September")]        
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
 if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
