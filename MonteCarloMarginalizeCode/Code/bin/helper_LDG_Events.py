@@ -175,7 +175,8 @@ parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,hel
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
 parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
-parser.add_argument("--internal-fit-strategy-enforces-cut",action='store_true',help="Fit strategy enforces lnL-offset (default 15) after the first batch of iterations. ACTUALLY DEFAULT - SHOULD BE REDUNDANT")
+parser.add_argument("--force-fit-method",type=str,default=None,help="Force specific fit method")
+#parser.add_argument("--internal-fit-strategy-enforces-cut",action='store_true',help="Fit strategy enforces lnL-offset (default 15) after the first batch of iterations. ACTUALLY DEFAULT - SHOULD BE REDUNDANT")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
@@ -185,6 +186,10 @@ parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, requ
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
+
+fit_method='gp'
+if not(opts.force_fit_method is None):
+    fit_method=opts.force_fit_method
 
 
 fmax = 1700 # default
@@ -909,8 +914,9 @@ if opts.propose_fit_strategy:
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
     print " Fit strategy NOT IMPLEMENTED -- currently just provides basic parameterization options. Need to work in real strategies (e.g., cip-arg-list)"
     lnLoffset_late = 15 # default
-    helper_cip_args += " --lnL-offset " + str(lnLoffset_early)
-    helper_cip_args += ' --cap-points 12000 --no-plots --fit-method gp  --parameter mc --parameter delta_mc '
+    helper_cip_args += ' --no-plots --fit-method {}  --parameter mc --parameter delta_mc '.format(fit_method)
+    if 'gp' in fit_method:
+        helper_cip_args += " --cap-points 12000 "
     if not opts.no_propose_limits:
         helper_cip_args += mc_range_str_cip + eta_range_str_cip
 
@@ -920,8 +926,14 @@ if opts.propose_fit_strategy:
         n_it_early =5
         qmin_puff = 0.05 # 20:1
     helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
+    
+    # Impose a cutoff on the range of parameter used, IF the fit is a gp fit
+    if 'gp' in fit_method:
+        for indx in np.arange(2,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
+            helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
+
     if opts.use_quadratic_early:
-        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method gp', 'fit-method quadratic')
+        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method quadratic')
 
     if not opts.assume_nospin:
         helper_puff_args += " --parameter chieff_aligned "
