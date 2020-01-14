@@ -1655,7 +1655,7 @@ if neff < opts.n_eff:
                 fac = 1
                 if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
                     fac = lal.MSUN_SI
-                    P.assign_param(param, (X_new[indx_P,indx]*fac))
+                P.assign_param(param, (X_new[indx_P,indx]*fac))
             for p in downselect_dict.keys():
                 val = P.extract_param(p) 
                 if p in ['mc','m1','m2','mtot']:
