@@ -857,7 +857,7 @@ if opts.propose_initial_grid:
         lambda2_min = np.min([50,P.lambda1*0.2])
         lambda2_max = np.min([1500,P.lambda2*2])
         cmd += " --random-parameter lambda1 --random-parameter-range [{},{}] --random-parameter lambda2 --random-parameter-range [{},{}] ".format(lambda1_min,lambda1_max,lambda2_min,lambda2_max)
-        grid_size *=1  
+        grid_size *=2   # denser grid
 
     if opts.propose_fit_strategy:
         if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
@@ -1006,6 +1006,8 @@ if opts.propose_fit_strategy:
         # Add LambdaTilde on top of the aligned spin runs
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " 
+        # add --prior-lambda-linear to first iteration, to sample better at low lambda
+        helper_cip_arg_list[0] += " --prior-lambda-linear "
         # Remove LambdaTilde from *first* batch of iterations .. too painful ? NO, otherwise we wander off into wilderness
 #        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('--parameter-implied LambdaTilde','')
         # Add one line with deltaLambdaTilde
