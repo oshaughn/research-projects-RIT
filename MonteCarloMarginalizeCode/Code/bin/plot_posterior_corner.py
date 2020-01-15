@@ -71,6 +71,8 @@ def render_coord(x,logscale=False):
             mystr=mystr.lstrip('$')
             mystr = "$\log_{10}"+mystr
             return mystr
+        else:
+            return mystr
     if 'product(' in x:
         a=x.replace(' ', '') # drop spaces
         a = a[:len(a)-1] # drop last

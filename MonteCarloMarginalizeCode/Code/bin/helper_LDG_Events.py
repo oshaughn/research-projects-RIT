@@ -175,7 +175,8 @@ parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,hel
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
 parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
-parser.add_argument("--internal-fit-strategy-enforces-cut",action='store_true',help="Fit strategy enforces lnL-offset (default 15) after the first batch of iterations. ACTUALLY DEFAULT - SHOULD BE REDUNDANT")
+parser.add_argument("--force-fit-method",type=str,default=None,help="Force specific fit method")
+#parser.add_argument("--internal-fit-strategy-enforces-cut",action='store_true',help="Fit strategy enforces lnL-offset (default 15) after the first batch of iterations. ACTUALLY DEFAULT - SHOULD BE REDUNDANT")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
@@ -185,6 +186,10 @@ parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, requ
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
+
+fit_method='gp'
+if not(opts.force_fit_method is None):
+    fit_method=opts.force_fit_method
 
 
 fmax = 1700 # default
@@ -293,6 +298,11 @@ data_types["O3"][("X01", "V1")] = "V1Online"
 data_types["O3"][("X02", "V1")] = "V1Online"
 data_types["O3"][("C01", "V1")] = "V1Online"
 data_types["O3"][("C01_nonlinear", "V1")] = "V1Online"
+# https://wiki.ligo.org/LSC/JRPComm/ObsRun3#Virgo_AN1
+data_types["O3"][("C01", "V1","September")] = "V1O3Repro1A"
+data_types["O3"][("C01_nonlinear", "V1","September")] = "V1O3ReproA"
+standard_channel_names["O3"][("C01", "V1","September")] = "Hrec_hoft_V1O3ReproA_16384Hz"
+standard_channel_names["O3"][("C01_nonlinear", "V1","September")] = "Hrec_hoft_V1O3ReproA_16384Hz"
 standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
 standard_channel_names["O3"][("X01", "V1")] = "Hrec_hoft_16384Hz"
 standard_channel_names["O3"][("X02", "V1")] = "Hrec_hoft_16384Hz"
@@ -513,6 +523,9 @@ if opts.use_ini is None:
         if opts.observing_run is "O3" and  event_dict["tref"] < 1240750000 and opts.calibration_version is 'C00':
             if ifo in ['H1', 'L1']:
                 channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo,"BeforeMay1")]
+        if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
+            if ifo == 'V1':
+                channel_names[ifo] = standard_channel_names[opts.observing_run](opts.calibration_version, ifo, "September")
 
 # Parse LI ini
 use_ini=False
@@ -565,6 +578,10 @@ if not (opts.fake_data):
             data_type_here = unsafe_config_get(config,['datafind','types'])[ifo]
         else:
             data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
+        # Special lookup for later in O3
+        # https://wiki.ligo.org/LSC/JRPComm/ObsRun3#Virgo_AN1
+        if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
+            data_type_here=data_types["O3"][(opts.calibration_version, ifo,"September")]        
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
 if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
@@ -840,7 +857,7 @@ if opts.propose_initial_grid:
         lambda2_min = np.min([50,P.lambda1*0.2])
         lambda2_max = np.min([1500,P.lambda2*2])
         cmd += " --random-parameter lambda1 --random-parameter-range [{},{}] --random-parameter lambda2 --random-parameter-range [{},{}] ".format(lambda1_min,lambda1_max,lambda2_min,lambda2_max)
-        grid_size *=1  
+        grid_size *=2   # denser grid
 
     if opts.propose_fit_strategy:
         if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
@@ -897,8 +914,9 @@ if opts.propose_fit_strategy:
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
     print(" Fit strategy NOT IMPLEMENTED -- currently just provides basic parameterization options. Need to work in real strategies (e.g., cip-arg-list)")
     lnLoffset_late = 15 # default
-    helper_cip_args += " --lnL-offset " + str(lnLoffset_early)
-    helper_cip_args += ' --cap-points 12000 --no-plots --fit-method gp  --parameter mc --parameter delta_mc '
+    helper_cip_args += ' --no-plots --fit-method {}  --parameter mc --parameter delta_mc '.format(fit_method)
+    if 'gp' in fit_method:
+        helper_cip_args += " --cap-points 12000 "
     if not opts.no_propose_limits:
         helper_cip_args += mc_range_str_cip + eta_range_str_cip
 
@@ -908,8 +926,14 @@ if opts.propose_fit_strategy:
         n_it_early =5
         qmin_puff = 0.05 # 20:1
     helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
+    
+    # Impose a cutoff on the range of parameter used, IF the fit is a gp fit
+    if 'gp' in fit_method:
+        for indx in np.arange(2,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
+            helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
+
     if opts.use_quadratic_early:
-        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method gp', 'fit-method quadratic')
+        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method quadratic')
 
     if not opts.assume_nospin:
         helper_puff_args += " --parameter chieff_aligned "
@@ -982,6 +1006,8 @@ if opts.propose_fit_strategy:
         # Add LambdaTilde on top of the aligned spin runs
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " 
+        # add --prior-lambda-linear to first iteration, to sample better at low lambda
+        helper_cip_arg_list[0] += " --prior-lambda-linear "
         # Remove LambdaTilde from *first* batch of iterations .. too painful ? NO, otherwise we wander off into wilderness
 #        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('--parameter-implied LambdaTilde','')
         # Add one line with deltaLambdaTilde

@@ -287,7 +287,7 @@ class MCSampler(object):
         #
         nmax = kwargs["nmax"] if "nmax" in kwargs else 1e6
         neff = kwargs["neff"] if "neff" in kwargs else 1000
-        n = kwargs["n"] if "n" in kwargs else min(1000, nmax)  # chunk size
+        n = int(kwargs["n"]) if "n" in kwargs else min(1000, nmax)  # chunk size
         nBlocks = 10
         n_itr = numpy.max([10,numpy.min([20,int(nmax/nBlocks/n)])])  # largest number to use
 
@@ -392,9 +392,9 @@ class MCSampler(object):
         #
         # Determine stopping conditions
         #
-        nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
+        nmax = int(kwargs["nmax"]) if "nmax" in kwargs else float("inf")
         neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
-        n = kwargs["n"] if "n" in kwargs else min(1000, nmax)
+        n = int(kwargs["n"]) if "n" in kwargs else min(1000, nmax)
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
 
 
