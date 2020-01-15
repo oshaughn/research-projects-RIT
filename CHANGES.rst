@@ -3,6 +3,7 @@
 ---------------------------
 Since last release
   - py3 port, including most of changes up to 0.0.14.7 (rc1)
+  - py27 import changes through 0.0.14.7rc4.  Add gpytorch. (rc2)
 
 
 0.0.14.7 
