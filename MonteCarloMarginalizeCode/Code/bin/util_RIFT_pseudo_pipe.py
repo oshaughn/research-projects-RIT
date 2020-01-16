@@ -288,7 +288,7 @@ if True:
         # Write commits
         cmd = "(cd ${ILE_CODE_PATH}; git rev-parse HEAD) > reproducibility/RIFT.commit"
         os.system(cmd)
-        module_list = ['gwsurrogate',  'NRSur7dq2', 'scipy', 'numpy', 'sklearn']
+        module_list = ['gwsurrogate',  'NRSur7dq2', 'scipy', 'numpy', 'sklearn', 'lalsimulation','lal']
         with open("reproducibility/module_versions", 'w') as f:
                 for name in module_list:
                     try:
