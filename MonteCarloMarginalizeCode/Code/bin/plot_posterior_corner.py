@@ -71,6 +71,8 @@ def render_coord(x,logscale=False):
             mystr=mystr.lstrip('$')
             mystr = "$\log_{10}"+mystr
             return mystr
+        else:
+            return mystr
     if 'product(' in x:
         a=x.replace(' ', '') # drop spaces
         a = a[:len(a)-1] # drop last
@@ -308,7 +310,7 @@ if opts.mc_range:
 param_list = opts.parameter
 
 # Legend
-color_list=['black', 'red', 'green', 'blue','yellow']
+color_list=['black', 'red', 'green', 'blue','yellow','C0','C1','C2','C3']
 if opts.posterior_color:
     color_list  =opts.posterior_color + color_list
 else:
