@@ -3,6 +3,7 @@
 #  Example
 
 #  util_CharacterizePosterior.py --parameter mc --quantiles '[0.9]'
+# for i in S*.dat; do echo $i; python util_CharacterizePosterior.py --fname $i --parameter mc --quantiles [0.05,0.95] --parameter q; done
 
 
 
