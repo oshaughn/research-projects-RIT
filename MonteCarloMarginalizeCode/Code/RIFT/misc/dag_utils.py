@@ -788,7 +788,7 @@ echo Starting ...
  
     # Periodic remove: kill jobs running longer than max runtime
     if not(max_runtime_minutes is None):
-        remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) < ( {})'.format(60*max_runtime_minutes)
+        remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
         ile_job.add_condor_cmd('periodic_remove', remove_str)
     
 
