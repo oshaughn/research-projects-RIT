@@ -477,9 +477,11 @@ if (opts.observing_run is None) and not opts.fake_data:
 snr_fac = 1.
 if "SNR" in event_dict.keys():
     lnLmax_true = event_dict['SNR']**2 / 2.
+    lnLoffset_all = 2*lnLmax_true  # very large : should be enough to keep all points
     lnLoffset_early = 0.8*lnLmax_true  # default value early on : should be good enough
     snr_fac = np.max([snr_fac, event_dict["SNR"]/15.])  # scale down regions accordingly
 else:
+    lnLoffset_all = 1000
     lnLoffset_early = 500  # a fiducial value, good enough for a wide range of SNRs 
 
 # Estimate signal duration
@@ -929,7 +931,8 @@ if opts.propose_fit_strategy:
     
     # Impose a cutoff on the range of parameter used, IF the fit is a gp fit
     if 'gp' in fit_method:
-        for indx in np.arange(2,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
+        helper_cip_arg_list[0] += " --lnL-offset " + str(lnLoffset_all)
+        for indx in np.arange(1,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
             helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
 
     if opts.use_quadratic_early:

@@ -225,8 +225,6 @@ if opts.no_matter:
     dirname_run += "_no_matter"
 if opts.assume_highq:
     dirname_run+="_highq"
-if opts.manual_postfix:
-    dirname_run += opts.manual_postfix
 if opts.playground_data:
     dirname_run = "playground_" + dirname_run
 if not(opts.cip_sampler_method is None):
@@ -235,6 +233,8 @@ if not(opts.cip_fit_method is None):
     dirname_run += "_" + opts.cip_fit_method
 if opts.use_osg:
     dirname_run += '_OSG'
+if opts.manual_postfix:
+    dirname_run += opts.manual_postfix
 # Override run directory name
 if opts.use_rundir:
     dirname_run = opts.use_rundir
@@ -288,7 +288,7 @@ if True:
         # Write commits
         cmd = "(cd ${ILE_CODE_PATH}; git rev-parse HEAD) > reproducibility/RIFT.commit"
         os.system(cmd)
-        module_list = ['gwsurrogate',  'NRSur7dq2', 'scipy', 'numpy', 'sklearn']
+        module_list = ['gwsurrogate',  'NRSur7dq2', 'scipy', 'numpy', 'sklearn', 'lalsimulation','lal']
         with open("reproducibility/module_versions", 'w') as f:
                 for name in module_list:
                     try:
@@ -491,7 +491,7 @@ if not (opts.manual_initial_grid is None):
 
 # Build DAG
 cip_mem  = 30000
-if opts.fit_method == 'rf':  # much lower memory requirement
+if opts.cip_fit_method == 'rf':  # much lower memory requirement
     cip_mem = 4000
 cmd ="create_event_parameter_pipeline_BasicIteration --request-gpu-ILE --ile-n-events-to-analyze 20 --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args args_puff.txt  --ile-retries "+ str(opts.ile_retries)
 if opts.add_extrinsic:
