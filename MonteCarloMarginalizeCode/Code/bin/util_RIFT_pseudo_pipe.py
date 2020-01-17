@@ -225,8 +225,6 @@ if opts.no_matter:
     dirname_run += "_no_matter"
 if opts.assume_highq:
     dirname_run+="_highq"
-if opts.manual_postfix:
-    dirname_run += opts.manual_postfix
 if opts.playground_data:
     dirname_run = "playground_" + dirname_run
 if not(opts.cip_sampler_method is None):
@@ -235,6 +233,8 @@ if not(opts.cip_fit_method is None):
     dirname_run += "_" + opts.cip_fit_method
 if opts.use_osg:
     dirname_run += '_OSG'
+if opts.manual_postfix:
+    dirname_run += opts.manual_postfix
 # Override run directory name
 if opts.use_rundir:
     dirname_run = opts.use_rundir
