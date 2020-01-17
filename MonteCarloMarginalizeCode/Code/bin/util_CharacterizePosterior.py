@@ -8,6 +8,7 @@
 
 import argparse
 import numpy as np
+import RIFT.lalsimutils
 
 
 parser = argparse.ArgumentParser()
@@ -27,7 +28,8 @@ for param in opts.parameter:
     if param in dat.dtype.names:
         dat_1d = dat[param]
     elif param == 'mc':
-        import RIFT.lalsimutils
         dat_1d = RIFT.lalsimutils.mchirp(dat['m1'],dat['m2'])
+    elif param == 'q':
+        dat_1d = dat['m2']/dat['m1']
     quant_here  = np.percentile(dat_1d,100*quantile_list)
     print param, ' '.join(map(str,quant_here))
