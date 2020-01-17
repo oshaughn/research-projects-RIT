@@ -33,4 +33,4 @@ for param in opts.parameter:
     elif param == 'q':
         dat_1d = dat['m2']/dat['m1']
     quant_here  = np.percentile(dat_1d,100*quantile_list)
-    print param, ' '.join(map(str,quant_here))
+    print(param, ' '.join(map(str,quant_here)))
