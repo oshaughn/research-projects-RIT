@@ -932,7 +932,7 @@ if opts.propose_fit_strategy:
     # Impose a cutoff on the range of parameter used, IF the fit is a gp fit
     if 'gp' in fit_method:
         helper_cip_arg_list[0] += " --lnL-offset " + str(lnLoffset_all)
-        for indx in np.arange(2,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
+        for indx in np.arange(1,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
             helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
 
     if opts.use_quadratic_early:
