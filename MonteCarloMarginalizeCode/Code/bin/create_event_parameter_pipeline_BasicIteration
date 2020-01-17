@@ -646,6 +646,7 @@ else:
     for indx in np.arange(len(cip_args_lines)):
         out_dir_base = opts.working_directory
         cip_args_extra = ""
+        cip_args_truncate=''
         if not(opts.cip_explode_jobs is None):
             cip_args_extra += " --fit-save-gp " + opts.working_directory + "/iteration_$(macroiteration)_cip/my_fit"
             out_dir_base += "/iteration_$(macroiteration)_cip/"
