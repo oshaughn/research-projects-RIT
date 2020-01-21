@@ -417,7 +417,10 @@ if use_gracedb_event:
         cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
         # Convert PSD to a useful format
         for ifo in event_dict["IFOs"]:
-            psd_names[ifo] = opts.working_directory+"/"+ifo+"-psd.xml.gz"
+            if not opts.use_osg:
+                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            else:
+                psd_names[ifo] =  ifo + "-psd.xml.gz"
             cmd += " --ifo " + ifo
         os.system(cmd)
   except:
