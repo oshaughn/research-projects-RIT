@@ -546,7 +546,10 @@ if not(opts.use_ini is None):
     for ifo in ifos:
         if not ifo in psd_names:
             # overwrite PSD names
-            psd_names[ifo] = opts.working_directory+"/"+ifo+"-psd.xml.gz"
+            if not opts.use_osg:
+                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            else:
+                psd_names[ifo] =  ifo + "-psd.xml.gz"
 
     
     # opts.use_osg = config.get('analysis','osg')
