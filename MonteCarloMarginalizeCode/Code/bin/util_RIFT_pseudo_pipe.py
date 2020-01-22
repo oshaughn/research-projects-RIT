@@ -115,6 +115,7 @@ parser.add_argument("--make-bw-psds",action='store_true',help='If present, adds 
 parser.add_argument("--link-bw-psds",action='store_true',help='If present, uses the script retrieve_bw_psd_for_event.sh  to find a precomputed BW psd, and convert it to our format')
 parser.add_argument("--use-online-psd",action='store_true', help="If present, will use the online PSD estimates")
 parser.add_argument("--ile-retries",default=3,type=int)
+parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this argument to CIP. GP plot for each iteration will be saved. Useful for followup investigations or reweighting. Warning: lots of disk space (1G or so per iteration)")
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-quadratic-first",action='store_true')
@@ -392,6 +393,8 @@ else:
         sys.exit(1)
 if not(opts.manual_extra_ile_args is None):
     line += opts.manual_extra_ile_args
+if not(opts.ile_runtime_max_minutes is None):
+    lines += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 with open('args_ile.txt','w') as f:
         f.write(line)
 os.system("cp helper_test_args.txt args_test.txt")
