@@ -467,7 +467,7 @@ with open("args_test.txt",'w') as f:
 
 
 # Write puff file
-puff_params = " --parameter mc --parameter delta_mc --parameter chieff_aligned "
+#puff_params = " --parameter mc --parameter delta_mc --parameter chieff_aligned "
 puff_max_it =4
 #  Read puff args from file, if present
 try:
@@ -475,8 +475,11 @@ try:
         puff_max_it = int(f.readline())
 except:
     print " No puff file "
+
+instructions_puff = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
+puff_params = ' '.join(instructions_puff)
 if opts.assume_matter:
-    puff_params += " --parameter LambdaTilde "
+#    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
 if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
