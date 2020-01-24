@@ -1,5 +1,20 @@
-We have very recently refactored the code to make it properly use setuptools.  
-If you as an 
+
+# OSG-distributed conda environments
+
+If you have access to OSG containers via CVMFS, you can use pre-assembled [IGWN conda install](https://computing.docs.ligo.org/conda/)
+
+```
+source /cvmfs/oasis.opensciencegrid.org/ligo/sw/conda/bin/activate 
+conda activate  igwn-py37-testing  # omit 'testing' in production
+export GW_SURROGATE=''
+export LIGO_USER_NAME=albert.einstein
+export LIGO_ACCOUNTING=ligo.dev.o3.cbc.pe.lalinferencerapid
+```
+
+
+# Full installation
+
+You can install RIFT via pip (and conda).  If you are a developer you will need to install from source.
 
  * **pip install**: Installation with pip is the easiest.  
 ```

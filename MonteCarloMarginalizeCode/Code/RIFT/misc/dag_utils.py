@@ -706,7 +706,7 @@ echo Starting ...
             print(" Storing copy of X509 user proxy -- beware expiration! ")
             cwd = os.getcwd()
             fname_proxy ="cp ${X509_USER_PROXY} "  + cwd +"/my_proxy"  # this can get overwritten, that's fine - just renews, feature not bug
-            os.cmd("cp ${X509_USER_PROXY} "  + cwd +"/my_proxy")
+            os.system("cp ${X509_USER_PROXY} "  + cwd +"/my_proxy")
 #            ile_job.add_condor_cmd('x509userproxy',os.environ['X509_USER_PROXY'])
             ile_job.add_condor_cmd('x509userproxy',fname_proxy)
 

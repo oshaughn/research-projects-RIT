@@ -5,7 +5,7 @@ https://git.ligo.org/pe/tutorials/blob/master/offline_RIFT.md
 
 ## Installation and setup
 
-See [INSTALL.md](INSTALL.md).  Remember, if you run on an LDG cluster, you need accounting flags:
+See [INSTALL.md](INSTALL.md) -- this also includes instructions to use pre-built conda and pypi environments.  Remember, if you run on an LDG cluster, you need accounting flags:
 
 ```
 export LIGO_USER_NAME=albert.einstein  # replace as appropriate

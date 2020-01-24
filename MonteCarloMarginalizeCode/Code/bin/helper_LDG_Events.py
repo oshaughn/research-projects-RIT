@@ -417,7 +417,10 @@ if use_gracedb_event:
         cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
         # Convert PSD to a useful format
         for ifo in event_dict["IFOs"]:
-            psd_names[ifo] = opts.working_directory+"/"+ifo+"-psd.xml.gz"
+            if not opts.use_osg:
+                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            else:
+                psd_names[ifo] =  ifo + "-psd.xml.gz"
             cmd += " --ifo " + ifo
         os.system(cmd)
   except:
@@ -543,7 +546,10 @@ if not(opts.use_ini is None):
     for ifo in ifos:
         if not ifo in psd_names:
             # overwrite PSD names
-            psd_names[ifo] = opts.working_directory+"/"+ifo+"-psd.xml.gz"
+            if not opts.use_osg:
+                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            else:
+                psd_names[ifo] =  ifo + "-psd.xml.gz"
 
     
     # opts.use_osg = config.get('analysis','osg')
@@ -881,11 +887,11 @@ if opts.propose_initial_grid:
     #     P_B = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid_puff_lambda.xml.gz")
     #     lalsimutils.ChooseWaveformParams_array_to_xml(P_A+P_B, "proposed-grid.xml.gz")
 
-
+puff_factor=3
 if opts.propose_fit_strategy and (not opts.gracedb_id is None):
     # use a puff factor that depends on mass.  Use a larger puff factor below around 10.
     if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
-        puff_factor =3  # high q, use more aggressive puff
+        puff_factor =6  # high q, use more aggressive puff
 
 
 if opts.propose_ile_convergence_options:
@@ -909,7 +915,6 @@ if not opts.lowlatency_propose_approximant:
 #    helper_cip_args += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 5000 "
 
 puff_max_it=0
-puff_factor=1
 helper_puff_args = " --parameter mc --parameter eta "
 if opts.propose_fit_strategy:
     puff_max_it= 0
@@ -1050,6 +1055,7 @@ if opts.propose_fit_strategy:
 if opts.propose_fit_strategy:
     helper_puff_args += " --downselect-parameter eta --downselect-parameter-range ["+str(eta_min) +","+str(eta_max)+"]"
     helper_puff_args += " --puff-factor " + str(puff_factor)
+    helper_puff_args += " --force-away " + str(0.05)  # prevent duplicate points
     with open("helper_puff_args.txt",'w') as f:
         f.write(helper_puff_args)
 
