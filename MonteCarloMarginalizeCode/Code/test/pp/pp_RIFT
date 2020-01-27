@@ -80,6 +80,7 @@ d_min = float(config.get('priors','d_min'))
 d_max = float(config.get('priors','d_max'))
 chi_max = float(config.get('priors','chi_max'))
 
+
 # use matter?
 lambda_max=0
 use_matter=False
@@ -107,7 +108,17 @@ aligned_spin =unsafe_config_get(config,['priors','aligned_spin'])
 if aligned_spin:
     print(" === aligned-spin PP ==== ")
 elif no_spin:
+<<<<<<< HEAD
     print(" === zero-spin PP ==== ")
+=======
+    print " === zero-spin PP ==== "
+else:
+    print " === precessing PP ==== "
+
+volumetric_spin =unsafe_config_get(config,['priors','volumetric_spin'])
+if volumetric_spin:
+    print "  (volumetric spin prior)  "
+>>>>>>> temp-RIT-Tides-port_master-GPUIntegration_restructure_package
 
 fix_sky_location=unsafe_config_get(config,['priors','fix_sky_location'])
 fiducial_ra=float(config.get('priors','fiducial_ra'))
@@ -125,7 +136,7 @@ else:
   while len(P_list) < n_events:
     P = lalsimutils.ChooseWaveformParams()
     # Randomize (sky location, etc)
-    P.randomize(dMax=d_max,dMin=d_min,aligned_spin_Q=aligned_spin,sMax=chi_max)
+    P.randomize(dMax=d_max,dMin=d_min,aligned_spin_Q=aligned_spin,volumetric_spin_prior_Q=volumetric_spin,sMax=chi_max)
     P.tref = fiducial_event_time
     P.fmin=fmin_template
     P.deltaF = 1./seglen_data
@@ -278,6 +289,8 @@ for indx in np.arange(n_events):
         cmd += " --assume-nospin "
     elif not(aligned_spin):
         cmd += " --assume-precessing "
+    if volumetric_spin:
+        cmd += " --assume-volumetric-spin "
     if use_matter:
         cmd += " --assume-matter " 
 

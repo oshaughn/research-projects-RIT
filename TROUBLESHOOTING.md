@@ -1,0 +1,17 @@
+
+
+## General troubleshooting
+
+## OSG/CVMFS/...
+
+RIFT can run ILE worker jobs on the OSG.  These can fail or be held for a fantastic number of reasons (e.g., missing files that need to be transferred).  We assume you know how to use ``condor_q -run`` and ``condor_q -hold -af HoldReason``, and to read your job condor logs (i.e., ``iteration_0_ile/logs/*.out`` and ``*.log``, respectively)
+
+
+* **Site-specific problems**: Using ``condor_q -run``, you may notice some sites have an unusually high incidence of problems.  You can avoid specific sites with the UNDESIRED_SITES command.  As an example, here's how to avoid LIGO-WA
+```
+# as environment variable before creating the workflow
+export OSG_UNDESIRED_SITES=LIGO-WA
+# in ILE*.sub, if you need to continue a paused workflow or repair a running one
++UNDESIRED_Sites = "LIGO-WA"
+```
+
