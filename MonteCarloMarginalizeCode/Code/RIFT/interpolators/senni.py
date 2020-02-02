@@ -31,13 +31,13 @@ class Net(torch.nn.Module):
       
             def forward(self, x):
                 x = torch.selu(self.linear1(x))
-                x = torch.selu(self.linear2(x))
-                x = torch.selu(self.linear3(x))
-                x = torch.selu(self.linear4(x))
-                x = torch.selu(self.linear5(x))
-                x = torch.selu(self.linear6(x))
-                x = torch.selu(self.linear7(x))
-                x = torch.selu(self.linear8(x))
+                x = self.dropout1(torch.selu(self.linear2(x)))
+                x = self.dropout2(torch.selu(self.linear3(x)))
+                x = self.dropout3(torch.selu(self.linear4(x)))
+                x = self.dropout4(torch.selu(self.linear5(x)))
+                x = self.dropout5(torch.selu(self.linear6(x)))
+                x = self.dropout6(torch.selu(self.linear7(x)))
+                x = self.dropout7(torch.selu(self.linear8(x)))
                 x = self.linear9(x)
                 return x
 
@@ -273,8 +273,22 @@ class Interpolator(object): # interpolator
 
       def reducedchisquareloss(self, output, target, error):
 
+            weight_mag = 0
+    
+            #for param in self.net.parameters():
+            #      param = torch.pow(param, 2)
+            #      param = torch.sum(param)
+            #      weight_mag += param
+
+            for layer in self.net.children():
+                  if not isinstance(layer, torch.nn.Linear): continue
+                  weights = layer.weight.data
+                  weights = torch.pow(weights, 2)
+                  weights = torch.sum(weights)
+                  weight_mag += weights
+      
             t_max = torch.max(target)
-            return torch.sum((output-target)**2*torch.exp(-0.2*torch.abs(t_max-output))/(error)**2)/(output.shape[0]-self.n_inputs)
+            return torch.sum((output-target)**2*torch.exp(-0.2*torch.abs(t_max-output))/(error)**2)/(output.shape[0]-self.n_inputs) + 1e-6*weight_mag
 
       def train(self,debug=True):
             '''

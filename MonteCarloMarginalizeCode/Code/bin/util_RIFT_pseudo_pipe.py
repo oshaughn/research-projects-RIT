@@ -124,6 +124,8 @@ parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code will TRY to make a copy of the necessary frame files, from the reference directory")
+parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
+parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
 opts=  parser.parse_args()
 
 if (opts.approx is None) and not (opts.use_ini is None):
@@ -476,7 +478,7 @@ try:
 except:
     print( " No puff file ")
 
-instructions_puff = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
+instructions_puff = np.loadtxt("helper_puff_args.txt", dtype=str)  # should be one line
 puff_params = ' '.join(instructions_puff)
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
@@ -507,5 +509,9 @@ if opts.cip_explode_jobs:
 if opts.use_osg:
     cmd += " --use-osg --use-singularity --use-cvmfs-frames --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  Note with CVMFS frames we need to provide the cache
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
-print( cmd)
+if opts.condor_local_nonworker:
+    cmd += " --condor-local-nonworker "
+if opts.use_osg_simple_requirements:
+    cmd += " --use-osg-simple-reqirements "
+print(cmd)
 os.system(cmd)

@@ -667,7 +667,18 @@ if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
 ### Downselect parameters
 ###
 
+
+
 downselect_dict = {}
+
+# Enforce Kerr bound
+downselect_dict['chi1'] = [0,1]
+downselect_dict['chi2'] = [0,1]
+for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
+    downselect_dict[param] = [-1,1]
+# Enforce definition of eta
+downselect_dict['eta'] = [0,0.25]
+
 if opts.downselect_parameter:
     dlist = opts.downselect_parameter
     dlist_ranges  = list(map(eval,opts.downselect_parameter_range))
@@ -679,13 +690,6 @@ if len(dlist) != len(dlist_ranges):
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
-# Enforce Kerr bound
-downselect_dict['chi1'] = [0,1]
-downselect_dict['chi2'] = [0,1]
-for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
-    downselect_dict[param] = [-1,1]
-# Enforce definition of eta
-downselect_dict['eta'] = [0,0.25]
 
 print(" Downselect dictionary (before scaling) ", downselect_dict)
 
