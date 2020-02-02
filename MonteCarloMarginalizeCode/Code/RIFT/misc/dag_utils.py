@@ -373,7 +373,7 @@ def write_1dpos_plot_sub(tag='1d_post_plot', exe=None, log_dir=None, output_dir=
 
 
 
-def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,arg_vals=None, **kwargs):
+def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,arg_vals=None, **kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -383,7 +383,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     """
 
     exe = exe or which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
 
@@ -476,7 +476,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     return ile_job, ile_sub_name
 
 
-def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, **kwargs):
+def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, **kwargs):
     """
     Perform puffball calculation 
     Inputs:
@@ -485,7 +485,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     """
 
     exe = exe or which("util_ParameterPuffball.py")
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
  
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -542,7 +542,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     return ile_job, ile_sub_name
 
 
-def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,simple_unique=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,use_cvmfs_frames=False,frames_dir=None,cache_file=None,fragile_hold=False,max_runtime_minutes=None,**kwargs):
+def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,simple_unique=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,use_cvmfs_frames=False,frames_dir=None,cache_file=None,fragile_hold=False,max_runtime_minutes=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -695,7 +695,8 @@ echo Starting ...
             ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
             requirements = []
             requirements.append("HAS_SINGULARITY=?=TRUE")
-            requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
+            if not(use_simple_osg_requirements):
+                requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
             #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
 
     if use_cvmfs_frames:
@@ -711,7 +712,8 @@ echo Starting ...
 
 
     if use_osg:
-           requirements.append("IS_GLIDEIN=?=TRUE")
+           if not(use_simple_osg_requirements):
+               requirements.append("IS_GLIDEIN=?=TRUE")
            if "OSG_DESIRED_SITES" in os.environ:
                ile_job.add_condor_cmd('+DESIRED_SITES',os.environ["OSG_DESIRED_SITES"])
            if "OSG_UNDESIRED_SITES" in os.environ:
@@ -804,7 +806,7 @@ echo Starting ...
 
 
 
-def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -814,7 +816,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     """
 
     exe = exe or which("util_ILEdagPostprocess.sh")
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
 
@@ -885,7 +887,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 
 
 
-def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -912,7 +914,7 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,arg_str=
     os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 
 
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=base_str+cmdname) # force full prefix
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=base_str+cmdname) # force full prefix
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -942,7 +944,7 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,arg_str=
 
     return ile_job, ile_sub_name
 
-def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,arg_str='',log_dir=None, use_eos=False,ncopies=1, **kwargs):
+def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, **kwargs):
     """
     Write a submit file for launching a 'convert' job
        convert_output_format_ile2inference
@@ -951,7 +953,7 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
 
     exe = exe or which("convert_output_format_ile2inference")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
 
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -986,7 +988,7 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     return ile_job, ile_sub_name
 
 
-def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,universe="target",arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
     """
     Write a submit file for launching a convergence test job
 
@@ -994,7 +996,7 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
 
     exe = exe or which("convergence_test_samples.py") 
 
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
