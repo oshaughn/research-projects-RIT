@@ -1457,7 +1457,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
     return ile_job, ile_sub_name
 
 
-def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=None,arg_str='',log_dir=None, use_eos=False,ncopies=1, **kwargs):
+def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, **kwargs):
     """
     Write a submit file for launching a 'resample' job
        util_ResampleILEOutputWithExtrinsic.py
@@ -1466,7 +1466,7 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
 
     exe = exe or which("util_ResampleILEOutputWithExtrinsic.py")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
 
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -1503,7 +1503,7 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
 
 
 
-def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_output=None,arg_str='',log_dir=None, use_eos=False,ncopies=1, **kwargs):
+def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, **kwargs):
     """
     Write a submit file for launching a 'resample' job
        util_ResampleILEOutputWithExtrinsic.py
@@ -1520,7 +1520,7 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
         f.write(exe_switch + " 'm1 ' '# m1 ' "+file_output)  # add standard prefix
         os.system("chmod a+x "+cmdname)
 
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable='catjob.sh')
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable='catjob.sh')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
