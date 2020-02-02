@@ -124,6 +124,7 @@ parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code will TRY to make a copy of the necessary frame files, from the reference directory")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
+parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
 opts=  parser.parse_args()
 
 if (opts.approx is None) and not (opts.use_ini is None):
@@ -510,5 +511,7 @@ if opts.use_osg:
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
 if opts.condor_local_nonworker:
     cmd += " --condor-local-nonworker "
+if opts.use_osg_simple_requirements:
+    cmd += " --use-osg-simple-reqirements "
 print cmd
 os.system(cmd)
