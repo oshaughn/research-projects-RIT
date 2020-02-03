@@ -118,7 +118,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     """
     assert data_dict.keys() == psd_dict.keys()
     global distMpcRef
-    detectors = data_dict.keys()
+    detectors = list(data_dict.keys())
+    first_data = data_dict[detectors[0]]
     rholms = {}
     rholms_intp = {}
     crossTerms = {}
@@ -135,9 +136,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             if  (P.m1/lal.MSUN_SI)>3 or P.m2/lal.MSUN_SI>3:
                     print(" ----- external EOB code: MASS DANGER ---")
     # Compute all hlm modes with l <= Lmax
-    detectors = data_dict.keys()
     # Zero-pad to same length as data - NB: Assuming all FD data same resolution
-    P.deltaF = data_dict[detectors[0]].deltaF
+    P.deltaF = first_data.deltaF
     if not( ROM_group is None) and not (ROM_param is None):
        # For ROM, use the ROM basis. Note that hlmoff -> basis_off henceforth
        acatHere= romwf.WaveformModeCatalog(ROM_group,ROM_param,max_nbasis_per_mode=ROM_limit_basis_size,lmax=Lmax)
@@ -284,7 +284,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         hlms_conj = wfP.conj_hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF,hybrid_use=hybrid_use)  # force a window.  Check the time
 
         if rosDebugMessages:
-                print("NR variant: Length check: ",hlms[(2,2)].data.length, data_dict[detectors[0]].data.length)
+                print("NR variant: Length check: ",hlms[(2,2)].data.length, first_data.data.length)
         # Remove memory modes (ALIGNED ONLY: Dangerous for precessing spins)
         if no_memory and wfP.P.SoftAlignedQ():
                 for key in hlms.keys():
@@ -310,10 +310,10 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             hlms_conj = wfP.conj_hlmoff(force_T=1./P.deltaF,deltaT=P.deltaT)
 
             # Code will not make the EOB waveform shorter, so the code can fail if you have insufficient data, later
-            print(" External EOB length check ", hlms[(2,2)].data.length, data_dict[detectors[0]].data.length, data_dict[detectors[0]].data.length*P.deltaT)
+            print(" External EOB length check ", hlms[(2,2)].data.length, first_data.data.length, first_data.data.length*P.deltaT)
             print(" External EOB length check (in M) ", end=' ')
             print(" Comparison EOB duration check vs epoch vs window size (sec) ", wfP.estimateDurationSec(),  -hlms[(2,2)].epoch, 1./hlms[(2,2)].deltaF)
-            assert hlms[(2,2)].data.length ==data_dict[detectors[0]].data.length
+            assert hlms[(2,2)].data.length ==first_data.data.length
             if rosDebugMessagesDictionary["DebugMessagesLong"]:
                     hlmT_ref = lsu.DataInverseFourier(hlms[(2,2)])
                     print(" External EOB: Time offset of largest sample (should be zero) ", hlms[(2,2)].epoch + np.argmax(np.abs(hlmT_ref.data.data))*P.deltaT)
@@ -360,7 +360,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     if verbose:
       print(" Mode  npts(data)   npts epoch  epoch/deltaT ")
       for mode in hlms.keys():
-        print(mode, data_dict[detectors[0]].data.length, hlms[mode].data.length, hlms[mode].data.length*P.deltaT, hlms[mode].epoch, hlms[mode].epoch/P.deltaT)
+        print(mode, first_data.data.length, hlms[mode].data.length, hlms[mode].data.length*P.deltaT, hlms[mode].epoch, hlms[mode].epoch/P.deltaT)
 
     for det in detectors:
         # This is the event time at the detector
