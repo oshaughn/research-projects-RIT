@@ -979,7 +979,7 @@ else: # Sum over time for every point in other extrinsic params
     
         return numpy.exp(lnL -manual_avoid_overflow_logarithm)
 
-    args = likelihood_function.code.co_varnames[:likelihood_function.code.co_argcount]
+    args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
     print( " --------> Arguments ", args)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
  elif opts.vectorized: # use array-based multiplications, fewer for loops
@@ -1055,7 +1055,7 @@ else: # Sum over time for every point in other extrinsic params
             nEvals +=len(right_ascension)
             return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
-    args = likelihood_function.code.co_varnames[:likelihood_function.code.co_argcount]
+    args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
     print( " --------> Arguments ", args)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
  else: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
@@ -1106,7 +1106,7 @@ else: # Sum over time for every point in other extrinsic params
         print( " Max lnL for this iteration ", numpy.max(lnL))
         return numpy.exp(lnL - manual_avoid_overflow_logarithm)
 
-    args = likelihood_function.code.co_varnames[:likelihood_function.code.co_argcount]
+    args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
     print( " --------> Arguments ", args)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 

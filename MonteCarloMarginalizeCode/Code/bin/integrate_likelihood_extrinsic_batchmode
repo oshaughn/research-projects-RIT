@@ -979,7 +979,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       sampler.reset_sampling('inclination')
 
     # Integrate
-    args = likelihood_function.code.co_varnames[:likelihood_function.code.co_argcount]
+    args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
     print( " --------> Arguments ", args)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
