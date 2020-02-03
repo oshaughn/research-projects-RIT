@@ -1212,7 +1212,7 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
     """
     #print pairKeys, rholmsDictionaryForDetector
     nKeys  = len(pairKeys)
-    keyRef = pairKeys[0]
+    keyRef = list(pairKeys)[0]
     npts = rholmsDictionaryForDetector[keyRef].data.length
 
 
