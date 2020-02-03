@@ -166,7 +166,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
            # this code is modular but inefficient: the waveform is regenerated twice
            hlms = acatHere.hlmoff(P, use_basis=False,deltaT=P.deltaT,force_T=1./P.deltaF,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
            hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False,deltaT=P.deltaT,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
-           mode_list = hlms.keys()  # make copy: dictionary will change during iteration
+           mode_list = list(hlms.keys())  # make copy: dictionary will change during iteration
            for mode in mode_list:
                    if no_memory and mode[1]==0 and P.SoftAlignedQ():
                            # skip memory modes if requested to do so. DANGER
@@ -368,7 +368,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # The is the difference between the time of the leading edge of the
         # time window we wish to compute the likelihood in, and
         # the time corresponding to the first sample in the rholms
-        rho_epoch = data_dict[det].epoch - hlms[hlms.keys()[0]].epoch
+        rho_epoch = data_dict[det].epoch - hlms[list(hlms.keys())[0]].epoch
         t_shift =  float(float(t_det) - float(t_window) - float(rho_epoch))
 #        assert t_shift > 0    # because NR waveforms may start at any time, they don't always have t_shift > 0 ! 
         # tThe leading edge of our time window of interest occurs
@@ -387,7 +387,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
                 psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, N_shift, N_window,
                 analyticPSD_Q, inv_spec_trunc_Q, T_spec)
-        rhoXX = rholms[det][rholms[det].keys()[0]]
+        rhoXX = rholms[det][list(rholms[det].keys())[0]]
         # The vector of time steps within our window of interest
         # for which we have discrete values of the rholms
         # N.B. I don't do simply rho_epoch + t_shift, b/c t_shift is the
@@ -510,7 +510,7 @@ def FactoredLogLikelihood(extr_params, rholms,rholms_intp, crossTerms, crossTerm
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
     # In practice, all detectors have the same set of Ylms selected, so we only compute for a subset
-    Ylms = ComputeYlms(Lmax, incl, -phiref, selected_modes=rholms_intp[rholms_intp.keys()[0]].keys())
+    Ylms = ComputeYlms(Lmax, incl, -phiref, selected_modes=rholms_intp[list(rholms_intp.keys())[0]].keys())
 
     lnL = 0.
     for det in detectors:
@@ -569,7 +569,7 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
     # Said another way, the m^th harmonic of the waveform should transform as
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
-    Ylms = ComputeYlms(Lmax, incl, -phiref, selected_modes=rholms_intp[rholms.keys()[0]].keys())
+    Ylms = ComputeYlms(Lmax, incl, -phiref, selected_modes=rholms_intp[list(rholms.keys())[0]].keys())
 
 #    lnL = 0.
     lnL = np.zeros(len(tvals),dtype=np.float128)
@@ -677,7 +677,7 @@ def NetworkLogLikelihoodTimeMarginalized(epoch,rholmsDictionary,crossTerms,cross
     # Said another way, the m^th harmonic of the waveform should transform as
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
-    Ylms = ComputeYlms(Lmax, thS, -phiS, selected_modes = rholmsDictionary[rholmsDictionary.keys()[0]].keys())
+    Ylms = ComputeYlms(Lmax, thS, -phiS, selected_modes = rholmsDictionary[list(rholmsDictionary.keys())[0]].keys())
     distMpc = dist/(lsu.lsu_PC*1e6)
 
     F = {}
@@ -721,7 +721,7 @@ def NetworkLogLikelihoodPolarizationMarginalized(epoch,rholmsDictionary,crossTer
     # Said another way, the m^th harmonic of the waveform should transform as
     # e^{- i m phiref}, but the Ylms go as e^{+ i m phiref}, so we must give
     # - phiref as an argument so Y_lm h_lm has the proper phiref dependence
-    Ylms = ComputeYlms(Lmax, thS, -phiS, selected_modes = rholmsDictionary[rholmsDictionary.keys()[0]].keys())
+    Ylms = ComputeYlms(Lmax, thS, -phiS, selected_modes = rholmsDictionary[list(rholmsDictionary.keys())[0]].keys())
     distMpc = dist/(lsu.lsu_PC*1e6)
 
     F = {}
@@ -817,8 +817,8 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
     SphHarmTimeSeries object is set to account for the transformation
     """
     rholms = {}
-    assert data.deltaF == hlms[hlms.keys()[0]].deltaF
-    assert data.data.length == hlms[hlms.keys()[0]].data.length
+    assert data.deltaF == hlms[list(hlms.keys())[0]].deltaF
+    assert data.data.length == hlms[list(hlms.keys())[0]].data.length
     deltaT = data.data.length/(2*fNyq)
 
     # Create an instance of class to compute inner product time series
