@@ -164,6 +164,7 @@ parser.add_argument("--use-online-psd",action='store_true',help='Use PSD from gr
 parser.add_argument("--assume-matter",action='store_true',help="If present, the code will add options necessary to manage tidal arguments. The proposed fit strategy and initial grid will allow for matter")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
+parser.add_argument("--assume-volumetric-spin",action='store_true',help="If present, the code will assume a volumetric spin prior in its last iterations. If *not* present, the code will adopt a uniform magnitude spin prior in its last iterations. If not present, generally more iterations are taken.")
 parser.add_argument("--assume-highq",action='store_true',help="If present, the code will adopt a strategy that drops spin2. Also the precessing strategy will allow perpendicular spin to play a role early on (rather than as a subdominant parameter later)")
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
@@ -417,7 +418,10 @@ if use_gracedb_event:
         cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
         # Convert PSD to a useful format
         for ifo in event_dict["IFOs"]:
-            psd_names[ifo] = opts.working_directory+"/"+ifo+"-psd.xml.gz"
+            if not opts.use_osg:
+                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            else:
+                psd_names[ifo] =  ifo + "-psd.xml.gz"
             cmd += " --ifo " + ifo
         os.system(cmd)
   except:
@@ -477,9 +481,11 @@ if (opts.observing_run is None) and not opts.fake_data:
 snr_fac = 1.
 if "SNR" in event_dict.keys():
     lnLmax_true = event_dict['SNR']**2 / 2.
+    lnLoffset_all = 2*lnLmax_true  # very large : should be enough to keep all points
     lnLoffset_early = 0.8*lnLmax_true  # default value early on : should be good enough
     snr_fac = np.max([snr_fac, event_dict["SNR"]/15.])  # scale down regions accordingly
 else:
+    lnLoffset_all = 1000
     lnLoffset_early = 500  # a fiducial value, good enough for a wide range of SNRs 
 
 # Estimate signal duration
@@ -541,7 +547,10 @@ if not(opts.use_ini is None):
     for ifo in ifos:
         if not ifo in psd_names:
             # overwrite PSD names
-            psd_names[ifo] = opts.working_directory+"/"+ifo+"-psd.xml.gz"
+            if not opts.use_osg:
+                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+            else:
+                psd_names[ifo] =  ifo + "-psd.xml.gz"
 
     
     # opts.use_osg = config.get('analysis','osg')
@@ -879,11 +888,11 @@ if opts.propose_initial_grid:
     #     P_B = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid_puff_lambda.xml.gz")
     #     lalsimutils.ChooseWaveformParams_array_to_xml(P_A+P_B, "proposed-grid.xml.gz")
 
-
+puff_factor=3
 if opts.propose_fit_strategy and (not opts.gracedb_id is None):
     # use a puff factor that depends on mass.  Use a larger puff factor below around 10.
     if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
-        puff_factor =3  # high q, use more aggressive puff
+        puff_factor =6  # high q, use more aggressive puff
 
 
 if opts.propose_ile_convergence_options:
@@ -907,7 +916,6 @@ if not opts.lowlatency_propose_approximant:
 #    helper_cip_args += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 5000 "
 
 puff_max_it=0
-puff_factor=1
 helper_puff_args = " --parameter mc --parameter eta "
 if opts.propose_fit_strategy:
     puff_max_it= 0
@@ -929,7 +937,8 @@ if opts.propose_fit_strategy:
     
     # Impose a cutoff on the range of parameter used, IF the fit is a gp fit
     if 'gp' in fit_method:
-        for indx in np.arange(2,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
+        helper_cip_arg_list[0] += " --lnL-offset " + str(lnLoffset_all)
+        for indx in np.arange(1,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
             helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
 
     if opts.use_quadratic_early:
@@ -968,11 +977,14 @@ if opts.propose_fit_strategy:
                 # helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
             
                 # Last iterations are with a polar spin, to get spin prior  (as usually requested). Fir is the same as before, but sampling is more efficient
-                helper_cip_arg_list[3] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
+                if not opts.assume_volumetric_spin:
+                    helper_cip_arg_list[3] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
+                else:
+                    helper_cip_arg_list.pop() # remove last stage of iterations as superfluous
         
                 # Change convergence threshold at late times
                 #            helper_cip_arg_list[2].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late)
-                helper_cip_arg_list[3].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late))
+                helper_cip_arg_list[-1].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late))
             else:  # strategy for high q
                 helper_cip_arg_list[0] +=  '  --parameter-implied xi  --parameter-nofit s1z  '  # note PURE ALIGNED SPIN SO FAR
                 helper_cip_arg_list[0] +=   ' --use-precessing  '
@@ -1047,6 +1059,7 @@ if opts.propose_fit_strategy:
 if opts.propose_fit_strategy:
     helper_puff_args += " --downselect-parameter eta --downselect-parameter-range ["+str(eta_min) +","+str(eta_max)+"]"
     helper_puff_args += " --puff-factor " + str(puff_factor)
+    helper_puff_args += " --force-away " + str(0.05)  # prevent duplicate points
     with open("helper_puff_args.txt",'w') as f:
         f.write(helper_puff_args)
 

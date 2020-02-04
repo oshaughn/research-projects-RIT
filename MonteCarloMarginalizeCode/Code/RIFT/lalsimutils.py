@@ -902,7 +902,7 @@ class ChooseWaveformParams:
         sys.exit(0)
 
 
-    def randomize(self,zero_spin_Q=False,aligned_spin_Q=False,default_inclination=None,default_phase=None,default_polarization=None,dMax=500.,dMin=1.,sMax=1):
+    def randomize(self,zero_spin_Q=False,aligned_spin_Q=False,volumetric_spin_prior_Q=False,default_inclination=None,default_phase=None,default_polarization=None,dMax=500.,dMin=1.,sMax=1):
         mMin = 2.   # min component mass (Msun)
         mMax = 10.  # max component mass (Msun)
         sMin = 0.   # min spin magnitude
@@ -932,9 +932,13 @@ class ChooseWaveformParams:
             self.psi = np.random.uniform(0, 2*np.pi)  # match PE range
         if not zero_spin_Q and not aligned_spin_Q:
             s1mag = np.random.uniform(sMin,sMax)
+            if volumetric_spin_prior_Q:
+                s1mag = np.power(np.random.uniform(sMin**3,sMax**3),1./3.)
             s1theta = np.arccos(np.random.uniform(-1,1))
             s1phi = np.random.uniform(0,2*np.pi)
             s2mag = np.random.uniform(sMin,sMax)
+            if volumetric_spin_prior_Q:
+                s2mag = np.power(np.random.uniform(sMin**3,sMax**3),1./3.)
             s2theta = np.arccos(np.random.uniform(-1,1))
             s2phi = np.random.uniform(0,2*np.pi)
             self.s1x = s1mag * sin(s1theta) * cos(s1phi)

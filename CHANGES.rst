@@ -8,6 +8,10 @@ Since last release
    - miscellaneous (pp proxies/permissions; pipeline parameter limits; bugfix parsing v4HM in xml) (rc3)
    - NR surrogates (gwsurrogate API update; lalsim calls to surrogates; lalsim surrogate is default in pipeline);
     puffball more flexible; NN/senni update; other minor (option to cap runtime; plotter; V1 sept 2019 channels) (rc4)
+   - OSG updates (alt requirements, local universe for non-workers); pp updates (volumetric spins), puffball (force-away),
+     periodic_remove option, bugfix for helper logic for first puffball  (rc5)
+
+ Release is rc5
 
 Reminder: 0.0.14.x will be the last versions with py27 support; from version 0.0.15 and upward, we should exclusively use py3
 

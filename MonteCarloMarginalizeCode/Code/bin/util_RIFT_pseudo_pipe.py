@@ -115,6 +115,7 @@ parser.add_argument("--make-bw-psds",action='store_true',help='If present, adds 
 parser.add_argument("--link-bw-psds",action='store_true',help='If present, uses the script retrieve_bw_psd_for_event.sh  to find a precomputed BW psd, and convert it to our format')
 parser.add_argument("--use-online-psd",action='store_true', help="If present, will use the online PSD estimates")
 parser.add_argument("--ile-retries",default=3,type=int)
+parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this argument to CIP. GP plot for each iteration will be saved. Useful for followup investigations or reweighting. Warning: lots of disk space (1G or so per iteration)")
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-quadratic-first",action='store_true')
@@ -122,6 +123,8 @@ parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code will TRY to make a copy of the necessary frame files, from the reference directory")
+parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
+parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
 opts=  parser.parse_args()
 
 if (opts.approx is None) and not (opts.use_ini is None):
@@ -225,8 +228,6 @@ if opts.no_matter:
     dirname_run += "_no_matter"
 if opts.assume_highq:
     dirname_run+="_highq"
-if opts.manual_postfix:
-    dirname_run += opts.manual_postfix
 if opts.playground_data:
     dirname_run = "playground_" + dirname_run
 if not(opts.cip_sampler_method is None):
@@ -235,6 +236,8 @@ if not(opts.cip_fit_method is None):
     dirname_run += "_" + opts.cip_fit_method
 if opts.use_osg:
     dirname_run += '_OSG'
+if opts.manual_postfix:
+    dirname_run += opts.manual_postfix
 # Override run directory name
 if opts.use_rundir:
     dirname_run = opts.use_rundir
@@ -288,7 +291,7 @@ if True:
         # Write commits
         cmd = "(cd ${ILE_CODE_PATH}; git rev-parse HEAD) > reproducibility/RIFT.commit"
         os.system(cmd)
-        module_list = ['gwsurrogate',  'NRSur7dq2', 'scipy', 'numpy', 'sklearn']
+        module_list = ['gwsurrogate',  'NRSur7dq2', 'scipy', 'numpy', 'sklearn', 'lalsimulation','lal']
         with open("reproducibility/module_versions", 'w') as f:
                 for name in module_list:
                     try:
@@ -392,6 +395,8 @@ else:
         sys.exit(1)
 if not(opts.manual_extra_ile_args is None):
     line += opts.manual_extra_ile_args
+if not(opts.ile_runtime_max_minutes is None):
+    lines += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 with open('args_ile.txt','w') as f:
         f.write(line)
 os.system("cp helper_test_args.txt args_test.txt")
@@ -464,7 +469,7 @@ with open("args_test.txt",'w') as f:
 
 
 # Write puff file
-puff_params = " --parameter mc --parameter delta_mc --parameter chieff_aligned "
+#puff_params = " --parameter mc --parameter delta_mc --parameter chieff_aligned "
 puff_max_it =4
 #  Read puff args from file, if present
 try:
@@ -472,8 +477,11 @@ try:
         puff_max_it = int(f.readline())
 except:
     print " No puff file "
+
+instructions_puff = np.loadtxt("helper_puff_args.txt", dtype=str)  # should be one line
+puff_params = ' '.join(instructions_puff)
 if opts.assume_matter:
-    puff_params += " --parameter LambdaTilde "
+#    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
 if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
@@ -491,7 +499,7 @@ if not (opts.manual_initial_grid is None):
 
 # Build DAG
 cip_mem  = 30000
-if opts.fit_method == 'rf':  # much lower memory requirement
+if opts.cip_fit_method == 'rf':  # much lower memory requirement
     cip_mem = 4000
 cmd ="create_event_parameter_pipeline_BasicIteration --request-gpu-ILE --ile-n-events-to-analyze 20 --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args args_puff.txt  --ile-retries "+ str(opts.ile_retries)
 if opts.add_extrinsic:
@@ -501,5 +509,9 @@ if opts.cip_explode_jobs:
 if opts.use_osg:
     cmd += " --use-osg --use-singularity --use-cvmfs-frames --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  Note with CVMFS frames we need to provide the cache
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
+if opts.condor_local_nonworker:
+    cmd += " --condor-local-nonworker "
+if opts.use_osg_simple_requirements:
+    cmd += " --use-osg-simple-reqirements "
 print cmd
 os.system(cmd)
