@@ -15,3 +15,7 @@ export OSG_UNDESIRED_SITES=LIGO-WA
 +UNDESIRED_Sites = "LIGO-WA"
 ```
 
+* **Frame reading failures** : For various reasons, frames may not be accessible. Specific sites may be responsible.  Frame reading failures produce a distinctive ``{}`` into output files (and XLAL errors in the .err files), so you can identify malignant sites with a simple search
+```
+for i in `grep '{}' iteration_0_ile/logs/*.out | tr ':' ' ' | awk '{print $1}' | sed s/.out/.log/g`; do cat $i; done | grep SiteWMS_Queue
+```
