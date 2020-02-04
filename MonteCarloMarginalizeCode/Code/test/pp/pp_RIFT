@@ -108,17 +108,13 @@ aligned_spin =unsafe_config_get(config,['priors','aligned_spin'])
 if aligned_spin:
     print(" === aligned-spin PP ==== ")
 elif no_spin:
-<<<<<<< HEAD
     print(" === zero-spin PP ==== ")
-=======
-    print " === zero-spin PP ==== "
 else:
-    print " === precessing PP ==== "
+    print(" === precessing PP ==== ")
 
 volumetric_spin =unsafe_config_get(config,['priors','volumetric_spin'])
 if volumetric_spin:
-    print "  (volumetric spin prior)  "
->>>>>>> temp-RIT-Tides-port_master-GPUIntegration_restructure_package
+    print("  (volumetric spin prior)  ")
 
 fix_sky_location=unsafe_config_get(config,['priors','fix_sky_location'])
 fiducial_ra=float(config.get('priors','fiducial_ra'))
