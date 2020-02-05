@@ -21,7 +21,7 @@ import lalsimulation as lalsim
 import lalframe
 import lal
 
-import NRWaveformCatalogManager as nrwf
+import NRWaveformCatalogManager3 as nrwf
 
 
 parser = argparse.ArgumentParser()
