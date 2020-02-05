@@ -1,4 +1,9 @@
 
+0.0.15.1
+------------
+Since last release
+   -  ``*NR*`` scripts : fixes for py3/restructure  (rc1)
+
 0.0.15.0 
 ---------------------------
 Since last release
