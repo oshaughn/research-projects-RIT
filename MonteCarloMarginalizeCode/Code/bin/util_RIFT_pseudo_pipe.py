@@ -506,6 +506,8 @@ if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 "
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs)
+if opts.make_bw_psds:
+    cmd+= " --use-bw-psd --bw-exe " + script_dir + "/BayesWave --bw-post-exe " + script_dir + "/BayesWavePost"
 if opts.use_osg:
     cmd += " --use-osg --use-singularity --use-cvmfs-frames --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  Note with CVMFS frames we need to provide the cache
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
