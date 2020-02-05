@@ -3,6 +3,7 @@
 ------------
 Since last release
    -  ``*NR*`` scripts : fixes for py3/restructure  (rc1)
+     another NR fix (not calling py3 version in NRWriteFrame) (rc2)
 
 0.0.15.0 
 ---------------------------
