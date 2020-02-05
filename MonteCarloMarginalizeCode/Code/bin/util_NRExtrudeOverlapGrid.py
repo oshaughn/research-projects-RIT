@@ -26,8 +26,8 @@ import lalframe
 import lal
 import functools
 
-import effectiveFisher  as eff   # for the mesh grid generation
-import PrecessingFisherMatrix   as pcf   # Superior tools to perform overlaps. Will need to standardize with Evans' approach in effectiveFisher.py
+import RIFT.physics.effectiveFisher  as eff   # for the mesh grid generation
+import RIFT.physics.PrecessingFisherMatrix   as pcf   # Superior tools to perform overlaps. Will need to standardize with Evans' approach in effectiveFisher.py
 
 from multiprocessing import Pool
 try:
