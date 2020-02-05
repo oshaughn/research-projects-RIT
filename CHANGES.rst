@@ -18,6 +18,8 @@ Since last release
    - OSG updates (alt requirements, local universe for non-workers); pp updates (volumetric spins), puffball (force-away),
      periodic_remove option, bugfix for helper logic for first puffball  (rc5)
 
+ Release is rc5
+
 Reminder: 0.0.14.x will be the last versions with py27 support; from version 0.0.15 and upward, we should exclusively use py3
 
 0.0.14.6
