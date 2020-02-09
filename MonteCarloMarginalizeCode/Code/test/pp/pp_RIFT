@@ -260,15 +260,16 @@ cip_explode_jobs=False
 
 for indx in np.arange(n_events):
     print " ::: Event {} ::: ".format(indx)
-    mkdir(working_dir_full+'/analysis_event_{}'.format(indx))
-    os.chdir(working_dir_full+'/analysis_event_{}'.format(indx))
+    dir_target= working_dir_full+'/analysis_event_{}'.format(indx)
+    mkdir(dir_target)
+    os.chdir(dir_target)
     os.system("ln -sf ../combined_frames/event_{} .".format(indx))
     if not opts.test:
         cmd = "/bin/find -L . -name '*.gwf' | lalapps_path2cache > local.cache"
         print cmd
         os.system(cmd)
     here = os.getcwd()
-    cmd = "helper_LDG_Events.py --sim-xml "+working_dir_full + "/mdc.xml.gz --event {} --event-time {}  --cache local.cache --working-directory {}  ".format(indx,P_list[indx].tref,here)
+    cmd = "helper_LDG_Events.py --sim-xml "+working_dir_full + "/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache --working-directory {}  ".format(dir_target,indx,P_list[indx].tref,here)
     cmd += " --fmin {} ".format(fmin_template)  # used for placement, we will be undoing some of these effects later with a 'replace'
     cmd += " --fmax {} ".format(fmax)
     cmd += " --fmin-template {} ".format(fmin_template)
