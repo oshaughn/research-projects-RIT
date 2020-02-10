@@ -122,7 +122,8 @@ parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
-parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code will TRY to make a copy of the necessary frame files, from the reference directory")
+parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
+parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restructuring for ILE on OSG. The code will NOT use CVMFS, and instead will try to transfer the frame files.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
 opts=  parser.parse_args()
@@ -509,7 +510,12 @@ if opts.cip_explode_jobs:
 if opts.make_bw_psds:
     cmd+= " --use-bw-psd --bw-exe `which BayesWave` --bw-post-exe `which BayesWavePost` "
 if opts.use_osg:
-    cmd += " --use-osg --use-singularity --use-cvmfs-frames --cache-file local.cache  "   # run on the OSG, make sure to get frames (rather than try to transfer them).  Note with CVMFS frames we need to provide the cache, but that SHOULD be added to the arg list by the helper already.  However, the argument is needed to avoid failure.
+    cmd += " --use-osg --use-singularity  --cache-file local.cache  "   # run on the OSG, make sure to get frames (rather than try to transfer them).  Note with CVMFS frames we need to provide the cache, but that SHOULD be added to the arg list by the helper already.  However, the argument is needed to avoid failure.
+    if not(opts.use_osg_file_transfer):
+        cmd += " --use-cvmfs-frames "
+    else:  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
+        os.system("util_ForOSG_MakeLocalFramesDir.sh local.cache")
+        os.system("echo frames_dir >> helper_transfer_files.txt")
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
 if opts.condor_local_nonworker:
     cmd += " --condor-local-nonworker "
