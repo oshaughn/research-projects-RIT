@@ -746,7 +746,10 @@ if "SNR" in event_dict.keys():
         helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
 
 if not opts.use_osg:
-    helper_ile_args += " --cache " + opts.working_directory+ "/" + opts.cache
+    if '/' in opts.cache:
+        helper_ile_args += " --cache " + opts.cache
+    else:
+        helper_ile_args += " --cache " + opts.working_directory+ "/" + opts.cache
 else:
     helper_ile_args += " --cache local.cache "
 helper_ile_args += " --event-time " + str(event_dict["tref"])
