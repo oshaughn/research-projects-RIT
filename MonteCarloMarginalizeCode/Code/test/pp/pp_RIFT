@@ -269,7 +269,7 @@ for indx in np.arange(n_events):
         print cmd
         os.system(cmd)
     here = os.getcwd()
-    cmd = "helper_LDG_Events.py --sim-xml {}/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache --working-directory {}  ".format(dir_target,indx,P_list[indx].tref,here)
+    cmd = "helper_LDG_Events.py --sim-xml {}/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache --working-directory {}  ".format(dir_target,indx,P_list[indx].tref,here,dir_target)
     cmd += " --fmin {} ".format(fmin_template)  # used for placement, we will be undoing some of these effects later with a 'replace'
     cmd += " --fmax {} ".format(fmax)
     cmd += " --fmin-template {} ".format(fmin_template)
