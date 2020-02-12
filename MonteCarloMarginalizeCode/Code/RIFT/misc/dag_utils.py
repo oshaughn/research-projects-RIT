@@ -387,6 +387,10 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
 
+    requirements=[]
+    if universe=='local':
+        requirements.append("IS_GLIDEIN=?=undefined")
+
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
@@ -458,6 +462,9 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
+
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
@@ -486,7 +493,10 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
 
     exe = exe or which("util_ParameterPuffball.py")
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
- 
+    requirements=[]
+    if universe=='local':
+        requirements.append("IS_GLIDEIN=?=undefined")
+
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
@@ -531,6 +541,8 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     #   condor_qedit
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -715,6 +727,9 @@ echo Starting ...
     if use_osg:
            if not(use_simple_osg_requirements):
                requirements.append("IS_GLIDEIN=?=TRUE")
+           # avoid black-holing jobs to specific machines that consistently fail. Uses history attribute for ad
+           for indx in [1,2,3,4]:
+               requirements.append("TARGET.GLIDEIN_ResourceName=!=MY.MachineAttrGLIDEIN_ResourceName{}".format(indx))
            if "OSG_DESIRED_SITES" in os.environ:
                ile_job.add_condor_cmd('+DESIRED_SITES',os.environ["OSG_DESIRED_SITES"])
            if "OSG_UNDESIRED_SITES" in os.environ:
@@ -822,6 +837,10 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
+    requirements=[]
+    if universe=='local':
+        requirements.append("IS_GLIDEIN=?=undefined")
+
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -871,6 +890,8 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
@@ -918,6 +939,9 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
 
 
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=base_str+cmdname) # force full prefix
+    requirements=[]
+    if universe=='local':
+        requirements.append("IS_GLIDEIN=?=undefined")
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -939,6 +963,8 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
@@ -957,6 +983,9 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     exe = exe or which("convert_output_format_ile2inference")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
 
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+    requirements=[]
+    if universe=='local':
+        requirements.append("IS_GLIDEIN=?=undefined")
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -982,6 +1011,8 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
@@ -1000,6 +1031,9 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
     exe = exe or which("convergence_test_samples.py") 
 
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+    requirements=[]
+    if universe=='local':
+        requirements.append("IS_GLIDEIN=?=undefined")
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -1026,6 +1060,8 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
     #   condor_qedit
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -1116,6 +1152,7 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
+
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
@@ -1126,7 +1163,7 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
 
 
 
-def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,psd_length=4,srate=4096,data_start_time=None,event_time=None,**kwargs):
+def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,psd_length=4,srate=4096,data_start_time=None,event_time=None,universe='local',**kwargs):
     """
     Write a submit file for constructing the PSD using BW
     Modern argument syntax for BW
@@ -1143,7 +1180,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
         sys.exit(0)
     frames_local = None
 
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
 
@@ -1470,6 +1507,9 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
     exe = exe or which("util_ResampleILEOutputWithExtrinsic.py")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
 
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+    requirements=[]
+    if universe=='local':
+        requirements.append("IS_GLIDEIN=?=undefined")
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -1495,6 +1535,8 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
     #   condor_qedit
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -1524,6 +1566,9 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
         os.system("chmod a+x "+cmdname)
 
     ile_job = pipeline.CondorDAGJob(universe=universe, executable='catjob.sh')
+    requirements=[]
+    if universe=='local':
+        requirements.append("IS_GLIDEIN=?=undefined")
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -1550,13 +1595,13 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
 
 
 
-def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,target_dir=None,arg_str='',log_dir=None,  **kwargs):
+def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,target_dir=None,arg_str='',log_dir=None,  universe='local',**kwargs):
     """
     Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.
     """
 
     exe = exe or which("convert_psd_ascii2xml")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
-    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)

@@ -4,6 +4,8 @@
 Since last release
    -  ``*NR*`` scripts : fixes for py3/restructure  (rc1)
      another NR fix (not calling py3 version in NRWriteFrame) (rc2)
+   - import 0.0.14.8rc1  (rc3)
+
 
 0.0.15.0 
 ---------------------------
@@ -12,6 +14,13 @@ Since last release
   - py27 import changes through 0.0.14.7rc4.  Add gpytorch. (rc2)
   - py27 import changes through 0.0.14.7rc5 (rc3)
   - minor fixes for latest py3 (func_code->__code__, 'not subscriptable', / float)  (rc4)
+release is rc4
+
+0.0.14.8
+-----------
+Since last release
+    - bugfix pseudo_pipe (space); pp plot puff enforces mc range; OSG updates (option to copy frames, not cvmfs; local workers; requirements avoid blackhole nodes; minor fixes); 
+     workflow generation test; bugfix NR script restructure; TROUBLESHOOTING (rc1)
 
 0.0.14.7 
 --------------------------
