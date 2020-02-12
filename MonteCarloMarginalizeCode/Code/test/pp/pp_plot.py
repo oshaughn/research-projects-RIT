@@ -7,6 +7,7 @@
 #   - enable column names 
 #
 # EXAMPLE
+#    python pp_plot.py net_pp.dat_clean 2 "['mc','q']"
 #   python pp_plot.py net_pp.dat_clean 4 "['{\cal M}_c','q','\chi_{1,z}','\chi_{2,z}']"
 
 
