@@ -41,3 +41,32 @@ for i in `grep 'XLAL' iteration_*_ile/logs/*.err | tr ':' ' ' | awk '{print $1}'
 ```
  for i in `find . -name 'ILE*.out' -print `; do echo $i ; head -n 1 $i | grep -v 'no cupy' ; done | more
 ```
+
+
+
+## PP plots
+
+PP plots require *all* runs complete.  By widely exploring parameter space, you may generate configurations that (despite our best efforts) produce hard failures.  (For example, IMRPhenomD throws very hard errors when out of range.)  
+
+**Zero spin PP with convergence testing**: By default, PP plot tests run a fixed number of iterations. For fast zero-spin PP plots, we recommend enabling convergence testing, via
+
+```
+for name in analysis*/test.sub;
+do
+ switcheroo '--always-succeed' ' ' $name
+done
+```
+
+**Out of range errors**: These typically occur becaue the *puffball* algorithm generates parameters that are out of range.  In past experience, this has occurred for fragile waveforms like IMRPhenomD and randomly-generated high-mass parameters, on the initial random generation.  As a first quick pass to enforce one additional iteration, we effectively disable the first puffball.
+
+  * *Identify candidates*
+```
+for i in analysis_event_*; do COUNT=`ls $i/post*.dat | wc -l`; if [ ${COUNT} -le 1 ]; then echo ${COUNT} $i `cat $i/iteration*test/logs/*.out`; fi; done
+```
+  
+  * *Force regeneration*
+```
+for i in analysis_event_*; do COUNT=`ls $i/post*.dat | wc -l`; if [ ${COUNT} -le 1 ]; then echo ${COUNT} $i `cat $i/iteration*test/logs/*.out`; (cd $i; cp overlap-grid-1.xml.gz puffball-1.xml.gz; condor_submit_dag  marginalize_intrinsic_parameters_BasicIterationWorkflow.dag);   fi; done
+``
+
+It is possible that runs may fail in later iterations, for reasons other than the test.  That's easily identifed from the convergence test report being larger than the termination threshold.
