@@ -52,8 +52,8 @@ for fname in opts.fname[0]: #sys.argv[1:]:
             tides_on  = True
             col_intrinsic =11
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z, lambda1,lambda2,lnL, sigmaOverL, ntot, neff = line
-	if sigmaOverL>0.9:
-	    continue    # do not allow poorly-resolved cases (e.g., dominated by one point). These are often useless
+        if sigmaOverL>0.9:
+            continue    # do not allow poorly-resolved cases (e.g., dominated by one point). These are often useless
         if tuple(line[1:col_intrinsic]) in data_at_intrinsic:
 #            print " repeated occurrence ", line[1:9]
             data_at_intrinsic[tuple(line[1:col_intrinsic])].append(line[col_intrinsic:])
