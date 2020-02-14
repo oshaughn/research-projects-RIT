@@ -4,6 +4,9 @@
 Since last release
     - bugfix pseudo_pipe (space); pp plot puff enforces mc range; OSG updates (option to copy frames, not cvmfs; local workers; requirements avoid blackhole nodes; minor fixes); 
      workflow generation test; bugfix NR script restructure; TROUBLESHOOTING (rc1)
+   - helper fix (cache file name had directory prefix at times); docs (rc2)
+
+Release is rc2
 
 0.0.14.7
 -----------
