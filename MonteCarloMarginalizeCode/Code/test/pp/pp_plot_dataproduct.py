@@ -147,7 +147,7 @@ if 'chi1_perp' in samples.dtype.names:
 for param in opts.parameter:
     param_here = param
     if param_here in list(remap_LI_to_ILE.keys()):
-	param_here = remap_LI_to_ILE[param_here]
+        param_here = remap_LI_to_ILE[param_here]
     val_here = P_ref.extract_param(param_here)
     if param in [ 'mc', 'm1', 'm2', 'mtotal']:
         val_here= val_here/lal.MSUN_SI
@@ -155,7 +155,7 @@ for param in opts.parameter:
         val_here = val_here/(1e6*lal.PC_SI)
  
     if param in ['phiref','phiorb', 'psi']:   # BUG in injection file, this is workaround
-	samples[param] = np.mod(samples[param],np.pi)
+        samples[param] = np.mod(samples[param],np.pi)
 
     n_ok = np.sum(samples[param] < val_here)
     print(n_ok/(1.*len(samples[param])), end=' ')
