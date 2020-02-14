@@ -66,7 +66,7 @@ print coord_names
 corr_list = None
 if not(opts.no_correlation is None):
     corr_list = []
-    corr_name_list = map(eval,opts.no_correlation)
+    corr_name_list = list(map(eval,opts.no_correlation))
 #    print opts.no_correlation, corr_name_list
     for my_pair in corr_name_list:
         
@@ -90,7 +90,7 @@ downselect_dict['eta'] = [0,0.25]
 
 if opts.downselect_parameter:
     dlist = opts.downselect_parameter
-    dlist_ranges  = map(eval,opts.downselect_parameter_range)
+    dlist_ranges  = list(map(eval,opts.downselect_parameter_range))
 else:
     dlist = []
     dlist_ranges = []
