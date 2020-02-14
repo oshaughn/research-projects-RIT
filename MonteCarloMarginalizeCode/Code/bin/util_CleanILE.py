@@ -15,7 +15,7 @@ import numpy as np
 import RIFT.misc.weight_simulations as weight_simulations
 
 import fileinput
-import StringIO
+#import StringIO
 
 data_at_intrinsic = {}
 
