@@ -1,4 +1,10 @@
 
+
+0.0.15.2
+------------
+Since last release
+  - minor py3 errors in PP scripts (rc1)
+
 0.0.15.1
 ------------
 Since last release
