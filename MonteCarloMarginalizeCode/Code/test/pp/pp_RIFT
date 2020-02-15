@@ -260,15 +260,16 @@ cip_explode_jobs=False
 
 for indx in np.arange(n_events):
     print " ::: Event {} ::: ".format(indx)
-    mkdir(working_dir_full+'/analysis_event_{}'.format(indx))
-    os.chdir(working_dir_full+'/analysis_event_{}'.format(indx))
+    dir_target= working_dir_full+'/analysis_event_{}'.format(indx)
+    mkdir(dir_target)
+    os.chdir(dir_target)
     os.system("ln -sf ../combined_frames/event_{} .".format(indx))
     if not opts.test:
         cmd = "/bin/find -L . -name '*.gwf' | lalapps_path2cache > local.cache"
         print cmd
         os.system(cmd)
     here = os.getcwd()
-    cmd = "helper_LDG_Events.py --sim-xml "+working_dir_full + "/mdc.xml.gz --event {} --event-time {}  --cache local.cache --working-directory {}  ".format(indx,P_list[indx].tref,here)
+    cmd = "helper_LDG_Events.py --sim-xml {}/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache --working-directory {}  ".format(working_dir_full,indx,P_list[indx].tref,here,dir_target)
     cmd += " --fmin {} ".format(fmin_template)  # used for placement, we will be undoing some of these effects later with a 'replace'
     cmd += " --fmax {} ".format(fmax)
     cmd += " --fmin-template {} ".format(fmin_template)
@@ -368,7 +369,7 @@ for indx in np.arange(n_events):
         except:
             print " No puff file "
         with open("args_puff.txt",'w') as f:
-            puff_args = line + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(chi_max,chi_max)
+            puff_args = line + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] --mc-range [{},{}] ".format(chi_max,chi_max,mc_min,mc_max)
             f.write("X " + puff_args)
 
 
