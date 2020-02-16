@@ -394,7 +394,11 @@ for indx in np.arange(n_events):
         cmd += " --use-osg --use-singularity  --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  
         cmd+= " --transfer-file-list  "+here +"/helper_transfer_files.txt"
         os.system("echo {}/frames_dir >> helper_transfer_files.txt".format(here))  # can't use symbolic links alas
-        os.system("cp -r {}/event_{} frames_dir/".format(here,indx))
+        try:
+            os.system("mkdir frames_dir")
+        except:
+            continue
+        os.system("cp -r {}/event_{}/* frames_dir/".format(here,indx))
     else:
         cmd += " --cache-file {}/local.cache   ".format(here)
 
