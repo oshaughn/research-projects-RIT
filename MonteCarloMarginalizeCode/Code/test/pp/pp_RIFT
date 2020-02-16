@@ -393,8 +393,8 @@ for indx in np.arange(n_events):
         print " NOT VALIDATED/IMPLEMENTED for PP use yet"
         cmd += " --use-osg --use-singularity  --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  
         cmd+= " --transfer-file-list  "+here +"/helper_transfer_files.txt"
-        os.system("echo frames_dir >> helper_transfer_files.txt")
-        os.system("echo event_{} >> helper_transfer_files.txt".format(indx))
+#        os.system("echo frames_dir >> helper_transfer_files.txt")
+        os.system("echo {}/event_{} >> helper_transfer_files.txt".format(here,indx))
     else:
         cmd += " --cache-file {}/local.cache   ".format(here)
 
