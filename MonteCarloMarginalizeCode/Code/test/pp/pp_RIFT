@@ -340,9 +340,9 @@ for indx in np.arange(n_events):
         instructions_cip = [x.rstrip().split(' ') for x in raw_lines]#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
         n_iterations =0
         lines  = []
-        for indx in np.arange(len(instructions_cip)):
-            n_iterations += int(instructions_cip[indx][0])
-            line = ' ' .join(instructions_cip[indx])
+        for indx_instr in np.arange(len(instructions_cip)):
+            n_iterations += int(instructions_cip[indx_instr][0])
+            line = ' ' .join(instructions_cip[indx_instr])
             # Add CIP range
             line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(mc_min, mc_max,eta_min,eta_max,chi_max)
             if use_matter:
