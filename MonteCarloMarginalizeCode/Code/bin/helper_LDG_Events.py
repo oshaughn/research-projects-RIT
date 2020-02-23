@@ -587,10 +587,10 @@ if not (opts.fake_data):
             data_type_here = unsafe_config_get(config,['datafind','types'])[ifo]
         else:
             data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
-        # Special lookup for later in O3
-        # https://wiki.ligo.org/LSC/JRPComm/ObsRun3#Virgo_AN1
-        if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
-            data_type_here=data_types["O3"][(opts.calibration_version, ifo,"September")]        
+            # Special lookup for later in O3
+            # https://wiki.ligo.org/LSC/JRPComm/ObsRun3#Virgo_AN1
+            if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
+                data_type_here=data_types["O3"][(opts.calibration_version, ifo,"September")]        
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
 if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
