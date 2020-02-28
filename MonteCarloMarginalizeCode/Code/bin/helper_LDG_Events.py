@@ -562,7 +562,10 @@ if not(opts.use_ini is None):
     fmin_vals ={}
     fmin_fiducial = -1
     for ifo in ifos:
-        channel_names[ifo] = unsafe_config_get(config,['data','channels'])[ifo]
+        raw_channel_name =  unsafe_config_get(config,['data','channels'])[ifo]
+        if ':' in raw_channel_name:
+            raw_channel_name = raw_channel_name.split(':')[-1]
+        channel_names[ifo] =raw_channel_name
         fmin_vals[ifo] = unsafe_config_get(config,['lalinference','flow'])[ifo]
         fmin_fiducial = fmin_vals[ifo]
 
@@ -587,10 +590,10 @@ if not (opts.fake_data):
             data_type_here = unsafe_config_get(config,['datafind','types'])[ifo]
         else:
             data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
-        # Special lookup for later in O3
-        # https://wiki.ligo.org/LSC/JRPComm/ObsRun3#Virgo_AN1
-        if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
-            data_type_here=data_types["O3"][(opts.calibration_version, ifo,"September")]        
+            # Special lookup for later in O3
+            # https://wiki.ligo.org/LSC/JRPComm/ObsRun3#Virgo_AN1
+            if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
+                data_type_here=data_types["O3"][(opts.calibration_version, ifo,"September")]        
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
 if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
@@ -781,7 +784,8 @@ if opts.lowlatency_propose_approximant:
     # Also choose d-max. Relies on archival and fixed network sensitvity estimates.
     dmax_guess =(1./snr_fac)* 2.5*2.26*typical_bns_range_Mpc[opts.observing_run]* (mc_Msun/1.2)**(5./6.)
     dmax_guess = np.min([dmax_guess,10000]) # place ceiling
-    helper_ile_args +=  " --d-max " + str(int(dmax_guess))
+    if opts.use_ini is None:
+        helper_ile_args +=  " --d-max " + str(int(dmax_guess))
 
     if (opts.data_LI_seglen is None) and  (opts.data_start_time is None) and not(use_ini):
         # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
@@ -797,6 +801,13 @@ if opts.lowlatency_propose_approximant:
         data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
         data_end_time = int(P.tref + 2)
         helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
+
+if use_ini:
+    # See above, provided by ini file
+    dmax = unsafe_config_get(config,['engine','distance-max'])
+    helper_ile_args +=  " --d-max " + str(int(dmax))
+    
+    
 
 if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
     # Manually set the data start and end time.

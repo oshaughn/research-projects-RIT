@@ -24,6 +24,14 @@ Since last release
   - minor fixes for latest py3 (func_code->__code__, 'not subscriptable', / float)  (rc4)
 release is rc4
 
+0.0.14.9
+-----------
+Since last release
+  - bugfix for parsing ini files (indentation error; handling overspecified channel names); pp OSG; NRWriteFrame latest
+    glue; plot_posterior_corner fix tex label issue (rc1)
+  - bugfix ini file parsing (not parsing distance-max)   (rc2)
+  - bugfix in ini file use (overriding distance-max if ini used) (rc3)
+
 0.0.14.8
 -----------
 Since last release

@@ -32,5 +32,7 @@ for param in opts.parameter:
         dat_1d = RIFT.lalsimutils.mchirp(dat['m1'],dat['m2'])
     elif param == 'q':
         dat_1d = dat['m2']/dat['m1']
+    elif param == 'xi':
+        dat_1d = (dat['m2']*dat['a2z']+dat['m1']*dat['a1z'])/(dat['m1']+dat['m2'])
     quant_here  = np.percentile(dat_1d,100*quantile_list)
     print(param, ' '.join(map(str,quant_here)))
