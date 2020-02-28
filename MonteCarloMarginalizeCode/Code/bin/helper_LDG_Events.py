@@ -562,7 +562,10 @@ if not(opts.use_ini is None):
     fmin_vals ={}
     fmin_fiducial = -1
     for ifo in ifos:
-        channel_names[ifo] = unsafe_config_get(config,['data','channels'])[ifo]
+        raw_channel_name =  unsafe_config_get(config,['data','channels'])[ifo]
+        if ':' in raw_channel_name:
+            raw_channel_name = raw_channel_name.split(':')[-1]
+        channel_names[ifo] =raw_channel_name
         fmin_vals[ifo] = unsafe_config_get(config,['lalinference','flow'])[ifo]
         fmin_fiducial = fmin_vals[ifo]
 
