@@ -804,7 +804,7 @@ if opts.lowlatency_propose_approximant:
 
 if use_ini:
     # See above, provided by ini file
-    dmax = unsafe_config_get(['engine','distance-max'])
+    dmax = unsafe_config_get('engine','distance-max')
     helper_ile_args +=  " --d-max " + str(int(dmax))
     
     
