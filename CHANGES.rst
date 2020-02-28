@@ -1,4 +1,11 @@
 
+0.0.14.9
+-----------
+Since last release
+  - bugfix for parsing ini files (indentation error; handling overspecified channel names); pp OSG; NRWriteFrame latest
+    glue; plot_posterior_corner fix tex label issue (rc1)
+    
+
 0.0.14.8
 -----------
 Since last release
