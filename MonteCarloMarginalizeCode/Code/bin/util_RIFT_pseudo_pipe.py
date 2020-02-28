@@ -384,7 +384,8 @@ except:
 instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
 line = ' '.join(instructions_ile)
 line += " --l-max " + str(opts.l_max) 
-line += " --d-max " + str(dmax_guess)
+if (opts.use_ini is None):
+    line += " --d-max " + str(dmax_guess)
 if not 'NR' in opts.approx:
         line += " --approx " + opts.approx
 elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
