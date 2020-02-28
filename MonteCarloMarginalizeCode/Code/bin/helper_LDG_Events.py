@@ -784,7 +784,8 @@ if opts.lowlatency_propose_approximant:
     # Also choose d-max. Relies on archival and fixed network sensitvity estimates.
     dmax_guess =(1./snr_fac)* 2.5*2.26*typical_bns_range_Mpc[opts.observing_run]* (mc_Msun/1.2)**(5./6.)
     dmax_guess = np.min([dmax_guess,10000]) # place ceiling
-    helper_ile_args +=  " --d-max " + str(int(dmax_guess))
+    if opts.use_ini is None:
+        helper_ile_args +=  " --d-max " + str(int(dmax_guess))
 
     if (opts.data_LI_seglen is None) and  (opts.data_start_time is None) and not(use_ini):
         # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
@@ -800,6 +801,13 @@ if opts.lowlatency_propose_approximant:
         data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
         data_end_time = int(P.tref + 2)
         helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
+
+if use_ini:
+    # See above, provided by ini file
+    dmax = unsafe_config_get(['engine','distance-max'])
+    helper_ile_args +=  " --d-max " + str(int(dmax))
+    
+    
 
 if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
     # Manually set the data start and end time.
