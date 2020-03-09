@@ -306,7 +306,7 @@ for indx in np.arange(n_events):
         instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
         line = ' '.join(instructions_ile)
         if not (use_gpu):
-            line = line.replace("--vectorized --gpu","")  # make SURE this option is not set
+            line = line.replace("--gpu","")  # make SURE this option is not set
         if fix_sky_location:
             line = line.replace("--declination-cosine-sampler", "")   # fix, so known sky location is interpreted correctly
             line += " --right-ascension {} --declination {} ".format(fiducial_ra, fiducial_dec)
