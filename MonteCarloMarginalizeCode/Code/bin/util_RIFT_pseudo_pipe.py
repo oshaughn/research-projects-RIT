@@ -390,8 +390,10 @@ if not 'NR' in opts.approx:
         line += " --approx " + opts.approx
 elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
         line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5  "
-elif opts.use_gwsurrogate and "NRSur7d" in opts.approx:
+elif opts.use_gwsurrogate and "NRSur7d2" in opts.approx:
         line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
+elif opts.use_gwsurrogate and "NRSur7d4" in opts.approx:
+        line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq4.h5  "
 elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in opts.approx): 
         line += " --approx " + opts.approx
 else:
