@@ -1062,6 +1062,10 @@ with open("helper_test_args.txt",'w+') as f:
 if opts.assume_matter:
     with open("helper_convert_args.txt",'w+') as f:
         f.write(" --export-tides ")
+else:
+    with open("helper_convert_args.txt",'w+') as f:
+        f.write(" --fref {} ".format(opts.fmin_template))   # needed to insure correct precession angles derived from internal conversion
+
 
 if opts.propose_fit_strategy:
     with open("helper_puff_max_it.txt",'w') as f:
