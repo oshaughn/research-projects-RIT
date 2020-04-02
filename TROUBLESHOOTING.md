@@ -17,7 +17,7 @@ The plots should show a deep red region surrounded by many contours.  For later 
 
 ## OSG/CVMFS/...
 
-RIFT can run ILE worker jobs on the OSG.  These can fail or be held for a fantastic number of reasons (e.g., missing files that need to be transferred).  We assume you know how to use ``condor_q -run`` and ``condor_q -hold -af HoldReason``, and to read your job condor logs (i.e., ``iteration_0_ile/logs/*.out`` and ``*.log``, respectively)
+RIFT can run ILE worker jobs on the OSG.  These can fail or be held for a fantastic number of reasons (e.g., missing files that need to be transferred, proxy timeout, etc).  We assume you know how to use ``condor_q -run`` and ``condor_q -hold -af HoldReason``, and to read your job condor logs (i.e., ``iteration_0_ile/logs/*.out`` and ``*.log``, respectively)
 
 
 * **Site-specific problems**: Using ``condor_q -run``, you may notice some sites have an unusually high incidence of problems.  You can avoid specific sites with the UNDESIRED_SITES command.  As an example, here's how to avoid LIGO-WA
@@ -42,6 +42,12 @@ for i in `grep 'XLAL' iteration_*_ile/logs/*.err | tr ':' ' ' | awk '{print $1}'
  for i in `find . -name 'ILE*.out' -print `; do echo $i ; head -n 1 $i | grep -v 'no cupy' ; done | more
 ```
 
+
+* **Jobs don't queue(proxy timeout)**:  You may have ``JOB_IDS`` empty, and your jobs don't enter the queuing system.  You can't access CVMFS frames without a valid proxy!  You can fix this by renewing your proxy.  
+```
+ligo_proxy_init
+```
+(As a rule, do ``grid-proxy-info`` before submitting)
 
 
 ## PP plots
