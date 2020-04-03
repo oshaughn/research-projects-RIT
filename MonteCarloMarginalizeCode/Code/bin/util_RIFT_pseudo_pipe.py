@@ -76,6 +76,7 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["s2z"] = row.spin2z
     event_dict["tref"] = row.end_time + 1e-9*row.end_time_ns
     event_dict["IFOs"] = list(set(ifo_list))
+    event_dict["SNR"] = row.snr
     return event_dict
 
 
@@ -349,6 +350,8 @@ if opts.use_online_psd_file:
     # Create command line arguments for those IFOs, so helper can correctly pass then downward
     for ifo in ifo_list:
         cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
+if "SNR" in event_dict:
+    cmd += " --hint-snr {} ".format(event_dict["SNR"])
 
 print cmd
 os.system(cmd)
@@ -386,14 +389,17 @@ line = ' '.join(instructions_ile)
 line += " --l-max " + str(opts.l_max) 
 if (opts.use_ini is None):
     line += " --d-max " + str(dmax_guess)
+sur_location_prefix = "my_surrogates/nr_surrogates/"
+if opts.use_osg:
+    sur_location_prefix = "/"
 if not 'NR' in opts.approx:
         line += " --approx " + opts.approx
 elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
-        line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5  "
+        line += " --rom-group {} --rom-param NRHybSur3dq8.h5 --approx {} ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7d2" in opts.approx:
-        line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
+        line += " --rom-group {} --rom-param NRSur7dq2.h5 --approx {}  ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7d4" in opts.approx:
-        line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq4.h5  "
+        line += " --rom-group {} --rom-param NRSur7dq4.h5  --approx {}".format(sur_location_prefix,opts.approx)
 elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in opts.approx): 
         line += " --approx " + opts.approx
 else:
