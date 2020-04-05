@@ -86,11 +86,21 @@ if (not 'theta1' in samples.dtype.names)  and ('a1x' in samples.dtype.names):  #
     chiperp_here = np.sqrt( samples['a1x']**2+ samples['a1y']**2)
     if any(chiperp_here > 0):
      chi1_here = np.sqrt( samples['a1z']**2 + chiperp_here**2)
-     theta1_here = np.arctan( samples['a1z']/chiperp_here)
+     theta1_here = np.arctan(chiperp_here/ samples['a1z'])
      phi1_here = np.angle(samples['a1x']+1j*samples['a1y'])
      samples = add_field(samples, [('chi1', float)]); samples['chi1'] = chi1_here
      samples = add_field(samples, [('theta1', float)]); samples['theta1'] = theta1_here
      samples = add_field(samples, [('phi1', float)]); samples['phi1'] = phi1_here
+
+    chiperp_here = np.sqrt( samples['a2x']**2+ samples['a2y']**2)
+    if any(chiperp_here > 0):
+     
+     chi2_here = np.sqrt( samples['a2z']**2 + chiperp_here**2)
+     theta2_here = np.arctan(chiperp_here/ samples['a2z'])
+     phi2_here = np.angle(samples['a2x']+1j*samples['a2y'])
+     samples = add_field(samples, [('chi2', float)]); samples['chi2'] = chi1_here
+     samples = add_field(samples, [('theta2', float)]); samples['theta2'] = theta1_here
+     samples = add_field(samples, [('phi2', float)]); samples['phi2'] = phi1_here
 
 elif "theta1" in samples.dtype.names:
     a1x_dat = samples["a1"]*np.sin(samples["theta1"])*np.cos(samples["phi1"])
