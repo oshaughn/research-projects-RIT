@@ -30,12 +30,16 @@ parser.add_argument("--method", default='lame',  help="Test to perform: lame|ks1
 parser.add_argument("--threshold",default=0.01,type=float,  help="Manual threshold for the test being performed. (If not specified, the success condition is determined by default for that diagnostic, based on the samples size and properties).  Try 0.01")
 parser.add_argument("--test-output",  help="Filename to return output. Result is a scalar >=0 and ideally <=1.  Closer to 0 should be good. Second column is the diagnostic, first column is 0 or 1 (success or failure)")
 parser.add_argument("--always-succeed",action='store_true',help="Test output is always success.  Use for plotting convergence diagnostics so jobs insured to run for many iterations.")
+parser.add_argument("--iteration-threshold",default=0,type=int,help="Test is applied if iteration >= iteration-threshold. Default is 0")
+parser.add_argument("--iteration",default=0,type=int,help="Current reported iteration. Default is 0.")
 opts=  parser.parse_args()
 
-if len(opts.samples)<1:
+if len(opts.samples)<2:
     print(" Need at least two sets of samples")
-    sys.exit(0)
+    sys.exit(1)
 
+if opts.iteration < opts.iteration_threshold:
+    sys.exit(0)
 
 
 

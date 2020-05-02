@@ -77,6 +77,7 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["s2z"] = row.spin2z
     event_dict["tref"] = row.end_time + 1e-9*row.end_time_ns
     event_dict["IFOs"] = list(set(ifo_list))
+    event_dict["SNR"] = row.snr
     return event_dict
 
 
@@ -118,6 +119,7 @@ parser.add_argument("--make-bw-psds",action='store_true',help='If present, adds 
 parser.add_argument("--link-bw-psds",action='store_true',help='If present, uses the script retrieve_bw_psd_for_event.sh  to find a precomputed BW psd, and convert it to our format')
 parser.add_argument("--use-online-psd",action='store_true', help="If present, will use the online PSD estimates")
 parser.add_argument("--ile-retries",default=3,type=int)
+parser.add_argument("--general-retries",default=3,type=int)
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this argument to CIP. GP plot for each iteration will be saved. Useful for followup investigations or reweighting. Warning: lots of disk space (1G or so per iteration)")
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
@@ -349,6 +351,8 @@ if opts.use_online_psd_file:
     # Create command line arguments for those IFOs, so helper can correctly pass then downward
     for ifo in ifo_list:
         cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
+if "SNR" in event_dict:
+    cmd += " --hint-snr {} ".format(event_dict["SNR"])
 
 print( cmd)
 os.system(cmd)
@@ -386,14 +390,17 @@ line = ' '.join(instructions_ile)
 line += " --l-max " + str(opts.l_max) 
 if (opts.use_ini is None):
     line += " --d-max " + str(dmax_guess)
+sur_location_prefix = "my_surrogates/nr_surrogates/"
+if opts.use_osg:
+    sur_location_prefix = "/"
 if not 'NR' in opts.approx:
         line += " --approx " + opts.approx
 elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
-        line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5  "
+        line += " --rom-group {} --rom-param NRHybSur3dq8.h5 --approx {} ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7d2" in opts.approx:
-        line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
+        line += " --rom-group {} --rom-param NRSur7dq2.h5 --approx {}  ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7d4" in opts.approx:
-        line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq4.h5  "
+        line += " --rom-group {} --rom-param NRSur7dq4.h5  --approx {}".format(sur_location_prefix,opts.approx)
 elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in opts.approx): 
         line += " --approx " + opts.approx
 else:
@@ -508,7 +515,7 @@ cip_mem  = 30000
 n_jobs_per_worker=opts.ile_jobs_per_worker
 if opts.cip_fit_method == 'rf':  # much lower memory requirement
     cip_mem = 4000
-cmd ="create_event_parameter_pipeline_BasicIteration  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args args_puff.txt  --ile-retries "+ str(opts.ile_retries)
+cmd ="create_event_parameter_pipeline_BasicIteration  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args args_puff.txt  --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if not(opts.ile_no_gpu):
     cmd +=" --request-gpu-ILE "
 if opts.add_extrinsic:

@@ -187,6 +187,7 @@ parser.add_argument("--last-iteration-extrinsic-nsamples",default=3000,type=int,
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
+parser.add_argument("--general-retries",default=0,type=int,help="Number of retry attempts for internal jobs (convert, CIP, ...). (These can fail, albeit more rarely, usually due to filesystem problems)")
 parser.add_argument("--ile-n-events-to-analyze",default=1,type=int,help="If >1, you are using ILE_batchmode.  Structures the DAG correctly to account for batch cadence")
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
@@ -805,10 +806,12 @@ for it in np.arange(it_start,opts.n_iterations):
     # Create consolidate job
     con_node = pipeline.CondorDAGNode(con_job)
     con_node.add_macro("macroiteration",it)
+    con_node.set_retry(opts.general_retries)
     # Create unify job
     unify_node = pipeline.CondorDAGNode(unify_job)
     unify_node.add_macro("macroiteration",it)
     unify_node.add_parent(con_node)
+    unify_node.set_retry(opts.general_retries)
     
     # Create one node per job
     n_jobs_this_time = opts.n_samples_per_job
@@ -859,6 +862,7 @@ for it in np.arange(it_start,opts.n_iterations):
     fit_node.add_macro("macroiterationnext", it+1)
     fit_node.set_category("CIP")
     fit_node.add_parent(unify_node)  # only fit if we have results from the previous iteration
+    fit_node.set_retry(opts.general_retries)
     dag.add_node(fit_node) 
     parent_fit_node = fit_node
 
@@ -870,13 +874,15 @@ for it in np.arange(it_start,opts.n_iterations):
         worker_node.add_macro("macroiterationnext", it+1)
         worker_node.set_category("CIP_worker")
         worker_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
-    
+        worker_node.set_retry(opts.general_retries)
+
         # Create job to consolidate worker outputs
         join_node =pipeline.CondorDAGNode(join_cip_job)
         join_node.add_macro("macroiteration", it)
         join_node.add_macro("macroiterationnext", it+1)
         join_node.set_category("join_cip")
         join_node.add_parent(worker_node)
+        join_node.set_retry(opts.general_retries)
         
         dag.add_node(worker_node)
         dag.add_node(join_node)
@@ -890,6 +896,7 @@ for it in np.arange(it_start,opts.n_iterations):
         puff_node.add_macro("macroiteration", it)
         puff_node.add_macro("macroiterationnext", it+1)
         puff_node.set_category("PUFF")
+        puff_node.set_retry(opts.general_retries)
         if not (parent_fit_node is None):
             puff_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
         dag.add_node(puff_node) 
@@ -905,6 +912,7 @@ for it in np.arange(it_start,opts.n_iterations):
         convert_node.add_macro("macroiterationlast", it)  # use log files in the previous directory
         convert_node.add_parent(parent_fit_node)
         convert_node.set_category("CONVERT")
+        convert_node.set_retry(opts.general_retries)
         dag.add_node(convert_node)
 
         parent_fit_node = convert_node

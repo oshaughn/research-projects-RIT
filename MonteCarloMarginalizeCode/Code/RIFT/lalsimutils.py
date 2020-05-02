@@ -72,7 +72,7 @@ waveform_approx_limit_dict = {
      },
   "NRSur7dq2": {  "q-min":1./2, "chi-max":0.8
      },
-  "NRSur7dq4": { "q-min":1./2, "chi-max":0.8
+  "NRSur7dq4": { "q-min":1./4, "chi-max":0.8
      },
 
 }
