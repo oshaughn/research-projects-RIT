@@ -43,6 +43,7 @@ def add_frames(channel,input_frame, noise_frame,combined_frame):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
+parser.add_argument("--use-osg",action='store_true',help="Attempt OSG operation. Command-line level option, not at ini level to make portable results")
 parser.add_argument("--test",default=False,action='store_true',help="Used to test the pipeline : prints out commands, generates workflows as much as possible without high-cost steps")
 opts =  parser.parse_args()
 
@@ -255,7 +256,7 @@ psd_dict = unsafe_config_get(config,["make_psd",'fiducial_psds'])
 cip_fit_method = config.get('make_workflow','cip_fit_method')
 cip_sampler_method = config.get('make_workflow','cip_sampler_method')
 add_extrinsic=False
-use_osg=False
+use_osg=opts.use_osg #False
 cip_explode_jobs=False
 
 for indx in np.arange(n_events):
@@ -274,6 +275,8 @@ for indx in np.arange(n_events):
     cmd += " --fmax {} ".format(fmax)
     cmd += " --fmin-template {} ".format(fmin_template)
     cmd += " --force-mc-range [{},{}] --force-eta-range [{},{}] ".format(mc_min, mc_max,eta_min,eta_max)
+    if use_osg:
+        cmd += " --use-osg "
     if test_convergence:
         cmd += " --test-convergence "  # removes 'always succeed' as an option (by the helper)
     # add in PSDs.  Allow relative names for PSDs relative to ini file
@@ -303,7 +306,7 @@ for indx in np.arange(n_events):
         instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
         line = ' '.join(instructions_ile)
         if not (use_gpu):
-            line = line.replace("--vectorized --gpu","")  # make SURE this option is not set
+            line = line.replace("--gpu","")  # make SURE this option is not set
         if fix_sky_location:
             line = line.replace("--declination-cosine-sampler", "")   # fix, so known sky location is interpreted correctly
             line += " --right-ascension {} --declination {} ".format(fiducial_ra, fiducial_dec)
@@ -339,9 +342,9 @@ for indx in np.arange(n_events):
         instructions_cip = map(lambda x: x.rstrip().split(' '), raw_lines)#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
         n_iterations =0
         lines  = []
-        for indx in np.arange(len(instructions_cip)):
-            n_iterations += int(instructions_cip[indx][0])
-            line = ' ' .join(instructions_cip[indx])
+        for indx_instr in np.arange(len(instructions_cip)):
+            n_iterations += int(instructions_cip[indx_instr][0])
+            line = ' ' .join(instructions_cip[indx_instr])
             # Add CIP range
             line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(mc_min, mc_max,eta_min,eta_max,chi_max)
             if use_matter:
@@ -389,7 +392,13 @@ for indx in np.arange(n_events):
     if use_osg:
         print " NOT VALIDATED/IMPLEMENTED for PP use yet"
         cmd += " --use-osg --use-singularity  --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  
-        cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
+        cmd+= " --transfer-file-list  "+here +"/helper_transfer_files.txt"
+        os.system("echo {}/frames_dir >> helper_transfer_files.txt".format(here))  # can't use symbolic links alas
+        try:
+            os.system("mkdir frames_dir")
+        except:
+            continue
+        os.system("cp -r {}/event_{}/* frames_dir/".format(here,indx))
     else:
         cmd += " --cache-file {}/local.cache   ".format(here)
 
