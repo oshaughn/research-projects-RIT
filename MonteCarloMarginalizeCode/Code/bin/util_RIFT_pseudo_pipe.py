@@ -514,10 +514,10 @@ if opts.archive_pesummary_label:
     os.mkdir("pesummary")
     rundir = base_dir+"/"+dirname_run
     if opts.add_extrinsic:
-        samplestr = " --samples " + rundir +"/extrinsic_posterior_samples.dat"
+        samplestr = " --samples " + rundir +"/extrinsic_posterior_samples.dat "
     else:
-        samplestr = " --samples " + rundir + "/posterior_samples-$(macroiteration).dat"
-    labelstr = " --labels "+opts.archive_pesummary_label
+        samplestr = " --samples " + rundir + "/posterior_samples-$(macroiteration).dat "
+    labelstr = " --labels {} ".format(opts.archive_pesummary_label)
     configstr=""
     if opts.use_ini:
         configstr = " -c " +opts.use_ini
