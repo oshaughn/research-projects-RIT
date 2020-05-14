@@ -130,6 +130,8 @@ parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE 
 parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restructuring for ILE on OSG. The code will NOT use CVMFS, and instead will try to transfer the frame files.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
+parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
+parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
 
 if (opts.approx is None) and not (opts.use_ini is None):
@@ -505,6 +507,25 @@ with open("args_puff.txt",'w') as f:
                 puff_args+= " --enforce-duration-bound " +str(opts.data_LI_seglen)
         f.write("X " + puff_args)
 
+# Create archive dag.  Based on Udall's experience/code
+#    * if ini file, use it
+#    * PSD files: will need to convert from XML.  Will need wrapper to generate this (not raw pesummary call).. Not now.
+if opts.archive_pesummary_label:
+    os.mkdir("pesummary")
+    rundir = base_dir+"/"+dirname_run
+    if opts.add_extrinsic:
+        samplestr = " --samples " + rundir +"/extrinsic_posterior_samples.dat"
+    else:
+        samplestr = " --samples " + rundir + "/posterior_samples-$(macroiteration).dat"
+    labelstr = " --labels "+opts.archive_pesummary_label
+    configstr=""
+    if opts.use_ini:
+        configstr = " -c " +opts.use_ini
+    approxstr = " -a "+opts.approx
+    psdstr = ""
+    plot_args = "--v --gw --webdir {}/pesummary".format(rundir)+ opts.archive_pesummary_event_label+samplestr+labelstr+approxstr+configstr+psdstr
+    with open("args_plot.txt",'w') as f:
+        f.write(plot_args)
 
 # Overwrite grid if needed
 if not (opts.manual_initial_grid is None):
@@ -536,5 +557,8 @@ if opts.condor_local_nonworker:
     cmd += " --condor-local-nonworker "
 if opts.use_osg_simple_requirements:
     cmd += " --use-osg-simple-reqirements "
+if opts.archive_pesummary_label:
+#    cmd += " --plot-exe `which summarypages` --plot-args  args_plot.txt "
+    cmd += " --plot-exe summarypages --plot-args  args_plot.txt "
 print cmd
 os.system(cmd)
