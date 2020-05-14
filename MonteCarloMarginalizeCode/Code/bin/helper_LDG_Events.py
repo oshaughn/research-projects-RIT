@@ -800,7 +800,9 @@ if opts.lowlatency_propose_approximant:
         T_window_raw = unsafe_config_get(config,['engine','seglen'])
         data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
         data_end_time = int(P.tref + 2)
-        helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
+        T_window = data_start_time - data_end_time
+        window_shape = 0.4*2/T_window
+        helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape " + str(window_shape)
 
 if use_ini:
     # See above, provided by ini file

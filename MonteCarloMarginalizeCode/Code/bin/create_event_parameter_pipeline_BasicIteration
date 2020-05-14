@@ -714,7 +714,14 @@ if opts.test_args:
 
 if opts.plot_args and opts.test_args:
     # default: last two iterations
-    plot_job, plot_job_name = dag_utils.write_plot_sub(tag='plot',log_dir=None,arg_str=plot_args,samples_files=['posterior_samples-$(macroiteration).dat','posterior_samples-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.plot_exe,universe=local_worker_universe)
+    #  ... unless there is extrinsic samples, then use those
+    #  ... note this has to work with PEsummary as well, which only takes one set of samples
+#    samples_files =['posterior_samples-$(macroiteration).dat','posterior_samples-$(macroiterationlast).dat'] 
+#    if opts.last_iteration_extrinsic:
+#        samples_files =[]
+    # User will be responsible for passing argument strings.  We are not hardcoding in the argument format
+    samples_files =[]
+    plot_job, plot_job_name = dag_utils.write_plot_sub(tag='plot',log_dir=None,arg_str=plot_args,samples_files=samples_files,out_dir=opts.working_directory,exe=opts.plot_exe,universe=local_worker_universe)
     plot_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).log")
     plot_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).err")
     plot_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).out")
