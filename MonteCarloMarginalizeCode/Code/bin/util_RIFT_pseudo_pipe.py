@@ -543,6 +543,9 @@ if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 "
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs)
+   if not(opts.cip_fit_method is None) and not(opts.cip_fit_method == 'gp'):
+       # if we are not using default GP fit, so all fit instances are equal
+       cmd += " --cip-explode-jobs-flat "  
 if opts.make_bw_psds:
     cmd+= " --use-bw-psd --bw-exe `which BayesWave` --bw-post-exe `which BayesWavePost` "
 if opts.use_osg:
