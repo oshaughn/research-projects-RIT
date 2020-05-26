@@ -55,6 +55,10 @@ def unsafe_config_get(config,args,verbose=False):
     return eval( config.get(*args))
 
 
+def format_gps_time(tval):
+    str_out = "{:.5f}".format(tval)
+    return str_out
+
 def retrieve_event_from_coinc(fname_coinc):
     from glue.ligolw import lsctables, table, utils
     from RIFT import lalsimutils
@@ -169,7 +173,7 @@ if not(opts.fmin_template is None):
     fmin_template = opts.fmin_template
 gwid = opts.gracedb_id if (not opts.gracedb_id is None) else '';
 if opts.gracedb_id is None:
-    gwid="manual_"+ str(opts.event_time)
+    gwid="manual_"+ format_gps_time(opts.event_time)
     if not (opts.use_ini is None):
         gwid = ''
 else:
@@ -313,7 +317,7 @@ cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strateg
 if not(opts.gracedb_id is None) and (opts.use_ini is None):
     cmd +=" --use-legacy-gracedb --gracedb-id " + gwid 
 elif  not(opts.event_time is None):
-    cmd += " --event-time " + str(opts.event_time)
+    cmd += " --event-time " + format_gps_time(opts.event_time)
 if opts.online:
         cmd += " --online "
 if opts.playground_data:
