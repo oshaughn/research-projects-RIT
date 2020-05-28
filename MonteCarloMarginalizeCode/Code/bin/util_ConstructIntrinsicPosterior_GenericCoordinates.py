@@ -999,7 +999,12 @@ def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
     ### reject points with infinities : problems for inputs
     def fn_return(x_in,rf=rf):
         f_out = -lnL_default_large_negative*np.ones(len(x_in))
+        # remove infinity or Nan
         indx_ok = np.all(np.isfinite(x_in),axis=-1)
+        # rf internally uses float32, so we need to remove points > 10^37 or so ! 
+        #    ... this *should* never happen due to bounds constraints, but ...
+        indx_ok_size = np.all( np.logical_not(np.greater(np.abs(x_in),1e37)), axis=-1)
+        indx_ok = np.logical_and(indx_ok, indx_ok_size)
         f_out[indx_ok] = rf.predict(x_in[indx_ok])
         return f_out
 #    fn_return = lambda x_in: rf.predict(x_in) 
