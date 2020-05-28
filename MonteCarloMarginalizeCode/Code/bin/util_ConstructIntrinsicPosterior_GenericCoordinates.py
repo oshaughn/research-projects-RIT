@@ -220,6 +220,7 @@ parser.add_argument("--downselect-parameter",action='append', help='Name of para
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--no-downselect",action='store_true',help='Prevent using downselection on output points' )
 parser.add_argument("--no-downselect-grid",action='store_true',help='Prevent using downselection on input points. Applied only to mc range' )
+parser.add_argument("--downselect-enforce-kerr",action='store_true',help="Provides limits that enforce the kerr limit. Also imposed in coordinate transformations.")
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'. Only influences s1z, s2z")
 parser.add_argument("--transverse-prior", default="uniform",help="Options are 'volumetric' (default) and 'alignedspin-zprior'. Only influences s1x,s1y,s2x,s2y")
 parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
@@ -1469,10 +1470,10 @@ if not no_plots:
 ###
 if not opts.using_eos:
  def convert_coords(x_in):
-    return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift)
+    return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
 else:
  def convert_coords(x_in):
-    x_out = lalsimutils.convert_waveform_coordinates_with_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,no_matter1=opts.no_matter1, no_matter2=opts.no_matter2,source_redshift=source_redshift)
+    x_out = lalsimutils.convert_waveform_coordinates_with_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,no_matter1=opts.no_matter1, no_matter2=opts.no_matter2,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
     return x_out
 
 
