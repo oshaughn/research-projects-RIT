@@ -138,6 +138,8 @@ parser.add_argument("--archive-pesummary-label",default=None,help="If provided, 
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
 
+event_dict={}
+
 if (opts.approx is None) and not (opts.use_ini is None):
     import ConfigParser
     config = ConfigParser.ConfigParser()
