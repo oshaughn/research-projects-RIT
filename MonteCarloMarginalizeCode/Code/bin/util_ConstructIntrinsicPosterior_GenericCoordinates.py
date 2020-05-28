@@ -1633,9 +1633,17 @@ if opts.sampler_method == "GMM":
     if opts.internal_correlate_parameters == 'all':
         gmm_dict = {tuple(range(len(low_level_coord_names))):None} # integrate *jointly* in all parameters together
     elif not (opts.internal_correlate_parameters is None):
+        # Correlate identified parameters
         my_blocks = opts.internal_correlate_parameters.split()
         my_tuples = list(map( parse_corr_params, my_blocks))
         gmm_dict = {x:None for x in my_tuples}
+
+        # What about un-labelled parameters? Make a null tuple for them as well
+        correlated_params = set(()); correlated_params = correlated_params.union( *list(map(set,my_tuples)))
+        uncorrelated_params = set(np.arange(len(low_level_coord_names))); 
+        uncorrelated_params = uncorrelated_params.difference(correlated_params)
+        for x in uncorrelated_params:
+            gmm_dict[(x,)] = None
         print " Using correlated GMM sampling on sampling variable indexes " , gmm_dict, " out of ", low_level_coord_names
     else:
         param_indexes = range(len(low_level_coord_names))
