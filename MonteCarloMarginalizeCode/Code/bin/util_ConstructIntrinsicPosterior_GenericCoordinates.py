@@ -997,7 +997,7 @@ def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
 
     ### reject points with infinities : problems for inputs
     def fn_return(x_in,rf=rf):
-        f_out = -lnL_default_large_ngative*np.ones(len(x_in))
+        f_out = -lnL_default_large_negative*np.ones(len(x_in))
         indx_ok = np.all(np.isfinite(x_in),axis=-1)
         f_out[indx_ok] = rf.predict(x_in[indx_ok])
         return f_out
