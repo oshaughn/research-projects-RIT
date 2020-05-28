@@ -102,6 +102,7 @@ parser.add_argument("--l-max",default=2,type=int)
 parser.add_argument("--no-matter",action='store_true', help="Force analysis without matter. Really only matters for BNS")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
+parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
@@ -138,6 +139,9 @@ parser.add_argument("--archive-pesummary-label",default=None,help="If provided, 
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
 
+
+if opts.assume_highq:
+    opts.internal_correlate_default=True
 event_dict={}
 
 if (opts.approx is None) and not (opts.use_ini is None):
@@ -452,8 +456,10 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('parameter mc', 'parameter mtot')
         line = line.replace('parameter delta_mc', 'parameter q')
         line += " --prior-gaussian-mass-ratio --prior-gaussian-spin1-magnitude "   # should require precessing analysis
-    elif opts.assume_highq:
+    elif opts.assume_highq and ('s1z' in line):
         line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+    elif opts.internal_correlate_default and ('s1z' in line):
+        line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
     if opts.approx in lalsimutils.waveform_approx_limit_dict:
         chi_max = lalsimutils.waveform_approx_limit_dict[opts.approx]["chi-max"]
         if not(opts.force_chi_max is None):
