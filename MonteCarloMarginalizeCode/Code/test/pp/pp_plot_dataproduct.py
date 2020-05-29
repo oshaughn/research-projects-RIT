@@ -39,7 +39,7 @@ remap_ILE_2_LI = {
   "DeltaLambdaTilde": "dlambdat",
   "thetaJN":"theta_jn",
   "dist":"distance",'phiref':'phiorb'}
-remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot','distance':'dist', 'ra':'phi', 'dec':'theta','phiorb':'phiref'}
+remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot','distance':'dist', 'ra':'phi', 'dec':'theta','phiorb':'phiref','a1x':'s1x','a1y':'s1y', 'a2x':'s2x', 'a2y':'s2y'}
 
 
 
