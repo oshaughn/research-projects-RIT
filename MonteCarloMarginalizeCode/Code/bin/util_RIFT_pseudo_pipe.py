@@ -56,7 +56,11 @@ def unsafe_config_get(config,args,verbose=False):
 
 
 def format_gps_time(tval):
-    str_out = "{:.5f}".format(tval)
+    if isinstance(tval,str):
+        return tval
+    if tval is None:
+        return "0"
+    str_out = "{:.5f}".format(float(tval))
     return str_out
 
 def retrieve_event_from_coinc(fname_coinc):
@@ -103,6 +107,7 @@ parser.add_argument("--no-matter",action='store_true', help="Force analysis with
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
+parser.add_argument("--internal-flat-strategy",action='store_true',help="Use the same CIP options for every iteration, with convergence tests on.  Passes --test-convergence, ")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
@@ -344,6 +349,8 @@ if opts.assume_highq:
 if is_analysis_precessing:
         cmd += " --assume-precessing-spin "
         npts_it = 1500
+if opts.internal_flat_strategy:
+    cmd +=  " --test-convergence --propose-flat-strategy "
 if opts.use_osg:
     cmd += " --use-osg "
     cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful
