@@ -11,7 +11,7 @@ import lal
 import functools
 import itertools
 
-from sklearn.externals import joblib
+import joblib
 from scipy.integrate import nquad
 
 from glue.ligolw import lsctables, utils, ligolw

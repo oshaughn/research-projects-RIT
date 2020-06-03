@@ -31,7 +31,7 @@ import lal
 import functools
 import itertools
 
-from sklearn.externals import joblib  # http://scikit-learn.org/stable/modules/model_persistence.html
+import joblib  # http://scikit-learn.org/stable/modules/model_persistence.html
 
 no_plots = True
 internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
