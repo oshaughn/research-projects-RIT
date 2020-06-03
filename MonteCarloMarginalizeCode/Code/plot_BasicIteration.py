@@ -39,7 +39,7 @@ ppcargs = ' '.join(ppcargs.split(' ')[1:])
 ppcargs = ppcargs.replace('[', ' \'[')
 ppcargs = ppcargs.replace(']', ']\'')
 ppcargs=ppcargs.rstrip()
-print "CIP", ppcargs
+print("CIP", ppcargs)
 
 
 os.chdir(opts.working_directory)
@@ -66,6 +66,6 @@ fname_comp= glob.glob("all.net")
 if len(fname_comp) >0:
     cmd+= ' --composite-file all.net '
 
-print cmd
+print(cmd)
 os.system(cmd)
 

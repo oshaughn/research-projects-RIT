@@ -1,3 +1,5 @@
+
+
 import sys
 import math
 import bisect
@@ -11,16 +13,16 @@ import functools
 try:
     import healpy
 except:
-    print " - No healpy - "
+    print(" - No healpy - ")
 
-from statutils import cumvar, welford
+from ..integrators.statutils import cumvar, welford
 
 from multiprocessing import Pool
 
 try:
     import vegas
 except:
-    print " - No vegas - "
+    print(" - No vegas - ")
 
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
@@ -58,11 +60,11 @@ class MCSampler(object):
             # no extraneous params in args
             return False
 
-        to_match, against = filter(lambda i: not isinstance(i, tuple), not_common), filter(lambda i: isinstance(i, tuple), not_common)
+        to_match, against = [i for i in not_common if not isinstance(i, tuple)], [i for i in not_common if isinstance(i, tuple)]
 
         matched = []
         import itertools
-        for i in range(2, max(map(len, against))+1):
+        for i in range(2, max(list(map(len, against)))+1):
             matched.extend([t for t in itertools.permutations(to_match, i) if t in against])
         return (set(matched) ^ set(against)) == set()
 
@@ -118,9 +120,9 @@ class MCSampler(object):
         self.params.add(params) # does NOT preserve order in which parameters are provided
         self.params_ordered.append(params)
         if rosDebugMessages: 
-            print " Adding parameter ", params, " with limits ", [left_limit, right_limit]
+            print(" Adding parameter ", params, " with limits ", [left_limit, right_limit])
         if isinstance(params, tuple):
-            assert all(map(lambda lim: lim[0] < lim[1], zip(left_limit, right_limit)))
+            assert all([lim[0] < lim[1] for lim in zip(left_limit, right_limit)])
             if left_limit is None:
                 self.llim[params] = list(float("-inf"))*len(params)
             else:
@@ -151,7 +153,7 @@ class MCSampler(object):
         self.prior_pdf[params] = prior_pdf
 
         if adaptive_sampling:
-            print "   Adapting ", params
+            print("   Adapting ", params)
             self.adaptive.append(params)
 
 
@@ -202,7 +204,7 @@ class MCSampler(object):
         if len(args) == 0:
             args = self.params
 
-        no_cache_samples = kwargs["no_cache_samples"] if kwargs.has_key("no_cache_samples") else False
+        no_cache_samples = kwargs["no_cache_samples"] if "no_cache_samples" in kwargs else False
 
 
         if isinstance(rvs, int) or isinstance(rvs, float):
@@ -211,7 +213,7 @@ class MCSampler(object):
             #
             # FIXME: UGH! Really? This was the most elegant thing you could come
             # up with?
-            rvs_tmp = [numpy.random.uniform(0,1,(len(p), int(rvs))) for p in map(lambda i: (i,) if not isinstance(i, tuple) else i, args)]
+            rvs_tmp = [numpy.random.uniform(0,1,(len(p), int(rvs))) for p in [(i,) if not isinstance(i, tuple) else i for i in args]]
             rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)], dtype=numpy.object)
         else:
             rvs_tmp = numpy.array(rvs)
@@ -235,10 +237,10 @@ class MCSampler(object):
         #
         if not no_cache_samples:  # more efficient memory usage. Note adaptation will not wor
           if len(self._rvs) == 0:
-            self._rvs = dict(zip(args, rvs_tmp))
+            self._rvs = dict(list(zip(args, rvs_tmp)))
           else:
-            rvs_tmp = dict(zip(args, rvs_tmp))
-            #for p, ar in self._rvs.iteritems():
+            rvs_tmp = dict(list(zip(args, rvs_tmp)))
+            #for p, ar in self._rvs.items():
             for p in self.params_ordered:
                 self._rvs[p] = numpy.hstack( (self._rvs[p], rvs_tmp[p]) )
         else:  
@@ -251,9 +253,9 @@ class MCSampler(object):
         #
         # Pack up the result if the user wants a dictonary instead
         #
-        if kwargs.has_key("rdict"):
-            return dict(zip(args, res))
-        return zip(*res)
+        if "rdict" in kwargs:
+            return dict(list(zip(args, res)))
+        return list(zip(*res))
 
 
     def integrate_vegas(self, func, *args, **kwargs):
@@ -267,7 +269,7 @@ class MCSampler(object):
         #
         tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
         temppdfnormdict = defaultdict(lambda: 1.0)
-        for p, val in kwargs.iteritems():
+        for p, val in list(kwargs.items()):
             if p in self.params_ordered:
                 # Store the previous pdf/cdf in case it's already defined
                 tempcdfdict[p] = self.cdf_inv[p]
@@ -283,9 +285,9 @@ class MCSampler(object):
         #
         # Determine stopping conditions
         #
-        nmax = int(kwargs["nmax"] if kwargs.has_key("nmax") else 1e6)
-        neff = kwargs["neff"] if kwargs.has_key("neff") else 1000
-        n = int(kwargs["n"] if kwargs.has_key("n") else min(1000, nmax))  # chunk size
+        nmax = kwargs["nmax"] if "nmax" in kwargs else 1e6
+        neff = kwargs["neff"] if "neff" in kwargs else 1000
+        n = int(kwargs["n"]) if "n" in kwargs else min(1000, nmax)  # chunk size
         nBlocks = 10
         n_itr = numpy.max([10,numpy.min([20,int(nmax/nBlocks/n)])])  # largest number to use
 
@@ -301,7 +303,7 @@ class MCSampler(object):
         # multiply by ratio of p/ps
         for indx in numpy.arange(len(paramListDefault)):
             strToEval+= '*( self.prior_pdf["'+str(paramListDefault[indx])+'"](x['+str(indx)+'])/(self.pdf["'+str(paramListDefault[indx])+'"](x['+str(indx)+'])/self._pdf_norm["'  +str(paramListDefault[indx])+ '"] ))'
-        print strToEval
+        print(strToEval)
         fnToUse = eval(strToEval,{'func':func, 'self':self})  # evaluate in context
 #        fnToUse =vegas.batchintegrand(fnToUse)   # batch mode
 #        print fnToUse
@@ -309,24 +311,24 @@ class MCSampler(object):
 #        grid[:,1] = numpy.ones(len(paramListDefault))
         integ = vegas.Integrator( len(paramListDefault)*[[0,1]]) # generate the grid
         # quick and dirty training
-        print 'Start training'
+        print('Start training')
         result = integ(fnToUse,nitn=10, neval=1000)
-        print result.summary()
+        print(result.summary())
         # result -- problem of very highly peaked function, not clear if vanilla vegas is smart enough.
         # Loop over blocks of 1000 evaluations, and check that final chi2/dof  is within 0.05 of 1
         bDone = False
         alphaRunning = numpy.min([0.1, 8/numpy.log(result.mean)])   # constrain dynamic range to a reaonsable range
-        print 'Start full  : WARNING VEGAS TENDS TO OVERADAPT given huge dynamic range'
+        print('Start full  : WARNING VEGAS TENDS TO OVERADAPT given huge dynamic range')
         while (not bDone and nBlocks):  # this is basically training
-            print " Block run " , n_itr, n
+            print(" Block run " , n_itr, n)
             result=integ(fnToUse,nitn=n_itr, neval=n)
             alphaRunning = numpy.min([0.1, 8/numpy.log(result.mean)])   # constrain dynamic range to a reaonsable range
-            print nBlocks, numpy.sqrt(2*numpy.log(result.mean)), result.sdev/result.mean, result.chi2/result.dof, alphaRunning
-            print result.summary()
+            print(nBlocks, numpy.sqrt(2*numpy.log(result.mean)), result.sdev/result.mean, result.chi2/result.dof, alphaRunning)
+            print(result.summary())
             nBlocks+= -1
             if numpy.abs(result.chi2/result.dof - 1) < 0.05:
                 bDone =True
-        print result.summary()
+        print(result.summary())
         return result
 
     #
@@ -362,7 +364,7 @@ class MCSampler(object):
         #
         tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
         temppdfnormdict = defaultdict(lambda: 1.0)
-        for p, val in kwargs.iteritems():
+        for p, val in list(kwargs.items()):
             if p in self.params_ordered:  
                 # Store the previous pdf/cdf in case it's already defined
                 tempcdfdict[p] = self.cdf_inv[p]
@@ -380,7 +382,7 @@ class MCSampler(object):
         # This is a semi-hack to ensure that the integrand is called with
         # the arguments in the right order
         # FIXME: How dangerous is this?
-        args = func.func_code.co_varnames[:func.func_code.co_argcount]
+        args = func.__code__.co_varnames[:func.__code__.co_argcount]
 
         #if set(args) & set(params) != set(args):
         # DISABLE THIS CHECK
@@ -390,32 +392,32 @@ class MCSampler(object):
         #
         # Determine stopping conditions
         #
-        nmax = int(kwargs["nmax"]) if kwargs.has_key("nmax") else float("inf")
-        neff = kwargs["neff"] if kwargs.has_key("neff") else numpy.float128("inf")
-        n = int(kwargs["n"]) if kwargs.has_key("n") else min(1000, nmax)
-        convergence_tests = kwargs["convergence_tests"] if kwargs.has_key("convergence_tests") else None
+        nmax = int(kwargs["nmax"]) if "nmax" in kwargs else float("inf")
+        neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
+        n = int(kwargs["n"]) if "n" in kwargs else min(1000, nmax)
+        convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
 
 
         #
         # Adaptive sampling parameters
         #
-        n_history = int(kwargs["history_mult"]*n) if kwargs.has_key("history_mult") else None
-        tempering_exp = kwargs["tempering_exp"] if kwargs.has_key("tempering_exp") else 0.0
-        n_adapt = int(kwargs["n_adapt"]*n) if kwargs.has_key("n_adapt") else 0
-        floor_integrated_probability = kwargs["floor_level"] if kwargs.has_key("floor_level") else 0
-        temper_log = kwargs["tempering_log"] if kwargs.has_key("temper_log") else False
-        tempering_adapt = kwargs["tempering_adapt"] if kwargs.has_key("tempering_adapt") else False
+        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else None
+        tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
+        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 0
+        floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
+        temper_log = kwargs["tempering_log"] if "temper_log" in kwargs else False
+        tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
         if not tempering_adapt:
             tempering_exp_running=tempering_exp
         else:
-            print " Adaptive tempering "
+            print(" Adaptive tempering ")
             #tempering_exp_running=0.01  # decent place to start for the first step. Note starting at zero KEEPS it at zero.
             tempering_exp_running=tempering_exp
             
 
-        save_intg = kwargs["save_intg"] if kwargs.has_key("save_intg") else False
-        force_no_adapt = kwargs["force_no_adapt"] if kwargs.has_key("force_no_adapt") else False
-        save_no_samples = kwargs["save_no_samples"] if kwargs.has_key("save_no_samples") else False
+        save_intg = kwargs["save_intg"] if "save_intg" in kwargs else False
+        force_no_adapt = kwargs["force_no_adapt"] if "force_no_adapt" in kwargs else False
+        save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else False
         if save_no_samples:   # can't adapt without saved samples
             force_no_adapt = True
         # FIXME: The adaptive step relies on the _rvs cache, so this has to be
@@ -423,19 +425,19 @@ class MCSampler(object):
         if n_adapt > 0 and tempering_exp > 0.0:
             save_intg = True
 
-        deltalnL = kwargs['igrand_threshold_deltalnL'] if kwargs.has_key('igrand_threshold_deltalnL') else float("Inf") # default is to return all
-        deltaP    = kwargs["igrand_threshold_p"] if kwargs.has_key('igrand_threshold_p') else 0 # default is to omit 1e-7 of probability
+        deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
+        deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
 
-        bUseMultiprocessing = kwargs['use_multiprocessing'] if kwargs.has_key('use_multiprocessing') else False
-        nProcesses = kwargs['nprocesses'] if kwargs.has_key('nprocesses') else 2
-        bShowEvaluationLog = kwargs['verbose'] if kwargs.has_key('verbose') else False
-        bShowEveryEvaluation = kwargs['extremely_verbose'] if kwargs.has_key('extremely_verbose') else False
+        bUseMultiprocessing = kwargs['use_multiprocessing'] if 'use_multiprocessing' in kwargs else False
+        nProcesses = kwargs['nprocesses'] if 'nprocesses' in kwargs else 2
+        bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
+        bShowEveryEvaluation = kwargs['extremely_verbose'] if 'extremely_verbose' in kwargs else False
 
         if bShowEvaluationLog:
-            print " .... mcsampler : providing verbose output ..... "
+            print(" .... mcsampler : providing verbose output ..... ")
         if bUseMultiprocessing:
             if rosDebugMessages:
-                print " Initiating multiprocessor pool : ", nProcesses
+                print(" Initiating multiprocessor pool : ", nProcesses)
             p = Pool(nProcesses)
 
         int_val1 = numpy.float128(0)
@@ -446,7 +448,7 @@ class MCSampler(object):
         mean, var = None, numpy.float128(0)    # to prevent infinite variance due to overflow
 
         if bShowEvaluationLog:
-            print "iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var"
+            print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
         if convergence_tests:
             bConvergenceTests = False   # start out not converged, if tests are on
@@ -480,7 +482,7 @@ class MCSampler(object):
             if any(joint_p_s <= 0):
                 for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
-                print >>sys.stderr, "Zero prior value detected, skipping."
+                print("Zero prior value detected, skipping.", file=sys.stderr)
                 continue
 
             #
@@ -496,8 +498,8 @@ class MCSampler(object):
                 else:
                     params.append(item)
             unpacked = unpacked0 = numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
-            unpacked = dict(zip(params, unpacked))
-            if kwargs.has_key('no_protect_names'):
+            unpacked = dict(list(zip(params, unpacked)))
+            if 'no_protect_names' in kwargs:
                 fval = func(*unpacked0)  # do not protect order
             else:
                 fval = func(**unpacked) # Chris' original plan: note this insures the function arguments are tied to the parameters, using a dictionary. 
@@ -510,7 +512,7 @@ class MCSampler(object):
             if fval.sum() == 0:
                 for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
-                print >>sys.stderr, "No contribution to integral, skipping."
+                print("No contribution to integral, skipping.", file=sys.stderr)
                 continue
 
             if save_intg and not force_no_adapt:
@@ -525,7 +527,7 @@ class MCSampler(object):
                 # FIXME: See warning at beginning of function. The prior values
                 # need to be moved out of this, as they are not part of MC
                 # integration
-                if self._rvs.has_key("integrand"):
+                if "integrand" in self._rvs:
                     self._rvs["integrand"] = numpy.hstack( (self._rvs["integrand"], fval) )
                     self._rvs["joint_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
                     self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_s_prior"], joint_p_s) )
@@ -541,7 +543,7 @@ class MCSampler(object):
 
             if bShowEveryEvaluation:
                 for i in range(n):
-                    print " Evaluation details: p,ps, L = ", joint_p_prior[i], joint_p_s[i], fval[i]
+                    print(" Evaluation details: p,ps, L = ", joint_p_prior[i], joint_p_s[i], fval[i])
 
             # Calculate max L (a useful convergence feature) for debug 
             # reporting.  Not used for integration
@@ -574,22 +576,22 @@ class MCSampler(object):
                 raise NanOrInf("maxlnL = inf")
 
             if bShowEvaluationLog:
-                print " :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/self.ntotal)), numpy.log(int_val1/self.ntotal)-maxlnL, numpy.sqrt(var*self.ntotal)/int_val1
+                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/self.ntotal)), numpy.log(int_val1/self.ntotal)-maxlnL, numpy.sqrt(var*self.ntotal)/int_val1)
 
             if (not convergence_tests) and self.ntotal >= nmax and neff != float("inf"):
-                print >>sys.stderr, "WARNING: User requested maximum number of samples reached... bailing."
+                print("WARNING: User requested maximum number of samples reached... bailing.", file=sys.stderr)
 
             # Convergence tests:
             if convergence_tests:
                 bConvergedThisIteration = True  # start out optimistic
-                for key in convergence_tests.keys():
+                for key in list(convergence_tests.keys()):
                     last_convergence_test[key] =  convergence_tests[key](self._rvs, self.params_ordered)
                     bConvergedThisIteration = bConvergedThisIteration  and                      last_convergence_test[key]
                 bConvergenceTests = bConvergedThisIteration
 
             if convergence_tests  and bShowEvaluationLog:  # Print status of each test
                 for key in convergence_tests:
-                    print "   -- Convergence test status : ", key, last_convergence_test[key]
+                    print("   -- Convergence test status : ", key, last_convergence_test[key])
 
             #
             # The total number of adaptive steps is reached
@@ -612,7 +614,7 @@ class MCSampler(object):
             for itr, p in enumerate(self.params_ordered):
                 # FIXME: The second part of this condition should be made more
                 # specific to pinned parameters
-                if p not in self.adaptive or p in kwargs.keys():
+                if p not in self.adaptive or p in list(kwargs.keys()):
                     continue
                 points = self._rvs[p][-n_history:]
 #                print "      Points", p, type(points),points.dtype
@@ -627,7 +629,7 @@ class MCSampler(object):
                     # almost always dominated by the parameters we care about
                     tempering_exp_running = 0.8 *tempering_exp_running + 0.2*(3./numpy.max([1,numpy.log(numpy.max(weights))]))
                     if rosDebugMessages:
-                        print "     -  New adaptive exponent  ", tempering_exp_running, " based on max 1d weight ", numpy.max(weights), " based on parameter ", p
+                        print("     -  New adaptive exponent  ", tempering_exp_running, " based on max 1d weight ", numpy.max(weights), " based on parameter ", p)
 
 #                print "      Weights",  type(weights),weights.dtype
                 self._hist[p], edges = numpy.histogram( points,
@@ -642,7 +644,7 @@ class MCSampler(object):
                 # Mix with uniform distribution
                 self._hist[p] = (1-floor_integrated_probability)*self._hist[p] + numpy.ones(len(self._hist[p]))*floor_integrated_probability/len(self._hist[p])
                 if rosDebugMessages:
-                    print "         Weight entropy (after histogram) ", numpy.sum(-1*self._hist[p]*numpy.log(self._hist[p])), p
+                    print("         Weight entropy (after histogram) ", numpy.sum(-1*self._hist[p]*numpy.log(self._hist[p])), p)
 
                 edges = [ (e0+e1)/2.0 for e0, e1 in zip(edges[:-1], edges[1:]) ]
                 edges.append( edges[-1] + (edges[-1] - edges[-2]) )
@@ -674,7 +676,7 @@ class MCSampler(object):
             # FIXME: This is an unncessary initial copy, the second step (cum i
             # prob) can be accomplished with indexing first then only pare at
             # the end
-            for key in self._rvs.keys():
+            for key in list(self._rvs.keys()):
                 if isinstance(key, tuple):
                     self._rvs[key] = self._rvs[key][:,indx_list]
                 else:
@@ -687,7 +689,7 @@ class MCSampler(object):
             cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
             indx_list = [int(indx_list[k, 0]) for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability. RECAST TO INTEGER
             # FIXME: See previous FIXME
-            for key in self._rvs.keys():
+            for key in list(self._rvs.keys()):
                 if isinstance(key, tuple):
                     self._rvs[key] = self._rvs[key][:,indx_list]
                 else:
@@ -1029,7 +1031,7 @@ def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativ
     igrandValues= numpy.sort(igrandValues)#[2:]                            # Sort.  Useful in reports 
     valTest = stats.normaltest(igrandValues)[1]                              # small value is implausible
     igrandSigma = (numpy.std(igrandValues))/numpy.sqrt(ncopies)   # variance in *overall* integral, estimated from variance of sub-integrals
-    print " Test values on distribution of log evidence:  (gaussianity p-value; standard deviation of ln evidence) ", valTest, igrandSigma
-    print " Ln(evidence) sub-integral values, as used in tests  : ", igrandValues
+    print(" Test values on distribution of log evidence:  (gaussianity p-value; standard deviation of ln evidence) ", valTest, igrandSigma)
+    print(" Ln(evidence) sub-integral values, as used in tests  : ", igrandValues)
     return valTest> pcutNormalTest and igrandSigma < sigmaCutRelativeErrorThreshold   # Test on left returns a small value if implausible. Hence pcut ->0 becomes increasingly difficult (and requires statistical accidents). Test on right requires relative error in integral also to be small when pcut is small.   FIXME: Give these variables two different names
     

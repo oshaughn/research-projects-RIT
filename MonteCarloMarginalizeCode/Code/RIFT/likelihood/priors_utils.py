@@ -6,12 +6,12 @@ try:
     import numba
     from numba import vectorize, complex128, float64, int64
     numba_on = True
-    print " Numba on (priors_utils) "
+    print(" Numba on (priors_utils) ")
     
 
 except:
     numba_on = False
-    print " Numba off (priors_utils) "
+    print(" Numba off (priors_utils) ")
 
 # https://git.ligo.org/RatesAndPopulations/lalinfsamplereweighting/blob/reviewed-post-O2/approxprior.py
 will_cosmo_const = np.array( [ 1.012306, 1.136740, 0.262462, 0.016732, 0.000387 ])

@@ -13,6 +13,8 @@ import stat
 from functools import partial
 from optparse import OptionParser, OptionGroup
 
+from six.moves import range
+
 import numpy as np
 
 import lal
@@ -30,7 +32,7 @@ import dag_utils
 import regions
 
 try:
-	import NRWaveformCatalogManager as nrwf
+	import NRWaveformCatalogManager3 as nrwf
 	useNR =True
 except:
 	useNR=False
@@ -204,7 +206,7 @@ def evaluate_mass_grid_effective_fisher(m1_SI,m2_SI,opts):
 	print "Doing uniform random placement"
 	cart_grid, sph_grid = eff.uniform_random_ellipsoid(Nrandpts, r1, r2)
     # Rotate to get coordinates in parameter basis
-    cart_grid = np.array([ np.real( np.dot(rot, cart_grid[i]))    for i in xrange(len(cart_grid)) ])
+    cart_grid = np.array([ np.real( np.dot(rot, cart_grid[i]))    for i in range(len(cart_grid)) ])
     # Put in convenient units,
     # change from parameter differential (i.e. dtheta)
     # to absolute parameter value (i.e. theta = theta_true + dtheta)
@@ -242,7 +244,7 @@ def evaluate_mass_grid_effective_fisher(m1_SI,m2_SI,opts):
 
     # Convert to m1, m2
     m1m2_grid = np.array([lsu.m1m2(cart_grid[i][0], cart_grid[i][1])
-                          for i in xrange(len(cart_grid))]) 
+                          for i in range(len(cart_grid))])
     m1m2_grid /= lsu.lsu_MSUN
     return m1m2_grid
 

@@ -22,12 +22,19 @@ import sys
 import copy
 import types
 
+from six.moves import range
+
 import numpy as np
 from numpy import sin, cos
 from scipy import interpolate
 from scipy import signal
 import scipy  # for decimate
-sci_ver = map(int, scipy.version.version.split('.')[:2])  # scipy version number as int list.
+def safe_int(mystr):
+   try:
+        return int(mystr)
+   except:
+        return None
+sci_ver = list(map(safe_int, scipy.version.version.split('.')))  # scipy version number as int list.
 
 from glue.ligolw import lsctables, table, utils, ligolw,ilwd # check all are needed
 from glue.lal import Cache
@@ -46,9 +53,9 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 rosDebugMessagesContainer = [False]
 rosDebugMessagesLongContainer = [False]
-print >>sys.stderr, "[Loading lalsimutils.py : MonteCarloMarginalization version]"
-print >> sys.stderr, "  scipy : ", scipy.__version__
-print >>sys.stderr,"  numpy : ", np.__version__
+print( "[Loading lalsimutils.py : MonteCarloMarginalization version]",file=sys.stderr)
+print( "  scipy : ", scipy.__version__, file=sys.stderr)
+print("  numpy : ", np.__version__,file=sys.stderr)
 
 TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 
@@ -99,7 +106,7 @@ except:
     lsu_PNORDER_THREE = lalsim.PNORDER_THREE
     lsu_PNORDER_THREE_POINT_FIVE = lalsim.PNORDER_THREE_POINT_FIVE
 else:
-    print  " Old style :  LAL prefix"
+    print(" Old style :  LAL prefix")
     lsu_MSUN=lal.LAL_MSUN_SI
     lsu_PC=lal.LAL_PC_SI
     lsu_G = lal.LAL_G_SI
@@ -180,7 +187,7 @@ def lsu_StringFromPNOrder(order):
     elif (order == -1):  # highest available
         return "threePointFivePN"
     else:
-        raise "Unknown PN order ", order
+        raise ("Unknown PN order ", order)
 
 #
 # Class to hold arguments of ChooseWaveform functions
@@ -306,10 +313,10 @@ class ChooseWaveformParams:
         _LAL_DICT_PARAMS = {"Lambda1": "lambda1", "Lambda2": "lambda2", "ampO": "ampO", "phaseO": "phaseO"}
         _LAL_DICT_PTYPE = {"Lambda1": lal.DictInsertREAL8Value, "Lambda2": lal.DictInsertREAL8Value, "ampO": lal.DictInsertINT4Value, "phaseO": lal.DictInsertINT4Value}
     except:
-        print " lalsimutils: Warning: Running with non-master version of lal ! "
+        print(" lalsimutils: Warning: Running with non-master version of lal ! ")
     def to_lal_dict(self):
         extra_params = lal.CreateDict()
-        for k, p in ChooseWaveformParams._LAL_DICT_PARAMS.iteritems():
+        for k, p in ChooseWaveformParams._LAL_DICT_PARAMS.items():
             typfunc = ChooseWaveformParams._LAL_DICT_PTYPE[k]
             typfunc(extra_params, k, getattr(self, p))
         # Properly add tidal parammeters
@@ -442,14 +449,14 @@ class ChooseWaveformParams:
             return self
         if p == 'thetaJN':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
         if p == 'phiJL':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=val,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
@@ -464,7 +471,7 @@ class ChooseWaveformParams:
         #     return self
         if p == 'theta1_Jfix':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=val,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
@@ -486,7 +493,7 @@ class ChooseWaveformParams:
             return self
         if p == 'phi1':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             # Do it MANUALLY, assuming the L frame! 
             chiperp_vec_now = np.array([self.s1x,self.s1y])
@@ -496,7 +503,7 @@ class ChooseWaveformParams:
             return self
         if p == 'theta2_Jfix':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=theta1,theta2=val,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
@@ -518,7 +525,7 @@ class ChooseWaveformParams:
             return self
         if p == 'phi2':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             # Do it MANUALLY, assuming the L frame! 
             chiperp_vec_now = np.array([self.s2x,self.s2y])
@@ -528,7 +535,7 @@ class ChooseWaveformParams:
             return self
         if p == 'psiJ':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=val)
@@ -538,11 +545,11 @@ class ChooseWaveformParams:
             # Based on expressions in this paper
             #    http://adsabs.harvard.edu/abs/2012PhRvD..86f4020B
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             if chi2 > 1e-5:
-                print " Changing beta only supported for single spin "
+                print(" Changing beta only supported for single spin ")
                 sys.exit(0)
             if np.abs(val)<1e-4:
                 theta1=0
@@ -552,7 +559,7 @@ class ChooseWaveformParams:
             SoverL = chi1 * self.VelocityAtFrequency(self.fref) * self.m1/self.m2  # S/L = m1 chi v/m2
             # sanity check this value of beta is *possible*
             if  val and np.cos(val)**2 < 1-SoverL**2:
-                print " This value of beta cannot be attained, because SoverL= ", SoverL, " so beta max = ", np.arccos(np.sqrt(1-SoverL**2))
+                print(" This value of beta cannot be attained, because SoverL= ", SoverL, " so beta max = ", np.arccos(np.sqrt(1-SoverL**2)))
                 sys.exit(0)
             x=np.cos(val)
             kappa = (- np.sin(val)**2 + x * np.sqrt( SoverL**2 - np.sin(val)**2))/SoverL
@@ -565,7 +572,7 @@ class ChooseWaveformParams:
                 theta1 = np.arccos(kappa)
                 self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             else:
-                print " beta assignment not implemented in non-radiation gauge "
+                print(" beta assignment not implemented in non-radiation gauge ")
                 sys.exit(0)
             return self
         # tidal parameters
@@ -617,8 +624,8 @@ class ChooseWaveformParams:
         if hasattr(self,p):
             setattr(self,p,val)
             return self
-        print " No attribute ", p, " in ", dir(self)
-        print " Is in valid_params? ", p in valid_params
+        print(" No attribute ", p, " in ", dir(self))
+        print(" Is in valid_params? ", p in valid_params)
         sys.exit(0)
     def extract_param(self,p):
         """
@@ -720,25 +727,25 @@ class ChooseWaveformParams:
             return xi
         if p == 'thetaJN':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return thetaJN
         if p == 'phiJL':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return phiJL
         if p == 'theta1_Jfix':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return theta1
         if p == 'theta2_Jfix':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return theta2
@@ -754,13 +761,13 @@ class ChooseWaveformParams:
             return np.arccos(self.s2z/chi_now)
         if p == 'cos_theta1':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print(" Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.cos(theta1)
         if p == 'cos_theta2':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print( " Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.cos(theta2)
@@ -774,25 +781,25 @@ class ChooseWaveformParams:
             return phi2
         if p == 'psiJ':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print( " Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return psiJ
         if p == 'sin_phiJL':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print( " Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.sin(phiJL)
         if p == 'cos_phiJL':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print( " Changing geometry requires a reference frequency ")
                 sys.exit(0)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.cos(phiJL)
         if p == 'beta':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print( " Changing geometry requires a reference frequency ")
                 sys.exit(0)
             Jref = self.TotalAngularMomentumAtReferenceOverM2()
             Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
@@ -801,7 +808,7 @@ class ChooseWaveformParams:
             return np.arccos(np.dot(Lhat,Jhat))   # holds in general
         if p == 'cos_beta':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print( " Changing geometry requires a reference frequency ")
                 sys.exit(0)
             Jref = self.TotalAngularMomentumAtReferenceOverM2()
             Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
@@ -810,7 +817,7 @@ class ChooseWaveformParams:
             return np.dot(Lhat,Jhat)   # holds in general
         if p == 'sin_beta':
             if self.fref is 0:
-                print " Changing geometry requires a reference frequency "
+                print( " Changing geometry requires a reference frequency ")
                 sys.exit(0)
             Jref = self.TotalAngularMomentumAtReferenceOverM2()
             Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
@@ -898,7 +905,7 @@ class ChooseWaveformParams:
         # assign an attribute
         if hasattr(self,p):
             return getattr(self,p)
-        print " No attribute ", p, " in ", dir(self)
+        print( " No attribute ", p, " in ", dir(self))
         sys.exit(0)
 
 
@@ -916,17 +923,17 @@ class ChooseWaveformParams:
         self.m2 *= lsu_MSUN
 #        self.approx = lalsim.SpinTaylorT4  # need a 2-spin approximant by default!
         if default_inclination is not None:
-            print "Setting default inclination"
+            print( "Setting default inclination")
             self.incl = float(default_inclination)
         else:
             self.incl = np.random.uniform(0, np.pi)
         if default_phase is not None:
-            print "Setting default phase"
+            print( "Setting default phase")
             self.phiref = float(default_phase)
         else:
             self.phiref = np.random.uniform(0, 2*np.pi)
         if default_polarization is not None:
-            print "Setting default polarization"
+            print( "Setting default polarization")
             self.psi = float(default_polarization)
         else:
             self.psi = np.random.uniform(0, 2*np.pi)  # match PE range
@@ -961,7 +968,7 @@ class ChooseWaveformParams:
             self.s2y = 0 #s2mag * sin(s2theta) * sin(s2phi)
             self.s2z = s2mag #  s2mag * cos(s2theta)
         if np.isnan(s1mag):
-            print " catastrophe "
+            print( " catastrophe ")
             sys.exit(0)
         self.radec=True
         dist =  dMax*np.power(np.random.uniform( np.power(dMin/dMax,3),1), 1./3)  # rough, but it should work
@@ -1094,89 +1101,89 @@ class ChooseWaveformParams:
         """
         Print all key-value pairs belonging in the class instance
         """
-        print "This ChooseWaveformParams has the following parameter values:"
-        print "m1 =", self.m1 / lsu_MSUN, "(Msun)"
-        print "m2 =", self.m2 / lsu_MSUN, "(Msun)"
-        print "s1x =", self.s1x
-        print "s1y =", self.s1y
-        print "s1z =", self.s1z
-        print "s2x =", self.s2x
-        print "s2y =", self.s2y
-        print "s2z =", self.s2z
+        print( "This ChooseWaveformParams has the following parameter values:")
+        print( "m1 =", self.m1 / lsu_MSUN, "(Msun)")
+        print( "m2 =", self.m2 / lsu_MSUN, "(Msun)")
+        print( "s1x =", self.s1x)
+        print( "s1y =", self.s1y)
+        print( "s1z =", self.s1z)
+        print( "s2x =", self.s2x)
+        print( "s2y =", self.s2y)
+        print( "s2z =", self.s2z)
         S1vec = np.array([self.s1x,self.s1y,self.s1z])*self.m1*self.m1
         S2vec = np.array([self.s2x,self.s2y,self.s2z])*self.m2*self.m2
         qval = self.m2/self.m1
-        print   " : Vector spin products"
-        print   " : |s1|, |s2| = ", np.sqrt(vecDot([self.s1x,self.s1y,self.s1z],[self.s1x,self.s1y,self.s1z])), np.sqrt(vecDot([self.s2x,self.s2y,self.s2z],[self.s2x,self.s2y,self.s2z]))
-        print   " : s1.s2 = ",  vecDot([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z])
+        print(   " : Vector spin products")
+        print(   " : |s1|, |s2| = ", np.sqrt(vecDot([self.s1x,self.s1y,self.s1z],[self.s1x,self.s1y,self.s1z])), np.sqrt(vecDot([self.s2x,self.s2y,self.s2z],[self.s2x,self.s2y,self.s2z])))
+        print(   " : s1.s2 = ",  vecDot([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z]))
         if spin_convention == "L":
             Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
         else:
             Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
-        print   " : hat(L). s1 x s2 =  ",  vecDot( Lhat, vecCross([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z]))
-        print   " : hat(L).(S1(1+q)+S2(1+1/q)) = ", vecDot( Lhat, S1vec*(1+qval)  + S2vec*(1+1./qval) )/(self.m1+self.m2)/(self.m1+self.m2)
+        print(   " : hat(L). s1 x s2 =  ",  vecDot( Lhat, vecCross([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z])))
+        print(   " : hat(L).(S1(1+q)+S2(1+1/q)) = ", vecDot( Lhat, S1vec*(1+qval)  + S2vec*(1+1./qval) )/(self.m1+self.m2)/(self.m1+self.m2))
         if show_system_frame:
             thePrefix = ""
             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = self.extract_system_frame()
-            print thePrefix, " :+ theta_JN = ", thetaJN
-            print thePrefix, " :+ psiJ = ", psiJ
-            print thePrefix, " :+ phiJL=alphaJL = ", phiJL
-            print thePrefix, " :+ chi1 = ", chi1
-            print thePrefix, " :+ chi2 = ", chi2
-            print thePrefix, " :+ theta1 = ", theta1
-            print thePrefix, " :+ theta2 = ", theta2
-            print thePrefix, " :+ phi12 = ", phi12
-            print thePrefix, " :+ beta = ", self.extract_param('beta')
-        print "lambda1 =", self.lambda1
-        print "lambda2 =", self.lambda2
-        print "inclination =", self.incl
-        print "distance =", self.dist / 1.e+6 / lsu_PC, "(Mpc)"
-        print "reference orbital phase =", self.phiref
-        print "polarization angle =", self.psi
-        print "eccentricity = ", self.eccentricity
-        print "time of coalescence =", float(self.tref),  " [GPS sec: ",  int(self.tref), ",  GPS ns ", (self.tref - int(self.tref))*1e9, "]"
-        print "detector is:", self.detector
+            print( thePrefix, " :+ theta_JN = ", thetaJN)
+            print( thePrefix, " :+ psiJ = ", psiJ)
+            print( thePrefix, " :+ phiJL=alphaJL = ", phiJL)
+            print( thePrefix, " :+ chi1 = ", chi1)
+            print( thePrefix, " :+ chi2 = ", chi2)
+            print( thePrefix, " :+ theta1 = ", theta1)
+            print( thePrefix, " :+ theta2 = ", theta2)
+            print( thePrefix, " :+ phi12 = ", phi12)
+            print( thePrefix, " :+ beta = ", self.extract_param('beta'))
+        print( "lambda1 =", self.lambda1)
+        print( "lambda2 =", self.lambda2)
+        print( "inclination =", self.incl)
+        print( "distance =", self.dist / 1.e+6 / lsu_PC, "(Mpc)")
+        print( "reference orbital phase =", self.phiref)
+        print( "polarization angle =", self.psi)
+        print( "eccentricity = ", self.eccentricity)
+        print( "time of coalescence =", float(self.tref),  " [GPS sec: ",  int(self.tref), ",  GPS ns ", (self.tref - int(self.tref))*1e9, "]")
+        print( "detector is:", self.detector)
         if self.radec==False:
-            print "Sky position relative to overhead detector is:"
-            print "zenith angle =", self.theta, "(radians)"
-            print "azimuth angle =", self.phi, "(radians)"
+            print( "Sky position relative to overhead detector is:")
+            print( "zenith angle =", self.theta, "(radians)")
+            print( "azimuth angle =", self.phi, "(radians)")
         if self.radec==True:
-            print "Sky position relative to geocenter is:"
-            print "declination =", self.theta, "(radians)"
-            print "right ascension =", self.phi, "(radians)"
+            print( "Sky position relative to geocenter is:")
+            print( "declination =", self.theta, "(radians)")
+            print( "right ascension =", self.phi, "(radians)")
         if self.radec==True:
-            print " -- derived parameters (detection-relevant) -- "
-            print "   + 2(phi+psi) ", np.fmod(2*(self.psi+self.phiref),2*np.pi)
-            print "   + 2(phi-psi) ", np.fmod(2*(self.phiref- self.psi),2*np.pi)
+            print( " -- derived parameters (detection-relevant) -- ")
+            print( "   + 2(phi+psi) ", np.fmod(2*(self.psi+self.phiref),2*np.pi))
+            print( "   + 2(phi-psi) ", np.fmod(2*(self.phiref- self.psi),2*np.pi))
             for ifo in ['H1', 'L1']:
                 detector = lalsim.DetectorPrefixToLALDetector(ifo)
-                print "   +Arrival time at ", ifo, " = ", self.tref - np.round(float(self.tref))+ lal.TimeDelayFromEarthCenter(detector.location, self.phi, self.theta, self.tref), " versus int second"
-        print "starting frequency is =", self.fmin
-        print "reference frequency is =", self.fref
-        print "Max frequency is =", self.fmax
-        print "time step =", self.deltaT, "(s) <==>", 1./self.deltaT,\
-                "(Hz) sample rate"
-        print "freq. bin size is =", self.deltaF, "(Hz)"
-        print "approximant is =", lalsim.GetStringFromApproximant(self.approx)
-        print "phase order =", self.phaseO
-        print "amplitude order =", self.ampO
+                print( "   +Arrival time at ", ifo, " = ", self.tref - np.round(float(self.tref))+ lal.TimeDelayFromEarthCenter(detector.location, self.phi, self.theta, self.tref), " versus int second")
+        print( "starting frequency is =", self.fmin)
+        print( "reference frequency is =", self.fref)
+        print( "Max frequency is =", self.fmax)
+        print( "time step =", self.deltaT, "(s) <==>", 1./self.deltaT,\
+                "(Hz) sample rate")
+        print( "freq. bin size is =", self.deltaF, "(Hz)")
+        print( "approximant is =", lalsim.GetStringFromApproximant(self.approx))
+        print( "phase order =", self.phaseO)
+        print( "amplitude order =", self.ampO)
         if self.waveFlags:
             thePrefix=""
-            print thePrefix, " :  Spin order " , lalsim.SimInspiralGetSpinOrder(self.waveFlags)
-            print thePrefix, " :  Tidal order " , lalsim.SimInspiralGetTidalOrder(self.waveFlags)
+            print( thePrefix, " :  Spin order " , lalsim.SimInspiralGetSpinOrder(self.waveFlags))
+            print( thePrefix, " :  Tidal order " , lalsim.SimInspiralGetTidalOrder(self.waveFlags))
         else:
-            print "waveFlags struct is = ", self.waveFlags
-        print "nonGRparams struct is", self.nonGRparams
+            print( "waveFlags struct is = ", self.waveFlags)
+        print( "nonGRparams struct is", self.nonGRparams)
         if self.taper==lsu_TAPER_NONE:
-            print "Tapering is set to LAL_SIM_INSPIRAL_TAPER_NONE"
+            print( "Tapering is set to LAL_SIM_INSPIRAL_TAPER_NONE")
         elif self.taper==lsu_TAPER_START:
-            print "Tapering is set to LAL_SIM_INSPIRAL_TAPER_START"
+            print( "Tapering is set to LAL_SIM_INSPIRAL_TAPER_START")
         elif self.taper==lsu_TAPER_END:
-            print "Tapering is set to LAL_SIM_INSPIRAL_TAPER_END"
+            print( "Tapering is set to LAL_SIM_INSPIRAL_TAPER_END")
         elif self.taper==lsu_TAPER_STARTEND:
-            print "Tapering is set to LAL_SIM_INSPIRAL_TAPER_STARTEND"
+            print( "Tapering is set to LAL_SIM_INSPIRAL_TAPER_STARTEND")
         else:
-            print "Warning! Invalid value for taper:", self.taper
+            print( "Warning! Invalid value for taper:", self.taper)
 
     def VelocityAtFrequency(self,f):  # in units of c
         m1 = self.m1* lsu_G / lsu_C**3
@@ -1280,7 +1287,7 @@ class ChooseWaveformParams:
         if row.waveform == 'SEOBNRv4HM'   and lalSEOBNRv4HM > 0 :
             self.approx = lalSEOBNRv4HM
         if rosDebugMessagesContainer[0]:
-            print " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform
+            print( " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform)
         self.theta = row.latitude # Declination
         self.phi = row.longitude # Right ascension
         self.radec = True # Flag to interpret (theta,phi) as (DEC,RA)
@@ -1298,7 +1305,7 @@ class ChooseWaveformParams:
         """
         global rosDebugMessagesContainer
         if rosDebugMessagesContainer[0]:
-            print " --- Creating XML row for the following ---- "
+            print( " --- Creating XML row for the following ---- ")
             self.print_params()
         sim_valid_cols = [ "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"] # ,  "alpha1", "alpha2", "alpha3"
         si_table = lsctables.New(lsctables.SimInspiralTable, sim_valid_cols)
@@ -1338,7 +1345,7 @@ class ChooseWaveformParams:
         row.alpha4 = self.eccentricity
         # Debug: 
         if rosDebugMessagesContainer[0]:
-            print " Constructing the following XML table "
+            print( " Constructing the following XML table ")
             si_table.append(row)
             si_table.write()
         return row
@@ -1436,7 +1443,7 @@ def xml_to_ChooseWaveformParams_array(fname, minrow=None, maxrow=None,
         [Ps[i-minrow].copy_lsctables_sim_inspiral(sim_insp[i]) for i in rng]
         # set the approximants correctly -- this is NOT straightforward because of conversions
     except ValueError:
-        print >>sys.stderr, "No SimInspiral table found in xml file"
+        print( "No SimInspiral table found in xml file",file=sys.stderr)
     return Ps
 
 #
@@ -1461,7 +1468,7 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
         indx+=1
         sim_table.append(row)
     if rosDebugMessagesContainer[0]:
-            print " Preparing to write the followingXML "
+            print( " Preparing to write the followingXML ")
             sim_table.write()
 
     utils.write_filename(xmldoc, fname+".xml.gz", gz=True)
@@ -1597,7 +1604,7 @@ class InnerProduct(object):
             WFD.data.data[:] = np.sqrt(self.weights) # W_FD is 1/sqrt(S_n(f))
             WFD.data.data[0] = WFD.data.data[-1] = 0. # zero 0, f_Nyq bins
             lal.REAL8FreqTimeFFT(WTD, WFD, revplan) # IFFT to TD
-            for i in xrange(N_spec/2, self.len2side - N_spec/2):
+            for i in range(int(N_spec/2), self.len2side - int(N_spec/2)):
                 WTD.data.data[i] = 0. # Zero all but T_spec/2 ends of W_TD
             lal.REAL8TimeFreqFFT(WFD, WTD, fwdplan) # FFT back to FD
             WFD.data.data[0] = WFD.data.data[-1] = 0. # zero 0, f_Nyq bins
@@ -1899,7 +1906,7 @@ class ComplexOverlap(InnerProduct):
                 if z[0]<0:
                     return z[2] - z[1]*z[1]/4/z[2]
             except:
-                print " Duration error ", datReduced, " skipping interpolation in time to best point "
+                print( " Duration error ", datReduced, " skipping interpolation in time to best point ")
             # Otherwise, act as normally
         if self.full_output==False:
             # Return overlap maximized over time, phase
@@ -1958,8 +1965,8 @@ def CreateCompatibleComplexOverlap(hlmf,**kwargs):
     deltaF = hbase.deltaF
     fNyq = hbase.deltaF*hbase.data.length/2 # np.max(evaluate_fvals(hbase))
     if rosDebugMessagesContainer[0]:
-        print kwargs
-        print "dF, fNyq, npts = ",deltaF, fNyq, len(hbase.data.data)
+        print( kwargs)
+        print( "dF, fNyq, npts = ",deltaF, fNyq, len(hbase.data.data))
     IP = ComplexOverlap(fNyq=fNyq, deltaF=deltaF, **kwargs)
     return IP
 
@@ -1975,8 +1982,8 @@ def CreateCompatibleComplexIP(hlmf,**kwargs):
     deltaF = hbase.deltaF
     fNyq = hbase.deltaF*hbase.data.length/2 # np.max(evaluate_fvals(hbase))
     if rosDebugMessagesContainer[0]:
-        print kwargs
-        print "dF, fNyq, npts = ",deltaF, fNyq, len(hbase.data.data)
+        print( kwargs)
+        print( "dF, fNyq, npts = ",deltaF, fNyq, len(hbase.data.data))
     IP = ComplexIP(fNyq=fNyq, deltaF=deltaF, **kwargs)
     return IP
 
@@ -2024,7 +2031,7 @@ def m1m2(Mc, eta):
     """Compute component masses from Mc, eta. Returns m1 >= m2"""
     etaV = 1-4*eta
     if etaV < 0:
-	etaV = 0
+        etaV = 0
     m1 = 0.5*Mc*eta**(-3./5.)*(1. + np.sqrt(etaV))
     m2 = 0.5*Mc*eta**(-3./5.)*(1. - np.sqrt(etaV))
     return m1, m2
@@ -2089,7 +2096,7 @@ def tidal_lambda_from_tilde(mass1, mass2, lam_til, dlam_til):
 ### Bernuzzi's conversion routines
 ###
 try:
-    from scipy import factorial2
+    from scipy.special import factorial2
 except:  
     from scipy.misc import factorial2
 def lamtilde_of_eta_lam1_lam2(eta, lam1, lam2):
@@ -2607,7 +2614,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     elif P.approx == lalsim.SEOBNRv3 or P.approx == lalsim.SEOBNRv3_opt:
         hlm_out = hlmoft_SEOBv3_dict(P)
         if not hlm_out:
-            print " Failed generation: SEOBNRv3 "
+            print( " Failed generation: SEOBNRv3 ")
             sys.exit(0)
         if True: #P.taper:
             ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
@@ -2782,7 +2789,7 @@ def hlmoft_SEOB_dict(P,Lmax=2):
     hC = complex_hoft(P)  # pad as needed
     hC.epoch = hC.epoch - P.tref  # need to CORRECT the event time: hoft adds an epoch
     if rosDebugMessagesContainer[0]:
-        print " SEOB hlm trick: epoch of hC ", hC.epoch
+        print( " SEOB hlm trick: epoch of hC ", hC.epoch)
     fac = np.sqrt(5./np.pi)/2
     hC.data.data *=1./fac #lal.SpinWeightedSphericalHarmonic(0.,0., -2,2,2)
 
@@ -3447,7 +3454,7 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
             strength over that fraction of each end of the data segment.
     """
     if verbose:
-        print " ++ Loading from cache ", fname, channel
+        print( " ++ Loading from cache ", fname, channel)
     with open(fname) as cfile:
         cachef = Cache.fromfile(cfile)
     for i in range(len(cachef))[::-1]:
@@ -3455,13 +3462,13 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
         if cachef[i].observatory != channel[0]:
             del cachef[i]
     if verbose:
-        print cachef.to_segmentlistdict()
+        print( cachef.to_segmentlistdict())
 
     import os
     tmpdir = None
-    if os.environ.has_key('TMP'):
+    if 'TMP' in os.environ:
         tmpdir  = os.environ['TMP']
-    elif os.environ.has_key('TMPDIR'):
+    elif 'TMPDIR' in os.environ:
         tmpdir = os.environ['TMPDIR']
     else:
         tmpdir = '/tmp'
@@ -3480,7 +3487,7 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
     tmp = lal.CreateREAL8TimeSeries("h(t)", 
             lal.LIGOTimeGPS(float(ht.metadata.segments[0][0])),
             0., ht.metadata.dt, lsu_DimensionlessUnit, len(ht))
-    print   "  ++ Frame data sampling rate ", 1./tmp.deltaT, " and epoch ", stringGPSNice(tmp.epoch)
+    print(   "  ++ Frame data sampling rate ", 1./tmp.deltaT, " and epoch ", stringGPSNice(tmp.epoch))
     tmp.data.data[:] = ht
     # Window the data - N.B. default is identity (no windowing)
     hoft_window = lal.CreateTukeyREAL8Window(tmp.data.length, window_shape)
@@ -3504,7 +3511,7 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
       https://github.com/lscsoft/lalsuite/blob/master/lalframe/python/lalframe/frread.py
     """
     if verbose:
-        print " ++ Loading from cache ", fname, channel
+        print( " ++ Loading from cache ", fname, channel)
     with open(fname) as cfile:
         cachef = Cache.fromfile(cfile)
     cachef=cachef.sieve(ifos=channel[:1])
@@ -3513,7 +3520,7 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
     #     if cachef[i].observatory != channel[0]:
     #         del cachef[i]
     if verbose:
-        print cachef.to_segmentlistdict()
+        print( cachef.to_segmentlistdict())
         
     duration = stop - start if None not in (start, stop) else None
     tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose,datatype='REAL8')
@@ -3608,7 +3615,7 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
             FDlen)
     lal.COMPLEX16TimeFreqFFT(hf, hoftC, fwdplan)
     if verbose:
-        print " ++ Loaded data h(f) of length n= ", hf.data.length, " (= ", len(hf.data.data)*ht.deltaT, "s) at sampling rate ", 1./ht.deltaT    
+        print( " ++ Loaded data h(f) of length n= ", hf.data.length, " (= ", len(hf.data.data)*ht.deltaT, "s) at sampling rate ", 1./ht.deltaT    )
     return hf
 
 
@@ -3647,7 +3654,7 @@ def regularize_swig_psd_series_near_nyquist(raw_psd,DeltaFToZero):
     new_psd = raw_psd # copy.deepcopy(raw_psd)  # I actually don't need a copy
     n = len(new_psd.data.data)
     if rosDebugMessagesContainer[0]:
-        print " zeroing ", nToZero ," last elements of the psd, out of ",n
+        print( " zeroing ", nToZero ," last elements of the psd, out of ",n)
     for i in range(nToZero):
         new_psd.data.data[n - i-1] = 0.
 # Vectorized assignment would be better
@@ -3660,7 +3667,7 @@ def enforce_swig_psd_fmin(raw_psd, fmin):
     new_psd = raw_psd   # Not a copy - I can alter the original
     n = len(new_psd.data.data)
     if rosDebugMessagesContainer[0]:
-        print " zeroing ", nToZero ," first elements of the psd, out of ",n
+        print( " zeroing ", nToZero ," first elements of the psd, out of ",n)
     for i in range(nToZero):
         new_psd.data.data[i] = 0.
     return new_psd
@@ -3679,7 +3686,7 @@ def extend_swig_psd_series_to_sampling_requirements(raw_psd, dfRequired, fNyqReq
     nRequired = int(fNyqRequired/dfRequired)+1     # odd number for one-sided PSD
     facStretch = int((nRequired-1)/(n-1))  # n-1 should be power of 2
     if rosDebugMessagesContainer[0]:
-        print " extending psd of length ", n, " to ", nRequired, "(i.e., fNyq = ", fNyqRequired, ") elements requires a factor of ", facStretch
+        print( " extending psd of length ", n, " to ", nRequired, "(i.e., fNyq = ", fNyqRequired, ") elements requires a factor of ", facStretch)
     psdNew = lal.CreateREAL8FrequencySeries("PSD", lal.LIGOTimeGPS(0.), 0., dfRequired ,lsu_HertzUnit, n*facStretch)
     # Populate the series.  Slow because it is a python loop
     for i in np.arange(n):
@@ -3753,20 +3760,20 @@ def load_resample_and_clean_psd(psd_fname, det, deltaF,verbose=False):
     psd_here = get_psd_series_from_xmldoc(psd_fname, det)  # pylal type!
     tmp = psd_here.data
     if verbose:
-        print "Sanity check reporting : pre-extension, min is ", np.min(tmp), " and maximum is ", np.max(tmp)
+        print ("Sanity check reporting : pre-extension, min is ", np.min(tmp), " and maximum is ", np.max(tmp))
     fmin = psd_here.f0
     fmax = fmin + psd_here.deltaF*len(psd_here.data.data)-deltaF
     if verbose:
-        print "PSD deltaF before interpolation %f" % psd_here.deltaF
+        print( "PSD deltaF before interpolation %f" % psd_here.deltaF)
     psd_here = resample_psd_series(psd_here, deltaF)
     if verbose:
-        print "PSD deltaF after interpolation %f" % psd_here.deltaF
-        print "Post-extension the new PSD has 1/df = ", 1./psd_here.deltaF, " (data 1/df = ", 1./deltaF, ") and length ", len(psd_here.data.data)
+        print( "PSD deltaF after interpolation %f" % psd_here.deltaF)
+        print( "Post-extension the new PSD has 1/df = ", 1./psd_here.deltaF, " (data 1/df = ", 1./deltaF, ") and length ", len(psd_here.data.data))
     tmp = psd_here.data.data
     nBad = np.argmin(tmp[np.nonzero(tmp)])
     fBad = nBad*deltaF
     if verbose:
-        print "Post-extension sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), "(at n=", np.argmin(tmp[np.nonzero(tmp)])," or f=", fBad, ")  and maximum is ", np.max(psd_here.data.data)
+        print( "Post-extension sanity check reporting  : min is ", np.min(tmp[np.nonzero(tmp)]), "(at n=", np.argmin(tmp[np.nonzero(tmp)])," or f=", fBad, ")  and maximum is ", np.max(psd_here.data.data))
     return psd_here
 
 
@@ -4016,7 +4023,7 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
     try:
         import EOSManager  # be careful to avoid recursive dependence!
     except:
-        print " - Failed to load EOSManager - "  # this will occur at the start
+        print( " - Failed to load EOSManager - ")  # this will occur at the start
     assert not (eos_class==None)
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     P = ChooseWaveformParams()
@@ -4034,7 +4041,7 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
                 P.lambda1 = eos_class.lambda_from_m(P.m1*lal.MSUN_SI)
             else:
                 if rosDebugMessagesContainer[0]:
-                    print " Failed (safely) for ", P.m1
+                    print( " Failed (safely) for ", P.m1)
                 P.lambda1= -np.inf
           except:
 #              print " Failed for ", P.m1
@@ -4047,7 +4054,7 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
                 P.lambda2 = eos_class.lambda_from_m(P.m2*lal.MSUN_SI)
             else:
                 if rosDebugMessagesContainer[0]:
-                    print " Failed (safely) for ", P.m2
+                    print( " Failed (safely) for ", P.m2)
                 P.lambda2= -np.inf
           except:
 #              print " Failed for ", P.m2

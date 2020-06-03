@@ -37,7 +37,7 @@ smap, smap_meta = bfits.read_sky_map(sys.argv[1])
 def integrand(dec, ra):
     return numpy.ones(ra.shape)
 
-print "Test 1, prior is isotropic (unnormalized). Should get the normalization factor for the prior (1/len(skymap)) from this test."
+print("Test 1, prior is isotropic (unnormalized). Should get the normalization factor for the prior (1/len(skymap)) from this test.")
 smap_isotropic = numpy.ones(len(smap))/len(smap)
 skysampler = mcsampler.HealPixSampler(smap_isotropic)
 
@@ -45,30 +45,30 @@ integrator = mcsampler.MCSampler()
 integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=lambda d, r: 1, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
 
 v = integrator.integrate(integrand, (("ra", "dec"),), verbose=True, nmax=100000)
-print v[0], len(smap)
+print(v[0], len(smap))
 
-print "Test 2, prior is isotropic (normalized). Should get 1.0 for this test"
+print("Test 2, prior is isotropic (normalized). Should get 1.0 for this test")
 iso_bstar_prior = numpy.vectorize(lambda d, r: 1.0/len(skysampler.skymap))
 integrator = mcsampler.MCSampler()
 integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=iso_bstar_prior, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
 
 v = integrator.integrate(integrand, (("dec", "ra"),), verbose=True, nmax=100000)
-print v[0]
+print(v[0])
 
-print "Test 3, prior is isotropic (normalized). BAYESTAR map is not isotropic, but gains support everywhere (gradually) from mixing. Should start off near area searched (fraction of pixels used) up to 1.0 for this test."
+print("Test 3, prior is isotropic (normalized). BAYESTAR map is not isotropic, but gains support everywhere (gradually) from mixing. Should start off near area searched (fraction of pixels used) up to 1.0 for this test.")
 # FIXME: Hardcoded from default in mcsampler
 min_p = 1e-7
 pix_frac = len(smap[smap > min_p])/float(len(smap))
-print "Fraction of pixels used: %g" % pix_frac
+print("Fraction of pixels used: %g" % pix_frac)
 for mixing_factor in [0, 1e-3, 5e-3, 1e-2, 1e-1]:
-    print "Mixing factor %g" % mixing_factor
+    print("Mixing factor %g" % mixing_factor)
     smap_full_support = (1-mixing_factor)*smap + (mixing_factor)*numpy.ones(len(smap))/len(smap)
     skysampler = mcsampler.HealPixSampler(smap_full_support)
     integrator = mcsampler.MCSampler()
     integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=iso_bstar_prior, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
 
     v = integrator.integrate(integrand, (("dec", "ra"),), verbose=True, nmax=500000)
-    print "Integral value: %f, pixel fraction %f" % (v[0], pix_frac)
+    print("Integral value: %f, pixel fraction %f" % (v[0], pix_frac))
 
     res = healpy.npix2nside(len(skysampler.skymap))
     valid = skysampler.valid_points_decra
@@ -98,7 +98,7 @@ for mixing_factor in [0, 1e-3, 5e-3, 1e-2, 1e-1]:
         idx.append(i)
         prob_true.append(vp_prob[vp_pix_idx])
         prob_real.append(hist[vp_pix_idx]/norm)
-    print "Number of pixels sampled %d, count of valid pixels %d" % (len(hist.values()), cnt)
+    print("Number of pixels sampled %d, count of valid pixels %d" % (len(hist.values()), cnt))
     pyplot.plot(idx, prob_real, 'r-', label="realized")
     pyplot.plot(idx, prob_true, 'k-', label="true")
     pyplot.legend()
@@ -117,12 +117,12 @@ for mixing_factor in [0, 1e-3, 5e-3, 1e-2, 1e-1]:
 #v = integrator.integrate(integrand, (("dec", "ra"),), verbose=True, nmax=1000000)
 #print v[0]
 
-print "Test 5, prior is BAYESTAR map, which does not have full support over the sky, but does over itself, thus the integral over itself should still be 1.0. Note that we change the prior, and not the integrand because the assumptions about the discretization of p and p_s appear in a ratio, and this preserves that ratio."
+print("Test 5, prior is BAYESTAR map, which does not have full support over the sky, but does over itself, thus the integral over itself should still be 1.0. Note that we change the prior, and not the integrand because the assumptions about the discretization of p and p_s appear in a ratio, and this preserves that ratio.")
 
 integrator = mcsampler.MCSampler()
 integrator.add_parameter(params=("dec", "ra"), pdf=skysampler.pseudo_pdf, cdf_inv=skysampler.pseudo_cdf_inverse, prior_pdf=skysampler.pseudo_pdf, left_limit=(0, 0), right_limit=(numpy.pi, 2*numpy.pi))
 v = integrator.integrate(integrand, (("dec", "ra"),), verbose=True, nmax=100000)
-print v[0]
+print(v[0])
 
 #
 # Check sample distribution plots

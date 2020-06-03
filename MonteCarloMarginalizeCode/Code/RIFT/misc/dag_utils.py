@@ -56,8 +56,8 @@ def generate_job_id():
     Generate a unique md5 hash for use as a job ID.
     Borrowed and modified from the LAL code in glue/glue/pipeline.py
     """
-    t = str( long( time() * 1000 ) )
-    r = str( long( np.random.random() * 100000000000000000L ) )
+    t = str( int( time() * 1000 ) )
+    r = str( int( np.random.random() * 100000000000000000 ) )
     return md5(t + r).hexdigest()
 
 
@@ -108,7 +108,7 @@ def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
-    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+    if "output_file" in kwargs and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -116,7 +116,7 @@ def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
-        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+        if "save_samples" in kwargs and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
@@ -124,7 +124,7 @@ def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -148,7 +148,7 @@ def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
         
     
 
@@ -206,7 +206,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
-    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+    if "output_file" in kwargs and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -214,7 +214,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
-        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+        if "save_samples" in kwargs and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
@@ -222,7 +222,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -424,14 +424,14 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
-    if kwargs.has_key("fname_output_samples") and kwargs["fname_output_samples"] is not None:
+    if "fname_output_samples" in kwargs and kwargs["fname_output_samples"] is not None:
         #
         # Need to modify the output file so it's unique
         #
         ofname = kwargs["fname_output_samples"].split(".")
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
-    if kwargs.has_key("fname_output_integral") and kwargs["fname_output_integral"] is not None:
+    if "fname_output_integral" in kwargs and kwargs["fname_output_integral"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -443,7 +443,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -469,7 +469,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
         
     
 
@@ -523,7 +523,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -548,7 +548,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
         
     
     return ile_job, ile_sub_name
@@ -563,21 +563,22 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         - An instance of the CondorDAGJob that was generated for ILE
     """
     if use_singularity and (singularity_image == None)  :
-        print " FAIL : Need to specify singularity_image to use singularity "
+        print(" FAIL : Need to specify singularity_image to use singularity ")
         sys.exit(0)
     if use_singularity and (frames_dir == None)  and (cache_file == None) :
-        print " FAIL : Need to specify frames_dir or cache_file to use singularity (at present) "
+        print(" FAIL : Need to specify frames_dir or cache_file to use singularity (at present) ")
         sys.exit(0)
     if use_singularity and (transfer_files == None)  :
-        print " FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file "
+        print(" FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file ")
         sys.exit(0)
 
     exe = exe or which("integrate_likelihood_extrinsic")
     frames_local = None
     if use_singularity:
         path_split = exe.split("/")
-        print " Executable: name breakdown ", path_split, " from ", exe
-        if 'SINGULARITY_BASE_EXE_DIR' in os.environ.keys() :
+        print((" Executable: name breakdown ", path_split, " from ", exe))
+        singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
+        if 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
             singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
         else:
 #            singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
@@ -658,7 +659,7 @@ echo Starting ...
 
     # Add lame initial argument
 
-    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+    if "output_file" in kwargs and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -666,7 +667,7 @@ echo Starting ...
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
-        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+        if "save_samples" in kwargs and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
@@ -675,7 +676,7 @@ echo Starting ...
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -714,8 +715,8 @@ echo Starting ...
     if use_cvmfs_frames:
         requirements.append("HAS_LIGO_FRAMES=?=TRUE")
         ile_job.add_condor_cmd('use_x509userproxy','True')
-        if 'X509_USER_PROXY' in os.environ.keys():
-            print " Storing copy of X509 user proxy -- beware expiration! "
+        if 'X509_USER_PROXY' in list(os.environ.keys()):
+            print(" Storing copy of X509 user proxy -- beware expiration! ")
             cwd = os.getcwd()
             fname_proxy = cwd +"/my_proxy"  # this can get overwritten, that's fine - just renews, feature not bug
             os.system("cp ${X509_USER_PROXY} "  + fname_proxy)
@@ -771,6 +772,8 @@ echo Starting ...
 
     if use_osg:
         ile_job.add_condor_cmd("+OpenScienceGrid",'True')
+    if use_cvmfs_frames:
+        transfer_files += ["../local.cache"]
     # To change interactively:
     #   condor_qedit
     # for example: 
@@ -784,7 +787,7 @@ echo Starting ...
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     if not transfer_files is None:
         if not isinstance(transfer_files, list):
@@ -869,7 +872,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -893,7 +896,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
         
     
 
@@ -966,7 +969,7 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1014,7 +1017,7 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1064,7 +1067,7 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1110,7 +1113,7 @@ def write_plot_sub(tag='converge', exe=None,samples_files=None, base=None,target
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1154,7 +1157,7 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1173,7 +1176,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
     """
     exe = exe or which("BayesWave")
     if exe is None:
-        print " BayesWave not available, hard fail "
+        print(" BayesWave not available, hard fail ")
         sys.exit(0)
     frames_local = None
 
@@ -1228,7 +1231,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
 
 
     # Add lame initial argument
-    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+    if "output_file" in kwargs and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -1236,7 +1239,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
-        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+        if "save_samples" in kwargs and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
@@ -1245,7 +1248,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -1268,7 +1271,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
 
     return ile_job, ile_sub_name
@@ -1285,7 +1288,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
     """
     exe = exe or which("BayesWavePost")
     if exe is None:
-        print " BayesWavePost not available, hard fail "
+        print(" BayesWavePost not available, hard fail ")
         import sys
         sys.exit(0)
     frames_local = None
@@ -1339,7 +1342,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
         ile_job.add_opt(ifo+"-flow", str(channel_flow))
 
     # Add lame initial argument
-    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+    if "output_file" in kwargs and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -1347,7 +1350,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
-        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+        if "save_samples" in kwargs and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
@@ -1356,7 +1359,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -1379,7 +1382,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
 
     return ile_job, ile_sub_name
@@ -1396,7 +1399,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
     """
     exe = exe or which("BayesWave")
     if exe is None:
-        print " BayesWave not available, hard fail "
+        print(" BayesWave not available, hard fail ")
         sys.exit(0)
     frames_local = None
 
@@ -1448,7 +1451,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
 
 
     # Add lame initial argument
-    if kwargs.has_key("output_file") and kwargs["output_file"] is not None:
+    if "output_file" in kwargs and kwargs["output_file"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -1456,7 +1459,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
         del kwargs["output_file"]
-        if kwargs.has_key("save_samples") and kwargs["save_samples"] is True:
+        if "save_samples" in kwargs and kwargs["save_samples"] is True:
             ile_job.add_opt("save-samples", None)
             del kwargs["save_samples"]
 
@@ -1465,7 +1468,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.iteritems():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -1488,7 +1491,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
 
     return ile_job, ile_sub_name
@@ -1539,7 +1542,7 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1586,7 +1589,7 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1624,7 +1627,7 @@ def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,t
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 
@@ -1685,7 +1688,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
-        print " LIGO accounting information not available.  You must add this manually to integrate.sub !"
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
 

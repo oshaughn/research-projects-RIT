@@ -77,12 +77,12 @@ cost_dict['readin'] = tE-tS
 #print data_dict['H1'].data.data[10]  # confirm data loaded
 df = data_dict['H1'].deltaF  
 fSample = len(data_dict['H1'].data.data)*data_dict['H1'].deltaF  # Note two-sided
-print " sampling rate of data = ", fSample
+print(" sampling rate of data = ", fSample)
 
 
 
 
-print " ======= Template specified: precomputing all quantities =========="
+print(" ======= Template specified: precomputing all quantities ==========")
 # Struct to hold template parameters
 # Fiducial distance provided but will not be used
 m1 = 4*lal.MSUN_SI
@@ -140,8 +140,8 @@ for i in np.arange(nEvals):
     lnL = factored_likelihood.SingleDetectorLogLikelihoodDataViaArray(theEpochFiducial,lookupNKdict, rholms_intpArrayDict,Psig.tref, Psig.phi,Psig.theta, P.incl, P.phiref,P.psi, P.dist,  'H1')
 tE = lal.GPSTimeNow()
 cost_dict['lnLdata1b'] = float(tE-tS)/nEvals
-print "  +++ Fast lnLData eval (array-ized)++"
-print " Per evaluation, not vectorizing over time, cost is ", cost_dict['lnLdata1b']
+print("  +++ Fast lnLData eval (array-ized)++")
+print(" Per evaluation, not vectorizing over time, cost is ", cost_dict['lnLdata1b'])
 
 
 tS = lal.GPSTimeNow()
@@ -151,9 +151,9 @@ for i in np.arange(nEvals):
 tE = lal.GPSTimeNow()
 cost_dict['lnLdataDiscArrayPerTime'] = float(tE-tS)/nEvals / len(rholmArrayDict['H1'][0])  # Cost *per time bin* being evaluated
 cost_dict['lnLdataDiscArray'] = float(tE-tS)/nEvals 
-print "  +++ Fast lnLdata eval ++"
-print "  In total ", cost_dict['lnLdataDiscArray'],  " per evaluation of the entire time array, using nEvals = ", nEvals
-print "  Per time point (npts =  ", len(rholmArrayDict['H1'][0]), " )  the cost is ", cost_dict['lnLdataDiscArrayPerTime']
+print("  +++ Fast lnLdata eval ++")
+print("  In total ", cost_dict['lnLdataDiscArray'],  " per evaluation of the entire time array, using nEvals = ", nEvals)
+print("  Per time point (npts =  ", len(rholmArrayDict['H1'][0]), " )  the cost is ", cost_dict['lnLdataDiscArrayPerTime'])
 
 
 
@@ -163,8 +163,8 @@ for i in np.arange(nEvals):
     lnL = factored_likelihood.SingleDetectorLogLikelihoodModelViaArray(lookupNKdict, ctUArrayDict, ctVArrayDict,  Psig.tref, Psig.phi,Psig.theta, P.incl, P.phiref,P.psi, P.dist,  'H1')
 tE = lal.GPSTimeNow()
 cost_dict['lnLModelArray'] = float(tE-tS)/nEvals  # Cost *per time bin* being evaluated
-print "  +++ Fast lnLModel eval ++"
-print " Per evaluation, cost is ", cost_dict['lnLModelArray']
+print("  +++ Fast lnLModel eval ++")
+print(" Per evaluation, cost is ", cost_dict['lnLModelArray'])
 
 
 if False:
@@ -183,8 +183,8 @@ if False:
         lnL =factored_likelihood.FactoredLogLikelihoodVectorized(theEpochFiducial,phi,theta,tref, phiref, incl, psi, dist, rholms_intp, crossTerms,Psig.tref,  Psig.phi,Psig.theta, P.incl, P.phiref,P.psi, P.dist, 2, detectors)
     tE = lal.GPSTimeNow()
     cost_dict['lnLVector'] = float(tE-tS)/nEvals/npts
-    print "  +++ Fast lnLVector eval ++"
-    print "  In total ", cost_dict['lnLVector'],  " per evaluation of each point, using nEvals*npts = ", nEvals*npts
+    print("  +++ Fast lnLVector eval ++")
+    print("  In total ", cost_dict['lnLVector'],  " per evaluation of each point, using nEvals*npts = ", nEvals*npts)
 
 
 
@@ -242,25 +242,25 @@ if False:
     cost_dict['lnLmargTime'] = float(tE-tS)/nEvals
 
 
-print " ======= Report =========="
-print "Sampling rate: ", fSample , " and data duration ", len(data_dict['H1'].data.data)/fSample
-print "Reading data :", float(cost_dict['readin'])
-print "Precomputation time (per intrinsic parameters!) : ", cost_dict['precompute']
-print "Precomputation ingredient: rolling the data : ", cost_dict['roll']
-print "Per-evaluation FactoredLogLikelihood : ", cost_dict['lnL']
-print "Per-evaluation SingleDetectorLogLikelihoodData  *3: ", cost_dict['lnLdata1']*3
-print "Per-evaluation DiscreteSingleDetectorLogLikelihoodDataViaArray  *3: ", cost_dict['lnLdataDiscArrayPerTime']*3
-print "Per-evaluation SingleDetectorLogLikelihoodModel *3 : ", cost_dict['lnLmodel1']*3
-print "Per-evaluation SingleDetectorLogLikelihoodModelViaArray *3 : ", cost_dict['lnLModelArray']*3
-print "  ... sum of previous two should equal FactoredLogLikelihood. "
-print "Per-evaluation : generate all Ylms : ", cost_dict['Ylms']
-print "Per-evaluation : evaluate one rholm * (2Lmax+1) *3: ", cost_dict['rholms']* (2*Lmax+1)*3
-print "  ... this should agree with SingleDetectorLogLikelihoodData  *3 "
-print " Special test : polarization log likelihood cost per evaluation = ", cost_dict['psi'],  " which is significantly higher than ", cost_dict['lnL'], "because of one (python-implemented) integration, but should be the same order of time if the integral is done in C "
+print(" ======= Report ==========")
+print("Sampling rate: ", fSample , " and data duration ", len(data_dict['H1'].data.data)/fSample)
+print("Reading data :", float(cost_dict['readin']))
+print("Precomputation time (per intrinsic parameters!) : ", cost_dict['precompute'])
+print("Precomputation ingredient: rolling the data : ", cost_dict['roll'])
+print("Per-evaluation FactoredLogLikelihood : ", cost_dict['lnL'])
+print("Per-evaluation SingleDetectorLogLikelihoodData  *3: ", cost_dict['lnLdata1']*3)
+print("Per-evaluation DiscreteSingleDetectorLogLikelihoodDataViaArray  *3: ", cost_dict['lnLdataDiscArrayPerTime']*3)
+print("Per-evaluation SingleDetectorLogLikelihoodModel *3 : ", cost_dict['lnLmodel1']*3)
+print("Per-evaluation SingleDetectorLogLikelihoodModelViaArray *3 : ", cost_dict['lnLModelArray']*3)
+print("  ... sum of previous two should equal FactoredLogLikelihood. ")
+print("Per-evaluation : generate all Ylms : ", cost_dict['Ylms'])
+print("Per-evaluation : evaluate one rholm * (2Lmax+1) *3: ", cost_dict['rholms']* (2*Lmax+1)*3)
+print("  ... this should agree with SingleDetectorLogLikelihoodData  *3 ")
+print(" Special test : polarization log likelihood cost per evaluation = ", cost_dict['psi'],  " which is significantly higher than ", cost_dict['lnL'], "because of one (python-implemented) integration, but should be the same order of time if the integral is done in C ")
 #print "Per evaluation NetworkLogLikelihoodTimeMarginalizedDiscrete (an alternative) ", cost_dict['lnLmargTimeDiscrete'], " with answer ", lnLmargTimeD, " which had better compare with the unmarginalized lnL (i.e., about 200) ", lnL
 #print "    ... use if convergence of a blind Monte Carlo requires many times the following number of iterations ",  cost_dict['lnLmargTimeDiscrete']/cost_dict['lnL']
-print "Per evaluation NetworkLogLikelihoodTimeMarginalized (an alternative) ", cost_dict['lnLmargTime'], " with answer ", lnLmargTime, " which had better compare with the unmarginalized lnL (i.e., about 200) ", lnL
-print "    ... use if convergence of a blind Monte Carlo requires many times the following number of iterations ",  cost_dict['lnLmargTime']/cost_dict['lnL']
+print("Per evaluation NetworkLogLikelihoodTimeMarginalized (an alternative) ", cost_dict['lnLmargTime'], " with answer ", lnLmargTime, " which had better compare with the unmarginalized lnL (i.e., about 200) ", lnL)
+print("    ... use if convergence of a blind Monte Carlo requires many times the following number of iterations ",  cost_dict['lnLmargTime']/cost_dict['lnL'])
 
 
 

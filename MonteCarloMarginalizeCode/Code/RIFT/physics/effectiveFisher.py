@@ -19,6 +19,8 @@ Module of routines to compute an effective Fisher matrix and related utilities,
 such as finding a region of interest and laying out a grid over it
 """
 
+import RIFT.lalsimutils as lsu
+from six.moves import range
 import numpy as np
 from scipy.optimize import leastsq, brentq
 from scipy.linalg import eig, inv
@@ -62,7 +64,7 @@ def evaluate_ip_on_grid(hfSIG, P, IP, param_names, grid):
     Npts = len(grid)
     assert len(grid[0])==Nparams
     return np.array([update_params_ip(hfSIG, P, IP, param_names, grid[i])
-            for i in xrange(Npts)])
+            for i in range(Npts)])
 
 
 def update_params_ip(hfSIG, P, IP, param_names, vals):
@@ -135,7 +137,7 @@ def update_params_norm_hoff(P, IP, param_names, vals, verbose=False):
         setattr(P, 'm1', m1)
         setattr(P, 'm2', m2)
     elif special_params != []:
-        print special_params
+        print(special_params)
         raise Exception
 
     if verbose==True: # for debugging - make sure params change properly
@@ -187,18 +189,18 @@ def find_effective_Fisher_region(P, IP, target_match, param_names,param_bounds):
         try:
             min_param = brentq(func, param_peak, param_bounds[i][0], xtol=TOL)
         except ValueError:
-            print "\nWarning! Value", param_bounds[i][0], "of", param,\
+            print("\nWarning! Value", param_bounds[i][0], "of", param,\
                     "did not bound target match", target_match, ". Using",\
                     param_bounds[i][0], "as the lower bound of", param,\
-                    "range for the effective Fisher region.\n"
+                    "range for the effective Fisher region.\n")
             min_param = param_bounds[i][0]
         try:
             max_param = brentq(func, param_peak, param_bounds[i][1], xtol=TOL)
         except ValueError:
-            print "\nWarning! Value", param_bounds[i][1], "of", param,\
+            print("\nWarning! Value", param_bounds[i][1], "of", param,\
                     "did not bound target match", target_match, ". Using",\
                     param_bounds[i][1], "as the upper bound of", param,\
-                    "range for the effective Fisher region.\n"
+                    "range for the effective Fisher region.\n")
             max_param = param_bounds[i][1]
         param_cube.append( [min_param, max_param] )
 
@@ -240,7 +242,7 @@ def multi_dim_meshgrid(*arrs):
     Taken from: http://stackoverflow.com/questions/1827489/numpy-meshgrid-in-3d
     """
     arrs = tuple(reversed(arrs))
-    lens = map(len, arrs)
+    lens = list(map(len, arrs))
     dim = len(arrs)
 
     sz = 1
@@ -277,7 +279,7 @@ def multi_dim_flatgrid(*arrs):
         [2,4,6,2,4,6,2,4,6]
     """
     outarrs = multi_dim_meshgrid(*arrs)
-    return tuple([ outarrs[i].flatten() for i in xrange(len(outarrs)) ])
+    return tuple([ outarrs[i].flatten() for i in range(len(outarrs)) ])
 
 def multi_dim_grid(*arrs):
     """

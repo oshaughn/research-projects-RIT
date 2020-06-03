@@ -38,40 +38,40 @@ bestline = []; lnl_vals=[]; fnums=[]
 if opts.run_dir:
     for file in os.listdir(str(opts.run_dir)):
        if str(file).endswith(".dat") and str(file).startswith("CME"):
-	   with open(str(opts.run_dir)+"/"+str(file), 'r') as f:
-	       cme_file=str(opts.run_dir)+"/"+str(file)
+           with open(str(opts.run_dir)+"/"+str(file), 'r') as f:
+               cme_file=str(opts.run_dir)+"/"+str(file)
                fnum=str(file).split('-')[2].replace('EVENT_','')
                fnums.append(fnum)
-	       line = f.read().split(' ')
-	       lnl = float(line[9])
-	       sigma_lnL = float(line[10])
-	       if np.isnan(sigma_lnL):
-		  print " Skipping "
-		  fnums.pop()
-		  continue
+               line = f.read().split(' ')
+               lnl = float(line[9])
+               sigma_lnL = float(line[10])
+               if np.isnan(sigma_lnL):
+                   print(" Skipping ")
+                   fnums.pop()
+                   continue
                if len(lnl_vals) > 0 and  lnl > np.max(lnl_vals) and sigma_lnL<opts.sigma_cut:
                   bestline =line
-	          print "Updating bestline ", lnl, max(lnl_vals), bestline
+                  print("Updating bestline ", lnl, max(lnl_vals), bestline)
                lnl_vals.append(float(lnl)) 
 	      # print lnl, sigma_lnL, float(line[1])+float(line[2]), fnum
-	       if float(sigma_lnL) > opts.sigma_cut:
-                  print " skipping "
-		  fnums.pop(); lnl_vals.pop()
-	          continue
+               if float(sigma_lnL) > opts.sigma_cut:
+                  print(" skipping ")
+                  fnums.pop(); lnl_vals.pop()
+                  continue
                     
 else:
-   print "Please specify run directory"
+   print("Please specify run directory")
 
 # print max lnl value 
-print "Max lnL value: "+ str(max(lnl_vals))
+print("Max lnL value: "+ str(max(lnl_vals)))
 indx=fnums[lnl_vals.index(max(lnl_vals))]
-print indx, bestline
+print(indx, bestline)
 
 
 Lmax = opts.l_max
         
 if opts.use_NR:
-    print "Using NR data: "
+    print("Using NR data: ")
   
     infile = "" 
     #get name of maxpt file
@@ -83,37 +83,37 @@ if opts.use_NR:
 
     # create single event to find maxpt if not already in existance
     if infile=='':
-	cme_file = ""
-	for file in os.listdir(str(opts.run_dir)):
-	    if ("EVENT_"+indx+"-") in file and file.endswith(".xml.gz.dat"):
-	         cme_file = file
+        cme_file = ""
+        for file in os.listdir(str(opts.run_dir)):
+            if ("EVENT_"+indx+"-") in file and file.endswith(".xml.gz.dat"):
+                cme_file = file
 
-	print " Loading ", cme_file
-	param = np.loadtxt(cme_file)
-        param = np.array(map(int,param*1000))/1000.  # prevent scientific notation from appearing in arguments!
-	print param
+        print(" Loading ", cme_file)
+        param = np.loadtxt(cme_file)
+        param = np.array(list(map(int,param*1000)))/1000.  # prevent scientific notation from appearing in arguments!
+        print(param)
 #        with open(cme_file, 'r') as params:
 #		param=params.read().split()
 #                param=[float(i) for i in param]
 #		param=["%.20f" % i for i in param]
         write_xml = "util_WriteInjectionFile.py --parameter m1 --parameter-value "+str(param[1])+" --parameter m2 --parameter-value "+str(param[2])+" --parameter s1x --parameter-value "+str(param[3])+" --parameter s1y --parameter-value "+str(param[4])+" --parameter s1z --parameter-value "+str(param[5])+" --parameter s2x --parameter-value "+str(param[6])+" --parameter s2y --parameter-value "+str(param[7])+" --parameter s2z --parameter-value "+str(param[8])+" --approximant SEOBNRv4 --fname single-pt" 
         os.chdir(opts.run_dir)
-	os.system(write_xml)
+        os.system(write_xml)
         
         with open(str(opts.run_dir)+"/command-single.sh",'r') as runfile:
            rf=str(runfile.readlines()[1])
            rf=rf.replace('create_event_dag_via_grid', 'integrate_likelihood_extrinsic')
-	   rf+=" --maximize-only"
-	   rf=rf.split()
-	   rf[rf.index("--sim-xml")+1]="single-pt.xml.gz"
- 	   rf[rf.index("--output-file")+1]="ILE-single.xml.gz"  
-	   if "--n-copies" in rf:
+           rf+=" --maximize-only"
+           rf=rf.split()
+           rf[rf.index("--sim-xml")+1]="single-pt.xml.gz"
+           rf[rf.index("--output-file")+1]="ILE-single.xml.gz"  
+           if "--n-copies" in rf:
               rf[rf.index("--n-copies")+1]=""
            rf_submit = ' '.join(rf)
-	   if "--n-copies" in rf:
+           if "--n-copies" in rf:
               rf_submit=rf_submit.replace("--n-copies","")
         
-        print rf_submit
+        print(rf_submit)
         os.system(rf_submit)
        
         for file in os.listdir(str(opts.run_dir)): 
@@ -136,18 +136,18 @@ if opts.use_NR:
          if "--l-max" in opts_list:
              Lmax_used = int(opts_list[opts_list.index("--l-max")+1])
              if (Lmax_used != Lmax):
-                    print " ---- WARNING, YOU WILL OVERRIDE THE MAXIMUM L USED  --"
-	 if "--nr-group" in opts_list:
-         	nr_group=opts_list[opts_list.index("--nr-group")+1]
-         	nr_params=opts_list[opts_list.index("--nr-param")+1]
-	 if "--nr-lookup-group" in opts_list:
+                    print(" ---- WARNING, YOU WILL OVERRIDE THE MAXIMUM L USED  --")
+         if "--nr-group" in opts_list:
+             nr_group=opts_list[opts_list.index("--nr-group")+1]
+             nr_params=opts_list[opts_list.index("--nr-param")+1]
+         if "--nr-lookup-group" in opts_list:
                 nr_group=opts_list[opts_list.index("--nr-lookup-group")+1]
-		import RIFT.lalsimutils as lalsimutils
-		import NRWaveformCatalogManager as nrwf
-	        nr_group = opts_list[opts_list.index("--nr-lookup-group")+1]
-	        print " Looking up NR parameters from best fit parameters"
-	        P_list = lalsimutils.xml_to_ChooseWaveformParams_array(infile)
-	        P = P_list[0]
+                import RIFT.lalsimutils as lalsimutils
+                import NRWaveformCatalogManager3 as nrwf
+                nr_group = opts_list[opts_list.index("--nr-lookup-group")+1]
+                print(" Looking up NR parameters from best fit parameters")
+                P_list = lalsimutils.xml_to_ChooseWaveformParams_array(infile)
+                P = P_list[0]
                 compare_dict = {}
                 compare_dict['q'] = P.m2/P.m1 # Need to match the template parameter. NOTE: VERY IMPORTANT that P is updated with the event params
                 compare_dict['s1z'] = P.s1z
@@ -156,23 +156,23 @@ if opts.use_NR:
                 compare_dict['s2z'] = P.s2z
                 compare_dict['s2x'] = P.s2x
                 compare_dict['s2y'] = P.s2y
-                print " Parameter matching condition ", compare_dict
+                print(" Parameter matching condition ", compare_dict)
                 good_sim_list = nrwf.NRSimulationLookup(compare_dict,valid_groups=[nr_group])
                 if len(good_sim_list)< 1:
-                        print " ------- NO MATCHING SIMULATIONS FOUND ----- "
+                        print(" ------- NO MATCHING SIMULATIONS FOUND ----- ")
                         import sys
                         sys.exit(0)
-                        print " Identified set of matching NR simulations ", good_sim_list
+                        print(" Identified set of matching NR simulations ", good_sim_list)
                 try:
-                        print  "   Attempting to pick longest simulation matching  the simulation  "
+                        print("   Attempting to pick longest simulation matching  the simulation  ")
                         MOmega0  = 1
                         good_sim = None
                         for key in good_sim_list:
-                                print key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+                                print(key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]])
                                 if nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0'] < MOmega0:
                                         good_sim = key
                                         MOmega0 = nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0']
-                                print " Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
+                                print(" Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]])
                 except:
                         good_sim  = good_sim_list[0] # pick the first one.  Note we will want to reduce /downselect the lookup process
                 group = good_sim[0]
@@ -183,7 +183,7 @@ if opts.use_NR:
         cmd = cmd+ " --no-memory "
     
     if opts.save_plots:
-	cmd+=" --save-plots --verbose"
+        cmd+=" --save-plots --verbose"
 
 else:
    #get name of maxpt file
@@ -219,7 +219,7 @@ else:
            if "--n-copies" in rf:
               rf_submit=rf_submit.replace("--n-copies","")
 
-        print rf_submit
+        print(rf_submit)
         os.system(rf_submit)
 
         for file in os.listdir(str(opts.run_dir)):
@@ -245,9 +245,9 @@ else:
 
     cmd = "util_LALDumpDetectorResponse.py --inj "+infile+" --event 0 --t-ref "+str(event_time)+ " --approximant " + approx
     if opts.save_plots:
-	cmd+=" --save-plots --verbose"
+        cmd+=" --save-plots --verbose"
 
 os.chdir(opts.run_dir)
-print cmd
+print(cmd)
 os.system(cmd)
 

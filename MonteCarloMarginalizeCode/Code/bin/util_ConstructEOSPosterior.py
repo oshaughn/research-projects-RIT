@@ -47,7 +47,7 @@ try:
 
     no_plots=False
 except ImportError:
-    print " - no matplotlib - "
+    print(" - no matplotlib - ")
 
 
 from sklearn.preprocessing import PolynomialFeatures
@@ -56,7 +56,7 @@ if True:
     import RIFT.misc.ModifiedScikitFit as msf  # altenative polynomialFeatures
 else:
 #except:
-    print " - Faiiled ModifiedScikitFit : No polynomial fits - "
+    print(" - Faiiled ModifiedScikitFit : No polynomial fits - ")
 from sklearn import linear_model
 
 from glue.ligolw import lsctables, utils, ligolw
@@ -98,14 +98,14 @@ def extract_combination_from_LI(samples_LI, p):
          return samples_LI[ remap_ILE_2_LI[p] ]
     # Return cartesian components of spin1, spin2.  NOTE: I may already populate these quantities in 'Add important quantities'
     if p == 'chiz_plus':
-        print " Transforming "
+        print(" Transforming ")
         if 'a1z' in samples_LI.dtype.names:
             return (samples_LI['a1z']+ samples_LI['a2z'])/2.
         if 'theta1' in samples_LI.dtype.names:
             return (samples_LI['a1']*np.cos(samples_LI['theta1']) + samples_LI['a2']*np.cos(samples_LI['theta2']) )/2.
 #        return (samples_LI['a1']+ samples_LI['a2'])/2.
     if p == 'chiz_minus':
-        print " Transforming "
+        print(" Transforming ")
         if 'a1z' in samples_LI.dtype.names:
             return (samples_LI['a1z']- samples_LI['a2z'])/2.
         if 'theta1' in samples_LI.dtype.names:
@@ -138,7 +138,7 @@ def extract_combination_from_LI(samples_LI, p):
     if p == 'product(sin_beta,cos_phiJL)':
         return np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.cos(  samples_LI['phi_jl'])
 
-    print " No access for parameter ", p
+    print(" No access for parameter ", p)
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
 
 def add_field(a, descr):
@@ -166,7 +166,7 @@ def add_field(a, descr):
     True
     """
     if a.dtype.fields is None:
-        raise ValueError, "`A' must be a structured numpy array"
+        raise ValueError("`A' must be a structured numpy array")
     b = numpy.empty(a.shape, dtype=a.dtype.descr + descr)
     for name in a.dtype.names:
         b[name] = a[name]
@@ -232,7 +232,7 @@ else:
     dlist = []
     dlist_ranges = []
 if len(dlist) != len(dlist_ranges):
-    print " downselect parameters inconsistent", dlist, dlist_ranges
+    print(" downselect parameters inconsistent", dlist, dlist_ranges)
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
@@ -260,8 +260,8 @@ if opts.parameter_nofit:
 error_factor = len(coord_names)
 # TeX dictionary
 #tex_dictionary = lalsimutils.tex_dictionary
-print " Coordinate names for fit :, ", coord_names
-print " Coordinate names for Monte Carlo :, ", low_level_coord_names
+print(" Coordinate names for fit :, ", coord_names)
+print(" Coordinate names for Monte Carlo :, ", low_level_coord_names)
 #print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_level_coord_names)
 
 
@@ -315,7 +315,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
 
     # If we are loading a fit, override everything else
     if opts.fit_load_gp:
-        print " WARNING: Do not re-use fits across architectures or versions : pickling is not transferrable "
+        print(" WARNING: Do not re-use fits across architectures or versions : pickling is not transferrable ")
         my_gp=joblib.load(opts.fit_load_gp)
         return lambda x:my_gp.predict(x)
 
@@ -335,10 +335,10 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
         length_scale_min_here= np.max([1e-3,0.2*np.std(x[:,indx]/np.sqrt(len(x)))])
         length_scale_bounds_est.append( (length_scale_min_here , 5*np.std(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
 
-    print " GP: Input sample size ", len(x), len(y)
-    print " GP: Estimated length scales "
-    print length_scale_est
-    print length_scale_bounds_est
+    print(" GP: Input sample size ", len(x), len(y))
+    print(" GP: Estimated length scales ")
+    print(length_scale_est)
+    print(length_scale_bounds_est)
 
     if not (hypercube_rescale):
         # These parameters have been hand-tuned by experience to try to set to levels comparable to typical lnL Monte Carlo error
@@ -347,10 +347,10 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
 
         gp.fit(x,y)
 
-        print  " Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y) 
+        print(" Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y))
 
         if opts.fit_save_gp:
-            print " Attempting to save fit ", opts.fit_save_gp+".pkl"
+            print(" Attempting to save fit ", opts.fit_save_gp+".pkl")
             joblib.dump(gp,opts.fit_save_gp+".pkl")
         
         return lambda x: gp.predict(x)
@@ -358,7 +358,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
         x_scaled = np.zeros(x.shape)
         x_center = np.zeros(len(length_scale_est))
         x_center = np.mean(x)
-        print " Scaling data to central point ", x_center
+        print(" Scaling data to central point ", x_center)
         for indx in np.arange(len(x)):
             x_scaled[indx] = (x[indx] - x_center)/length_scale_est # resize
 
@@ -366,7 +366,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
         gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=8)
         
         gp.fit(x_scaled,y)
-        print  " Fit: std: ", np.std(y - gp.predict(x_scaled)),  "using number of features ", len(y)  # should NOT be perfect
+        print(" Fit: std: ", np.std(y - gp.predict(x_scaled)),  "using number of features ", len(y))  # should NOT be perfect
 
         return lambda x,x0=x_center,scl=length_scale_est: gp.predict( (x-x0 )/scl)
 
@@ -383,10 +383,10 @@ def fit_gp_pool(x,y,n_pool=10,**kwargs):
     partition_list = np.array_split(indx_list,n_pool)
     gp_fit_list =[]
     for part in partition_list:
-        print " Fitting partition "
+        print(" Fitting partition ")
         gp_fit_list.append(fit_gp(x[part],y[part],**kwargs))
     fn_out =  lambda x: np.mean( map_funcs( gp_fit_list,x), axis=0)
-    print " Testing ", fn_out([x[0]])
+    print(" Testing ", fn_out([x[0]]))
     return fn_out
 
 
@@ -404,7 +404,7 @@ n_params = -1
 col_lnL = 0
 dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
-print " Original data size = ", len(dat), dat.shape
+print(" Original data size = ", len(dat), dat.shape)
 
  ###
  ### Convert data.  
@@ -414,7 +414,7 @@ dat_out = []
 for line in dat:
   dat_here= np.zeros(len(coord_names)+2)
   if line[col_lnL+1] > opts.sigma_cut:
-      print "skipping", line
+      print("skipping", line)
       continue
   dat_here[:-2] = line[2:len(coord_names)+2]  # modify to use names!
   dat_here[-2] = line[0]
@@ -444,9 +444,9 @@ if not opts.no_plots:
 max_lnL = np.max(Y)
 indx_ok = Y>np.max(Y)-opts.lnL_offset
 # Provide some random points, to insure reasonable tapering behavior away from the sample
-print " Points used in fit : ", sum(indx_ok), " given max lnL ", max_lnL
+print(" Points used in fit : ", sum(indx_ok), " given max lnL ", max_lnL)
 if max_lnL < 10 and np.mean(Y) > -10: # second condition to allow synthetic tests not to fail, as these often have maxlnL not large
-    print " Resetting to use ALL input data -- beware ! "
+    print(" Resetting to use ALL input data -- beware ! ")
     # nothing matters, we will reject it anyways
     indx_ok = np.ones(len(Y),dtype=bool)
 elif sum(indx_ok) < 10: # and max_lnL > 30:
@@ -456,14 +456,14 @@ elif sum(indx_ok) < 10: # and max_lnL > 30:
     indx_list = np.array( [[k, Y[k]] for k in idx_sorted_index])     # pair up with the weights again
     indx_list = indx_list[::-1]  # reverse, so most significant are first
     indx_ok = map(int,indx_list[:10,0])
-    print " Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:10]
+    print(" Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:10])
 X_raw = X.copy()
 
 my_fit= None
 if True:
-    print " FIT METHOD : GP"
+    print(" FIT METHOD : GP")
     # some data truncation IS used for the GP, but beware
-    print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
+    print(" Truncating data set used for GP, to reduce memory usage needed in matrix operations")
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
@@ -588,7 +588,7 @@ if len(coord_names) ==10:
 n_step = 1e5
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
-print " Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto"
+print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto")
 
 res, var, neff, dict_return = sampler.integrate(likelihood_function, *coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
@@ -597,25 +597,25 @@ res, var, neff, dict_return = sampler.integrate(likelihood_function, *coord_name
 np.savetxt("integral_result.dat", [np.log(res)])
 
 if neff < len(coord_names):
-    print " PLOTS WILL FAIL "
-    print " Not enough independent Monte Carlo points to generate useful contours"
+    print(" PLOTS WILL FAIL ")
+    print(" Not enough independent Monte Carlo points to generate useful contours")
 
 
 
 
 samples = sampler._rvs
-print samples.keys()
+print(samples.keys())
 n_params = len(coord_names)
 dat_mass = np.zeros((len(samples[coord_names[0]]),n_params+3))
 dat_logL = np.log(samples["integrand"])
-print " Max lnL ", np.max(dat_logL)
+print(" Max lnL ", np.max(dat_logL))
 
 # Throw away stupid points that don't impact the posterior
 indx_ok = np.logical_and(dat_logL > np.max(dat_logL)-opts.lnL_offset ,samples["joint_s_prior"]>0)
 for p in coord_names:
     samples[p] = samples[p][indx_ok]
 dat_logL  = dat_logL[indx_ok]
-print samples.keys()
+print(samples.keys())
 samples["joint_prior"] =samples["joint_prior"][indx_ok]
 samples["joint_s_prior"] =samples["joint_s_prior"][indx_ok]
 
@@ -639,7 +639,7 @@ if not no_plots:
    if True:
     dat_out = []; dat_out_LI=[]
     p = coord_names[indx]
-    print " -- 1d cumulative "+ str(indx)+ ":"+ coord_names[indx]+" ----"
+    print(" -- 1d cumulative "+ str(indx)+ ":"+ coord_names[indx]+" ----")
     dat_here = samples[coord_names[indx]]
     range_x = [np.min(dat_here), np.max(dat_here)]
     for x in np.linspace(range_x[0],range_x[1],200):
@@ -658,16 +658,16 @@ if not no_plots:
     plt.savefig(p+"_cdf_nocut_beware.png"); plt.clf()
    else:
       plt.clf()  # clear plot, just in case
-      print " No 1d plot for variable"
+      print(" No 1d plot for variable")
 
 
 
-print " ---- Subset for posterior samples (and further corner work) --- " 
+print(" ---- Subset for posterior samples (and further corner work) --- ")
 
 # pick random numbers
 p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=opts.n_output_samples)
 if opts.verbose:
-    print " output size: selected thresholds N=", len(p_thresholds)
+    print(" output size: selected thresholds N=", len(p_thresholds))
 # find sample indexes associated with the random numbers
 #    - FIXME: first truncate the bad ones
 # idx_sorted_index = numpy.lexsort((numpy.arange(len(weights)), weights))  # Sort the array of weights, recovering index values
@@ -683,5 +683,5 @@ dat_out = np.zeros( (len(p_thresholds),len(coord_names)))
 for indx in np.arange(len(coord_names)):
     dat_out[:,indx] = samples[coord_names[indx]][indx_list]
 
-print " Saving to ", opts.fname_output_samples+".dat"
+print(" Saving to ", opts.fname_output_samples+".dat")
 np.savetxt(opts.fname_output_samples+".dat",dat_out,header=' '.join(coord_names))

@@ -48,6 +48,6 @@ for intrinsic in data_at_intrinsic.keys():
     wts = weight_simulations.AverageSimulationWeights(None, None,sigma)   
     lnLmeanMinusLmax = np.log(np.sum(np.exp(lnL - lnLmax)*wts))
     sigmaNetOverL = (np.sqrt(1./np.sum(1./sigma/sigma)))/np.exp(lnLmeanMinusLmax)
-    print intrinsic[0], intrinsic[1], lnLmeanMinusLmax+lnLmax, np.sum(neff), sigmaNetOverL
+    print(intrinsic[0], intrinsic[1], lnLmeanMinusLmax+lnLmax, np.sum(neff), sigmaNetOverL)
 
 

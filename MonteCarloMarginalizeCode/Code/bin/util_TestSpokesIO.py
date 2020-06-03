@@ -18,9 +18,9 @@ import RIFT.lalsimutils as lalsimutils
 import lal
 
 try:
-	from matplotlib import pyplot as plt
+        from matplotlib import pyplot as plt
 except:
-	print " no plots"
+        print(" no plots")
 ###
 ### Load options
 ###
@@ -43,10 +43,10 @@ opts=  parser.parse_args()
 if opts.fname and opts.mega_verbose:
  sdHere = spokes.LoadSpokeXML(opts.fname)
  for key in sdHere:
-    print " Spoke : ", key
+    print(" Spoke : ", key)
     for P in sdHere[key]:
         mtot = spokes.ChooseWaveformParams_to_spoke_mass(P)  # used so rounding is consistent
-        print mtot
+        print(mtot)
 
 
 ###
@@ -55,27 +55,27 @@ if opts.fname and opts.mega_verbose:
 
 if opts.fname_dat:
  sdHere = spokes.LoadSpokeDAT(opts.fname_dat)
- print " Spoke count : ", len(sdHere.keys())
+ print(" Spoke count : ", len(sdHere.keys()))
  fig_index =0
  for key in sdHere:
     sdHereCleaned = spokes.CleanSpokeEntries(sdHere[key])
-    print " Spoke ", key, len(sdHereCleaned)
+    print(" Spoke ", key, len(sdHereCleaned))
     if opts.mega_verbose:
      for spoke_entry in sdHere[key]:
-        print spoke_entry
-     print " --- cleaning --- "
+        print(spoke_entry)
+     print(" --- cleaning --- ")
      for spoke_entry in sdHereCleaned:
-        print spoke_entry
+        print(spoke_entry)
     if opts.test_refinement:
         #print sdHereCleaned[:,0], sdHereCleaned[:,1]
         code, xvals_new = spokes.Refine(sdHereCleaned[:,0], sdHereCleaned[:,1],xmin=1)  
-	if xvals_new is None:
-		continue
+        if xvals_new is None:
+                continue
         xvals_new = np.array(xvals_new)
         xvals_new = xvals_new[ xvals_new > 0]  # eliminate negtive masses!
 
         if opts.mega_verbose:
-           print code, xvals_new
+           print(code, xvals_new)
 
     if opts.verbose:
         fig_index+=1
@@ -105,9 +105,9 @@ if opts.fname and opts.fname_dat:
    sd_dat = spokes.LoadSpokeDAT(opts.fname_dat)
    sd_P =  sdHere = spokes.LoadSpokeXML(opts.fname)
 
-   print " --- Refinement: Writing XML --- "
-   print " data file ", len(sd_dat)
-   print " xml file ", len(sd_P)
+   print(" --- Refinement: Writing XML --- ")
+   print(" data file ", len(sd_dat))
+   print(" xml file ", len(sd_P))
 
    P_list = []
    nCount = 0;
@@ -122,20 +122,20 @@ if opts.fname and opts.fname_dat:
          P_sample.print_params()
       except:
          nFailures +=1
-         print " Failed cross lookup for ", spoke_id, nCount, " failure count = ", nFailures
+         print(" Failed cross lookup for ", spoke_id, nCount, " failure count = ", nFailures)
          continue
       # Clean
       sd_here =spokes.CleanSpokeEntries(sd_dat[spoke_id])
       # Refine: find mass values
       code, mvals_new = spokes.Refine(sd_here[:,0], sd_here[:,1])
       if mvals_new is None:
-	continue  # Failed
+              continue  # Failed
       mvals_new = np.array(mvals_new)
       mvals_new = mvals_new[ mvals_new > 0]  # eliminate negtive masses!
-      print key, len(sd_here), code, mvals_new
+      print(key, len(sd_here), code, mvals_new)
       if code == 'refined' or code =='extended':
          for m in mvals_new:
-            print m
+            print(m)
             P = P_sample.manual_copy()
             P.tref = P_sample.tref   # BE VERY CAREFUL: The structure swig-bound to store time is NOT a float, and requires careful memory management
             P.assign_param('mtot',m*lal.MSUN_SI)

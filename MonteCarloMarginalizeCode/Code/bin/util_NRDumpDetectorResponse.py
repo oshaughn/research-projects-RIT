@@ -16,7 +16,7 @@ import lalsimulation as lalsim
 import lal
 import sys
 
-import NRWaveformCatalogManager as nrwf
+import NRWaveformCatalogManager3 as nrwf
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--inj",default=None)
@@ -37,7 +37,7 @@ parser.add_argument("--approx",default='SEOBNRv2',help="Approximant to use for L
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
 opts = parser.parse_args()
 
-print " WARNING: Use this package only when you record TIME INFORMATION (i.e., --maximization-only). "
+print(" WARNING: Use this package only when you record TIME INFORMATION (i.e., --maximization-only). ")
 
 T_window = opts.seglen
 deltaT = 1./4096
@@ -46,21 +46,21 @@ bNoInteractivePlots=True # default
 fig_extension = '.png'
 try:
     import matplotlib
-    print " Matplotlib backend ", matplotlib.get_backend()
+    print(" Matplotlib backend ", matplotlib.get_backend())
     if matplotlib.get_backend() is 'MacOSX':
         if opts.save_plots:
-            print "  OSX without interactive plots"
+            print("  OSX without interactive plots")
             bNoInteractivePlots=True
             fig_extension='.png'
         else:  #  Interactive plots
-            print "  OSX with interactive plots"
+            print("  OSX with interactive plots")
             bNoInteractivePlots=False
     elif matplotlib.get_backend() is 'agg':
         fig_extension = '.png'
         bNoInteractivePlots=True
-        print " No OSX; no interactive plots "
+        print(" No OSX; no interactive plots ")
     else:
-        print " Unknown configuration "
+        print(" Unknown configuration ")
         fig_extension = '.png'
         bNoInteractivePlots =True
     from matplotlib import pyplot as plt
@@ -68,7 +68,7 @@ try:
 except:
     from matplotlib import pyplot as plt
     fig_extension = '.png'
-    print " - no matplotlib - "
+    print(" - no matplotlib - ")
     bNoInteractivePlots = False
     bNoPlots = True
 
@@ -78,12 +78,12 @@ if not nrwf.internal_ParametersAreExpressions[group]:
 else:
     param = eval(str(opts.param))
 if opts.verbose:
-    print "Importing ", group, param 
+    print("Importing ", group, param)
 
 
 ## LOAD INJECTION FILE
 #   - complete garbage as waveform entry, to make sure the code to load waveforms operates PERIOD
-print " Loading injection file ... "
+print(" Loading injection file ... ")
 # force_waveform='TaylorT4threePointFivePN',,force_taper='TAPER_NONE'
 P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))[opts.event]  # Load in the physical parameters of the inj
 
@@ -99,11 +99,11 @@ P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))[opts.event]  # 
 # print " Weight for this sample ", the_sample.alpha  + np.log(the_sample.alpha2/the+sample.alpha3)
 
 ## LOAD NR SIMULATION
-print " Loading NR simulation ... "
+print(" Loading NR simulation ... ")
 no_memory = False
 wfP = nrwf.WaveformModeCatalog(opts.group, param, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, extraction_radius=opts.rextr,lmax=opts.l,align_at_peak_l2_m2_emission=True,perturbative_extraction=opts.use_perturbative_extraction,use_provided_strain=opts.use_provided_strain)
 if opts.no_memory and wfP.P.SoftAlignedQ():
-    print " STRIPPING MEMORY"
+    print(" STRIPPING MEMORY")
     no_memory = True
 
 
@@ -134,7 +134,7 @@ t_ref = wfP.P.tref   # This SHOULD NOT BE USED, if you want to time-align your s
 if opts.t_ref:
     t_ref = float(opts.t_ref)
 else:
-    print " Warning: no reference time, it will be very difficult to time-align your signals "
+    print(" Warning: no reference time, it will be very difficult to time-align your signals ")
 for ifo in ['H1', 'L1', 'V1']:
     indx += 1
     fig_list[ifo] = indx
@@ -143,7 +143,7 @@ for ifo in ['H1', 'L1', 'V1']:
     data_dict_T[ifo] = wfP.real_hoft(no_memory=opts.no_memory,hybrid_use=opts.hybrid_use,hybrid_method=opts.hybrid_method)
     tvals = data_dict_T[ifo].deltaT*np.arange(data_dict_T[ifo].data.length) + float(data_dict_T[ifo].epoch)
     det = lalsim.DetectorPrefixToLALDetector(ifo)
-    print  ifo, " T_peak =", P.tref + lal.TimeDelayFromEarthCenter(det.location, P.phi, P.theta, P.tref) - t_ref
+    print(ifo, " T_peak =", P.tref + lal.TimeDelayFromEarthCenter(det.location, P.phi, P.theta, P.tref) - t_ref)
     if opts.verbose:
         plt.plot(tvals - wfP.P.tref, data_dict_T[ifo].data.data)
 

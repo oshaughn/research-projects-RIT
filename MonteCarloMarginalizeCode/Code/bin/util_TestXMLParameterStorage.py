@@ -21,7 +21,7 @@ for i in np.arange(5):
 
 lalsimutils.ChooseWaveformParams_array_to_xml(P_list_in, fname=opts.output_file)
 
-print " ------ "
+print(" ------ ")
 P_list_out = lalsimutils.xml_to_ChooseWaveformParams_array(opts.output_file+".xml.gz")
 
 for P in P_list_out:

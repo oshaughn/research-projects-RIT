@@ -10,4 +10,4 @@ Psig = ourparams.PopulatePrototypeSignal(opts)
 
 timeWaveform = lalsimutils.estimateWaveformDuration(Psig)
 
-print float(timeWaveform)
+print(float(timeWaveform))

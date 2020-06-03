@@ -23,13 +23,13 @@ import lalsimulation as lalsim
 from glue.ligolw import lsctables, table, utils
 from glue.lal import CacheEntry
 
-import ConfigParser
+import configparser as ConfigParser
 
 
 def unsafe_config_get(config,args,verbose=False):
     if verbose:
-        print " Retrieving ", args, 
-        print " Found ",eval(config.get(*args))
+        print( " Retrieving ", args) 
+        print( " Found ",eval(config.get(*args)))
     return eval( config.get(*args))
 
 def query_available_ifos(ifos_all,types,server,data_start,data_end,datafind_exe='gw_data_find'):
@@ -74,7 +74,7 @@ def query_available_ifos_viadq(ifos_all,data_start,data_end):
 def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_data_find', retrieve=False,machine_with_files="ldas-pcdev1.ligo.caltech.edu"):
     fname_out_raw = ifo_base[0]+"_raw.cache"
     fname_out = ifo_base[0]+"_local.cache"
-    print [ifo_base, types, server, data_start, data_end]
+    print([ifo_base, types, server, data_start, data_end])
     cmd = datafind_exe + ' -u file --gaps -o ' + ifo_base[0] + ' -t ' + types + ' --server ' + server + ' -s ' + str(data_start) + ' -e ' + str(data_end) + " > " +fname_out_raw
     os.system(cmd)b
 
@@ -89,7 +89,7 @@ def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_d
                 f.write(line)
 
     else:
-        print " Trying to transfer files necessary from ", machine_with_files
+        print(" Trying to transfer files necessary from ", machine_with_files)
         os.system("mkdir -f frames")
         with open(fname_out_raw,'r') as f:
             lines = f.readlines()
@@ -109,10 +109,10 @@ def ldg_make_cache(retrieve=False):
 def ldg_make_psd(ifo, channel_name,psd_start_time,psd_end_time,srate=4096,use_gwpy=False, force_regenerate=False,working_directory="."):
     psd_fname = ifo + "-psd.xml.gz"
     if (not force_regenerate) and os.path.isfile(working_directory+"/"+psd_fname):
-        print " File exists : ", psd_fname
+        print(" File exists : ", psd_fname)
         return True
     cmd = "gstlal_reference_psd --verbose --channel-name " + ifo + "=" + channel_name + " --gps-start-time " + str(int(psd_start_time)) + " --gps-end-time " + str(int(psd_end_time)) + " --write-psd " + psd_fname + " --data-source frames --frame-cache local.cache --sample-rate " + str(srate)
-    print cmd
+    print(cmd)
     os.system(cmd)
     return True
 
@@ -125,7 +125,7 @@ def get_observing_run(t):
     for run in observing_run_time:
         if  t > observing_run_time[run][0] and t < observing_run_time[run][1]:
             return run
-    print " No run available for time ", t, " in ", observing_run_time
+    print(" No run available for time ", t, " in ", observing_run_time)
     return None
 
 
@@ -260,7 +260,7 @@ data_types["O2"][("C00", "V1")] = "V1Online"
 data_types["O2"][("C02", "V1")] = "V1O2Repro2A"
 standard_channel_names["O2"][("C02", "V1")] = "Hrec_hoft_V1O2Repro2A_16384Hz"
 if opts.verbose:
-    print standard_channel_names["O2"]
+    print(standard_channel_names["O2"])
 
 # Replay data
 if opts.playground_data:
@@ -315,7 +315,7 @@ if opts.online:
     standard_channel_names["O3"][("C00", "V1")] = "Hrec_hoft_16384Hz"
 
 if opts.verbose:
-    print standard_channel_names["O3"]
+    print(standard_channel_names["O3"])
 
 
 
@@ -323,14 +323,14 @@ if opts.verbose:
 datafind_server = None
 try:
    datafind_server = os.environ['LIGO_DATAFIND_SERVER']
-   print " LIGO_DATAFIND_SERVER ", datafind_server
+   print(" LIGO_DATAFIND_SERVER ", datafind_server)
 except:
-  print " No LIGO_DATAFIND_SERVER "
+  print(" No LIGO_DATAFIND_SERVER ")
   datafind_server = "datafind.ligo.org:443"
 if opts.datafind_server:
     datafind_server = opts.datafind_server
 if (datafind_server is None) and not (opts.fake_data):
-    print " FAIL: No data !"
+    print(" FAIL: No data !")
 
 ###
 ### Import event and PSD: Manual branch
@@ -340,7 +340,7 @@ use_gracedb_event = False
 if not(opts.gracedb_id is None):
     use_gracedb_event = True
 elif opts.sim_xml:  # right now, configured to do synthetic data only...should be able to mix/match
-    print "====Loading injection XML:", opts.sim_xml, opts.event, " ======="
+    print("====Loading injection XML:", opts.sim_xml, opts.event, " =======")
     P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))[opts.event]
     P.radec =False  # do NOT propagate the epoch later
     P.fref = opts.fmin_template
@@ -378,7 +378,7 @@ if use_gracedb_event:
             line = line.split(':')
             param = line[0]
             if opts.verbose:
-                print " Parsing line ", line
+                print(" Parsing line ", line)
             if param in ['MChirp', 'MTot', "SNR","Frequency"]: # add a cwb parameter
                 event_dict[ line[0]]  = float(line[1])
             elif 'ime' in param: # event time
@@ -399,7 +399,7 @@ if use_gracedb_event:
         try:
             event_duration = row.event_duration # may not exist
         except:
-            print " event_duration field not in XML "
+            print(" event_duration field not in XML ")
     event_dict["m1"] = row.mass1
     event_dict["m2"] = row.mass2
     event_dict["s1z"] = row.spin1z
@@ -426,7 +426,7 @@ if use_gracedb_event:
             cmd += " --ifo " + ifo
         os.system(cmd)
   except:
-      print " ==> probably not a CBC event, attempting to proceed anyways, FAKING central value <=== "
+      print(" ==> probably not a CBC event, attempting to proceed anyways, FAKING central value <=== ")
       P=lalsimutils.ChooseWaveformParams()
       # For CWB triggers, should use event.log file to pull out a central frequency
       P.m1=P.m2= 50*lal.MSUN_SI  # make this up completely, just so code will run, goal is higher mass than this, watch out for mc range
@@ -439,14 +439,14 @@ if use_gracedb_event:
 if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
 
-print " Event analysis ", event_dict
-if ( "P" in event_dict.keys()):
-    print " == candidate event parameters (as passed to helper) == "
+print(" Event analysis ", event_dict)
+if (opts.event_time is None):
+    print( " == candidate event parameters (as passed to helper) == ")
     event_dict["P"].print_params()
     if not(opts.event_time is None):
         event_dict["tref"] = opts.event_time
 elif not(opts.event_time is None):
-    print  " == Using event time only; please specify a grid! == "
+    print(  " == Using event time only; please specify a grid! == ")
     event_dict["tref"]  = opts.event_time
     event_dict["epoch"] = 4
     if not("IFOs" in event_dict.keys()):
@@ -458,7 +458,7 @@ elif not(opts.event_time is None):
         event_dict["MChirp"] = event_dict["P"].extract_param('mc')/lal.MSUN_SI  # note this is RANDOM
     else:
         event_dict["P"].assign_param('mc', event_dict["MChirp"]*lal.MSUN_SI)
-    print event_dict["MChirp"]
+    print( event_dict["MChirp"])
 
 # Use event GPS time to set observing run, if not provided.  Insures automated operation with a trivial settings file does good things.
 if (opts.observing_run is None) and not opts.fake_data:
@@ -515,7 +515,7 @@ if opts.check_ifo_availability and not opts.use_online_psd:  # online PSD only a
     # Do not override the original IFO list, build from the list of PSD files or otherwise
     original_list = event_dict["IFOs"] 
     event_dict["IFOs"] = list( set( original_list+query_available_ifos_viadq(["H1","L1","V1"],data_start_time_orig,data_end_time)))
-    print " IFO list to use ", event_dict["IFOs"]
+    print( " IFO list to use ", event_dict["IFOs"])
 
 # define channel names
 ifos = event_dict["IFOs"]
@@ -606,9 +606,9 @@ if not opts.cache:  # don't make a cache file if we have one!
 # If needed, build PSDs
 transfer_files=[]
 if (opts.psd_file is None) and (not opts.use_online_psd) and not (opts.assume_fiducial_psd_files):
-    print " PSD construction "
+    print(" PSD construction ")
     for ifo in event_dict["IFOs"]:
-        print " Building PSD  for ", ifo
+        print(" Building PSD  for ", ifo)
         try:
             ldg_make_psd(ifo, channel_names[ifo], psd_data_start_time, psd_data_end_time, working_directory=opts.working_directory)
             if not opts.use_osg:
@@ -616,7 +616,7 @@ if (opts.psd_file is None) and (not opts.use_online_psd) and not (opts.assume_fi
             else:
                 psd_names[ifo] =  ifo + "-psd.xml.gz"
         except:
-            print "  ... PSD generation failed! "
+            print("  ... PSD generation failed! ")
             sys.exit(1)
 elif (opts.assume_fiducial_psd_files):
     for ifo in event_dict["IFOs"]:
@@ -644,7 +644,7 @@ if opts.gracedb_id: #opts.propose_initial_grid_includes_search_error:
 if opts.force_grid_stretch_mc_factor:
     fac_search_correct =  opts.force_grid_stretch_mc_factor
 ln_mc_error_pseudo_fisher = 1.5*np.array([1,fac_search_correct])*0.3*(v_PN_param/v_PN_param_max)**(7.)/snr_fac  # this ignores range due to redshift / distance, based on a low-order estimate
-print "  Logarithmic mass error interval base ", ln_mc_error_pseudo_fisher
+print("  Logarithmic mass error interval base ", ln_mc_error_pseudo_fisher)
 if ln_mc_error_pseudo_fisher[0] >1:
     ln_mc_errors_pseudo_fisher =np.array([0.8,0.8])   # stabilize
 mc_min_tight, mc_min = np.exp( - ln_mc_error_pseudo_fisher)*mc_center  # conservative !  Should depend on mc, use a Fisher formula. Does not scale to BNS
@@ -793,7 +793,7 @@ if opts.lowlatency_propose_approximant:
         #   ... note that data_start_time was defined BEFORE with the datafind job
         T_window_raw = 1.1/lalsimutils.estimateDeltaF(P)  # includes going to next power of 2, AND a bonus factor of a few
         T_window_raw = np.max([T_window_raw,4])  # can't be less than 4 seconds long
-        print " Time window : ", T_window_raw, " based on fmin  = ", P.fmin
+        print(" Time window : ", T_window_raw, " based on fmin  = ", P.fmin)
         data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
         data_end_time = int(P.tref + 2)
         helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape 0.01"
@@ -892,7 +892,7 @@ if opts.propose_initial_grid:
     if not (opts.force_initial_grid_size is None):
         grid_size = opts.force_initial_grid_size
     cmd += " --grid-cartesian-npts  " + str(int(grid_size))
-    print " Executing grid command ", cmd
+    print(" Executing grid command ", cmd)
     os.system(cmd)
 
     # if opts.assume_matter:
@@ -927,7 +927,7 @@ if opts.propose_ile_convergence_options:
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
 if not opts.lowlatency_propose_approximant:
-    print " helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max "
+    print(" helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max ")
 
 #if opts.last_iteration_extrinsic:
 #    helper_cip_args += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 5000 "
@@ -940,7 +940,7 @@ if event_dict["MChirp"] >25:
 if opts.propose_fit_strategy:
     puff_max_it= 0
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
-    print " Fit strategy NOT IMPLEMENTED -- currently just provides basic parameterization options. Need to work in real strategies (e.g., cip-arg-list)"
+    print(" Fit strategy NOT IMPLEMENTED -- currently just provides basic parameterization options. Need to work in real strategies (e.g., cip-arg-list)")
     lnLoffset_late = 15 # default
     helper_cip_args += ' --no-plots --fit-method {}  --parameter mc --parameter delta_mc '.format(fit_method)
     if 'gp' in fit_method:

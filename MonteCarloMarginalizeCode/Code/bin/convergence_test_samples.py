@@ -35,7 +35,7 @@ parser.add_argument("--iteration",default=0,type=int,help="Current reported iter
 opts=  parser.parse_args()
 
 if len(opts.samples)<2:
-    print " Need at least two sets of samples"
+    print(" Need at least two sets of samples")
     sys.exit(1)
 
 if opts.iteration < opts.iteration_threshold:
@@ -128,8 +128,8 @@ elif opts.method == 'KS_1d':
 elif opts.method == 'KL_1d':
     val_test = test_KL1d(dat1[:,0],dat2[:,0])
 else:
-    print " No known method ", opts.method
-print  val_test
+    print(" No known method ", opts.method)
+print(val_test)
 
 if opts.always_succeed or (opts.threshold is None):
     sys.exit(0)

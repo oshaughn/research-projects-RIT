@@ -162,7 +162,7 @@ def PhaseDerivativeSeries(P,p1,skip_fast_derivative=False):
     PhaseDerivativeSeries
     Using the waveform, constructs an array on a *full* range of f values which is nonzero *only for f>0*
     """
-    print  " Phase derivatives for ", p1
+    print(" Phase derivatives for ", p1)
     Phere = P.manual_copy()
     fvals,fmax_safe, tF,PhiF,alphaF,betaF,gammaF = lalsimutils.PrecessingOrbitModesOfFrequencyApproximate(Phere,2,return_phases=True)
     # zero out all components except that which satisfy conditions. Easiest way to keep on consistent sample
@@ -225,7 +225,7 @@ def PhaseDerivativeSeries(P,p1,skip_fast_derivative=False):
     n = len(fvals)
     n1 = len(fvals_1)
     if (1.*n/n1)<0.99 or 1.*n/n1 >1.01:
-        print "  Catastrophic length change when computing phase derivative "
+        print("  Catastrophic length change when computing phase derivative ")
         sys.exit(0)
     
 
@@ -291,7 +291,7 @@ def EffectiveFisherMatrixElement(P,p1,p2,psd,max_t=True,**kwargs):
         z = np.polyfit(xvals,yvals,2)
         return -0.5*z[0]*np.sign( xvals[-1]-xvals[0])   # coefficient of quadratic
     else:
-        print " Off-diagonal elements not yet implemented"
+        print(" Off-diagonal elements not yet implemented")
         sys.exit(0)
 
 
@@ -400,12 +400,12 @@ def ApproximatePrecessingFisherMatrixElementFactor(P, p1,p2,m,s,psd,phase_deriv_
             # Warming: this uses the explicit assumption \gamma - -alpha cos beta
             # Warning: you probably never want this unless geometric_factor=1
             if not omit_geometric_factor:
-                print " You are extracting a breakdown of the fisher matrix versus beta, but are not fixing  the geometric factor...are you sure?"
+                print(" You are extracting a breakdown of the fisher matrix versus beta, but are not fixing  the geometric factor...are you sure?")
             ret_00 = np.sum(P.deltaF*phase_weights*geometric_factor*( dPsi2F)*(dPsi2F_2 ))
             ret_01 = np.sum(P.deltaF*phase_weights*geometric_factor*( dPsi2F)*(dalphaF_2 ))
             ret_10 = np.sum(P.deltaF*phase_weights*geometric_factor*( dalphaF)*(dPsi2F_2 ))
             ret_11 = np.sum(P.deltaF*phase_weights*geometric_factor*( dalphaF)*(dalphaF_2))
-            print "  -- submatrix ", p1,p2, ret_00, ret_01, ret_10, ret_11
+            print("  -- submatrix ", p1,p2, ret_00, ret_01, ret_10, ret_11)
             return rhoms2,{"00":ret_00, "01":ret_01, "10": ret_10, "11": ret_11}
 
 #    print " Internal fisher element", geometric_factor, rhoms2, ret

@@ -28,14 +28,14 @@ def append_lambda_to_xml(file_name, eos_name,file_name_out=None):
 
     eos,eos_fam=table.get_lalsim_eos(eos_name)
 
-    print "Writing to xml:" 
-    print "Event  m1  m2  lambda1  lambda2"
+    print("Writing to xml:")
+    print("Event  m1  m2  lambda1  lambda2")
     for i in np.arange(len(param_list)):
        m1=param_list[i].m1
        m2=param_list[i].m2
        param_list[i].lambda1=calc_lambda_from_m(m1,eos_fam)
        param_list[i].lambda2=calc_lambda_from_m(m2,eos_fam)
-       print i,"[",param_list[i].m1/lal.MSUN_SI,param_list[i].m2/lal.MSUN_SI,param_list[i].lambda1,param_list[i].lambda2,"]"
+       print(i,"[",param_list[i].m1/lal.MSUN_SI,param_list[i].m2/lal.MSUN_SI,param_list[i].lambda1,param_list[i].lambda2,"]")
 
 
     if file_name_out is None:

@@ -18,7 +18,8 @@ from time import time
 
 from sklearn.base import BaseEstimator
 from sklearn.utils import check_random_state, check_array
-from sklearn.utils.extmath import logsumexp
+#from sklearn.utils.extmath import logsumexp
+from scipy.special import logsumexp  # error in scipy docs
 from sklearn.utils.validation import check_is_fitted
 from sklearn import cluster
 
@@ -847,7 +848,7 @@ def load_model(data, random_state=None):
 
     # Count the number of components necessary
     K_total = 0
-    for name, group in data.iteritems():
+    for name, group in data.items():
         if not name.startswith("class") or group.attrs["weight"] == 0:
             continue
         K_total += group.attrs["K_best"]
@@ -859,7 +860,7 @@ def load_model(data, random_state=None):
     covars = numpy.empty((K_total, ndim, ndim))
 
     i = 0
-    for name, group in data.iteritems():
+    for name, group in data.items():
         if not name.startswith("class") or group.attrs["weight"] == 0:
             continue
 

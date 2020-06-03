@@ -19,13 +19,13 @@ from multiprocessing import Pool
 try:
     import os
     n_threads = int(os.environ['OMP_NUM_THREADS'])
-    print " Pool size : ", n_threads
+    print(" Pool size : ", n_threads)
 except:
     n_threads=1
-    print " - No multiprocessing - "
+    print(" - No multiprocessing - ")
 
 try:
-	import NRWaveformCatalogManager as nrwf
+	import NRWaveformCatalogManager3 as nrwf
 	hasNR =True
 except:
 	hasNR=False
@@ -85,7 +85,7 @@ for line in dat:
     try:
       if len(matches)> 2:
             
-        print  "   Attempting to pick the longest simulation matching  the simulation from ", matches
+        print("   Attempting to pick the longest simulation matching  the simulation from ", matches)
         MOmega0  = 1
         tmax = -1
         good_sim = None
@@ -108,7 +108,7 @@ for line in dat:
 
     if len(matches)>0:
         if opts.verbose:
-            print matches[0][0], matches[0][1], line[9], line[10], line[11], line[12]
+            print(matches[0][0], matches[0][1], line[9], line[10], line[11], line[12])
         if best_matches.has_key((matches[0])):
             if best_matches[matches[0]] < line[9]:
 #                print " Replacing "
@@ -122,7 +122,7 @@ for line in dat:
             q = m2/m1
             best_matches_xi[matches[0]] = (s1z + q*s2z)/(1+q)  # assumes simulation L is parallel to z
 
-print " -----  BEST MATCHES ------ "  # unsorted
+print(" -----  BEST MATCHES ------ ")  # unsorted
 for key in best_matches:
     tmax =0
     if nrwf.internal_EstimatePeakL2M2Emission[key[0]].has_key(key[1]):
@@ -133,4 +133,4 @@ for key in best_matches:
         af = nrwf.internal_WaveformMetadata[key[0]][key[1]]['ChiFMagnitude']
     if nrwf.internal_WaveformMetadata[key[0]][key[1]].has_key('MF'):
         Mf = nrwf.internal_WaveformMetadata[key[0]][key[1]]['MF']
-    print best_matches[key], key,   best_matches_masses[key][0], best_matches_masses[key][1], tmax, best_matches_xi[key], Mf, af
+    print(best_matches[key], key,   best_matches_masses[key][0], best_matches_masses[key][1], tmax, best_matches_xi[key], Mf, af)

@@ -28,13 +28,13 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
     x0_val = np.zeros(len(x[0]))
     if not (x0 is None):
         if verbose:
-            print " Fisher: Using reference point ", x0
+            print(" Fisher: Using reference point ", x0)
         x0_val = x0
 
     dim = len(x[0])   
     npts = len(x)
     if verbose:
-        print " Fisher : dimension, npts = " ,dim, npts
+        print(" Fisher : dimension, npts = " ,dim, npts)
     # Constant, linear, quadratic functions. 
     # Beware of lambda:  f_list = [(lambda x: k) for k in range(5)] does not  work, but this does
     #     f_list = [(lambda x,k=k: k) for k in range(5)]
@@ -55,7 +55,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
             if variable_symmetry_list:
                 if variable_symmetry_list[k]*variable_symmetry_list[q] <0: 
                     if verbose:
-                        print " Not including quadratic term because of symmetry", (k,q)
+                        print(" Not including quadratic term because of symmetry", (k,q))
                     continue  # skip the remaining part
             f_quad.append( (lambda z,k=k,q=q: (z.T[k] - x0_val[k])*(z.T[q]-x0_val[q]))   )
             indx_lookup[(k,q)] = indx_here
@@ -63,9 +63,9 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
     f_list=f0+f_linear + f_quad
     n_params_model = len(f_list)
     if verbose:
-        print " ---- Dimension:  --- ", n_params_model
-        print " ---- index pattern (paired only; for manual identification of quadratic terms) --- "
-        print indx_lookup
+        print(" ---- Dimension:  --- ", n_params_model)
+        print(" ---- index pattern (paired only; for manual identification of quadratic terms) --- ")
+        print(indx_lookup)
     # if verbose:
     #     print " ---- check quadratic --- "
     #     for pair in indx_lookup:
@@ -90,14 +90,14 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
     if n_digits:
         lambdaHat = np.array(map(lambda z: round(z,n_digits),lambdaHat))
     if verbose:
-        print " Fisher: LambdaHat = ", lambdaHat
+        print(" Fisher: LambdaHat = ", lambdaHat)
     if verbose:
-        print " Generating predictive function "
+        print(" Generating predictive function ")
     def fit_here(x):
-        return  np.sum(map(lambda z: z[1]*z[0](x), zip(f_list,lambdaHat) ),axis=0)
+        return  np.sum(list(map(lambda z: z[1]*z[0](x), zip(f_list,lambdaHat) )),axis=0)
     if verbose:
         my_resid = y - fit_here(x)
-        print " Fisher: Residuals ", np.std(my_resid)
+        print(" Fisher: Residuals ", np.std(my_resid))
 
     ###
     ### Reconstructing quadratic terms: a bonus item
@@ -113,17 +113,17 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
     if not(prior_x_gamma is None) and (prior_x_gamma.shape == my_fisher_est.shape):
         my_fisher_est += prior_x_gamma
     if verbose:
-        print "  Fisher: ", my_fisher_est
-        print "  Fisher: Sanity check (-0.5)*Fisher matrix vs components (diagonal only) : ", -0.5*my_fisher_est, "versus",  lambdaHat
+        print("  Fisher: ", my_fisher_est)
+        print("  Fisher: Sanity check (-0.5)*Fisher matrix vs components (diagonal only) : ", -0.5*my_fisher_est, "versus",  lambdaHat)
     my_fisher_est_inv = linalg.inv(my_fisher_est)   # SEE INVERSE DISCUSSION
     if verbose:
-        print " Fisher: Matrix inversion/manipulation error test 2", np.linalg.norm(np.dot(my_fisher_est,my_fisher_est_inv) - np.eye(len(my_fisher_est)))
+        print(" Fisher: Matrix inversion/manipulation error test 2", np.linalg.norm(np.dot(my_fisher_est,my_fisher_est_inv) - np.eye(len(my_fisher_est))))
     peak_val_est = float(constant_term_est) +np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2
     best_val_est = x0_val +  np.dot(my_fisher_est_inv,linear_term_est)   # estimated peak location, including correction for reference point
     if verbose:
-        print " Fisher : Sanity check: peak value estimate = ", peak_val_est, " which arises as a delicate balance between ",  constant_term_est, " and ",  np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2
-        print " Fisher : Best coordinate estimate = ", best_val_est
-        print " Fisher : eigenvalues (original) ", np.linalg.eig(my_fisher_est)
+        print(" Fisher : Sanity check: peak value estimate = ", peak_val_est, " which arises as a delicate balance between ",  constant_term_est, " and ",  np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2)
+        print(" Fisher : Best coordinate estimate = ", best_val_est)
+        print(" Fisher : eigenvalues (original) ", np.linalg.eig(my_fisher_est))
 
     if hard_regularize_negative:
         w,v = np.linalg.eig(my_fisher_est)
@@ -167,9 +167,9 @@ if __name__ == "__main__":
     import numpy as np
 
 
-    print " Testing quadratic fit code "
+    print(" Testing quadratic fit code ")
 
-    print " Two dimensions "
+    print(" Two dimensions ")
     x1 = np.linspace(-5,5,40)
     x2 = np.linspace(-1,1,10)
     x1v,x2v = np.meshgrid(x1,x2) # 
@@ -180,14 +180,14 @@ if __name__ == "__main__":
     x = np.array([x1f,x2f]).T
       
     the_quadratic_results = fit_quadratic( x,y,verbose=True,x0=np.array([0,0]),n_digits=5 )
-    print the_quadratic_results
+    print(the_quadratic_results)
 
-    print " Two dimensions, imposing symmetry "
+    print(" Two dimensions, imposing symmetry ")
     the_quadratic_results = fit_quadratic( x,y,verbose=True,x0=np.array([0,0]),n_digits=5,variable_symmetry_list=[1,-1] )
-    print the_quadratic_results
+    print(the_quadratic_results)
 
 
-    print " One dimesion "
+    print(" One dimesion ")
     x = np.linspace(-5,5,10)
     x_mtx = np.zeros((len(x),1))
     x_mtx[:,0] = x
@@ -195,7 +195,7 @@ if __name__ == "__main__":
     the_quadratic_results = fit_quadratic( x_mtx,y,verbose=True)
     
 
-    print " Two dimensions, resampling "
+    print(" Two dimensions, resampling ")
     x1 = np.linspace(-5,5,40)
     x2 = np.linspace(-1,1,10)
     x1v,x2v = np.meshgrid(x1,x2) # 
@@ -205,8 +205,8 @@ if __name__ == "__main__":
     x = np.array([x1f,x2f]).T
       
     x_new = fit_quadratic_and_resample(x,y,10)
-    print x_new
-    print np.mean(x_new[:,0]), np.std(x_new[:,0]), " Should be 0.5, ~ 0.1 "
-    print np.mean(x_new[:,1]), np.std(x_new[:,1]), " Should be 0, ~ 0.1"
+    print(x_new)
+    print(np.mean(x_new[:,0]), np.std(x_new[:,0]), " Should be 0.5, ~ 0.1 ")
+    print(np.mean(x_new[:,1]), np.std(x_new[:,1]), " Should be 0, ~ 0.1")
 
 

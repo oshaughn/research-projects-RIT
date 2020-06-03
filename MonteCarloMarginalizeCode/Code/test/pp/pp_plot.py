@@ -40,7 +40,7 @@ pvalFiducial = 0.9 # fiducial credible level for outermost CI.  (Will change dep
 
 def binomial_credible_interval_default(phat,n,nParams=2):
     z_fiducial = norm.ppf((  np.power(1-(1.-pvalFiducial)/2, 1./nParams)))
-    print "fiducial z", z_fiducial, " for nParams = ",nParams
+    print("fiducial z", z_fiducial, " for nParams = ",nParams)
     return  binomial_credible_interval(phat,n, z_fiducial)
 
 import sys
@@ -49,9 +49,9 @@ dat = np.genfromtxt(sys.argv[1],filling_values=1e9,invalid_raise=False,usecols=t
 if False:
     # Stripping invalid entries: only works if last column *used* is correctly loaded, and we retain all output parameters
     len_orig = len(dat)
-    print dat[:,-1]
+    print(dat[:,-1])
     dat = dat[ dat[:,-1]<1e-2]
-    print " Reducing size from ", len_orig, " to ", len(dat)
+    print(" Reducing size from ", len_orig, " to ", len(dat))
 if len(sys.argv) > 3:
     param_labels=eval(sys.argv[3])#sys.argv[3].split()  # assume a string is passed, with whitespace
 else:
@@ -63,7 +63,7 @@ for indx in np.arange(nParams):
     pvals_emp = np.arange(len(dat))*1.0/len(dat) 
     plt.scatter(pvals,pvals_emp,label='$'+param_labels[indx]+'$')
     # KS test, single instance
-    print " KS {} ".format(param_labels[indx]), scipy.stats.kstest(pvals,'uniform')
+    print(" KS {} ".format(param_labels[indx]), scipy.stats.kstest(pvals,'uniform'))
     
 
 xvals = np.linspace(0,1,100)

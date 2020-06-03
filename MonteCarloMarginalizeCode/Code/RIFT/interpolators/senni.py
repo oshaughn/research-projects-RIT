@@ -93,7 +93,7 @@ class Interpolator(object): # interpolator
             for dim in xrange(self.n_inputs):
                   self.store_mu_x[dim] = np.mean(input[:,dim])
                   self.store_sigma_x[dim] = np.std(input[:,dim])
-                  print " Computing scaling factors on raw data ", dim, self.store_mu_x[dim], self.store_sigma_x[dim]
+                  print( " Computing scaling factors on raw data ", dim, self.store_mu_x[dim], self.store_sigma_x[dim])
 
             input_train, target_train, errors_train, input_valid, target_valid, errors_valid, input_test, target_test, errors_test \
             = self.set_separation(input, target, errors, frac, test_frac)
@@ -102,7 +102,7 @@ class Interpolator(object): # interpolator
             # also use the WHOLE sample to get the scaling factors
             target_copy = np.copy(target)
             _, self.target_mu, self.target_sigma = self.preprocessing(target_copy)
-            print " Computing scaling factors on scaled output ", self.target_mu, self.target_sigma
+            print( " Computing scaling factors on scaled output ", self.target_mu, self.target_sigma)
 
             # Create copies to extend, based on input values
             #  - do *not* try to edit these on the fly, since we need to loop through the *original* sample
@@ -353,7 +353,7 @@ class Interpolator(object): # interpolator
                   
 
                   if validation_loss < 1e-6:
-                      print "   ... should we stop? "
+                      print( "   ... should we stop? ")
                       break
 
                   if validation_loss < validation_threshold:
@@ -372,18 +372,18 @@ class Interpolator(object): # interpolator
                   self.sched.step()
                   
                   if debug:
-                      print "Epoch %d out of %d complete" % (epoch, self.epochs), '  loss ', validation_loss
+                      print( "Epoch %d out of %d complete" % (epoch, self.epochs), '  loss ', validation_loss)
 
             if self.loss_func == 'mape':
                 self.train_loss = self.MAPEloss(self.net(self.input_train), self.target_train, self.target_mu, self.target_sigma)
                 self.valid_loss = self.MAPEloss(self.net(self.input_valid), self.target_valid, self.target_mu, self.target_sigma)
                 if debug:
-                    print "   Loss (MAPE) ", self.train_loss, self.valid_loss
+                    print( "   Loss (MAPE) ", self.train_loss, self.valid_loss)
             if self.loss_func == 'chi2':
                 self.train_loss = self.reducedchisquareloss(self.net(self.input_train), self.target_train, self.errors_train)
                 self.valid_loss = self.reducedchisquareloss(self.net(self.input_valid), self.target_valid, self.errors_valid)
                 if debug:
-                    print "   Loss (chi2) ", self.train_loss, self.valid_loss
+                    print( "   Loss (chi2) ", self.train_loss, self.valid_loss)
 
       def save(self, filename):
             '''
@@ -393,7 +393,7 @@ class Interpolator(object): # interpolator
                   'model_state_dict': self.net.state_dict(),
                   'optimizer_state_dict': self.optim.state_dict(),
                   }, filename)
-            print 'Model saved under %s with training loss %f and validation loss %f' % (filename, self.train_loss, self.valid_loss)
+            print( 'Model saved under %s with training loss %f and validation loss %f' % (filename, self.train_loss, self.valid_loss))
 
       def load(self, filename):
             '''
@@ -402,7 +402,7 @@ class Interpolator(object): # interpolator
             savedmodel = torch.load(filename)
             self.net.load_state_dict(savedmodel['model_state_dict'])
             self.optim.load_state_dict(savedmodel['optimizer_state_dict'])
-            print 'Loaded model %s' % filename
+            print( 'Loaded model %s' % filename)
             return
 
       def evaluate(self, input):
@@ -460,7 +460,7 @@ class AdaptiveInterpolator(Interpolator):
 
             import numpy as np
 
-            print 'Using adaptive training...'
+            print('Using adaptive training...')
 
             super(AdaptiveInterpolator, self).train()
 
@@ -468,7 +468,7 @@ class AdaptiveInterpolator(Interpolator):
 
                   self.hlayer_size /= 2
 
-                  print 'Decreasing until reasonable layer size reached, currently trying %d' % self.hlayer_size
+                  print('Decreasing until reasonable layer size reached, currently trying %d' % self.hlayer_size)
 
                   Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size, p_drop=self.p_drop,
                    epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, weight_decay=self.weight_decay, epochs_per_lr=self.epochs_per_lr, 
@@ -491,7 +491,7 @@ class AdaptiveInterpolator(Interpolator):
 
                   self.hlayer_size = int(size)
 
-                  print 'Looping through layer sizes, currently at %d' % self.hlayer_size
+                  print('Looping through layer sizes, currently at %d' % self.hlayer_size)
 
                   Interpolator.__init__(self, self.input, self.target, self.errors, frac=self.frac, test_frac=self.test_frac, hlayer_size=self.hlayer_size, p_drop=self.p_drop,
                    epochs=self.epochs, learning_rate=self.learning_rate, betas=self.betas, eps=self.eps, weight_decay=self.weight_decay, epochs_per_lr=self.epochs_per_lr, 
@@ -512,6 +512,6 @@ class AdaptiveInterpolator(Interpolator):
                    lr_divisions=self.lr_divisions, lr_frac=self.lr_frac, batch_size=self.batch_size, shuffle=self.shuffle, working_dir=self.working_dir,
                    loss_func=self.loss_func, no_pad=self.no_pad)
 
-            print '-------OPTIMAL HIDDEN LAYERS FOUND TO BE %d, RE-TRAINING WITH THIS SETTING-------' % self.hlayer_size
+            print( '-------OPTIMAL HIDDEN LAYERS FOUND TO BE %d, RE-TRAINING WITH THIS SETTING-------' % self.hlayer_size)
 
             super(AdaptiveInterpolator, self).train()

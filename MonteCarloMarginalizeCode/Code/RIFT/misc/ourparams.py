@@ -16,10 +16,10 @@ from glue.ligolw import utils, lsctables, table, ligolw
 
 try:
     hasNR=True
-    import NRWaveformCatalogManager as nrwf
+    import NRWaveformCatalogManager3 as nrwf
 except:
     hasNR=False
-    print " - no NR waveforms - "
+    print(" - no NR waveforms - ")
 
 rosDebugMessagesDictionary = {}   # Mutable after import (passed by reference). Not clear if it can be used by caling routines
                                                   # BUT if every module has a `PopulateMessagesDictionary' module, I can set their internal copies
@@ -192,14 +192,14 @@ def ParseStandardArguments():
     if hasNR and not ( args.NR_template_group in nrwf.internal_ParametersAvailable.keys()):
 #        raise( nrwf.NRNoSimulation,args.NR_template_group)
         if args.NR_template_group:
-            print " ===== UNKNOWN NR PARAMETER ====== "
-            print args.NR_template_group, args.NR_template_param
+            print(" ===== UNKNOWN NR PARAMETER ====== ")
+            print(args.NR_template_group, args.NR_template_param)
     elif hasNR:
         if args.NR_template_param:
             args.NR_template_param = eval(args.NR_template_param) # needs to be evaluated
         if not ( args.NR_template_param in nrwf.internal_ParametersAvailable[args.NR_template_group]):
-            print " ===== UNKNOWN NR PARAMETER ====== "
-            print args.NR_template_group, args.NR_template_param
+            print(" ===== UNKNOWN NR PARAMETER ====== ")
+            print(args.NR_template_group, args.NR_template_param)
 
     return args, rosDebugMessagesDictionary
 
@@ -273,7 +273,7 @@ def PopulatePrototypeSignal(opts):
 
     if  not Psig and opts.channel_name:  # If data loaded but no signal generated
             if (not opts.template_mass1) or (not opts.template_mass2) or (not opts.force_gps_time):
-                print " CANCEL: Specifying parameters via m1, m2, and time on the command line "
+                print(" CANCEL: Specifying parameters via m1, m2, and time on the command line ")
             Psig = lalsimutils.ChooseWaveformParams(approx=approxSignal,
                                                     fmin = fminWavesSignal, 
                                                     dist=factored_likelihood.distMpcRef*1e6*lal.PC_SI,    # default distance
@@ -338,7 +338,7 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
 
     pinned_params ={}
 
-    print " Trying to pin parameters ", opts.fixparams
+    print(" Trying to pin parameters ", opts.fixparams)
 
     
     adapt_ra = (not opts.no_adapt_sky) #and ('ra' in opts.adapt_paramter)
@@ -355,7 +355,7 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
     # Uniform sampling (in area) but nonuniform sampling in distance (*I hope*).  Auto-cdf inverse
     if not(opts.opt_UseSkymap):
         if opts.opt_UseKnownSkyPosition:
-            print " +++ USING INJECTED SKY POSITION TO NARROW THE SKY SEARCH REGION "
+            print(" +++ USING INJECTED SKY POSITION TO NARROW THE SKY SEARCH REGION ")
             sampler.add_parameter("right_ascension", functools.partial(mcsampler.gauss_samp, Psig.phi,0.03), None, ra_min, ra_max, 
                               prior_pdf = mcsampler.uniform_samp_phase)
             sampler.add_parameter("declination", functools.partial(mcsampler.gauss_samp, Psig.theta,0.03), None, dec_min, dec_max, 
@@ -369,18 +369,18 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
                           prior_pdf= mcsampler.uniform_samp_dec,
                                   adaptive_sampling= adapt_dec)
             if opts.fixparams.count('right_ascension') and Psig != None:
-                print "  ++++ Fixing ra to injected value +++ "
+                print("  ++++ Fixing ra to injected value +++ ")
                 pinned_params['right_ascension'] = Psig.phi
                 #sampler.add_pinned_parameter('ra', Psig.phi )
             if opts.fixparams.count('declination')  and Psig:
-                    print "  ++++ Fixing dec to injected value +++ "
+                    print("  ++++ Fixing dec to injected value +++ ")
                     pinned_params['declination'] = Psig.theta
                     #sampler.add_pinned_parameter('dec', Psig.theta )
     # Override *everything* if I have a skymap used
     else:
-        print "  ++++ USING SKYMAP +++ "
-        print " ==Loading skymap=="
-        print "   skymap file ", opts.opt_UseSkymap
+        print("  ++++ USING SKYMAP +++ ")
+        print(" ==Loading skymap==")
+        print("   skymap file ", opts.opt_UseSkymap)
 
         # Import modules used for skymaps only here (they will be available by reference later)
         import healpy
@@ -398,7 +398,7 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
             indx = bisect.bisect(cum_smap,x) 
             th,ph = healpy.pix2ang(sides, indx)
             if rosDebugMessagesDictionary["DebugMessagesLong"]:
-                print " skymap used x->(th,ph) :", x,th,ph
+                print(" skymap used x->(th,ph) :", x,th,ph)
             return ph,th-numpy.pi/2.
 
         def bayestar_cdf_inv_vector(x,y):   # Manually vectorize, so I can insert pdb breaks
@@ -423,17 +423,17 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
                       prior_pdf =mcsampler.uniform_samp_psi,
                           adaptive_sampling=adapt_psi)
     if opts.fixparams.count('psi') and Psig:
-        print "  ++++ Fixing psi to injected value +++ "
+        print("  ++++ Fixing psi to injected value +++ ")
         pinned_params['psi'] = Psig.psi
 
 
     def gauss_samp_withfloor(mu, std, myfloor, x):
-	return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2) + myfloor
+        return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2) + myfloor
     
     sampler.add_parameter("t_ref", functools.partial(mcsampler.gauss_samp_withfloor, tEventFiducial, 0.01,0.001), None, tref_min, tref_max, 
                       prior_pdf = functools.partial(mcsampler.uniform_samp_vector, tWindowExplore[0],tWindowExplore[1]))
     if opts.fixparams.count('tref') and Psig:
-        print "  ++++ Fixing time to injected value +++ "
+        print("  ++++ Fixing time to injected value +++ ")
         pinned_params['t_ref']  = float(Psig.tref - theEpochFiducial)
         #sampler.add_pinned_parameter("tref", float(Psig.tref - theEpochFiducial) )
 
@@ -442,7 +442,7 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
                       prior_pdf = mcsampler.uniform_samp_phase,
                           adaptive_sampling = adapt_phi)
     if opts.fixparams.count('phi') and Psig:
-            print "  ++++ Fixing phi to injected value +++ "
+            print("  ++++ Fixing phi to injected value +++ ")
             pinned_params['phi_orb'] = Psig.phiref
 #            sampler.add_pinned_parameter("phi", Psig.phiref )
 
@@ -452,7 +452,7 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
                       prior_pdf = mcsampler.uniform_samp_theta,
                           adaptive_sampling = adapt_incl)
     if opts.fixparams.count('incl') and Psig:
-        print "  ++++ Fixing incl to injected value +++ "
+        print("  ++++ Fixing incl to injected value +++ ")
         pinned_params['inclination'] = Psig.incl
 #        sampler.add_pinned_parameter("incl", Psig.incl )
 
@@ -486,7 +486,7 @@ def PopulateSamplerParameters(sampler, theEpochFiducial, tEventFiducial,distBoun
                          )
 #        sampler.add_parameter("dist", functools.partial(mcsampler.quadratic_samp_vector,  distBoundGuess ), None, dist_min, dist_max, prior_pdf = numpy.vectorize(lambda x: x**2/(3.*numpy.power(dist_max,3))))
     if opts.fixparams.count('dist') and Psig:
-            print "  ++++ Fixing distance to injected value +++ "
+            print("  ++++ Fixing distance to injected value +++ ")
             pinned_params['distance'] = Psig.dist/(1e6*lal.LAL_PC_SI)
             #sampler.add_pinned_parameter("dist", Psig.dist/(1e6*lal.LAL_PC_SI) )
         

@@ -5,11 +5,15 @@ Gaussian Mixture Model
 Fit a Gaussian Mixture Model (GMM) to data and draw samples from it. Uses the
 Expectation-Maximization algorithm.
 '''
-from __future__ import print_function
+
+
+from six.moves import range
+
 import numpy as np
 from scipy.stats import multivariate_normal
-from scipy.misc import logsumexp
-import multivariate_truncnorm as truncnorm
+#from scipy.misc import logsumexp
+from scipy.special import logsumexp
+from . import multivariate_truncnorm as truncnorm
 import itertools
 
 
@@ -103,24 +107,23 @@ class estimator:
         return (self.d * self.k * n) * 10e-4
 
     def _near_psd(self, x):
-	'''
-	Calculates the nearest postive semi-definite matrix for a correlation/covariance matrix
-
+        '''
+        Calculates the nearest postive semi-definite matrix for a correlation/covariance matrix
+        
         Code from here:
         https://stackoverflow.com/questions/10939213/how-can-i-calculate-the-nearest-positive-semi-definite-matrix
-	'''
+        '''
         n = x.shape[0]
-        var_list = np.array([np.sqrt(x[i,i]) for i in xrange(n)])
-        y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
+        var_list = np.array([np.sqrt(x[i,i]) for i in range(n)])
+        y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
         while True:
             epsilon = self.epsilon
             if min(np.linalg.eigvals(y)) > epsilon:
                 return x
 
             # Removing scaling factor of covariance matrix
-#            n = x.shape[0]
-            var_list = np.array([np.sqrt(x[i,i]) for i in xrange(n)])
-            y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
+            var_list = np.array([np.sqrt(x[i,i]) for i in range(n)])
+            y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
 
             # getting the nearest correlation matrix
             eigval, eigvec = np.linalg.eig(y)
@@ -132,12 +135,12 @@ class estimator:
             near_corr = B*B.T    
 
             # returning the scaling factors
-            near_cov = np.array([[near_corr[i, j]*(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
+            near_cov = np.array([[near_corr[i, j]*(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
             if np.isreal(near_cov).all():
                 break
             else:
                 x = near_cov.real
-	return near_cov
+        return near_cov
     
     def fit(self, sample_array, sample_weights):
         '''
@@ -241,7 +244,7 @@ class gmm:
         Match components in new model to those in current model by minimizing the
         net Mahalanobis between all pairs of components
         '''
-        orders = list(itertools.permutations(range(self.k), self.k))
+        orders = list(itertools.permutations(list(range(self.k)), self.k))
         distances = np.empty(len(orders))
         index = 0
         for order in orders:
@@ -296,24 +299,23 @@ class gmm:
             self.weights[i] = weight
 
     def _near_psd(self, x):
-	'''
+        '''
 	Calculates the nearest postive semi-definite matrix for a correlation/covariance matrix
 
         Code from here:
         https://stackoverflow.com/questions/10939213/how-can-i-calculate-the-nearest-positive-semi-definite-matrix
-	'''
+        '''
         n = x.shape[0]
-        var_list = np.array([np.sqrt(x[i,i]) for i in xrange(n)])
-        y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
+        var_list = np.array([np.sqrt(x[i,i]) for i in range(n)])
+        y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
         while True:
             epsilon = self.epsilon
             if min(np.linalg.eigvals(y)) > epsilon:
                 return x
 
             # Removing scaling factor of covariance matrix
-#            n = x.shape[0]
-            var_list = np.array([np.sqrt(x[i,i]) for i in xrange(n)])
-            y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
+            var_list = np.array([np.sqrt(x[i,i]) for i in range(n)])
+            y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
 
             # getting the nearest correlation matrix
             eigval, eigvec = np.linalg.eig(y)
@@ -325,12 +327,12 @@ class gmm:
             near_corr = B*B.T    
 
             # returning the scaling factors
-            near_cov = np.array([[near_corr[i, j]*(var_list[i]*var_list[j]) for i in xrange(n)] for j in xrange(n)])
+            near_cov = np.array([[near_corr[i, j]*(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
             if np.isreal(near_cov).all():
                 break
             else:
                 x = near_cov.real
-	return near_cov
+        return near_cov
 
     def update(self, sample_array, sample_weights=None):
         '''

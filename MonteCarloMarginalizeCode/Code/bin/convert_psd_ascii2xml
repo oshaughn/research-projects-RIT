@@ -33,7 +33,7 @@ if dat[0,0] > 0:
     n_now = len(dat)
     df = dat[1,0] - dat[0,0]
     n_to_add = int(f0/df)
-    print f0, df, n_to_add
+    print( f0, df, n_to_add)
     dat_new = np.zeros( (len(dat)+n_to_add,2))
     dat_new[n_to_add:,0] = dat[:,0]
     dat_new[n_to_add:,1] = dat[:,1]

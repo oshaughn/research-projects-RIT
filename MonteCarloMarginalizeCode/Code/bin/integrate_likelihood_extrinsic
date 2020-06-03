@@ -18,7 +18,7 @@ try:
   xpy_default=cupy
   identity_convert = cupy.asnumpy
 except:
-  print ' no cupy'
+  print(' no cupy')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
@@ -52,13 +52,13 @@ def get_pinned_params(opts):
     """
     Retrieve a dictionary of user pinned parameters and their pin values.
     """
-    return dict([(p,v) for p, v in opts.__dict__.iteritems() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None]) 
+    return dict([(p,v) for p, v in opts.__dict__.items() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None]) 
 
 def get_unpinned_params(opts, params):
     """
     Retrieve a set of unpinned parameters.
     """
-    return params - set([p for p, v in opts.__dict__.iteritems() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None])
+    return params - set([p for p, v in opts.__dict__.items() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None])
 
 #
 # Option parsing
@@ -181,7 +181,7 @@ optp.add_option_group(pinnable)
 opts, args = optp.parse_args()
 
 if opts.gpu and xpy_default is numpy:
-    print " Override --gpu  (not available);  use --force-xpy to require the identical code path is used (with xpy =[np|cupy]"
+    print( " Override --gpu  (not available);  use --force-xpy to require the identical code path is used (with xpy =[np|cupy]")
     opts.gpu=False
     if opts.force_xpy:
         opts.gpu=True
@@ -198,7 +198,7 @@ if intrinsic_param_names:
     
     # Check if in the valid list
     if not(param in valid_intrinsic_param_names):
-            print ' Invalid param ', param, ' not in ', valid_intrinsic_param_names
+            print( ' Invalid param ', param, ' not in ', valid_intrinsic_param_names)
             sys.exit(0)
     param_ranges = []
     if len(intrinsic_param_names) == len(opts.parameter_range):
@@ -223,7 +223,7 @@ if opts.data_end_time is None and opts.data_start_time is not None:
 NR_template_group=None
 NR_template_param=None
 if opts.nr_group and opts.nr_param:
-    import NRWaveformCatalogManager as nrwf
+    import NRWaveformCatalogManager3 as nrwf
     NR_template_group = opts.nr_group
     if nrwf.internal_ParametersAreExpressions[NR_template_group]:
         NR_template_param = eval(opts.nr_param)
@@ -291,10 +291,10 @@ if opts.coinc_xml is not None:
     assert len(coinc_table) == 1
     coinc_row = coinc_table[0]
     event_time = coinc_row.get_end()
-    print "Coinc XML loaded, event time: %s" % str(coinc_row.get_end())
+    print( "Coinc XML loaded, event time: %s" % str(coinc_row.get_end()))
 elif opts.event_time is not None:
     event_time = glue.lal.LIGOTimeGPS(opts.event_time)
-    print "Event time from command line: %s" % str(event_time)
+    print( "Event time from command line: %s" % str(event_time))
 else:
     raise ValueError("Either --coinc-xml or --event-time must be provided to parse event time.")
 
@@ -327,10 +327,10 @@ fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more di
 
 # Struct to hold template parameters
 if opts.sim_xml:
-    print "====Loading injection XML:", opts.sim_xml, opts.event, " ======="
+    print( "====Loading injection XML:", opts.sim_xml, opts.event, " =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
     if len(P_list) > opts.event  and opts.soft_fail_event_range:
-        print " Event out of range; soft exit"
+        print( " Event out of range; soft exit")
         sys.exit(0)
     P = P_list[opts.event]  # Load in the physical parameters of the injection.  
     P.radec =False  # do NOT propagate the epoch later
@@ -375,18 +375,18 @@ else:
 
 #
 if 200./((m1+m2)/20) < template_min_freq:
-    print " WARNING: Minimum frequency is smaller than ISCO,  usually causeing template generation to fail"
+    print( " WARNING: Minimum frequency is smaller than ISCO,  usually causeing template generation to fail")
 
 
-print " --- Template for intrinsic parameters ---- " 
+print( " --- Template for intrinsic parameters ---- " )
 P.print_params()
 
 # User requested bounds for data segment
 if not (opts.data_start_time == None) and  not (opts.data_end_time == None):
     start_time =  opts.data_start_time
     end_time =  opts.data_end_time
-    print "Fetching data segment with start=", start_time
-    print "                             end=", end_time
+    print( "Fetching data segment with start=", start_time)
+    print( "                             end=", end_time)
 
 # Automatically choose data segment bounds so region of interest isn't corrupted
 # FIXME: Use estimate, instead of painful full waveform generation call here.
@@ -410,10 +410,10 @@ else:
 #        T_seg *=2   # extra safety factor
     start_time = float(event_time) - T_seg
     end_time = float(event_time) + T_seg
-    print "Fetching data segment with start=", start_time
-    print "                             end=", end_time
-    print "\t\tEvent time is: ", float(event_time)
-    print "\t\tT_seg is: ", T_seg
+    print( "Fetching data segment with start=", start_time)
+    print( "                             end=", end_time)
+    print( "\t\tEvent time is: ", float(event_time))
+    print( "\t\tT_seg is: ", T_seg)
 
 #
 # Load in data and PSDs
@@ -421,28 +421,28 @@ else:
 data_dict, psd_dict = {}, {}
 
 for inst, chan in map(lambda c: c.split("="), opts.channel_name):
-    print "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file)
+    print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
     data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
             inst+":"+chan, start=start_time, stop=end_time,
             window_shape=opts.window_shape,verbose=opts.verbose)
     if opts.verbose:
-        print "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
-            data_dict[inst].data.length)
+        print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
+            data_dict[inst].data.length))
 
 flow_ifo_dict = {}
 if opts.fmin_ifo:
  for inst, freq_str in map(lambda c: c.split("="), opts.fmin_ifo):
     freq_low_here = float(freq_str)
-    print "Reading low frequency cutoff for instrument %s from %s" % (inst, freq_str), freq_low_here
+    print( "Reading low frequency cutoff for instrument %s from %s" % (inst, freq_str), freq_low_here)
     flow_ifo_dict[inst] = freq_low_here
 
 for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
-    print "Reading PSD for instrument %s from %s" % (inst, psdf)
+    print( "Reading PSD for instrument %s from %s" % (inst, psdf))
     psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
 
     deltaF = data_dict[inst].deltaF
     psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
-    print "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF
+    print( "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF)
 
     # implement cutoff.  
     if inst in flow_ifo_dict.keys():
@@ -450,7 +450,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
             psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(psd_dict[inst].data.length)
             psd_dict[inst].data.data[ psd_fvals < flow_ifo_dict[inst]] = 0 # 
         else:
-            print 'FAIL'
+            print( 'FAIL')
             sys.exit(0)
 #        elif isinstance(psd_dict[inst], pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):  # for backward compatibility
 #            psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(len(psd_dict[inst].data))
@@ -484,7 +484,7 @@ if sorted(psd_dict.keys()) != sorted(data_dict.keys()):
 # that of the original TimeSeries that was FFT'd = Nsamples
 # Also, deltaF = 1/T, with T = the duration (in sec) of the original TimeSeries
 # Therefore 1/(data.length*deltaF) = T/Nsamples = deltaT
-P.deltaT = 1./ (data_dict[data_dict.keys()[0]].data.length * deltaF)
+P.deltaT = 1./ (data_dict[list(data_dict.keys())[0]].data.length * deltaF)
 P.deltaF = deltaF
 
 
@@ -498,7 +498,7 @@ P.deltaF = deltaF
 # while in principal we may want to set it separately
 
 if opts.nr_perturbative_extraction:
-    print " ------------ USING PERTURBATIVE EXTRACTION ------ "
+    print( " ------------ USING PERTURBATIVE EXTRACTION ------ ")
 
 t_window = 0.15
 rholms_intp, cross_terms, cross_terms_V,  rholms, rest=factored_likelihood.PrecomputeLikelihoodTerms(
@@ -510,10 +510,10 @@ rholms_intp, cross_terms, cross_terms_V,  rholms, rest=factored_likelihood.Preco
 ### DEBUGGING CHECK: what keys are used (for rom)
 if opts.rom_use_basis:
     detector_list = data_dict.keys()
-    print " Keys for each instrument (ROM sanity check) ", rholms_intp[detector_list[0]].keys()
+    print( " Keys for each instrument (ROM sanity check) ", rholms_intp[detector_list[0]].keys())
 
 if opts.rom_use_basis and not opts.rom_integrate_intrinsic:
-    print " ROM : Trivial use (fixed extrinsic): Reconstruct standard expressions "
+    print( " ROM : Trivial use (fixed extrinsic): Reconstruct standard expressions ")
     # If ROM basis, transform to standard form, and proceed normally.
     # Note this is NOT allowing us to change intrinsic parameters
     # It is included to enable a code test: running with hlm directly provided by ROM, vs running with coefficient reconstruction
@@ -522,7 +522,7 @@ if opts.rom_use_basis and not opts.rom_integrate_intrinsic:
 if opts.dump_lnL_time_series and opts.sim_xml:
     # LOAD IN PARAMETERS
     P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))[opts.event]  # Load in the physical parameters of the injection.  
-    print " ---- Compare at intrinsic parameters (masses irrelevant) ---- "
+    print( " ---- Compare at intrinsic parameters (masses irrelevant) ---- ")
     P.print_params()
     tvals = numpy.linspace(-2*t_ref_wind,2*t_ref_wind,numpy.sqrt(3)*4*t_ref_wind/P.deltaT)  # make sure I have enough points to oversample. Use irrational number, and oversample
     lnLvals = numpy.ones(len(tvals))
@@ -535,23 +535,23 @@ if opts.dump_lnL_time_series and opts.sim_xml:
         else:
             lnLvals[indx] = factored_likelihood.FactoredLogLikelihood(P, rholms, rholms_intp, cross_terms, cross_terms_V, opts.l_max,interpolate=not opts.rom_use_basis)
     numpy.savetxt("lnL_time_dump"+opts.output_file+".dat", numpy.array([tvals+fiducial_epoch,lnLvals]).T)
-    print " Peak lnL value : ", numpy.max(lnLvals)
+    print( " Peak lnL value : ", numpy.max(lnLvals))
     sys.exit(0)
 
 
 if opts.pin_to_sim:
     P.copy_lsctables_sim_inspiral(sim_row)
-    print "Pinned parameters from sim_inspiral"
-    print "\tRA", P.phi, sim_row.longitude 
-    print "\tdec", P.theta, sim_row.latitude 
-    print "\tt ref %d.%d" % (P.tref.gpsSeconds, P.tref.gpsNanoSeconds), sim_row.get_time_geocent()
-    print "\torb phase", P.phiref, sim_row.coa_phase # ref. orbital phase
-    print "\tinclination", P.incl, sim_row.inclination # inclination
-    print "\tpsi", P.psi, sim_row.polarization # polarization angle
-    print "\tdistance", P.dist/(1e6 * lalsimutils.lsu_PC), sim_row.distance  # luminosity distance
+    print( "Pinned parameters from sim_inspiral")
+    print( "\tRA", P.phi, sim_row.longitude )
+    print( "\tdec", P.theta, sim_row.latitude )
+    print( "\tt ref %d.%d" % (P.tref.gpsSeconds, P.tref.gpsNanoSeconds), sim_row.get_time_geocent())
+    print( "\torb phase", P.phiref, sim_row.coa_phase) # ref. orbital phase
+    print( "\tinclination", P.incl, sim_row.inclination) # inclination)
+    print( "\tpsi", P.psi, sim_row.polarization) # polarization angle
+    print( "\tdistance", P.dist/(1e6 * lalsimutils.lsu_PC), sim_row.distance)  # luminosity distance
 
     logL = factored_likelihood.FactoredLogLikelihood(P, rholms_intp, cross_terms, opts.l_max)
-    print "Pinned log likelihood: %g, (%g in \"SNR\")" % (logL, numpy.sqrt(2*logL))
+    print( "Pinned log likelihood: %g, (%g in \"SNR\")" % (logL, numpy.sqrt(2*logL)))
     tref = float(P.tref)
     tvals = numpy.arange(tref-0.01, tref+0.01, 0.00001)
     logLs = []
@@ -561,14 +561,14 @@ if opts.pin_to_sim:
     import matplotlib
     matplotlib.use("Agg")
     from matplotlib import pyplot
-    print "Maximum logL is %g, (%g in \"SNR\")" % (max(logLs), numpy.sqrt(2*max(logLs)))
-    print "Which occurs at sample", numpy.argmax(logLs)
-    print "This corresponds to time %.20g" % tvals[numpy.argmax(logLs)]
-    print "The data event time is:  %.20g" % sim_row.get_time_geocent()
-    print "Difference from geocenter t_ref is %.20g" %\
-            (tvals[numpy.argmax(logLs)] - sim_row.get_time_geocent())
-    print "This difference in discrete samples: %.20g" %\
-            ((tvals[numpy.argmax(logLs)]-sim_row.get_time_geocent())/P.deltaT)
+    print( "Maximum logL is %g, (%g in \"SNR\")" % (max(logLs), numpy.sqrt(2*max(logLs))))
+    print( "Which occurs at sample", numpy.argmax(logLs))
+    print( "This corresponds to time %.20g" % tvals[numpy.argmax(logLs)])
+    print( "The data event time is:  %.20g" % sim_row.get_time_geocent())
+    print( "Difference from geocenter t_ref is %.20g" %\
+            (tvals[numpy.argmax(logLs)] - sim_row.get_time_geocent()) )
+    print( "This difference in discrete samples: %.20g" %\
+            ((tvals[numpy.argmax(logLs)]-sim_row.get_time_geocent())/P.deltaT) )
     pyplot.plot(tvals-tref, logLs)
     pyplot.ylabel("log Likelihood")
     pyplot.xlabel("time (relative to %10.5f)" % tref)
@@ -577,8 +577,8 @@ if opts.pin_to_sim:
     pyplot.grid()
     pyplot.savefig("logL.png")
     integral = numpy.sum( numpy.exp(logLs) * P.deltaT )
-    print "Integral over t of likelihood is:", integral
-    print "The log of the integral is:", numpy.log(integral)
+    print( "Integral over t of likelihood is:", integral)
+    print( "The log of the integral is:", numpy.log(integral))
     exit()
 
 #
@@ -603,15 +603,15 @@ else:
  dmax_sampling_guess = dmax
  distBoundGuess = dmax
 
-print "Recommended distance for sampling ", dmax_sampling_guess, " and probably near ", distBoundGuess, " smaller than  ", dmax
-print "    (recommendation not yet used) "
+print( "Recommended distance for sampling ", dmax_sampling_guess, " and probably near ", distBoundGuess, " smaller than  ", dmax)
+print( "    (recommendation not yet used) ")
 if distBoundGuess/dmax > 1: 
-    print " *******  WARNING ******** "
-    print " Your distance cutoff for integration may not include the source distance "
+    print( " *******  WARNING ******** ")
+    print( " Your distance cutoff for integration may not include the source distance ")
 if distBoundGuess/dmax < 0.05 and not  opts.no_adapt:
-    print " *******  WARNING ******** "
-    print " Adaptive integrator in distance can fail if the dynamic range of distance is too great (bins?) "
-    print " Please set --d-max appropriately for your problem "
+    print( " *******  WARNING ******** ")
+    print( " Adaptive integrator in distance can fail if the dynamic range of distance is too great (bins?) ")
+    print( " Please set --d-max appropriately for your problem ")
 
 param_limits = { "psi": (0, 2*numpy.pi),
     "phi_orb": (0, 2*numpy.pi),
@@ -802,10 +802,10 @@ else:
 
 pinned_params = get_pinned_params(opts)
 unpinned_params = get_unpinned_params(opts, sampler.params)
-print "{0:<25s} {1:>5s} {2:>5s} {3:>20s} {4:<10s}".format("parameter", "lower limit", "upper limit", "pinned?", "pin value")
+print( "{0:<25s} {1:>5s} {2:>5s} {3:>20s} {4:<10s}".format("parameter", "lower limit", "upper limit", "pinned?", "pin value"))
 plen = len(sorted(sampler.params, key=lambda p: len(p))[-1])
 for p in sampler.params:
-    if pinned_params.has_key(p):
+    if p in pinned_params:
         pinned, value = True, "%1.3g" % pinned_params[p]
     else:
         pinned, value = False, ""
@@ -813,13 +813,13 @@ for p in sampler.params:
     if isinstance(p, tuple):
         for subp, subl, subr in zip(p, sampler.llim[p], sampler.rlim[p]):
             subp = subp + " "*min(0, plen-len(subp))
-            print "|{0:<25s} {1:>1.3g}   {2:>1.3g} {3:>20s} {4:<10s}".format(subp, subl, subr, str(False), "")
+            print( "|{0:<25s} {1:>1.3g}   {2:>1.3g} {3:>20s} {4:<10s}".format(subp, subl, subr, str(False), ""))
     else:
         p = p + " "*min(0, plen-len(p))
-        print "{0:<25s} {1:>1.3g}   {2:>1.3g} {3:>20s} {4:<10s}".format(p, sampler.llim[p], sampler.rlim[p], str(pinned), value)
+        print( "{0:<25s} {1:>1.3g}   {2:>1.3g} {3:>20s} {4:<10s}".format(p, sampler.llim[p], sampler.rlim[p], str(pinned), value))
 
 # Special case: t_ref is assumed to be relative to the epoch
-if pinned_params.has_key("t_ref"):
+if "t_ref" in pinned_params:
     pinned_params["t_ref"] -= float(fiducial_epoch)
 
 #
@@ -979,8 +979,8 @@ else: # Sum over time for every point in other extrinsic params
     
         return numpy.exp(lnL -manual_avoid_overflow_logarithm)
 
-    args = likelihood_function.func_code.co_varnames[:likelihood_function.func_code.co_argcount]
-    print " --------> Arguments ", args
+    args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
+    print( " --------> Arguments ", args)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
  elif opts.vectorized: # use array-based multiplications, fewer for loops
     lookupNKDict = {}
@@ -994,7 +994,7 @@ else: # Sum over time for every point in other extrinsic params
     nEvals=0
 
     for det in rholms_intp.keys():
-        print " Packing ", det
+        print( " Packing ", det)
         lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], cross_terms[det],cross_terms_V[det])
         if opts.gpu and (not xpy_default is np):
             lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
@@ -1029,7 +1029,7 @@ else: # Sum over time for every point in other extrinsic params
         nEvals +=len(right_ascension)
         return numpy.exp(lnL-manual_avoid_overflow_logarithm)
     else:
-        print " Using CUDA GPU likelihood, if cupy available "
+        print( " Using CUDA GPU likelihood, if cupy available ")
         def likelihood_function(right_ascension, declination, phi_orb, inclination,
             psi, distance):
             global nEvals
@@ -1055,8 +1055,8 @@ else: # Sum over time for every point in other extrinsic params
             nEvals +=len(right_ascension)
             return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
-    args = likelihood_function.func_code.co_varnames[:likelihood_function.func_code.co_argcount]
-    print " --------> Arguments ", args
+    args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
+    print( " --------> Arguments ", args)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
  else: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
     def likelihood_function(right_ascension, declination, phi_orb, inclination,
@@ -1102,17 +1102,17 @@ else: # Sum over time for every point in other extrinsic params
                 lnL[i] = -200   # regularize  : a hack, for now, to deal with rare ROM problems. Only on the ROM logic fork
             i+=1
         t_end =lal.GPSTimeNow() 
-        print " Cost per evaluation ", (t_end - t_start)/len(q)
-        print " Max lnL for this iteration ", numpy.max(lnL)
+        print( " Cost per evaluation ", (t_end - t_start)/len(q))
+        print( " Max lnL for this iteration ", numpy.max(lnL))
         return numpy.exp(lnL - manual_avoid_overflow_logarithm)
 
-    args = likelihood_function.func_code.co_varnames[:likelihood_function.func_code.co_argcount]
-    print " --------> Arguments ", args
+    args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
+    print( " --------> Arguments ", args)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
 
-print " lnLmarg is ", numpy.log(res+manual_avoid_overflow_logarithm), " with expected relative error ", numpy.sqrt(var)/res
-print " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff)
+print( " lnLmarg is ", numpy.log(res+manual_avoid_overflow_logarithm), " with expected relative error ", numpy.sqrt(var)/res)
+print( " note neff is ", neff, "; compare neff^(-1/2) = ", 1/numpy.sqrt(neff))
 
 
 # Convert declination, inclination  parameters in sampler if needed
@@ -1136,7 +1136,7 @@ if opts.maximize_only and opts.output_file:
     P.incl = sampler._rvs["inclination"][indx_guess]
     P.psi = sampler._rvs["psi"][indx_guess]
     P.dist = sampler._rvs["distance"][indx_guess]*1e6*lal.PC_SI
-    print " ---- Best extrinsic paramers in MC   ---- "
+    print( " ---- Best extrinsic paramers in MC   ---- ")
     P.print_params()
     lalsimutils.ChooseWaveformParams_array_to_xml([P],"notime_raw_maxpt_"+opts.output_file) # best point, not including time
 
@@ -1168,12 +1168,12 @@ if opts.maximize_only and opts.output_file:
     def fn_scaled_t(t,x0):
         return fn_scaled( [x0[0], x0[1], t, x0[3], x0[4], x0[5], x0[6]])
     npts_guess = int(t_ref_wind*2/(0.5*1e-4))   # Need to have enough points to fully explore the peak, timing to sub-ms accuracy
-    print " Using ", npts_guess, " time points to select the best time, fixing the remaining extrinsic parameters "
+    print( " Using ", npts_guess, " time points to select the best time, fixing the remaining extrinsic parameters ")
     tvals_scaled_guess = numpy.linspace(0,1,npts_guess)
     lnLvals = numpy.array([-1*fn_scaled_t(t,x0) for t in tvals_scaled_guess])   # note the two -1's cancel
 #    from matplotlib import pyplot as plt;  plt.plot(tvals_scaled_guess,lnLvals,'o'); plt.show(); numpy.savetxt("dump-lnL.dat", numpy.array([tvals_scaled_guess*2*t_ref_wind,lnLvals]).T)
     tbest = tvals_scaled_guess[numpy.argmax(lnLvals)]
-    print " ---- Best extrinsic paramers in MC, after time offset   ---- "
+    print( " ---- Best extrinsic paramers in MC, after time offset   ---- ")
     P.tref = fiducial_epoch + tbest
     P.print_params()
     lalsimutils.ChooseWaveformParams_array_to_xml([P],"withtime_raw_maxpt_"+opts.output_file) # best point, not including time
@@ -1187,23 +1187,23 @@ if opts.maximize_only and opts.output_file:
     t_best_now = fiducial_epoch + float((x0p[2]-0.5)*2*t_ref_wind)
     t_best_now_s = int(numpy.floor(t_best_now))
     t_best_now_ns = int((t_best_now - t_best_now_s)*1e9)
-    print " Fitting best (geocentric) time : ", str(t_best_now_s)+ '.'+ str(t_best_now_ns) , " relative time ", (x0p[2]-0.5)*2*t_ref_wind
+    print( " Fitting best (geocentric) time : ", str(t_best_now_s)+ '.'+ str(t_best_now_ns) , " relative time ", (x0p[2]-0.5)*2*t_ref_wind)
     x0  = x0p
     # Full multi-d search for best point
-    print " Starting point [dimensionless] ", x0
-    print " Starting point [physical] ", [x0[0]*2*numpy.pi, numpy.pi*(x0[1]),  t_ref_wind*2*(x0[2]-0.5), 2*numpy.pi*x0[3], numpy.pi*x0[4], numpy.pi*x0[5], x0[6]*dmax]
+    print( " Starting point [dimensionless] ", x0)
+    print( " Starting point [physical] ", [x0[0]*2*numpy.pi, numpy.pi*(x0[1]),  t_ref_wind*2*(x0[2]-0.5), 2*numpy.pi*x0[3], numpy.pi*x0[4], numpy.pi*x0[5], x0[6]*dmax])
     lnLstart = -1*fn_scaled(x0)   # note the two -1's cancel. Compare to 'rho^2/2' value reported by code
-    print " lnL at start :", lnLstart, " [note can be lower than peak because of time offset]: best reported by ILE (including weights) is ", numpy.log(numpy.max(sampler._rvs["integrand"]))
+    print( " lnL at start :", lnLstart, " [note can be lower than peak because of time offset]: best reported by ILE (including weights) is ", numpy.log(numpy.max(sampler._rvs["integrand"])))
     x = scipy.optimize.fmin(fn_scaled,x0, xtol=1e-5,ftol=1e-3,maxiter=opts.n_max,maxfun=opts.n_max)
     lnLmax = -1.0*fn_scaled(x)
     if lnLmax < lnLstart:
-        print " Maximization failed to improve our initial point ! "
+        print( " Maximization failed to improve our initial point ! ")
         x = x0p
         lnLmax = lnLstart
     t_best_now = fiducial_epoch + float((x[2]-0.5)*2*t_ref_wind)
-    print "Best lnL = ", lnLmax
-    print "Best time =", t_best_now
-    print "Best point", [x[0]*2*numpy.pi, numpy.pi*(x[1]),  t_ref_wind*2*(x[2]-0.5), 2*numpy.pi*x[3], numpy.pi*x[4], numpy.pi*x[5], x[6]*dmax]
+    print( "Best lnL = ", lnLmax)
+    print( "Best time =", t_best_now)
+    print( "Best point", [x[0]*2*numpy.pi, numpy.pi*(x[1]),  t_ref_wind*2*(x[2]-0.5), 2*numpy.pi*x[3], numpy.pi*x[4], numpy.pi*x[5], x[6]*dmax])
     # Output best fit.  Note STANDARD output will occur as usual
     P_max = P.manual_copy()
     P_max.tref = t_best_now
@@ -1215,9 +1215,9 @@ if opts.maximize_only and opts.output_file:
     P_max.dist = x[6]*dmax*1e6*lal.PC_SI
     P_max.m1 = lal.MSUN_SI*m1
     P_max.m2 = lal.MSUN_SI*m2
-    print " Sanity check: log likelihood for this set is ", factored_likelihood.FactoredLogLikelihood(
-                    P_max, rholms, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
-    print " ---- Best extrinsic paramers after polishing   ---- "
+    print( " Sanity check: log likelihood for this set is ", factored_likelihood.FactoredLogLikelihood(
+                    P_max, rholms, rholms_intp, cross_terms, cross_terms_V, opts.l_max))
+    print( " ---- Best extrinsic paramers after polishing   ---- ")
     P_max.print_params()
     P_list = [P_max]
     lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"maxpt_"+opts.output_file)
@@ -1310,7 +1310,7 @@ if opts.output_file:
         if opts.output_format == 'xml':
             xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         else:
-            print "writing hdf5 output file ", opts.output_file
+            print( "writing hdf5 output file ", opts.output_file)
             # Do the write MANUALLY, in the interests of speed and to avoid lots of superfluous casts
             # Should reproduce functionality of ChooseWaveformParams_array_to_hdf5
             ref = numpy.ones(len(samples["distance"]))

@@ -15,7 +15,7 @@ import os
 import sys
 import shutil
 
-import ConfigParser
+import configparser
 
 from RIFT.misc.dag_utils import mkdir
 import RIFT.lalsimutils as lalsimutils
@@ -27,15 +27,15 @@ def unsafe_config_get(config,args,verbose=False):
     unsafe_config_get(config, args):
     """
     if verbose:
-        print " Retrieving ", args, 
-        print " Found ",eval(config.get(*args))
+        print(" Retrieving ", args, end=' ') 
+        print(" Found ",eval(config.get(*args)))
     return eval( config.get(*args))
 
 
 activate_env ="source /cvmfs/oasis.opensciencegrid.org/ligo/sw/pycbc/x86_64_rhel_7/virtualenv/pycbc-v1.6.3/bin/activate"
 def add_frames(channel,input_frame, noise_frame,combined_frame):
     cmd = activate_env +"; add_frames.py " + channel + " " + input_frame + " " + noise_frame + " " + combined_frame #{} {} {} {} ".format(channel,input_frame,noise_frame,combined_frame)
-    print cmd
+    print(cmd)
     if not opts.test:
         os.system(cmd)
 
@@ -48,9 +48,7 @@ parser.add_argument("--test",default=False,action='store_true',help="Used to tes
 opts =  parser.parse_args()
 
 
-
-
-config = ConfigParser.SafeConfigParser(allow_no_value=True)
+config = configparser.SafeConfigParser(allow_no_value=True)
 config.read(opts.use_ini)
 
 base_dir = os.getcwd() # relative directory, for use if absolute paths not provided
@@ -61,7 +59,7 @@ if config.has_option('pp','test_convergence'):
 
 # Create, go to working directory
 working_dir = config.get('pp','working_directory')
-print " Working dir ", working_dir
+print(" Working dir ", working_dir)
 mkdir(working_dir)
 os.chdir(working_dir)
 working_dir_full = os.getcwd()
@@ -109,15 +107,15 @@ seglen_analysis = float(config.get('data','seglen_analysis'))
 no_spin =unsafe_config_get(config,['priors','no_spin'])
 aligned_spin =unsafe_config_get(config,['priors','aligned_spin'])
 if aligned_spin:
-    print " === aligned-spin PP ==== "
+    print(" === aligned-spin PP ==== ")
 elif no_spin:
-    print " === zero-spin PP ==== "
+    print(" === zero-spin PP ==== ")
 else:
-    print " === precessing PP ==== "
+    print(" === precessing PP ==== ")
 
 volumetric_spin =unsafe_config_get(config,['priors','volumetric_spin'])
 if volumetric_spin:
-    print "  (volumetric spin prior)  "
+    print("  (volumetric spin prior)  ")
 
 fix_sky_location=unsafe_config_get(config,['priors','fix_sky_location'])
 fiducial_ra=float(config.get('priors','fiducial_ra'))
@@ -180,7 +178,7 @@ else:
 # Create data files and cache file
 #   - probably want to create workflow to build these, rather than do it all in one go... very slow!
 
-print " === Writing signal files === "
+print(" === Writing signal files === ")
 
 # made up durations for now
 # must be compatible with duration of the noise frames
@@ -193,15 +191,15 @@ for indx in np.arange(n_events):
     target_subdir = 'signal_frames/event_{}'.format(indx)
     # Test if directory already exists
     if os.path.exists(target_subdir):
-        print " Signal frames exist for event {}, skipping ".format(indx)
+        print(" Signal frames exist for event {}, skipping ".format(indx))
         continue
-    print " Writing ", indx
+    print(" Writing ", indx)
     mkdir(target_subdir)
     os.chdir(working_dir_full+"/"+target_subdir)
     # Loop over instruments, write files
     for ifo in ifos:
         cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {}  --stop {}  --instrument {} --approx {}".format(indx, t_start,t_stop,ifo, approx_str)
-        print cmd
+        print(cmd)
         if not opts.test:
             os.system(cmd)
 
@@ -210,13 +208,13 @@ for indx in np.arange(n_events):
         os.system(cmd)
 
     # Evaluate zero-noise SNR
-    print " --> FIXME: evaluate zero-noise SNR, to use as hint in place of search <-- "
+    print(" --> FIXME: evaluate zero-noise SNR, to use as hint in place of search <-- ")
 
-print " === Using fiducial noise frames === "
+print(" === Using fiducial noise frames === ")
 
 noise_frame_dir = config.get("make_data","fiducial_noise_frames")
 
-print " === Joining synthetic signals to reference noise === "
+print(" === Joining synthetic signals to reference noise === ")
 
 
 seglen_actual = t_stop - t_start
@@ -227,9 +225,9 @@ for indx in np.arange(n_events):
 #    mkdir('analysis_event_{}'.format(indx))
     target_subdir='combined_frames/event_{}'.format(indx)
     if os.path.exists(target_subdir):
-        print " Combined frames exist for event {}, skipping ".format(indx)
+        print(" Combined frames exist for event {}, skipping ".format(indx))
         continue
-    print " Writing ", indx
+    print(" Writing ", indx)
     mkdir(target_subdir)
     os.chdir(working_dir_full+"/"+target_subdir)
     for ifo in ifos:
@@ -240,12 +238,12 @@ for indx in np.arange(n_events):
         add_frames(ifo+":FAKE-STRAIN",fname_input, fname_noise,fname_output)
 
 
-print " === Building single-event workflows === "
+print(" === Building single-event workflows === ")
 use_gpu = unsafe_config_get(config,['make_workflow','use_gpu'])
 if use_gpu:
-    print " ====> USING GPUS <=== "
+    print(" ====> USING GPUS <=== ")
 else:
-    print " ====> NO GPUS <=== "
+    print(" ====> NO GPUS <=== ")
 n_events_per_worker = int(config.get('make_workflow','n_events_per_worker'))
 n_copies = int(config.get('make_workflow','n_copies'))
 n_iterations = int(config.get('make_workflow','n_iterations'))
@@ -260,14 +258,14 @@ use_osg=opts.use_osg #False
 cip_explode_jobs=False
 
 for indx in np.arange(n_events):
-    print " ::: Event {} ::: ".format(indx)
+    print(" ::: Event {} ::: ".format(indx))
     dir_target= working_dir_full+'/analysis_event_{}'.format(indx)
     mkdir(dir_target)
     os.chdir(dir_target)
     os.system("ln -sf ../combined_frames/event_{} .".format(indx))
     if not opts.test:
         cmd = "/bin/find -L . -name '*.gwf' | lalapps_path2cache > local.cache"
-        print cmd
+        print(cmd)
         os.system(cmd)
     here = os.getcwd()
     cmd = "helper_LDG_Events.py --sim-xml {}/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache --working-directory {}  ".format(working_dir_full,indx,P_list[indx].tref,here,dir_target)
@@ -296,7 +294,7 @@ for indx in np.arange(n_events):
     if use_matter:
         cmd += " --assume-matter " 
 
-    print cmd
+    print(cmd)
     if not opts.test:
         os.system(cmd)
 
@@ -328,7 +326,7 @@ for indx in np.arange(n_events):
         elif ("SEOBNR" in approx_recover_str) or 'NRTidal' in approx_recover_str: 
             line += " --approx " + approx_recover_str
         else:
-            print " Unknown approx ", approx_recover_str
+            print(" Unknown approx ", approx_recover_str)
             sys.exit(1)
         with open('args_ile.txt','w') as f:
             f.write(line)
@@ -339,7 +337,7 @@ for indx in np.arange(n_events):
         # CIP
         with open("helper_cip_arg_list.txt",'r') as f:
             raw_lines = f.readlines()
-        instructions_cip = map(lambda x: x.rstrip().split(' '), raw_lines)#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
+        instructions_cip = [x.rstrip().split(' ') for x in raw_lines]#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
         n_iterations =0
         lines  = []
         for indx_instr in np.arange(len(instructions_cip)):
@@ -370,7 +368,7 @@ for indx in np.arange(n_events):
             with open("helper_puff_max_it.txt",'r') as f:
                 puff_max_it = int(f.readline())
         except:
-            print " No puff file "
+            print(" No puff file ")
         with open("args_puff.txt",'w') as f:
             puff_args = line + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] --mc-range [{},{}] ".format(chi_max,chi_max,mc_min,mc_max)
             f.write("X " + puff_args)
@@ -390,7 +388,7 @@ for indx in np.arange(n_events):
     if cip_explode_jobs:
         cmd+= " --cip-explode-jobs  " + str(cip_explode_jobs)
     if use_osg:
-        print " NOT VALIDATED/IMPLEMENTED for PP use yet"
+        print(" NOT VALIDATED/IMPLEMENTED for PP use yet")
         cmd += " --use-osg --use-singularity  --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  
         cmd+= " --transfer-file-list  "+here +"/helper_transfer_files.txt"
         os.system("echo {}/frames_dir >> helper_transfer_files.txt".format(here))  # can't use symbolic links alas
@@ -402,15 +400,15 @@ for indx in np.arange(n_events):
     else:
         cmd += " --cache-file {}/local.cache   ".format(here)
 
-    print cmd
+    print(cmd)
     if not opts.test:
         os.system(cmd)
 
 
-print " === Building master workflow === "
+print(" === Building master workflow === ")
 
 os.chdir(working_dir_full)
 cmd = 'util_ConsolidateDAGsUnderMaster.sh analysis_event*'
-print cmd
+print(cmd)
 if not opts.test:
     os.system(cmd)

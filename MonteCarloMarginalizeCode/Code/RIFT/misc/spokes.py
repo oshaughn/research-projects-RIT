@@ -17,7 +17,7 @@
 import numpy as np
 import lal
 import RIFT.lalsimutils as lalsimutils
-import weight_simulations
+from . import weight_simulations
 
 rosDebug=False
 
@@ -76,10 +76,10 @@ def Refine(xvals,lnLVals,xmin=None,deltaLogL=default_deltaLogL,npts=10,refinemen
     len_min = 5
     if len(xvals) < len_min:
 #        if rosDebug:
-        print " FAILED REFINEMENT: Too few points for safety", len(xvals)
+        print(" FAILED REFINEMENT: Too few points for safety", len(xvals))
         return 'fail', None
     if rosDebug and len(xvals)*refinement_scale_min > npts:
-        print " WARNING: Refinement will not increase point density"
+        print(" WARNING: Refinement will not increase point density")
 
 
     # Find the peak
@@ -129,7 +129,7 @@ def Refine(xvals,lnLVals,xmin=None,deltaLogL=default_deltaLogL,npts=10,refinemen
 
     # Fail if length too small (should not happen)
     if len(pts_sorted_reduced) < n_refine_min: 
-        print "PROBLEM: Reduced length "  # should never happen
+        print("PROBLEM: Reduced length ")  # should never happen
         deltaLogLNew = (n_refine_min+1)*1.0/len(xvals) * np.max(lnLVals)  # top few elements are autoselected
         return Refine(xvals,lnLVals, xmin=xmin,deltaLogL=deltaLogLNew,npts=npts,refinement_scale_min=refinement_scale_min)
 #        return 'fail', None
@@ -206,7 +206,7 @@ def LoadSpokeDAT(fname):
 #        spoke_id = str([round(elem, 3) for elem in Line_to_spoke_label(line)])
         spoke_id = str(Line_to_spoke_label(line))
         spoke_contents = Line_to_spoke_entry(line)
-        if sdHere.has_key(spoke_id):
+        if spoke_id in sdHere:
             sdHere[spoke_id].append(spoke_contents)
         else:
             sdHere[spoke_id] = [spoke_contents]

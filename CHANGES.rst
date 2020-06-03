@@ -1,4 +1,30 @@
 
+
+0.0.15.2
+------------
+Since last release
+  - minor py3 errors in PP scripts (rc1)
+  - import 0.0.14.9rc1-rc3 and ...
+
+0.0.15.1
+------------
+Since last release
+   -  ``*NR*`` scripts : fixes for py3/restructure  (rc1)
+     another NR fix (not calling py3 version in NRWriteFrame) (rc2)
+   - import 0.0.14.8rc1  (rc3)
+   - import 0.0.14.8rc2  (rc4)
+
+Release is rc4
+
+0.0.15.0 
+---------------------------
+Since last release
+  - py3 port, including most of changes up to 0.0.14.7 (rc1)
+  - py27 import changes through 0.0.14.7rc4.  Add gpytorch. (rc2)
+  - py27 import changes through 0.0.14.7rc5 (rc3)
+  - minor fixes for latest py3 (func_code->__code__, 'not subscriptable', / float)  (rc4)
+release is rc4
+
 0.0.14.9
 -----------
 Since last release
@@ -16,9 +42,8 @@ Since last release
 
 Release is rc2
 
-0.0.14.7
------------
-Since last release
+0.0.14.7 
+--------------------------
    - bugfix in helper introduced by use_ini. PP pipeline. CIP allows arbitrary user-specified priors. Update
      singularity_base_exe. Fix bitrot to old FactoredLogLikelihood.  (rc1)
    - automated PP pipeline. Modify BNS tidal grid. CVMFS frames on OSG. Improve NN.  (rc2)

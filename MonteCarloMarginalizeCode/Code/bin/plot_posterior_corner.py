@@ -23,18 +23,18 @@ eos_param_names = ['logp1', 'gamma1','gamma2', 'gamma3', 'R1_km', 'R2_km']
 
 try:
     import matplotlib
-    print " Matplotlib backend ", matplotlib.get_backend()
+    print(" Matplotlib backend ", matplotlib.get_backend())
     if matplotlib.get_backend() is 'agg':
         fig_extension = '.png'
         bNoInteractivePlots=True
     else:
-	matplotlib.use('agg')
+        matplotlib.use('agg')
         fig_extension = '.png'
         bNoInteractivePlots =True
     from matplotlib import pyplot as plt
     bNoPlots=False
 except:
-    print " Error setting backend"
+    print(" Error setting backend")
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -45,7 +45,7 @@ import RIFT.misc.our_corner as our_corner
 try:
     import RIFT.misc.bounded_kde as bounded_kde
 except:
-    print " -No 1d kdes- "
+    print(" -No 1d kdes- ")
 
 dpi_base=200
 legend_font_base=16
@@ -62,7 +62,7 @@ rc_params = {'backend': 'ps',
 plt.rcParams.update(rc_params)
 
 
-print " WARNINGS : BoundedKDE class can oversmooth.  Need to edit options for using this class! "
+print(" WARNINGS : BoundedKDE class can oversmooth.  Need to edit options for using this class! ")
 
 def render_coord(x,logscale=False):
     if x in lalsimutils.tex_dictionary.keys():
@@ -114,7 +114,7 @@ def add_field(a, descr):
     True
     """
     if a.dtype.fields is None:
-        raise ValueError, "`A' must be a structured numpy array"
+        raise ValueError("`A' must be a structured numpy array")
     b = np.empty(a.shape, dtype=a.dtype.descr + descr)
     for name in a.dtype.names:
         b[name] = a[name]
@@ -167,14 +167,14 @@ def extract_combination_from_LI(samples_LI, p):
         a2z = samples_LI['a2z']
         return (m1 * a1z + m2*a2z)/(m1+m2)
     if p == 'chiz_plus':
-        print " Transforming "
+        print(" Transforming ")
         if 'a1z' in samples_LI.dtype.names:
             return (samples_LI['a1z']+ samples_LI['a2z'])/2.
         if 'theta1' in samples_LI.dtype.names:
             return (samples_LI['a1']*np.cos(samples_LI['theta1']) + samples_LI['a2']*np.cos(samples_LI['theta2']) )/2.
 #        return (samples_LI['a1']+ samples_LI['a2'])/2.
     if p == 'chiz_minus':
-        print " Transforming "
+        print(" Transforming ")
         if 'a1z' in samples_LI.dtype.names:
             return (samples_LI['a1z']- samples_LI['a2z'])/2.
         if 'theta1' in samples_LI.dtype.names:
@@ -238,7 +238,7 @@ def extract_combination_from_LI(samples_LI, p):
     if p == "q"  and 'm1' in samples.dtype.names:
         return samples["m2"]/samples["m1"]
 
-    print " No access for parameter ", p, " in ", samples.dtype.names
+    print(" No access for parameter ", p, " in ", samples.dtype.names)
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
 
 
@@ -271,7 +271,7 @@ parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
 opts=  parser.parse_args()
 if opts.posterior_file is None:
-    print " No input files "
+    print(" No input files ")
     import sys
     sys.exit(0)
 if opts.pdf:
@@ -280,7 +280,7 @@ if opts.pdf:
 truth_P_list = None
 P_ref = None
 if opts.truth_file:
-    print " Loading true parameters from  ", opts.truth_file
+    print(" Loading true parameters from  ", opts.truth_file)
     truth_P_list  =lalsimutils.xml_to_ChooseWaveformParams_array(opts.truth_file)
     P_ref = truth_P_list[opts.truth_event]
 #    P_ref.print_params()
@@ -302,7 +302,7 @@ special_param_ranges = {
 }
 if opts.mc_range:
     special_param_ranges['mc'] = eval(opts.mc_range)
-    print " mc range ", special_param_ranges['mc']
+    print(" mc range ", special_param_ranges['mc'])
     
 
 
@@ -457,15 +457,15 @@ for indx in np.arange(len(posterior_list)):
 composite_list = []
 field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lnL", "sigmaOverL", "ntot", "neff")
 if opts.flag_tides_in_composite:
-    print " Reading composite file, assuming tide-based format "
+    print(" Reading composite file, assuming tide-based format ")
     field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
 field_formats = [np.float32 for x in field_names]
 composite_dtype = [ (x,float) for x in field_names] #np.dtype(names=field_names ,formats=field_formats)
 # Load posterior files
 if opts.composite_file:
- print opts.composite_file
+ print(opts.composite_file)
  for fname in opts.composite_file[:1]:  # Only load the first one!
-    print " Loading ... ", fname
+    print(" Loading ... ", fname)
     samples = np.loadtxt(fname,dtype=composite_dtype)  # Names are not always available
     if opts.sigma_cut >0:
         npts = len(samples["m1"])
@@ -493,7 +493,7 @@ if opts.composite_file:
         # apply cutoff
         indx_ok =np.arange(npts)
         lnL_max = np.max(samples["lnL"])
-        print " lnL_max = ", lnL_max
+        print(" lnL_max = ", lnL_max)
         indx_ok = samples["lnL"]>lnL_max  -opts.lnL_cut
         npts_out = np.sum(indx_ok)
         new_samples = np.recarray( (npts_out,), dtype=samples.dtype)
@@ -520,7 +520,7 @@ if opts.composite_file:
         samples['DeltaLambdaTilde'] = samples['dlambdat']= dLt
 
 
-    print " Loaded samples from ", fname , len(samples["m1"])
+    print(" Loaded samples from ", fname , len(samples["m1"]))
     if True:
         # impose Kerr limit
         npts = len(samples["m1"])
@@ -530,12 +530,12 @@ if opts.composite_file:
         indx_ok = np.logical_and(chi1_squared < opts.chi_max ,chi2_squared < opts.chi_max)
         npts_out = np.sum(indx_ok)
         if npts_out < npts:
-            print " Ok systems ", npts_out
+            print(" Ok systems ", npts_out)
             new_samples = np.recarray( (npts_out,), dtype=samples.dtype)
             for name in samples.dtype.names:
                 new_samples[name] = samples[name][indx_ok]
             samples = new_samples
-            print " Stripped samples  from ", fname , len(samples["m1"])
+            print(" Stripped samples  from ", fname , len(samples["m1"]))
 
 
     composite_list.append(samples)
@@ -588,7 +588,7 @@ if opts.posterior_file:
             indx_ok = dat_here > 0
             dat_here= np.log10(dat_here[indx_ok])
         if len(dat_here) < 1:
-            print " Failed to etract data ", param,  " from ", opts.posterior_file[indx]
+            print(" Failed to etract data ", param,  " from ", opts.posterior_file[indx])
 
         # extend the limits, so we have *extremal* limits 
         xmax_list.append(np.max(dat_here))
@@ -604,7 +604,7 @@ if opts.posterior_file:
         x_range[param][1] = opts.lambda_plot_max
 
     range_list.append(x_range[param])
-    print param, x_range[param]
+    print(param, x_range[param])
 
 
 my_cmap_values=None
@@ -682,7 +682,7 @@ for pIndex in np.arange(len(posterior_list)):
                 if opts.truth_file:
                     ax.axvline(truths_here[indx], color='k',linestyle='dashed')
             except:
-                print " Failed to plot 1d KDE for ", labels_tex[indx]
+                print(" Failed to plot 1d KDE for ", labels_tex[indx])
 
             # 1d CDF
             fig =fig_1d_list_cum[indx]
@@ -739,11 +739,11 @@ if composite_list:
     lnL = samples["lnL"]
     indx_sorted = lnL.argsort()
     if len(lnL)<1:
-        print " Failed to retrieve lnL for composite file ", composite_list[0]
+        print(" Failed to retrieve lnL for composite file ", composite_list[0])
 
     cm = plt.cm.get_cmap('rainbow') #'RdYlBu_r')
     y_span = lnL.max() - lnL.min()
-    print " Composite file : lnL span ", y_span
+    print(" Composite file : lnL span ", y_span)
     y_min = lnL.min()
     cm2 = lambda x: cm(  (x - y_min)/y_span)
     my_cmap_values = cm(    (lnL-y_min)/y_span) 
@@ -758,7 +758,7 @@ if composite_list:
         if param in field_names:
             dat_mass[:,indx] = samples[param]
         else:
-            print " Trying alternative access for ", param
+            print(" Trying alternative access for ", param)
             dat_mass[:,indx] = extract_combination_from_LI(samples, param)
         # truths
         if opts.truth_file:
@@ -770,7 +770,7 @@ if composite_list:
                 truths_here[indx] = truths_here[indx]/lal.MSUN_SI
 #            print param, truths_here[indx]
 
-    print " Truths here ", truths_here
+    print(" Truths here ", truths_here)
         
 
     # fix ranges
@@ -797,7 +797,7 @@ if opts.use_legend and opts.posterior_label:
 
 # title
 if opts.use_title:
-    print " Addding title ", opts.use_title
+    print(" Addding title ", opts.use_title)
     plt.title(opts.use_title)
 
 param_postfix = "_".join(opts.parameter)

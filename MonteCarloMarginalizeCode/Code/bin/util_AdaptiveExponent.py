@@ -67,7 +67,7 @@ if __file__ == sys.argv[0]:
                     
         else:
             psd_dict = common_cl.parse_cl_key_value(opts.psd_file_singleifo)
-            for det, psdf in psd_dict.iteritems():
+            for det, psdf in psd_dict.items():
                 psd_dict[det] = lalsimutils.get_psd_series_from_xmldoc(psdf, det)
 
         """
@@ -99,4 +99,4 @@ if __file__ == sys.argv[0]:
      # FIXME: Reenable with options parsing
     #if opts.verbose:
         #print "network, squared: %f" % rho2Net
-    print estimate_adaptive_exponent(rho2Net, opts.nskip)
+    print(estimate_adaptive_exponent(rho2Net, opts.nskip))

@@ -64,7 +64,7 @@ def plot_integral(fcn, samp, fargs=None, fname=None):
 
 	fval = fcn(*args)
 	n = len(fval)
-	#p_s = numpy.array([ samp.pdf[p](*x)/samp._pdf_norm[p] for p, x in samp._rvs.iteritems() ])
+	#p_s = numpy.array([ samp.pdf[p](*x)/samp._pdf_norm[p] for p, x in samp._rvs.items() ])
 	joint_p_s = numpy.prod(p_s, axis=0)
 	int_val = fval/joint_p_s
 	maxval = [fval[0]/joint_p_s[0] or -float("Inf")]
@@ -135,7 +135,7 @@ def plot_cdf_inv(samp, fname=None):
 
 	pyplot.figure()
 	x_i = numpy.linspace(0, 1, 1000)
-	for param, cdfinv in samp.cdf_inv.iteritems():
+	for param, cdfinv in samp.cdf_inv.items():
 		pyplot.plot(x_i, map(cdfinv, x_i), '-', label=param)
 
 	pyplot.grid()
@@ -296,7 +296,7 @@ os.chdir(d)
 samp.add_parameter("psi", functools.partial(mcsampler.gauss_samp, psi_val, psi_width), None, psi_min, psi_max)
 sampler_integral = samp.integrate(integrand_1d, "psi", nmax=1)
 integral = scipy.integrate.quad(integrand_1d, psi_min, psi_max)[0]
-print "scipy answer vs our answer:",  integral, sampler_integral
+print("scipy answer vs our answer:",  integral, sampler_integral)
 plot_pdf(samp)
 plot_cdf_inv(samp)
 plot_one_d_hist(samp)
@@ -315,7 +315,7 @@ os.chdir(d)
 samp.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
 #print samp.integrate(integrand_1d, "psi", neff=1000, nmax=int(sys.argv[1]))
 res, var = samp.integrate(integrand_1d, "psi", neff=1000)
-print "Integral: %f, stddev: %f" % (res, numpy.sqrt(var))
+print("Integral: %f, stddev: %f" % (res, numpy.sqrt(var)))
 plot_integral(integrand_1d, samp)
 plot_pdf(samp)
 plot_cdf_inv(samp)
@@ -341,13 +341,13 @@ for w, o in itertools.product(widths, offsets):
 	samp.add_parameter("psi", functools.partial(mcsampler.gauss_samp, psi_val-o*psi_width, w*psi_width), None, psi_min, psi_max)
 	plot_pdf(samp)
 	plot_cdf_inv(samp)
-	print "Width of Gaussian sampler (in units of the width of the integrand: %f" % w
-	print "offset of Gaussian sampler (in units of the width of the integrand: %f" % o
+	print("Width of Gaussian sampler (in units of the width of the integrand: %f" % w)
+	print("offset of Gaussian sampler (in units of the width of the integrand: %f" % o)
 	res, var = samp.integrate(integrand_1d, "psi", neff=100, nmax=int(1e5))
 	plot_integral(integrand_1d, samp)
 	variances.append(var)
 	wo.append((w, o))
-	print "Integral: %f, stddev: %f" % (res, numpy.sqrt(var))
+	print("Integral: %f, stddev: %f" % (res, numpy.sqrt(var)))
 	samp.clear()
 	os.chdir("../../")
 
@@ -375,7 +375,7 @@ os.chdir(d)
 samp.add_parameter("psi", functools.partial(mcsampler.uniform_samp_vector, psi_min, psi_max), None, psi_min, psi_max)
 for n in 10**(numpy.arange(1,6)):
 	ans = []
-	print "Number of samples in integral %d" % n
+	print("Number of samples in integral %d" % n)
 	for i in range(1000):
 		res, var = samp.integrate(integrand_1d, "psi", nmax=n)
 		ans.append( (res-1.0)/numpy.sqrt(var) )
@@ -434,7 +434,7 @@ generate_sky_points = functools.partial(mcsampler.sky_rejection, smap)
 samp.add_parameter(("ra", "dec"), sky_pdf, generate_sky_points, (ra_min, dec_min), (ra_max, dec_max))
 
 res, var = samp.integrate(integrand_2d, ("ra", "dec"), neff=1000)
-print "Integral: %f, stddev: %f" % (res, numpy.sqrt(var))
+print("Integral: %f, stddev: %f" % (res, numpy.sqrt(var)))
 plot_ra_dec(samp)
 plot_ra_dec(samp, use_pdf=True, fname="pdf.pdf")
 plot_integral(integrand_2d, samp)
@@ -489,7 +489,7 @@ def integrand(p, r, dec, ph, i, di):
 	return norm * numpy.exp(exponent)
 
 res, var = samp.integrate(integrand, "psi", "ra", "dec", "phi", "inc", "dist", neff=100, nmax=int(1e6))
-print "Integral value: %f, stddev %f" % (res, numpy.sqrt(var))
+print("Integral value: %f, stddev %f" % (res, numpy.sqrt(var)))
 
 plot_integral(integrand, samp, ("psi", "ra", "dec", "phi", "inc", "dist"))
 plot_pdf(samp)

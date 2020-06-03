@@ -9,15 +9,15 @@ import os, sys
 try:
     import gwtools
     import gwsurrogate as gws
-    print "  gwsurrogate: ",  gws.__file__
-    print "  gwtools: ",  gwtools.__file__
+    print("  gwsurrogate: ",  gws.__file__)
+    print("  gwtools: ",  gwtools.__file__)
 except:
-    print " - no gwsurrogate - (almost everything from ROMWaveformManager will hard fail if you use it) "
+    print(" - no gwsurrogate - (almost everything from ROMWaveformManager will hard fail if you use it) ")
 try:
     import NRSur7dq2
-    print "  NRSur7dq2: ", NRSur7dq2.__version__, NRSur7dq2.__file__
+    print("  NRSur7dq2: ", NRSur7dq2.__version__, NRSur7dq2.__file__)
 except:
-    print " - no NRSur7dq2 - "
+    print(" - no NRSur7dq2 - ")
 
 import lalsimulation as lalsim
 import lal
@@ -26,7 +26,7 @@ from .. import lalsimutils
 try:
     import LALHybrid
 except:
-    print " - no hybridization - "
+    print(" - no hybridization - ")
 
 from scipy.interpolate import interp1d
 from scipy.linalg import inv
@@ -38,11 +38,10 @@ import h5py
 try:
     dirBaseFiles =os.environ["GW_SURROGATE"] # surrogate base directory
 except:
-    print " ==> WARNING:  GW_SURROGATE environment variable is not set <== "
-    print "    Only surrogates with direct implementation are available (NRSur7dq2) "
-#    sys.exit(0)
+    print( " ==> WARNING:  GW_SURROGATE environment variable is not set <== ")
+    print( "    Only surrogates with direct implementation are available (NRSur7dq2) ")
 
-print " ROMWaveformManager: ILE version"
+print(" ROMWaveformManager: ILE version")
 
 #default_interpolation_kind = 'quadratic'  # spline interpolation   # very slow! 
 default_interpolation_kind = 'linear'  # robust, fast
@@ -84,10 +83,10 @@ def CreateCompatibleComplexOverlap(hlmf,**kwargs):
     deltaF = hbase.deltaF
     fNyq = np.max(lalsimutils.evaluate_fvals(hbase))
     if debug_output:
-#        for key, value in kwargs.iteritems():
+#        for key, value in kwargs.items():
 #            print (key, value)
-        print kwargs
-        print "dF, fNyq, npts = ",deltaF, fNyq, len(hbase.data.data)
+        print(kwargs)
+        print("dF, fNyq, npts = ",deltaF, fNyq, len(hbase.data.data))
     IP = lalsimutils.ComplexOverlap(fNyq=fNyq, deltaF=deltaF, **kwargs)
     return IP
 
@@ -100,10 +99,10 @@ def CreateCompatibleComplexIP(hlmf,**kwargs):
     deltaF = hbase.deltaF
     fNyq = np.max(lalsimutils.evaluate_fvals(hbase))
     if debug_output:
-#        for key, value in kwargs.iteritems():
+#        for key, value in kwargs.items():
 #            print (key, value)
-        print kwargs
-        print "dF, fNyq, npts = ",deltaF, fNyq, len(hbase.data.data)
+        print(kwargs)
+        print("dF, fNyq, npts = ",deltaF, fNyq, len(hbase.data.data))
     IP = lalsimutils.ComplexIP(fNyq=fNyq, deltaF=deltaF, **kwargs)
     return IP
 
@@ -113,7 +112,7 @@ class NRError(Exception):
 class NRNoSimulation(NRError):
     """Nothing"""
     def __init__(self,expr,msg):
-        print "No known simulation ", expr, msg
+        print("No known simulation ", expr, msg)
     pass
 
 def SurrogateDimensionlessBasisFunction(sur,k):    
@@ -220,7 +219,7 @@ class WaveformModeCatalog:
         lm_list=None
         lm_list = []
         if rosDebug:
-            print " WARNING: Using a restricted mode set requires a custom modification to gwsurrogate "
+            print(" WARNING: Using a restricted mode set requires a custom modification to gwsurrogate ")
         Lmax =lmax
         for l in np.arange(2,Lmax+1):
             for m in np.arange(-l,l+1):
@@ -230,24 +229,24 @@ class WaveformModeCatalog:
         if not(mode_list_to_load is None):
             lm_list = mode_list_to_load  # overrride
         if rosDebug:
-            print " ROMWaveformManager: Loading restricted mode set ", lm_list
+            print(" ROMWaveformManager: Loading restricted mode set ", lm_list)
 
         my_converter = ConvertWPtoSurrogateParams
         if 'NRSur4d' in param:
-            print " GENERATING ROM WAVEFORM WITH SPIN PARAMETERS "
+            print(" GENERATING ROM WAVEFORM WITH SPIN PARAMETERS ")
             my_converter = ConvertWPtoSurrogateParamsPrecessing
             reflection_symmetric=False
         if 'NRHyb' in param and not'Tidal' in param:
-            print " GENERATING hybrid ROM WAVEFORM WITH ALIGNED SPIN PARAMETERS "
+            print(" GENERATING hybrid ROM WAVEFORM WITH ALIGNED SPIN PARAMETERS ")
             my_converter = ConvertWPtoSurrogateParamsAligned
             self.single_mode_sur=False
         if 'Tidal' in param:
-            print " GENERATING hybrid ROM WAVEFORM WITH ALIGNED SPIN AND TIDAL PARAMETERS "
+            print(" GENERATING hybrid ROM WAVEFORM WITH ALIGNED SPIN AND TIDAL PARAMETERS ")
             my_converter = ConvertWPtoSurrogateParamsAligned
             self.single_mode_sur=False
         if 'NRSur7d' in param:
             if  rosDebug:
-                print " GENERATING ROM WAVEFORM WITH FULL SPIN PARAMETERS "
+                print(" GENERATING ROM WAVEFORM WITH FULL SPIN PARAMETERS ")
             my_converter = ConvertWPtoSurrogateParamsPrecessingFull
             self.single_mode_sur=False
             reflection_symmetric=False
@@ -287,12 +286,12 @@ class WaveformModeCatalog:
             #     self.parameter_convert[mode] =  my_converter #  ConvertWPtoSurrogateParams   # default conversion routine
 #            return
         elif 'NRSur7dq4' in param:
-            print param
+            print(param)
             self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group+param)   # get the dimensinoless surrogate file?
             raw_modes = self.sur._sur_dimless.mode_list  # raw modes
             reflection_symmetric = False
             self.modes_available=[]
-            print raw_modes
+            print(raw_modes)
             self.modes_available=raw_modes
             t = self.sur._sur_dimless.t_coorb
             self.ToverMmin = t.min()
@@ -323,7 +322,7 @@ class WaveformModeCatalog:
         # Load surrogates from a mode-by-mode basis, and their conjugates
         for mode in raw_modes:
           if mode[0]<=self.lmax and mode in lm_list:  # latter SHOULD be redundant (because of ell_m=lm_list)
-            print " Loading mode ", mode
+            print(" Loading mode ", mode)
             self.modes_available.append(mode)
             self.post_dict[mode] = sur_identity
             self.post_dict_complex[mode]  = lambda x: x   # to mode
@@ -331,7 +330,7 @@ class WaveformModeCatalog:
             self.parameter_convert[mode] =  my_converter #  ConvertWPtoSurrogateParams   # default conversion routine
             if self.single_mode_sur:
                 self.sur_dict[mode] = self.sur.single_mode(mode)
-                print ' mode ', mode, self.sur_dict[mode].B.shape
+                print(' mode ', mode, self.sur_dict[mode].B.shape)
                 self.nbasis_per_mode[mode] = (self.sur_dict[mode].B.shape)[1]
             if max_nbasis_per_mode != None  and self.sur_dict[mode].surrogate_mode_type == 'waveform_basis':
              if max_nbasis_per_mode >0: # and max_nbasis_per_mode < self.nbasis_per_mode[mode]:
@@ -340,7 +339,7 @@ class WaveformModeCatalog:
                 # Works only for LINEAR basis
                 # B are samples of the basis on some long time, V
                 sur = self.sur_dict[mode]
-                print " Truncating basis for mode ", mode, " to size ", max_nbasis_per_mode,  " but note the number of EIM points remains the same..."
+                print(" Truncating basis for mode ", mode, " to size ", max_nbasis_per_mode,  " but note the number of EIM points remains the same...")
                 V = self.sur_dict[mode].V
                 n_basis = len(V)
                 V_inv = inv(V)
@@ -359,7 +358,7 @@ class WaveformModeCatalog:
             if reflection_symmetric and raw_modes.count((mode[0],-mode[1]))<1:
                 mode_alt = (mode[0],-mode[1])
                 if rosDebug:
-                    print " Adjoining postprocessing to enable complex conjugate for reflection symmetric case", mode_alt
+                    print(" Adjoining postprocessing to enable complex conjugate for reflection symmetric case", mode_alt)
 #                if max_nbasis_per_mode:
  #                   self.nbasis_per_mode[mode_alt] = np.max([int(max_nbasis_per_mode),1])    # INFRASTRUTCTURE PLAN: Truncate t                print " Loading mode ", mode_alt, " via reflection symmetry "
                 self.modes_available.append(mode_alt)
@@ -372,7 +371,7 @@ class WaveformModeCatalog:
                     self.sur_dict[mode_alt] = self.sur_dict[mode]
         if not self.single_mode_sur:
             # return after performing all the neat reflection symmetrization setup described above, in case model is *not* a single-mode surrogate
-            print "  ... done setting mode symmetry requirements", self.modes_available
+            print("  ... done setting mode symmetry requirements", self.modes_available)
 #            print raw_modes, self.post_dict
             return  
         # CURRENTLY ONLY LOAD THE 22 MODE and generate the 2,-2 mode by symmetr
@@ -382,7 +381,7 @@ class WaveformModeCatalog:
         P=lalsimutils.ChooseWaveformParams() # default is q=1 object
         params_tmp = self.parameter_convert[(2,2)](P)
         if rosDebug:
-            print " Passing temporary parameters ", params_tmp, " to find the peak time default "
+            print(" Passing temporary parameters ", params_tmp, " to find the peak time default ")
         # print dir(self.sur_dict[(2,2)])
         # print self.sur_dict[(2,2)].__dict__.keys()
         # print self.sur_dict[(2,2)].parameterization
@@ -391,7 +390,7 @@ class WaveformModeCatalog:
         t, hp, hc = self.sur_dict[(2,2)]( params_tmp  );   # calculate merger time -- addresses conventions on peak time location, and uses named arguments
         self.ToverM_peak = t[np.argmax(np.abs(hp**2+hc**2))]  # discrete maximum time. Sanity check
         if rosDebug:
-            print " Peak time for ROM ", self.ToverM_peak
+            print(" Peak time for ROM ", self.ToverM_peak)
 
         # BASIS MANAGEMENT: Not yet implemented
         # Assume a DISTINCT BASIS SET FOR AL MODES, which will be ANNOYING
@@ -399,10 +398,10 @@ class WaveformModeCatalog:
         self.strain_basis_functions_dimensionless = self.sur_dict[(2,2)].resample_B  # We may need to add complex conjugate functions too. And a master index for basis functions associated with different modes
 
     def print_params(self):
-        print " Surrogate model "
-        print "   Modes available "
+        print(" Surrogate model ")
+        print("   Modes available ")
         for mode in self.sur_dict:
-            print  "    " , mode, " nbasis = ", self.nbasis_per_mode[mode]
+            print("    " , mode, " nbasis = ", self.nbasis_per_mode[mode])
 
     # same arguments as hlm
     def complex_hoft(self, P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,sgn=-1):
@@ -414,7 +413,7 @@ class WaveformModeCatalog:
         for mode in hlmT.keys():
             # PROBLEM: Be careful with interpretation. The incl and phiref terms are NOT tied to L.
             if rosDebug:
-                print mode, np.max(hlmT[mode].data.data), " running max ",  np.max(np.abs(wfmTS.data.data))
+                print(mode, np.max(hlmT[mode].data.data), " running max ",  np.max(np.abs(wfmTS.data.data)))
             wfmTS.data.data += np.exp(-2*sgn*1j*P.psi)* hlmT[mode].data.data*lal.SpinWeightedSphericalHarmonic(P.incl,-P.phiref,-2, int(mode[0]),int(mode[1]))
         return wfmTS
     def complex_hoff(self,P, force_T=False):
@@ -437,8 +436,8 @@ class WaveformModeCatalog:
         htC = self.complex_hoft(P,force_T=1./P.deltaF, deltaT= P.deltaT)  # note P.tref is NOT used in the low-level code
         TDlen  = htC.data.length
         if rosDebug:
-            print  "Size sanity check ", TDlen, 1/(P.deltaF*P.deltaT)
-            print " Raw complex magnitude , ", np.max(htC.data.data)
+            print("Size sanity check ", TDlen, 1/(P.deltaF*P.deltaT))
+            print(" Raw complex magnitude , ", np.max(htC.data.data))
             
         # Create working buffers to extract data from it -- wasteful.
         hp = lal.CreateREAL8TimeSeries("h(t)", htC.epoch, 0.,
@@ -469,20 +468,20 @@ class WaveformModeCatalog:
             hp.epoch = hp.epoch + P.tref
             hc.epoch = hc.epoch + P.tref
             if rosDebug:
-                print " Real h(t) before detector weighting, ", np.max(hp.data.data), np.max(hc.data.data)
+                print(" Real h(t) before detector weighting, ", np.max(hp.data.data), np.max(hc.data.data))
             hoft = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc,    # beware, this MAY alter the series length??
                 P.phi, P.theta, P.psi, 
                 lalsim.DetectorPrefixToLALDetector(str(P.detector)))
             hoft = lal.CutREAL8TimeSeries(hoft, 0, hp.data.length)       # force same length as before??
             if rosDebug:
-                print "Size before and after detector weighting " , hp.data.length, hoft.data.length
+                print("Size before and after detector weighting " , hp.data.length, hoft.data.length)
         if rosDebug:
-            print  " Real h_{IFO}(t) generated, pre-taper : max strain =", np.max(hoft.data.data)
+            print(" Real h_{IFO}(t) generated, pre-taper : max strain =", np.max(hoft.data.data))
         if P.taper != lalsimutils.lsu_TAPER_NONE: # Taper if requested
             lalsim.SimInspiralREAL8WaveTaper(hoft.data, P.taper)
         if P.deltaF is not None:
             TDlen = int(1./P.deltaF * 1./P.deltaT)
-            print "Size sanity check 2 ", int(1./P.deltaF * 1./P.deltaT), hoft.data.length
+            print("Size sanity check 2 ", int(1./P.deltaF * 1./P.deltaT), hoft.data.length)
             assert TDlen >= hoft.data.length
             npts = hoft.data.length
             hoft = lal.ResizeREAL8TimeSeries(hoft, 0, TDlen)
@@ -490,7 +489,7 @@ class WaveformModeCatalog:
             hoft.data.data[npts:TDlen] = 0
 
         if rosDebug:
-            print  " Real h_{IFO}(t) generated : max strain =", np.max(hoft.data.data)
+            print(" Real h_{IFO}(t) generated : max strain =", np.max(hoft.data.data))
         return hoft
 
     def non_herm_hoff(self,P):
@@ -537,7 +536,7 @@ class WaveformModeCatalog:
         m_total_s = MsunInSec*(P.m1+P.m2)/lal.MSUN_SI
         # Create a suitable set of time samples.  Zero pad to 2^n samples.
         T_estimated = np.abs(self.sur_dict[(2,2)].tmin)*m_total_s
-        print " Estimated duration ", T_estimated
+        print(" Estimated duration ", T_estimated)
 #        T_estimated =  20 # FIXME. Time in seconds
         npts=0
         if not force_T:
@@ -546,10 +545,10 @@ class WaveformModeCatalog:
         else:
             npts = int(force_T/deltaT)
             if rosDebug:
-                print " Forcing length T=", force_T, " length ", npts
+                print(" Forcing length T=", force_T, " length ", npts)
         tvals = (np.arange(npts)-npts/2)*deltaT   # Use CENTERED time to make sure I handle CENTERED NR signal (usual)
         if rosDebug:
-            print " time range being sampled ", [min(tvals),max(tvals)], " corresponding to dimensionless range", [min(tvals)/m_total_s,max(tvals)/m_total_s], " for mtotal ", (P.m1+P.m2)/lal.MSUN_SI
+            print(" time range being sampled ", [min(tvals),max(tvals)], " corresponding to dimensionless range", [min(tvals)/m_total_s,max(tvals)/m_total_s], " for mtotal ", (P.m1+P.m2)/lal.MSUN_SI)
 
         # Identify natural time region, and prepare to taper accordingly
 
@@ -567,7 +566,7 @@ class WaveformModeCatalog:
                     continue
                 how_to_store = (mode[0], mode[1], indx)
                 if rosDebug:
-                    print " Storing resampled copy : ", how_to_store, " expected start and end ", tmin, tmax, " for mtot = ", (P.m1+P.m2)/lal.MSUN_SI
+                    print(" Storing resampled copy : ", how_to_store, " expected start and end ", tmin, tmax, " for mtot = ", (P.m1+P.m2)/lal.MSUN_SI)
                 basis_grid[how_to_store] = self.post_dict_complex[mode](new_B[:,indx])
 
         # Optional: return just this way
@@ -578,21 +577,21 @@ class WaveformModeCatalog:
         ret = {}
 
         # Taper design.  Note taper needs to be applied IN THE RIGHT PLACE.  
-        print " Tapering basis part 1: start "
+        print(" Tapering basis part 1: start ")
         vectaper = np.zeros(len(tvals))
         t_start_taper = (self.ToverMmin - self.ToverM_peak)*m_total_s#-self.ToverM_peak*m_total_s
         t_end_taper = t_start_taper +100*m_total_s  # taper over around 100 M
-        print "  t interval (s) =  ", t_start_taper, t_end_taper
+        print("  t interval (s) =  ", t_start_taper, t_end_taper)
 #        print t_start_taper, t_end_taper, tvals
         def fn_taper(x):
             return np.piecewise(x,[x<t_start_taper,x>t_end_taper,np.logical_and(x>=t_start_taper, x<=t_end_taper)], [0,1,lambda z: 0.5-0.5*np.cos(np.pi* (z-t_start_taper)/(t_end_taper-t_start_taper))])
         vectaper= fn_taper(tvals)
 
-        print " Tapering basis part 2: end "  # IMPORTANT: ROMs can be discontinuous at end, which casues problems
+        print(" Tapering basis part 2: end ")  # IMPORTANT: ROMs can be discontinuous at end, which casues problems
         vectaper2 = np.zeros(len(tvals))
         t_start_taper = (self.ToverMmax-self.ToverM_peak-10)*m_total_s  # taper over last 5 M
         t_end_taper = (self.ToverMmax-self.ToverM_peak)*m_total_s  
-        print "  t interval (s) =  ", t_start_taper, t_end_taper
+        print("  t interval (s) =  ", t_start_taper, t_end_taper)
 #        print t_start_taper, t_end_taper, tvals
         def fn_taper2(x):
             return np.piecewise(x,[x<t_start_taper,x>t_end_taper,np.logical_and(x>=t_start_taper, x<=t_end_taper)], [1,0,lambda z: 0.5+0.5*np.cos(np.pi* (z-t_start_taper)/(t_end_taper-t_start_taper))])
@@ -636,8 +635,8 @@ class WaveformModeCatalog:
             params = self.parameter_convert[mode](P,**kwargs)  # very redundant, almost certainly the same for all modes in the surrogate.
             params_surrogate = self.sur_dict[mode].get_surr_params(params)
             if rosDebug:
-                print " passing params to mode : ", mode, params
-                print " surrogate natural parameter is ", params_surrogate
+                print(" passing params to mode : ", mode, params)
+                print(" surrogate natural parameter is ", params_surrogate)
 
             # New version: gw-surrogate-0.5
             h_EIM = self.sur_dict[mode].eim_coeffs(params_surrogate, 'waveform_basis')
@@ -682,10 +681,10 @@ class WaveformModeCatalog:
         else:
             npts = int(force_T/deltaT)
             if rosDebug:
-                print " Forcing length T=", force_T, " length ", npts
+                print(" Forcing length T=", force_T, " length ", npts)
         tvals = (np.arange(npts)-npts/2)*deltaT   # Use CENTERED time to make sure I handle CENTERED NR signal (usual)
         if rosDebug:
-            print " time range being sampled ", [min(tvals),max(tvals)], " corresponding to dimensionless range", [min(tvals)/m_total_s,max(tvals)/m_total_s]
+            print(" time range being sampled ", [min(tvals),max(tvals)], " corresponding to dimensionless range", [min(tvals)/m_total_s,max(tvals)/m_total_s])
 
         # Populate basis coefficients, if we need it
         if use_basis:
@@ -717,7 +716,7 @@ class WaveformModeCatalog:
                 hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
            
         if 'NRSur7dq4' in self.param:
-            print self.sur
+            print(self.sur)
             params_here = self.parameter_convert[(2,2)](P)
             tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
             indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
@@ -725,7 +724,7 @@ class WaveformModeCatalog:
             taper_end_duration =None
             if rom_taper_end:
                 taper_end_duration =40.0
-                print params_here[0],params_here[1],params_here[2]
+                print(params_here[0],params_here[1],params_here[2])
             if P.fref >0 and use_reference_spins:
                 time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, MTot=(P.m1+P.m2)/lal.MSUN_SI, times=tvals_dimensionless[indx_ok]*m_total_s,f_low=0,taper_end_duration=taper_end_duration) #,f_low=0)
             else:
@@ -752,7 +751,7 @@ class WaveformModeCatalog:
             # Build taper for start
             taper_start_window = np.ones(len(hlmT_dimensionless_narrow[(2,2)]))
             if rom_taper_start or P.taper  != lalsimutils.lsu_TAPER_NONE:
-                print " HybSur: Preparing manual tapering for first ~ 12 cycles "
+                print(" HybSur: Preparing manual tapering for first ~ 12 cycles ")
                 # Taper the start of the waveform by considering a fixed number of cyles for 2,2 mode
                 # Taper window must be applied later on, as we want to measure the starting frequency
                 # mode-by-mode
@@ -763,7 +762,7 @@ class WaveformModeCatalog:
                     tvals_dimensionless[indx_ok][0], tvals_dimensionless[indx_ok][0]+taper_start_duration,\
                     rolloff=0, windowType='planck')
                 taper_fraction = taper_start_duration/(tvals_dimensionless[indx_ok][-1] - tvals_dimensionless[indx_ok][0])
-                print "Taper duration "+str(taper_start_duration)+" (M). Fraction of signal: "+str(taper_fraction)
+                print("Taper duration "+str(taper_start_duration)+" (M). Fraction of signal: "+str(taper_fraction))
 
             for mode in self.modes_available:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
@@ -806,8 +805,8 @@ class WaveformModeCatalog:
                         ntaper = int(0.05*len(tvals))   # force 1% length taper
                     vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
                     if rosDebug:
-                        print " Tapering ROM hlm(t) for ", mode, " over range ", nstart, nstart+ntaper, " or time offset ", nstart*deltaT, " and window ", ntaper*deltaT
-                        print  len(vectaper), ntaper, n0,nstart, len(tvals), wfmTS.data.length
+                        print(" Tapering ROM hlm(t) for ", mode, " over range ", nstart, nstart+ntaper, " or time offset ", nstart*deltaT, " and window ", ntaper*deltaT)
+                        print(len(vectaper), ntaper, n0,nstart, len(tvals), wfmTS.data.length)
                     wfmTS.data.data[nstart:nstart+ntaper]*=vectaper
 
                     # end taper
@@ -816,7 +815,7 @@ class WaveformModeCatalog:
                     vectaper= 0.5 - 0.5*np.cos(np.pi* (1-np.arange(ntaper)/(1.*ntaper)))
                     wfmTS.data.data[-ntaper+nend:nend]*=vectaper
                     if rosDebug:
-                        print " Tapering ROM hlm(t) end for ", mode, " over range ", nend-ntaper, nend, " or time offset ", nend*deltaT, ntaper*deltaT
+                        print(" Tapering ROM hlm(t) end for ", mode, " over range ", nend-ntaper, nend, " or time offset ", nend*deltaT, ntaper*deltaT)
 
 
             else:
@@ -824,7 +823,7 @@ class WaveformModeCatalog:
                 # select index list
                 indx_list_ok = [indx for indx in coefs.keys()  if indx[0]==mode[0] and indx[1]==mode[1]]
                 if rosDebug:
-                    print " To reconstruct ", mode, " using the following basis entries ",  indx_list_ok
+                    print(" To reconstruct ", mode, " using the following basis entries ",  indx_list_ok)
                 fudge_factor = 1    # FIXME, TERRIBLE!!!
                 for indx in indx_list_ok: # loop over basis
 #                    print " Adding " , bT[indx].data.length, wfmTS.data.length, indx, " of " ,len(coefs), (coefs[indx]*bT[indx].data.data)[len(bT[indx].data.data)/2]
@@ -841,7 +840,7 @@ class WaveformModeCatalog:
                     nstart = n0+int((self.ToverMmin-self.ToverM_peak)*m_total_s/deltaT)        # note offset for tapering
                     ntaper = int( (self.ToverM_peak-self.ToverMmin)*m_total_s/deltaT*0.1)  # SHOULD BE set by a few Hz in time fixed 1% of waveform length
                     vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
-                    print " Tapering ROM hlm(t) for ", mode, " over range ", nstart, nstart+ntaper, " or time offset ", nstart*deltaT, " and window ", ntaper*deltaT
+                    print(" Tapering ROM hlm(t) for ", mode, " over range ", nstart, nstart+ntaper, " or time offset ", nstart*deltaT, " and window ", ntaper*deltaT)
                     wfmTS.data.data[nstart:nstart+ntaper]*=vectaper
 
                     # end taper
@@ -849,7 +848,7 @@ class WaveformModeCatalog:
                     nend = n0 + int((self.ToverMmax-self.ToverM_peak)*m_total_s/deltaT)
                     vectaper= 0.5 - 0.5*np.cos(np.pi* (1-np.arange(ntaper)/(1.*ntaper)))
                     wfmTS.data.data[-ntaper+nend:nend]*=vectaper
-                    print " Tapering ROM hlm(t) end for ", mode, " over range ", nend-ntaper, nend, " or time offset ", nend*deltaT, ntaper*deltaT
+                    print(" Tapering ROM hlm(t) end for ", mode, " over range ", nend-ntaper, nend, " or time offset ", nend*deltaT, ntaper*deltaT)
 
 
 
@@ -882,14 +881,14 @@ class WaveformModeCatalog:
             if my_hybrid_time == None:
                 my_hybrid_time = -0.5*self.estimateDurationSec(P)  # note fmin is not used. Note this is VERY conservative
             if verbose:
-                print "  hybridization performed for ", self.group, self.param, " at time ", my_hybrid_time
+                print("  hybridization performed for ", self.group, self.param, " at time ", my_hybrid_time)
             P.deltaT = deltaT # sanity
             # HACK: round digits, so I can get a spin-aligned approximant if I need it
             hlmT_hybrid = LALHybrid.hybridize_modes(hlmT,P,hybrid_time_start=my_hybrid_time,hybrid_method=hybrid_method)
             return hlmT_hybrid
         else:
             if rosDebug:
-                print " ------ NO HYBRIDIZATION PERFORMED AT LOW LEVEL (=automatic) for ", self.group, self.param, "----- "
+                print(" ------ NO HYBRIDIZATION PERFORMED AT LOW LEVEL (=automatic) for ", self.group, self.param, "----- ")
         return hlmT
 
     def hlmoff(self, P,force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf,**kwargs):

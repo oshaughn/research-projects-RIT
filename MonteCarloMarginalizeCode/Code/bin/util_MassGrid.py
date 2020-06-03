@@ -21,10 +21,10 @@ for fname in sys.argv[1:]:
     if fExtension == "sqlite":
         samples = xmlutils.db_to_samples(fname, lsctables.SnglInspiralTable, ['mass1', 'mass2', 'snr', 'tau0', 'event_duration'])
         for row in samples:  # print each individual row, don't reweight yet
-            print row.mass1, row.mass2, row.snr, row.tau0, row.event_duration
+            print(row.mass1, row.mass2, row.snr, row.tau0, row.event_duration)
     # otherwise xml: could have just used ligolw_print
     elif fExtension == "xml" or fExtension == "gz":
         samples = table.get_table(utils.load_filename(fname), lsctables.SnglInspiralTable.tableName)
         for row in samples:  # print each individual row, don't reweight yet
-            print row.mass1, row.mass2, row.snr, row.tau0, row.event_duration
+            print(row.mass1, row.mass2, row.snr, row.tau0, row.event_duration)
 

@@ -40,7 +40,7 @@ try:
 
     no_plots=False
 except ImportError:
-    print " - no matplotlib - "
+    print(" - no matplotlib - ")
 
 
 from sklearn.preprocessing import PolynomialFeatures
@@ -160,7 +160,7 @@ else:
     dlist = []
     dlist_ranges = []
 if len(dlist) != len(dlist_ranges):
-    print " downselect parameters inconsistent", dlist, dlist_ranges
+    print(" downselect parameters inconsistent", dlist, dlist_ranges)
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
@@ -195,7 +195,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
 }
 
 if not (opts.eta_range is None):
-    print " Warning: Overriding default eta range. USE WITH CARE"
+    print(" Warning: Overriding default eta range. USE WITH CARE")
     prior_range_map['eta'] = eval(opts.eta_range)  # really only useful if eta is a coordinate.  USE WITH CARE
 
 
@@ -223,8 +223,8 @@ def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False):
 
     bic  =-2*( -0.5*np.sum(np.power((y - fn_estimate(x)),2))/2 - 0.5* len(y)*np.log(len(x[0])) )
 
-    print "  Fit: std :" , np.std( y-fn_estimate(x))
-    print "  Fit: BIC :" , bic
+    print("  Fit: std :" , np.std( y-fn_estimate(x)))
+    print("  Fit: BIC :" , bic)
 
     return fn_estimate
 
@@ -242,8 +242,8 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
         X_  = poly.fit_transform(x)
 
         if opts.verbose:
-            print " Fit : poly: RAW :", poly.get_feature_names()
-            print " Fit : ", poly.powers_
+            print(" Fit : poly: RAW :", poly.get_feature_names())
+            print(" Fit : ", poly.powers_)
 
         # Strip things with inappropriate symmetry: IMPOSSIBLE
         # powers_new = []
@@ -269,12 +269,12 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
 
         clf_list.append(clf)
 
-        print  " Fit: Testing order ", indx
-        print  " Fit: std: ", np.std(y - clf.predict(X_)),  "using number of features ", len(y)  # should NOT be perfect
+        print(" Fit: Testing order ", indx)
+        print(" Fit: std: ", np.std(y - clf.predict(X_)),  "using number of features ", len(y))  # should NOT be perfect
         if not (y_errors is None):
-            print " Fit: weighted error ", np.std( (y - clf.predict(X_))/y_errors)
+            print(" Fit: weighted error ", np.std( (y - clf.predict(X_))/y_errors))
         bic = -2*( -0.5*np.sum(np.power(y - clf.predict(X_),2))  - 0.5*len(y)*np.log(len(x[0])))
-        print  " Fit: BIC:", bic
+        print(" Fit: BIC:", bic)
         bic_list.append(bic)
 
     clf = clf_list[np.argmin(np.array(bic_list) )]
@@ -310,12 +310,12 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False)
         length_scale_min_here= np.max([1e-3,0.2*np.std(x[:,indx]/np.sqrt(len(x)))])
         if indx == mc_index:
             length_scale_min_here= 0.2*np.std(x[:,indx]/np.sqrt(len(x)))
-            print " Setting mc range: retained point range is ", np.std(x[:,indx]), " and target min is ", length_scale_min_here
+            print(" Setting mc range: retained point range is ", np.std(x[:,indx]), " and target min is ", length_scale_min_here)
         length_scale_bounds_est.append( (length_scale_min_here , 5*np.std(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
 
-    print " GP: Estimated length scales "
-    print length_scale_est
-    print length_scale_bounds_est
+    print(" GP: Estimated length scales ")
+    print(length_scale_est)
+    print(length_scale_bounds_est)
 
     if not (hypercube_rescale):
         # These parameters have been hand-tuned by experience to try to set to levels comparable to typical lnL Monte Carlo error
@@ -324,7 +324,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False)
 
         gp.fit(x,y)
 
-        print  " Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y) 
+        print(" Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y))
 
         if not (opts.fit_uncertainty_added):
             return lambda x: gp.predict(x)
@@ -334,7 +334,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False)
         x_scaled = np.zeros(x.shape)
         x_center = np.zeros(len(length_scale_est))
         x_center = np.mean(x)
-        print " Scaling data to central point ", x_center
+        print(" Scaling data to central point ", x_center)
         for indx in np.arange(len(x)):
             x_scaled[indx] = (x[indx] - x_center)/length_scale_est # resize
 
@@ -342,7 +342,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False)
         gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=8)
         
         gp.fit(x_scaled,y)
-        print  " Fit: std: ", np.std(y - gp.predict(x_scaled)),  "using number of features ", len(y)  # should NOT be perfect
+        print(" Fit: std: ", np.std(y - gp.predict(x_scaled)),  "using number of features ", len(y))  # should NOT be perfect
 
         return lambda x,x0=x_center,scl=length_scale_est: gp.predict( (x-x0 )/scl)
 
@@ -360,11 +360,11 @@ if opts.parameter_nofit:
 error_factor = len(coord_names)
 if opts.fit_uses_reported_error:
     error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
-print " Coordinate names for fit :, ", coord_names
-print " Rendering coordinate names : ",  render_coordinates(coord_names)  # map(lambda x: tex_dictionary[x], coord_names)
-print " Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names)
-print " Coordinate names for Monte Carlo :, ", low_level_coord_names
-print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_level_coord_names)
+print(" Coordinate names for fit :, ", coord_names)
+print(" Rendering coordinate names : ",  render_coordinates(coord_names))  # map(lambda x: tex_dictionary[x], coord_names)
+print(" Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names))
+print(" Coordinate names for Monte Carlo :, ", low_level_coord_names)
+print(" Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_level_coord_names))
 
 # initialize
 dat_mass  = [] 
@@ -377,11 +377,11 @@ n_params = -1
 #  id m1 m2  lnL sigma/L  neff
 col_lnL = 9
 if opts.input_tides:
-    print " Tides input"
+    print(" Tides input")
     col_lnL +=2
 dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
-print " Original data size = ", len(dat), dat.shape
+print(" Original data size = ", len(dat), dat.shape)
 
  ###
  ### Convert data.  Use lalsimutils for flexibility
@@ -398,16 +398,16 @@ mc_index = -1 # index of mchirp in parameter index. To help with nonstandard GP
 mc_cut_range = [-np.inf, np.inf] 
 if opts.mc_range:
     mc_cut_range = eval(opts.mc_range)  # throw out samples outside this range
-print " Stripping samples outside of ", mc_cut_range, " in mc"
+print(" Stripping samples outside of ", mc_cut_range, " in mc")
 P= lalsimutils.ChooseWaveformParams()
 for line in dat:
   # Skip precessing binaries unless explicitly requested not to!
   if not opts.use_precessing and (line[3]**2 + line[4]**2 + line[6]**2 + line[7]**2)>0.01:
-      print " Skipping precessing binaries "
+      print(" Skipping precessing binaries ")
       continue
   if line[1]+line[2] > opts.M_max_cut:
       if opts.verbose:
-          print " Skipping ", line, " as too massive, with mass ", line[1]+line[2]
+          print(" Skipping ", line, " as too massive, with mass ", line[1]+line[2])
       continue
   if line[col_lnL+1] > opts.sigma_cut:
 #      if opts.verbose:
@@ -418,7 +418,7 @@ for line in dat:
   mc_here = lalsimutils.mchirp(line[1],line[2])
   if mc_here < mc_cut_range[0] or mc_here > mc_cut_range[1]:
       if opts.verbose:
-          print "Stripping because sample outside of target  mc range ", line
+          print("Stripping because sample outside of target  mc range ", line)
       continue
   if line[col_lnL] < opts.lnL_peak_insane_cut:
     P.fref = opts.fref  # IMPORTANT if you are using a quantity that depends on J
@@ -467,7 +467,7 @@ for line in dat:
 Pref_default = P.copy()  # keep this around to fix the masses, if we don't have an inj
 
 dat_out = np.array(dat_out)
-print " Stripped size  = ", dat_out.shape
+print(" Stripped size  = ", dat_out.shape)
  # scale out mass units
 for p in ['mc', 'm1', 'm2', 'mtot']:
     if p in coord_names:
@@ -484,7 +484,7 @@ Y_err = dat_out[:,-1]
 # Eliminate values with Y too small
 max_lnL = np.max(Y)
 indx_ok = Y>np.max(Y)-opts.lnL_offset
-print " Points used in fit : ", sum(indx_ok), " given max lnL ", max_lnL
+print(" Points used in fit : ", sum(indx_ok), " given max lnL ", max_lnL)
 if max_lnL < 10:
     # nothing matters, we will reject it anyways
     indx_ok = np.ones(len(Y),dtype=bool)
@@ -495,34 +495,34 @@ elif sum(indx_ok) < 10: # and max_lnL > 30:
     indx_list = np.array( [[k, Y[k]] for k in idx_sorted_index])     # pair up with the weights again
     indx_list = indx_list[::-1]  # reverse, so most significant are first
     indx_ok = map(int,indx_list[:10,0])
-    print " Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:10]
+    print(" Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:10])
 X_raw = X.copy()
 
 my_fit= None
 if opts.fit_method == "quadratic":
-    print " FIT METHOD ", opts.fit_method, " IS QUADRATIC"
+    print(" FIT METHOD ", opts.fit_method, " IS QUADRATIC")
     X=X[indx_ok]
     Y=Y[indx_ok]
     Y_err = Y_err[indx_ok]
     my_fit = fit_quadratic_alt(X,Y,symmetry_list=symmetry_list,verbose=opts.verbose)
 elif opts.fit_method == "polynomial":
-    print " FIT METHOD ", opts.fit_method, " IS POLYNOMIAL"
+    print(" FIT METHOD ", opts.fit_method, " IS POLYNOMIAL")
     X=X[indx_ok]
     Y=Y[indx_ok]
     Y_err = Y_err[indx_ok]
     my_fit = fit_polynomial(X,Y,symmetry_list=symmetry_list,y_errors=Y_err)
 elif opts.fit_method == 'gp_hyper':
-    print " FIT METHOD ", opts.fit_method, " IS GP with hypercube rescaling"
+    print(" FIT METHOD ", opts.fit_method, " IS GP with hypercube rescaling")
     # some data truncation IS used for the GP, but beware
-    print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
+    print(" Truncating data set used for GP, to reduce memory usage needed in matrix operations")
     X=X[indx_ok]
     Y=Y[indx_ok]
     Y_err = Y_err[indx_ok]
     my_fit = fit_gp(X,Y,y_errors=Y_err,hypercube_rescale=True)
 elif opts.fit_method == 'gp':
-    print " FIT METHOD ", opts.fit_method, " IS GP"
+    print(" FIT METHOD ", opts.fit_method, " IS GP")
     # some data truncation IS used for the GP, but beware
-    print " Truncating data set used for GP, to reduce memory usage needed in matrix operations"
+    print(" Truncating data set used for GP, to reduce memory usage needed in matrix operations")
     X=X[indx_ok]
     Y=Y[indx_ok]
     Y_err = Y_err[indx_ok]
@@ -630,7 +630,7 @@ for indx in np.arange(len(samples_rec[params_rec[0]])):
     P = P_base.manual_copy()
     for param in params_rec:
         val = samples_rec[param][indx]
-	fac=1
+        fac=1
         if param in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
         P.assign_param(param,fac*val)
@@ -659,7 +659,7 @@ for indx in np.arange(len(samples_rec[params_rec[0]])):
         arg = -scaledfunc(res.x)
     grid_list.append(line_out)
     lnL_list.append(arg)
-    print line_out, arg
+    print(line_out, arg)
 
 
 n_params = len(grid_list[0])

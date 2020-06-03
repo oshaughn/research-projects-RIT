@@ -21,7 +21,7 @@ import lalsimulation as lalsim
 import lalframe
 import lal
 
-import NRWaveformCatalogManager as nrwf
+import NRWaveformCatalogManager3 as nrwf
 
 
 parser = argparse.ArgumentParser()
@@ -54,19 +54,19 @@ if nrwf.internal_ParametersAreExpressions[group]:
 else:
     param = opts.param
 if opts.verbose:
-    print "Importing ", group, param 
+    print("Importing ", group, param) 
 
 
 if opts.print_group_list:
-    print "Simulations available"
-    for key in  nrwf.internal_ParametersAvailable.keys():
-        print  "  ", key
+    print("Simulations available")
+    for key in  list(nrwf.internal_ParametersAvailable.keys()):
+        print("  ", key)
     sys.exit(0)
 
 if opts.print_param_list:
-    print "Parameters available for ", group
+    print("Parameters available for ", group)
     for key in  nrwf.internal_ParametersAvailable[group]:
-        print  "  ", key
+        print("  ", key)
     sys.exit(0)
 
 # Window size : 8 s is usually more than enough, though we will fill a 16s buffer to be sure.
@@ -105,27 +105,27 @@ mtotMsun = (wfP.P.m1+wfP.P.m2)/lal.MSUN_SI
 
 
 # Rescale window if needed. Higher masses need longer, to get right start frequency
-print " NR duration (in s) of simulation at this mass = ", wfP.estimateDurationSec()
-print " NR starting 22 mode frequency at this mass = ", wfP.estimateFminHz()
+print(" NR duration (in s) of simulation at this mass = ", wfP.estimateDurationSec())
+print(" NR starting 22 mode frequency at this mass = ", wfP.estimateFminHz())
 #T_window = max([16., 2**int(2+np.log2(np.power(mtotMsun/150, 1+3./8.)))])
 T_window = max([16, 2**int(np.log(wfP.estimateDurationSec())/np.log(2)+1)])
 wfP.P.deltaF = 1./T_window
-print " Final T_window ", T_window
+print(" Final T_window ", T_window)
 
 
 # Generate signal
 hoft = wfP.real_hoft(hybrid_use=opts.nr_use_hybrid)   # include translation of source, but NOT interpolation onto regular time grid
-print " Original signal (min, max) ", np.min(hoft.data.data) ,np.max(hoft.data.data)
+print(" Original signal (min, max) ", np.min(hoft.data.data) ,np.max(hoft.data.data))
 # zero pad to be opts.seglen long
 TDlenGoal = int(opts.seglen/hoft.deltaT)
 nptsOrig = hoft.data.length
 hoft = lal.ResizeREAL8TimeSeries(hoft, 0, TDlenGoal)
 hoft.data.data[nptsOrig:TDlenGoal] = 0 # np.zeros(TDlenGoal-nptsOrig) # zero out the tail
-print " Resized signal (min, max) ", np.min(hoft.data.data) ,np.max(hoft.data.data)
+print(" Resized signal (min, max) ", np.min(hoft.data.data) ,np.max(hoft.data.data))
 # zero pad some more on either side, to make sure the segment covers start to stop
 if opts.start and hoft.epoch > opts.start:
     nToAddBefore = int((hoft.epoch-opts.start)/hoft.deltaT)
-    print "Padding start ", nToAddBefore, hoft.data.length
+    print("Padding start ", nToAddBefore, hoft.data.length)
     ht = lal.CreateREAL8TimeSeries("Template h(t)", 
             hoft.epoch - nToAddBefore*hoft.deltaT, 0, hoft.deltaT, lalsimutils.lsu_DimensionlessUnit, 
             hoft.data.length+nToAddBefore)
@@ -139,11 +139,11 @@ else:
     nToAddAtEnd=0
 if nToAddAtEnd <=0:
     nToAddAtEnd = int(1/hoft.deltaT)  # always at at least 1s of padding at end
-print "Padding end ", nToAddAtEnd, hoft.data.length
+print("Padding end ", nToAddAtEnd, hoft.data.length)
 nptsNow = hoft.data.length
 hoft = lal.ResizeREAL8TimeSeries(hoft,0, int(hoft.data.length+nToAddAtEnd))
 hoft.data.data[nptsNow:hoft.data.length] = 0
-print " Padded signal (min, max) ", np.min(hoft.data.data) ,np.max(hoft.data.data)
+print(" Padded signal (min, max) ", np.min(hoft.data.data) ,np.max(hoft.data.data))
 
 
 channel = opts.instrument+":FAKE-STRAIN"
@@ -153,29 +153,29 @@ duration = int(hoft.data.length*hoft.deltaT)
 if not opts.fname:
     fname = opts.instrument.replace("1","")+"-fake_strain-"+str(tstart)+"-"+str(duration)+".gwf"
 
-print "Writing signal with ", hoft.data.length*hoft.deltaT, " to file ", fname
-print " Maximum original ", np.max(hoft.data.data), " corresponding to time ", np.argmax(hoft.data.data)*hoft.deltaT+hoft.epoch
+print("Writing signal with ", hoft.data.length*hoft.deltaT, " to file ", fname)
+print(" Maximum original ", np.max(hoft.data.data), " corresponding to time ", np.argmax(hoft.data.data)*hoft.deltaT+hoft.epoch)
 lalsimutils.hoft_to_frame_data(fname,channel,hoft)
 
 bNoInteractivePlots=True # default
 fig_extension = '.jpg'
 try:
     import matplotlib
-    print " Matplotlib backend ", matplotlib.get_backend()
+    print(" Matplotlib backend ", matplotlib.get_backend())
     if matplotlib.get_backend() is 'MacOSX':
         if opts.save_plots:
-            print "  OSX without interactive plots"
+            print("  OSX without interactive plots")
             bNoInteractivePlots=True
             fig_extension='.jpg'
         else:  #  Interactive plots
-            print "  OSX with interactive plots"
+            print("  OSX with interactive plots")
             bNoInteractivePlots=False
     elif matplotlib.get_backend() is 'agg':
         fig_extension = '.png'
         bNoInteractivePlots=True
-        print " No OSX; no interactive plots "
+        print(" No OSX; no interactive plots ")
     else:
-        print " Unknown configuration "
+        print(" Unknown configuration ")
         fig_extension = '.png'
         bNoInteractivePlots =True
     from matplotlib import pyplot as plt
@@ -183,7 +183,7 @@ try:
 except:
     from matplotlib import pyplot as plt
     fig_extension = '.jpeg'
-    print " - no matplotlib - "
+    print(" - no matplotlib - ")
     bNoInteractivePlots = True
     bNoPlots = False
 
@@ -201,8 +201,8 @@ if opts.verbose and not bNoPlots:
     tvals2 = (float(hoft2.epoch) - float(wfP.P.tref)) +  np.arange(hoft2.data.length)*hoft2.deltaT
     tvals = (float(hoft.epoch) - float(wfP.P.tref)) +  np.arange(hoft.data.length)*hoft.deltaT
 
-    print " Maximum original ", np.max(hoft.data.data), " size ", len(tvals), len(hoft.data.data), " corresponding to time ", np.argmax(hoft.data.data)*hoft.deltaT+hoft.epoch
-    print " Maximum frames ", np.max(hoft2.data.data), " size ", len(tvals2), len(hoft2.data.data), " corresponding to time ", np.argmax(hoft2.data.data)*hoft2.deltaT+hoft2.epoch
+    print(" Maximum original ", np.max(hoft.data.data), " size ", len(tvals), len(hoft.data.data), " corresponding to time ", np.argmax(hoft.data.data)*hoft.deltaT+hoft.epoch)
+    print(" Maximum frames ", np.max(hoft2.data.data), " size ", len(tvals2), len(hoft2.data.data), " corresponding to time ", np.argmax(hoft2.data.data)*hoft2.deltaT+hoft2.epoch)
 
     plt.plot(tvals2,hoft2.data.data,label='Fr')
     plt.xlim(-0.75* (mtotMsun/150),0.25*mtotMsun/150)
@@ -213,7 +213,7 @@ if opts.verbose and not bNoPlots:
         plt.show()
     else:
         for indx in [1]:
-            print "Writing figure ", indx
+            print("Writing figure ", indx)
             plt.xlim(-0.75* (mtotMsun/150),0.25*mtotMsun/150)
             plt.figure(indx); plt.savefig("nr-framedump-" +str(indx)+fig_extension)
             plt.xlim(min(tvals2),max(tvals2)) # full range with pad

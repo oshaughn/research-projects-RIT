@@ -30,7 +30,7 @@ opts=  parser.parse_args()
 
 hasNR = False
 if opts.group:
-    import NRWaveformCatalogManager as nrwf
+    import NRWaveformCatalogManager3 as nrwf
     hasNR=True
 
 
@@ -56,12 +56,12 @@ param_names = opts.parameter
 for param in param_names:
     # Check if in the valid list
     if not(param in lalsimutils.valid_params):
-        print ' Invalid param ', param, ' not in ', lalsimutils.valid_params
+        print(' Invalid param ', param, ' not in ', lalsimutils.valid_params)
         sys.exit(0)
 
 param_values = []
 if len(param_names) == len(opts.parameter_value):
-    param_values = map(eval, opts.parameter_value)
+    param_values = list(map(eval, opts.parameter_value))
 for p in ['mc', 'm1', 'm2', 'mtot']:
     if p in param_names:
         indx = param_names.index(p)
@@ -76,7 +76,7 @@ for p in ['dist']:
 for indx in np.arange(len(param_values)):
     P.assign_param(param_names[indx], param_values[indx])
 
-print " ------- WRITING INJECTION FILE ----- "
+print(" ------- WRITING INJECTION FILE ----- ")
 P.print_params()
 
 P_list = [P]
