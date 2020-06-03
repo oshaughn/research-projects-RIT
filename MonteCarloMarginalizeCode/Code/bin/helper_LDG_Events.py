@@ -76,7 +76,7 @@ def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_d
     fname_out = ifo_base[0]+"_local.cache"
     print([ifo_base, types, server, data_start, data_end])
     cmd = datafind_exe + ' -u file --gaps -o ' + ifo_base[0] + ' -t ' + types + ' --server ' + server + ' -s ' + str(data_start) + ' -e ' + str(data_end) + " > " +fname_out_raw
-    os.system(cmd)
+    os.system(cmd)b
 
     if not retrieve:
         # If we are not retrieving, we are on a cluster, and we need to load and convert this information
@@ -176,6 +176,7 @@ parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,hel
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
 parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
+parser.add_argument("--propose-flat-strategy",action="store_true",help="If present AND propose-fit-strategy is present, the strategy proposed will have puffball and convergence tests for every iteration, and the same CIP")
 parser.add_argument("--force-fit-method",type=str,default=None,help="Force specific fit method")
 #parser.add_argument("--internal-fit-strategy-enforces-cut",action='store_true',help="Fit strategy enforces lnL-offset (default 15) after the first batch of iterations. ACTUALLY DEFAULT - SHOULD BE REDUNDANT")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
@@ -933,6 +934,9 @@ if not opts.lowlatency_propose_approximant:
 
 puff_max_it=0
 helper_puff_args = " --parameter mc --parameter eta "
+if event_dict["MChirp"] >25:
+    # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there
+    helper_puff_args = " --parameter mc --parameter delta_mc "  
 if opts.propose_fit_strategy:
     puff_max_it= 0
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
@@ -1053,6 +1057,17 @@ if opts.propose_fit_strategy:
 
 with open("helper_cip_args.txt",'w') as f:
     f.write(helper_cip_args)
+
+
+if opts.propose_flat_strategy:
+    # All iterations of CIP use the same as the last
+    instructions_cip = map(lambda x: x.rstrip().split(' '), helper_cip_arg_list)#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
+    n_iterations =0
+    lines  = []
+    for indx in np.arange(len(instructions_cip)):
+        n_iterations += int(instructions_cip[indx][0])
+        lines.append(' '.join(instructions_cip[indx][1:]))   # merge back together
+    helper_cip_arg_list  = [str(n_iterations) + " " + lines[-1]]  # overwrite with new setup
 
 with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))

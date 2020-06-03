@@ -56,6 +56,14 @@ def unsafe_config_get(config,args,verbose=False):
     return eval( config.get(*args))
 
 
+def format_gps_time(tval):
+    if isinstance(tval,str):
+        return tval
+    if tval is None:
+        return "0"
+    str_out = "{:.5f}".format(float(tval))
+    return str_out
+
 def retrieve_event_from_coinc(fname_coinc):
     from glue.ligolw import lsctables, table, utils
     from RIFT import lalsimutils
@@ -99,6 +107,8 @@ parser.add_argument("--l-max",default=2,type=int)
 parser.add_argument("--no-matter",action='store_true', help="Force analysis without matter. Really only matters for BNS")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
+parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
+parser.add_argument("--internal-flat-strategy",action='store_true',help="Use the same CIP options for every iteration, with convergence tests on.  Passes --test-convergence, ")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
@@ -135,6 +145,11 @@ parser.add_argument("--archive-pesummary-label",default=None,help="If provided, 
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
 
+
+if opts.assume_highq:
+    opts.internal_correlate_default=True
+event_dict={}
+
 if (opts.approx is None) and not (opts.use_ini is None):
     config = ConfigParser.ConfigParser()
     config.read(opts.use_ini)
@@ -169,7 +184,7 @@ if not(opts.fmin_template is None):
     fmin_template = opts.fmin_template
 gwid = opts.gracedb_id if (not opts.gracedb_id is None) else '';
 if opts.gracedb_id is None:
-    gwid="manual_"+ str(opts.event_time)
+    gwid="manual_"+ format_gps_time(opts.event_time)
     if not (opts.use_ini is None):
         gwid = ''
 else:
@@ -313,7 +328,7 @@ cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strateg
 if not(opts.gracedb_id is None) and (opts.use_ini is None):
     cmd +=" --use-legacy-gracedb --gracedb-id " + gwid 
 elif  not(opts.event_time is None):
-    cmd += " --event-time " + str(opts.event_time)
+    cmd += " --event-time " + format_gps_time(opts.event_time)
 if opts.online:
         cmd += " --online "
 if opts.playground_data:
@@ -334,6 +349,8 @@ if opts.assume_highq:
 if is_analysis_precessing:
         cmd += " --assume-precessing-spin "
         npts_it = 1500
+if opts.internal_flat_strategy:
+    cmd +=  " --test-convergence --propose-flat-strategy "
 if opts.use_osg:
     cmd += " --use-osg "
     cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful
@@ -430,7 +447,10 @@ lines  = []
 for indx in np.arange(len(instructions_cip)):
     n_iterations += int(instructions_cip[indx][0])
     line = ' ' .join(instructions_cip[indx])
-    line +=" --n-output-samples 10000 --n-eff 10000 --n-max 10000000   --downselect-parameter m2 --downselect-parameter-range [1,1000] "
+    n_max_cip = 10000000;
+    if opts.cip_sampler_method is "GMM":
+        n_max_cip *=10   # it is faster, so run longer; helps with correlated-sampling cases
+    line +=" --n-output-samples 10000 --n-eff 10000 --n-max {}   --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(n_max_cip)
     if not(opts.cip_fit_method is None):
         line = line.replace('--fit-method gp', '--fit-method ' + opts.cip_fit_method)
     if not (opts.cip_sampler_method is None):
@@ -446,8 +466,10 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('parameter mc', 'parameter mtot')
         line = line.replace('parameter delta_mc', 'parameter q')
         line += " --prior-gaussian-mass-ratio --prior-gaussian-spin1-magnitude "   # should require precessing analysis
-    elif opts.assume_highq:
+    elif opts.assume_highq and ('s1z' in line):
         line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+    elif opts.internal_correlate_default and ('s1z' in line):
+        line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
     if opts.approx in lalsimutils.waveform_approx_limit_dict:
         chi_max = lalsimutils.waveform_approx_limit_dict[opts.approx]["chi-max"]
         if not(opts.force_chi_max is None):
@@ -543,6 +565,9 @@ if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 "
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs)
+   if not(opts.cip_fit_method is None) and not(opts.cip_fit_method == 'gp'):
+       # if we are not using default GP fit, so all fit instances are equal
+       cmd += " --cip-explode-jobs-flat "  
 if opts.make_bw_psds:
     cmd+= " --use-bw-psd --bw-exe `which BayesWave` --bw-post-exe `which BayesWavePost` "
 if opts.use_osg:
