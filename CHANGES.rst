@@ -6,6 +6,12 @@ Since last release
     glue; plot_posterior_corner fix tex label issue (rc1)
   - bugfix ini file parsing (not parsing distance-max)   (rc2)
   - bugfix in ini file use (overriding distance-max if ini used) (rc3)
+  - change ILE time integration window default to 75 ms. --propose-flat-strategy. Better --internal-correlate-parameters
+    arg parsing. Fix enforce_kerr constraint on conversion. RF protect against out of range error. pseudo_pipe GPS->str
+    prevent truncation when moving args around.  add --transverse-prior.   helper for mc>25 uses mc/delta_mc instead of
+    mc/eta.  Add PEsummary output option.  Add --general-retries. Pass search --hint-snr in pseudo_pipe.
+    Pass --fref to convert, so reference spins specified correctly.  Paths for gwsurrogate.   
+     Other minor non-ILE/CIP modifications (rc4)
 
 0.0.14.8
 -----------
