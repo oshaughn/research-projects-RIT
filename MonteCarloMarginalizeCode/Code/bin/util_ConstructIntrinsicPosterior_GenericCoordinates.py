@@ -220,7 +220,9 @@ parser.add_argument("--downselect-parameter",action='append', help='Name of para
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--no-downselect",action='store_true',help='Prevent using downselection on output points' )
 parser.add_argument("--no-downselect-grid",action='store_true',help='Prevent using downselection on input points. Applied only to mc range' )
-parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'")
+parser.add_argument("--downselect-enforce-kerr",action='store_true',help="Provides limits that enforce the kerr limit. Also imposed in coordinate transformations.")
+parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'. Only influences s1z, s2z")
+parser.add_argument("--transverse-prior", default="uniform",help="Options are 'volumetric' (default) and 'alignedspin-zprior'. Only influences s1x,s1y,s2x,s2y")
 parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
 parser.add_argument("--import-prior-dictionary-file",default=None,type=str,help="File with dictionary stored_param_dict = 'name':func and stored_param_ranges = 'name':[left,right].  Use to overwrite priors with user-specified function")
 parser.add_argument("--output-prior-dictionary-file",default=None,type=str,help="File with dictionary 'name':func. ")
@@ -287,6 +289,7 @@ parser.add_argument("--internal-correlate-parameters",default=None,type=str,help
 opts=  parser.parse_args()
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
+lnL_default_large_negative = -500
 if opts.lnL_shift_prevent_overflow:
     lnL_shift  = opts.lnL_shift_prevent_overflow
 
@@ -691,7 +694,11 @@ if opts.aligned_prior == 'alignedspin-zprior':
             prior_map['chiz_plus'] = s_component_gaussian_prior
             prior_map['chiz_minus'] = s_component_gaussian_prior
 
-
+if opts.transverse_prior == 'alignedspin-zprior':
+    prior_map["s1x"] = s_component_zprior
+    prior_map["s1y"] = s_component_zprior
+    prior_map["s2x"] = functools.partial(s_component_zprior,R=chi_small_max)
+    prior_map["s2y"] = functools.partial(s_component_zprior,R=chi_small_max)
 
 if opts.aligned_prior == 'volumetric':
     prior_map["s1z"] = s_component_aligned_volumetricprior
@@ -989,7 +996,18 @@ def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
     else:
         rf.fit(x,y,sample_weight=1./y_errors**2)
 
-    fn_return = lambda x_in: rf.predict(x_in) 
+    ### reject points with infinities : problems for inputs
+    def fn_return(x_in,rf=rf):
+        f_out = -lnL_default_large_negative*np.ones(len(x_in))
+        # remove infinity or Nan
+        indx_ok = np.all(np.isfinite(x_in),axis=-1)
+        # rf internally uses float32, so we need to remove points > 10^37 or so ! 
+        #    ... this *should* never happen due to bounds constraints, but ...
+        indx_ok_size = np.all( np.logical_not(np.greater(np.abs(x_in),1e37)), axis=-1)
+        indx_ok = np.logical_and(indx_ok, indx_ok_size)
+        f_out[indx_ok] = rf.predict(x_in[indx_ok])
+        return f_out
+#    fn_return = lambda x_in: rf.predict(x_in) 
 
     print " Demonstrating RF"   # debugging
     residuals = rf.predict(x)-y
@@ -1457,11 +1475,12 @@ if not no_plots:
 ###
 if not opts.using_eos:
  def convert_coords(x_in):
-    return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift)
+    return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
 else:
  def convert_coords(x_in):
-    x_out = lalsimutils.convert_waveform_coordinates_with_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,no_matter1=opts.no_matter1, no_matter2=opts.no_matter2,source_redshift=source_redshift)
+    x_out = lalsimutils.convert_waveform_coordinates_with_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,no_matter1=opts.no_matter1, no_matter2=opts.no_matter2,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
     return x_out
+
 
 ###
 ### Integrate posterior
@@ -1614,9 +1633,17 @@ if opts.sampler_method == "GMM":
     if opts.internal_correlate_parameters == 'all':
         gmm_dict = {tuple(range(len(low_level_coord_names))):None} # integrate *jointly* in all parameters together
     elif not (opts.internal_correlate_parameters is None):
+        # Correlate identified parameters
         my_blocks = opts.internal_correlate_parameters.split()
         my_tuples = list(map( parse_corr_params, my_blocks))
         gmm_dict = {x:None for x in my_tuples}
+
+        # What about un-labelled parameters? Make a null tuple for them as well
+        correlated_params = set(()); correlated_params = correlated_params.union( *list(map(set,my_tuples)))
+        uncorrelated_params = set(np.arange(len(low_level_coord_names))); 
+        uncorrelated_params = uncorrelated_params.difference(correlated_params)
+        for x in uncorrelated_params:
+            gmm_dict[(x,)] = None
         print " Using correlated GMM sampling on sampling variable indexes " , gmm_dict, " out of ", low_level_coord_names
     else:
         param_indexes = range(len(low_level_coord_names))
