@@ -23,7 +23,7 @@ from scipy.special import logsumexp  # error in scipy docs
 from sklearn.utils.validation import check_is_fitted
 from sklearn import cluster
 
-from sklearn.externals.six.moves import zip
+from six.moves import zip
 
 EPS = np.finfo(float).eps
 
