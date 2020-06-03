@@ -16,7 +16,7 @@ from scipy import sparse
 import copy as PythonCopy
 
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.externals import six
+import six
 from sklearn.utils import check_array
 from sklearn.utils import deprecated
 from sklearn.utils.extmath import row_norms
