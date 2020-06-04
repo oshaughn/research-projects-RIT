@@ -1009,7 +1009,7 @@ if opts.propose_fit_strategy:
                 helper_cip_arg_list[0] +=  '  --parameter-implied xi  --parameter-nofit s1z  '  # note PURE ALIGNED SPIN SO FAR
                 helper_cip_arg_list[0] +=   ' --use-precessing  '
             
-                helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-nofit s1z --parameter-implied chi1_perp --parameter-nofit s1x --parameter-nofit s2x ' 
+                helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-nofit s1z --parameter-implied chi1_perp --parameter-nofit s1x --parameter-nofit s1y ' 
                 helper_cip_arg_list[1] +=   ' --use-precessing   '
 
                 # this will be perfectly adequate volumetric result
