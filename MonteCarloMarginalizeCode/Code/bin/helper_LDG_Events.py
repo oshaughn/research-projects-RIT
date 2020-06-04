@@ -76,7 +76,7 @@ def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_d
     fname_out = ifo_base[0]+"_local.cache"
     print [ifo_base, types, server, data_start, data_end]
     cmd = datafind_exe + ' -u file --gaps -o ' + ifo_base[0] + ' -t ' + types + ' --server ' + server + ' -s ' + str(data_start) + ' -e ' + str(data_end) + " > " +fname_out_raw
-    os.system(cmd)b
+    os.system(cmd)
 
     if not retrieve:
         # If we are not retrieving, we are on a cluster, and we need to load and convert this information
