@@ -954,7 +954,7 @@ if opts.propose_fit_strategy:
     if opts.assume_highq:
         n_it_early =5
         qmin_puff = 0.05 # 20:1
-    if otps.assume_well_placed:
+    if opts.assume_well_placed:
         n_it_early = 1
     helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
     
