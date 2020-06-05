@@ -125,9 +125,9 @@ class integrator:
                 self.p_array *= 1.0 / vol
             else:
                 # sample from the gmm
-                temp_samples = model.sample(self.n, new_bounds)
+                temp_samples = model.sample(self.n)#, new_bounds)
                 # update responsibilities
-                self.p_array *= model.score(temp_samples, new_bounds)
+                self.p_array *= model.score(temp_samples)#, new_bounds)
             index = 0
             for dim in dim_group:
                 # put columns of temp_samples in final places in sample_array
@@ -157,10 +157,10 @@ class integrator:
             if model is None:
                 # model doesn't exist yet
                 if isinstance(self.n_comp, int) and self.n_comp != 0:
-                    model = GMM.gmm(self.n_comp)
+                    model = GMM.gmm(self.n_comp, new_bounds)
                     model.fit(temp_samples, sample_weights=weights)
                 elif isinstance(self.n_comp, dict) and self.n_comp[dim_group] != 0:
-                    model = GMM.gmm(self.n_comp[dim_group])
+                    model = GMM.gmm(self.n_comp[dim_group], new_bounds)
                     model.fit(temp_samples, sample_weights=weights)
             else:
                 model.update(temp_samples, sample_weights=weights)
@@ -248,8 +248,9 @@ class integrator:
                 break
             except Exception as e:
                 print(traceback.format_exc())
-                print('Error sampling, retrying...')
+                print('Error sampling, resetting...')
                 err_count += 1
+                self._reset()
                 continue
             t1 = time.time()
             if self.proc_count is None:
@@ -273,8 +274,9 @@ class integrator:
                 break
             except Exception as e:
                 print(traceback.format_exc())
-                print('Error training, retrying...')
+                print('Error training, resetting...')
                 err_count += 1
+                self._reset()
             if self.user_func is not None:
                 self.user_func(self)
             if progress:
