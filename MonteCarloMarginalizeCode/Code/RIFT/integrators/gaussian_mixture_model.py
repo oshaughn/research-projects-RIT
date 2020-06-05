@@ -202,8 +202,9 @@ class gmm:
         Maximum number of Expectation-Maximization iterations
     '''
 
-    def __init__(self, k, max_iters=1000):
+    def __init__(self, k, bounds, max_iters=1000):
         self.k = k
+        self.bounds = bounds
         #self.tol = tol
         self.max_iters = max_iters
         self.means = [None] * k
@@ -215,6 +216,22 @@ class gmm:
         self.N = 0
         self.epsilon = 1e-4  # allow very strong correlations
         self.tempering_coeff = 0.01
+
+    def _normalize(self, samples):
+        n, d = samples.shape
+        out = np.empty((n, d))
+        for i in range(d):
+            [llim, rlim] = self.bounds[i]
+            out[:,i] = (2.0 * samples[:,i] - (rlim + llim)) / (rlim - llim)
+        return out
+
+    def _unnormalize(self, samples):
+        n, d = samples.shape
+        out = np.empty((n, d))
+        for i in range(d):
+            [llim, rlim] = self.bounds[i]
+            out[:,i] = 0.5 * ((rlim - llim) * samples[:,i] + (llim + rlim))
+        return out
 
     def fit(self, sample_array, sample_weights=None):
         '''
@@ -232,7 +249,7 @@ class gmm:
             sample_weights = np.ones((self.N, 1))
         # just use base estimator
         model = estimator(self.k, tempering_coeff=self.tempering_coeff)
-        model.fit(sample_array, sample_weights)
+        model.fit(self._normalize(sample_array), sample_weights)
         self.means = model.means
         self.covariances = model.covariances
         self.weights = model.weights
@@ -347,12 +364,12 @@ class gmm:
         '''
         self.tempering_coeff /= 2
         new_model = estimator(self.k, self.max_iters, self.tempering_coeff)
-        new_model.fit(sample_array, sample_weights)
+        new_model.fit(self._normalize(sample_array), sample_weights)
         M, _ = sample_array.shape
         self._merge(new_model, M)
         self.N += M
 
-    def score(self, sample_array, bounds=None):
+    def score(self, sample_array):
         '''
         Score samples (i.e. calculate likelihood of each sample) under the current
         model.
@@ -364,8 +381,9 @@ class gmm:
         bounds : np.ndarray
             Bounds for samples, used for renormalizing scores
         '''
-        n, _ = sample_array.shape
+        n, d = sample_array.shape
         scores = np.zeros((len(sample_array), 1))
+        sample_array = self._normalize(sample_array)
         for i in range(self.k):
             w = self.weights[i]
             mean = self.means[i]
@@ -374,21 +392,22 @@ class gmm:
             # note that allow_singular=True in the above line is probably really dumb and
             # terrible, but it seems to occasionally keep the whole thing from blowing up
             # so it stays for now
-        if bounds is not None:
-            # we need to renormalize the PDF
-            # to do this we sample from a full distribution (i.e. without truncation) and use the
-            # fraction of samples that fall inside the bounds to renormalize
-            full_sample_array = self.sample(n)
-            llim = np.rot90(bounds[:,[0]])
-            rlim = np.rot90(bounds[:,[1]])
-            n1 = np.greater(full_sample_array, llim).all(axis=1)
-            n2 = np.less(full_sample_array, rlim).all(axis=1)
-            normalize = np.array(np.logical_and(n1, n2)).flatten()
-            m = float(np.sum(normalize)) / n
-            scores /= m
+        # we need to renormalize the PDF
+        # to do this we sample from a full distribution (i.e. without truncation) and use the
+        # fraction of samples that fall inside the bounds to renormalize
+        full_sample_array = self.sample(n, use_bounds=False)
+        llim = np.rot90(self.bounds[:,[0]])
+        rlim = np.rot90(self.bounds[:,[1]])
+        n1 = np.greater(full_sample_array, llim).all(axis=1)
+        n2 = np.less(full_sample_array, rlim).all(axis=1)
+        normalize = np.array(np.logical_and(n1, n2)).flatten()
+        m = float(np.sum(normalize)) / n
+        scores /= m
+        vol = np.prod(self.bounds[:,1] - self.bounds[:,0])
+        scores *= 2.0**d / vol # account for renormalization of dimensions
         return scores
 
-    def sample(self, n, bounds=None):
+    def sample(self, n, use_bounds=True):
         '''
         Draw samples from the current model, either with or without bounds
 
@@ -401,17 +420,20 @@ class gmm:
         '''
         sample_array = np.empty((n, self.d))
         start = 0
+        bounds = np.empty(self.bounds.shape)
+        bounds[:,0] = -1.0
+        bounds[:,1] = 1.0
         for component in range(self.k):
             w = self.weights[component]
             mean = self.means[component]
             cov = self.covariances[component]
             num_samples = int(n * w)
-            if component == self.k -1:
+            if component == self.k - 1:
                 end = n
             else:
                 end = start + num_samples
             try:
-                if bounds is None:
+                if not use_bounds:
                     sample_array[start:end] = np.random.multivariate_normal(mean, cov, end - start)
                 else:
                     sample_array[start:end] = truncnorm.sample(mean, cov, bounds, end - start)
@@ -419,7 +441,7 @@ class gmm:
             except:
                 print('Exiting due to non-positive-semidefinite')
                 exit()
-        return sample_array
+        return self._unnormalize(sample_array)
 
     def print_params(self):
         '''
