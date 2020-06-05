@@ -1977,6 +1977,10 @@ def ComputeYlmsArrayVector(lookupNK, theta, phi):
     # Allocate
     Ylms = np.zeros((len(lookupNK), len(theta)),dtype=complex)
 
+    # Force cast to array. This should never be called, but can avoid some failures due to 'object' dtype failing through
+    theta = np.array(theta,dtype=float)
+    phi = np.array(phi,dtype=float)
+
     # Loop over l, m and evaluate.
     for indx in range(len(lookupNK)):
             l = int(lookupNK[indx][0])*np.ones(len(theta),dtype=int)   # use np.repeat instead for speed
