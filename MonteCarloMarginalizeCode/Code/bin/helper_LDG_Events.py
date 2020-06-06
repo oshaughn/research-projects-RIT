@@ -934,7 +934,7 @@ if not opts.lowlatency_propose_approximant:
 #    helper_cip_args += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 5000 "
 
 puff_max_it=0
-helper_puff_args = " --parameter mc --parameter eta "
+helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
 if event_dict["MChirp"] >25:
     # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there
     helper_puff_args = " --parameter mc --parameter delta_mc "  
