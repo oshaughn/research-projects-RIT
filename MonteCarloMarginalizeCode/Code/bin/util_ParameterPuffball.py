@@ -35,8 +35,8 @@ parser.add_argument("--inj-file-out", default="output-puffball", help="Name of X
 parser.add_argument("--puff-factor", default=1,type=float)
 parser.add_argument("--force-away", default=0,type=float,help="If >0, uses the icov to compute a metric, and discards points which are close to existing points")
 parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
-parser.add_argument("--fref",default=20,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz)")
-parser.add_argument("--fmin",type=float,default=20)
+parser.add_argument("--fref",default=None,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz). Default is to use what is in the original overlap-grid.xml.gz file")
+parser.add_argument("--fmin",type=float,default=None,help="Min frequency, default is to use what is in original file")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--no-correlation", type=str,action='append', help="Pairs of parameters, in format [mc,eta]  The corresponding term in the covariance matrix is eliminated")
 #parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
@@ -109,6 +109,11 @@ P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)
 # extract parameters to measure the co
 dat_out = []
 for P in P_list:
+    # Force override of fmin, fref ... not always correctly populated. DANGEROUS, relies on helper to pass correct arguments
+    if not(opts.fmin is None):
+        P.fmin = opts.fmin
+    if not(opts.fref is None):
+        P.fref = opts.fref
     line_out = np.zeros(len(coord_names))
     for x in np.arange(len(coord_names)):
         fac=1
