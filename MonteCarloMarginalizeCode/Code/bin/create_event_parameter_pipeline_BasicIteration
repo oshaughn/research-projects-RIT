@@ -544,7 +544,7 @@ if  (opts.last_iteration_extrinsic):
     ileExtr_job.write_sub_file()
     
     # Convert task
-    convert_args_extr =  " --convention LI  --export-cosmology " 
+    convert_args_extr =  " --convention LI  --export-cosmology --use-interpolated-cosmology " 
     if not (convert_args is None):
         convert_args_extr += convert_args
     convertExtr_job, convertExtr_job_name = dag_utils.write_convert_sub(tag='convert_extr',log_dir=None,arg_str=convert_args_extr,file_input=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.xml.gz",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.dat", out_dir=opts.working_directory+"/iteration_$(macroiteration)_ile/",universe=local_worker_universe)
