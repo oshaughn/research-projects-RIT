@@ -2645,9 +2645,12 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         # approximant likst: see https://git.ligo.org/lscsoft/lalsuite/blob/master/lalsimulation/lib/LALSimInspiral.c#2541
         extra_params = P.to_lal_dict()
         # prevent segmentation fault when hitting nyquist frequency violations
-#        if (P.approx == lalSEOBNRv4PHM or P.approx == lalSEOBNRv4P) and P.approx >0:
-#            if not lalsim.EOBCheckNyquistFrequency(P.m1/lal.MSUN_SI,P.m2/lal.MSUN_SI, np.array([P.s1x,P.s1y, P.s1z]), np.array([P.s2x,P.s2y, P.s2z]), Lmax, P.approx, P.deltaT):
-#                raise NameError("Nyquist frequency violated for time-domain waveform, failed EOBCheckNyquistFrequency")
+        if (P.approx == lalSEOBNRv4PHM or P.approx == lalSEOBNRv4P) and P.approx >0:
+            try:
+                # fails on error, throws EDOM. This *should* be done internally by ChooseTDModes, but is not working
+                test = lalsim.EOBCheckNyquistFrequency(P.m1/lal.MSUN_SI,P.m2/lal.MSUN_SI, np.array([P.s1x,P.s1y, P.s1z]), np.array([P.s2x,P.s2y, P.s2z]), Lmax,P.approx, P.deltaT)
+            except Exception as e:
+                raise NameError(" Nyquist frequency error for v4P/v4PHM, check srate")
         hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
 	    P.s1x, P.s1y, P.s1z, \
 	    P.s2x, P.s2y, P.s2z, \
