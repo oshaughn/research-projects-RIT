@@ -87,6 +87,13 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["SNR"] = row.snr
     return event_dict
 
+def unsafe_parse_arg_string(my_argstr,match):
+    arglist  = [x for x in my_argstr.split("--") if len(x)>0]
+    for x in arglist:
+        if match in x:
+            return x
+    return None
+        
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
@@ -530,6 +537,10 @@ if opts.assume_highq:
     puff_max_it +=3
 with open("args_puff.txt",'w') as f:
         puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
+        if False: #opts.cip_fit_method == 'rf':
+            # RF can majorly overfit and create 'voids' early on, eliminate the force-away
+            # Should only do this in the INITIAL puff, not all, to avoid known problems later
+            puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away'),'')
         if opts.data_LI_seglen:
                 puff_args+= " --enforce-duration-bound " +str(opts.data_LI_seglen)
         f.write("X " + puff_args)
