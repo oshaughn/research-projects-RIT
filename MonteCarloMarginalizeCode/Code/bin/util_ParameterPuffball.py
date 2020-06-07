@@ -13,6 +13,11 @@
 #    python util_ParameterPuffball.py  --parameter mc --parameter eta --no-correlation "['mc','eta']" --parameter s1z --parameter s2z --inj-file ./overlap-grid.xml.gz  --no-correlation "['mc','s1z']"
 #   python util_ParameterPuffball.py  --parameter mc --parameter eta --parameter s1z --parameter s2z --inj-file ./overlap-grid.xml.gz   --force-away 0.4
 
+# PROBLEMS
+#    - if points are too dense (i.e, if the output size gets too large) then we will reject everything, even for uniform placement.  
+#    - current implementation produces pairwise distance matrix, so can be memory-hungry for many points
+
+
 import argparse
 import sys
 import numpy as np
@@ -178,21 +183,31 @@ for indx in np.arange(len(coord_names)):
 #   - there are MUCH faster codes eg in scipy which should do this
 if opts.force_away > 0:
     icov= np.linalg.pinv(cov_orig)
-    def test_point_distance(pt,thresh=opts.force_away):
-        include_point=True
-        for indx in np.arange(len(X)):
-            dist= np.dot((pt - X[indx]).T , np.dot( icov, (pt-X[indx])))/len(pt)  # roughly, get '1' at target puff level offsets
-#            print dist
-            if dist< thresh:
-                include_point=False
-#                print " Rejecting puffed point as too close to existing set ", pt
-                return False
-        return include_point
+    Y = scipy.spatial.distance.cdist(X,X, metric='mahalanobis',VI=icov)
+
+    def test_index_distance(indx,thresh=opts.force_away):
+        a = Y[indx]
+#        print np.min(a[np.nonzero(a)]),np.min(a[np.nonzero(a)]) > thresh
+        if np.min(a[np.nonzero(a)]) > thresh:
+            return True
+        else:
+            return False
+
+#     def test_point_distance(pt,thresh=opts.force_away):
+#         include_point=True
+#         for indx in np.arange(len(X)):
+#             dist= np.dot((pt - X[indx]).T , np.dot( icov, (pt-X[indx])))/len(pt)  # roughly, get '1' at target puff level offsets
+# #            print dist
+#             if dist< thresh:
+#                 include_point=False
+# #                print " Rejecting puffed point as too close to existing set ", pt
+#                 return False
+#         return include_point
     
     X_out_shorter = []
     P_list_shorter = []
     for indx in np.arange(len(X_out)):
-        if test_point_distance(X_out[indx]):
+        if test_index_distance(indx): #test_point_distance(X_out[indx]):
             X_out_shorter.append(X_out[indx])
             P_list_shorter.append(P_list[indx])
     X_out_shorter=np.array(X_out_shorter)
