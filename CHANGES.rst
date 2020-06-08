@@ -14,7 +14,8 @@ Since last release
      Other minor non-ILE/CIP modifications (rc4)
   - infrastructure speed improvements (puffball distance force away function; interpolated cosmology); error protection
     and handling (workarounds for bugs in error handling in lalsuite); CIP always stream error/out; helper updtes (option for
-    --assume-well-placed to flatten architectures if exploration needs minimal; bugfix highq strategy transverse spin dependence)
+    --assume-well-placed to flatten architectures if exploration needs minimal; bugfix highq strategy transverse spin
+    dependence) (rc5)
    
 
 0.0.14.8
