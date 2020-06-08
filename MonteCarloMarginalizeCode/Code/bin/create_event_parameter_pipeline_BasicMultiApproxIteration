@@ -235,47 +235,47 @@ if opts.use_singularity or opts.use_osg:
 
 singularity_image = None
 if opts.use_singularity:
-    print " === USING SINGULARITY === "
+    print(" === USING SINGULARITY === ")
     singularity_image = os.environ["SINGULARITY_RIFT_IMAGE"]  # must be present to use singularity
     os.environ['LALAPPS_PATH2CACHE'] = "singularity exec {singularity_image} lalapps_path2cache".format(singularity_image=singularity_image)
-    print singularity_image
+    print(singularity_image)
 
 if (opts.cip_args is None) and (opts.cip_args_list is None):
-    print " No arguments provided for low-level job"
+    print(" No arguments provided for low-level job")
     sys.exit(0)
 
 # Load args.txt. Remove first item.  Store
 if not (opts.cip_args is None):
     with open(opts.cip_args) as f:
         cip_args_list = f.readlines()
-    cip_args = ' '.join( map( lambda x: x.replace('\\',''),cip_args_list) )
+    cip_args = ' '.join( [x.replace('\\','') for x in cip_args_list] )
     cip_args = ' '.join(cip_args.split(' ')[1:])
     # Some argument protection for later
     cip_args = cip_args.replace('[', ' \'[')
     cip_args = cip_args.replace(']', ']\'')
     cip_args=cip_args.rstrip()
     cip_args += ' --no-plots '  
-    print "CIP", cip_args
+    print("CIP", cip_args)
 
 cip_args_lines = None
 if not (opts.cip_args_list is None):
     with open(opts.cip_args_list) as f:
         cip_args_lines = f.readlines()
-    cip_args_n = map(lambda x: int(x.split(' ')[0]), cip_args_lines)  # Pull off the integer
-    cip_args_lines = map(lambda x: ' '.join(x.split(' ')[1:]), cip_args_lines) # pull off the integer
-    cip_args_lines = map( lambda x : x.replace('[', ' \'[').replace(']', ']\'').rstrip(), cip_args_lines)
-    cip_args_lines = map( lambda x: x.lstrip(), cip_args_lines ) # remove leading whitespace
+    cip_args_n = [int(x.split(' ')[0]) for x in cip_args_lines]  # Pull off the integer
+    cip_args_lines = [' '.join(x.split(' ')[1:]) for x in cip_args_lines] # pull off the integer
+    cip_args_lines = [x.replace('[', ' \'[').replace(']', ']\'').rstrip() for x in cip_args_lines]
+    cip_args_lines = [x.lstrip() for x in cip_args_lines] # remove leading whitespace
     for line in cip_args_lines:
-        print " CIP ", line
+        print(" CIP ", line)
 
     if np.sum(cip_args_n) < opts.n_iterations:
-        print " Not enough CIP versions to complete all requested iterations; extending "
+        print(" Not enough CIP versions to complete all requested iterations; extending ")
         cip_args_n[-1]  = opts.n_iterations - np.sum(cip_args_n)
 
 # Load args.txt. Remove first item.  Store
 with open(opts.ile_args) as f:
     ile_args_list = f.readlines()
-ile_args = ' '.join( map( lambda x: x.replace('\\',''),ile_args_list) )
+ile_args = ' '.join( [x.replace('\\','') for x in ile_args_list] )
 ile_args = ' '.join(ile_args.split(' ')[1:])
 # Some argument protection for later
 ile_args = ile_args.replace('[', ' \'[')
@@ -286,7 +286,7 @@ if opts.request_gpu_ILE:
 if opts.ile_n_events_to_analyze > 1:
     ile_args+= " --n-events-to-analyze " + str(opts.ile_n_events_to_analyze)
 #ile_args += ' --soft-fail-event-range '  #important in case event is out of range. Simply exit NO ...not backwards compatible
-print "ILE", ile_args
+print("ILE", ile_args)
 
 puff_args=None
 puff_cadence = None
@@ -296,14 +296,14 @@ if opts.puff_args and opts.puff_cadence:
     # Load args.txt. Remove first item.  Store
     with open(opts.puff_args) as f:
         puff_args_list = f.readlines()
-    puff_args = ' '.join( map( lambda x: x.replace('\\',''),puff_args_list) )
+    puff_args = ' '.join( [x.replace('\\','') for x in puff_args_list] )
     puff_args = ' '.join(puff_args.split(' ')[1:])
 # Some argument protection for later
     puff_args = puff_args.replace('[', ' \'[')
     puff_args = puff_args.replace(']', ']\'')
     puff_args=puff_args.rstrip()
-    print "PUFF", puff_args
-    print "PUFF CADENCE", puff_cadence
+    print("PUFF", puff_args)
+    print("PUFF CADENCE", puff_cadence)
 
 
 test_args=None
@@ -311,52 +311,52 @@ if opts.test_args:
     # Load args.txt. Remove first item.  Store
     with open(opts.test_args) as f:
         test_args_list = f.readlines()
-    test_args = ' '.join( map( lambda x: x.replace('\\',''),test_args_list) )
+    test_args = ' '.join( [x.replace('\\','') for x in test_args_list] )
     test_args = ' '.join(test_args.split(' ')[1:])
 # Some argument protection for later
     test_args = test_args.replace('[', ' \'[')
     test_args = test_args.replace(']', ']\'')
     test_args=test_args.rstrip()
-    print "CONVERGE", test_args
+    print("CONVERGE", test_args)
 
 plot_args=None
 if opts.plot_args:
     # Load args.txt. Remove first item.  Store
     with open(opts.plot_args) as f:
         plot_args_list = f.readlines()
-    plot_args = ' '.join( map( lambda x: x.replace('\\',''),plot_args_list) )
+    plot_args = ' '.join( [x.replace('\\','') for x in plot_args_list] )
     plot_args = ' '.join(plot_args.split(' ')[1:])
 # Some argument protection for later
     plot_args = plot_args.replace('[', ' \'[')
     plot_args = plot_args.replace(']', ']\'')
     plot_args=plot_args.rstrip()
-    print "PLOT", plot_args
+    print("PLOT", plot_args)
 
 convert_args=None
 if opts.convert_args:
     # Load args.txt. Remove first item.  Store
     with open(opts.convert_args) as f:
         convert_args_list = f.readlines()
-    convert_args = ' '.join( map( lambda x: x.replace('\\',''),convert_args_list) )
+    convert_args = ' '.join( [x.replace('\\','') for x in convert_args_list] )
     convert_args = ' '.join(convert_args.split(' ')[1:])
 # Some argument protection for later
     convert_args = convert_args.replace('[', ' \'[')
     convert_args = convert_args.replace(']', ']\'')
     convert_args=convert_args.rstrip()
-    print "CONVERT", convert_args
+    print("CONVERT", convert_args)
 
 gridinit_args=None
 if opts.gridinit_args:
     # Load args.txt. Remove first item.  Store
     with open(opts.gridinit_args) as f:
         gridinit_args_list = f.readlines()
-    gridinit_args = ' '.join( map( lambda x: x.replace('\\',''),gridinit_args_list) )
+    gridinit_args = ' '.join( [x.replace('\\','') for x in gridinit_args_list] )
     gridinit_args = ' '.join(gridinit_args.split(' ')[1:])
 # Some argument protection for later
     gridinit_args = gridinit_args.replace('[', ' \'[')
     gridinit_args = gridinit_args.replace(']', ']\'')
     gridinit_args=gridinit_args.rstrip()
-    print "GRIDINIT", gridinit_args
+    print("GRIDINIT", gridinit_args)
 
 
 # Copy seed grid into place as overlap-grid-0.xml.gz
@@ -373,7 +373,7 @@ if not (opts.transfer_file_list is None):
     with open(opts.transfer_file_list) as f:
         for  line in f.readlines():
             transfer_file_names.append(line.rstrip())
-    print " Input files to transfer to job working directory (note!)", transfer_file_names
+    print(" Input files to transfer to job working directory (note!)", transfer_file_names)
 
 ###
 ### Fiducial fit job (=sanity check that code will run)
@@ -421,30 +421,30 @@ dag = pipeline.CondorDAG(log=os.getcwd())
 
 # Make PSD, if requested
 if opts.use_bw_psd:
-    print " ===> Adding BW PSD to pipeline <=== "
+    print(" ===> Adding BW PSD to pipeline <=== ")
     opts_ile = parse_ile_args_for_bw(ile_args_orig)
 
     channel_names = {}
-    for inst, chan in map(lambda c: c.split("="), opts_ile.channel_name):
+    for inst, chan in [c.split("=") for c in opts_ile.channel_name]:
         channel_names[inst] = chan
 
     flow_ifo_dict = {}
     if opts_ile.fmin_ifo:
-        for inst, freq_str in map(lambda c: c.split("="), opts_ile.fmin_ifo):
+        for inst, freq_str in [c.split("=") for c in opts_ile.fmin_ifo]:
            flow_ifo_dict[inst]=float(freq_str) 
 
     
     channel_dict_bw = {}
-    for ifo in channel_names.keys():
+    for ifo in list(channel_names.keys()):
         fmin_here= opts_ile.fmin_template
-        if ifo in flow_ifo_dict.keys():
+        if ifo in list(flow_ifo_dict.keys()):
             fmin_here  = flow_ifo_dict[ifo]
         channel_dict_bw[ifo]= [channel_names[ifo], fmin_here]
     
     # make BW directory
     bw_dir = opts.working_directory+"/make_bw_psds"
     mkdir(bw_dir)
-    for ifo in channel_names.keys():
+    for ifo in list(channel_names.keys()):
         mkdir(bw_dir+"/"+ifo)
 
     # seglen computation
@@ -547,7 +547,7 @@ if  (opts.last_iteration_extrinsic):
     ileExtr_job.write_sub_file()
     
     # Convert task
-    convert_args_extr =  " --convention LI  --export-cosmology " 
+    convert_args_extr =  " --convention LI  --export-cosmology --use-interpolated-cosmology " 
     if not (convert_args is None):
         convert_args_extr += convert_args
     convertExtr_job, convertExtr_job_name = dag_utils.write_convert_sub(tag='convert_extr',log_dir=None,arg_str=convert_args_extr,file_input=opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.xml.gz",file_output=opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.dat", out_dir=opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/",universe=local_worker_universe)
@@ -778,7 +778,7 @@ if opts.gridinit_args:
 
 convert_psd_node_list = []
 if opts.use_bw_psd:
-    print " ===> Adding BW PSD nodes to dag <=== "
+    print(" ===> Adding BW PSD nodes to dag <=== ")
 
 #    bw1_node =pipeline.CondorDAGNode(bw2_job)
 #    bw1_node.add_parent(bw0_node)
@@ -786,7 +786,7 @@ if opts.use_bw_psd:
 
     # Add nodes to convert the PSD to the correct format
     # 
-    for ifo in channel_names.keys():
+    for ifo in list(channel_names.keys()):
         bw0_node =pipeline.CondorDAGNode(bw_job)
         bw0_node.add_macro('ifo',ifo)
         # Create argument string
@@ -860,7 +860,7 @@ for it in np.arange(it_start,opts.n_iterations):
 
     if puff_args and puff_cadence:
      if it>0 and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
-        print " ILE jobs for puffball on iteration ", it
+        print(" ILE jobs for puffball on iteration ", it)
         for event in np.arange(indx_max):
             ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
             ile_node.set_retry(opts.ile_retries)
@@ -892,7 +892,7 @@ for it in np.arange(it_start,opts.n_iterations):
     parent_fit_node = fit_node
 
     if not(opts.cip_explode_jobs is None):
-        print " Exploding workers out "
+        print(" Exploding workers out ")
         # Create exploded worker job nodes
         worker_node =pipeline.CondorDAGNode(cip_worker_job)
         worker_node.add_macro("macroiteration", it)
@@ -918,7 +918,7 @@ for it in np.arange(it_start,opts.n_iterations):
     # Check if puffball being created, and if so create it *immediately* after CIP job creates the overlap-grid file
     if puff_args and puff_cadence:
       if it > -1 and it <= puff_max_it and it%puff_cadence ==0:
-        print " Puffball for iteration ", it
+        print(" Puffball for iteration ", it)
         puff_node = pipeline.CondorDAGNode(puff_job)
         puff_node.add_macro("macroiteration", it)
         puff_node.add_macro("macroiterationnext", it+1)
