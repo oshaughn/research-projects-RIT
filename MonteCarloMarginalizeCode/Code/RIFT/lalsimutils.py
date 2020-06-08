@@ -2589,6 +2589,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     """
     assert Lmax >= 2
 
+    # Check that masses are not nan!
+    assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), " masses are NaN "
+
     sign_factor = 1
     if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
