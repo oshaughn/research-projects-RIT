@@ -12,6 +12,10 @@ Since last release
     mc/eta.  Add PEsummary output option.  Add --general-retries. Pass search --hint-snr in pseudo_pipe.
     Pass --fref to convert, so reference spins specified correctly.  Paths for gwsurrogate.   
      Other minor non-ILE/CIP modifications (rc4)
+  - infrastructure speed improvements (puffball distance force away function; interpolated cosmology); error protection
+    and handling (workarounds for bugs in error handling in lalsuite); CIP always stream error/out; helper updtes (option for
+    --assume-well-placed to flatten architectures if exploration needs minimal; bugfix highq strategy transverse spin dependence)
+   
 
 0.0.14.8
 -----------
