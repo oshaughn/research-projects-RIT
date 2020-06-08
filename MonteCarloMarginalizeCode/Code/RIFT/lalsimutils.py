@@ -2596,6 +2596,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     """
     assert Lmax >= 2
 
+    # Check that masses are not nan!
+    assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), " masses are NaN "
+
     sign_factor = 1
     if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
@@ -2651,6 +2654,13 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8):
         # approximant likst: see https://git.ligo.org/lscsoft/lalsuite/blob/master/lalsimulation/lib/LALSimInspiral.c#2541
         extra_params = P.to_lal_dict()
+        # prevent segmentation fault when hitting nyquist frequency violations
+        if (P.approx == lalSEOBNRv4PHM or P.approx == lalSEOBNRv4P) and P.approx >0:
+            try:
+                # fails on error, throws EDOM. This *should* be done internally by ChooseTDModes, but is not working
+                test = lalsim.EOBCheckNyquistFrequency(P.m1/lal.MSUN_SI,P.m2/lal.MSUN_SI, np.array([P.s1x,P.s1y, P.s1z]), np.array([P.s2x,P.s2y, P.s2z]), Lmax,P.approx, P.deltaT)
+            except Exception as e:
+                raise NameError(" Nyquist frequency error for v4P/v4PHM, check srate")
         hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
 	    P.s1x, P.s1y, P.s1z, \
 	    P.s2x, P.s2y, P.s2z, \
