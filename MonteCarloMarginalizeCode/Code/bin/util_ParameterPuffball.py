@@ -252,6 +252,11 @@ for indx_P in np.arange(len(P_list)):
             val = val/ lal.MSUN_SI
         if val < downselect_dict[param][0] or val > downselect_dict[param][1]:
             include_item =False
+
+    # Check that masses are not nan.
+    if np.isnan(P.m1) or np.isnan(P.m2):
+        include_item= False
+
     if include_item:
         P_out.append(P)
 
