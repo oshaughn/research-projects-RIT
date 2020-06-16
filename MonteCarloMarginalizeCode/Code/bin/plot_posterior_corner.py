@@ -78,15 +78,15 @@ def render_coord(x,logscale=False):
         a = a[:len(a)-1] # drop last
         a = a[8:]
         terms = a.split(',')
-        exprs =map(render_coord, terms)
-        exprs = map( lambda x: x.replace('$', ''), exprs)
+        exprs =list(map(render_coord, terms))
+        exprs = list(map( lambda x: x.replace('$', ''), exprs))
         my_label = ' '.join(exprs)
         return '$'+my_label+'$'
     else:
         return x
 
 def render_coordinates(coord_names,logparams=[]):
-    return map(lambda x: render_coord(x,logscale=(x in logparams)), coord_names)
+    return list(map(lambda x: render_coord(x,logscale=(x in logparams)), coord_names))
 
 
 def add_field(a, descr):
@@ -612,7 +612,7 @@ for pIndex in np.arange(len(posterior_list)):
     samples = posterior_list[pIndex]
     sample_names = samples.dtype.names; sample_ref_name  = sample_names[0]
     # Create data for corner plot
-    dat_mass = np.zeros( (len(samples[sample_ref_name]), len(labels_tex)) )
+    dat_mass = np.zeros( (len(list(samples[sample_ref_name])), len(list(labels_tex))) )
     my_cmap_values = color_list[pIndex]
     plot_range_list = []
     smooth_list =[]
