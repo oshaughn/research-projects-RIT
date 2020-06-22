@@ -1029,7 +1029,7 @@ if opts.propose_fit_strategy:
                 #            helper_cip_arg_list[2].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late)
                 helper_cip_arg_list[3]=helper_cip_arg_list[3].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late))
 
-            n_its = map(lambda x: float(x.split()[0]), helper_cip_arg_list)
+            n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
             puff_max_it= n_its[0] + n_its[1] # puff for first 2 types, to insure good coverage in narrow-q cases
             if event_dict["m2"]/event_dict["m1"] < 0.4: # High q, do even through the full aligned spin model case
                 puff_max_it += n_its[2]
