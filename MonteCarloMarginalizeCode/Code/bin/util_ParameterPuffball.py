@@ -13,6 +13,11 @@
 #    python util_ParameterPuffball.py  --parameter mc --parameter eta --no-correlation "['mc','eta']" --parameter s1z --parameter s2z --inj-file ./overlap-grid.xml.gz  --no-correlation "['mc','s1z']"
 #   python util_ParameterPuffball.py  --parameter mc --parameter eta --parameter s1z --parameter s2z --inj-file ./overlap-grid.xml.gz   --force-away 0.4
 
+# PROBLEMS
+#    - if points are too dense (i.e, if the output size gets too large) then we will reject everything, even for uniform placement.  
+#    - current implementation produces pairwise distance matrix, so can be memory-hungry for many points
+
+
 import argparse
 import sys
 import numpy as np
@@ -35,8 +40,8 @@ parser.add_argument("--inj-file-out", default="output-puffball", help="Name of X
 parser.add_argument("--puff-factor", default=1,type=float)
 parser.add_argument("--force-away", default=0,type=float,help="If >0, uses the icov to compute a metric, and discards points which are close to existing points")
 parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
-parser.add_argument("--fref",default=20,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz)")
-parser.add_argument("--fmin",type=float,default=20)
+parser.add_argument("--fref",default=None,type=float, help="Reference frequency used for spins in the ILE output.  (Since I usually use SEOBNRv3, the best choice is 20Hz). Default is to use what is in the original overlap-grid.xml.gz file")
+parser.add_argument("--fmin",type=float,default=None,help="Min frequency, default is to use what is in original file")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--no-correlation", type=str,action='append', help="Pairs of parameters, in format [mc,eta]  The corresponding term in the covariance matrix is eliminated")
 #parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
@@ -109,6 +114,11 @@ P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)
 # extract parameters to measure the co
 dat_out = []
 for P in P_list:
+    # Force override of fmin, fref ... not always correctly populated. DANGEROUS, relies on helper to pass correct arguments
+    if not(opts.fmin is None):
+        P.fmin = opts.fmin
+    if not(opts.fref is None):
+        P.fref = opts.fref
     line_out = np.zeros(len(coord_names))
     for x in np.arange(len(coord_names)):
         fac=1
@@ -173,21 +183,31 @@ for indx in np.arange(len(coord_names)):
 #   - there are MUCH faster codes eg in scipy which should do this
 if opts.force_away > 0:
     icov= np.linalg.pinv(cov_orig)
-    def test_point_distance(pt,thresh=opts.force_away):
-        include_point=True
-        for indx in np.arange(len(X)):
-            dist= np.dot((pt - X[indx]).T , np.dot( icov, (pt-X[indx])))/len(pt)  # roughly, get '1' at target puff level offsets
-#            print dist
-            if dist< thresh:
-                include_point=False
-#                print " Rejecting puffed point as too close to existing set ", pt
-                return False
-        return include_point
+    Y = scipy.spatial.distance.cdist(X,X, metric='mahalanobis',VI=icov)
+
+    def test_index_distance(indx,thresh=opts.force_away):
+        a = Y[indx]
+#        print np.min(a[np.nonzero(a)]),np.min(a[np.nonzero(a)]) > thresh
+        if np.min(a[np.nonzero(a)]) > thresh:
+            return True
+        else:
+            return False
+
+#     def test_point_distance(pt,thresh=opts.force_away):
+#         include_point=True
+#         for indx in np.arange(len(X)):
+#             dist= np.dot((pt - X[indx]).T , np.dot( icov, (pt-X[indx])))/len(pt)  # roughly, get '1' at target puff level offsets
+# #            print dist
+#             if dist< thresh:
+#                 include_point=False
+# #                print " Rejecting puffed point as too close to existing set ", pt
+#                 return False
+#         return include_point
     
     X_out_shorter = []
     P_list_shorter = []
     for indx in np.arange(len(X_out)):
-        if test_point_distance(X_out[indx]):
+        if test_index_distance(indx): #test_point_distance(X_out[indx]):
             X_out_shorter.append(X_out[indx])
             P_list_shorter.append(P_list[indx])
     X_out_shorter=np.array(X_out_shorter)
