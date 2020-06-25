@@ -7,6 +7,8 @@ Since last release
   - import 0.0.14.9rc1-rc5 (rc2)
   - minor py2->3 fixes for merged code. config_yank (rc3)
 
+release is rc3
+
 0.0.15.1
 ------------
 Since last release
