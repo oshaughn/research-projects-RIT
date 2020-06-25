@@ -5,6 +5,7 @@
 Since last release
   - minor py3 errors in PP scripts (rc1)
   - import 0.0.14.9rc1-rc5 (rc2)
+  - minor py2->3 fixes for merged code. config_yank (rc3)
 
 0.0.15.1
 ------------
