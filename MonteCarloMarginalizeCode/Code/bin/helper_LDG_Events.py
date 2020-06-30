@@ -179,6 +179,7 @@ parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Forc
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
 parser.add_argument("--propose-flat-strategy",action="store_true",help="If present AND propose-fit-strategy is present, the strategy proposed will have puffball and convergence tests for every iteration, and the same CIP")
 parser.add_argument("--force-fit-method",type=str,default=None,help="Force specific fit method")
+parser.add_argument("--force-final-gp-fit",action='store_true',help="Use gp fit in final stage, overriding other fit. Usually implemented by a special added iteration before the last")
 #parser.add_argument("--internal-fit-strategy-enforces-cut",action='store_true',help="Fit strategy enforces lnL-offset (default 15) after the first batch of iterations. ACTUALLY DEFAULT - SHOULD BE REDUNDANT")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
@@ -1071,6 +1072,16 @@ if opts.propose_flat_strategy:
         n_iterations += int(instructions_cip[indx][0])
         lines.append(' '.join(instructions_cip[indx][1:]))   # merge back together
     helper_cip_arg_list  = [str(n_iterations) + " " + lines[-1]]  # overwrite with new setup
+
+if opts.force_final_gp_fit:
+    instructions_cip = map(lambda x: x.rstrip().split(' '), helper_cip_arg_list)#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
+    n_iterations =0
+    lines  = []
+    for indx in np.arange(len(instructions_cip)):
+        n_iterations += int(instructions_cip[indx][0])
+        lines.append(' '.join(instructions_cip[indx][1:]))   # merge back together
+    helper_cip_arg_list  += ["1 " + lines[-1].replace("--fit-method {} ".format(opts.force_fit_method), "--fit-method gp")]  # overwrite with new setup
+    
 
 with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))

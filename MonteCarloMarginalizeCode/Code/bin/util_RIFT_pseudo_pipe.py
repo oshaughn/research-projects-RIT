@@ -127,6 +127,7 @@ parser.add_argument("--cip-sampler-method",type=str,default=None)
 parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--ile-jobs-per-worker",type=int,default=20)
 parser.add_argument("--ile-no-gpu",action='store_true')
+parser.add_argument("--n-samples-per-iteration",type=int,default=None,help="If provded, overrides internal settings and uses this many points per iteration. Only experts should use")
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--hierarchical-merger-prior-1g",action='store_true',help="As in 1903.06742")
@@ -569,6 +570,9 @@ if opts.archive_pesummary_label:
 if not (opts.manual_initial_grid is None):
     shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
 
+if not (opts.n_samples_per_iteration is None):
+    npts_it = opts.n_samples_per_iteration
+
 # Build DAG
 cip_mem  = 30000
 n_jobs_per_worker=opts.ile_jobs_per_worker
@@ -578,7 +582,7 @@ cmd ="create_event_parameter_pipeline_BasicIteration  --ile-n-events-to-analyze 
 if not(opts.ile_no_gpu):
     cmd +=" --request-gpu-ILE "
 if opts.add_extrinsic:
-    cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 "
+    cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 20000 "
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs)
    if not(opts.cip_fit_method is None) and not(opts.cip_fit_method == 'gp'):
