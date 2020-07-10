@@ -1,4 +1,9 @@
 
+0.0.15.3
+-----------
+Since last release
+   - range limit on a2 (rc1)
+
 
 0.0.15.2
 ------------
