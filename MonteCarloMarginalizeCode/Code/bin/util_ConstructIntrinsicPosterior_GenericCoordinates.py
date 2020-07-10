@@ -664,7 +664,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
   'chi1':[0,chi_max],
-  'chi2':[0,chi_max],
+  'chi2':[0,chi_small_max],
   'theta1':[0,np.pi],
   'theta2':[0,np.pi],
   'phi1':[0,2*np.pi],
