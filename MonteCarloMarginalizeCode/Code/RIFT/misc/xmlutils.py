@@ -2,6 +2,8 @@ import types
 import sqlite3
 from collections import namedtuple
 
+from functools import reduce
+
 import numpy
 
 from glue.lal import LIGOTimeGPS
