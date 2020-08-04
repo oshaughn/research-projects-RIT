@@ -88,6 +88,13 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["SNR"] = row.snr
     return event_dict
 
+def unsafe_parse_arg_string(my_argstr,match):
+    arglist  = [x for x in my_argstr.split("--") if len(x)>0]
+    for x in arglist:
+        if match in x:
+            return x
+    return None
+        
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
@@ -107,6 +114,7 @@ parser.add_argument("--l-max",default=2,type=int)
 parser.add_argument("--no-matter",action='store_true', help="Force analysis without matter. Really only matters for BNS")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
+parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
 parser.add_argument("--internal-flat-strategy",action='store_true',help="Use the same CIP options for every iteration, with convergence tests on.  Passes --test-convergence, ")
 parser.add_argument("--add-extrinsic",action='store_true')
@@ -250,6 +258,8 @@ if opts.no_matter:
     dirname_run += "_no_matter"
 if opts.assume_highq:
     dirname_run+="_highq"
+if opts.assume_well_placed:
+    dirname_run+="_placed"
 if opts.playground_data:
     dirname_run = "playground_" + dirname_run
 if not(opts.cip_sampler_method is None):
@@ -340,6 +350,8 @@ if opts.data_LI_seglen:
 if opts.assume_matter:
         cmd += " --assume-matter "
         npts_it = 1000
+if opts.assume_well_placed:
+    cmd += " --assume-well-placed "
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
@@ -525,6 +537,10 @@ if opts.assume_highq:
     puff_max_it +=3
 with open("args_puff.txt",'w') as f:
         puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
+        if False: #opts.cip_fit_method == 'rf':
+            # RF can majorly overfit and create 'voids' early on, eliminate the force-away
+            # Should only do this in the INITIAL puff, not all, to avoid known problems later
+            puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away'),'')
         if opts.data_LI_seglen:
                 puff_args+= " --enforce-duration-bound " +str(opts.data_LI_seglen)
         f.write("X " + puff_args)

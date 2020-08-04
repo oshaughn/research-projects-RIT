@@ -2,6 +2,8 @@ import types
 import sqlite3
 from collections import namedtuple
 
+from functools import reduce
+
 import numpy
 
 from glue.lal import LIGOTimeGPS
@@ -54,7 +56,7 @@ def append_samples_to_xmldoc(xmldoc, sampdict):
         si_table = lsctables.New(lsctables.SimInspiralTable, sim_valid_cols)
         new_table = True
     
-    keys = sampdict.keys()
+    keys = list(sampdict.keys())
     # Just in case the key/value pairs don't come out synchronized
     values = numpy.array([sampdict[k] for k in keys], object)
     
@@ -71,10 +73,10 @@ def append_samples_to_xmldoc(xmldoc, sampdict):
     # parameters across the transpose operation. It's probably not necessary,
     # so if speed dictates, it can be reworked by flattening before arriving 
     # here
-    for vrow in numpy.array(zip(*[vrow_sub.T for vrow_sub in values]), dtype=numpy.object):
+    for vrow in numpy.array(list(zip(*[vrow_sub.T for vrow_sub in values])), dtype=numpy.object):
         #si_table.append(samples_to_siminsp_row(si_table, **dict(zip(keys, vrow.flatten()))))
         vrow = reduce(list.__add__, [list(i) if isinstance(i, collections.Iterable) else [i] for i in vrow])
-        si_table.append(samples_to_siminsp_row(si_table, **dict(zip(keys, vrow))))
+        si_table.append(samples_to_siminsp_row(si_table, **dict(list(zip(keys, vrow)))))
         si_table[-1].process_id = procid
 
     if new_table:
@@ -89,7 +91,7 @@ def append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, neff=0, converged=
         #si_table = table.get_table(xmldoc, lsctables.MultiInspiralTable.tableName)
     # Warning: This will also get triggered if there is *more* than one table
     except ValueError:
-        si_table = lsctables.New(lsctables.SnglInspiralTable, sngl_valid_cols + cols.keys())
+        si_table = lsctables.New(lsctables.SnglInspiralTable, sngl_valid_cols + list(cols.keys()))
         new_table = True
         # NOTE: MultiInspiralTable has no spin columns
         #si_table = lsctables.New(lsctables.MultiInspiralTable, multi_valid_cols + cols.keys())
@@ -110,7 +112,7 @@ def append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, neff=0, converged=
 def samples_to_siminsp_row(table, colmap={}, **sampdict):
     row = table.RowType()
     row.simulation_id = table.get_next_id()
-    for key, col in CMAP.items():
+    for key, col in list(CMAP.items()):
         if key not in sampdict:
             continue
         if isinstance(col, types.FunctionType):
@@ -176,8 +178,8 @@ def db_to_samples(db_fname, tbltype, cols):
         connection.row_factory = sqlite3.Row
         for row in connection.execute(sql):
             # FIXME: UGH!
-            res = dict(zip(cols, row))
-            if "geocent_end_time" in res.keys():
+            res = dict(list(zip(cols, row)))
+            if "geocent_end_time" in list(res.keys()):
                 res["geocent_end_time"] += res["geocent_end_time_ns"]*1e-9
 
             samples.append(Sample(**res))
@@ -201,14 +203,14 @@ if __file__ == sys.argv[0]:
     del CMAP["mass2"]
     CMAP[("mass1", "mass2")] = ("mass1", "mass2")
     ar = numpy.random.random((len(CMAP), 10))
-    samp_dict = dict(zip(CMAP, ar))
+    samp_dict = dict(list(zip(CMAP, ar)))
     ar = samp_dict[("mass1", "mass2")]
     samp_dict[("mass1", "mass2")] = numpy.array([ar, ar])
     del CMAP[("mass1", "mass2")]
     CMAP["mass1"] = "mass1"
     CMAP["mass2"] = "mass2"
 
-    samp_dict["samp_n"] = numpy.array(range(0,10))
+    samp_dict["samp_n"] = numpy.array(list(range(0,10)))
     CMAP["sample_n"] = "sample_n"
     
     xmldoc = ligolw.Document()

@@ -166,6 +166,7 @@ parser.add_argument("--assume-nospin",action='store_true',help="If present, the 
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-volumetric-spin",action='store_true',help="If present, the code will assume a volumetric spin prior in its last iterations. If *not* present, the code will adopt a uniform magnitude spin prior in its last iterations. If not present, generally more iterations are taken.")
 parser.add_argument("--assume-highq",action='store_true',help="If present, the code will adopt a strategy that drops spin2. Also the precessing strategy will allow perpendicular spin to play a role early on (rather than as a subdominant parameter later)")
+parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
@@ -933,7 +934,7 @@ if not opts.lowlatency_propose_approximant:
 #    helper_cip_args += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 5000 "
 
 puff_max_it=0
-helper_puff_args = " --parameter mc --parameter eta "
+helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
 if event_dict["MChirp"] >25:
     # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there
     helper_puff_args = " --parameter mc --parameter delta_mc "  
@@ -953,6 +954,8 @@ if opts.propose_fit_strategy:
     if opts.assume_highq:
         n_it_early =5
         qmin_puff = 0.05 # 20:1
+    if opts.assume_well_placed:
+        n_it_early = 1
     helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
     
     # Impose a cutoff on the range of parameter used, IF the fit is a gp fit
@@ -1009,12 +1012,12 @@ if opts.propose_fit_strategy:
                 helper_cip_arg_list[0] +=  '  --parameter-implied xi  --parameter-nofit s1z  '  # note PURE ALIGNED SPIN SO FAR
                 helper_cip_arg_list[0] +=   ' --use-precessing  '
             
-                helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-nofit s1z --parameter-implied chi1_perp --parameter-nofit s1x --parameter-nofit s2x ' 
+                helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-nofit s1z --parameter-implied chi1_perp --parameter-nofit s1x --parameter-nofit s1y ' 
                 helper_cip_arg_list[1] +=   ' --use-precessing   '
 
                 # this will be perfectly adequate volumetric result
                 helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-nofit s1z  ' 
-                helper_cip_arg_list[2] +=   ' --use-precessing  --parameter s1x --parameter s2x'
+                helper_cip_arg_list[2] +=   ' --use-precessing  --parameter s1x --parameter s2x --parameter-implied chi2_perp --parameter-nofit s2x --parameter-nofit s2y'
                 # # Default prior is *volumetric*
                 # helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
                 # helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
@@ -1026,7 +1029,7 @@ if opts.propose_fit_strategy:
                 #            helper_cip_arg_list[2].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late)
                 helper_cip_arg_list[3]=helper_cip_arg_list[3].replace( " --lnL-offset " + str(lnLoffset_early), " --lnL-offset " + str(lnLoffset_late))
 
-            n_its = map(lambda x: float(x.split()[0]), helper_cip_arg_list)
+            n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
             puff_max_it= n_its[0] + n_its[1] # puff for first 2 types, to insure good coverage in narrow-q cases
             if event_dict["m2"]/event_dict["m1"] < 0.4: # High q, do even through the full aligned spin model case
                 puff_max_it += n_its[2]

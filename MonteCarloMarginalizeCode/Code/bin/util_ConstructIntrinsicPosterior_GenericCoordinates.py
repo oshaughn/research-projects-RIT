@@ -641,7 +641,7 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'DeltaLambdaTilde':delta_lambda_tilde_prior,
     # Polar spin components (uniform magnitude by default)
     'chi1':s_component_uniform_prior,  
-    'chi2':s_component_uniform_prior,
+    'chi2':functools.partial(s_component_uniform_prior, R=chi_small_max),
     'theta1': mcsampler.uniform_samp_theta,
     'theta2': mcsampler.uniform_samp_theta,
     'phi1':mcsampler.uniform_samp_phase,
@@ -664,7 +664,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
   'chi1':[0,chi_max],
-  'chi2':[0,chi_max],
+  'chi2':[0,chi_small_max],
   'theta1':[0,np.pi],
   'theta2':[0,np.pi],
   'phi1':[0,2*np.pi],

@@ -30,6 +30,7 @@ def mc(m1,m2):
 def eta(m1,m2):
     return m1*m2/(np.power(m1+m2, 2))
 
+
 optp = OptionParser()
 optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
 optp.add_option("--export-extra-spins",action='store_true',help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
@@ -37,6 +38,7 @@ optp.add_option("--export-tides",action='store_true',help="Include tidal paramet
 optp.add_option("--export-cosmology",action='store_true',help="Include source frame masses and redshift")
 optp.add_option("--export-weights",action='store_true',help="Include a field 'weights' equal to L p/ps")
 optp.add_option("--with-cosmology",default="Planck15",help="Specific cosmology to use")
+optp.add_option("--use-interpolated-cosmology",action='store_true',help="Specific cosmology to use")
 optp.add_option("--convention",default="RIFT",help="RIFT|LI")
 opts, args = optp.parse_args()
 if opts.export_cosmology:
@@ -45,8 +47,24 @@ if opts.export_cosmology:
     import astropy.units as u
     default_cosmology.set(opts.with_cosmology)
     cosmo = default_cosmology.get()
+
+    # Set up fast cosmology
+    def cosmo_func(dist_Mpc):
+        return astropy.cosmology.z_at_value(cosmo.luminosity_distance, dist_Mpc*u.Mpc)
+    if opts.use_interpolated_cosmology:
+        from scipy import interpolate
+        zvals = np.arange(0,20,0.0025)   # Note hardcoded maximum redshift
+        dvals = np.zeros(len(zvals))
+        for indx in np.arange(len(zvals)):
+            dvals[indx]  = float(cosmo.luminosity_distance(zvals[indx])/u.Mpc)
+        # Interpolate. should use monotonic spline code, but ...
+        interp_cosmo_func = interpolate.interp1d(dvals,zvals)
+        cosmo_func = interp_cosmo_func
+        
+
 if opts.export_extra_spins:
     import RIFT.lalsimutils as lalsimutils
+
 
 
 # Add LI-style export
@@ -214,7 +232,7 @@ for fname in args:
             print(pt.alpha5, pt.alpha6,)
         if opts.export_cosmology:
 #            z = astropy.cosmology( default_cosmology.luminosity_distance, pt.distance *u.Mpc)
-            z =astropy.cosmology.z_at_value(cosmo.luminosity_distance, pt.distance*u.Mpc)
+            z =cosmo_func(pt.distance)#astropy.cosmology.z_at_value(cosmo.luminosity_distance, pt.distance*u.Mpc)
             m1_source = pt.mass1/(1+z)
             m2_source = pt.mass2/(1+z)
             print( m1_source, m2_source, z,)

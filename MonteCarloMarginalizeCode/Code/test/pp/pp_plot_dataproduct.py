@@ -47,6 +47,7 @@ remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaT
 # Parse arguments
 parser = argparse.ArgumentParser()
 parser.add_argument("--posterior-file",action='append',help="filename of *.dat file [standard LI output]")
+parser.add_argument("--flag-tides-in-composite",action='store_true')
 parser.add_argument("--composite-file",type=str,help="filename of all.net file, needed to get peak lnL (i.e., log how much this event is pure noise")
 parser.add_argument("--truth-file",type=str, help="file containing the true parameters")
 parser.add_argument("--truth-event",type=int, default=0,help="file containing the true parameters")
@@ -64,9 +65,12 @@ else:
     sys.exit(0)
 
 lnL_max = -np.inf
+lnL_col = 9
+if opts.flag_tides_in_composite:
+    lnL_col = 11
 if opts.composite_file:
     dat = np.loadtxt(opts.composite_file)
-    lnL_max = np.max(dat[:,9])
+    lnL_max = np.max(dat[:,lnL_col])
 
 # Load in posterior samples
 fname = opts.posterior_file[0] # just do the one

@@ -30,13 +30,13 @@ import RIFT.lalsimutils as lsu  # problem of relative comprehensive import - dan
 import numpy as np
 try:
   import cupy
-  import optimized_gpu_tools
-  import Q_inner_product
+  from . import optimized_gpu_tools
+  from . import Q_inner_product
   xpy_default=cupy
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
 except:
-  print(' no cupy')
-  import numpy as cupy
+  print(' no cupy (factored)')
+  cupy=np #import numpy as cupy  # make sure pointer is identical
   optimized_gpu_tools=None
   Q_inner_product=None
   xpy_default=np
@@ -1732,7 +1732,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     # Array to accumulate lnL(t) summed across all detectors.
     lnL_t_accum = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
 
-    if xpy is np:
+    if (xpy is np) or (optimized_gpu_tools is None):
         simps = integrate.simps
     elif not (xpy is np):
         simps = optimized_gpu_tools.simps
@@ -1978,6 +1978,10 @@ def ComputeYlmsArrayVector(lookupNK, theta, phi):
 
     # Allocate
     Ylms = np.zeros((len(lookupNK), len(theta)),dtype=complex)
+
+    # Force cast to array. This should never be called, but can avoid some failures due to 'object' dtype failing through
+    theta = np.array(theta,dtype=float)
+    phi = np.array(phi,dtype=float)
 
     # Loop over l, m and evaluate.
     for indx in range(len(lookupNK)):

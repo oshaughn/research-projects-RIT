@@ -1,10 +1,22 @@
 
+0.0.15.3
+-----------
+Since last release
+   - range limit on a2 (rc1)
+   - more xpy==cupy checks in factored_likelihood, protect a lalsimutils coordinate conversion against error, OSG update
+     conventions for using local pool, CEPP add --condor-nogrid-nonworker option to use it, xmlutils fix py3 reduce
+     issue (rc2)
+   - ILE_batchmode integration window 75ms, xmlutils more missing py2->py3 (rc3)
+
 
 0.0.15.2
 ------------
 Since last release
   - minor py3 errors in PP scripts (rc1)
-  - import 0.0.14.9rc1-rc3 and ...
+  - import 0.0.14.9rc1-rc5 (rc2)
+  - minor py2->3 fixes for merged code. config_yank (rc3)
+
+release is rc3
 
 0.0.15.1
 ------------
@@ -32,6 +44,17 @@ Since last release
     glue; plot_posterior_corner fix tex label issue (rc1)
   - bugfix ini file parsing (not parsing distance-max)   (rc2)
   - bugfix in ini file use (overriding distance-max if ini used) (rc3)
+  - change ILE time integration window default to 75 ms. --propose-flat-strategy. Better --internal-correlate-parameters
+    arg parsing. Fix enforce_kerr constraint on conversion. RF protect against out of range error. pseudo_pipe GPS->str
+    prevent truncation when moving args around.  add --transverse-prior.   helper for mc>25 uses mc/delta_mc instead of
+    mc/eta.  Add PEsummary output option.  Add --general-retries. Pass search --hint-snr in pseudo_pipe.
+    Pass --fref to convert, so reference spins specified correctly.  Paths for gwsurrogate.   
+     Other minor non-ILE/CIP modifications (rc4)
+  - infrastructure speed improvements (puffball distance force away function; interpolated cosmology); error protection
+    and handling (workarounds for bugs in error handling in lalsuite); CIP always stream error/out; helper updtes (option for
+    --assume-well-placed to flatten architectures if exploration needs minimal; bugfix highq strategy transverse spin
+    dependence) (rc5)
+   
 
 0.0.14.8
 -----------
