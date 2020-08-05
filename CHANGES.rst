@@ -8,6 +8,7 @@ Since last release
      issue (rc2)
    - ILE_batchmode integration window 75ms, xmlutils more missing py2->py3 (rc3)
 
+Release is rc3
 
 0.0.15.2
 ------------
