@@ -1033,7 +1033,12 @@ class ChooseWaveformParams:
             # Use predefined / default tool
             #   - this tool assumes the 'L' frame
             # See e.g., patch to LI https://git.ligo.org/lscsoft/lalsuite/commit/1f963908caa4f038532114840088b91f9b73e6ce
-            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2=lalsim.SimInspiralTransformPrecessingWvf2PE(self.incl,self.s1x, self.s1y, self.s1z,self.s2x, self.s2y,self.s2z, self.m1, self.m2, np.max([self.fref,self.fmin]), self.phiref)
+            try:
+               thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2=lalsim.SimInspiralTransformPrecessingWvf2PE(self.incl,self.s1x, self.s1y, self.s1z,self.s2x, self.s2y,self.s2z, self.m1, self.m2, float(np.max([self.fref,self.fmin])), self.phiref)
+            except:
+               print("Failure to convert coordinates in lalsimutils")
+               self.print_params()
+               sys.exit(1)  # exit, throw error
             return thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ  # psiJ is not provided by the above routine alas
 
 

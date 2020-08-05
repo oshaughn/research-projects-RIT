@@ -3,7 +3,12 @@
 -----------
 Since last release
    - range limit on a2 (rc1)
+   - more xpy==cupy checks in factored_likelihood, protect a lalsimutils coordinate conversion against error, OSG update
+     conventions for using local pool, CEPP add --condor-nogrid-nonworker option to use it, xmlutils fix py3 reduce
+     issue (rc2)
+   - ILE_batchmode integration window 75ms, xmlutils more missing py2->py3 (rc3)
 
+Release is rc3
 
 0.0.15.2
 ------------
