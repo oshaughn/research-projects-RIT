@@ -401,6 +401,7 @@ if use_gracedb_event:
             event_duration = row.event_duration # may not exist
         except:
             print " event_duration field not in XML "
+            event_duration=4 # fallback
     event_dict["m1"] = row.mass1
     event_dict["m2"] = row.mass2
     event_dict["s1z"] = row.spin1z
@@ -495,6 +496,8 @@ t_event = event_dict["tref"]
 P=event_dict["P"]
 #lalsimutils.ChooseWaveformParams()
 #P.m1= event_dict['m1']*lal.MSUN_SI;  P.m2= event_dict['m2']*lal.MSUN_SI; 
+if (event_dict["epoch"]) is None:
+   event_dict["epoch"]=0  # protect against insanity that should never happen
 t_duration  = np.max([ event_dict["epoch"], lalsimutils.estimateWaveformDuration(P)])
 t_before = np.max([4,t_duration])*1.1+8+2  # buffer for inverse spectrum truncation
 data_start_time_orig = data_start_time = t_event - int(t_before)
