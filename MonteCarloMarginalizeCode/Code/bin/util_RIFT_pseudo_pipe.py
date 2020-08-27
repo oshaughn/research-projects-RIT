@@ -608,7 +608,7 @@ os.system(cmd)
 
 ## RUNMON
 try:
-    from runmonitor import store_run as sto
+    from runmonitor import store_tools as sto
     if opts.use_ini != None: # making an assumption that opts.use_ini corresponds to prod_O3b file structures, and that opts.use_ini == None corresponds to standard setup with opts.gracedb_id passed. Maybe not a robust assumption…
         level = 2
         event = os.getcwd.split("/")[-2].split("_")[0]
