@@ -26,6 +26,12 @@ from glue.lal import CacheEntry
 import configparser as ConfigParser
 
 
+def is_int_power_of_2(a):
+    if (a & (a-1)):
+        return False
+    else:
+        return True
+
 def unsafe_config_get(config,args,verbose=False):
     if verbose:
         print( " Retrieving ", args) 
@@ -540,6 +546,7 @@ if opts.use_ini is None:
 
 # Parse LI ini
 use_ini=False
+srate=4096
 if not(opts.use_ini is None):
     use_ini=True
     config = ConfigParser.ConfigParser()
@@ -579,7 +586,11 @@ if not(opts.use_ini is None):
     opts.data_LI_seglen = unsafe_config_get(config,['engine','seglen'])
 
     # overwrite arguments used with fmax
-    opts.fmax = unsafe_config_get(config,['engine','srate'])/2
+    opts.fmax = unsafe_config_get(config,['engine','srate'])/2 -1  # LI default is not to set srate as an independent variable. Occasional danger with maximum frequency limit in PSD
+    srate = np.max([unsafe_config_get(config,['engine','srate']),srate])  # raise the srate, but never lower it below the fiducial value
+    if not(is_int_power_of_2(srate)):
+        print("srate must be power of 2!")
+        sys.exit(0)
     
     opts.fmin = fmin_fiducial # used only to estimate length; overridden later
 
@@ -921,7 +932,7 @@ if opts.propose_ile_convergence_options:
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs
     # Note that number of events to analyze is controlled by a different part of the workflow !
-    helper_ile_args += " --vectorized --gpu  --no-adapt-after-first --no-adapt-distance --srate 4096 "
+    helper_ile_args += " --vectorized --gpu  --no-adapt-after-first --no-adapt-distance --srate {} ".format(srate)
 
     if snr_fac > 1.5:  # this is a pretty loud signal, so we need to tune the adaptive exponent too!
         helper_ile_args += " --adapt-weight-exponent " + str(0.3/np.power(snr_fac/1.5,2))
