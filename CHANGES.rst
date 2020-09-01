@@ -1,4 +1,11 @@
 
+0.0.15.4
+-----------
+Since last release
+    - dag_utils missing 'no_grid' when building extrinsic (halting bug); add runmon interface; lalsimutils list() in hlmoft_SEOB_dict; 
+      convert_...all2xml updated (rc1)
+
+
 0.0.15.3
 -----------
 Since last release
