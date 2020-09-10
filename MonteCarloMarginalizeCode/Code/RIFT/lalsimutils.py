@@ -2772,7 +2772,7 @@ def hlmoft_SEOB_dict(P,Lmax=2):
         hlm_struct, dyn, dynHi = lalsim.SimIMRSpinAlignedEOBModes(P.deltaT, P.m1, P.m2, P.fmin, P.dist, P.s1z, P.s2z,41, 0., 0., 0.,0.,0.,0.,0.,0.,1.,1.,nqcCoeffsInput, 0)
 
         hlms = SphHarmTimeSeries_to_dict(hlm_struct,Lmax)
-        mode_list_orig = hlms.keys()
+        mode_list_orig = list(hlms.keys())  # force a cast and therefore a copy - some python versions not playing safely here
         for mode in mode_list_orig:
             # Add zero padding if requested time period too short
             if not (P.deltaF is None):

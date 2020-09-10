@@ -27,9 +27,11 @@ dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-colu
 
 P_list = []
-P= lalsimutils.ChooseWaveformParams()
+#P= lalsimutils.ChooseWaveformParams()
 P_list_in = []
 for line in dat:
+    P= lalsimutils.ChooseWaveformParams()
+
     P.fref = opts.fref  # IMPORTANT if you are using a quantity that depends on J
     P.fmin = opts.fmin
     P.m1 = line[1]*lal.MSUN_SI
