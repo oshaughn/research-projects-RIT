@@ -212,6 +212,9 @@ parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Us
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Uses local universe for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.")
 parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="Uses local flocking for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.")
 parser.add_argument("--frames-dir",default=None,help="If you are using synthetic dat")
+parser.add_argument("--use-cal-marg-reweight",action='store-true',help="Enable Ethan's cal-reweighting scheme. REQUIRES ini arguments")
+parser.add_argument("--cal-marg-reweight-ini",default=None,type=float, help="Ini file. MUST be consistent with other settings used (see pseudo_pipe).")
+parser.add_argument("--cal-marg-reweight-realizations",default=100,type=int,help="Number of realizations of cal marg procedure")
 parser.add_argument("--cache-file",default=None,help="If you are using real data and have CVMS frames, you want to transfer the cache file over.")
 parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.")
 parser.add_argument('--n-copies',default=2,type=int,help="Number of duplicates of each ILE job, for redundant Monte Carlo")
@@ -223,6 +226,12 @@ parser.add_argument("--workflow",default='single',help="[single|fit+posterior|fu
 parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior jobs. Used in posterior and fit+posterior workflows")
 parser.add_argument("--use-bw-psd",action='store_true',help="Use BW PSD, attempting to use fiducial arguments as in LI for placement (i.e., signal at seglen -2). Assumes LI style data convention.  Necessary BW will be parsed out of ile-args.txt (required)")
 opts=  parser.parse_args()
+
+
+# Check cal marg sanity
+if opts.use_cal_marg_reweight and (opts.cal_marg_reweight_ini == None):
+    print("FAIL: reweighting requires ini file passed to CEPP")
+    sys.exit(1)
 
 
 local_worker_universe="vanilla"
@@ -1001,6 +1010,13 @@ if opts.last_iteration_extrinsic:
             dag.add_node(resample_node)
             
     dag.add_node(cat_node)
+
+
+if opts.use_cal_marg_reweight:
+    # Create any pre-run cal marg
+
+    # Create postprocessing node to generate cal marginalization results
+
 
 # Create final node for overall plots.  (Note: default setup is designed to enable plots of the last two iterations *at each step* but this seems like overkill)
 if plot_args:
