@@ -332,6 +332,7 @@ if True:
                     except:
                         print( " No provenance for ", name)
 
+
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound "
@@ -385,6 +386,17 @@ if opts.use_online_psd_file:
 if "SNR" in event_dict:
     cmd += " --hint-snr {} ".format(event_dict["SNR"])
 
+# If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
+if opts.use_ini:
+    config = ConfigParser.ConfigParser()
+    config.read(opts.use_ini)
+    if config.has_option("lalinference", "fake-cache"):
+        # dictionary, entries are individual lcf files; we just need to concatenate their contents
+        fake_cache_dict = unsafe_config_get("lalinference","fake-cache")
+        fake_cache_fnames = [fake_cache_dict[x] for x in fake_cache_dict.keys()]
+        cmd_cat = 'cat ' + ' '.join(fake_cache_fnames) + ' > local.cache'
+        os.system(cmd_cat)
+    cmd += " --cache local.cache "
 print( cmd)
 os.system(cmd)
 #sys.exit(0)
@@ -618,4 +630,4 @@ try:
     sto.store(event,level)
 except Exception as fail:
     print(fail)
-    print(“Unable to initialize run monitoring automatically. If you wish to use this feature please do so manually”)
+    print("Unable to initialize run monitoring automatically. If you wish to use this feature please do so manually")
