@@ -474,7 +474,11 @@ for indx in np.arange(len(instructions_cip)):
     n_max_cip = 10000000;
     if opts.cip_sampler_method is "GMM":
         n_max_cip *=10   # it is faster, so run longer; helps with correlated-sampling cases
-    line +=" --n-output-samples 10000 --n-eff 10000 --n-max {}   --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(n_max_cip)
+    n_sample_target=10000
+    n_workers = 1
+    if opts.cip_explode_jobs:
+        n_workers = opts.cip_explode_jobs
+    line +=" --n-output-samples {}  --n-eff {} --n-max {}   --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), int(n_sample_target/n_workers),n_max_cip)
     if not(opts.cip_fit_method is None):
         line = line.replace('--fit-method gp', '--fit-method ' + opts.cip_fit_method)
     if not (opts.cip_sampler_method is None):
