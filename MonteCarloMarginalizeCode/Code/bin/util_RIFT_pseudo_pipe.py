@@ -101,6 +101,7 @@ parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for pa
 parser.add_argument("--use-rundir",default=None,type=str,help="Intended to reproduce lalinference_pipe functionality. Must be absolute path.")
 parser.add_argument("--use-online-psd-file",default=None,type=str,help="Provides specific online PSD file, so no downloads are needed")
 parser.add_argument("--use-coinc",default=None,type=str,help="Intended to reproduce lalinference_pipe functionality")
+parser.add_argument("--manual-ifo-list",default=None,type=str,help="Overrides IFO list normally retrieve by event ID.  Use with care (e.g., glitch studies) or for events specified with --event-time.")
 parser.add_argument("--online",action='store_true')
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
@@ -303,7 +304,6 @@ if not(opts.use_ini is None):
     lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
 
 
-
 helper_psd_args = ''
 srate=4096  # default, built into helper, unwise to go lower, LI will almost never do higher
 if opts.make_bw_psds:
@@ -385,6 +385,9 @@ if opts.use_online_psd_file:
         cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
 if "SNR" in event_dict:
     cmd += " --hint-snr {} ".format(event_dict["SNR"])
+if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
+    cmd += " --manual-ifo-list {} ".format(opts.manual_ifo_list)
+
 
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
 if opts.use_ini:
