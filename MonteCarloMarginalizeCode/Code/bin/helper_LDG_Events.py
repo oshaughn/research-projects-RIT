@@ -371,8 +371,9 @@ if not (opts.psd_file is None):
     event_dict["IFOs"] = ifo_list
 if not ("IFOs" in event_dict.keys()):  
     if not(opts.manual_ifo_list is None):
-        import ast
-        event_dict["IFOs"] = ast.literal_eval(opts.manual_ifo_list)
+#        import ast
+        event_dict["IFOs"] = opts.manual_ifo_list.replace('[','').replace(']','').split(',')
+#        event_dict["IFOs"] = ast.literal_eval(opts.manual_ifo_list)
     else:
         event_dict["IFOs"] = []   # Make sure this is populated, for later
 
