@@ -145,6 +145,7 @@ parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
 parser.add_argument("--event",type=int,default=None)
 parser.add_argument("--check-ifo-availability",action='store_true',help="if true, attempt to use frame availability or DQ information to choose ")
+parser.add_argument("--manual-ifo-list",default=None,type=str,help="Overrides IFO list normally retrieve by event ID.  Use with care (e.g., glitch studies) or for events specified with --event-time.")
 parser.add_argument("--observing-run",default=None,help="Use the observing run settings to choose defaults for channel names, etc. Not yet implemented using lookup from event time")
 parser.add_argument("--calibration-version",default=None,help="Calibration version to be used.")
 parser.add_argument("--playground-data",default=None,help="Playground data. Modifies channel names used.")
@@ -369,7 +370,12 @@ if not (opts.psd_file is None):
             ifo_list.append(inst)
     event_dict["IFOs"] = ifo_list
 if not ("IFOs" in event_dict.keys()):  
-    event_dict["IFOs"] = []   # Make sure this is populated, for later
+    if not(opts.manual_ifo_list is None):
+        import ast
+        event_dict["IFOs"] = ast.literal_eval(opts.manual_ifo_list)
+    else:
+        event_dict["IFOs"] = []   # Make sure this is populated, for later
+
 
 ###
 ### Import event and PSD: GraceDB branch
