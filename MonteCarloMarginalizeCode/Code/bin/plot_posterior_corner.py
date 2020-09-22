@@ -262,7 +262,10 @@ parser.add_argument("--use-title",default=None,type=str)
 parser.add_argument("--use-smooth-1d",action='store_true')
 parser.add_argument("--plot-1d-extra",action='store_true')
 parser.add_argument("--pdf",action='store_true',help="Export PDF plots")
-parser.add_argument("--mc-range",default=None,help='List for mc range. Default is None')
+#option deprecated by bind-param and param-bound
+#parser.add_argument("--mc-range",default=None,help='List for mc range. Default is None')
+parser.add_argument("--bind-param",default=None,action="append",help="a parameter to impose a bound on, with corresponding --param-bound arg in respective order")
+parser.add_argument("--param-bound",action="append",help="respective bounds for above params")
 parser.add_argument("--ci-list",default=None,help='List for credible intervals. Default is 0.95,0.9,0.68')
 parser.add_argument("--quantiles",default=None,help='List for 1d quantiles intervals. Default is 0.95,0.05')
 parser.add_argument("--chi-max",default=1,type=float)
@@ -300,10 +303,16 @@ special_param_ranges = {
   'lambda2':[0,4000],
   'lambdat':[0,4000]
 }
-if opts.mc_range:
-    special_param_ranges['mc'] = eval(opts.mc_range)
-    print(" mc range ", special_param_ranges['mc'])
+
+#mc_range deprecated by generic bind_param
+#if opts.mc_range:
+#    special_param_ranges['mc'] = eval(opts.mc_range)
+#    print(" mc range ", special_param_ranges['mc'])
     
+if opts.bind_param:
+     for i,par in enumerate(opts.bind_param):
+         special_param_ranges[par]=eval(opts.param_bound[i])
+         print(par +" range ",special_param_ranges[par])
 
 
 # Parameters
