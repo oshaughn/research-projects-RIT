@@ -746,6 +746,8 @@ uniform_samp_psi = numpy.vectorize(lambda x: 1/(numpy.pi))
 uniform_samp_theta = numpy.vectorize(lambda x: numpy.sin(x)/(2))
 uniform_samp_dec = numpy.vectorize(lambda x: numpy.cos(x)/(2))
 
+uniform_samp_cos_theta = numpy.vectorize(lambda x: 1./2.)  #dumbest-possible implementation
+
 def quadratic_samp(rmax,x):
         if x<rmax:
                 return x**2/(3*rmax**3)
