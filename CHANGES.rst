@@ -1,4 +1,5 @@
 
+
 0.0.14.9
 -----------
 Since last release
@@ -16,6 +17,7 @@ Since last release
     and handling (workarounds for bugs in error handling in lalsuite); CIP always stream error/out; helper updtes (option for
     --assume-well-placed to flatten architectures if exploration needs minimal; bugfix highq strategy transverse spin
     dependence) (rc5)
+  - porting features from the 0.0.15 branch to enable single ifo use (--manual-ifo-list) (rc6)
    
 
 0.0.14.8
