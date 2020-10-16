@@ -5,6 +5,8 @@ Since last release
     - dag_utils missing 'no_grid' when building extrinsic (halting bug); add runmon interface; lalsimutils list() in hlmoft_SEOB_dict; 
       convert_...all2xml updated (rc1)
     - ini file srate (rc2)
+    - CIP/mcsampler cos_theta sampling; pipeline --manual-ifo-list; workers contribute to net goal piecemeal; ini file
+      parser can use fake-cache (rc3)
 
 
 0.0.15.3
