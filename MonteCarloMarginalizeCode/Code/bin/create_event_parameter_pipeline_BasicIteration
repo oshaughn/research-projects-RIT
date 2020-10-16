@@ -212,7 +212,7 @@ parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Us
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Uses local universe for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.")
 parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="Uses local flocking for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.")
 parser.add_argument("--frames-dir",default=None,help="If you are using synthetic dat")
-parser.add_argument("--use-cal-marg-reweight",action='store-true',help="Enable Ethan's cal-reweighting scheme. REQUIRES ini arguments")
+parser.add_argument("--use-cal-marg-reweight",action='store_true',help="Enable Ethan's cal-reweighting scheme. REQUIRES ini arguments")
 parser.add_argument("--cal-marg-reweight-ini",default=None,type=float, help="Ini file. MUST be consistent with other settings used (see pseudo_pipe).")
 parser.add_argument("--cal-marg-reweight-realizations",default=100,type=int,help="Number of realizations of cal marg procedure")
 parser.add_argument("--cache-file",default=None,help="If you are using real data and have CVMS frames, you want to transfer the cache file over.")
