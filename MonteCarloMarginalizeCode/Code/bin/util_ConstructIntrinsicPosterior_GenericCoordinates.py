@@ -644,6 +644,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'chi2':functools.partial(s_component_uniform_prior, R=chi_small_max),
     'theta1': mcsampler.uniform_samp_theta,
     'theta2': mcsampler.uniform_samp_theta,
+    'cos_theta1': mcsampler.uniform_samp_cos_theta,
+    'cos_theta2': mcsampler.uniform_samp_cos_theta,
     'phi1':mcsampler.uniform_samp_phase,
     'phi2':mcsampler.uniform_samp_phase
 }
@@ -667,6 +669,8 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'chi2':[0,chi_small_max],
   'theta1':[0,np.pi],
   'theta2':[0,np.pi],
+  'cos_theta1':[-1,1],
+  'cos_theta2':[-1,1],
   'phi1':[0,2*np.pi],
   'phi2':[0,2*np.pi],
 }
