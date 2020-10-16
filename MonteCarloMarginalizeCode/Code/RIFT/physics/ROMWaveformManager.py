@@ -267,7 +267,7 @@ class WaveformModeCatalog:
             self.modes_available=[]
         elif 'NRHybSur' in param:
             if 'Tidal' in param:
-                self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group,surrogate_name_spliced=param)   # get the dimensinoless surrogate file?
+                self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group+'/NRHybSur3dq8.h5',surrogate_name_spliced=param)   # get the dimensinoless surrogate file?
             else:
                 self.sur = gws.LoadSurrogate(dirBaseFiles +'/'+group+param)   # get the dimensinoless surrogate file?
             raw_modes = self.sur._sur_dimless.mode_list  # raw modes
@@ -735,15 +735,17 @@ class WaveformModeCatalog:
         # Option 1: Use NRHybXXX approach (i.e., generate an hlmoft dictionary...but with its OWN time grid and scaling...very annoying)
         if 'NRHyb' in self.param:
             params_here = self.parameter_convert[(2,2)](P)
-            f_low = P.fmin  # need to convert to dimensionless time
+            f_low = 3e-4  # need to convert to dimensionless time
             tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
+            if 'Tidal' in self.param:
+                self.ToverMmax=0
             indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
             hlmT ={}
             taper_end_duration =None
             if rom_taper_end:
                 taper_end_duration =40.0
             if 'Tidal' in self.param:
-                time, hlmT_dimensionless_narrow,dym = self.sur(params_here[0],params_here[1],params_here[2],times=tvals_dimensionless[indx_ok],taper_end_duration=taper_end_duration,f_low=None,tidal_opts=params_here[5])
+                time, hlmT_dimensionless_narrow,dym = self.sur(params_here[0],params_here[1],params_here[2],times=tvals_dimensionless[indx_ok],taper_end_duration=taper_end_duration,f_low=f_low,tidal_opts=params_here[5])
             else:
                 time, hlmT_dimensionless_narrow,dym = self.sur(params_here[0],params_here[1],params_here[2],times=tvals_dimensionless[indx_ok],taper_end_duration=taper_end_duration,f_low=0)
 #            hlmT_dimensionless_narrow = self.sur(params_here[0],params_here[1],params_here[2],dt=P.deltaT,f_low=0,mode_list=self.modes_available,M=params_here[3],dist_mpc=params_here[4],tidal_opts=params_here[5])
