@@ -615,8 +615,6 @@ if opts.archive_pesummary_label:
     cmd += " --plot-exe summarypages --plot-args  args_plot.txt "
 print cmd
 os.system(cmd)
-<<<<<<< HEAD
-=======
 
 
 
@@ -633,4 +631,3 @@ try:
 except Exception as fail:
     print(fail)
     print("Unable to initialize run monitoring automatically. If you wish to use this feature please do so manually")
->>>>>>> fb8f67f8... util_RIFT_pseudo_pipe.py: attempt to add parser to add cache file if fake-cache provided in lalinference directory, *and* those are all individually single-IFO cache files
