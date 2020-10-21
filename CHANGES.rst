@@ -18,7 +18,7 @@ Since last release
     --assume-well-placed to flatten architectures if exploration needs minimal; bugfix highq strategy transverse spin
     dependence) (rc5)
   - porting features from the 0.0.15 branch to enable single ifo use (--manual-ifo-list) (rc6)
-   
+  - fix typos; finish manual-ifo-list merges; freeze some requirements so CI passes (rc7)
 
 0.0.14.8
 -----------
