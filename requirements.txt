@@ -14,4 +14,4 @@ lalsuite
 gwdatafind 
 ligo-segments 
 python-ligo-lw 
-ligo-gracedb==2.0.0
+ligo-gracedb==2.4.0
