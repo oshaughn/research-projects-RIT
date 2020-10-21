@@ -3,7 +3,8 @@ pip
 #cupy  
 numpy
 h5py 
-numba 
+llvmlite==0.31
+numba==0.47
 #vegas 
 corner 
 scikit-learn 
