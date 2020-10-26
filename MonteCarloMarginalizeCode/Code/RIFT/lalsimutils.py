@@ -2634,7 +2634,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                 hlm_out[key].data.data[:ntaper]*=vectaper
         return hlm_out
 
-    if ('IMRPhenomP' in  lalsim.GetStringFromApproximant(P.approx) ): # and not (P.SoftAlignedQ()):
+    if ('IMRPhenomP' in  lalsim.GetStringFromApproximant(P.approx) or P.approx == lalIMRPhenomXP ): # and not (P.SoftAlignedQ()):
         hlms = hlmoft_IMRPv2_dict(P)
         if not (P.deltaF is None):
             TDlen = int(1./P.deltaF * 1./P.deltaT)
