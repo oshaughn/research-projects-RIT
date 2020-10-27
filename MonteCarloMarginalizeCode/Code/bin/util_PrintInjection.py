@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 """
 util_PrintInjection --inj [inj]  # prints standard dump of properties
 util_PrintInjection --inj [inj]  --psiJ --psiL --iota --m1  # print rows of these properties

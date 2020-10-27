@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 
 import RIFT.lalsimutils as lalsimutils
 import RIFT.misc.ourparams as ourparams

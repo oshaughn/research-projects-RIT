@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 # util_WriteInjectionFile.py
 # 
 #  Lets user create injection xml files from the command line.  More efficient than monoblock python codes

@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 #  
 #
 # Tool: dumps a candidate waveform to a frame file.

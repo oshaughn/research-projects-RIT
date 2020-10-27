@@ -1,0 +1,13 @@
+setuptools
+pip
+numpy
+h5py
+numba
+corner
+scikit-learn
+matplotlib
+lalsuite
+gwdatafind
+ligo-segments
+python-ligo-lw
+six
