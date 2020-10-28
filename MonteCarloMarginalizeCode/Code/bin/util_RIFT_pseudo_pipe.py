@@ -376,7 +376,7 @@ if opts.use_osg:
     cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful
 if opts.use_ini:
     cmd += " --use-ini " + opts.use_ini
-    cmd += " --sim-xml target_params.xml.gz --event 0 "
+    cmd += " --sim-xml {}/target_params.xml.gz --event 0 ".format(base_dir + "/"+ dirname_run)  # full path to target_params.xml.gz
     cmd += " --event-time " + str(event_dict["tref"])
     #
 else:
