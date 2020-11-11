@@ -85,3 +85,11 @@ singularity shell --writable  /cvmfs/ligo-containers.opensciencegrid.org/james-c
 ```
 
 You can use this setup for testing and job launching.
+
+
+### Alternative setup (docker)
+You can also use docker to retrieve a docker image maintained by James Clark [docker hub location](https://hub.docker.com/r/jclarkastro/rift)
+```bash
+docker pull jclarkastro/rift
+docker run --detach --gpus all -v /home:/home -v /cvmfs:/cvmfs --name=rift-demo jclarkastro/rift
+```
