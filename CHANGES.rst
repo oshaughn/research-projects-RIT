@@ -10,6 +10,7 @@ Since last release
     - waveforms (NRHybSur3dq8Tidal via gwsurrogate; logic for IMRPhenomXP via ModesFromPolarizations; logic for 
       IMRPhenomTP/TPHM); user control over whether pipeline generates precessing analysis (--assume-precessing, --assume-nonprecessing);
       pseudo_pipe minor (full path to target_params, for ini-file operation)  (rc4)
+    - waveforms (fix typos with IMRPhenomTP), ILE add --force-gpu-only to hard fail if GPU not used (rc5)
 
 0.0.15.3
 -----------
