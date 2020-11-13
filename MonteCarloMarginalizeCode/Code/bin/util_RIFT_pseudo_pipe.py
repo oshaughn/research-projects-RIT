@@ -406,7 +406,7 @@ if opts.use_ini:
         fake_cache_fnames = [fake_cache_dict[x] for x in fake_cache_dict.keys()]
         cmd_cat = 'cat ' + ' '.join(fake_cache_fnames) + ' > local.cache'
         os.system(cmd_cat)
-    cmd += " --cache local.cache "
+        cmd += " --cache local.cache "
 print( cmd)
 os.system(cmd)
 #sys.exit(0)
