@@ -132,6 +132,8 @@ parser.add_argument("--ile-jobs-per-worker",type=int,default=20)
 parser.add_argument("--ile-no-gpu",action='store_true')
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
+parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
+parser.add_argument("--force-eta-range",default=None,type=str,help="Pass this argumen through to the helper to set the eta range")
 parser.add_argument("--hierarchical-merger-prior-1g",action='store_true',help="As in 1903.06742")
 parser.add_argument("--hierarchical-merger-prior-2g",action='store_true',help="As in 1903.06742")
 parser.add_argument("--link-reference-pe",action='store_true',help="If present, creates a directory 'reference_pe' and adds symbolic links to fiducial samples. These can be used by the automated plotting code.  Requires LVC_PE_SAMPLES environment variable defined!")
@@ -343,6 +345,10 @@ if True:
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound "
+if not(opts.force_mc_range is None):
+    cmd+= " --force-mc-range {} ".format(opts.force_mc_range)
+if not(opts.force_eta_range is None):
+    cmd+= " --force-eta-range {} ".format(opts.force_eta_range)
 if not(opts.gracedb_id is None) and (opts.use_ini is None):
     cmd +=" --use-legacy-gracedb --gracedb-id " + gwid 
 elif  not(opts.event_time is None):
