@@ -90,7 +90,8 @@ downselect_dict = {}
 downselect_dict['chi1'] = [0,1]
 downselect_dict['chi2'] = [0,1]
 downselect_dict['eta'] = [0,0.25]
-
+downselect_dict['m1'] = [0,1e10]
+downselect_dict['m2'] = [0,1e10]
 
 
 if opts.downselect_parameter:
@@ -243,11 +244,17 @@ for indx_P in np.arange(len(P_list)):
             fac = lal.MSUN_SI
         P_list[indx_P].assign_param( coord_names[indx], X_out[indx_P,indx]*fac)
 
+    if np.isnan(P.m1) or np.isnan(P.m2):  # don't allow nan mass
+        continue
+
     if not(opts.enforce_duration_bound is None):
       if lalsimutils.estimateWaveformDuration(P)> opts.enforce_duration_bound:
         include_item = False
     for param in downselect_dict:
         val = P.extract_param(param)
+        if np.isnan(val):
+            include_item=False   # includes check on m1,m2
+            continue # stop trying to calculate with this parameter
         if param in ['mc','m1','m2','mtot']:
             val = val/ lal.MSUN_SI
         if val < downselect_dict[param][0] or val > downselect_dict[param][1]:
