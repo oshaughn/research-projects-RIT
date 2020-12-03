@@ -2620,6 +2620,31 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     sign_factor = 1
     if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
+    if (P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomXPHM or P.approx == lalSEOBNRv4HM_ROM or P.approx == lalsim.IMRPhenomXHM):
+       if P.fref==0 and (P.approx == lalIMRPhenomXPHM):
+          P.fref=P.fmin
+       extra_params = P.to_lal_dict()
+       fNyq = 0.5/P.deltaT
+       TDlen = int(1./(P.deltaT*P.deltaF))
+       fNyq_offset = fNyq - P.deltaF
+       hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, \
+                                                     P.s1x, P.s1y, P.s1z, \
+                                                     P.s2x, P.s2y, P.s2z, \
+                                                     P.deltaF, P.fmin, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
+       hlmsT = {}
+       hlms = {}
+       hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct,Lmax)
+       for mode in hlmsdict:
+          hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
+          hlmsT[mode] = DataInverseFourier(hlmsdict[mode])
+          hlmsT[mode].data.data = -1*hlmsT[mode].data.data
+          hlmsT[mode].data.data = np.roll(hlmsT[mode].data.data,-int(hlmsT[mode].data.length/2))
+          hlmsT[mode].epoch = -(hlmsT[mode].data.length*hlmsT[mode].deltaT/2)
+       if P.deltaF is not None:
+          print(hlmsT[mode].data.length,TDlen, " and in seconds ", hlmsT[mode].data.length*hlmsT[mode].deltaT,TDlen*P.deltaT, " with deltaT={} {}".format(hlmsT[mode].deltaT,P.deltaT))
+          for mode in hlmsT:
+             hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlmsT[mode],0,TDlen)
+       return hlms
 
     if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx==lalsim.SEOBNRv4_opt or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4 or P.approx == lalSEOBNRv4HM):
         hlm_out = hlmoft_SEOB_dict(P,Lmax=Lmax)

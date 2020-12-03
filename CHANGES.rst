@@ -11,6 +11,8 @@ Since last release
       IMRPhenomTP/TPHM); user control over whether pipeline generates precessing analysis (--assume-precessing, --assume-nonprecessing);
       pseudo_pipe minor (full path to target_params, for ini-file operation)  (rc4)
     - waveforms (fix typos with IMRPhenomTP), ILE add --force-gpu-only to hard fail if GPU not used (rc5)
+    - pipeline --force-gpu-only; puffball nan checks; pseudo pipe cache if ini logic fix; FrameZeroNoiseSNR 2to3 (rc6)
+    - waveforms (ChooseFDModes: PHM,XHM,PXHM, ...), bugfix in --force-gpu-only logic in pseudo_pipe (rc7)
 
 0.0.15.3
 -----------
