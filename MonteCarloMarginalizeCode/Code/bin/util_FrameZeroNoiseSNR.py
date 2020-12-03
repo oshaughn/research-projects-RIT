@@ -41,7 +41,7 @@ for ifo in ifo_list:
     data_dict[ifo] =  lalsimutils.frame_data_to_non_herm_hoff(opts.cache,channel)
     fSample = len(data_dict[ifo].data.data)*data_dict[ifo].deltaF
     df = data_dict[ifo].deltaF
-    if not psd_name.has_key(ifo):
+    if not (ifo in psd_name):
         print(ifo, " analytic psd ", opts.psd)
         analyticPSD_Q=True
         psd_dict[ifo] = eval(opts.psd)

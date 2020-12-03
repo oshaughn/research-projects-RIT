@@ -130,6 +130,7 @@ parser.add_argument("--cip-sampler-method",type=str,default=None)
 parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--ile-jobs-per-worker",type=int,default=20)
 parser.add_argument("--ile-no-gpu",action='store_true')
+parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--hierarchical-merger-prior-1g",action='store_true',help="As in 1903.06742")
@@ -406,7 +407,7 @@ if opts.use_ini:
         fake_cache_fnames = [fake_cache_dict[x] for x in fake_cache_dict.keys()]
         cmd_cat = 'cat ' + ' '.join(fake_cache_fnames) + ' > local.cache'
         os.system(cmd_cat)
-    cmd += " --cache local.cache "
+        cmd += " --cache local.cache "
 print( cmd)
 os.system(cmd)
 #sys.exit(0)
@@ -443,6 +444,8 @@ line = ' '.join(instructions_ile)
 line += " --l-max " + str(opts.l_max) 
 if (opts.use_ini is None):
     line += " --d-max " + str(dmax_guess)
+if not(opts.ile_force_gpu):
+    line +=" --force-gpu-only "
 sur_location_prefix = "my_surrogates/nr_surrogates/"
 if opts.use_osg:
     sur_location_prefix = "/"
