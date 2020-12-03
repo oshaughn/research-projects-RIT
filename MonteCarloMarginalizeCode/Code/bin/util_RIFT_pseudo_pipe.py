@@ -113,6 +113,8 @@ parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED
 parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
 parser.add_argument("--l-max",default=2,type=int)
 parser.add_argument("--no-matter",action='store_true', help="Force analysis without matter. Really only matters for BNS")
+parser.add_argument("--assume-precessing",action='store_true', help="Force analysis *with* transverse spins")
+parser.add_argument("--assume-nonprecessing",action='store_true', help="Force analysis *without* transverse spins")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
@@ -128,6 +130,7 @@ parser.add_argument("--cip-sampler-method",type=str,default=None)
 parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--ile-jobs-per-worker",type=int,default=20)
 parser.add_argument("--ile-no-gpu",action='store_true')
+parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--hierarchical-merger-prior-1g",action='store_true',help="As in 1903.06742")
@@ -239,8 +242,13 @@ if opts.choose_data_LI_seglen:
 
 
 is_analysis_precessing =False
-if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or ('SpinTaylor' in opts.approx):
+if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or ('SpinTaylor' in opts.approx) or ('IMRPhenomTP' in opts.approx or ('IMRPhenomXP' in opts.approx)):
         is_analysis_precessing=True
+if opts.assume_precessing:
+        is_analysis_precessing = True
+if opts.assume_nonprecessing:
+        is_analysis_precessing = False
+
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
 if opts.online:
@@ -369,7 +377,7 @@ if opts.use_osg:
     cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful
 if opts.use_ini:
     cmd += " --use-ini " + opts.use_ini
-    cmd += " --sim-xml target_params.xml.gz --event 0 "
+    cmd += " --sim-xml {}/target_params.xml.gz --event 0 ".format(base_dir + "/"+ dirname_run)  # full path to target_params.xml.gz
     cmd += " --event-time " + str(event_dict["tref"])
     #
 else:
@@ -399,7 +407,7 @@ if opts.use_ini:
         fake_cache_fnames = [fake_cache_dict[x] for x in fake_cache_dict.keys()]
         cmd_cat = 'cat ' + ' '.join(fake_cache_fnames) + ' > local.cache'
         os.system(cmd_cat)
-    cmd += " --cache local.cache "
+        cmd += " --cache local.cache "
 print( cmd)
 os.system(cmd)
 #sys.exit(0)
@@ -436,6 +444,8 @@ line = ' '.join(instructions_ile)
 line += " --l-max " + str(opts.l_max) 
 if (opts.use_ini is None):
     line += " --d-max " + str(dmax_guess)
+if not(opts.ile_force_gpu):
+    line +=" --force-gpu-only "
 sur_location_prefix = "my_surrogates/nr_surrogates/"
 if opts.use_osg:
     sur_location_prefix = "/"
@@ -628,7 +638,7 @@ os.system(cmd)
 ## RUNMON
 try:
     from runmonitor import store_tools as sto
-    if opts.use_ini != None: # making an assumption that opts.use_ini corresponds to prod_O3b file structures, and that opts.use_ini == None corresponds to standard setup with opts.gracedb_id passed. Maybe not a robust assumption…
+    if opts.use_ini != None: # making an assumption that opts.use_ini corresponds to prod_O3b file structures, and that opts.use_ini == None corresponds to standard setup with opts.gracedb_id passed. Maybe not a robust assumptio
         level = 2
         event = os.getcwd.split("/")[-2].split("_")[0]
     else:
