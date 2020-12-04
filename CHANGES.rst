@@ -14,6 +14,7 @@ Since last release
     - pipeline --force-gpu-only; puffball nan checks; pseudo pipe cache if ini logic fix; FrameZeroNoiseSNR 2to3 (rc6)
     - waveforms (ChooseFDModes: PHM,XHM,PXHM, ...), bugfix in --force-gpu-only logic in pseudo_pipe (rc7)
     - waveforms (lalsimutils, fix patch) (rc8)
+    - waveforms (still fixing that damn ChooseFDModes patch) (rc9)
 
 0.0.15.3
 -----------
