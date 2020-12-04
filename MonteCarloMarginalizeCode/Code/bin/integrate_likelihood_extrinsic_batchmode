@@ -27,13 +27,13 @@ try:
   # Add failure mode test if memory insufficient!
   if n_mb_total - n_mb_used < 3000:
     print( "  - low cupy memory - ")
-  
+  cupy_success=True
 except:
   print( ' no cupy')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
-
+  cupy_success=False
 
 import lal
 from glue.ligolw import utils, lsctables, table, ligolw
@@ -134,6 +134,7 @@ optp.add_option("--psd-window-shape", type=float, default=0, help="Shape of Tuke
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
+optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
 optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
@@ -211,7 +212,9 @@ if opts.gpu and xpy_default is numpy:
     opts.gpu=False
     if opts.force_xpy:
         opts.gpu=True
-
+if opts.gpu and opts.force_gpu_only and not cupy_success:
+  print("GPU requested but no GPU/cupy found: Hard fail by request")
+  sys.exit(0)
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 
