@@ -164,10 +164,18 @@ except:
     lalNRHybSur3dq8 = -10
 
 try:
+   lalIMRPhenomHM = lalsim.IMRPhenomHM
+   lalIMRPhenomXHM = lalsim.IMRPhenomXHM
+   lalSEOBNRv4HM_ROM = lalsim.SEOBNRv4HM_ROM
    lalIMRPhenomXP = lalsim.IMRPhenomXP
    lalIMRPhenomXPHM = lalsim.IMRPhenomXPHM
+   
 except:
    lalIMRPhenomXP = -11
+   lalIMRPhenomHM = -14
+   lalIMRPhenomXHM = -15
+   lalSEOBNRv4HM_ROM = -16
+   lalIMRPhenomXPHM = -17
 
 try:
    lalIMRPhenomTP = lalsim.IMRPhenomTP
