@@ -207,14 +207,15 @@ optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
 
+if opts.gpu and opts.force_gpu_only and not cupy_success:
+  print("GPU requested but no GPU/cupy found: Hard fail by request")
+  sys.exit(0)
+
 if opts.gpu and xpy_default is numpy:
     print( " Override --gpu  (not available);  use --force-xpy to require the identical code path is used (with xpy =[np|cupy]")
     opts.gpu=False
     if opts.force_xpy:
         opts.gpu=True
-if opts.gpu and opts.force_gpu_only and not cupy_success:
-  print("GPU requested but no GPU/cupy found: Hard fail by request")
-  sys.exit(0)
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 
