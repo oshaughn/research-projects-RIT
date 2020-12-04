@@ -166,13 +166,22 @@ except:
 try:
    lalIMRPhenomHM = lalsim.IMRPhenomHM
    lalIMRPhenomXHM = lalsim.IMRPhenomXHM
+   lalSEOBNRv4HM_ROM = lalsim.SEOBNRv4HM_ROM
    lalIMRPhenomXP = lalsim.IMRPhenomXP
    lalIMRPhenomXPHM = lalsim.IMRPhenomXPHM
+   
 except:
    lalIMRPhenomXP = -11
-   lalIMRPhenomHM=-14
-   lalIMRPhenomXHM=-15
-   lalIMRPhenomXPHM=-16
+   lalIMRPhenomHM = -14
+   lalIMRPhenomXHM = -15
+   lalSEOBNRv4HM_ROM = -16
+   lalIMRPhenomXPHM = -17
+
+try:
+   my_junk = lalsim.SimInspiralChooseFDModes
+   is_ChooseFDModes_present =True
+except:
+   is_ChooseFDModes_present =False
 
 try:
    lalIMRPhenomTP = lalsim.IMRPhenomTP
@@ -2625,7 +2634,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     sign_factor = 1
     if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
-    if (P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomXPHM or P.approx == lalSEOBNRv4HM_ROM or P.approx == lalsim.IMRPhenomXHM):
+    if (P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomXPHM or P.approx == lalSEOBNRv4HM_ROM ) and is_ChooseFDModes_present:
        if P.fref==0 and (P.approx == lalIMRPhenomXPHM):
           P.fref=P.fmin
        extra_params = P.to_lal_dict()
