@@ -209,7 +209,7 @@ opts, args = optp.parse_args()
 
 if opts.gpu and opts.force_gpu_only and not cupy_success:
   print("GPU requested but no GPU/cupy found: Hard fail by request")
-  sys.exit(1)
+  sys.exit(35)  # unique code to make resuming due to this error easier to identify
 
 if opts.gpu and xpy_default is numpy:
     print( " Override --gpu  (not available);  use --force-xpy to require the identical code path is used (with xpy =[np|cupy]")
