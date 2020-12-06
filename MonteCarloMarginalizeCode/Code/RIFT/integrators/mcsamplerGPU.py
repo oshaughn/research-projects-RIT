@@ -598,6 +598,7 @@ class MCSampler(object):
         else:
             bConvergenceTests = False    # if tests are not available, assume not converged. The other criteria will stop it
             last_convergence_test = defaultdict(lambda: False)   # need record of tests to be returned always
+        n_zero_prior =0
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
             joint_p_s, joint_p_prior, rv = self.draw_simplified(
@@ -611,7 +612,13 @@ class MCSampler(object):
             if any(joint_p_s <= 0):
                 for p in self.params_ordered:
                     self._rvs[p] = identity_convert_togpu(numpy.resize(identity_convert(self._rvs[p]), len(self._rvs[p])-n))
+                    self.cdf_inv = self.cdf_inv_initial
+                    self.pdf = self.pdf_initial
                 print("Zero prior value detected, skipping.", file=sys.stderr)
+                print("Resetting sampling priors to initial values.", file=sys.stderr)
+                n_zero_prior +=1
+                if n_zero_prior > 5:
+                  raise Exception('Zero prior failure', 'fail')
                 continue
 
             #
