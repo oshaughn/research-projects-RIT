@@ -24,7 +24,7 @@ try:
   identity_convert_togpu = cupy.asarray
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
   cupy_ok = True
-  cupy_pi = cupy.asarray(np.pi)
+  cupy_pi = cupy.array(np.pi)
 
   from RIFT.interpolators.interp_gp import interp
 
@@ -35,7 +35,7 @@ except:
   identity_convert = lambda x: x  # trivial return itself
   identity_convert_togpu = lambda x: x
   cupy_ok = False
-  cupy_pi = cupy.asarray(np.pi)
+  cupy_pi = np.pi
 
 def set_xpy_to_numpy():
    xpy_default=numpy
