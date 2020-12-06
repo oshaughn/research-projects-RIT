@@ -807,22 +807,22 @@ def uniform_samp_cdf_inv_vector(a,b,p):
     return out
 #uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
 #uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
+# def uniform_samp_vector(a,b,x):
+#    """
+#    uniform_samp_vector:
+#       Implement uniform sampling with np primitives, not np.vectorize !
+#    Note NO cupy implementation yet
+#    """
+#    return numpy.heaviside(x-a,0)*numpy.heaviside(b-x,0)/(b-a)
 def uniform_samp_vector(a,b,x):
-   """
-   uniform_samp_vector:
-      Implement uniform sampling with np primitives, not np.vectorize !
-   Note NO cupy implementation yet
-   """
-   return numpy.heaviside(x-a,0)*numpy.heaviside(b-x,0)/(b-a)
-def uniform_samp_vector_lazy(a,b,x):
    """
    uniform_samp_vector_lazy:
       Implement uniform sampling as multiplication by a constant.
       Much faster and lighter weight. We never use the cutoffs anyways, because the limits are hardcoded elsewhere.
    """
    return 1./(b-a)  # requires the variable in range.  Needed because there is no cupy implementation of np.heavyside
-if cupy_ok:
-   uniform_samp_vector = uniform_samp_vector_lazy  
+# if cupy_ok:
+#    uniform_samp_vector = uniform_samp_vector_lazy  
 
 def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=xpy_default):
     if isinstance(x, float):
