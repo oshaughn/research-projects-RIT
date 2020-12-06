@@ -15,6 +15,8 @@ Since last release
     - waveforms (ChooseFDModes: PHM,XHM,PXHM, ...), bugfix in --force-gpu-only logic in pseudo_pipe (rc7)
     - waveforms (lalsimutils, fix patch) (rc8)
     - waveforms (still fixing that damn ChooseFDModes patch) (rc9)
+    - updating mcsamplerGPU for testing; minor edits to util_CleanILE (skip files of zero length) and ILE
+      (--force-gpu-only logic; change some sys.exit(0) to sys.exit(1))
 
 0.0.15.3
 -----------
