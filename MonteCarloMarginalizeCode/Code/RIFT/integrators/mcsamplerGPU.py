@@ -26,7 +26,7 @@ try:
   cupy_ok = True
   cupy_pi = cupy.array(np.pi)
 
-  from RIFT.interpolators.interp_gp import interp
+  from RIFT.interpolators.interp_gpu import interp
 
 except:
   print(' no cupy (mcsamplerGPU)')
@@ -815,7 +815,7 @@ def uniform_samp_cdf_inv_vector(a,b,p):
 #    Note NO cupy implementation yet
 #    """
 #    return numpy.heaviside(x-a,0)*numpy.heaviside(b-x,0)/(b-a)
-def uniform_samp_vector(a,b,x):
+def uniform_samp_vector(a,b,x,xpy=xpy_default):
    """
    uniform_samp_vector_lazy:
       Implement uniform sampling as multiplication by a constant.
