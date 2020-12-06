@@ -24,6 +24,9 @@ try:
   identity_convert_togpu = cupy.asarray
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
   cupy_ok = True
+
+  from RIFT.interpolators.interp_gp import interp
+
 except:
   print(' no cupy (mcsamplerGPU)')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
@@ -266,21 +269,26 @@ class MCSampler(object):
         self.histogram_values[param] = histogram_values
 
 
-    def cdf_inverse_from_hist(self, P, param):
+    def cdf_inverse_from_hist(self, P, param,old_style=False):
         # Compute the value of the inverse CDF, but scaled to [0, 1].
        """
         cdf_inverse_from_hist
            - for now, do on the CPU, since this is done rarely and involves fairly small arrays
            - this is very wasteful, since we are casting back to the CPU for ALL our sampling points
        """
-       dat_cdf = identity_convert(self.histogram_cdf[param])
-       dat_edges = identity_convert(self.histogram_edges[param])
-       y = np.interp(
-            identity_convert(P), dat_cdf,
-            dat_edges,
-        )
-       # Return the value in the original scaling.
-       return identity_convert_togpu(y)*self.x_max_minus_min[param] + self.x_min[param]
+       if old_style or not(cupy_ok):
+         dat_cdf = identity_convert(self.histogram_cdf[param])
+         dat_edges = identity_convert(self.histogram_edges[param])
+         y = np.interp(
+           identity_convert(P), dat_cdf,
+           dat_edges,
+           )
+         # Return the value in the original scaling.
+         return identity_convert_togpu(y)*self.x_max_minus_min[param] + self.x_min[param]
+       dat_cdf = self.histogram_cdf[param]
+       dat_edges =self.histogram_edges[param]
+       y = interp(P,dat_cdf,dat_edges)
+       return y*self.x_max_minus_min[param] + self.x_min[param]
 
     def pdf_from_hist(self, x, param):
         # Rescale `x` to [0, 1].
