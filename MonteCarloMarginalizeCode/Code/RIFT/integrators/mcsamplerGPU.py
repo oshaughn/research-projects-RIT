@@ -24,6 +24,7 @@ try:
   identity_convert_togpu = cupy.asarray
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
   cupy_ok = True
+  cupy_pi = cupy.asarray(np.pi)
 
   from RIFT.interpolators.interp_gp import interp
 
@@ -34,7 +35,7 @@ except:
   identity_convert = lambda x: x  # trivial return itself
   identity_convert_togpu = lambda x: x
   cupy_ok = False
-
+  cupy_pi = cupy.asarray(np.pi)
 
 def set_xpy_to_numpy():
    xpy_default=numpy
@@ -844,12 +845,12 @@ def uniform_samp_phase(x,xpy=xpy_default):
    """
    Assume range known as 0,2pi
    """
-   return xpy.ones(len(x))/(2*np.pi) 
+   return xpy.ones(len(x))/(2*cupy_pi) 
 def uniform_samp_psi(x,xpy=xpy_default):
    """
    Assume range known as 0,pi
    """
-   return xpy.ones(len(x))/(np.pi) 
+   return xpy.ones(len(x))/(cupy_pi) 
 def uniform_samp_theta(x,xpy=xpy_default):
    """
    Assume range known as 
@@ -866,7 +867,7 @@ def cos_samp(x,xpy=xpy_default):
         return xpy.sin(x)/2   # x from 0, pi
 
 def dec_samp(x,xpy=xpy_default):
-        return xpy.sin(x+numpy.pi/2)/2   # x from 0, pi
+        return xpy.sin(x+cupy_pi/2)/2   # x from 0, pi
 
 cos_samp_vector = cos_samp
 dec_samp_vector = dec_samp
