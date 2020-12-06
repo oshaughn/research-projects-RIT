@@ -609,7 +609,7 @@ class MCSampler(object):
             # FIXME: If we get too many of these, we should bail
             if any(joint_p_s <= 0):
                 for p in self.params_ordered:
-                    self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
+                    self._rvs[p] = identity_convert_togpu(numpy.resize(identity_convert(self._rvs[p]), len(self._rvs[p])-n))
                 print("Zero prior value detected, skipping.", file=sys.stderr)
                 continue
 
