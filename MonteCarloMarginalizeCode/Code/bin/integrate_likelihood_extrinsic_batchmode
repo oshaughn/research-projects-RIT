@@ -19,6 +19,8 @@ try:
   identity_convert = cupy.asnumpy
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
 
+  print(cupy.show_config())  # print provenance/debugging information
+
   # Check memory allocation
   mem_info = cupy.cuda.Device().mem_info  # memory available in bytes
   n_mb_total = mem_info[1]/1024./1024.
