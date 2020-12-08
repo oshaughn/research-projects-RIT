@@ -1,4 +1,4 @@
-#! /bin/bash
+#! /usr/bin/env python
 # Very very quick tool to yank out posterior quantiles from an ascii file
 #  Example
 
