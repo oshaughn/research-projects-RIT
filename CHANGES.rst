@@ -19,6 +19,8 @@ Since last release
       (--force-gpu-only logic; change some sys.exit(0) to sys.exit(1))  (rc10)
     - tool to save sklearn GPs (not yet used); ILE cupy.show_config; pseudo_pipe not error with --force-gpu-only (rc11)
 
+release is rc11
+
 0.0.15.3
 -----------
 Since last release
