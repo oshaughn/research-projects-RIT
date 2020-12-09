@@ -19,6 +19,8 @@ try:
   identity_convert = cupy.asnumpy
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
 
+  print(cupy.show_config())  # print provenance/debugging information
+
   # Check memory allocation
   mem_info = cupy.cuda.Device().mem_info  # memory available in bytes
   n_mb_total = mem_info[1]/1024./1024.
@@ -209,7 +211,7 @@ opts, args = optp.parse_args()
 
 if opts.gpu and opts.force_gpu_only and not cupy_success:
   print("GPU requested but no GPU/cupy found: Hard fail by request")
-  sys.exit(0)
+  sys.exit(35)  # unique code to make resuming due to this error easier to identify
 
 if opts.gpu and xpy_default is numpy:
     print( " Override --gpu  (not available);  use --force-xpy to require the identical code path is used (with xpy =[np|cupy]")
@@ -240,7 +242,7 @@ if intrinsic_param_names:
     # Check if in the valid list
     if not(param in valid_intrinsic_param_names):
             print( ' Invalid param ', param, ' not in ', valid_intrinsic_param_names)
-            sys.exit(0)
+            sys.exit(1)
     param_ranges = []
     if len(intrinsic_param_names) == len(opts.parameter_range):
         param_ranges = numpy.array(map(eval, opts.parameter_range))
@@ -310,7 +312,7 @@ if opts.event_time is not None:
     print( "Event time from command line: %s" % str(event_time))
 else:
     print( " Error! ")
-    sys.exit(0)
+    sys.exit(1)
 
 #
 # Template descriptors
@@ -422,8 +424,8 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
             psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(psd_dict[inst].data.length)
             psd_dict[inst].data.data[ psd_fvals < flow_ifo_dict[inst]] = 0 # 
         else:
-            print( 'FAIL')
-            sys.exit(0)
+            print( 'FAIL on PSD import')
+            sys.exit(1)
 #        elif isinstance(psd_dict[inst], pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):  # for backward compatibility
 #            psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(len(psd_dict[inst].data))
 #            psd_dict[inst].data[psd_fvals < ifo_dict[inst]] =0

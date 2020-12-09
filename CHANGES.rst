@@ -15,6 +15,9 @@ Since last release
     - waveforms (ChooseFDModes: PHM,XHM,PXHM, ...), bugfix in --force-gpu-only logic in pseudo_pipe (rc7)
     - waveforms (lalsimutils, fix patch) (rc8)
     - waveforms (still fixing that damn ChooseFDModes patch) (rc9)
+    - updating mcsamplerGPU for testing; minor edits to util_CleanILE (skip files of zero length) and ILE
+      (--force-gpu-only logic; change some sys.exit(0) to sys.exit(1))  (rc10)
+    - tool to save sklearn GPs (not yet used); ILE cupy.show_config; pseudo_pipe not error with --force-gpu-only (rc11)
 
 0.0.15.3
 -----------

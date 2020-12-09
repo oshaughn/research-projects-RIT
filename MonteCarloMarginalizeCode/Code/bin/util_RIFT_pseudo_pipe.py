@@ -450,7 +450,7 @@ line = ' '.join(instructions_ile)
 line += " --l-max " + str(opts.l_max) 
 if (opts.use_ini is None):
     line += " --d-max " + str(dmax_guess)
-if not(opts.ile_force_gpu):
+if opts.ile_force_gpu:
     line +=" --force-gpu-only "
 sur_location_prefix = "my_surrogates/nr_surrogates/"
 if opts.use_osg:

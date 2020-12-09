@@ -24,6 +24,10 @@ try:
   identity_convert_togpu = cupy.asarray
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
   cupy_ok = True
+  cupy_pi = cupy.array(np.pi)
+
+  from RIFT.interpolators.interp_gpu import interp
+
 except:
   print(' no cupy (mcsamplerGPU)')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
@@ -31,7 +35,7 @@ except:
   identity_convert = lambda x: x  # trivial return itself
   identity_convert_togpu = lambda x: x
   cupy_ok = False
-
+  cupy_pi = np.pi
 
 def set_xpy_to_numpy():
    xpy_default=numpy
@@ -266,21 +270,26 @@ class MCSampler(object):
         self.histogram_values[param] = histogram_values
 
 
-    def cdf_inverse_from_hist(self, P, param):
+    def cdf_inverse_from_hist(self, P, param,old_style=False):
         # Compute the value of the inverse CDF, but scaled to [0, 1].
        """
         cdf_inverse_from_hist
            - for now, do on the CPU, since this is done rarely and involves fairly small arrays
            - this is very wasteful, since we are casting back to the CPU for ALL our sampling points
        """
-       dat_cdf = identity_convert(self.histogram_cdf[param])
-       dat_edges = identity_convert(self.histogram_edges[param])
-       y = np.interp(
-            identity_convert(P), dat_cdf,
-            dat_edges,
-        )
-       # Return the value in the original scaling.
-       return identity_convert_togpu(y)*self.x_max_minus_min[param] + self.x_min[param]
+       if old_style or not(cupy_ok):
+         dat_cdf = identity_convert(self.histogram_cdf[param])
+         dat_edges = identity_convert(self.histogram_edges[param])
+         y = np.interp(
+           identity_convert(P), dat_cdf,
+           dat_edges,
+           )
+         # Return the value in the original scaling.
+         return identity_convert_togpu(y)*self.x_max_minus_min[param] + self.x_min[param]
+       dat_cdf = self.histogram_cdf[param]
+       dat_edges =self.histogram_edges[param]
+       y = interp(P,dat_cdf,dat_edges)
+       return y*self.x_max_minus_min[param] + self.x_min[param]
 
     def pdf_from_hist(self, x, param):
         # Rescale `x` to [0, 1].
@@ -589,6 +598,7 @@ class MCSampler(object):
         else:
             bConvergenceTests = False    # if tests are not available, assume not converged. The other criteria will stop it
             last_convergence_test = defaultdict(lambda: False)   # need record of tests to be returned always
+        n_zero_prior =0
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
             # Draw our sample points
             joint_p_s, joint_p_prior, rv = self.draw_simplified(
@@ -601,8 +611,14 @@ class MCSampler(object):
             # FIXME: If we get too many of these, we should bail
             if any(joint_p_s <= 0):
                 for p in self.params_ordered:
-                    self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
+                    self._rvs[p] = identity_convert_togpu(numpy.resize(identity_convert(self._rvs[p]), len(self._rvs[p])-n))
+                    self.cdf_inv = self.cdf_inv_initial
+                    self.pdf = self.pdf_initial
                 print("Zero prior value detected, skipping.", file=sys.stderr)
+                print("Resetting sampling priors to initial values.", file=sys.stderr)
+                n_zero_prior +=1
+                if n_zero_prior > 5:
+                  raise Exception('Zero prior failure', 'fail')
                 continue
 
             #
@@ -799,22 +815,22 @@ def uniform_samp_cdf_inv_vector(a,b,p):
     return out
 #uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
 #uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
-def uniform_samp_vector(a,b,x):
-   """
-   uniform_samp_vector:
-      Implement uniform sampling with np primitives, not np.vectorize !
-   Note NO cupy implementation yet
-   """
-   return numpy.heaviside(x-a,0)*numpy.heaviside(b-x,0)/(b-a)
-def uniform_samp_vector_lazy(a,b,x):
+# def uniform_samp_vector(a,b,x):
+#    """
+#    uniform_samp_vector:
+#       Implement uniform sampling with np primitives, not np.vectorize !
+#    Note NO cupy implementation yet
+#    """
+#    return numpy.heaviside(x-a,0)*numpy.heaviside(b-x,0)/(b-a)
+def uniform_samp_vector(a,b,x,xpy=xpy_default):
    """
    uniform_samp_vector_lazy:
       Implement uniform sampling as multiplication by a constant.
       Much faster and lighter weight. We never use the cutoffs anyways, because the limits are hardcoded elsewhere.
    """
    return 1./(b-a)  # requires the variable in range.  Needed because there is no cupy implementation of np.heavyside
-if cupy_ok:
-   uniform_samp_vector = uniform_samp_vector_lazy  
+# if cupy_ok:
+#    uniform_samp_vector = uniform_samp_vector_lazy  
 
 def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=xpy_default):
     if isinstance(x, float):
@@ -836,12 +852,12 @@ def uniform_samp_phase(x,xpy=xpy_default):
    """
    Assume range known as 0,2pi
    """
-   return xpy.ones(len(x))/(2*np.pi) 
+   return xpy.ones(len(x))/(2*cupy_pi) 
 def uniform_samp_psi(x,xpy=xpy_default):
    """
    Assume range known as 0,pi
    """
-   return xpy.ones(len(x))/(np.pi) 
+   return xpy.ones(len(x))/(cupy_pi) 
 def uniform_samp_theta(x,xpy=xpy_default):
    """
    Assume range known as 
@@ -858,7 +874,7 @@ def cos_samp(x,xpy=xpy_default):
         return xpy.sin(x)/2   # x from 0, pi
 
 def dec_samp(x,xpy=xpy_default):
-        return xpy.sin(x+numpy.pi/2)/2   # x from 0, pi
+        return xpy.sin(x+cupy_pi/2)/2   # x from 0, pi
 
 cos_samp_vector = cos_samp
 dec_samp_vector = dec_samp
