@@ -6,6 +6,8 @@ Since last release
     - fix temporary path issue with ini using abs paths, fix typecast to int (rc2)
     - fmax ini file parsing (rc3)
 
+release is rc3
+
 0.0.15.4
 -----------
 Since last release
