@@ -1,4 +1,9 @@
 
+0.0.15.5
+-----------
+Since last release
+    - pseudo_pipe ini parsing (halting bug if fake-cache used)  (rc1)
+
 0.0.15.4
 -----------
 Since last release
