@@ -213,8 +213,8 @@ else:
             sys.exit(1)
 print(" Event ", gwid)
 base_dir = os.getcwd()
-if opts.use_ini:
-    base_dir =''  # all directories are provided as full path names
+#if opts.use_ini:
+#    base_dir =''  # all directories are provided as full path names
 
 
 if opts.choose_data_LI_seglen:
