@@ -4,6 +4,7 @@
 Since last release
     - pseudo_pipe ini parsing (halting bug if fake-cache used)  (rc1)
     - fix temporary path issue with ini using abs paths, fix typecast to int (rc2)
+    - fmax ini file parsing (rc3)
 
 0.0.15.4
 -----------
