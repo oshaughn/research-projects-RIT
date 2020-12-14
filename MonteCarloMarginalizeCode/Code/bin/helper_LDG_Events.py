@@ -26,7 +26,8 @@ from glue.lal import CacheEntry
 import configparser as ConfigParser
 
 
-def is_int_power_of_2(a):
+def is_int_power_of_2(a_in):
+    a =int(a_in)
     if (a & (a-1)):
         return False
     else:
