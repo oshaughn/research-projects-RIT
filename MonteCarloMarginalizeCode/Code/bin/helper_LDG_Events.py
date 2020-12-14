@@ -596,12 +596,12 @@ if not(opts.use_ini is None):
     # overwrite arguments used with srate/2, OR fmax if provided
     opts.fmax = unsafe_config_get(config,['engine','srate'])/2 -1  # LI default is not to set srate as an independent variable. Occasional danger with maximum frequency limit in PSD
     # overwrite arguments used with fmax, if provided. ASSUME same for all!
-    if confg.has_option('lalinference', 'fhigh'):
+    if config.has_option('lalinference', 'fhigh'):
         fhigh_dict = unsafe_config_get(config,['lalinference','fhigh'])
         for name in fhigh_dict:
             opts.fmax = float(fhigh_dict[name])
 
-    srate = np.max([unsafe_config_get(config,['engine','srate']),srate])  # raise the srate, but never lower it below the fiducial value
+    srate = int(np.max([unsafe_config_get(config,['engine','srate']),srate]))  # raise the srate, but never lower it below the fiducial value
     if not(is_int_power_of_2(srate)):
         print("srate must be power of 2!")
         sys.exit(0)
