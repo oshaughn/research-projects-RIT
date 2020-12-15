@@ -213,8 +213,8 @@ else:
             sys.exit(1)
 print(" Event ", gwid)
 base_dir = os.getcwd()
-if opts.use_ini:
-    base_dir =''  # all directories are provided as full path names
+#if opts.use_ini:
+#    base_dir =''  # all directories are provided as full path names
 
 
 if opts.choose_data_LI_seglen:
@@ -409,7 +409,7 @@ if opts.use_ini:
     config.read(opts.use_ini)
     if config.has_option("lalinference", "fake-cache"):
         # dictionary, entries are individual lcf files; we just need to concatenate their contents
-        fake_cache_dict = unsafe_config_get("lalinference","fake-cache")
+        fake_cache_dict = unsafe_config_get(config,["lalinference","fake-cache"])
         fake_cache_fnames = [fake_cache_dict[x] for x in fake_cache_dict.keys()]
         cmd_cat = 'cat ' + ' '.join(fake_cache_fnames) + ' > local.cache'
         os.system(cmd_cat)

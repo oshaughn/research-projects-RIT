@@ -26,7 +26,8 @@ from glue.lal import CacheEntry
 import configparser as ConfigParser
 
 
-def is_int_power_of_2(a):
+def is_int_power_of_2(a_in):
+    a =int(a_in)
     if (a & (a-1)):
         return False
     else:
@@ -592,9 +593,15 @@ if not(opts.use_ini is None):
     opts.choose_LI_data_seglen=False
     opts.data_LI_seglen = unsafe_config_get(config,['engine','seglen'])
 
-    # overwrite arguments used with fmax
+    # overwrite arguments used with srate/2, OR fmax if provided
     opts.fmax = unsafe_config_get(config,['engine','srate'])/2 -1  # LI default is not to set srate as an independent variable. Occasional danger with maximum frequency limit in PSD
-    srate = np.max([unsafe_config_get(config,['engine','srate']),srate])  # raise the srate, but never lower it below the fiducial value
+    # overwrite arguments used with fmax, if provided. ASSUME same for all!
+    if config.has_option('lalinference', 'fhigh'):
+        fhigh_dict = unsafe_config_get(config,['lalinference','fhigh'])
+        for name in fhigh_dict:
+            opts.fmax = float(fhigh_dict[name])
+
+    srate = int(np.max([unsafe_config_get(config,['engine','srate']),srate]))  # raise the srate, but never lower it below the fiducial value
     if not(is_int_power_of_2(srate)):
         print("srate must be power of 2!")
         sys.exit(0)
