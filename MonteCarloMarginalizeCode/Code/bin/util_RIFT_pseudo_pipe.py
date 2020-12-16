@@ -161,7 +161,7 @@ parser.add_argument("--archive-pesummary-event-label",default="this_event",help=
 opts=  parser.parse_args()
 
 download_request = " get file "
-gracedb_exe =opts.gracedb
+gracedb_exe =opts.gracedb_exe
 if opts.use_legacy_gracedb:
     gracedb_exe = "gracedb_legacy"
     download_request = " download "
