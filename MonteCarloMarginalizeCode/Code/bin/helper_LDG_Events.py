@@ -407,6 +407,8 @@ if use_gracedb_event:
   try:
     # Read in event parameters. Use masses as quick estimate
     cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
+    if not(opts.use_legacy_gracedb):
+        cmd_event += " > coinc.xml "
     os.system(cmd_event)
     samples = table.get_table(utils.load_filename("coinc.xml",contenthandler=lalsimutils.cthdler), lsctables.SnglInspiralTable.tableName)
     event_duration=4  # default
