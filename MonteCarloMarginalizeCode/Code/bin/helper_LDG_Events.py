@@ -385,6 +385,8 @@ if not ("IFOs" in event_dict.keys()):
 
 if use_gracedb_event:
   cmd_event = gracedb_exe + download_request + opts.gracedb_id + " event.log"
+  if not(opts.use_legacy_gracedb):
+        cmd_event += " > event.log "
   os.system(cmd_event)
   # Parse gracedb. Note very annoying heterogeneity in event.log files
   with open("event.log",'r') as f:
