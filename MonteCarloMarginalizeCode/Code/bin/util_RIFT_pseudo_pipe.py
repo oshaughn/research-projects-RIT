@@ -227,6 +227,8 @@ base_dir = os.getcwd()
 
 if opts.choose_data_LI_seglen:
     cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
+    if not(opts.use_gracedb_legacy):
+        cmd_event += " > coinc.xml "
     os.system(cmd_event)
     event_dict = retrieve_event_from_coinc("coinc.xml")
     P=lalsimutils.ChooseWaveformParams()
