@@ -106,6 +106,8 @@ parser.add_argument("--online",action='store_true')
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
 parser.add_argument("--gracedb-id",default=None,type=str)
+parser.add_argument("--gracedb-exe",default="gracedb")
+parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",default=None,type=float,help="Event time. Intended to override use of GracedbID. MUST provide --manual-initial-grid ")
 parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
@@ -158,6 +160,12 @@ parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Pr
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
+
+download_request = " get file "
+gracedb_exe =opts.gracedb_exe
+if opts.use_legacy_gracedb:
+    gracedb_exe = "gracedb_legacy"
+    download_request = " download "
 
 
 if opts.assume_highq:
@@ -218,7 +226,9 @@ base_dir = os.getcwd()
 
 
 if opts.choose_data_LI_seglen:
-    cmd_event = "gracedb_legacy download " + opts.gracedb_id + " coinc.xml"
+    cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
+    if not(opts.use_legacy_gracedb):
+        cmd_event += " > coinc.xml "
     os.system(cmd_event)
     event_dict = retrieve_event_from_coinc("coinc.xml")
     P=lalsimutils.ChooseWaveformParams()
@@ -351,7 +361,9 @@ if not(opts.force_mc_range is None):
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range {} ".format(opts.force_eta_range)
 if not(opts.gracedb_id is None) and (opts.use_ini is None):
-    cmd +=" --use-legacy-gracedb --gracedb-id " + gwid 
+    cmd +="  --gracedb-id " + gwid 
+    if  opts.use_legacy_gracedb:
+        cmd+= " --use-legacy-gracedb "
 elif  not(opts.event_time is None):
     cmd += " --event-time " + format_gps_time(opts.event_time)
 if opts.online:
