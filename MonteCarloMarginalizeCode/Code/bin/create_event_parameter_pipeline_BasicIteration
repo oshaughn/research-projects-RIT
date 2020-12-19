@@ -233,7 +233,8 @@ if opts.condor_nogrid_nonworker:
     no_worker_grid=True
 
 
-working_dir_inside = opts.working_directory
+working_dir_inside_local = working_dir_inside = opts.working_directory
+# working_dir_inside_local is for jobs on local nodes
 if opts.use_singularity or opts.use_osg:
     working_dir_inside = "./" # all files on the remote machine are in the current directory
 
@@ -794,7 +795,7 @@ if opts.use_bw_psd:
         channel_name, channel_flow = channel_dict_bw[ifo]
         bw_arg_str += " --ifo "+ifo
         bw_arg_str += " --"+ifo+"-channel "+ifo+":"+channel_name
-        ifo_cache_name =  working_dir_inside +"/for_bw_"+ifo+".cache"  # bw requires single-IFO cache files, argh!!!
+        ifo_cache_name =  working_dir_inside_local +"/for_bw_"+ifo+".cache"  # bw requires single-IFO cache files, argh!!! Note these are NOT on OSG
         ifo_char = ifo[0]
         os.system("grep ^"+ifo_char +  " " +opts_ile.cache_file+ " > " + ifo_cache_name)
         bw_arg_str += " --"+ifo+"-cache "+ifo_cache_name
