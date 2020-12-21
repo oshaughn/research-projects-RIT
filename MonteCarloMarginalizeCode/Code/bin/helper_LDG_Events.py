@@ -554,7 +554,7 @@ if opts.use_ini is None:
                 channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo,"BeforeMay1")]
         if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
             if ifo == 'V1':
-                channel_names[ifo] = standard_channel_names[opts.observing_run](opts.calibration_version, ifo, "September")
+                channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version, ifo, "September")]
 
 # Parse LI ini
 use_ini=False
