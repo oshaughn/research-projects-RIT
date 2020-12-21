@@ -156,6 +156,7 @@ parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restructuring for ILE on OSG. The code will NOT use CVMFS, and instead will try to transfer the frame files.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
+parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
@@ -221,6 +222,8 @@ else:
             sys.exit(1)
 print(" Event ", gwid)
 base_dir = os.getcwd()
+if opts.use_rundir:
+    base_dir =''
 #if opts.use_ini:
 #    base_dir =''  # all directories are provided as full path names
 
@@ -645,6 +648,8 @@ if opts.use_osg:
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
 if opts.condor_local_nonworker:
     cmd += " --condor-local-nonworker "
+if opts.condor_nogrid_nonworker:
+    cmd += " --condor-nogrid-nonworker "
 if opts.use_osg_simple_requirements:
     cmd += " --use-osg-simple-reqirements "
 if opts.archive_pesummary_label:
