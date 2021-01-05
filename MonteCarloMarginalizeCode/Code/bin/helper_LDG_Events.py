@@ -554,7 +554,7 @@ if opts.use_ini is None:
                 channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo,"BeforeMay1")]
         if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
             if ifo == 'V1':
-                channel_names[ifo] = standard_channel_names[opts.observing_run](opts.calibration_version, ifo, "September")
+                channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version, ifo, "September")]
 
 # Parse LI ini
 use_ini=False
@@ -1063,9 +1063,11 @@ if opts.propose_fit_strategy:
 
             n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
             puff_max_it= n_its[0] + n_its[1] # puff for first 2 types, to insure good coverage in narrow-q cases
-            if event_dict["m2"]/event_dict["m1"] < 0.4: # High q, do even through the full aligned spin model case
-                puff_max_it += n_its[2]
-
+            try:
+                if event_dict["m2"]/event_dict["m1"] < 0.4: # High q, do even through the full aligned spin model case
+                    puff_max_it += n_its[2]
+            except:
+                print("No mass information, can't add extra stages")
 
     if opts.assume_matter:
         helper_puff_args += " --parameter LambdaTilde  --downselect-parameter s1z --downselect-parameter-range [-0.9,0.9] --downselect-parameter s2z --downselect-parameter-range [-0.9,0.9]  "  # Probably should also aggressively force sampling of low-lambda region

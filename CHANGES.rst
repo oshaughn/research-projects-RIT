@@ -1,4 +1,11 @@
 
+0.0.15.6
+-----------
+Since last release
+   - pseudo and helper (--use-legacy-gracedb at top level); lalsimutils overlaps using psi4 input; pseudo (gwsurrogate
+     logic/reference location fixes)  (rc1)
+   - pseudo_pipe (path fixes for osg; add --condor-nogrid-nonworker)   (rc2)
+
 0.0.15.5
 -----------
 Since last release

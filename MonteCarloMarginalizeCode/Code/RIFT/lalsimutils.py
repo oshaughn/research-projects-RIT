@@ -1582,7 +1582,7 @@ class InnerProduct(object):
     """
     def __init__(self, fLow=10., fMax=None, fNyq=2048., deltaF=1./8.,
             psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower, analyticPSD_Q=True,
-            inv_spec_trunc_Q=False, T_spec=0.):
+            inv_spec_trunc_Q=False, T_spec=0., waveform_is_psi4=False):
         self.fLow = fLow # min limit of integration
         self.fMax = fMax # max limit of integration
         self.fNyq = fNyq # max freq. in arrays whose IP will be computed
@@ -1600,7 +1600,10 @@ class InnerProduct(object):
         # Fill 1-sided (Herm.) weights from psd
         if analyticPSD_Q is True:
             for i in range(self.minIdx,self.maxIdx): # set weights = 1/Sn(f)
-                self.weights[i] = 1./psd(i*deltaF)
+                extra_weight=1.0
+                if waveform_is_psi4:
+                    extra_weight=1.0/(2*np.pi*i*deltaF)/(2*np.pi*i*deltaF)
+                self.weights[i] = 1./psd(i*deltaF)*extra_weight
         elif analyticPSD_Q is False:
             if isinstance(psd, lal.REAL8FrequencySeries):
                 assert psd.f0 == 0. # don't want heterodyned psd
@@ -1609,13 +1612,19 @@ class InnerProduct(object):
                 assert self.fMax <= fPSD
                 for i in range(self.minIdx,self.maxIdx):
                     if psd.data.data[i] != 0.:
-                        self.weights[i] = 1./psd.data.data[i]
+                        extra_weight=1.0
+                        if waveform_is_psi4:
+                            extra_weight=1.0/(2*np.pi*i*deltaF)/(2*np.pi*i*deltaF)
+                        self.weights[i] = 1./psd.data.data[i]*extra_weight
             else: # if we get here psd must be an array
                 fPSD = (len(psd) - 1) * self.deltaF # -1 b/c start at f=0
                 assert self.fMax <= fPSD
                 for i in range(self.minIdx,self.maxIdx):
                     if psd[i] != 0.:
-                        self.weights[i] = 1./psd[i]
+                        extra_weight=1.0
+                        if waveform_is_psi4:
+                            extra_weight=1.0/(2*np.pi*i*deltaF)/(2*np.pi*i*deltaF)
+                        self.weights[i] = 1./psd[i]*extra_weight
         else:
             raise ValueError("analyticPSD_Q must be either True or False")
 
@@ -1900,9 +1909,9 @@ class ComplexOverlap(InnerProduct):
     """
     def __init__(self, fLow=10., fMax=None, fNyq=2048., deltaF=1./8.,
             psd=lalsim.SimNoisePSDaLIGOZeroDetHighPower, analyticPSD_Q=True,
-            inv_spec_trunc_Q=False, T_spec=0., full_output=False,interpolate_max=False):
+            inv_spec_trunc_Q=False, T_spec=0., full_output=False,interpolate_max=False, waveform_is_psi4=False):
         super(ComplexOverlap, self).__init__(fLow, fMax, fNyq, deltaF, psd,
-                analyticPSD_Q, inv_spec_trunc_Q, T_spec) # Call base constructor
+                analyticPSD_Q, inv_spec_trunc_Q, T_spec, waveform_is_psi4) # Call base constructor
         self.full_output=full_output
         self.interpolate_max=interpolate_max
         self.deltaT = 1./self.deltaF/self.len2side

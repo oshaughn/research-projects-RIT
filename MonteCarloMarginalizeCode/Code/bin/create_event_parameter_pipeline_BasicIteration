@@ -124,6 +124,7 @@ def parse_ile_args_for_bw(my_arg_str):
     optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
     optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
     optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
+    optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
     optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
     optp.add_option("-o", "--output-file", help="Save result to this file.")
     optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
@@ -233,7 +234,8 @@ if opts.condor_nogrid_nonworker:
     no_worker_grid=True
 
 
-working_dir_inside = opts.working_directory
+working_dir_inside_local = working_dir_inside = opts.working_directory
+# working_dir_inside_local is for jobs on local nodes
 if opts.use_singularity or opts.use_osg:
     working_dir_inside = "./" # all files on the remote machine are in the current directory
 
@@ -794,7 +796,7 @@ if opts.use_bw_psd:
         channel_name, channel_flow = channel_dict_bw[ifo]
         bw_arg_str += " --ifo "+ifo
         bw_arg_str += " --"+ifo+"-channel "+ifo+":"+channel_name
-        ifo_cache_name =  working_dir_inside +"/for_bw_"+ifo+".cache"  # bw requires single-IFO cache files, argh!!!
+        ifo_cache_name =  working_dir_inside_local +"/for_bw_"+ifo+".cache"  # bw requires single-IFO cache files, argh!!! Note these are NOT on OSG
         ifo_char = ifo[0]
         os.system("grep ^"+ifo_char +  " " +opts_ile.cache_file+ " > " + ifo_cache_name)
         bw_arg_str += " --"+ifo+"-cache "+ifo_cache_name
