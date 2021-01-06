@@ -61,9 +61,14 @@ The code also requires a working version of glue, supporting `glue.ligolw.ligolw
 The code uses cupy to access GPUs.  If you don't have one, the code will still work.
 If you do need one, make sure to install cupy **on a machine that supports GPUs **
 
+You probably do not want to pip install `cupy` directly, but rather a pre-compiled version for your system's CUDA version.  To find your system's version (assuming it's installed) run `nvidia-smi`, and look for "CUDA Version" in the top-right.  For version X.Y, the appropriate cupy package will be called `cupy-cudaXY` (e.g., if you have CUDA 11.0, install `cupy-cuda110`)
+
 ```bash
-pip install --user cupy
+pip install --user cupy-cudaXY # replace XY with the appropriate numbers
 ```
+
+See https://cupy.dev/ for more details.
+
 
 ## Other environment variables
 
