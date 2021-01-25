@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 import argparse
 import numpy as np
 import RIFT.lalsimutils as lalsimutils
@@ -41,7 +41,7 @@ for ifo in ifo_list:
     data_dict[ifo] =  lalsimutils.frame_data_to_non_herm_hoff(opts.cache,channel)
     fSample = len(data_dict[ifo].data.data)*data_dict[ifo].deltaF
     df = data_dict[ifo].deltaF
-    if not psd_name.has_key(ifo):
+    if not ifo in psd_name.keys():
         print(ifo, " analytic psd ", opts.psd)
         analyticPSD_Q=True
         psd_dict[ifo] = eval(opts.psd)
@@ -63,7 +63,8 @@ for ifo in ifo_list:
         plt.plot(np.log10(fvals), np.log10(1./IP.weights2side)/2)
         plt. savefig("frameplot_psd_"+ifo+".png"); plt.clf()
     data_dict[ifo] = None  # clear it
-  except:
+  except Exception as e:
+      print(e)
       print(" No IFO ", ifo)
 rho_dict['Network']=    np.sqrt(rho2Net )
 

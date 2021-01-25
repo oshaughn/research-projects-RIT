@@ -143,6 +143,7 @@ optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cum
 optp.add_option("--internal-hard-fail-on-error",action='store_true',help='If true, fails with exit code 1 if any point is unsuccessful')
 optp.add_option("--internal-make-empty-file-on-error",action='store_true',help='If true, failed points generate empty output file. Protects against OSG workflow problems')
 optp.add_option("--verbose",action='store_true')
+optp.add_option("--save-eccentricity", action="store_true")
 #
 # Add the integration options
 #
@@ -186,8 +187,7 @@ optp.add_option_group(intrinsic_params)
 #
 # Add options to integrate over intrinsic parameters.  Same conventions as util_ManualOverlapGrid.py.  
 # Parameters have special names, and we adopt priors that use those names.
-# NOTE: Only 'q' implemented
-#
+# NOTE: Only 'q' implementedOptionGroup(optp, "Intrinsic integrated parameters", "Intrinsic parameters to integrate over. ONLY currently used with ROM version")
 intrinsic_int_params = OptionGroup(optp, "Intrinsic integrated parameters", "Intrinsic parameters to integrate over. ONLY currently used with ROM version")
 intrinsic_int_params.add_option("--parameter",action='append')
 intrinsic_int_params.add_option("--parameter-range",action='append',type=str)
@@ -780,6 +780,7 @@ if opts.sampler_method == "GMM":
     else:
       unpinned_params =['right_ascension','declination', 'phi_orb','inclination','psi','distance']
 
+debug_out = []
 def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
     nEvals=0
     P = P_list[indx_event]
@@ -900,7 +901,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             P.incl = incl #inclination.astype(float)
             P.psi = psi.astype(float)
             P.dist = (distance* 1.e6 * lalsimutils.lsu_PC).astype(float) # luminosity distance
-
+            
             lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
@@ -982,6 +983,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
     print( " --------> Arguments ", args)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+    debug_out.append([P.eccentricity, res])
 
 
     # Report results
@@ -995,11 +997,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             event_id = -1
         if opts.event == None:
             event_id = -1
-        if not (P.lambda1>0 or P.lambda2>0):
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-        else:
-            # Alternative output format if lambda is active
+        if opts.save_eccentricity:
+            # output format when eccentricity is being used
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+        elif P.lambda1 == 0 and P.lambda2 == 0:
+            # output format when lambda is being used
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+        else:
+            # default output format
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
 
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
@@ -1070,6 +1076,8 @@ for indx in numpy.arange(len(P_list)):
  except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
+  #import traceback
+  #print(traceback.format_exc())
   if opts.internal_make_empty_file_on_error:
     fname_output_txt = opts.output_file +"_"+str(indx)+"_" + ".dat"
     open(fname_output_txt,'a').close()  # create empty file
@@ -1085,4 +1093,4 @@ for indx in numpy.arange(len(P_list)):
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
   P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
   P_list[indx].print_params()
-  
+np.savetxt("debug.txt", np.array(debug_out))

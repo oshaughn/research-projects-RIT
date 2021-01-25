@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 
 # plot_posterior_corner.py
 #
@@ -269,6 +269,7 @@ parser.add_argument("--chi-max",default=1,type=float)
 parser.add_argument("--lambda-plot-max",default=2000,type=float)
 parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
+parser.add_argument("--eccentricity", action="store_true")
 opts=  parser.parse_args()
 if opts.posterior_file is None:
     print(" No input files ")
@@ -459,6 +460,9 @@ field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lnL",
 if opts.flag_tides_in_composite:
     print(" Reading composite file, assuming tide-based format ")
     field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
+if opts.eccentricity:
+    print(" Reading composite file, assuming eccentricity-based format ")
+    field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","eccentricity", "lnL", "sigmaOverL", "ntot", "neff")
 field_formats = [np.float32 for x in field_names]
 composite_dtype = [ (x,float) for x in field_names] #np.dtype(names=field_names ,formats=field_formats)
 # Load posterior files

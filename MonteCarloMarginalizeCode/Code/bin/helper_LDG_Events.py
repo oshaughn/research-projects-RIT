@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 #
 # GOAL
 #   - builds pipeline arguments needed for real events, ONLY INCLUDING THOSE RELATED TO DATAFIND
