@@ -779,8 +779,8 @@ echo Starting ...
         ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
 
 
-    if use_osg:
-        ile_job.add_condor_cmd("+OpenScienceGrid",'True')
+#    if use_osg:
+#        ile_job.add_condor_cmd("+OpenScienceGrid",'True')
     if use_cvmfs_frames:
         transfer_files += ["../local.cache"]
     # To change interactively:
