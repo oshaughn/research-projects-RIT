@@ -457,7 +457,10 @@ if opts.use_bw_psd:
     seglen  = opts_ile.data_end_time - opts_ile.data_start_time
 
     # Write bw sub files
-    bw_job, bw_job_name = dag_utils.write_psd_sub_BW_monoblock(cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/",exe=opts.bw_exe)
+    bw_universe='local'
+    if no_worker_grid:
+        bw_universe='vanilla'
+    bw_job, bw_job_name = dag_utils.write_psd_sub_BW_monoblock(cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/",exe=opts.bw_exe,no_grid=no_worker_grid,universe=bw_universe)
     bw_job.add_condor_cmd("initialdir",bw_dir+"/$(ifo)")
     bw_job.write_sub_file()
 
