@@ -1189,7 +1189,7 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
 
 
 
-def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,psd_length=4,srate=4096,data_start_time=None,event_time=None,universe='local',**kwargs):
+def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,psd_length=4,srate=4096,data_start_time=None,event_time=None,universe='local',no_grid=False,**kwargs):
     """
     Write a submit file for constructing the PSD using BW
     Modern argument syntax for BW
@@ -1212,6 +1212,12 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
+
 
 
     requirements =[]
