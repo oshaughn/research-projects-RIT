@@ -5,6 +5,9 @@ Since last release
    - pseudo and helper (--use-legacy-gracedb at top level); lalsimutils overlaps using psi4 input; pseudo (gwsurrogate
      logic/reference location fixes)  (rc1)
    - pseudo_pipe (path fixes for osg; add --condor-nogrid-nonworker)   (rc2)
+   - helper (typo in V1 data lookup/hard fail; fix corner case for burst trigger hard fail; don't override
+     --force-eta-range at low mass); CEPP/dag_utils  (--force-gpu-only, some OSG edits to clean requirements; expand
+     --condor-nogrid-nonworker to apply to CIP), pseudo_pipe (add --force-hint-snr)  (rc3)
 
 0.0.15.5
 -----------
