@@ -415,7 +415,7 @@ if opts.use_online_psd_file:
         cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
 if "SNR" in event_dict:
     cmd += " --hint-snr {} ".format(event_dict["SNR"])
-if not(opts.force_hint_snr is None)
+if not(opts.force_hint_snr is None):
     cmd += " --hint-snr {} ".format(opts.force_hint_snr)
 if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
     cmd += " --manual-ifo-list {} ".format(opts.manual_ifo_list)
