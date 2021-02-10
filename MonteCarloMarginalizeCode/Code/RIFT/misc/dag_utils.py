@@ -492,7 +492,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     return ile_job, ile_sub_name
 
 
-def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, **kwargs):
+def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,**kwargs):
     """
     Perform puffball calculation 
     Inputs:
@@ -505,6 +505,11 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     requirements=[]
     if universe=='local':
         requirements.append("IS_GLIDEIN=?=undefined")
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
