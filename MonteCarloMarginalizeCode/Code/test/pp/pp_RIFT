@@ -32,9 +32,9 @@ def unsafe_config_get(config,args,verbose=False):
     return eval( config.get(*args))
 
 
-activate_env ="source /cvmfs/oasis.opensciencegrid.org/ligo/sw/pycbc/x86_64_rhel_7/virtualenv/pycbc-v1.6.3/bin/activate"
+#activate_env ="source /cvmfs/oasis.opensciencegrid.org/ligo/sw/pycbc/x86_64_rhel_7/virtualenv/pycbc-v1.16.13/bin/activate" # else NRSur frames were not loading
 def add_frames(channel,input_frame, noise_frame,combined_frame):
-    cmd = activate_env +"; add_frames.py " + channel + " " + input_frame + " " + noise_frame + " " + combined_frame #{} {} {} {} ".format(channel,input_frame,noise_frame,combined_frame)
+    cmd = " add_frames.py " + channel + " " + input_frame + " " + noise_frame + " " + combined_frame #{} {} {} {} ".format(channel,input_frame,noise_frame,combined_frame)
     print(cmd)
     if not opts.test:
         os.system(cmd)
@@ -48,7 +48,7 @@ parser.add_argument("--test",default=False,action='store_true',help="Used to tes
 opts =  parser.parse_args()
 
 
-config = configparser.SafeConfigParser(allow_no_value=True)
+config = configparser.ConfigParser(allow_no_value=True) #SafeConfigParser deprecated from py3.2
 config.read(opts.use_ini)
 
 base_dir = os.getcwd() # relative directory, for use if absolute paths not provided
@@ -89,7 +89,6 @@ if config.has_option('priors','use_matter'):
     use_matter=True
     lambda_max = float(config.get('priors','lambda_max'))
 
-
 approx_str = config.get('waveform','approx')
 approx_recover_str = approx_str
 if config.has_option('waveform','approx_template'):
@@ -103,6 +102,9 @@ srate_data = float(config.get('data', 'srate_data'))
 seglen_data = float(config.get('data','seglen_data'))
 seglen_analysis = float(config.get('data','seglen_analysis'))
 
+if 'NRHybSur' in approx_str:       #for NRSur models
+	group_str = config.get('waveform','group')
+	param_str = config.get('waveform','param')
 
 no_spin =unsafe_config_get(config,['priors','no_spin'])
 aligned_spin =unsafe_config_get(config,['priors','aligned_spin'])
@@ -198,7 +200,10 @@ for indx in np.arange(n_events):
     os.chdir(working_dir_full+"/"+target_subdir)
     # Loop over instruments, write files
     for ifo in ifos:
-        cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {}  --stop {}  --instrument {} --approx {}".format(indx, t_start,t_stop,ifo, approx_str)
+        if 'NRHybSur' in approx_str:
+            cmd = "util_ROMWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str)
+        else:
+            cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {}  --stop {}  --instrument {} --approx {}".format(indx, t_start,t_stop,ifo, approx_str)
         print(cmd)
         if not opts.test:
             os.system(cmd)
@@ -320,10 +325,12 @@ for indx in np.arange(n_events):
     
         if not 'NR' in approx_recover_str:
             line += " --approx " + approx_recover_str
-        elif 'NRHybSur' in approx_recover_str:
-            line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5  "
+        elif "NRHybSur3dq8Tidal" in approx_recover_str:       # added NRHybSur3dq8Tidal to the list
+            line += " --rom-group surrogate_downloads/  --rom-param NRHybSur3dq8Tidal  "
         elif "NRSur7dq2" in approx_recover_str:
             line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
+        elif 'NRHybSur' in approx_recover_str:
+            line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5 "
         elif ("SEOBNR" in approx_recover_str) or 'NRTidal' in approx_recover_str: 
             line += " --approx " + approx_recover_str
         else:
@@ -390,9 +397,10 @@ for indx in np.arange(n_events):
         cmd+= " --cip-explode-jobs  " + str(cip_explode_jobs)
     if use_osg:
         print(" NOT VALIDATED/IMPLEMENTED for PP use yet")
-        cmd += " --use-osg --use-singularity  --cache-file local.cache "   # run on the OSG, make sure to get frames (rather than try to transfer them).  
+        cmd += " --use-osg --use-singularity --cache-file local.cache --condor-nogrid-nonworker --frames-dir {}/frames_dir ".format(here)   # run on the OSG, make sure to get frames (rather than try to transfer them). --frames_dir bring in ile_pre.sh for fake data 
         cmd+= " --transfer-file-list  "+here +"/helper_transfer_files.txt"
         os.system("echo {}/frames_dir >> helper_transfer_files.txt".format(here))  # can't use symbolic links alas
+        os.system("echo {}/local.cache >> helper_transfer_files.txt".format(here)) # adds local.cache to transfer files
         try:
             os.system("mkdir frames_dir")
         except:
