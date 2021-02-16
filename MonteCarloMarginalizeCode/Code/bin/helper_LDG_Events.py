@@ -26,7 +26,8 @@ from glue.lal import CacheEntry
 import configparser as ConfigParser
 
 
-def is_int_power_of_2(a):
+def is_int_power_of_2(a_in):
+    a =int(a_in)
     if (a & (a-1)):
         return False
     else:
@@ -384,6 +385,8 @@ if not ("IFOs" in event_dict.keys()):
 
 if use_gracedb_event:
   cmd_event = gracedb_exe + download_request + opts.gracedb_id + " event.log"
+  if not(opts.use_legacy_gracedb):
+        cmd_event += " > event.log "
   os.system(cmd_event)
   # Parse gracedb. Note very annoying heterogeneity in event.log files
   with open("event.log",'r') as f:
@@ -404,6 +407,8 @@ if use_gracedb_event:
   try:
     # Read in event parameters. Use masses as quick estimate
     cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
+    if not(opts.use_legacy_gracedb):
+        cmd_event += " > coinc.xml "
     os.system(cmd_event)
     samples = table.get_table(utils.load_filename("coinc.xml",contenthandler=lalsimutils.cthdler), lsctables.SnglInspiralTable.tableName)
     event_duration=4  # default
@@ -549,7 +554,7 @@ if opts.use_ini is None:
                 channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo,"BeforeMay1")]
         if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
             if ifo == 'V1':
-                channel_names[ifo] = standard_channel_names[opts.observing_run](opts.calibration_version, ifo, "September")
+                channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version, ifo, "September")]
 
 # Parse LI ini
 use_ini=False
@@ -592,9 +597,15 @@ if not(opts.use_ini is None):
     opts.choose_LI_data_seglen=False
     opts.data_LI_seglen = unsafe_config_get(config,['engine','seglen'])
 
-    # overwrite arguments used with fmax
+    # overwrite arguments used with srate/2, OR fmax if provided
     opts.fmax = unsafe_config_get(config,['engine','srate'])/2 -1  # LI default is not to set srate as an independent variable. Occasional danger with maximum frequency limit in PSD
-    srate = np.max([unsafe_config_get(config,['engine','srate']),srate])  # raise the srate, but never lower it below the fiducial value
+    # overwrite arguments used with fmax, if provided. ASSUME same for all!
+    if config.has_option('lalinference', 'fhigh'):
+        fhigh_dict = unsafe_config_get(config,['lalinference','fhigh'])
+        for name in fhigh_dict:
+            opts.fmax = float(fhigh_dict[name])
+
+    srate = int(np.max([unsafe_config_get(config,['engine','srate']),srate]))  # raise the srate, but never lower it below the fiducial value
     if not(is_int_power_of_2(srate)):
         print("srate must be power of 2!")
         sys.exit(0)
@@ -1052,9 +1063,11 @@ if opts.propose_fit_strategy:
 
             n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
             puff_max_it= n_its[0] + n_its[1] # puff for first 2 types, to insure good coverage in narrow-q cases
-            if event_dict["m2"]/event_dict["m1"] < 0.4: # High q, do even through the full aligned spin model case
-                puff_max_it += n_its[2]
-
+            try:
+                if event_dict["m2"]/event_dict["m1"] < 0.4: # High q, do even through the full aligned spin model case
+                    puff_max_it += n_its[2]
+            except:
+                print("No mass information, can't add extra stages")
 
     if opts.assume_matter:
         helper_puff_args += " --parameter LambdaTilde  --downselect-parameter s1z --downselect-parameter-range [-0.9,0.9] --downselect-parameter s2z --downselect-parameter-range [-0.9,0.9]  "  # Probably should also aggressively force sampling of low-lambda region
