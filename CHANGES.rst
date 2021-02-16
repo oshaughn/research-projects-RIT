@@ -1,4 +1,23 @@
 
+0.0.15.6
+-----------
+Since last release
+   - pseudo and helper (--use-legacy-gracedb at top level); lalsimutils overlaps using psi4 input; pseudo (gwsurrogate
+     logic/reference location fixes)  (rc1)
+   - pseudo_pipe (path fixes for osg; add --condor-nogrid-nonworker)   (rc2)
+   - helper (typo in V1 data lookup/hard fail; fix corner case for burst trigger hard fail; don't override
+     --force-eta-range at low mass); CEPP/dag_utils  (--force-gpu-only, some OSG edits to clean requirements; expand
+     --condor-nogrid-nonworker to apply to CIP), pseudo_pipe (add --force-hint-snr)  (rc3)
+
+0.0.15.5
+-----------
+Since last release
+    - pseudo_pipe ini parsing (halting bug if fake-cache used)  (rc1)
+    - fix temporary path issue with ini using abs paths, fix typecast to int (rc2)
+    - fmax ini file parsing (rc3)
+
+release is rc3
+
 0.0.15.4
 -----------
 Since last release
@@ -18,6 +37,8 @@ Since last release
     - updating mcsamplerGPU for testing; minor edits to util_CleanILE (skip files of zero length) and ILE
       (--force-gpu-only logic; change some sys.exit(0) to sys.exit(1))  (rc10)
     - tool to save sklearn GPs (not yet used); ILE cupy.show_config; pseudo_pipe not error with --force-gpu-only (rc11)
+
+release is rc11
 
 0.0.15.3
 -----------

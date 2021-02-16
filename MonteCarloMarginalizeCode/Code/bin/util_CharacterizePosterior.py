@@ -23,7 +23,7 @@ opts=  parser.parse_args()
 quantile_list = np.array(eval(opts.quantiles))
 #print opts.quantiles, quantile_list
 
-dat = np.genfromtxt(opts.fname,names=True)
+dat = np.genfromtxt(opts.fname,names=True,invalid_raise=False)
 for param in opts.parameter:
     # lightweight conversion: not full capability
     if param in dat.dtype.names:

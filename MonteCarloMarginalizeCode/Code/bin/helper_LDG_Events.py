@@ -26,7 +26,8 @@ from glue.lal import CacheEntry
 import configparser as ConfigParser
 
 
-def is_int_power_of_2(a):
+def is_int_power_of_2(a_in):
+    a =int(a_in)
     if (a & (a-1)):
         return False
     else:
@@ -384,6 +385,8 @@ if not ("IFOs" in event_dict.keys()):
 
 if use_gracedb_event:
   cmd_event = gracedb_exe + download_request + opts.gracedb_id + " event.log"
+  if not(opts.use_legacy_gracedb):
+        cmd_event += " > event.log "
   os.system(cmd_event)
   # Parse gracedb. Note very annoying heterogeneity in event.log files
   with open("event.log",'r') as f:
@@ -404,6 +407,8 @@ if use_gracedb_event:
   try:
     # Read in event parameters. Use masses as quick estimate
     cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
+    if not(opts.use_legacy_gracedb):
+        cmd_event += " > coinc.xml "
     os.system(cmd_event)
     samples = table.get_table(utils.load_filename("coinc.xml",contenthandler=lalsimutils.cthdler), lsctables.SnglInspiralTable.tableName)
     event_duration=4  # default
@@ -549,7 +554,7 @@ if opts.use_ini is None:
                 channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo,"BeforeMay1")]
         if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
             if ifo == 'V1':
-                channel_names[ifo] = standard_channel_names[opts.observing_run](opts.calibration_version, ifo, "September")
+                channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version, ifo, "September")]
 
 # Parse LI ini
 use_ini=False
@@ -592,9 +597,15 @@ if not(opts.use_ini is None):
     opts.choose_LI_data_seglen=False
     opts.data_LI_seglen = unsafe_config_get(config,['engine','seglen'])
 
-    # overwrite arguments used with fmax
+    # overwrite arguments used with srate/2, OR fmax if provided
     opts.fmax = unsafe_config_get(config,['engine','srate'])/2 -1  # LI default is not to set srate as an independent variable. Occasional danger with maximum frequency limit in PSD
-    srate = np.max([unsafe_config_get(config,['engine','srate']),srate])  # raise the srate, but never lower it below the fiducial value
+    # overwrite arguments used with fmax, if provided. ASSUME same for all!
+    if config.has_option('lalinference', 'fhigh'):
+        fhigh_dict = unsafe_config_get(config,['lalinference','fhigh'])
+        for name in fhigh_dict:
+            opts.fmax = float(fhigh_dict[name])
+
+    srate = int(np.max([unsafe_config_get(config,['engine','srate']),srate]))  # raise the srate, but never lower it below the fiducial value
     if not(is_int_power_of_2(srate)):
         print("srate must be power of 2!")
         sys.exit(0)
@@ -684,7 +695,7 @@ eta_min_tight  = eta_min = 0.1  # default for now, will fix this later
 tmp1,tmp2 = lalsimutils.m1m2(1,eta_min)
 delta_max_tight= delta_max =(tmp1-tmp2)/(tmp1+tmp2)  # about 0.8
 delta_min_tight = delta_min =1e-4  # Some approximants like SEOBNRv3 can hard fail if m1=m2
-if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
+if not(opts.force_eta_range is None) and mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
     import scipy.optimize
     # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
     def crit_m2(delta):
@@ -695,7 +706,7 @@ if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constrai
     eta_min = 0.25*(1-delta_max*delta_max)
 # Need logic for BH-NS scale objects to be reasonable
 #   Typical problem for following up these triggers: segment length grows unreasonably long
-elif mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid:  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
+elif not(opts.force_eta_range is None) and  mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid:  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
    import scipy.optimize
    # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
    def crit_m2(delta):
@@ -1052,9 +1063,11 @@ if opts.propose_fit_strategy:
 
             n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
             puff_max_it= n_its[0] + n_its[1] # puff for first 2 types, to insure good coverage in narrow-q cases
-            if event_dict["m2"]/event_dict["m1"] < 0.4: # High q, do even through the full aligned spin model case
-                puff_max_it += n_its[2]
-
+            try:
+                if event_dict["m2"]/event_dict["m1"] < 0.4: # High q, do even through the full aligned spin model case
+                    puff_max_it += n_its[2]
+            except:
+                print("No mass information, can't add extra stages")
 
     if opts.assume_matter:
         helper_puff_args += " --parameter LambdaTilde  --downselect-parameter s1z --downselect-parameter-range [-0.9,0.9] --downselect-parameter s2z --downselect-parameter-range [-0.9,0.9]  "  # Probably should also aggressively force sampling of low-lambda region
