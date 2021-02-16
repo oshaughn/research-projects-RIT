@@ -492,7 +492,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     return ile_job, ile_sub_name
 
 
-def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, **kwargs):
+def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,**kwargs):
     """
     Perform puffball calculation 
     Inputs:
@@ -505,6 +505,11 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     requirements=[]
     if universe=='local':
         requirements.append("IS_GLIDEIN=?=undefined")
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -717,8 +722,8 @@ echo Starting ...
             ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
             requirements = []
             requirements.append("HAS_SINGULARITY=?=TRUE")
-            if not(use_simple_osg_requirements):
-                requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
+#            if not(use_simple_osg_requirements):
+#                requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
             #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
 
     if use_cvmfs_frames:
@@ -779,8 +784,8 @@ echo Starting ...
         ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
 
 
-    if use_osg:
-        ile_job.add_condor_cmd("+OpenScienceGrid",'True')
+#    if use_osg:
+#        ile_job.add_condor_cmd("+OpenScienceGrid",'True')
     if use_cvmfs_frames:
         transfer_files += ["../local.cache"]
     # To change interactively:
@@ -1189,7 +1194,7 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
 
 
 
-def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,psd_length=4,srate=4096,data_start_time=None,event_time=None,universe='local',**kwargs):
+def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,psd_length=4,srate=4096,data_start_time=None,event_time=None,universe='local',no_grid=False,**kwargs):
     """
     Write a submit file for constructing the PSD using BW
     Modern argument syntax for BW
@@ -1212,6 +1217,12 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
+
 
 
     requirements =[]
