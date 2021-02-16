@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#!/home/anjali.yelikar/RIFT_prodO3bb/bin/python3
 #
 # GOAL
 #
@@ -106,6 +106,8 @@ parser.add_argument("--online",action='store_true')
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
 parser.add_argument("--gracedb-id",default=None,type=str)
+parser.add_argument("--gracedb-exe",default="gracedb")
+parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",default=None,type=float,help="Event time. Intended to override use of GracedbID. MUST provide --manual-initial-grid ")
 parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
@@ -135,6 +137,7 @@ parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="op
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-eta-range",default=None,type=str,help="Pass this argumen through to the helper to set the eta range")
+parser.add_argument("--force-hint-snr",default=None,type=str,help="Pass this argumen through to the helper to control source amplitude effects")
 parser.add_argument("--hierarchical-merger-prior-1g",action='store_true',help="As in 1903.06742")
 parser.add_argument("--hierarchical-merger-prior-2g",action='store_true',help="As in 1903.06742")
 parser.add_argument("--link-reference-pe",action='store_true',help="If present, creates a directory 'reference_pe' and adds symbolic links to fiducial samples. These can be used by the automated plotting code.  Requires LVC_PE_SAMPLES environment variable defined!")
@@ -154,10 +157,17 @@ parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restructuring for ILE on OSG. The code will NOT use CVMFS, and instead will try to transfer the frame files.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
+parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
+
+download_request = " get file "
+gracedb_exe =opts.gracedb_exe
+if opts.use_legacy_gracedb:
+    gracedb_exe = "gracedb_legacy"
+    download_request = " download "
 
 
 if opts.assume_highq:
@@ -213,12 +223,16 @@ else:
             sys.exit(1)
 print(" Event ", gwid)
 base_dir = os.getcwd()
-if opts.use_ini:
-    base_dir =''  # all directories are provided as full path names
+if opts.use_rundir:
+    base_dir =''
+#if opts.use_ini:
+#    base_dir =''  # all directories are provided as full path names
 
 
 if opts.choose_data_LI_seglen:
-    cmd_event = "gracedb_legacy download " + opts.gracedb_id + " coinc.xml"
+    cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
+    if not(opts.use_legacy_gracedb):
+        cmd_event += " > coinc.xml "
     os.system(cmd_event)
     event_dict = retrieve_event_from_coinc("coinc.xml")
     P=lalsimutils.ChooseWaveformParams()
@@ -289,14 +303,14 @@ os.chdir(dirname_run)
 
 
 if not(opts.use_ini is None):
-    if opts.use_coinc is None:
-        print( " coinc required for ini file operation at present ")
-        sys.exit(1)
+    #if opts.use_coinc is None:
+        #print( " coinc required for ini file operation at present ")
+        #sys.exit(1)
     # Load in event dictionary
-    event_dict = retrieve_event_from_coinc(opts.use_coinc)
+    #event_dict = retrieve_event_from_coinc(opts.use_coinc)
     # Create relevant sim_xml file to hold parameters (does not parse coinc)
     P=lalsimutils.ChooseWaveformParams()
-    P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
+    #P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     # Load in ini file to select relevant fmin, fref [latter usually unused]
     config = ConfigParser.ConfigParser()
     config.read(opts.use_ini)
@@ -306,7 +320,7 @@ if not(opts.use_ini is None):
     for ifo in ifo_list:
         fmin_vals[ifo] = unsafe_config_get(config,['lalinference','flow'])[ifo]
         fmin_fiducial = fmin_vals[ifo]
-    event_dict["IFOs"] = ifo_list
+    #event_dict["IFOs"] = ifo_list
     print( "IFO list from ini ", ifo_list)
     P.fmin = fmin_fiducial
     P.fref = unsafe_config_get(config,['engine','fref'])
@@ -351,7 +365,9 @@ if not(opts.force_mc_range is None):
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range {} ".format(opts.force_eta_range)
 if not(opts.gracedb_id is None) and (opts.use_ini is None):
-    cmd +=" --use-legacy-gracedb --gracedb-id " + gwid 
+    cmd +="  --gracedb-id " + gwid 
+    if  opts.use_legacy_gracedb:
+        cmd+= " --use-legacy-gracedb "
 elif  not(opts.event_time is None):
     cmd += " --event-time " + format_gps_time(opts.event_time)
 if opts.online:
@@ -384,7 +400,7 @@ if opts.use_osg:
 if opts.use_ini:
     cmd += " --use-ini " + opts.use_ini
     cmd += " --sim-xml {}/target_params.xml.gz --event 0 ".format(base_dir + "/"+ dirname_run)  # full path to target_params.xml.gz
-    cmd += " --event-time " + str(event_dict["tref"])
+    cmd += " --event-time " +str(opts.event_time)
     #
 else:
     cmd += " --calibration-version " + opts.calibration 
@@ -399,6 +415,8 @@ if opts.use_online_psd_file:
         cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
 if "SNR" in event_dict:
     cmd += " --hint-snr {} ".format(event_dict["SNR"])
+if not(opts.force_hint_snr is None):
+    cmd += " --hint-snr {} ".format(opts.force_hint_snr)
 if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
     cmd += " --manual-ifo-list {} ".format(opts.manual_ifo_list)
 
@@ -409,7 +427,7 @@ if opts.use_ini:
     config.read(opts.use_ini)
     if config.has_option("lalinference", "fake-cache"):
         # dictionary, entries are individual lcf files; we just need to concatenate their contents
-        fake_cache_dict = unsafe_config_get("lalinference","fake-cache")
+        fake_cache_dict = unsafe_config_get(config,["lalinference","fake-cache"])
         fake_cache_fnames = [fake_cache_dict[x] for x in fake_cache_dict.keys()]
         cmd_cat = 'cat ' + ' '.join(fake_cache_fnames) + ' > local.cache'
         os.system(cmd_cat)
@@ -453,15 +471,17 @@ if (opts.use_ini is None):
 if opts.ile_force_gpu:
     line +=" --force-gpu-only "
 sur_location_prefix = "my_surrogates/nr_surrogates/"
+if 'GW_SURROGATE' in os.environ:
+    sur_location_prefix=''
 if opts.use_osg:
     sur_location_prefix = "/"
 if not 'NR' in opts.approx:
         line += " --approx " + opts.approx
 elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
         line += " --rom-group {} --rom-param NRHybSur3dq8.h5 --approx {} ".format(sur_location_prefix,opts.approx)
-elif opts.use_gwsurrogate and "NRSur7d2" in opts.approx:
+elif opts.use_gwsurrogate and "NRSur7dq2" in opts.approx:
         line += " --rom-group {} --rom-param NRSur7dq2.h5 --approx {}  ".format(sur_location_prefix,opts.approx)
-elif opts.use_gwsurrogate and "NRSur7d4" in opts.approx:
+elif opts.use_gwsurrogate and "NRSur7dq4" in opts.approx:
         line += " --rom-group {} --rom-param NRSur7dq4.h5  --approx {}".format(sur_location_prefix,opts.approx)
 elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in opts.approx): 
         line += " --approx " + opts.approx
@@ -631,6 +651,8 @@ if opts.use_osg:
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
 if opts.condor_local_nonworker:
     cmd += " --condor-local-nonworker "
+if opts.condor_nogrid_nonworker:
+    cmd += " --condor-nogrid-nonworker "
 if opts.use_osg_simple_requirements:
     cmd += " --use-osg-simple-reqirements "
 if opts.archive_pesummary_label:
