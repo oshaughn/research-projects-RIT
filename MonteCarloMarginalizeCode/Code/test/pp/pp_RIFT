@@ -286,7 +286,10 @@ for indx in np.arange(n_events):
     for psd in psd_dict:
         psd_name = psd_dict[psd]
         if not( '/' in psd_name):
-            psd_name = base_dir +"/"+psd_name
+            if use_osg:
+                psd_name = psd_name
+            else:
+                psd_name = base_dir +"/"+psd_name
         cmd += " --psd-file {}={} ".format(psd,psd_name)
     # add in run settings
     cmd += "  --fake-data --propose-initial-grid --propose-fit-strategy --propose-ile-convergence-options --no-propose-limits "
@@ -399,7 +402,7 @@ for indx in np.arange(n_events):
         print(" NOT VALIDATED/IMPLEMENTED for PP use yet")
         cmd += " --use-osg --use-singularity --cache-file local.cache --condor-nogrid-nonworker --frames-dir {}/frames_dir ".format(here)   # run on the OSG, make sure to get frames (rather than try to transfer them). --frames_dir bring in ile_pre.sh for fake data 
         cmd+= " --transfer-file-list  "+here +"/helper_transfer_files.txt"
-        os.system("echo {}/frames_dir >> helper_transfer_files.txt".format(here))  # can't use symbolic links alas
+        #os.system("echo {}/frames_dir >> helper_transfer_files.txt".format(here))  # can't use symbolic links alas
         os.system("echo {}/local.cache >> helper_transfer_files.txt".format(here)) # adds local.cache to transfer files
         try:
             os.system("mkdir frames_dir")
