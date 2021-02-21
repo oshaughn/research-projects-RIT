@@ -1,4 +1,4 @@
-#!/home/anjali.yelikar/RIFT_prodO3bb/bin/python3
+#! /usr/bin/env python
 #
 # GOAL
 #
@@ -303,14 +303,14 @@ os.chdir(dirname_run)
 
 
 if not(opts.use_ini is None):
-    #if opts.use_coinc is None:
-        #print( " coinc required for ini file operation at present ")
-        #sys.exit(1)
+    if opts.use_coinc is None:
+        print( " coinc required for ini file operation at present ")
+        sys.exit(1)
     # Load in event dictionary
-    #event_dict = retrieve_event_from_coinc(opts.use_coinc)
+    event_dict = retrieve_event_from_coinc(opts.use_coinc)
     # Create relevant sim_xml file to hold parameters (does not parse coinc)
     P=lalsimutils.ChooseWaveformParams()
-    #P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
+    P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     # Load in ini file to select relevant fmin, fref [latter usually unused]
     config = ConfigParser.ConfigParser()
     config.read(opts.use_ini)
@@ -320,7 +320,7 @@ if not(opts.use_ini is None):
     for ifo in ifo_list:
         fmin_vals[ifo] = unsafe_config_get(config,['lalinference','flow'])[ifo]
         fmin_fiducial = fmin_vals[ifo]
-    #event_dict["IFOs"] = ifo_list
+    event_dict["IFOs"] = ifo_list
     print( "IFO list from ini ", ifo_list)
     P.fmin = fmin_fiducial
     P.fref = unsafe_config_get(config,['engine','fref'])
@@ -400,7 +400,7 @@ if opts.use_osg:
 if opts.use_ini:
     cmd += " --use-ini " + opts.use_ini
     cmd += " --sim-xml {}/target_params.xml.gz --event 0 ".format(base_dir + "/"+ dirname_run)  # full path to target_params.xml.gz
-    cmd += " --event-time " +str(opts.event_time)
+    cmd += " --event-time " + str(event_dict["tref"])
     #
 else:
     cmd += " --calibration-version " + opts.calibration 
