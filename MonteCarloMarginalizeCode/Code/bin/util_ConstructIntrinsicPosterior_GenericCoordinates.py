@@ -630,7 +630,7 @@ def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   #
     return 1/(1+f1)
 
 def eccentricity_prior(x):
-    return 2.0 * np.ones(x.shape) # uniform over the interval [0.0, 0.5]
+    return 10.0 * np.ones(x.shape) # uniform over the interval [0.0, 0.1]
 
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
