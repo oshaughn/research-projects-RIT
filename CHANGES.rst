@@ -8,6 +8,9 @@ Since last release
    - helper (typo in V1 data lookup/hard fail; fix corner case for burst trigger hard fail; don't override
      --force-eta-range at low mass); CEPP/dag_utils  (--force-gpu-only, some OSG edits to clean requirements; expand
      --condor-nogrid-nonworker to apply to CIP), pseudo_pipe (add --force-hint-snr)  (rc3)
+   - typo fix pseudo_pipe missing colon; convert_ile2inference convention change update py3 print; dag_utils fix PUFF
+     issue no_grid-> PUFF fails; merge Yelikar edits to pp_RIFT for OSG, NRSur; request_disk option for ILE in
+     CEPP/dag_utils for OSG runs; dag_utils add periodic_release etc update for OSG operation (rc4)
 
 0.0.15.5
 -----------
