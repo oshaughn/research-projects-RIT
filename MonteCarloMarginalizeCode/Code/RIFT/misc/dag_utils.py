@@ -744,8 +744,11 @@ echo Starting ...
            if not(use_simple_osg_requirements):
                requirements.append("IS_GLIDEIN=?=TRUE")
            # avoid black-holing jobs to specific machines that consistently fail. Uses history attribute for ad
-           for indx in [1,2,3,4]:
-               requirements.append("TARGET.GLIDEIN_ResourceName=!=MY.MachineAttrGLIDEIN_ResourceName{}".format(indx))
+           ile_job.add_condor_cmd('periodic_release','(HoldReasonCode == 45) && (HoldReasonSubCode == 0)')
+           ile_job.add_condor_cmd('job_machine_attrs','Machine')
+           ile_job.add_condor_cmd('job_machine_attrs_history_length','4')
+#           for indx in [1,2,3,4]:
+#               requirements.append("TARGET.GLIDEIN_ResourceName=!=MY.MachineAttrGLIDEIN_ResourceName{}".format(indx))
            if "OSG_DESIRED_SITES" in os.environ:
                ile_job.add_condor_cmd('+DESIRED_SITES',os.environ["OSG_DESIRED_SITES"])
            if "OSG_UNDESIRED_SITES" in os.environ:
