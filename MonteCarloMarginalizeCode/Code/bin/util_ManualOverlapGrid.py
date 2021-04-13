@@ -182,6 +182,7 @@ parser.add_argument("--parameter", action='append')
 parser.add_argument("--parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used")
 parser.add_argument("--random-parameter", action='append',help="These parameters are specified at random over the entire range, uncorrelated with the grid used for other parameters.  Use for variables which correlate weakly with others; helps with random exploration")
 parser.add_argument("--random-parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used.  ")
+parser.add_argument("--latin-hypercube-sampling", action='store_true', help="use latin hypercube sampling from smt on all parameters called 'parameter'")
 parser.add_argument("--amplitude-order",default=-1,type=int,help="Set ampO for grid. Used in PN")
 parser.add_argument("--phase-order",default=7,type=int,help="Set phaseO for grid. Used in PN")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
@@ -722,9 +723,14 @@ prior_dict['eta'] = 1    # provide st dev. Don't want to allow arbitrary eta.
 
 # Base Cartesian grid
 print(param_ranges,pts_per_dim)
-grid_tuples = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
+if not(opts.latin_hypercube_sampling):
+    grid_tuples = eff.make_regular_1d_grids(param_ranges, pts_per_dim)
 #print "  NEED TO IMPLEMENT: Stripping of unphysical parameters "
-grid = eff.multi_dim_grid(*grid_tuples)  # each line in 'grid' is a set of parameter values
+    grid = eff.multi_dim_grid(*grid_tuples)  # each line in 'grid' is a set of parameter values
+else:
+    from smt.sampling_methods import LHS
+    sampling = LHS(xlimits=np.array(param_ranges))
+    grid = sampling(opts.grid_cartesian_npts)
 print(grid.shape)
 
 # Extend to use alternative parameters
