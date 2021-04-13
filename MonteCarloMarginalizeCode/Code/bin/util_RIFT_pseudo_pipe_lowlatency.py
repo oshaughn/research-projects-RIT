@@ -102,6 +102,7 @@ def unsafe_parse_arg_string(my_argstr,match):
         
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--aggressive-iteration-limit",default=None,type=int, help="Hard limit on number of iterations before passing to extrinsic stage. 0 means use the initial grid directly")
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
 parser.add_argument("--use-rundir",default=None,type=str,help="Intended to reproduce lalinference_pipe functionality. Must be absolute path.")
 parser.add_argument("--use-online-psd-file",default=None,type=str,help="Provides specific online PSD file, so no downloads are needed")
@@ -167,6 +168,9 @@ parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Pr
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
+
+if not(opts.aggressive_iteration_limit is None):
+    opts.internal_flat_strategy=True
 
 download_request = " get file "
 gracedb_exe =opts.gracedb_exe
@@ -512,7 +516,10 @@ n_iterations =0
 lines  = []
 for indx in np.arange(len(instructions_cip)):
     n_iterations += int(instructions_cip[indx][0])
-    line = ' ' .join(instructions_cip[indx])
+    if not(opts.aggressive_iteration_limit is None):
+        line = ' ' .join(instructions_cip[indx])
+    else:
+        line = str(opts.aggressive_iteration_limit) + ' '.join(instructions_cip[indx][1:])
     n_max_cip = 10000000;
     if opts.cip_sampler_method is "GMM":
         n_max_cip *=10   # it is faster, so run longer; helps with correlated-sampling cases
@@ -565,6 +572,7 @@ for indx in np.arange(len(instructions_cip)):
 if opts.cip_quadratic_first:
     lines[0]=lines[0].replace(' --fit-method gp ', ' --fit-method quadratic ')
     lines[0]=lines[0].replace(' --parameter delta_mc ', ' --parameter eta ')   # almost without fail we are using mc, delta_mc, xi  as zeroth layer
+
 
 with open("args_cip_list.txt",'w') as f: 
    for line in lines:
