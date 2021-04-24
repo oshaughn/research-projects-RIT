@@ -107,6 +107,7 @@ parser.add_argument("--seglen", type=float,default=64., help="Default window siz
 parser.add_argument("--fref",type=float,default=0.);
 # Base point
 parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing the base point.")
+parser.add_argument("--inj-file-out", default="output-puffball", help="Name of XML file")
 parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
 parser.add_argument("--fmin", default=35,type=float,help="Mininmum frequency in Hz, default is 40Hz to make short enough waveforms. Focus will be iLIGO to keep comutations short")
 parser.add_argument("--fmax",default=2000,type=float,help="Maximum frequency in Hz, used for PSD integral.")
@@ -128,6 +129,29 @@ opts=  parser.parse_args()
 
 if opts.verbose:
     True
+
+
+downselect_dict = {}
+
+# Add some pre-built downselects, to avoid common out-of-range-error problems
+downselect_dict['chi1'] = [0,1]
+downselect_dict['chi2'] = [0,1]
+downselect_dict['eta'] = [0,0.25]
+downselect_dict['m1'] = [0,1e10]
+downselect_dict['m2'] = [0,1e10]
+
+
+if opts.downselect_parameter:
+    dlist = opts.downselect_parameter
+    dlist_ranges  = list(map(eval,opts.downselect_parameter_range))
+else:
+    dlist = []
+    dlist_ranges = []
+    opts.downselect_parameter =[]
+if len(dlist) != len(dlist_ranges):
+    print(" downselect parameters inconsistent", dlist, dlist_ranges)
+for indx in np.arange(len(dlist_ranges)):
+    downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
 
 
@@ -213,7 +237,7 @@ f = np.arange(opts.fmin,opts.fmax,1./opts.seglen)
 
 # set the injection parameters
 inj_params = {
-    'Mc':    P.extract_param('mc'),
+    'Mc':    P.extract_param('mc')/lal.MSUN_SI,
     'eta':   P.extract_param('eta'),
     'chi1z': P.s1z,
     'chi2z': P.s2z,
@@ -227,10 +251,11 @@ inj_params = {
     'gmst0': 0
     }
 
+print(inj_params)
 
 # assign with respect to which parameters to take derivatives
 # should be based on PARAMETER values  ... but assume just Mc eta chi1z chi2z for now (univesal)
-deriv_symbs_string = 'Mc eta chi1z chi2z tc phic'
+deriv_symbs_string = 'Mc eta chi1z chi2z tc phic psi'
 
 
 # pass all these variables to the network
@@ -241,17 +266,18 @@ net.set_net_vars(
     )
 
 
-# compute the WF polarizations
-net.calc_wf_polarizations()
-# compute the WF polarizations and their derivatives
-net.calc_wf_polarizations_derivs_num()
-
 # setup antenna patterns, location phase factors, and PSDs
 net.setup_ant_pat_lpf_psds()
 
+# Test if files are present
+#   NOT CURRENTLY DONE
+
+# compute the detector responses and their derivatives
+net.load_det_responses_derivs_sym()
+net.calc_det_responses_derivs_sym()
+
 # compute the detector responses
 net.calc_det_responses()
-
 
 # calculate the network and detector SNRs
 net.calc_snrs_det_responses()
@@ -261,5 +287,103 @@ net.calc_snrs_det_responses()
 net.calc_errors()
 
 
-print(net['snr'])
-print(net['fisher'])
+print(net.snr)
+print(net.fisher)
+
+# Marginalize out 3d subspace
+#  NO REGULARIZATION ATTEMPTED RIGHT NOW
+fisher_extr = net.fisher[-3:,-3:]
+A = net.fisher[:-3,:-3]
+B = net.fisher[:-3,-3:]
+print(fisher_extr)
+C=fisher_extr_inv = np.linalg.pinv(fisher_extr)
+
+fisher_marg = A - np.dot(B,np.dot(C,B.T))
+fisher_marg  += np.diag([1,4,1,1])   # regularize, important for second spin term
+#print(fisher_marg)
+
+#print(np.linalg.eig(fisher_marg))
+
+
+
+# Generate random numbers
+cov = np.linalg.pinv(fisher_marg)
+
+
+# Add to base points
+    # Compute errors
+
+coord_names=['mc','eta','s1z','s2z']
+X = np.zeros((opts.grid_cartesian_npts,len(coord_names)))
+for indx in np.arange(len(coord_names)):
+    X[:,indx] = P.extract_param(coord_names[indx])
+    if indx==0:
+        X[:,indx]*= 1./lal.MSUN_SI
+
+rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov,allow_singular=True)  # they are just complaining about dynamic range of parameters, usually
+delta_X = rv.rvs(size=len(X))
+X_out = X+delta_X
+
+
+# Sanity check parameters
+for indx in np.arange(len(coord_names)):
+    if coord_names[indx] == 'eta':
+        X_out[:,indx] = np.minimum(X_out[:,indx], 0.25)
+        X_out[:,indx] = np.maximum(X_out[:,indx], 0.01)
+    if coord_names[indx] == 's1z' or coord_names[indx]=='s2z':
+        X_out[:,indx] = np.minimum(X_out[:,indx], 0.99)
+        X_out[:,indx] = np.maximum(X_out[:,indx], -0.99)
+
+print(" Generated random points raw ", len(X_out))
+#print(X_out, delta_X)
+
+
+
+## SPECIAL OUTPUT CHANGES
+#   - use a weight, so the parameters are drawn from the prior (np.random.choice of the points, using a weight function based on the prior)
+
+
+
+# Convert to P list
+P_out = []
+for indx_P in np.arange(len(X_out)):
+    include_item=True
+    P_new = P.copy()
+    for indx in np.arange(len(coord_names)):
+        fac=1
+        # sanity check restrictions, which may cause problems with the coordinate converters
+        if coord_names[indx] is 'eta' and (X_out[indx_P,indx]>0.25 or X_out[indx_P,indx]<0.001) :
+#            print(" Rej eta")
+            continue
+        if coord_names[indx] is 'delta_mc' and (X_out[indx_P,indx]>1 or X_out[indx_P,indx]<0.) :
+ #           print(" Rej delta_mc")
+            continue
+        if coord_names[indx] in ['mc','m1','m2','mtot']:
+            fac = lal.MSUN_SI
+        P_new.assign_param( coord_names[indx], X_out[indx_P,indx]*fac)
+
+    if np.isnan(P_new.m1) or np.isnan(P_new.m2):  # don't allow nan mass
+        continue
+
+    for param in downselect_dict:
+        val = P_new.extract_param(param)
+        if np.isnan(val):
+            include_item=False   # includes check on m1,m2
+            continue # stop trying to calculate with this parameter
+        if param in ['mc','m1','m2','mtot']:
+            val = val/ lal.MSUN_SI
+        if val < downselect_dict[param][0] or val > downselect_dict[param][1]:
+            include_item =False
+#            print(" Rej downselect",param)
+
+    if include_item:
+        P_out.append(P_new)
+
+
+
+print(" Retained random points  ", len(P_out))
+
+
+# Final exprot
+# Export
+lalsimutils.ChooseWaveformParams_array_to_xml(P_out,fname=opts.inj_file_out,fref=P.fref)
