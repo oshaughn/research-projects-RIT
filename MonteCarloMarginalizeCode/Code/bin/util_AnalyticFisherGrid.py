@@ -326,6 +326,10 @@ X_out = X+delta_X
 
 
 # Sanity check parameters
+#   - eta check, done by hand
+is_ok= np.logical_and(X_out[:,1] < 0.25, X_out[:,1]>0.01)
+X_out = X_out[is_ok]
+#   - other checks, force into range
 for indx in np.arange(len(coord_names)):
     if coord_names[indx] == 'eta':
         X_out[:,indx] = np.minimum(X_out[:,indx], 0.25)
@@ -384,6 +388,6 @@ for indx_P in np.arange(len(X_out)):
 print(" Retained random points  ", len(P_out))
 
 
-# Final exprot
+# Final export
 # Export
 lalsimutils.ChooseWaveformParams_array_to_xml(P_out,fname=opts.inj_file_out,fref=P.fref)
