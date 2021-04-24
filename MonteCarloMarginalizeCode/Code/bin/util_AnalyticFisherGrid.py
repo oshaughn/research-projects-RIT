@@ -107,7 +107,7 @@ parser.add_argument("--seglen", type=float,default=64., help="Default window siz
 parser.add_argument("--fref",type=float,default=0.);
 # Base point
 parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing the base point.")
-parser.add_argument("--inj-file-out", default="output-puffball", help="Name of XML file")
+parser.add_argument("--inj-file-out", default="overlap-grid", help="Name of XML file")
 parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
 parser.add_argument("--fmin", default=35,type=float,help="Mininmum frequency in Hz, default is 40Hz to make short enough waveforms. Focus will be iLIGO to keep comutations short")
 parser.add_argument("--fmax",default=2000,type=float,help="Maximum frequency in Hz, used for PSD integral.")
