@@ -141,6 +141,13 @@ downselect_dict['m1'] = [0,1e10]
 downselect_dict['m2'] = [0,1e10]
 
 
+chi1_prior_limit = 1
+chi2_prior_limit =1
+if 's1z' in downselect_dict:
+    chi1_prior_limit =np.max(downselect_dict['s1z'])
+if 's2z' in downselect_dict:
+    chi2_prior_limit =np.max(downselect_dict['s2z'])
+
 if opts.downselect_parameter:
     dlist = opts.downselect_parameter
     dlist_ranges  = list(map(eval,opts.downselect_parameter_range))
@@ -299,7 +306,7 @@ print(fisher_extr)
 C=fisher_extr_inv = np.linalg.pinv(fisher_extr)
 
 fisher_marg = A - np.dot(B,np.dot(C,B.T))
-fisher_marg  += np.diag([1,4,1,1])   # regularize, important for second spin term
+fisher_marg  += np.diag([1,4,1./chi1_prior_limit**2, 1./chi2_prior_limit**2])   # regularize, important for second spin term AND if we have prior hard limits on spin
 #print(fisher_marg)
 
 #print(np.linalg.eig(fisher_marg))
