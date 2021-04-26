@@ -165,7 +165,7 @@ if opts.export_cosmology:
     print( " m1_source m2_source redshift ",end=' ')
 if opts.export_weights:
     print( " weights ",end=' ')
-print
+print('')
 for fname in args:
  if ".hdf5" in fname:
      # Load manually, to avoid problems with lnL, p, ps 
@@ -191,7 +191,7 @@ for fname in args:
             print( thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ,end=' ')
          if opts.export_tides:
             print( line[-7], line[-6],end=' ')
-         print
+         print('')
      f.close()
  else:
     points = table.get_table(utils.load_filename(fname,contenthandler=ligolw.LIGOLWContentHandler), lsctables.SimInspiralTable.tableName)
