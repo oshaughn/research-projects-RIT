@@ -513,7 +513,7 @@ if opts.sampler_method == "GMM":
 # Psi -- polarization angle
 # sampler: uniform in [0, pi)
 #
-psi_sampler = functools.partial(mcsampler.uniform_samp_vector, 
+psi_sampler = mcsampler.ret_uniform_samp_vector_alt( 
     param_limits["psi"][0], param_limits["psi"][1])
 psi_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
     param_limits["psi"][0], param_limits["psi"][1])
@@ -528,7 +528,7 @@ sampler.add_parameter("psi",
 # Phi - orbital phase
 # sampler: uniform in [0, 2*pi)
 #
-phi_sampler = functools.partial(mcsampler.uniform_samp_vector, 
+phi_sampler = mcsampler.ret_uniform_samp_vector_alt( 
     param_limits["phi_orb"][0], param_limits["phi_orb"][1])
 phi_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
     param_limits["phi_orb"][0], param_limits["phi_orb"][1])
@@ -558,7 +558,7 @@ if not opts.inclination_cosine_sampler:
     right_limit = param_limits["inclination"][1],
     prior_pdf = mcsampler.uniform_samp_theta)  # do NOT adapt if we are using a prior that goes to zero at the edges
 else:
- incl_sampler = functools.partial(mcsampler.uniform_samp_vector,-1,1)
+ incl_sampler = mcsampler.ret_uniform_samp_vector_alt(-1,1)
  incl_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1) 
  sampler.add_parameter("inclination", 
     pdf = incl_sampler, 
@@ -572,7 +572,7 @@ else:
 # Distance - luminosity distance to source in parsecs
 # sampler: uniform distance over [dmin, dmax), adaptive sampling
 #
-dist_sampler = functools.partial(mcsampler.uniform_samp_vector,     param_limits["distance"][0], param_limits["distance"][1])
+dist_sampler = mcsampler.ret_uniform_samp_vector_alt( param_limits["distance"][0], param_limits["distance"][1])
 dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
 #dist_sampler=functools.partial( mcsampler.uniform_samp_withfloor_vector, numpy.min([distBoundGuess,param_limits["distance"][1]]), param_limits["distance"][1], 0.001)
 dist_prior_pdf =   lambda x: x**2/(param_limits["distance"][1]**3/3.                   - param_limits["distance"][0]**3/3.) 
@@ -603,7 +603,7 @@ if opts.rom_use_basis and opts.rom_integrate_intrinsic:
  for p in intrinsic_param_names:
     indx = intrinsic_param_names.index(p)
     qmin,qmax = param_ranges[indx]
-    q_pdf =functools.partial(mcsampler.uniform_samp_vector, qmin, qmax)   # sample uniformly by default
+    q_pdf =mcsampler.ret_uniform_samp_vector_alt( qmin, qmax)   # sample uniformly by default
 #    q_pdf =functools.partial(sampler_lookup[p], qmin, qmax)   # sample uniformly by default
     q_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, qmin,qmax) # sample uniformly by default
 #    q_cdf_inv= None
@@ -640,7 +640,7 @@ else:
     # Right ascension - angle in radians from prime meridian plus hour angle
     # sampler: uniform in [0, 2pi), adaptive sampling
     #
-    ra_sampler = functools.partial(mcsampler.uniform_samp_vector,
+    ra_sampler = mcsampler.ret_uniform_samp_vector_alt(
         param_limits["right_ascension"][0], param_limits["right_ascension"][1])
     ra_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,
         param_limits["right_ascension"][0], param_limits["right_ascension"][1])
@@ -669,7 +669,7 @@ else:
     else:
      # Sample uniformly in cos(polar_theta), =1 for north pole, -1 for south pole.
      # Propagate carefully in conversions: time of flight libraries use RA,DEC
-     dec_sampler = functools.partial(mcsampler.uniform_samp_vector,-1,1)
+     dec_sampler = mcsampler.ret_uniform_samp_vector_alt(-1,1)
      dec_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1)
      sampler.add_parameter("declination", 
         pdf = dec_sampler, 
@@ -684,7 +684,7 @@ if not opts.time_marginalization:
     # tref - GPS time of geocentric end time
     # sampler: uniform in +/-2 ms window around estimated end time 
     #
-    tref_sampler = functools.partial(mcsampler.uniform_samp_vector,
+    tref_sampler = mcsampler.ret_uniform_samp_vector_alt(
         param_limits["t_ref"][0], param_limits["t_ref"][1])
 
     tref_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
