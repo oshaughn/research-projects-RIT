@@ -366,7 +366,7 @@ if True:
 
 # Run helper command
 npts_it = 250
-cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid-fisher --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound "
+cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid --propose-initial-grid-fisher --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound "
 if not(opts.force_mc_range is None):
     cmd+= " --force-mc-range {} ".format(opts.force_mc_range)
 if not(opts.force_eta_range is None):
@@ -516,10 +516,10 @@ n_iterations =0
 lines  = []
 for indx in np.arange(len(instructions_cip)):
     n_iterations += int(instructions_cip[indx][0])
-    if not(opts.aggressive_iteration_limit is None):
-        line = ' ' .join(instructions_cip[indx])
-    else:
-        line = str(opts.aggressive_iteration_limit) + ' '.join(instructions_cip[indx][1:])
+#    if not(opts.aggressive_iteration_limit is None):
+    line = ' ' .join(instructions_cip[indx])
+    # else:
+    #     line = str(opts.aggressive_iteration_limit) + ' '.join(instructions_cip[indx][1:])
     n_max_cip = 10000000;
     if opts.cip_sampler_method is "GMM":
         n_max_cip *=10   # it is faster, so run longer; helps with correlated-sampling cases

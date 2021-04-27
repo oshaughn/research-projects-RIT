@@ -863,8 +863,8 @@ elif opts.data_LI_seglen:
     data_start_time = event_dict["tref"] +2 - seglen
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0  --window-shape " + str(window_shape)
 
-if opts.propose_initial_grid_fisher and (P.extract_param('mc')/lal.MSUN_SI < 10.):
-    cmd  = "util_AnalyticFisherGrid.py  --inj-out-grid  proposed-grid  "
+if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 10.):
+    cmd  = "util_AnalyticFisherGrid.py  --inj-file-out  proposed-grid  "
     # Add standard downselects : do not have m1, m2 be less than 1
     if not(opts.force_mc_range is None):
         # force downselect based on this range
@@ -889,6 +889,13 @@ if opts.propose_initial_grid_fisher and (P.extract_param('mc')/lal.MSUN_SI < 10.
 
         cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
         grid_size =2500
+
+    if not (opts.force_initial_grid_size is None):
+        grid_size = opts.force_initial_grid_size
+    cmd += " --grid-cartesian-npts  " + str(int(grid_size))
+    print(" Executing grid command ", cmd)
+    os.system(cmd)
+
 
 elif opts.propose_initial_grid:
     # add basic mass parameters

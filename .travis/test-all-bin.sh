@@ -26,6 +26,10 @@ for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
         echo " Not python : " ${EXE}
         continue
     fi
+   if  [[ ${EXE} == *"AnalyticFisher"* ]]; then
+        echo " Analytic fisher  : " ${EXE}
+        continue
+    fi
    # skip tests that have no --help
    if  [[ ${EXE} == *"util_CacheFileConvert"* ]]; then
         continue
