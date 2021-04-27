@@ -717,6 +717,9 @@ def uniform_samp_cdf_inv_vector(a,b,p):
 #uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
 uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
 
+def ret_uniform_samp_vector_alt(a,b):
+    return lambda x: numpy.where(numpy.logical_and(x>a ,x<b), numpy.reciprocal(b-a),0.0)
+
 # def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
 #     ret =0.
 #     if x<rmaxQuad:
@@ -741,12 +744,18 @@ def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
 
 
 # syntatic sugar : predefine the most common distributions
-uniform_samp_phase = numpy.vectorize(lambda x: 1/(2*numpy.pi))
-uniform_samp_psi = numpy.vectorize(lambda x: 1/(numpy.pi))
-uniform_samp_theta = numpy.vectorize(lambda x: numpy.sin(x)/(2))
-uniform_samp_dec = numpy.vectorize(lambda x: numpy.cos(x)/(2))
+uniform_samp_phase = lambda x: numpy.broadcast_to(0.5/numpy.pi, numpy.shape(x))
+uniform_samp_psi = lambda x: numpy.broadcast_to(1.0/numpy.pi, numpy.shape(x))
+uniform_samp_theta = lambda x: 0.5*numpy.sin(x)
+uniform_samp_dec = lambda x: 0.5*numpy.cos(x)
 
-uniform_samp_cos_theta = numpy.vectorize(lambda x: 1./2.)  #dumbest-possible implementation
+uniform_samp_cos_theta = lambda x: numpy.broadcast_to(0.5, numpy.shape(x))
+# uniform_samp_phase = numpy.vectorize(lambda x: 1/(2*numpy.pi))
+# uniform_samp_psi = numpy.vectorize(lambda x: 1/(numpy.pi))
+# uniform_samp_theta = numpy.vectorize(lambda x: numpy.sin(x)/(2))
+# uniform_samp_dec = numpy.vectorize(lambda x: numpy.cos(x)/(2))
+
+# uniform_samp_cos_theta = numpy.vectorize(lambda x: 1./2.)  #dumbest-possible implementation
 
 def quadratic_samp(rmax,x):
         if x<rmax:
@@ -793,8 +802,12 @@ def cos_samp(x):
 def dec_samp(x):
         return numpy.sin(x+numpy.pi/2)/2   # x from 0, pi
 
-cos_samp_vector = numpy.vectorize(cos_samp,otypes=[numpy.float])
-dec_samp_vector = numpy.vectorize(dec_samp,otypes=[numpy.float])
+
+cos_samp_vector = lambda x: cos_samp(numpy.array(x,dtype=numpy.float))
+dec_samp_vector = lambda x: dec_samp(numpy.array(x,dtype=numpy.float))
+
+#cos_samp_vector = numpy.vectorize(cos_samp,otypes=[numpy.float])
+#dec_samp_vector = numpy.vectorize(dec_samp,otypes=[numpy.float])
 def cos_samp_cdf_inv_vector(p):
     return numpy.arccos( 2*p-1)   # returns from 0 to pi
 def dec_samp_cdf_inv_vector(p):
