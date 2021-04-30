@@ -150,7 +150,8 @@ class MCSampler(object):
                 self.prior_pdf[params] = lambda x:1
             else:
                 self.prior_pdf[params] = prior_pdf
-        self.prior_pdf[params] = prior_pdf
+        else:
+            self.prior_pdf[params] = prior_pdf
 
         if adaptive_sampling:
             print("   Adapting ", params)
@@ -382,7 +383,11 @@ class MCSampler(object):
         # This is a semi-hack to ensure that the integrand is called with
         # the arguments in the right order
         # FIXME: How dangerous is this?
-        args = func.__code__.co_varnames[:func.__code__.co_argcount]
+        if hasattr(func,'__code__'):
+            args = func.__code__.co_varnames[:func.__code__.co_argcount]
+        else:
+            args=list(args[:len(args)])
+            no_protect_params=True   # not code dictionry, so just use arguments in order
 
         #if set(args) & set(params) != set(args):
         # DISABLE THIS CHECK
