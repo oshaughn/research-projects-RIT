@@ -558,8 +558,8 @@ if not opts.inclination_cosine_sampler:
     right_limit = param_limits["inclination"][1],
     prior_pdf = mcsampler.uniform_samp_theta)  # do NOT adapt if we are using a prior that goes to zero at the edges
 else:
- incl_sampler = mcsampler.ret_uniform_samp_vector_alt(-1,1)
- incl_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1) 
+ incl_sampler = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0)
+ incl_sampler_cdf_inv = lambda x: x*2.0-1.  #functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1) 
  sampler.add_parameter("inclination", 
     pdf = incl_sampler, 
     cdf_inv = incl_sampler_cdf_inv, 
@@ -669,8 +669,8 @@ else:
     else:
      # Sample uniformly in cos(polar_theta), =1 for north pole, -1 for south pole.
      # Propagate carefully in conversions: time of flight libraries use RA,DEC
-     dec_sampler = mcsampler.ret_uniform_samp_vector_alt(-1,1)
-     dec_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1)
+     dec_sampler = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0)
+     dec_sampler_cdf_inv = lambda x: x*2.0-1. # functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1)
      sampler.add_parameter("declination", 
         pdf = dec_sampler, 
         cdf_inv = dec_sampler_cdf_inv, 
