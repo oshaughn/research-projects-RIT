@@ -549,6 +549,9 @@ class MCSampler(object):
             if bShowEveryEvaluation:
                 for i in range(n):
                     print(" Evaluation details: p,ps, L = ", joint_p_prior[i], joint_p_s[i], fval[i])
+                    print(self.params_ordered)
+                    for indx in numpy.arange(len(args)):
+                        print( self.params_ordered[indx],p_s[indx],p_prior[indx],rv[indx])
 
             # Calculate max L (a useful convergence feature) for debug 
             # reporting.  Not used for integration
@@ -723,7 +726,7 @@ def uniform_samp_cdf_inv_vector(a,b,p):
 uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
 
 def ret_uniform_samp_vector_alt(a,b):
-    return lambda x: numpy.where(numpy.logical_and(x>a ,x<b), numpy.reciprocal(b-a),0.0)
+    return lambda x: numpy.where( (x>a) & (x<b), numpy.reciprocal(b-a),0.0)
 
 # def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
 #     ret =0.
