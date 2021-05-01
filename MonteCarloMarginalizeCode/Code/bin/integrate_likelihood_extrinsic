@@ -124,6 +124,7 @@ integration_params = OptionGroup(optp, "Integration Parameters", "Control the in
 # Default is actually None, but that tells the integrator to go forever or until n_eff is hit.
 integration_params.add_option("--n-max", type=int, help="Total number of samples points to draw. If this number is hit before n_eff, then the integration will terminate. Default is 'infinite'.",default=1e7)
 integration_params.add_option("--n-eff", type=int, default=100, help="Total number of effective samples points to calculate before the integration will terminate. Default is 100")
+integration_params.add_option("--fairdraw-extrinsic-output", action='store_true' , help="Output is fair draw, rather than being comprehensive")
 integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=10000)
 integration_params.add_option("--convergence-tests-on",default=False,action='store_true')
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
@@ -858,7 +859,9 @@ pinned_params.update({
     # Sample caching
     "save_intg": opts.save_samples, # Cache the samples (and integrand values)?
     "igrand_threshold_deltalnL": opts.save_deltalnL, # Threshold on distance from max L to save sample
-    "igrand_threshold_p": opts.save_P # Threshold on cumulative probability contribution to cache sample
+    "igrand_threshold_p": opts.save_P, # Threshold on cumulative probability contribution to cache sample
+    "igrand_fairdraw_samples": opts.fairdraw_extrinsic_output,
+    "igrand_fairdraw_samples_max": opts.n_eff
 })
 if opts.sampler_method == "GMM":
     n_step =pinned_params["n"]
