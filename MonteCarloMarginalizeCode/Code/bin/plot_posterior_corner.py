@@ -17,6 +17,7 @@ import RIFT.lalsimutils as lalsimutils
 import lal
 import numpy as np
 import argparse
+from multiprocessing import Pool #added CH21
 
 eos_param_names = ['logp1', 'gamma1','gamma2', 'gamma3', 'R1_km', 'R2_km']
 
@@ -165,6 +166,7 @@ def extract_combination_from_LI(samples_LI, p):
         m2 = samples_LI['m2']
         a1z = samples_LI['a1z']
         a2z = samples_LI['a2z']
+        print((m1 * a1z + m2*a2z)/(m1+m2))
         return (m1 * a1z + m2*a2z)/(m1+m2)
     if p == 'chiz_plus':
         print(" Transforming ")
@@ -226,6 +228,22 @@ def extract_combination_from_LI(samples_LI, p):
         m1v= samples["m1"]
         m2v = samples["m2"]
         return lalsimutils.symRatio(m1v,m2v)
+    
+    #############NEW CHANGES HERE CH21#######
+
+    if p == 'chi_pavg':
+        samples = np.array([samples_LI["m1"], samples_LI["m2"], samples_LI["a1x"], samples_LI["a1y"], samples_LI["a1z"], samples_LI["a2x"], samples_LI["a2y"], samples_LI["a2z"]]).T
+        with Pool(12) as pool:   
+            chipavg = np.array(pool.map(fchipavg, samples))          
+        return chipavg
+    
+    if p == 'chi_p':
+        samples = np.array([samples_LI["m1"], samples_LI["m2"], samples_LI["a1x"], samples_LI["a1y"], samples_LI["a1z"], samples_LI["a2x"], samples_LI["a2y"], samples_LI["a2z"]]).T
+        with Pool(12) as pool:   
+            chip = np.array(pool.map(fchip, samples))          
+        return chip
+    
+    #############END CONSTRUCTION############
 
     # Backup : access lambdat if not present
     if (p == 'lambdat' or p=='dlambdat') and 'lambda1' in samples.dtype.names:
@@ -241,8 +259,41 @@ def extract_combination_from_LI(samples_LI, p):
     print(" No access for parameter ", p, " in ", samples.dtype.names)
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
 
+######### MUlTIPROCESSING FUNCTIONS ############
 
+def fchipavg(sample):
+            P=lalsimutils.ChooseWaveformParams()
+            P.m1 = sample[0]
+            P.m2 = sample[1]
+            P.s1x = sample[2]
+            P.s1y = sample[3]
+            P.s1z = sample[4]
+            P.s2x = sample[5]
+            P.s2y = sample[6]
+            P.s2z = sample[7]
+            if (P.s1x == 0 and P.s1y == 0 and P.s2x == 0 and P.s2y == 0):
+                chipavg = 0
+            elif (P.s1x == 0 and P.s1y == 0 and P.s1z == 0) or (P.s2x == 0 and P.s2y == 0 and P.s2z == 0):
+                chipavg = P.extract_param('chi_p')
+            else:
+                chipavg = P.extract_param('chi_pavg')
+            return chipavg     
 
+def fchip(sample):
+            P=lalsimutils.ChooseWaveformParams()
+            P.m1 = sample[0]
+            P.m2 = sample[1]
+            P.s1x = sample[2]
+            P.s1y = sample[3]
+            P.s1z = sample[4]
+            P.s2x = sample[5]
+            P.s2y = sample[6]
+            P.s2z = sample[7]
+            chip = P.extract_param('chi_p')
+            return chip  
+    
+################################################
+        
 # Parse arguments
 parser = argparse.ArgumentParser()
 parser.add_argument("--posterior-file",action='append',help="filename of *.dat file [standard LI output]")
@@ -250,7 +301,6 @@ parser.add_argument("--truth-file",type=str, help="file containing the true para
 parser.add_argument("--posterior-distance-factor",action='append',help="Sequence of factors used to correct the distances")
 parser.add_argument("--truth-event",type=int, default=0,help="file containing the true parameters")
 parser.add_argument("--composite-file",action='append',help="filename of *.dat file [standard ILE intermediate]")
-parser.add_argument("--use-all-composite-but-grayscale",action='store_true',help="Composite")
 parser.add_argument("--flag-tides-in-composite",action='store_true',help='Required, if you want to parse files with tidal parameters')
 parser.add_argument("--posterior-label",action='append',help="label for posterior file")
 parser.add_argument("--posterior-color",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
@@ -302,6 +352,8 @@ special_param_ranges = {
   'chi_eff': [-opts.chi_max,opts.chi_max],  # this can backfire for very narrow constraints
   'lambda1':[0,4000],
   'lambda2':[0,4000],
+  'chi_pavg':[0,2],   #added CH21
+  'chi_p':[0,1], #added CH21
   'lambdat':[0,4000]
 }
 
@@ -465,7 +517,6 @@ for indx in np.arange(len(posterior_list)):
 
 # Import
 composite_list = []
-composite_full_list = []
 field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lnL", "sigmaOverL", "ntot", "neff")
 if opts.flag_tides_in_composite:
     print(" Reading composite file, assuming tide-based format ")
@@ -489,27 +540,6 @@ if opts.composite_file:
             for name in samples.dtype.names:
                 new_samples[name] = samples[name][good_sigma]
             samples = new_samples
-
-#    samples = np.recarray(samples.T,names=field_names,dtype=field_formats) #,formats=field_formats)
-    # If no record names
-    # Add mtotal, q, 
-    samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"]; 
-    samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"]; 
-    samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
-    samples=add_field(samples,[('eta',float)]); samples["eta"] = lalsimutils.symRatio(samples["m1"], samples["m2"])
-    samples=add_field(samples,[('chi_eff',float)]); samples["chi_eff"]= (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["mtotal"]); 
-    chi1_perp = np.sqrt(samples['a1x']*samples["a1x"] + samples['a1y']**2)
-    chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
-    samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
-    samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
-
-    if ('lambda1' in samples.dtype.names):
-        Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
-        samples= add_field(samples, [('LambdaTilde',float), ('DeltaLambdaTilde',float),('lambdat',float),('dlambdat',float)])
-        samples['LambdaTilde'] = samples['lambdat']= Lt
-        samples['DeltaLambdaTilde'] = samples['dlambdat']= dLt
-
-    samples_orig = samples
     if opts.lnL_cut:
         npts = len(samples["m1"])
         # strip NAN
@@ -532,6 +562,24 @@ if opts.composite_file:
         for name in samples.dtype.names:
             new_samples[name] = samples[name][indx_ok]
         samples = new_samples
+#    samples = np.recarray(samples.T,names=field_names,dtype=field_formats) #,formats=field_formats)
+    # If no record names
+    # Add mtotal, q, 
+    samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"]; 
+    samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"]; 
+    samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
+    samples=add_field(samples,[('eta',float)]); samples["eta"] = lalsimutils.symRatio(samples["m1"], samples["m2"])
+    samples=add_field(samples,[('chi_eff',float)]); samples["chi_eff"]= (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["mtotal"]); 
+    chi1_perp = np.sqrt(samples['a1x']*samples["a1x"] + samples['a1y']**2)
+    chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
+    samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
+    samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
+
+    if ('lambda1' in samples.dtype.names):
+        Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
+        samples= add_field(samples, [('LambdaTilde',float), ('DeltaLambdaTilde',float),('lambdat',float),('dlambdat',float)])
+        samples['LambdaTilde'] = samples['lambdat']= Lt
+        samples['DeltaLambdaTilde'] = samples['dlambdat']= dLt
 
 
     print(" Loaded samples from ", fname , len(samples["m1"]))
@@ -553,7 +601,6 @@ if opts.composite_file:
 
 
     composite_list.append(samples)
-    composite_full_list.append(samples_orig)
 
     continue
 
@@ -749,10 +796,8 @@ if opts.plot_1d_extra:
 if composite_list:
   for pIndex in [0]: # np.arange(len(composite_list)):  # should NEVER have more than one
     samples = composite_list[pIndex]
-    samples_orig = composite_full_list[pIndex]
     # Create data for corner plot
     dat_mass = np.zeros( (len(samples["m1"]), len(labels_tex)) )
-    dat_mass_orig = np.zeros( (len(samples_orig["m1"]), len(labels_tex)) )
     lnL = samples["lnL"]
     indx_sorted = lnL.argsort()
     if len(lnL)<1:
@@ -774,11 +819,9 @@ if composite_list:
         param = opts.parameter[indx]
         if param in field_names:
             dat_mass[:,indx] = samples[param]
-            dat_mass_orig[:,indx] = samples_orig[param]
         else:
             print(" Trying alternative access for ", param)
             dat_mass[:,indx] = extract_combination_from_LI(samples, param)
-            dat_mass_orig[:,indx] = extract_combination_from_LI(samples_orig, param)
         # truths
         if opts.truth_file:
             param_to_extract = param
@@ -804,10 +847,6 @@ if composite_list:
             
     # We will need to rewrite 'corner' to do what we want: see the source
     # https://github.com/dfm/corner.py/blob/master/corner/corner.py
-    # Grayscale, using all points
-    if opts.use_all_composite_but_grayscale:
-        fig_base = our_corner.corner(dat_mass_orig,range=range_list, plot_datapoints=True,weights=np.ones(len(dat_mass_orig))*1.0/len(dat_mass_orig), plot_density=False, no_fill_contours=True, plot_contours=False,contours=False,levels=None,fig=fig_base,data_kwargs={'color':'0.5','s':1})
-    # Color scale with colored points
     fig_base = our_corner.corner(dat_mass,range=range_list, plot_datapoints=True,weights=np.ones(len(dat_mass))*1.0/len(dat_mass), plot_density=False, no_fill_contours=True, plot_contours=False,contours=False,levels=None,fig=fig_base,data_kwargs={'color':my_cmap_values, 's':1}, truths=truths_here)
 
     # Create colorbar mappable
