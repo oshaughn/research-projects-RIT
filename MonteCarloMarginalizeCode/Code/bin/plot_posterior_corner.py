@@ -17,6 +17,7 @@ import RIFT.lalsimutils as lalsimutils
 import lal
 import numpy as np
 import argparse
+from multiprocessing import Pool 
 
 eos_param_names = ['logp1', 'gamma1','gamma2', 'gamma3', 'R1_km', 'R2_km']
 
@@ -91,15 +92,12 @@ def render_coordinates(coord_names,logparams=[]):
 
 def add_field(a, descr):
     """Return a new array that is like "a", but has additional fields.
-
     Arguments:
       a     -- a structured numpy array
       descr -- a numpy type description of the new fields
-
     The contents of "a" are copied over to the appropriate fields in
     the new array, whereas the new fields are uninitialized.  The
     arguments are not modified.
-
     >>> sa = numpy.array([(1, 'Foo'), (2, 'Bar')], \
                          dtype=[('id', int), ('name', 'S3')])
     >>> sa.dtype.descr == numpy.dtype([('id', int), ('name', 'S3')])
@@ -227,6 +225,18 @@ def extract_combination_from_LI(samples_LI, p):
         m2v = samples["m2"]
         return lalsimutils.symRatio(m1v,m2v)
 
+    if p == 'chi_pavg':
+        samples = np.array([samples_LI["m1"], samples_LI["m2"], samples_LI["a1x"], samples_LI["a1y"], samples_LI["a1z"], samples_LI["a2x"], samples_LI["a2y"], samples_LI["a2z"]]).T
+        with Pool(12) as pool:   
+            chipavg = np.array(pool.map(fchipavg, samples))          
+        return chipavg
+
+    if p == 'chi_p':
+        samples = np.array([samples_LI["m1"], samples_LI["m2"], samples_LI["a1x"], samples_LI["a1y"], samples_LI["a1z"], samples_LI["a2x"], samples_LI["a2y"], samples_LI["a2z"]]).T
+        with Pool(12) as pool:   
+            chip = np.array(pool.map(fchip, samples))          
+        return chip
+
     # Backup : access lambdat if not present
     if (p == 'lambdat' or p=='dlambdat') and 'lambda1' in samples.dtype.names:
         Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
@@ -241,7 +251,40 @@ def extract_combination_from_LI(samples_LI, p):
     print(" No access for parameter ", p, " in ", samples.dtype.names)
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
 
+######### MUlTIPROCESSING FUNCTIONS ############
 
+def fchipavg(sample):
+            P=lalsimutils.ChooseWaveformParams()
+            P.m1 = sample[0]
+            P.m2 = sample[1]
+            P.s1x = sample[2]
+            P.s1y = sample[3]
+            P.s1z = sample[4]
+            P.s2x = sample[5]
+            P.s2y = sample[6]
+            P.s2z = sample[7]
+            if (P.s1x == 0 and P.s1y == 0 and P.s2x == 0 and P.s2y == 0):
+                chipavg = 0
+            elif (P.s1x == 0 and P.s1y == 0 and P.s1z == 0) or (P.s2x == 0 and P.s2y == 0 and P.s2z == 0):
+                chipavg = P.extract_param('chi_p')
+            else:
+                chipavg = P.extract_param('chi_pavg')
+            return chipavg     
+
+def fchip(sample):
+            P=lalsimutils.ChooseWaveformParams()
+            P.m1 = sample[0]
+            P.m2 = sample[1]
+            P.s1x = sample[2]
+            P.s1y = sample[3]
+            P.s1z = sample[4]
+            P.s2x = sample[5]
+            P.s2y = sample[6]
+            P.s2z = sample[7]
+            chip = P.extract_param('chi_p')
+            return chip  
+
+################################################
 
 # Parse arguments
 parser = argparse.ArgumentParser()
@@ -302,6 +345,8 @@ special_param_ranges = {
   'chi_eff': [-opts.chi_max,opts.chi_max],  # this can backfire for very narrow constraints
   'lambda1':[0,4000],
   'lambda2':[0,4000],
+  'chi_pavg':[0,2],
+  'chi_p':[0,1],
   'lambdat':[0,4000]
 }
 
