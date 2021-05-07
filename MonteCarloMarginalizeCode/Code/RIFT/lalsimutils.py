@@ -30,9 +30,9 @@ from scipy import interpolate
 from scipy import signal
 import scipy  # for decimate
 try:
-	import precession
+    import precession
 except ImportError:
-	print('Import Error - module missing. Please install the module "precession".)
+    print('Import Error - module missing. Please install the module "precession."')
 def safe_int(mystr):
    try:
         return int(mystr)
