@@ -29,7 +29,10 @@ from numpy import sin, cos
 from scipy import interpolate
 from scipy import signal
 import scipy  # for decimate
-import precession #new CH21
+try:
+	import precession
+except ImportError:
+	print('Import Error - module missing. Please install the module "precession".)
 def safe_int(mystr):
    try:
         return int(mystr)
