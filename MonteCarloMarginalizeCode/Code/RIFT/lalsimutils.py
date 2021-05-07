@@ -1604,7 +1604,6 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
 
     return True
 
-#these appear to be raw data
 hdf_params = ['m1', 'm2', \
    's1x',   's1y', 's1z', 's2x', 's2y', 's2z', \
     'dist', 'incl', 'phiref', 'theta', 'phi', 'tref', 'psi', \
