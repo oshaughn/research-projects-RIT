@@ -1068,7 +1068,7 @@ if opts.propose_fit_strategy:
             
                 # Last iterations are with a polar spin, to get spin prior  (as usually requested). Fir is the same as before, but sampling is more efficient
                 if not opts.assume_volumetric_spin:
-                    helper_cip_arg_list[3] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
+                    helper_cip_arg_list[3] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit cos_theta1 --parameter-nofit cos_theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
                 else:
                     helper_cip_arg_list.pop() # remove last stage of iterations as superfluous
         
