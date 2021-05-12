@@ -14,6 +14,9 @@ Since last release
    - carriage return bugfixes in convert_output_format ile2inference (rc5)
    - grids from analytic fisher matrix (util_AnalyticFisherGrid) using gwbench; MOG gets latin hypercube sampling;
      new pseudo_pipe_lowlatency for low latency tunings (rc6)
+   - ILE, ILE_batchmode (option export extrinsic per iteration; hope to fix cosmo prior sampling; Dan's suggestion to
+     remove np.vectorize calls), mcsampler (help export extrinsic per iteration), general analytic fisher matrix via
+     gwbench calls (pseudo_pipe option), converter add missing py2->py3 print statements (rc7)
 
 0.0.15.5
 -----------
