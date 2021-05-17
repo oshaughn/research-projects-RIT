@@ -278,6 +278,8 @@ parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--fail-unless-n-eff",default=None,type=int,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
+parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
+parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
 parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP fit to load. Overrides fitting process, but user MUST correctly specify coordinate system to interpret the fit with.  Does not override loading and converting the data.")
 parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP fit to save. ")
@@ -793,6 +795,26 @@ if opts.prior_lambda_linear:
 ###
 ### Linear fits. Resampling a quadratic. (Export me)
 ###
+
+def fit_quadratic_stored(fname_h5,loc,L_offset=200):
+    import h5py
+    with h5py.File(fname_h5,'r') as F:
+        event = F(loc)  # assumed to be mc_source ,eta, chi_eff for now!
+        mean = np.array(event["mean"])
+        cov = np.matrix(event["cov"])
+    cov_det = np.linalg.det(cov)
+    icov = np.linalg.pinv(cov)
+    n_params = len(mean)
+    def my_func(x): # Horribly slow implementation but much easier to read/understand
+        y_val = np.zeros(len(x))
+        for indx in np.arange(len(x)):
+            dx = x[indx]-mean
+            alt = np.dot(icov,dx)
+            eps2 = float(np.dot(dx.T,alt)) # convert to scalar
+            y_val[indx] = np.log((2*np.pi)**(-n_params/2.) * np.sqrt(1./cov_det) )  - eps2  + L_offset
+        return y_val
+    return my_func
+
 
 def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False):
     gamma_x = None
@@ -1322,7 +1344,10 @@ elif sum(indx_ok) < 10: # and max_lnL > 30:
 X_raw = X.copy()
 
 my_fit= None
-if opts.fit_method == "quadratic":
+if not(opts.fit_load_quadratic is None):
+    print("FIT METHOD IS STORED QUADRATIC; no data used! ")
+    my_fit = fit_quadratic_stored(opts.fit_load_quadratic, opts.fit_load_quadratic_path)
+elif opts.fit_method == "quadratic":
     print(" FIT METHOD ", opts.fit_method, " IS QUADRATIC")
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
@@ -1504,7 +1529,6 @@ elif opts.fit_method == 'gp-sparse':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp_sparse(X,Y,y_errors=Y_err)
-
 
 
 
