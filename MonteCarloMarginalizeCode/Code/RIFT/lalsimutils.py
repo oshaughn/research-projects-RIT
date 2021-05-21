@@ -219,7 +219,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity']
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -518,6 +518,9 @@ class ChooseWaveformParams:
             self.s1y = chi_now*np.sin(val) * self.s1y/chiperp_now
             self.s1z = chi_now*np.cos(val)
             return self
+        if p == 'cos_theta1':
+           self.assign_param('theta1',np.arccos(val))
+           return self
         if p == 'phi1':
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
@@ -550,6 +553,9 @@ class ChooseWaveformParams:
             self.s2y = chi_now*np.sin(val) * self.s2y/chiperp_now
             self.s2z = chi_now*np.cos(val)
             return self
+        if p == 'cos_theta2':
+           self.assign_param('theta2',np.arccos(val))
+           return self
         if p == 'phi2':
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")

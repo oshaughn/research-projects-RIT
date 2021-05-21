@@ -1282,7 +1282,7 @@ if opts.output_file:
         else:
             samples["latitude"] = samples["declination"]
             samples["longitude"] = samples["right_ascension"]
-        samples["loglikelihood"] = numpy.log(samples["integrand"])
+        samples["loglikelihood"] = numpy.log(samples["integrand"])+ manual_avoid_overflow_logarithm  # export with consistent offset
         if not opts.rom_integrate_intrinsic:
             # ILE mode: insert fixed model parameters
             samples["mass1"] = numpy.ones(samples["psi"].shape)*m1 # opts.mass1
