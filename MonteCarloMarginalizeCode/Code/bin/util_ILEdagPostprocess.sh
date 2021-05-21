@@ -20,7 +20,7 @@ find ${DIR_PROCESS} -name 'CME*.dat' -exec cat {} \; > ${RND}_tmp.dat
 
 # clean them (=join duplicate lines)
 echo " Consolidating multiple instances of the monte carlo  .... "
-util_CleanILE.py ${RND}_tmp.dat | sort -rg -k10 > $BASE_OUT.composite
+util_CleanILE.py ${RND}_tmp.dat --eccentricity | sort -rg -k10 > $BASE_OUT.composite
 
 
 # Manifest

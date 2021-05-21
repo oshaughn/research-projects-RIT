@@ -339,6 +339,8 @@ if opts.sim_xml:
         P.fref = opts.reference_freq
         if opts.approximant != "TaylorT4": # not default setting
             P.approx = lalsimutils.lalsim.GetApproximantFromString(opts.approximant)  # allow user to override the approx setting. Important for NR followup, where no approx set in sim_xml!
+        if opts.approximant == "EccentricTD":
+            P.phaseO = 3
 
     P = P_list[0]  # Load in the physical parameters of the injection.  
 

@@ -296,7 +296,9 @@ parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adapti
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
 parser.add_argument("--use-eccentricity", action="store_true")
 
-# FIXME hacky options added by me (Ben) to try to get my capstone project to work
+ECC_MAX = 0.25 # FIXME this is dumb
+
+# FIXME hacky options added by me (Liz) to try to get my capstone project to work
 parser.add_argument("--fixed-parameter", action="append")
 parser.add_argument("--fixed-parameter-value", action="append")
 
@@ -630,7 +632,7 @@ def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   #
     return 1/(1+f1)
 
 def eccentricity_prior(x):
-    return 10.0 * np.ones(x.shape) # uniform over the interval [0.0, 0.1]
+    return np.ones(x.shape) / ECC_MAX # uniform over the interval [0.0, ECC_MAX]
 
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
@@ -670,7 +672,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda2':[0.01,lambda_small_max],
   'lambda_plus':[0.01,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
-  'eccentricity':[0.0, 0.5],
+  'eccentricity':[0.0, ECC_MAX],
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
@@ -1628,10 +1630,12 @@ if len(low_level_coord_names) ==2:
 if len(low_level_coord_names) ==3:
     def likelihood_function(x,y,z):  
         if isinstance(x,float):
-            return np.exp(my_fit([x,y,z]))
+            ret = np.exp(my_fit([x,y,z]))
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z],dtype=internal_dtype).T)))
-            return np.exp(my_fit(convert_coords(np.c_[x,y,z])))
+            ret = np.exp(my_fit(convert_coords(np.c_[x,y,z])))
+        print(ret)
+        return ret
 if len(low_level_coord_names) ==4:
     def likelihood_function(x,y,z,a):  
         if isinstance(x,float):
@@ -1676,7 +1680,6 @@ if len(low_level_coord_names) ==10:
             return np.exp(my_fit([x,y,z,a,b,c,d,e,f,g]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g])))
-
 
 n_step = 1e5
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast

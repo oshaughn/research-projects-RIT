@@ -270,6 +270,8 @@ parser.add_argument("--lambda-plot-max",default=2000,type=float)
 parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
 parser.add_argument("--eccentricity", action="store_true")
+parser.add_argument("--exclude-truth-value", action="append", help="parameters for which truth values should not be plotted")
+parser.add_argument("--fontsize", type=int, help="font size")
 opts=  parser.parse_args()
 if opts.posterior_file is None:
     print(" No input files ")
@@ -277,6 +279,10 @@ if opts.posterior_file is None:
     sys.exit(0)
 if opts.pdf:
     fig_extension='.pdf'
+
+plot_kwargs = {}
+if opts.fontsize is not None:
+    plot_kwargs["fontsize"] = opts.fontsize
 
 truth_P_list = None
 P_ref = None
@@ -290,6 +296,10 @@ if opts.change_parameter_label:
   for name, new_str in map( lambda c: c.split("="),opts.change_parameter_label):
       if name in lalsimutils.tex_dictionary:
           lalsimutils.tex_dictionary[name] = "$"+new_str+"$"
+
+truths_exclude = opts.exclude_truth_value
+if truths_exclude is None:
+    truths_exclude = []
 
 special_param_ranges = {
   'q':[0,1],
@@ -667,6 +677,8 @@ for pIndex in np.arange(len(posterior_list)):
                 truths_here[indx] = truths_here[indx]/lal.MSUN_SI
             if param in ['dist', 'distance']:
                 truths_here[indx] = truths_here[indx]/lal.PC_SI/1e6
+            if param in truths_exclude:
+                truths_here[indx] = None
 #            print param, truths_here[indx]
 
         # if 1d plots needed, make them
@@ -713,7 +725,7 @@ for pIndex in np.arange(len(posterior_list)):
 #    if opts.use_smooth_1d:
 #        smooth1d=smooth_list
 #        print smooth1d
-    fig_base = corner.corner(dat_mass,smooth1d=smooth1d, range=range_list,weights=weights, labels=labels_tex, quantiles=quantiles_1d, plot_datapoints=False, plot_density=False, no_fill_contours=True, contours=True, levels=CIs,fig=fig_base,color=my_cmap_values ,hist_kwargs={'linestyle': linestyle_list[pIndex]}, linestyle=linestyle_list[pIndex],contour_kwargs={'linestyles':linestyle_list[pIndex]},truths=truths_here)
+    fig_base = corner.corner(dat_mass,smooth1d=smooth1d, range=range_list,weights=weights, labels=labels_tex, quantiles=quantiles_1d, plot_datapoints=False, plot_density=False, no_fill_contours=True, contours=True, levels=CIs,fig=fig_base,color=my_cmap_values ,hist_kwargs={'linestyle': linestyle_list[pIndex]}, linestyle=linestyle_list[pIndex],contour_kwargs={'linestyles':linestyle_list[pIndex]},truths=truths_here, label_kwargs=plot_kwargs)
 
 
 if opts.plot_1d_extra:
