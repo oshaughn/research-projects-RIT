@@ -76,3 +76,13 @@ for i in analysis_event_*; do COUNT=`ls $i/post*.dat | wc -l`; if [ ${COUNT} -le
 ``
 
 It is possible that runs may fail in later iterations, for reasons other than the test.  That's easily identifed from the convergence test report being larger than the termination threshold.
+
+## GPU/cupy installs
+cupy may require cuda==10.0 to work.  
+
+**Option 1**: Need to install cupy-cuda100, and make sure to use a CUDA_DIR for the appropriate installation.
+
+**Option 2**: Make a conda install, and use an appropriate conda configuration. Since this installs from source, that takes time.
+$ . /cvmfs/oasis.opensciencegrid.org/ligo/sw/conda/etc/profile.d/conda.sh
+$ conda create --clone igwn-py38-20210107 --name igwn-py38-20210107-cupy
+$ conda install -c conda-forge cupy cudatoolkit=10.0
