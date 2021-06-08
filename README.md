@@ -35,7 +35,7 @@ If you are working with this development repository, please try to add your name
      d.  NRSur7dq2 interface: Lange et al 2018 (RIFT) [paper](https://arxiv.org/abs/1805.10457), and ...
 
   5. If you are using an updated Monte Carlo integration package, please acknowledge the authors; papers will be prepared soon
-     a.  GMM integrator: Ben Champion; see [repo](https://git.ligo.org/benjamin.champion/Monte-Carlo-Integrator), see MonteCarloEnsemble and mcsamplerEnsemble
+     a.  GMM integrator: Elizabeth Champion; see [repo](https://git.ligo.org/elizabeth.champion/Monte-Carlo-Integrator), see MonteCarloEnsemble and mcsamplerEnsemble
      b.  GPU MC integrator:  Wysocki, O'Shaughnessy 
 
 ## Authorlists: Opt-in model
