@@ -2665,8 +2665,6 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
-    #elif (P.approx == lalsim.TaylorT4 and P.eccentricity > 0):
-    #    hlms = hlmoft_ecc_dict(P)
     elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8):
         # approximant likst: see https://git.ligo.org/lscsoft/lalsuite/blob/master/lalsimulation/lib/LALSimInspiral.c#2541
         extra_params = P.to_lal_dict()
@@ -2895,63 +2893,6 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
 #        if np.abs(np.cos(P_copy.incl))<1:
 #            P_copy.phiref =  P_copy.phiref
 #            P_copy.psi = P_copy.phiref # polarization angle is set by emission direction, physically
-
-        hTC = complex_hoft_IMRPv2(P_copy)
-        hTC_list.append(hTC)
-
-    # Now construct the hlm from this sequence
-    hlmT = {}
-    for indx2 in np.arange(5):
-        m = mvals[indx2]
-        hlmT[(2,m)] = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hTC.epoch, hTC.f0, 
-            hTC.deltaT, lsu_DimensionlessUnit, hTC.data.length)
-        hlmT[(2,m)].epoch = float(hTC_list[0].epoch)
-        hlmT[(2,m)].data.data *=0   # this is needed, memory is not reliably cleaned
-        for indx in np.arange(len(paramsForward)):
-            hlmT[(2,m)].data.data += mtx[indx2,indx] * hTC_list[indx].data.data
-    
-    return hlmT
-
-def hlmoft_ecc_dict(P,sgn=-1):
-    """
-    Version of function with nonzero eccentricity
-
-    Reconstruct hlm(t) from h(t,nhat) evaluated in 5 different nhat directions, specifically for IMRPhenomPv2
-    Using SimInspiralTD evaluated at nhat=zhat  (zhat=Jhat), nhat=-zhat, and at three points in the equatorial plane.
-    There is an analytic solution, but for code transparency I do the inverse numerically rather than code it in
-
-    ISSUES
-      - lots of instability in recovery depending on point set used (e.g., degeneracy in aligned spin case). Need to choose intelligently
-      - duration of hlm is *longer* than deltaF (because of SimInspiralTD) in general.
-    """
-
-    mtxAngularForward = np.zeros((5,5),dtype=np.complex64)
-    paramsForward =[ [np.pi,0], [np.pi/3,0], [np.pi/2, 0], [2*np.pi/3, 0], [0,0]];
-    mvals = [-2,-1,0,1,2]
-    for indx in np.arange(len(paramsForward)):
-        for indx2 in np.arange(5):
-            m = mvals[indx2]
-            th,ph = paramsForward[indx]
-            mtxAngularForward[indx,indx2] = lal.SpinWeightedSphericalHarmonic(th,-ph,-2,2,m)  # note phase sign
-    mtx = np.linalg.inv(mtxAngularForward)
-    # Now generate solutions at these values
-    P_copy = P.manual_copy()
-    P_copy.tref =0  # we do not need or want this offset when constructing hlm
-    # Force rouding of tiny transverse spins, to avoid numerical problems associated with the way the PhenomP code defines orientations
-    P_copy.s1x = int(P.s1x*1e4)/1.e4
-    P_copy.s2x = int(P.s2x*1e4)/1.e4
-    P_copy.s1y = int(P.s1y*1e4)/1.e4
-    P_copy.s2y = int(P.s2y*1e4)/1.e4
-
-    hTC_list = []
-    for indx in np.arange(len(paramsForward)):
-        th,ph = paramsForward[indx]
-        P_copy.incl = th  # to be CONSISTENT with h(t) produced by ChooseTD, need to use incl here (!!)
-        P_copy.phiref = ph
-        # Note argument change!  Hack to recover reasonable hlm modes for (2,+/-1), (2,0)
-        # Something is funny about how SimInspiralFD/etc applies all these coordinate transforms
-        if P_copy.fref ==0:
-            P_copy.fref = P_copy.fmin
 
         hTC = complex_hoft_IMRPv2(P_copy)
         hTC_list.append(hTC)
