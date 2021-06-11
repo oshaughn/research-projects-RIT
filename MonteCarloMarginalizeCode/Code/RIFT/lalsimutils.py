@@ -257,6 +257,7 @@ tex_dictionary  = {
   "s2x": "$\chi_{2,x}$",
   "s1y": "$\chi_{1,y}$",
   "s2y": "$\chi_{2,y}$",
+  "eccentricity":"$e$",
   # tex labels for inherited LI names
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
@@ -299,7 +300,8 @@ class ChooseWaveformParams:
             ampO=0, phaseO=7, approx=lalsim.TaylorT4, 
             theta=0., phi=0., psi=0., tref=0., radec=False, detector="H1",
             deltaF=None, fmax=0., # for use w/ FD approximants
-            taper=lsu_TAPER_NONE # for use w/TD approximants
+            taper=lsu_TAPER_NONE, # for use w/TD approximants
+            eccentricity=0. # make eccentricity a parameter
             ):
         self.phiref = phiref
         self.deltaT = deltaT
@@ -327,13 +329,17 @@ class ChooseWaveformParams:
         self.psi = psi
         self.meanPerAno = 0.0  # port 
         self.longAscNodes = self.psi # port to master
-        self.eccentricity=0
+        self.eccentricity=eccentricity
         self.tref = tref
         self.radec = radec
         self.detector = "H1"
         self.deltaF=deltaF
         self.fmax=fmax
         self.taper = taper
+
+        # force this waveform's PN order to be 3 to avoid crashes
+        if self.approx == lalsim.EccentricTD:
+            self.phaseO = 3
 
     # From Pankow/master
     try:
