@@ -146,6 +146,7 @@ optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cum
 optp.add_option("--internal-hard-fail-on-error",action='store_true',help='If true, fails with exit code 1 if any point is unsuccessful')
 optp.add_option("--internal-make-empty-file-on-error",action='store_true',help='If true, failed points generate empty output file. Protects against OSG workflow problems')
 optp.add_option("--verbose",action='store_true')
+optp.add_option("--save-eccentricity", action="store_true")
 #
 # Add the integration options
 #
@@ -345,6 +346,8 @@ if opts.sim_xml:
         P.fref = opts.reference_freq
         if opts.approximant != "TaylorT4": # not default setting
             P.approx = lalsimutils.lalsim.GetApproximantFromString(opts.approximant)  # allow user to override the approx setting. Important for NR followup, where no approx set in sim_xml!
+        if opts.approximant == "EccentricTD":
+            P.phaseO = 3
 
     P = P_list[0]  # Load in the physical parameters of the injection.  
 
@@ -1001,7 +1004,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             event_id = -1
         if opts.event == None:
             event_id = -1
-        if not (P.lambda1>0 or P.lambda2>0):
+        if opts.save_eccentricity:
+            # output format when eccentricity is being used
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+        elif not (P.lambda1>0 or P.lambda2>0):
+            # output format when lambda is NOT used
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         else:
             # Alternative output format if lambda is active
