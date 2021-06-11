@@ -294,6 +294,15 @@ parser.add_argument("--eos-param", type=str, default=None, help="parameterizatio
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
+parser.add_argument("--use-eccentricity", action="store_true")
+
+ECC_MAX = 0.25 # maximum value of eccentricity, hard-coding here for ease of editing
+
+# FIXME hacky options added by me (Liz) to try to get my capstone project to work.
+# I needed a way to fix the component masses and nothing else seemed to work.
+parser.add_argument("--fixed-parameter", action="append")
+parser.add_argument("--fixed-parameter-value", action="append")
+
 opts=  parser.parse_args()
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
@@ -623,6 +632,9 @@ def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   #
     
     return 1/(1+f1)
 
+def eccentricity_prior(x):
+    return np.ones(x.shape) / ECC_MAX # uniform over the interval [0.0, ECC_MAX]
+
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
@@ -647,7 +659,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'cos_theta1': mcsampler.uniform_samp_cos_theta,
     'cos_theta2': mcsampler.uniform_samp_cos_theta,
     'phi1':mcsampler.uniform_samp_phase,
-    'phi2':mcsampler.uniform_samp_phase
+    'phi2':mcsampler.uniform_samp_phase,
+    'eccentricity':eccentricity_prior
 }
 prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_small_max,0.999*chi_small_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
    's1x':[-chi_max,chi_max],
@@ -662,6 +675,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda2':[0.01,lambda_small_max],
   'lambda_plus':[0.01,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
+  'eccentricity':[0.0, ECC_MAX],
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
@@ -1115,6 +1129,9 @@ col_lnL = 9
 if opts.input_tides:
     print(" Tides input")
     col_lnL +=2
+elif opts.use_eccentricity:
+    print(" Eccentricity input")
+    col_lnL += 1
 if opts.input_distance:
     print(" Distance input")
     col_lnL +=1
@@ -1190,6 +1207,8 @@ for line in dat:
     if opts.input_tides:
         P.lambda1 = line[9]
         P.lambda2 = line[10]
+    if opts.use_eccentricity:
+        P.eccentricity = line[9]
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[9]  # Incompatible with tides, note!
     
@@ -2147,6 +2166,12 @@ for indx_here in indx_list:
         # Set some superfluous quantities, needed only for PN approximants, so the result is generated sensibly
         Pgrid.ampO =opts.amplitude_order
         Pgrid.phaseO =opts.phase_order
+        
+        # Set fixed parameters
+        if opts.fixed_parameter is not None:
+            for i, p in enumerate(opts.fixed_parameter):
+                fac = lal.MSUN_SI if p in ["mc", "mtot", "m1", "m2"] else 1.0
+                Pgrid.assign_param(p, fac * float(opts.fixed_parameter_value[i]))
 
         # Downselect.
         # for param in downselect_dict:
