@@ -69,6 +69,8 @@ else:
         P.approx = lalsim.GetApproximantFromString(str(opts.approx))
 P.taper = lalsimutils.lsu_TAPER_START  # force taper
 P.detector = opts.instrument
+if opts.approx == "EccentricTD":
+    P.phaseO = 3
 P.print_params()
 
 
