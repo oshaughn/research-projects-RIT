@@ -8,6 +8,7 @@
 
 DIR_PROCESS=$1
 BASE_OUT=$2
+ECC=$3 # Liz (Capstone): this will only be non-blank in the case where my eccentric PE Makefile has inserted "--eccentricity" into join.sub
 
 # join together the .dat files
 echo " Joining data files .... "
@@ -20,7 +21,7 @@ find ${DIR_PROCESS} -name 'CME*.dat' -exec cat {} \; > ${RND}_tmp.dat
 
 # clean them (=join duplicate lines)
 echo " Consolidating multiple instances of the monte carlo  .... "
-util_CleanILE.py ${RND}_tmp.dat | sort -rg -k10 > $BASE_OUT.composite
+util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k10 > $BASE_OUT.composite
 
 
 # Manifest
