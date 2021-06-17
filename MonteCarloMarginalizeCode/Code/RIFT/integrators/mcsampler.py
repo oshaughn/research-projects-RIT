@@ -150,7 +150,8 @@ class MCSampler(object):
                 self.prior_pdf[params] = lambda x:1
             else:
                 self.prior_pdf[params] = prior_pdf
-        self.prior_pdf[params] = prior_pdf
+        else:
+            self.prior_pdf[params] = prior_pdf
 
         if adaptive_sampling:
             print("   Adapting ", params)
@@ -382,7 +383,11 @@ class MCSampler(object):
         # This is a semi-hack to ensure that the integrand is called with
         # the arguments in the right order
         # FIXME: How dangerous is this?
-        args = func.__code__.co_varnames[:func.__code__.co_argcount]
+        if hasattr(func,'__code__'):
+            args = func.__code__.co_varnames[:func.__code__.co_argcount]
+        else:
+            args=list(args[:len(args)])
+            no_protect_params=True   # not code dictionry, so just use arguments in order
 
         #if set(args) & set(params) != set(args):
         # DISABLE THIS CHECK
@@ -427,6 +432,8 @@ class MCSampler(object):
 
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
+        bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         bUseMultiprocessing = kwargs['use_multiprocessing'] if 'use_multiprocessing' in kwargs else False
         nProcesses = kwargs['nprocesses'] if 'nprocesses' in kwargs else 2
@@ -544,6 +551,9 @@ class MCSampler(object):
             if bShowEveryEvaluation:
                 for i in range(n):
                     print(" Evaluation details: p,ps, L = ", joint_p_prior[i], joint_p_s[i], fval[i])
+                    print(self.params_ordered)
+                    for indx in numpy.arange(len(args)):
+                        print( self.params_ordered[indx],p_s[indx],p_prior[indx],rv[indx])
 
             # Calculate max L (a useful convergence feature) for debug 
             # reporting.  Not used for integration
@@ -688,12 +698,28 @@ class MCSampler(object):
             cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
             cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
             indx_list = [int(indx_list[k, 0]) for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability. RECAST TO INTEGER
+
             # FIXME: See previous FIXME
             for key in list(self._rvs.keys()):
                 if isinstance(key, tuple):
                     self._rvs[key] = self._rvs[key][:,indx_list]
                 else:
                     self._rvs[key] = self._rvs[key][indx_list]
+
+        # Do a fair draw of points, if option is set
+        if bFairdraw and not(n_extr is None):
+           n_extr = int(numpy.min([n_extr,1.5*eff_samp,1.5*neff]))
+           print(" Fairdraw size : ", n_extr)
+           wt = numpy.array(self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]/numpy.max(self._rvs["integrand"]),dtype=float)
+           wt *= 1.0/numpy.sum(wt)
+           if n_extr < len(self._rvs["integrand"]):
+               indx_list = numpy.random.choice(numpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
+               # FIXME: See previous FIXME
+               for key in list(self._rvs.keys()):
+                   if isinstance(key, tuple):
+                       self._rvs[key] = self._rvs[key][:,indx_list]
+                   else:
+                       self._rvs[key] = self._rvs[key][indx_list]
 
         # Create extra dictionary to return things
         dict_return ={}
@@ -716,6 +742,9 @@ def uniform_samp_cdf_inv_vector(a,b,p):
     return out
 #uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
 uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
+
+def ret_uniform_samp_vector_alt(a,b):
+    return lambda x: numpy.where( (x>a) & (x<b), numpy.reciprocal(b-a),0.0)
 
 # def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
 #     ret =0.
@@ -741,12 +770,18 @@ def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x):
 
 
 # syntatic sugar : predefine the most common distributions
-uniform_samp_phase = numpy.vectorize(lambda x: 1/(2*numpy.pi))
-uniform_samp_psi = numpy.vectorize(lambda x: 1/(numpy.pi))
-uniform_samp_theta = numpy.vectorize(lambda x: numpy.sin(x)/(2))
-uniform_samp_dec = numpy.vectorize(lambda x: numpy.cos(x)/(2))
+uniform_samp_phase = lambda x,numpy=numpy: numpy.broadcast_to(0.5/numpy.pi, numpy.shape(x))
+uniform_samp_psi = lambda x,numpy=numpy: numpy.broadcast_to(1.0/numpy.pi, numpy.shape(x))
+uniform_samp_theta = lambda x,numpy=numpy: 0.5*numpy.sin(x)
+uniform_samp_dec = lambda x,numpy=numpy: 0.5*numpy.cos(x)
 
-uniform_samp_cos_theta = numpy.vectorize(lambda x: 1./2.)  #dumbest-possible implementation
+uniform_samp_cos_theta = lambda x: numpy.broadcast_to(0.5, numpy.shape(x))
+# uniform_samp_phase = numpy.vectorize(lambda x: 1/(2*numpy.pi))
+# uniform_samp_psi = numpy.vectorize(lambda x: 1/(numpy.pi))
+# uniform_samp_theta = numpy.vectorize(lambda x: numpy.sin(x)/(2))
+# uniform_samp_dec = numpy.vectorize(lambda x: numpy.cos(x)/(2))
+
+# uniform_samp_cos_theta = numpy.vectorize(lambda x: 1./2.)  #dumbest-possible implementation
 
 def quadratic_samp(rmax,x):
         if x<rmax:
@@ -793,8 +828,12 @@ def cos_samp(x):
 def dec_samp(x):
         return numpy.sin(x+numpy.pi/2)/2   # x from 0, pi
 
-cos_samp_vector = numpy.vectorize(cos_samp,otypes=[numpy.float])
-dec_samp_vector = numpy.vectorize(dec_samp,otypes=[numpy.float])
+
+cos_samp_vector = lambda x: cos_samp(numpy.array(x,dtype=numpy.float))
+dec_samp_vector = lambda x: dec_samp(numpy.array(x,dtype=numpy.float))
+
+#cos_samp_vector = numpy.vectorize(cos_samp,otypes=[numpy.float])
+#dec_samp_vector = numpy.vectorize(dec_samp,otypes=[numpy.float])
 def cos_samp_cdf_inv_vector(p):
     return numpy.arccos( 2*p-1)   # returns from 0 to pi
 def dec_samp_cdf_inv_vector(p):

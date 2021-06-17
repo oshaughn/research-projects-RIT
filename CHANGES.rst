@@ -12,6 +12,11 @@ Since last release
      issue no_grid-> PUFF fails; merge Yelikar edits to pp_RIFT for OSG, NRSur; request_disk option for ILE in
      CEPP/dag_utils for OSG runs; dag_utils add periodic_release etc update for OSG operation (rc4)
    - carriage return bugfixes in convert_output_format ile2inference (rc5)
+   - grids from analytic fisher matrix (util_AnalyticFisherGrid) using gwbench; MOG gets latin hypercube sampling;
+     new pseudo_pipe_lowlatency for low latency tunings (rc6)
+   - ILE, ILE_batchmode (option export extrinsic per iteration; hope to fix cosmo prior sampling; Dan's suggestion to
+     remove np.vectorize calls), mcsampler (help export extrinsic per iteration), general analytic fisher matrix via
+     gwbench calls (pseudo_pipe option), converter add missing py2->py3 print statements (rc7)
 
 0.0.15.5
 -----------

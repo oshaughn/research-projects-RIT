@@ -278,6 +278,8 @@ parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--fail-unless-n-eff",default=None,type=int,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
+parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
+parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
 parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP fit to load. Overrides fitting process, but user MUST correctly specify coordinate system to interpret the fit with.  Does not override loading and converting the data.")
 parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP fit to save. ")
@@ -1524,6 +1526,48 @@ elif opts.fit_method == 'gp-sparse':
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp_sparse(X,Y,y_errors=Y_err)
 
+
+
+
+# Sort for later convenience (scatterplots, etc)
+indx = Y.argsort()#[::-1]
+X=X[indx]
+Y=Y[indx]
+dat_out_low_level_coord_names =dat_out_low_level_coord_names[indx]
+
+# Make grid plots for all pairs of points, to facilitate direct validation of where posterior support lies
+if not no_plots:
+ import itertools
+ for i, j in itertools.product( np.arange(len(coord_names)),np.arange(len(coord_names)) ):
+  if i < j:
+    plt.scatter( X[:,i],X[:,j],label='rapid_pe:'+opts.desc_ILE,c=Y); plt.legend(); plt.colorbar()
+    x_name = render_coord(coord_names[i])
+    y_name = render_coord(coord_names[j])
+    plt.xlabel( x_name)
+    plt.ylabel( y_name )
+    plt.title("rapid_pe evaluations (=inputs); no fits")
+    plt.savefig("scatter_"+coord_names[i]+"_"+coord_names[j]+".png"); plt.clf()
+
+
+###
+### Coordinate conversion tool
+###
+if not opts.using_eos:
+ def convert_coords(x_in):
+    return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
+else:
+ def convert_coords(x_in):
+    x_out = lalsimutils.convert_waveform_coordinates_with_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,no_matter1=opts.no_matter1, no_matter2=opts.no_matter2,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
+    return x_out
+
+
+###
+### Integrate posterior
+###
+
+
+sampler = mcsampler.MCSampler()
+=======
 
 
 

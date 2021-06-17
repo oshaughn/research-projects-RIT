@@ -180,6 +180,7 @@ parser.add_argument("--test-convergence",action='store_true',help="If present, t
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
 parser.add_argument("--online", action='store_true', help="Use online settings")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
+parser.add_argument("--propose-initial-grid-fisher",action='store_true',help="If present, overrides propose-initial-grid.  Uses the SEMIANALYTIC fisher matrix to propose an initial grid: very fast, well targeted.")
 parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,help="A factor to multiply the mc grid width by. By default 1, or 1.5 if search active. Use larger values mainly in synthetic data tests with noise, to insure sufficiently wide coverage around the *true* parameter values.")
 #parser.add_argument("--propose-initial-grid-includes-search-error",action='store_true',help="Searches have paraemter offsets, but injections have known parameters.  You need a wider grid if you are running from a search grid, since they are usually substantiallyoffset from the maximumlikelihood ")
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
@@ -862,7 +863,41 @@ elif opts.data_LI_seglen:
     data_start_time = event_dict["tref"] +2 - seglen
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0  --window-shape " + str(window_shape)
 
-if opts.propose_initial_grid:
+if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 10.):
+    cmd  = "util_AnalyticFisherGrid.py  --inj-file-out  proposed-grid  "
+    # Add standard downselects : do not have m1, m2 be less than 1
+    if not(opts.force_mc_range is None):
+        # force downselect based on this range
+        cmd += " --downselect-parameter mc --downselect-parameter-range " + opts.force_mc_range 
+    if not(opts.force_eta_range is None):
+        cmd += " --downselect-parameter eta --downselect-parameter-range " + opts.force_eta_range 
+    cmd += " --fmin " + str(opts.fmin_template)
+    if opts.data_LI_seglen and not (opts.no_enforce_duration_bound):  
+        cmd += " --enforce-duration-bound " + str(opts.data_LI_seglen)
+    cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
+    if opts.assume_nospin:
+        grid_size = 500
+    else:
+        chieff_range = str([chieff_min,chieff_max]).replace(' ', '')   # assumes all chieff are possible
+        if opts.propose_fit_strategy:
+            # If we don't have a fit plan, use the NS spin maximum as the default
+            if (P.extract_param('mc')/lal.MSUN_SI < 2.6):   # assume a maximum NS mass of 3 Msun
+                chi_max = 0.05   # propose a maximum NS spin
+                chi_range = str([-chi_max,chi_max]).replace(' ','')
+                chieff_range = chi_range  # force to be smaller
+                cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
+
+        cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
+        grid_size =2500
+
+    if not (opts.force_initial_grid_size is None):
+        grid_size = opts.force_initial_grid_size
+    cmd += " --grid-cartesian-npts  " + str(int(grid_size))
+    print(" Executing grid command ", cmd)
+    os.system(cmd)
+
+
+elif opts.propose_initial_grid:
     # add basic mass parameters
     cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap  --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_min_tight) +"," + str(delta_max_tight) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
@@ -1033,7 +1068,7 @@ if opts.propose_fit_strategy:
             
                 # Last iterations are with a polar spin, to get spin prior  (as usually requested). Fir is the same as before, but sampling is more efficient
                 if not opts.assume_volumetric_spin:
-                    helper_cip_arg_list[3] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit theta1 --parameter-nofit theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
+                    helper_cip_arg_list[3] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit cos_theta1 --parameter-nofit cos_theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
                 else:
                     helper_cip_arg_list.pop() # remove last stage of iterations as superfluous
         
