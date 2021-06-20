@@ -1567,48 +1567,6 @@ else:
 
 
 sampler = mcsampler.MCSampler()
-=======
-
-
-
-# Sort for later convenience (scatterplots, etc)
-indx = Y.argsort()#[::-1]
-X=X[indx]
-Y=Y[indx]
-dat_out_low_level_coord_names =dat_out_low_level_coord_names[indx]
-
-# Make grid plots for all pairs of points, to facilitate direct validation of where posterior support lies
-if not no_plots:
- import itertools
- for i, j in itertools.product( np.arange(len(coord_names)),np.arange(len(coord_names)) ):
-  if i < j:
-    plt.scatter( X[:,i],X[:,j],label='rapid_pe:'+opts.desc_ILE,c=Y); plt.legend(); plt.colorbar()
-    x_name = render_coord(coord_names[i])
-    y_name = render_coord(coord_names[j])
-    plt.xlabel( x_name)
-    plt.ylabel( y_name )
-    plt.title("rapid_pe evaluations (=inputs); no fits")
-    plt.savefig("scatter_"+coord_names[i]+"_"+coord_names[j]+".png"); plt.clf()
-
-
-###
-### Coordinate conversion tool
-###
-if not opts.using_eos:
- def convert_coords(x_in):
-    return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
-else:
- def convert_coords(x_in):
-    x_out = lalsimutils.convert_waveform_coordinates_with_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,no_matter1=opts.no_matter1, no_matter2=opts.no_matter2,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
-    return x_out
-
-
-###
-### Integrate posterior
-###
-
-
-sampler = mcsampler.MCSampler()
 if opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 
