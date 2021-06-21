@@ -223,7 +223,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','theta12']
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -253,7 +253,8 @@ tex_dictionary  = {
    "chiMinus":"$\chi_{eff,-}$",
   "chiz_plus":"$\chi_{z,+}$",
   "chiz_minus":"$\chi_{z,-}$",
-  "chi_pavg":r"$\langle\chi_{p}\rangle$", 
+  "chi_pavg":r"$\langle\chi_{p}\rangle$",
+  "theta12":r"$\theta_{12}$", 
   "lambda_plus":"$\lambda_{+}$",
   "lambda_minus":"$\lambda_{-}$",
   "s1z": "$\chi_{1,z}$",
@@ -868,6 +869,13 @@ class ChooseWaveformParams:
             Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
             Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
             return np.sqrt(1- np.dot(Lhat,Jhat)**2)   # holds in general
+        if p == 'theta12':
+            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
+            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
+            chi1Vecu = chi1Vec/np.linalg.norm(chi1Vec)
+            chi2Vecu = chi2Vec/np.linalg.norm(chi2Vec)
+            theta12 = np.arccos(np.clip(np.dot(chi1Vecu, chi2Vecu), -1.0,1.0))
+            return theta12
         # Other spin parameters of use in generalised fits
         if p == 'SoverM2':   # SCALAR
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
@@ -2836,8 +2844,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
             except Exception as e:
                 raise NameError(" Nyquist frequency error for v4P/v4PHM, check srate")
         hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
-	    P.s1x, P.s1y, P.s1z, \
-	    P.s2x, P.s2y, P.s2z, \
+        P.s1x, P.s1y, P.s1z, \
+        P.s2x, P.s2y, P.s2z, \
             P.fmin, P.fref, P.dist, extra_params, \
              Lmax, P.approx)
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
