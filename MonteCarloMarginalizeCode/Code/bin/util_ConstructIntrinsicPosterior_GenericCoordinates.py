@@ -810,6 +810,26 @@ if opts.prior_lambda_linear:
 ### Linear fits. Resampling a quadratic. (Export me)
 ###
 
+def fit_quadratic_stored(fname_h5,loc,L_offset=200):
+    import h5py
+    with h5py.File(fname_h5,'r') as F:
+        event = F(loc)  # assumed to be mc_source ,eta, chi_eff for now!
+        mean = np.array(event["mean"])
+        cov = np.matrix(event["cov"])
+    cov_det = np.linalg.det(cov)
+    icov = np.linalg.pinv(cov)
+    n_params = len(mean)
+    def my_func(x): # Horribly slow implementation but much easier to read/understand
+        y_val = np.zeros(len(x))
+        for indx in np.arange(len(x)):
+            dx = x[indx]-mean
+            alt = np.dot(icov,dx)
+            eps2 = float(np.dot(dx.T,alt)) # convert to scalar
+            y_val[indx] = np.log((2*np.pi)**(-n_params/2.) * np.sqrt(1./cov_det) )  -0.5* eps2  + L_offset
+        return y_val
+    return my_func
+
+
 def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False):
     gamma_x = None
     if not (y_err is None):
@@ -1343,7 +1363,10 @@ elif sum(indx_ok) < 10: # and max_lnL > 30:
 X_raw = X.copy()
 
 my_fit= None
-if opts.fit_method == "quadratic":
+if not(opts.fit_load_quadratic is None):
+    print("FIT METHOD IS STORED QUADRATIC; no data used! ")
+    my_fit = fit_quadratic_stored(opts.fit_load_quadratic, opts.fit_load_quadratic_path)
+elif opts.fit_method == "quadratic":
     print(" FIT METHOD ", opts.fit_method, " IS QUADRATIC")
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
