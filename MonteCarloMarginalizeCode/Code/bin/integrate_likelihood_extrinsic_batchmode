@@ -1094,8 +1094,13 @@ for indx in numpy.arange(len(P_list)):
 #  if len(exception_failure) >0:
 #    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
 #      sys.exit(1) 
-#    if "CUDA" in exception_failure[0]: # Hard fail if a cuda error
-#      sys.exit(1)
+  if "CUDA" in str(exception_failure): # Hard fail if a cuda error with a catchable error code
+    sys.exit(62)
+  #a sketch of how I would do custom failure modes, but for sake of speed I'm just setting the above right now
+  #for i,failure_mode in enumerate(opts.custom_fails):
+  #  if failure_mode in str(exception_failure):
+  #    sys.exit(opts.custom_fail_codes[i])
+
   print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
   print( " Skipping the following binary! ")
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
