@@ -21,6 +21,7 @@ Since last release
      gaussian likelihood fits; ILE extrinsic export bugfix for likelihood export (missing --manual-logarithm-offset
      undo); CIP can use cos_theta1 and cos_theta2 as coordinates for sampling, and these are made default (rc8)
    - fix merge error in CIP in above - travis fail! (rc9)
+   - fix another merge problem from CIP above which dropped the gaussians; add ILE hard fail on cuda errors (rc10)
 
 
 0.0.15.5
