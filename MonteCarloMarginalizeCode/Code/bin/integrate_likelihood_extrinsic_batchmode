@@ -1060,6 +1060,101 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       fname_output_xml = opts.output_file +"_"+str(indx_event)+"_" + ".xml.gz"
       utils.write_filename(xmldoc, fname_output_xml, gz=True)
 
+    if opts.maximize_only and opts.output_file:
+      # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
+      indx_guess = numpy.argmax(sampler._rvs["integrand"])   # start search near maximum-likelihood point. (WARNING: can be very close by)
+      P.radec=True
+      P.phi = sampler._rvs["right_ascension"][indx_guess]
+      P.theta = sampler._rvs["declination"][indx_guess]
+      P.phiref = sampler._rvs["phi_orb"][indx_guess]
+      P.incl = sampler._rvs["inclination"][indx_guess]
+      P.psi = sampler._rvs["psi"][indx_guess]
+      P.dist = sampler._rvs["distance"][indx_guess]*1e6*lal.PC_SI
+      print( " ---- Best extrinsic paramers in MC   ---- ")
+      P.print_params()
+      lalsimutils.ChooseWaveformParams_array_to_xml([P],"notime_raw_maxpt_"+opts.output_file) # best point, not including time
+
+      import scipy.optimize
+      def fn_scaled(x):
+          P.phi = float(x[0]*2*numpy.pi) # right ascension
+          P.theta = float((x[1])*numpy.pi) # declination, really polar angle. NOT zero on equator
+          P.tref = fiducial_epoch + float((x[2]-0.5)*2*t_ref_wind) # ref. time (rel to epoch for data taking)
+          P.phiref = float(x[3]*numpy.pi*2) # ref. orbital phase
+          P.incl = float(x[4]*numpy.pi) # inclination
+          P.psi = float(x[5]*numpy.pi) # polarization angle
+          P.dist = x[6]*dmax* 1.e6 * lalsimutils.lsu_PC # luminosity distance
+    
+          return -1.0* factored_likelihood.FactoredLogLikelihood(
+                    P, rholms,rholms_intp, cross_terms, cross_terms_V, opts.l_max)
+
+    # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
+      x0 =numpy.array( [ \
+       sampler._rvs["right_ascension"][indx_guess]/(2*numpy.pi) , \
+       (sampler._rvs["declination"][indx_guess]/numpy.pi),  \
+       0.5, \
+       (sampler._rvs["phi_orb"][indx_guess]/(2*numpy.pi)), \
+       sampler._rvs["inclination"][indx_guess]/(numpy.pi),\
+       sampler._rvs["psi"][indx_guess]/numpy.pi,\
+       sampler._rvs["distance"][indx_guess]/dmax\
+            ],dtype=numpy.float128)
+      x0 = numpy.fmod(x0,numpy.ones(len(x0)))  # had BETTER be defined on this range!
+      # Pick the best starting time. BRUTE FORCE METHOD: use grid
+      def fn_scaled_t(t,x0):
+        return fn_scaled( [x0[0], x0[1], t, x0[3], x0[4], x0[5], x0[6]])
+      npts_guess = int(t_ref_wind*2/(0.5*1e-4))   # Need to have enough points to fully explore the peak, timing to sub-ms accuracy
+      print( " Using ", npts_guess, " time points to select the best time, fixing the remaining extrinsic parameters ")
+      tvals_scaled_guess = numpy.linspace(0,1,npts_guess)
+      lnLvals = numpy.array([-1*fn_scaled_t(t,x0) for t in tvals_scaled_guess])   # note the two -1's cancel
+    #    from matplotlib import pyplot as plt;  plt.plot(tvals_scaled_guess,lnLvals,'o'); plt.show(); numpy.savetxt("dump-lnL.dat", numpy.array([tvals_scaled_guess*2*t_ref_wind,lnLvals]).T)
+      tbest = tvals_scaled_guess[numpy.argmax(lnLvals)]
+      print( " ---- Best extrinsic paramers in MC, after time offset   ---- ")
+      P.tref = fiducial_epoch + tbest
+      P.print_params()
+      lalsimutils.ChooseWaveformParams_array_to_xml([P],"withtime_raw_maxpt_"+opts.output_file) # best point, not including time
+      x0[2] = tbest
+      x0p = x0
+    # Refine best starting time with a search
+    #    t_scaled_est = scipy.optimize.brent(fn_scaled_t, brack=(tbest-0.01,tbest,tbest+0.01),args=(x0),maxiter=500)
+    #    print "Scaled starting time estimate after, before ",  t_scaled_est, tbest
+    #    x0p[2] = t_scaled_est
+      t_best_now = lal.LIGOTimeGPS()   # create correct data type
+      t_best_now = fiducial_epoch + float((x0p[2]-0.5)*2*t_ref_wind)
+      t_best_now_s = int(numpy.floor(t_best_now))
+      t_best_now_ns = int((t_best_now - t_best_now_s)*1e9)
+      print( " Fitting best (geocentric) time : ", str(t_best_now_s)+ '.'+ str(t_best_now_ns) , " relative time ", (x0p[2]-0.5)*2*t_ref_wind)
+      x0  = x0p
+    # Full multi-d search for best point
+      print( " Starting point [dimensionless] ", x0)
+      print( " Starting point [physical] ", [x0[0]*2*numpy.pi, numpy.pi*(x0[1]),  t_ref_wind*2*(x0[2]-0.5), 2*numpy.pi*x0[3], numpy.pi*x0[4], numpy.pi*x0[5], x0[6]*dmax])
+      lnLstart = -1*fn_scaled(x0)   # note the two -1's cancel. Compare to 'rho^2/2' value reported by code
+      print( " lnL at start :", lnLstart, " [note can be lower than peak because of time offset]: best reported by ILE (including weights) is ", numpy.log(numpy.max(sampler._rvs["integrand"])))
+      x = scipy.optimize.fmin(fn_scaled,x0, xtol=1e-5,ftol=1e-3,maxiter=opts.n_max,maxfun=opts.n_max)
+      lnLmax = -1.0*fn_scaled(x)
+      if lnLmax < lnLstart:
+        print( " Maximization failed to improve our initial point ! ")
+        x = x0p
+        lnLmax = lnLstart
+      t_best_now = fiducial_epoch + float((x[2]-0.5)*2*t_ref_wind)
+      print( "Best lnL = ", lnLmax)
+      print( "Best time =", t_best_now)
+      print( "Best point", [x[0]*2*numpy.pi, numpy.pi*(x[1]),  t_ref_wind*2*(x[2]-0.5), 2*numpy.pi*x[3], numpy.pi*x[4], numpy.pi*x[5], x[6]*dmax])
+      # Output best fit.  Note STANDARD output will occur as usual
+      P_max = P.manual_copy()
+      P_max.tref = t_best_now
+      P_max.phi = float(x[0]*2*numpy.pi)
+      P_max.theta = float(numpy.pi*(x[1]))
+      P_max.phiref =float(x[3]*numpy.pi*2)
+      P_max.incl = float(x[4]*numpy.pi)
+      P_max.psi = float(x[5]*numpy.pi)
+      P_max.dist = x[6]*dmax*1e6*lal.PC_SI
+      P_max.m1 = lal.MSUN_SI*m1
+      P_max.m2 = lal.MSUN_SI*m2
+      print( " Sanity check: log likelihood for this set is ", factored_likelihood.FactoredLogLikelihood(
+                    P_max, rholms, rholms_intp, cross_terms, cross_terms_V, opts.l_max))
+      print( " ---- Best extrinsic paramers after polishing   ---- ")
+      P_max.print_params()
+      P_list = [P_max]
+      lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"maxpt_"+opts.output_file)
 
     # Clear sampler _rvs, to avoid side effects when called again
     for key in sampler._rvs.keys():
