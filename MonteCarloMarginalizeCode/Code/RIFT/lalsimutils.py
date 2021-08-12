@@ -3713,7 +3713,7 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
         if str(fail) == "RuntimeError: Failure in an XLAL routine":
             print(f"Encountered {fail}")
             sys.exit(91)
-	else:
+        else:
             print(fail)
             sys.exit(1)
     # Window the data - N.B. default is identity (no windowing)
