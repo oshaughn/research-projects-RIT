@@ -59,11 +59,12 @@ class integrator:
     '''
 
     def __init__(self, d, bounds, gmm_dict, n_comp, n=None, prior=None,
-                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False):
+                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,gmm_epsilon=None):
         # user-specified parameters
         self.d = d
         self.bounds = bounds
         self.gmm_dict = gmm_dict
+        self.gmm_epsilon= gmm_epsilon
         self.n_comp = n_comp
         self.user_func=user_func
         self.prior = prior
@@ -157,10 +158,10 @@ class integrator:
             if model is None:
                 # model doesn't exist yet
                 if isinstance(self.n_comp, int) and self.n_comp != 0:
-                    model = GMM.gmm(self.n_comp, new_bounds)
+                    model = GMM.gmm(self.n_comp, new_bounds,epsilon=gmm_epsilon)
                     model.fit(temp_samples, sample_weights=weights)
                 elif isinstance(self.n_comp, dict) and self.n_comp[dim_group] != 0:
-                    model = GMM.gmm(self.n_comp[dim_group], new_bounds)
+                    model = GMM.gmm(self.n_comp[dim_group], new_bounds,epsilon=gmm_epsilon)
                     model.fit(temp_samples, sample_weights=weights)
             else:
                 model.update(temp_samples, sample_weights=weights)

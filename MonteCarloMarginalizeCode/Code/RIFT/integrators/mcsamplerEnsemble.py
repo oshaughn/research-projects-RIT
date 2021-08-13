@@ -248,6 +248,7 @@ class MCSampler(object):
         write_to_file = kwargs['write_to_file'] if "write_to_file" in kwargs else False
         correlate_all_dims = kwargs['correlate_all_dims'] if  "correlate_all_dims" in kwargs else False
         gmm_adapt = kwargs['gmm_adapt'] if "gmm_adapt" in kwargs else None
+        gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
         L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
 
         # set up a lot of preliminary stuff
@@ -274,7 +275,7 @@ class MCSampler(object):
         # do the integral
 
         integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=n, prior=self.calc_pdf,
-                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff) # reflect=reflect,
+                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_epsilon=gmm_epsilon) # reflect=reflect,
         if not direct_eval:
             func = self.evaluate
         integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax)
