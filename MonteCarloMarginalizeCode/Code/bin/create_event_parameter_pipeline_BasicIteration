@@ -556,6 +556,19 @@ if not (opts.puff_args is None):
     ilePuff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).out")
     ilePuff_job.write_sub_file()
 
+if not (fetch_args is None):
+    transfer_file_names_fetch = list(transfer_file_names[:-1])
+    transfer_file_names_fetch.append(opts.working_directory+"/fetch-$(macroiteration).xml.gz") # could also use ../puffball, because relative is ok to initialdir
+    # Write a version of the ILE job that uses puffball inputs ... IDENTICAL to code above for standard ILE case,just different argument for input
+    # Yes, it would logically be simpler to make overlap-grid.xml.gz larger ... but I want to keep 'real samples' and 'puffed samples' seperate.
+    ileFetch_job, ileFetch_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_fetch',log_dir=None,arg_str=ile_args_forpuff,output_file="CME_out.xml",simple_unique=True,ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names_fetch,request_memory=opts.request_memory_ILE,request_disk=request_disk,request_gpu=opts.request_gpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,max_runtime_minutes=opts.ile_runtime_max_minutes)
+    ileFetch_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
+    ileFetch_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).log")
+    ileFetch_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).err")
+    ileFetch_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).out")
+    ileFetch_job.write_sub_file()
+
+
 if  (opts.last_iteration_extrinsic):
     n_points_per_ILE = 5
     # ILE job with modified output format
@@ -893,6 +906,18 @@ for it in np.arange(it_start,opts.n_iterations):
         print(" ILE jobs for puffball on iteration ", it)
         for event in np.arange(indx_max):
             ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
+            ile_node.set_retry(opts.ile_retries)
+            ile_node.add_macro("macroevent", event*n_group)
+            ile_node.add_macro("macroiteration", it)
+            if not(parent_fit_node is None):
+                ile_node.add_parent(parent_fit_node)
+            con_node.add_parent(ile_node) # consolidate depends on all of the individual jobs
+            dag.add_node(ile_node)
+
+    if fetch_args:
+        print(" ILE jobs for fetch on iteration ", it)
+        for event in np.arange(indx_max):
+            ile_node = pipeline.CondorDAGNode(ileFetch_job)  # only difference is here: uses fetch. ASSUME it is the same size (!!) -- should make this controllable
             ile_node.set_retry(opts.ile_retries)
             ile_node.add_macro("macroevent", event*n_group)
             ile_node.add_macro("macroiteration", it)
