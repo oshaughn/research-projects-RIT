@@ -198,10 +198,12 @@ parser.add_argument("--plot-exe",default=None,help="filename of plot code or equ
 parser.add_argument("--gridinit-exe",default=None,help="filename of initial grid creation or equivalent executable.  Will default to `which util_ManualOverlapGrid.py`.  Must create overlap-grid-0.xml.gz")
 parser.add_argument("--bw-exe",default=None,help="BayesWave location (or wrapper)")
 parser.add_argument("--bw-post-exe",default=None,help="BayesWave location (or wrapper)")
+parser.add_argument("--fetch-ext-grid-exe",default=None,help="filename of command for fetching external grid. Must have an --output-file argument, which will be auto-set.")
 parser.add_argument("--test-args",default=None,help="filename of args_test.txt, which holds test arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments")
 parser.add_argument("--convert-args",default=None,help="filename of args_convert.txt, which holds arguments to the convert function. Needed if you plan to export tide informaton")
 parser.add_argument("--plot-args",default=None,help="filename of args_plot.txt, which holds plot arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments.  To create the posterior samples file, you probably need to run the convert job (e.g., via the tests)")
 parser.add_argument("--gridinit-args",default=None,help="arguments for grid creation or equivalent executable.  If empty, will attempt to use the --input-grid argument")
+parser.add_argument("--fetch-ext-grid-args",default=None,help="arguments for command  for fetching external grid. Don't over-specify the --output-file argument, which will be used by the pipeline")
 parser.add_argument("--ile-batch",action='store_true',help="Different workflow: the ILE job is assumed to create a .composite file directly in the current working directory. Designed for fake ILE sets and long-term batch workflow. NOT IMPLEMENTED ")
 parser.add_argument("--transfer-file-list",default=None,help="File containing list of *input* filenames to transfer, one name per file. Copied into transfer_files for condor directly.  If provided, also enables attempts to deduce files that need to be transferred for the pipeline to operate, as needed for OSG, etc")
 parser.add_argument("--request-memory-ILE",default=4096,type=int,help="Memory request for condor (in Mb) for ILE jobs.")
@@ -310,6 +312,19 @@ if opts.puff_args and opts.puff_cadence:
     puff_args=puff_args.rstrip()
     print("PUFF", puff_args)
     print("PUFF CADENCE", puff_cadence)
+
+# Load args.txt. Remove first item.  Store
+fetch_args = None
+if opts.fetch_ext_grid_args and opts.fetch_ext_grid_exe:
+    with open(opts.fetch_ext_grid_args) as f:
+        fetch_args_list = f.readlines()
+    fetch_args = ' '.join( [x.replace('\\','') for x in fetch_args_list] )
+    fetch_args = ' '.join(fetch_args.split(' ')[1:])
+# Some argument protection for later
+    fetch_args = fetch_args.replace('[', ' \'[')
+    fetch_args = fetch_args.replace(']', ']\'')
+    fetch_args=fetch_args.rstrip()
+    print("FETCH", fetch_args)
 
 
 test_args=None
@@ -655,6 +670,18 @@ if puff_args and puff_cadence:
     puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).err")
     puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).out")
     puff_job.write_sub_file()
+
+
+##   fetch job
+if fetch_args:
+    fetch_job, fetch_job_name = dag_utils.write_puff_sub(tag='FETCH',log_dir=None,arg_str=fetch_args,request_memory=opts.request_memory_ILE,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',output=opts.working_directory+'/fetch-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.fetch_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    # Modify: set 'initialdir' to CIP WORKING DIR 
+    fetch_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
+    # Modify output argument: change logs and working directory to be subdirectory for the run
+    fetch_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/fetch-$(cluster)-$(process).log")
+    fetch_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/fetch-$(cluster)-$(process).err")
+    fetch_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/fetch-$(cluster)-$(process).out")
+    fetch_job.write_sub_file()
 
 
 
