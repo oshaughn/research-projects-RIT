@@ -3707,7 +3707,15 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
         print( cachef.to_segmentlistdict())
         
     duration = stop - start if None not in (start, stop) else None
-    tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose,datatype='REAL8')
+    try:
+        tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose,datatype='REAL8')
+    except Exception as fail:
+        if str(fail) == "RuntimeError: Failure in an XLAL routine":
+            print(f"Encountered {fail}")
+            sys.exit(91)
+        else:
+            print(fail)
+            sys.exit(1)
     # Window the data - N.B. default is identity (no windowing)
     hoft_window = lal.CreateTukeyREAL8Window(tmp.data.length, window_shape)
     tmp.data.data *= hoft_window.data.data

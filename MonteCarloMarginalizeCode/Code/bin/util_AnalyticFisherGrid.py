@@ -287,7 +287,7 @@ net.calc_det_responses_derivs_sym()
 net.calc_det_responses()
 
 # calculate the network and detector SNRs
-net.calc_snrs_det_responses()
+net.calc_snrs()
 
 # calculate the network and detector Fisher matrices, condition numbers,
 # covariance matrices, error estimates, and inversion errors
@@ -363,10 +363,10 @@ for indx_P in np.arange(len(X_out)):
     for indx in np.arange(len(coord_names)):
         fac=1
         # sanity check restrictions, which may cause problems with the coordinate converters
-        if coord_names[indx] is 'eta' and (X_out[indx_P,indx]>0.25 or X_out[indx_P,indx]<0.001) :
+        if coord_names[indx] == 'eta' and (X_out[indx_P,indx]>0.25 or X_out[indx_P,indx]<0.001) :
 #            print(" Rej eta")
             continue
-        if coord_names[indx] is 'delta_mc' and (X_out[indx_P,indx]>1 or X_out[indx_P,indx]<0.) :
+        if coord_names[indx] == 'delta_mc' and (X_out[indx_P,indx]>1 or X_out[indx_P,indx]<0.) :
  #           print(" Rej delta_mc")
             continue
         if coord_names[indx] in ['mc','m1','m2','mtot']:

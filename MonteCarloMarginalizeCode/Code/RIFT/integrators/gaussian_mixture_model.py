@@ -202,7 +202,7 @@ class gmm:
         Maximum number of Expectation-Maximization iterations
     '''
 
-    def __init__(self, k, bounds, max_iters=1000):
+    def __init__(self, k, bounds, max_iters=1000,epsilon=None):
         self.k = k
         self.bounds = bounds
         #self.tol = tol
@@ -214,7 +214,10 @@ class gmm:
         self.p_nk = None
         self.log_prob = None
         self.N = 0
-        self.epsilon = 1e-4  # allow very strong correlations
+        if self.epsilon is None:
+            self.epsilon = 1e-4  # allow very strong correlations
+        else:
+            self.epsilon=epsilon
         self.tempering_coeff = 0.01
 
     def _normalize(self, samples):
