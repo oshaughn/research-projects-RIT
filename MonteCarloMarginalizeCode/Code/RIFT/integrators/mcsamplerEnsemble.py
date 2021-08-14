@@ -284,7 +284,7 @@ class MCSampler(object):
         self.n = int(integrator.n)
         self.ntotal = int(integrator.ntotal)
         integral = integrator.integral
-        var = integrator.var
+        error_squared = integrator.scaled_error_squared * np.exp(integrator.log_error_scale_factor)
         eff_samp = integrator.eff_samp
         sample_array = integrator.cumulative_samples
         value_array = np.exp(integrator.cumulative_values)  # stored as ln(integrand) !
@@ -299,7 +299,7 @@ class MCSampler(object):
 
         index = 0
         for param in args:
-            self._rvs[param] = sample_array[:,[index]]
+            self._rvs[param] = sample_array[:,index]
             index += 1
         self._rvs['joint_prior'] = prior_array
         self._rvs['joint_s_prior'] = p_array
@@ -312,7 +312,7 @@ class MCSampler(object):
             np.savetxt('mcsampler_data.txt', dat_out,
                         header=" ".join(['sample_array', 'value_array', 'p_array']))
 
-        return integral, var, eff_samp, {}
+        return integral, error_squared, eff_samp, {}
 
 
 def inv_uniform_cdf(a, b, x):
