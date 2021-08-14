@@ -11,6 +11,7 @@ from six.moves import range
 
 import numpy as np
 from scipy.stats import multivariate_normal
+from scipy.stats.mvn import mvnun # integrates multivariate normal distributions in rectangular domains - used for normalization
 #from scipy.misc import logsumexp
 from scipy.special import logsumexp
 from . import multivariate_truncnorm as truncnorm
@@ -47,33 +48,32 @@ class estimator:
         self.epsilon = 1e-4
         self.tempering_coeff = tempering_coeff
 
-    def _initialize(self, n, sample_array, sample_weights=None):
-        p_weights = (sample_weights / np.sum(sample_weights)).flatten()
+    def _initialize(self, n, sample_array, log_sample_weights=None):
+        p_weights = np.exp(log_sample_weights - np.max(log_sample_weights)).flatten()
+        p_weights /= np.sum(p_weights)
         self.means = sample_array[np.random.choice(n, self.k, p=p_weights.astype(sample_array.dtype)), :]
         self.covariances = [np.identity(self.d)] * self.k
-        self.weights = np.array([1.0 / self.k] * self.k)
+        self.weights = np.ones(self.k) / self.k
 
-    def _e_step(self, n, sample_array, sample_weights):
+    def _e_step(self, n, sample_array, log_sample_weights=None):
         '''
         Expectation step
         '''
-        if sample_weights is None:
-            log_sample_weights = np.zeros((n, 1))
-        else:
-            log_sample_weights = np.log(sample_weights)
+        if log_sample_weights is None:
+            log_sample_weights = np.zeros(n)
         p_nk = np.empty((n, self.k))
         for index in range(self.k):
             mean = self.means[index]
             cov = self.covariances[index]
             log_p = np.log(self.weights[index])
-            log_pdf = np.rot90([multivariate_normal.logpdf(x=sample_array, mean=mean, cov=cov, allow_singular=True)], -1) # (16.1.4)
+            log_pdf = multivariate_normal.logpdf(x=sample_array, mean=mean, cov=cov, allow_singular=True) # (16.1.4)
             # note that allow_singular=True in the above line is probably really dumb and
             # terrible, but it seems to occasionally keep the whole thing from blowing up
             # so it stays for now
-            p_nk[:,[index]] = log_pdf + log_p # (16.1.5)
-        p_xn = logsumexp(p_nk, axis=1, keepdims=True) # (16.1.3)
-        self.p_nk = p_nk - p_xn # (16.1.5)
-        self.p_nk += log_sample_weights
+            p_nk[:,index] = log_pdf + log_p # (16.1.5)
+        p_xn = logsumexp(p_nk, axis=1)#, keepdims=True) # (16.1.3)
+        self.p_nk = p_nk - p_xn[:,np.newaxis] # (16.1.5)
+        self.p_nk += log_sample_weights[:,np.newaxis]
         self.log_prob = np.sum(p_xn + log_sample_weights) # (16.1.2)
 
     def _m_step(self, n, sample_array):
@@ -85,13 +85,13 @@ class estimator:
         for index in range(self.k):
             # (16.1.6)
             w = weights[index]
-            p_k = p_nk[:,[index]]
-            mean = np.sum(np.multiply(sample_array, p_k), axis=0)
+            p_k = p_nk[:,index]
+            mean = np.sum(np.multiply(sample_array, p_k[:,np.newaxis]), axis=0)
             mean /= w
             self.means[index] = mean
             # (16.1.6)
             diff = sample_array - mean
-            cov = np.dot((p_k * diff).T, diff) / w
+            cov = np.dot((p_k[:,np.newaxis] * diff).T, diff) / w
             # attempt to fix non-positive-semidefinite covariances
             self.covariances[index] = self._near_psd(cov)
             # (16.17)
@@ -142,7 +142,7 @@ class estimator:
                 x = near_cov.real
         return near_cov
     
-    def fit(self, sample_array, sample_weights):
+    def fit(self, sample_array, log_sample_weights):
         '''
         Fit the model to data
 
@@ -150,17 +150,17 @@ class estimator:
         ----------
         sample_array : np.ndarray
             Array of samples to fit
-        sample_weights : np.ndarray
+        log_sample_weights : np.ndarray
             Weights for samples
         '''
         n, self.d = sample_array.shape
-        self._initialize(n, sample_array, sample_weights)
+        self._initialize(n, sample_array, log_sample_weights)
         prev_log_prob = 0
         self.log_prob = float('inf')
         count = 0
         while abs(self.log_prob - prev_log_prob) > self._tol(n) and count < self.max_iters:
             prev_log_prob = self.log_prob
-            self._e_step(n, sample_array, sample_weights)
+            self._e_step(n, sample_array, log_sample_weights)
             self._m_step(n, sample_array)
             count += 1
         for index in range(self.k):
@@ -233,7 +233,7 @@ class gmm:
             out[:,i] = 0.5 * ((rlim - llim) * samples[:,i] + (llim + rlim))
         return out
 
-    def fit(self, sample_array, sample_weights=None):
+    def fit(self, sample_array, log_sample_weights=None):
         '''
         Fit the model to data
 
@@ -245,11 +245,11 @@ class gmm:
             Weights for samples
         '''
         self.N, self.d = sample_array.shape
-        if sample_weights is None:
-            sample_weights = np.ones((self.N, 1))
+        if log_sample_weights is None:
+            log_sample_weights = np.zeros(self.N)
         # just use base estimator
         model = estimator(self.k, tempering_coeff=self.tempering_coeff)
-        model.fit(self._normalize(sample_array), sample_weights)
+        model.fit(self._normalize(sample_array), log_sample_weights)
         self.means = model.means
         self.covariances = model.covariances
         self.weights = model.weights
@@ -351,7 +351,7 @@ class gmm:
                 x = near_cov.real
         return near_cov
 
-    def update(self, sample_array, sample_weights=None):
+    def update(self, sample_array, log_sample_weights=None):
         '''
         Updates the model with new data without doing a full retraining.
 
@@ -364,7 +364,7 @@ class gmm:
         '''
         self.tempering_coeff /= 2
         new_model = estimator(self.k, self.max_iters, self.tempering_coeff)
-        new_model.fit(self._normalize(sample_array), sample_weights)
+        new_model.fit(self._normalize(sample_array), log_sample_weights)
         M, _ = sample_array.shape
         self._merge(new_model, M)
         self.N += M
@@ -382,27 +382,30 @@ class gmm:
             Bounds for samples, used for renormalizing scores
         '''
         n, d = sample_array.shape
-        scores = np.zeros((len(sample_array), 1))
+        scores = np.zeros(n)
         sample_array = self._normalize(sample_array)
+        normalization_constant = 0.
         for i in range(self.k):
             w = self.weights[i]
             mean = self.means[i]
             cov = self.covariances[i]
-            scores += np.rot90([multivariate_normal.pdf(x=sample_array, mean=mean, cov=cov, allow_singular=True)], -1) * w
+            scores += multivariate_normal.pdf(x=sample_array, mean=mean, cov=cov, allow_singular=True) * w
             # note that allow_singular=True in the above line is probably really dumb and
             # terrible, but it seems to occasionally keep the whole thing from blowing up
             # so it stays for now
+            normalization_constant += mvnun(self.bounds[:,0], self.bounds[:,1], mean, cov)[0] # this function is very fast at integrating multivariate normal distributions
         # we need to renormalize the PDF
         # to do this we sample from a full distribution (i.e. without truncation) and use the
         # fraction of samples that fall inside the bounds to renormalize
-        full_sample_array = self.sample(n, use_bounds=False)
-        llim = np.rot90(self.bounds[:,[0]])
-        rlim = np.rot90(self.bounds[:,[1]])
-        n1 = np.greater(full_sample_array, llim).all(axis=1)
-        n2 = np.less(full_sample_array, rlim).all(axis=1)
-        normalize = np.array(np.logical_and(n1, n2)).flatten()
-        m = float(np.sum(normalize)) / n
-        scores /= m
+        #full_sample_array = self.sample(n, use_bounds=False)
+        #llim = np.rot90(self.bounds[:,[0]])
+        #rlim = np.rot90(self.bounds[:,[1]])
+        #n1 = np.greater(full_sample_array, llim).all(axis=1)
+        #n2 = np.less(full_sample_array, rlim).all(axis=1)
+        #normalize = np.array(np.logical_and(n1, n2)).flatten()
+        #m = float(np.sum(normalize)) / n
+        #scores /= m
+        scores /= normalization_constant
         vol = np.prod(self.bounds[:,1] - self.bounds[:,0])
         scores *= 2.0**d / vol # account for renormalization of dimensions
         return scores
