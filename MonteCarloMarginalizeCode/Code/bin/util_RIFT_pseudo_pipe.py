@@ -151,6 +151,7 @@ parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If n
 parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this argument to CIP. GP plot for each iteration will be saved. Useful for followup investigations or reweighting. Warning: lots of disk space (1G or so per iteration)")
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-quadratic-first",action='store_true')
+parser.add_argument("--n-output-samples",type=int,default=8000,help="Number of output samples generated in the final iteration")
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
@@ -633,7 +634,7 @@ cmd ="create_event_parameter_pipeline_BasicIteration  --ile-n-events-to-analyze 
 if not(opts.ile_no_gpu):
     cmd +=" --request-gpu-ILE "
 if opts.add_extrinsic:
-    cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 "
+    cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples)
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs)
    if not(opts.cip_fit_method is None) and not(opts.cip_fit_method == 'gp'):
