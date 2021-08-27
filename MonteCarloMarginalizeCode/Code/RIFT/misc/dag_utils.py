@@ -1748,3 +1748,44 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 
     return ile_job, ile_sub_name
 
+
+
+
+
+def write_subdagILE_sub(tag='subdag_ile', exe=None, universe='vanilla', input_pattern=None,target_dir=None,output_base=None,log_dir=None, **kwargs):
+    """
+    Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.
+    """
+    exe = exe or which("create_event_dag_via_grid") 
+
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    fname_out =target_dir + "/" +output_base + ".xml.gz"
+    ile_job.add_arg("--output="+fname_out)
+
+    working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+#    ile_job.set_stdout_file(fname_out)
+
+#    ile_job.add_condor_cmd("+PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
+
+    return ile_job, ile_sub_name
+
+
