@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import argparse
 import sys
 import os
@@ -8,12 +10,15 @@ import RIFT.lalsimutils as  lsu
 import numpy as np
 from math import ceil
 
+cwd = os.getcwd()
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--sim-xml',type=str,help="the sim-xml which encodes the points this dag will evaluate")
 parser.add_argument('--cap-points',type=int,default=None,help="if you want to put a limit on how many points to load")
 parser.add_argument('--submit-script',type=str,help="the path to the ile.sub which will be used for these points")
 parser.add_argument("--macroiteration",type=int)
-parser.add_argument("--suffix",type=str,default="subdag")
+parser.add_argument("--target-dir",type=str,default=cwd,help="the directory to write the sub into")
+parser.add_argument("--output-suffix",type=str,default="the suffix of the subdag to write to: iteration_{macroiteration}_{opts.suffix}.dag")
 opts = parser.parse_args()
 
 n_events= 0
@@ -56,12 +61,13 @@ for i in np.arange(num_jobs):
 
     ile_node = pipeline.CondorDAGNode(ile_blank)
     ile_node.add_macro("macroevent", n_events_per_job*i)
+    ile_node.add_macro("macroiteration",opts.macroiteration)
 
     ile_node.set_category("ILE")
     dag.add_node(ile_node)
 
 
-dag_name=f"iteration_{opts.macroiteration}_{opts.suffix}"
+dag_name=os.path.join(opts.target_dir,f"iteration_{opts.macroiteration}_{opts.output_suffix}")
 dag.set_dag_file(dag_name)
 dag.write_concrete_dag()
 

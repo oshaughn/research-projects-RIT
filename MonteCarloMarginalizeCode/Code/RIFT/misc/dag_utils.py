@@ -1752,11 +1752,11 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 
 
 
-def write_subdagILE_sub(tag='subdag_ile', exe=None, universe='vanilla', submit_file=None,input_pattern=None,target_dir=None,output_base=None,log_dir=None, **kwargs):
+def write_subdagILE_sub(tag='subdag_ile', exe=None, universe='vanilla', submit_file=None,input_pattern=None,target_dir=None,output_suffix=None,log_dir=None,sim_xml=None, **kwargs):
     """
     Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.
     """
-    exe = exe or which("create_event_dag_via_grid") 
+    exe = exe or which("create_ile_sub_dag.py") 
     subfile = submit_file or 'ILE.sub'
 
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
@@ -1764,9 +1764,11 @@ def write_subdagILE_sub(tag='subdag_ile', exe=None, universe='vanilla', submit_f
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    fname_out =target_dir + "/" +output_base + ".xml.gz"
-    ile_job.add_arg("--output="+fname_out)
-    ile_job.add_arg("--submit-script="+subfile)
+    ile_job.add_arg("--target-dir "+target_dir)
+    ile_job.add_arg("--output-suffix "+output_suffix)
+    ile_job.add_arg("--submit-script "+subfile)
+    ile_job.add_arg("--macroiteration $(macroiteration)")
+    ile_job.add_arg("--sim-xml "+sim_xml)
 
     working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
 
