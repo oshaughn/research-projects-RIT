@@ -920,8 +920,15 @@ for it in np.arange(it_start,opts.n_iterations):
     if indx_max*n_jobs_this_time < n_group:
         indx_max+=1
     # Create subdag node for main ILE
+    #   - first create the subdag itself at runtime, making the job to create the subdag occur
+    #   - next add a node to make sure the external subddag file gets executed
     subdag_main_node = pipeline.CondorDAGNode(subdag_job)
     con_node.add_parent(subdag_main_node) # consolidate depends on all of the individual jobs
+    
+    subdag =  pipeline.CondorDAGManJob("iteration_{}_ile_subdag.dag".format(it))  # assumes subdag is created
+    analysis_node = subdag.create_node()
+    analysis_node.add_parent(subdag_main_node)
+    dag.add_node(analysis_node)
     dag.add_node(subdag_main_node)
  
        
@@ -930,12 +937,22 @@ for it in np.arange(it_start,opts.n_iterations):
         # puff subdag.  CHANGE ARGUMENTS TO DO THIS
         subdag_puff_node = pipeline.CondorDAGNode(subdag_puff_job)
         con_node.add_parent(subdag_puff_node) # consolidate depends on all of the individual jobs
+
+        subdag =  pipeline.CondorDAGManJob("iteration_{}_ile_puff_subdag.dag".format(it))  # assumes subdag is created
+        analysis_node = subdag.create_node()
+        analysis_node.add_parent(subdag_puff_node)
+        dag.add_node(analysis_node)
         dag.add_node(subdag_puff_node)
 
     if fetch_args and False:
         # puff subdag
         subdag_fetch_node = pipeline.CondorDAGNode(subdag_fetch_job)
         con_node.add_parent(subdag_fetch_node) # consolidate depends on all of the individual jobs
+
+        subdag =  pipeline.CondorDAGManJob("iteration_{}_ile_fetch_subdag.dag".format(it))  # assumes subdag is created
+        analysis_node = subdag.create_node()
+        analysis_node.add_parent(subdag_fetch_node)
+        dag.add_node(analysis_node)
         dag.add_node(subdag_fetch_node)
 
     # add con job
