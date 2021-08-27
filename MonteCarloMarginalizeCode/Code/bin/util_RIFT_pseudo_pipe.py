@@ -115,6 +115,7 @@ parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED
 parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
 parser.add_argument("--l-max",default=2,type=int)
 parser.add_argument("--no-matter",action='store_true', help="Force analysis without matter. Really only matters for BNS")
+parser.add_argument("--assume-nospin",action='store_true', help="Force analysis with zero spin")
 parser.add_argument("--assume-precessing",action='store_true', help="Force analysis *with* transverse spins")
 parser.add_argument("--assume-nonprecessing",action='store_true', help="Force analysis *without* transverse spins")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
@@ -390,7 +391,10 @@ if opts.assume_highq:
 #if is_event_bns and not opts.no_matter:
 #        cmd += " --assume-matter "
 #        npts_it = 1000
-if is_analysis_precessing:
+if  opts.assume_nospin:
+    cmd += " --assume-nospin "
+else:  
+  if is_analysis_precessing:
         cmd += " --assume-precessing-spin "
         npts_it = 1500
 if opts.internal_flat_strategy:
