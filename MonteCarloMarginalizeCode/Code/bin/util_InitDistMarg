@@ -1,1 +1,41 @@
 #! /usr/bin/env python
+
+import numpy as np
+from optparse import OptionParser, OptionGroup
+
+optp = OptionParser()
+integration_params = OptionGroup(optp, "Integration Parameters", "Control the integration with these options.")
+integration_params.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
+integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
+optp.add_option_group(integration_params)
+opts, args = optp.parse_args()
+
+dmin = opts.d_min
+dmax = opts.d_max
+
+print("Constructing the look-up table of distance-marginalized likelihoods ...")
+distance_array = np.linspace(dmin, dmax, int(1e4))
+delta_distance = distance_array[1] - distance_array[0]
+distance_prior_array = (3. / (dmax**3. - dmin**3.)) * distance_array**2.
+dist_margd_loglikelihood_array = np.zeros((400, 800))
+optimal_snr_squared_ref_array = np.logspace(-5, 8, dist_margd_loglikelihood_array.shape[0])
+for ii, optimal_snr_squared_ref in enumerate(optimal_snr_squared_ref_array):
+    optimal_snr_squared_array = optimal_snr_squared_ref * distRef ** 2. / distance_array ** 2
+    if phase_marginalization:
+        d_inner_h_ref_array = np.logspace(-5, 8, dist_margd_loglikelihood_array.shape[1])
+    else:
+        n_negative = dist_margd_loglikelihood_array.shape[1] // 2
+        n_positive = dist_margd_loglikelihood_array.shape[1] - n_negative
+        d_inner_h_ref_array = np.hstack((-np.logspace(3, -3, n_negative), np.logspace(-3, 8, n_positive)))
+    for jj, d_inner_h_ref in enumerate(d_inner_h_ref_array):
+        d_inner_h_array = d_inner_h_ref * distRef / distance_array
+        if phase_marginalization:
+            d_inner_h_array = _bessel_function_interped(abs(d_inner_h_array))
+        dist_margd_loglikelihood_array[ii][jj] = \
+            logsumexp(d_inner_h_array - optimal_snr_squared_array / 2, b=distance_prior_array * delta_distance)
+
+# save the list
+np.savez("distance_marginalization_lookup.npz",
+         d_inner_h_ref_array=d_inner_h_ref_array,
+         optimal_snr_squared_ref_array=optimal_snr_squared_ref_array,
+         dist_margd_loglikelihood_array=dist_margd_loglikelihood_array)
