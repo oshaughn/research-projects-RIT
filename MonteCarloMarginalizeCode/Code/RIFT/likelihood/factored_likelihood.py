@@ -1686,6 +1686,14 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopOrig(tvals, P_vec, lookupN
 
     return lnL
 
+
+# TODO: This should be set based on the marginalization scheme being used.
+# Right now it is hard-coded to not use any tricks, but later will be toggled
+# to use (e.g.) pre-tabulated distance marginaliation dependance.
+def _factored_lnL_helper(kappa_sq, rho_sq):
+    return kappa_sq - 0.5 * rho_sq
+
+
 def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
@@ -1730,7 +1738,12 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     deltaT = P_vec.deltaT
 
     # Array to accumulate lnL(t) summed across all detectors.
-    lnL_t_accum = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
+#    lnL_t_accum = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
+
+    # Used to accumulate kappa^2 and rho^2 over all detectors.  They are just
+    # the sum in quadrature of the individual detector contributions.
+    kappa_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
+    rho_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
 
     if (xpy is np) or (optimized_gpu_tools is None):
         simps = integrate.simps
@@ -1798,7 +1811,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         #     Qlms[i] = det_rholms[...,ifirst[i]:ilast[i]].T
 
         # Has shape (npts_extrinsic,)
-        term2 = (
+        rho_sq_det = (
             (F_vec*xpy.conj(F_vec)).real *
             xpy.einsum(
                 "...i,...j,ij",
@@ -1806,14 +1819,18 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             ).real
         )
 
-        term2 += (
+        rho_sq_det += (
             xpy.square(F_vec) *
             xpy.einsum(
                 "...i,...j,ij",
                 Ylms_vec, Ylms_vec, V,
             )
         ).real
-        term2 *= -0.25 * xpy.square(distMpcRef / distMpc)
+        # NOTE: Double-check this 0.5 is correct.  It used to be -0.25, but
+        # we're slightly reorganizing the expressions from term2 = -0.5 rho_sq
+        # into using rho_sq directly
+        rho_sq_det *= 0.5 * xpy.square(distMpcRef / distMpc)
+
 
         # Has shape (npts_extrinsic, npts).
         # Starts as term1, and accumulates term2 after.
@@ -1857,7 +1874,9 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             np.conj(FY_dummy_t), Qlms,
             ).real 
 
-        lnL_t_accum += Q_prod_result * (distMpcRef/distMpc)[...,None]
+
+        kappa_sq += Q_prod_result * (distMpcRef/distMpc)[...,None]
+        # lnL_t_accum += Q_prod_result * (distMpcRef/distMpc)[...,None]
 
         # lnL_t_accum += Q_inner_product.Q_inner_product_cupy(
         #     FY_conj, Q,
@@ -1867,12 +1886,15 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
         # Accumulate term2 into the time-dependent log likelihood.
         # Have to create a view with an extra axis so they broadcast.
-        lnL_t_accum += term2[..., np.newaxis]
+        rho_sq += rho_sq_det[..., np.newaxis]
+        # lnL_t_accum += term2[..., np.newaxis]
 
 #        print lnL_t_accum.shape, lnL_t.shape
 
 #        lnL_t_accum += lnL_t
 
+
+    lnL = _factored_lnL_helper(kappa_sq, rho_sq)
 
     # Take exponential of the log likelihood in-place.
     lnLmax  = xpy.max(lnL_t_accum)
