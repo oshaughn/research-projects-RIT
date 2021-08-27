@@ -638,7 +638,7 @@ unify_job.write_sub_file()
 
 ##   Subdag job
 #   - create adaptively-sized subdag for each iteration's ILE jobs
-subdag_job, subdag_job_name = dag_utils.write_subdagILE_sub(exe=opts.subdag_exe,tag='subdag',target_dir=opts.working_directory,input_grid='overlap-grid-$(macroiteration).xml.gz',output_base="write_subdag_$(macroiteration)",submit_file='ILE.sub',log_dir='', base=opts.working_directory, universe='local',cap_points=100000,iteration="$(macroiteration)")
+subdag_job, subdag_job_name = dag_utils.write_subdagILE_sub(exe=opts.subdag_exe,tag='subdag',target_dir=opts.working_directory,input_grid='overlap-grid-$(macroiteration).xml.gz',output_base="write_subdag_$(macroiteration)",submit_file='ILE.sub',log_dir='', base=opts.working_directory, universe='local',cap_points=opts.n_samples_per_job,iteration="$(macroiteration)")
 subdag_job.add_condor_cmd("initialdir",opts.working_directory)
 subdag_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-$(cluster)-$(process).log")
 subdag_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-$(cluster)-$(process).err")
@@ -646,14 +646,14 @@ subdag_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_
 subdag_job.write_sub_file()
 
 
-subdag_puff_job, subdag_puff_job_name = dag_utils.write_subdagILE_sub(exe=opts.subdag_exe,tag='subdag_puff',output_base="write_subdag_$(macroiteration)",target_dir=opts.working_directory,input_grid='overlap-grid-$(macroiteration).xml.gz',submit_file='ILE_puff.sub',log_dir='', base=opts.working_directory, universe='local',cap_points=100000,iteration="$(macroiteration)")
+subdag_puff_job, subdag_puff_job_name = dag_utils.write_subdagILE_sub(exe=opts.subdag_exe,tag='subdag_puff',output_base="write_subdag_$(macroiteration)",target_dir=opts.working_directory,input_grid='overlap-grid-$(macroiteration).xml.gz',submit_file='ILE_puff.sub',log_dir='', base=opts.working_directory, universe='local',cap_points=opts.n_samples_per_job,iteration="$(macroiteration)")
 subdag_puff_job.add_condor_cmd("initialdir",opts.working_directory)
 subdag_puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-puff-$(cluster)-$(process).log")
 subdag_puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-puff-$(cluster)-$(process).err")
 subdag_puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-puff-$(cluster)-$(process).out")
 subdag_puff_job.write_sub_file()
 
-subdag_fetch_job, subdag_fetch_job_name = dag_utils.write_subdagILE_sub(exe=opts.subdag_exe,tag='subdag_fetch',target_dir=opts.working_directory,output_base="write_subdag_$(macroiteration)",input_grid='overlap-grid-$(macroiteration).xml.gz',submit_file='ILE_fetch.sub',log_dir='', base=opts.working_directory, universe='local',cap_points=100000,iteration="$(macroiteration)")
+subdag_fetch_job, subdag_fetch_job_name = dag_utils.write_subdagILE_sub(exe=opts.subdag_exe,tag='subdag_fetch',target_dir=opts.working_directory,output_base="write_subdag_$(macroiteration)",input_grid='overlap-grid-$(macroiteration).xml.gz',submit_file='ILE_fetch.sub',log_dir='', base=opts.working_directory, universe='local',cap_points=opts.n_samples_per_job,iteration="$(macroiteration)")
 subdag_fetch_job.add_condor_cmd("initialdir",opts.working_directory)
 subdag_fetch_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-fetch-$(cluster)-$(process).log")
 subdag_fetch_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-fetch-$(cluster)-$(process).err")
