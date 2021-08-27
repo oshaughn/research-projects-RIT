@@ -924,11 +924,11 @@ for it in np.arange(it_start,opts.n_iterations):
     #   - next add a node to make sure the external subddag file gets executed
     subdag_main_node = pipeline.CondorDAGNode(subdag_job)
     
-    subdag =  pipeline.CondorDAGManJob("iteration_{}_ile_subdag.dag".format(it))  # assumes subdag is created
+    main_subdag =  pipeline.CondorDAGManJob("iteration_{}_ile_subdag.dag".format(it))  # assumes subdag is created
     subdag_main_node.add_macro("macroiteration",it)
     if not(parent_fit_node is None):
             subdag_main_node.add_parent(parent_fit_node)
-    main_analysis_node = subdag.create_node()
+    main_analysis_node = main_subdag.create_node()
     main_analysis_node.add_parent(subdag_main_node)
     dag.add_node(subdag_main_node)
     dag.add_node(main_analysis_node)
@@ -945,8 +945,8 @@ for it in np.arange(it_start,opts.n_iterations):
         if not(parent_fit_node is None):
             subdag_main_node.add_parent(parent_fit_node)
 
-        subdag =  pipeline.CondorDAGManJob("iteration_{}_ile_puff_subdag.dag".format(it))  # assumes subdag is created
-        puff_analysis_node = subdag.create_node()
+        puff_subdag =  pipeline.CondorDAGManJob("iteration_{}_ile_puff_subdag.dag".format(it))  # assumes subdag is created
+        puff_analysis_node = puff_subdag.create_node()
         puff_analysis_node.add_parent(subdag_puff_node)
         dag.add_node(puff_analysis_node)
         dag.add_node(subdag_puff_node)
@@ -962,7 +962,7 @@ for it in np.arange(it_start,opts.n_iterations):
         fetch_subdag =  pipeline.CondorDAGManJob("iteration_{}_ile_fetch_subdag.dag".format(it))  # assumes subdag is created
         fetch_analysis_node = fetch_subdag.create_node()
         fetch_analysis_node.add_parent(subdag_fetch_node)
-        dag.add_node(analysis_node)
+        dag.add_node(fetch_analysis_node)
         dag.add_node(subdag_fetch_node)
         con_node.add_parent(fetch_analysis_node) # consolidate depends on all of the individual jobs
 
