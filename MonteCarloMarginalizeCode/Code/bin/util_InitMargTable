@@ -33,6 +33,7 @@ for ii, optimal_snr_squared_ref in enumerate(optimal_snr_squared_ref_array):
 
 # save the list
 np.savez(opts.out,
+         phase_marginalization=False,
          d_inner_h_ref_array=d_inner_h_ref_array,
          optimal_snr_squared_ref_array=optimal_snr_squared_ref_array,
          dist_margd_loglikelihood_array=dist_margd_loglikelihood_array)
