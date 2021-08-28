@@ -90,7 +90,7 @@ if opts.inj:
     xmldoc = utils.load_filename(filename, verbose = True,contenthandler =lalsimutils.cthdler)
     sim_inspiral_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
     P.copy_sim_inspiral(sim_inspiral_table[int(event)])
-    P.fmin =opts.fmin
+    P.fmin =0 #opts.fmin
     if opts.approx:
         P.approx = lalsim.GetApproximantFromString(opts.approx)
         if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
@@ -110,9 +110,9 @@ else:
             Psig.lambda1 = lambda1
             Psig.lambda2 = lambda2
 
-    P.fmin=opts.fmin   # Just for comparison!  Obviously only good for iLIGO
-    P.ampO=opts.amplitude_order  # include 'full physics'
-    P.phaseO = opts.phase_order
+    P.fmin=0 #opts.fmin   # Just for comparison!  Obviously only good for iLIGO
+    P.ampO=0 #opts.amplitude_order  # include 'full physics'
+    P.phaseO =0 # opts.phase_order
     if opts.approx:
         P.approx = lalsim.GetApproximantFromString(opts.approx)
         if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
