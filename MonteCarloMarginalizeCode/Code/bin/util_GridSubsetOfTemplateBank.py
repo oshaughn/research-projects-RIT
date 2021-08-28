@@ -32,6 +32,7 @@ import numpy as np
 from sklearn.neighbors import BallTree
 import lal
 import RIFT.lalsimutils as lalsimutils
+import lalsimulation as lalsim
 from RIFT.misc.modules import *   # argh!
 import configparser
 from configparser import ConfigParser
