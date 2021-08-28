@@ -45,6 +45,10 @@ opts=  parser.parse_args()
 cfg = ConfigParser()
 cfg.optionxform = str
 cfgname = opts.use_ini
+if not cfgname:
+    print("  No input file ")
+    sys.exit(0)
+
 cfg.read(cfgname)
 
 print(("CFGNME",cfgname))
