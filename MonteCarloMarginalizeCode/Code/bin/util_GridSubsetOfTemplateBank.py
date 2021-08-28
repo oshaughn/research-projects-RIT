@@ -49,6 +49,8 @@ parser.add_argument("--mass1", default=1.50,type=float,help="Mass in solar masse
 parser.add_argument("--mass2", default=1.35,type=float,help="Mass in solar masses")
 parser.add_argument("--s1z", default=0.,type=float,help="Spin1z")
 parser.add_argument("--s2z", default=0.,type=float,help="Spin1z")
+parser.add_argument("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given")
+parser.add_argument("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
 parser.add_argument("--parameter", action='append')
 parser.add_argument("--parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used")
 parser.add_argument("--random-parameter", action='append',help="These parameters are specified at random over the entire range, uncorrelated with the grid used for other parameters.  Use for variables which correlate weakly with others; helps with random exploration")
