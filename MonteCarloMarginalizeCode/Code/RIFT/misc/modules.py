@@ -12,7 +12,7 @@ def convert_section_args_to_dict(cfg,section):
 
     dictin = dict(cfg.items(section))
 
-    for opt,arg in dictin.iteritems():
+    for opt,arg in dictin.items():
 #        print opt,arg
         if len(arg) > 1 and arg[0] == "[" and arg[-1] == "]":
             dictin[opt] = correct_list_string_formatting(arg)
@@ -28,7 +28,7 @@ def convert_dict_string_to_dict(input_dict_string):
 
     dictin = ast.literal_eval(input_dict_string)
 
-    for opt,arg in dictin.iteritems():
+    for opt,arg in dictin.items():
 #        print opt,arg
         if isinstance(arg,str) and arg[0] == "[" and arg[-1] == "]":
             dictin[opt] = correct_list_string_formatting(arg)
@@ -40,7 +40,7 @@ def convert_dict_string_to_dict(input_dict_string):
 def convert_cfg_section_to_cmd_line(cfg,cfg_section):
     cmds_dict = dict(cfg.items(cfg_section))
     cmd_line = ""
-    for name,arg in cmds_dict.iteritems():
+    for name,arg in cmds_dict.items():
         #check if it's meant to be a list and if yes convert it to format for ArgumentParser append option
         if len(arg) > 1 and arg[0] == "[" and arg[-1] == "]":
             arglist = ast.literal_eval(correct_list_string_formatting(arg))
