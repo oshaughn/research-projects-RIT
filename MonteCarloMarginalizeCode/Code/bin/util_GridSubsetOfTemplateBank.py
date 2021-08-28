@@ -194,12 +194,12 @@ def main():
         mdata = h5file[wfrm_fam]
 #        m1, m2 = mdata["m1"][:], mdata["m2"][:]
         ntemplates = len(mdata["overlaps"])
-        m1, m2 = mdata["m1"][:ntemplates], mdata["m2"][:ntemplates]
+        m1, m2 = mdata["mass1"][:ntemplates], mdata["mass2"][:ntemplates]
         Mchirps = ( (m1*m2)**(3/5.0) ) / ( (m1 + m2)**(1/5.0) )
 #        print Mchirp_event,min(Mchirps),max(Mchirps)
         if Mchirp_event > min(Mchirps) and Mchirp_event < max(Mchirps):
             print(hdf_filename)
-            s1, s2 = mdata["s1z"][:ntemplates], mdata["s2z"][:ntemplates]
+            s1, s2 = mdata["spin1z"][:ntemplates], mdata["spin2z"][:ntemplates]
             etas = ((m1*m2)/((m1+m2)**2.))
             chi_effs = transform_s1zs2z_chi(m1,m2,s1,s2)    
             #FIXME:even if youre not searching over spin, you want to find the file with the closest template assuming spin=0
