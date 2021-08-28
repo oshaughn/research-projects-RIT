@@ -14,7 +14,7 @@
 # For now the lalsuite code is only setup for grids in mass1 mass2 space. it needs to be expanded
 #
 # util_GridSubsetOfTemplateBank.py  --use-ini path_to_config_file
-
+# util_GridSubsetOfTemplateBank.py --use-ini config_O3.ini --use-bank /home/sinead.walsh/20180214_O2_overlaps_from_heather_fong/
 
 # or
 # generate_initial_grid_based_of_gstlal_O2_overlaps.py path_to_config_file "{output_event_ID=name,intrinsic_param=[mass1=1.4,mass2=1.4]}"
@@ -39,6 +39,7 @@ parser.add_argument("--use-ini",default=None,help="ini file (required)")
 parser.add_argument("--use-bank",default=None,help="path to bank files (top level directory), required. For example /home/sinead.walsh/20180214_O2_overlaps_from_heather_fong/")
 parser.add_argument("--refine-exe",default="util_AMRGrid.py",help="exe for grid refinement name (util_AMRGrid.py)")
 parser.add_argument("--extra-ini-args",default=None,help="extra dictionary of kwargs (?)")
+parser.add_argument("--output-path",default=".",help="path to output")
 opts=  parser.parse_args()
 
 
@@ -60,7 +61,7 @@ else:
     kwargs = convert_section_args_to_dict(cfg,"Event")
 
 
-output_event_directory= kwargs["output_event_ID"] #the output directory for the single event trigger being followed up here
+output_event_directory= opts.output_path #kwargs["output_event_ID"] #the output directory for the single event trigger being followed up here
 intrinsic_param = convert_list_string_to_dict(kwargs["intrinsic_param"])
 distance_coordinates = cfg.get("GridRefine","distance-coordinates") if cfg.has_option("GridRefine","distance-coordinates") else ""
 additional_command_line_args = convert_cfg_section_to_cmd_line(cfg,"InitialGridOnly") if cfg.has_section("InitialGridOnly") else ""
@@ -88,7 +89,7 @@ def main():
     initial_grid_hdf = intrinsic_grid_name_base+"_all_iterations.hdf"
     #now fill in the rest
     cmd = exe + " --verbose --no-exact-match --setup "+initial_grid_hdf+" --output-xml-file-name "+initial_grid_xml
-    if distance_coordinates is not "":
+    if distance_coordinates != "":
         cmd += " -d "+distance_coordinates
 
     #Add the event trigger parameters, the inital grid will include all points in the overlap bank with overlap < the -T value  
