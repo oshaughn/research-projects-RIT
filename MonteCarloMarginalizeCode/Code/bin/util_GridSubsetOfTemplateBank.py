@@ -30,6 +30,7 @@ import sys,os,json,ast,glob,h5py
 
 import numpy as np
 from sklearn.neighbors import BallTree
+import RIFT.lalsimutils as lalsimutils
 from RIFT.misc.modules import *   # argh!
 import configparser
 from configparser import ConfigParser
@@ -40,6 +41,20 @@ parser.add_argument("--use-bank",default=None,help="path to bank files (top leve
 parser.add_argument("--refine-exe",default="util_AMRGrid.py",help="exe for grid refinement name (util_AMRGrid.py)")
 parser.add_argument("--extra-ini-args",default=None,help="extra dictionary of kwargs (?)")
 parser.add_argument("--output-path",default=".",help="path to output")
+# see ManualOverlapGrid, same argument structure here so interoperable. 
+parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing the base point.")
+parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
+parser.add_argument("--mass1", default=1.50,type=float,help="Mass in solar masses")  # 150 turns out to be ok for Healy et al sims
+parser.add_argument("--mass2", default=1.35,type=float,help="Mass in solar masses")
+parser.add_argument("--s1z", default=0.,type=float,help="Spin1z")
+parser.add_argument("--s2z", default=0.,type=float,help="Spin1z")
+parser.add_argument("--parameter", action='append')
+parser.add_argument("--parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used")
+parser.add_argument("--random-parameter", action='append',help="These parameters are specified at random over the entire range, uncorrelated with the grid used for other parameters.  Use for variables which correlate weakly with others; helps with random exploration")
+parser.add_argument("--random-parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used.  ")
+parser.add_argument("--grid-cartesian-npts", default=100, type=int)
+parser.add_argument("--match-value", type=float, default=0.01, help="Use this as the minimum match value. Default is 0.01 (i.e., keep almost everything)")
+parser.add_argument("--verbose", action="store_true",default=False, help="Extra warnings")
 opts=  parser.parse_args()
 
 
@@ -62,12 +77,61 @@ else:
 
 
 output_event_directory= opts.output_path #kwargs["output_event_ID"] #the output directory for the single event trigger being followed up here
-intrinsic_param = convert_list_string_to_dict(kwargs["intrinsic_param"])
+
+# as in MOG
+P=lalsimutils.ChooseWaveformParams()
+if opts.inj:
+    from glue.ligolw import lsctables, table, utils # check all are needed
+    filename = opts.inj
+    event = opts.event_id
+    xmldoc = utils.load_filename(filename, verbose = True,contenthandler =lalsimutils.cthdler)
+    sim_inspiral_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
+    P.copy_sim_inspiral(sim_inspiral_table[int(event)])
+    P.fmin =opts.fmin
+    if opts.approx:
+        P.approx = lalsim.GetApproximantFromString(opts.approx)
+        if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
+            # Do not use tidal parameters in approximant which does not implement them
+            print(" Do not use tidal parameters in approximant which does not implement them ")
+            P.lambda1 = 0
+            P.lambda2 = 0    
+else:    
+    P.m1 = opts.mass1 *lal.MSUN_SI
+    P.m2 = opts.mass2 *lal.MSUN_SI
+    P.s1z = opts.s1z
+    P.dist = 150*1e6*lal.PC_SI
+    if opts.eff_lambda and Psig:
+        lambda1, lambda2 = 0, 0
+        if opts.eff_lambda is not None:
+            lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1, m2, opts.eff_lambda, opts.deff_lambda or 0)
+            Psig.lambda1 = lambda1
+            Psig.lambda2 = lambda2
+
+    P.fmin=opts.fmin   # Just for comparison!  Obviously only good for iLIGO
+    P.ampO=opts.amplitude_order  # include 'full physics'
+    P.phaseO = opts.phase_order
+    if opts.approx:
+        P.approx = lalsim.GetApproximantFromString(opts.approx)
+        if not (P.approx in [lalsim.TaylorT1,lalsim.TaylorT2, lalsim.TaylorT3, lalsim.TaylorT4]):
+            # Do not use tidal parameters in approximant which does not implement them
+            print(" Do not use tidal parameters in approximant which does not implement them ")
+            P.lambda1 = 0
+            P.lambda2 = 0
+    else:
+        P.approx = lalsim.GetApproximantFromString("TaylorT4")
+
+
+intrinsic_param ={}
+intrinsic_param["m1"] = P.m1/lal.MSUN_SI
+intrinsic_param["m2"] = P.m2/lal.MSUN_SI
+intrinsic_param["s1z"] = P.s1z
+intrinsic_param["s2z"] = P.s2z
+#intrinsic_param = convert_list_string_to_dict(kwargs["intrinsic_param"])
 distance_coordinates = cfg.get("GridRefine","distance-coordinates") if cfg.has_option("GridRefine","distance-coordinates") else ""
 additional_command_line_args = convert_cfg_section_to_cmd_line(cfg,"InitialGridOnly") if cfg.has_section("InitialGridOnly") else ""
 
-script_directory = os.path.dirname(os.path.realpath(__file__))
-output_dir = script_directory+"/"+output_parent_directory+"/"+output_event_directory+"/"
+#script_directory = os.path.dirname(os.path.realpath(__file__))
+output_dir =output_event_directory
 
 def main():
 
