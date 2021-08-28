@@ -337,7 +337,7 @@ if opts.use_overlap is not None:
     # FIXME:
     #wfrm_fam = args.waveform_type
     # Just get the first one
-    wfrm_fam = h5file.keys()[0]
+    wfrm_fam = list(h5file.keys())[0]
 
     odata = h5file[wfrm_fam]
     ovrlp = odata["overlaps"]
