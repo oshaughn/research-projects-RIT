@@ -14,7 +14,7 @@ def convert_section_args_to_dict(cfg,section):
 
     for opt,arg in dictin.iteritems():
 #        print opt,arg
-        if len(arg) > 1 and arg[0] is "[" and arg[-1] is "]":
+        if len(arg) > 1 and arg[0] == "[" and arg[-1] == "]":
             dictin[opt] = correct_list_string_formatting(arg)
         else:
             dictin[opt] = arg
@@ -30,7 +30,7 @@ def convert_dict_string_to_dict(input_dict_string):
 
     for opt,arg in dictin.iteritems():
 #        print opt,arg
-        if isinstance(arg,str) and arg[0] is "[" and arg[-1] is "]":
+        if isinstance(arg,str) and arg[0] == "[" and arg[-1] == "]":
             dictin[opt] = correct_list_string_formatting(arg)
 
     return dictin
@@ -42,7 +42,7 @@ def convert_cfg_section_to_cmd_line(cfg,cfg_section):
     cmd_line = ""
     for name,arg in cmds_dict.iteritems():
         #check if it's meant to be a list and if yes convert it to format for ArgumentParser append option
-        if len(arg) > 1 and arg[0] is "[" and arg[-1] is "]":
+        if len(arg) > 1 and arg[0] == "[" and arg[-1] == "]":
             arglist = ast.literal_eval(correct_list_string_formatting(arg))
             for subarg in arglist:
                 cmd_line += " --"+name+"="+subarg
@@ -56,7 +56,7 @@ def convert_dict_to_cmd_line(cmds_dict):
     cmd_line = ""
     for name,arg in cmds_dict.iteritems():
         #check if it's meant to be a list and if yes convert it to format for ArgumentParser append option
-        if len(arg) > 1 and arg[0] is "[" and arg[-1] is "]":
+        if len(arg) > 1 and arg[0] == "[" and arg[-1] == "]":
             arglist = ast.literal_eval(correct_list_string_formatting(arg))
             for subarg in arglist:
                 cmd_line += " --"+name+"="+subarg
@@ -82,7 +82,7 @@ def convert_list_string_to_dict(list_string):
 def correct_list_string_formatting(list_string):
     output_str= ""
     list_string = list_string.replace("\n","")
-    if not (len(list_string) > 1 and list_string[0] is "[" and list_string[-1] is "]"):
+    if not (len(list_string) > 1 and list_string[0] == "[" and list_string[-1] == "]"):
         #Check if theres just one arg=opt
         if list_string.count("=") == 1 and list_string.count("[") == 0  and list_string.count("]") == 0:
             if not "'" in list_string and not '"' in list_string:
