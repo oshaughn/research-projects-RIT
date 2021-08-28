@@ -77,7 +77,7 @@ def determine_region(pt, pts, ovrlp, ovrlp_thresh, expand_prms={}):
     """
     sidx = bisect.bisect(ovrlp, ovrlp_thresh)
 #    print "Found %d neighbors with overlap >= %f" % (len(ovrlp[sidx:]), ovrlp_thresh)
-    print "HERE",ovrlp_thresh,ovrlp[sidx:],pts[sidx:],pt
+    print("HERE",ovrlp_thresh,ovrlp[sidx:],pts[sidx:],pt)
 #    print "HERE",ovrlp_thresh,ovrlp[sidx:],pts[sidx:],pt
     
 
@@ -307,7 +307,7 @@ if opts.use_overlap is not None:
         for hdf_filename in opts.use_overlap:
             print (hdf_filename)
             h5file = h5py.File(hdf_filename, "r")
-            wfrm_fam = h5file.keys()[0]
+            wfrm_fam = list(h5file.keys())[0]
             odata = h5file[wfrm_fam]
             ovrlp = odata["overlaps"]
             
@@ -377,7 +377,7 @@ if opts.use_overlap is not None:
     # Step 3: Get the row of the overlap matrix to work with
     #
     m_idx, pt, unused_dist_var = find_olap_index(tree, intr_prms, not opts.no_exact_match, **intr_pt)
-    print "HERE2: ",pt,m_idx,unused_dist_var
+    print("HERE2: ",pt,m_idx,unused_dist_var)
 #    m_idx = 266
 
     #
@@ -398,7 +398,7 @@ if opts.use_overlap is not None:
 #
 
 # Expanded parameters are now part of the intrinsic set
-intr_prms = list(intr_prms) + expand_prms.keys()
+intr_prms = list(intr_prms) + list(expand_prms.keys())
 
 # Gather any results we may want to use -- this is either the evidence values
 # we've calculated, or overlaps of points we've looked at
@@ -461,7 +461,7 @@ else:
     else:
         # Override initial region -- use with care
         _, init_region = parse_param(opts.initial_region)
-        region_labels = init_region.keys()
+        region_labels = list(init_region.keys())
         init_region = amrlib.Cell(numpy.vstack(init_region[k] for k in region_labels))
 
     # TODO: Alternatively, check density of points in the region to determine
