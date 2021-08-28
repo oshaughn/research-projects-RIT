@@ -13,8 +13,9 @@
 #
 # For now the lalsuite code is only setup for grids in mass1 mass2 space. it needs to be expanded
 #
-# This script can be run in two ways
-# generate_initial_grid_based_of_gstlal_O2_overlaps.py path_to_config_file
+# util_GridSubsetOfTemplateBank.py  --use-ini path_to_config_file
+
+
 # or
 # generate_initial_grid_based_of_gstlal_O2_overlaps.py path_to_config_file "{output_event_ID=name,intrinsic_param=[mass1=1.4,mass2=1.4]}"
 # or with spin:
@@ -29,29 +30,31 @@ import sys,os,json,ast,glob,h5py
 
 import numpy as np
 from sklearn.neighbors import BallTree
-from modules import *
+from RIFT.modules import *   # argh!
 import configparser
 from configparser import ConfigParser
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--use-ini",default=None,help="ini file (required)")
+parser.add_argument("--use-bank",default=None,help="path to bank files (top level directory), required. For example /home/sinead.walsh/20180214_O2_overlaps_from_heather_fong/")
+parser.add_argument("--refine-exe",default="util_AMRGrid.py",help="exe for grid refinement name (util_AMRGrid.py)")
+parser.add_argument("--extra-ini-args",default=None,help="extra dictionary of kwargs (?)")
+opts=  parser.parse_args()
+
+
 cfg = ConfigParser()
 cfg.optionxform = str
-
-sys.exit(0)  # Currently fail, because we haven't written it to have properly flexible arguments, etc following convention of other routines.
-
-
-cfgname = sys.argv[1]
+cfgname = opts.use_ini
 cfg.read(cfgname)
 
 print(("CFGNME",cfgname))
 output_parent_directory= cfg.get("General","output_parent_directory") # output parent dir for all triggers from same scenario study etc.
 
-if len(sys.argv) == 2:
+if opts.extra_ini_args:
+    kwargs = convert_dict_string_to_dict(opts.extra_ini_args)
+else:
     kwargs = convert_section_args_to_dict(cfg,"Event")
 
-elif len(sys.argv) == 3:
-    kwargs = convert_dict_string_to_dict(sys.argv[2])
-#ast.literal_eval(sys.argv[2])
-else:
-    sys.exit("ERROR: too many input arguments")
 
 output_event_directory= kwargs["output_event_ID"] #the output directory for the single event trigger being followed up here
 intrinsic_param = convert_list_string_to_dict(kwargs["intrinsic_param"])
@@ -72,15 +75,10 @@ def main():
     #make the output directory your working directory                                                                                                      
     os.chdir(output_dir)
 
-#    exe = "python /home/sinead.walsh/Software/lalsuite_for_psiphimarg_v5_venv/src/lalsuite/lalinference/python/rapidpe_compute_intrinsic_grid.py" 
-#    exe = "/home/sinead.walsh/Software/20190225_python27_lalsuite_for_automated_rapidpe_venv/opt/lalsuite/bin/rapidpe_compute_intrinsic_grid"
-#    exe = "/home/sinead.walsh/Software/20190702_python27_lalsuite_for_automated_rapidpe_venv_v2/opt/lalsuite/bin/rapidpe_compute_intrinsic_grid" 
-#    exe = "/home/caitlin.rose/virtualenvs/lalbranch_virtualenv/opt/bin/rapidpe_compute_intrinsic_grid"
-    exe = "/home/vinaya.valsan/virtualenvs/rapidpe_new_19052021/opt/bin/rapidpe_compute_intrinsic_grid"
-#    exe = "python /home/sinead.walsh/Software/20190225_python27_lalsuite_for_automated_rapidpe_venv/src/lalsuite/lalinference/python/rapidpe_compute_intrinsic_grid.py" 
-    path_to_olap_files = "/home/sinead.walsh/20180214_O2_overlaps_from_heather_fong/"
+    exe = opts.refine_exe 
+    path_to_olap_files = opts.use_bank # "/home/sinead.walsh/20180214_O2_overlaps_from_heather_fong/"
     if not os.path.isdir(path_to_olap_files):
-        sys.exit("ERROR: path to overlap files doesn't exist.You should be on CIT pcdev1")
+        sys.exit("ERROR: path to overlap files doesn't exist. Make sure you are on the correct filesystem / host cluster for {}".format(path_to_olap_files))
     intrinsic_grid_name_base = "intrinsic_grid"
     initial_grid_xml = intrinsic_grid_name_base+"_iteration_0.xml.gz"
     initial_grid_hdf = intrinsic_grid_name_base+"_all_iterations.hdf"
@@ -98,12 +96,12 @@ def main():
 
 
     #The overlap files are split by Mchirp, it takes time to check all files and see which one contains our signal. Here, we check the 
-    m1 =float(intrinsic_param["mass1"])
-    m2= float(intrinsic_param["mass2"])
+    m1 =float(intrinsic_param["m1"])
+    m2= float(intrinsic_param["m2"])
     s1 = s2 = 0
-    if "spin1z" in intrinsic_param:
-        s1 =float(intrinsic_param["spin1z"])
-        s2= float(intrinsic_param["spin2z"])
+    if "s1z" in intrinsic_param:
+        s1 =float(intrinsic_param["s1z"])
+        s2= float(intrinsic_param["s2z"])
     
     chi_eff_event = transform_s1zs2z_chi(m1,m2,s1,s2)    
     Mchirp_event = ( (m1*m2)**(3/5.0) ) / ( (m1 + m2)**(1/5.0) )
@@ -120,21 +118,21 @@ def main():
         h5file = h5py.File(hdf_filename,"r")
         wfrm_fam = list(h5file.keys())[0]
         mdata = h5file[wfrm_fam]
-#        m1, m2 = mdata["mass1"][:], mdata["mass2"][:]
+#        m1, m2 = mdata["m1"][:], mdata["m2"][:]
         ntemplates = len(mdata["overlaps"])
-        m1, m2 = mdata["mass1"][:ntemplates], mdata["mass2"][:ntemplates]
+        m1, m2 = mdata["m1"][:ntemplates], mdata["m2"][:ntemplates]
         Mchirps = ( (m1*m2)**(3/5.0) ) / ( (m1 + m2)**(1/5.0) )
 #        print Mchirp_event,min(Mchirps),max(Mchirps)
         if Mchirp_event > min(Mchirps) and Mchirp_event < max(Mchirps):
             print(hdf_filename)
-            s1, s2 = mdata["spin1z"][:ntemplates], mdata["spin2z"][:ntemplates]
+            s1, s2 = mdata["s1z"][:ntemplates], mdata["s2z"][:ntemplates]
             etas = ((m1*m2)/((m1+m2)**2.))
             chi_effs = transform_s1zs2z_chi(m1,m2,s1,s2)    
             #FIXME:even if youre not searching over spin, you want to find the file with the closest template assuming spin=0
             #implement above here at same time as code
             list_for_tree = np.asarray([Mchirps,etas]).T
             pt = np.asarray([Mchirp_event,eta_event])
-            if "spin1z" in intrinsic_param:
+            if "s1z" in intrinsic_param:
                 list_for_tree = np.asarray([Mchirps,etas,chi_effs]).T
                 pt = np.asarray([Mchirp_event,eta_event,chi_eff_event])            
 
@@ -145,11 +143,11 @@ def main():
                 min_dist_filename = hdf_filename
 
             count_files += 1
-            if not "spin1z" in intrinsic_param:
+            if not "s1z" in intrinsic_param:
                 #FIXME: rapidpe compute grid doesn't consider spin when checking for the closest template, which can lead to incorrect overlaps with other templates because the spin of the closest template assuming zero spin is actually non-zero, and if that was taken into account it wouldn't be the closest template
                 cmd += " --use-overlap "+hdf_filename
 
-    if "spin1z" in intrinsic_param:                
+    if "s1z" in intrinsic_param:                
         cmd += " --use-overlap "+min_dist_filename
 
     print(("CLA",cmd))
