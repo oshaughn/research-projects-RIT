@@ -246,7 +246,7 @@ typical_bns_range_Mpc["O3"] = 130
 cal_versions = {"C00", "C01", "C02"}
 for cal in cal_versions:
     for ifo in "H1", "L1":
-        if cal is "C00":
+        if cal == "C00":
             standard_channel_names["O1"][(cal,ifo)] = "GDS-CALIB_STRAIN" # _"+cal
             data_types["O1"][(cal,ifo)] = ifo+"_HOFT"
         else:
@@ -258,9 +258,9 @@ cal_versions = {"C00", "C01", "C02"}
 for cal in cal_versions:
     for ifo in "H1", "L1":
         data_types["O2"][(cal,ifo)] = ifo+"_HOFT_" + cal
-        if cal is "C00":
+        if cal == "C00":
             standard_channel_names["O2"][(cal,ifo)] = "GDS-CALIB_STRAIN" # _"+cal
-        elif cal is "C02":
+        elif cal == "C02":
             standard_channel_names["O2"][(cal,ifo)] = "DCH-CLEAN_STRAIN_C02"
             data_types["O2"][(cal,ifo)] = ifo+"_CLEANED_HOFT_C02"
         else:
@@ -290,19 +290,19 @@ for cal in cal_versions:
         data_types["O3"][(cal,ifo)] = ifo+"_HOFT_" + cal
         if opts.online:
             data_types["O3"][(cal,ifo)] = ifo+"_llhoft"
-        if cal is "C00":
+        if cal == "C00":
             standard_channel_names["O3"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN" 
             standard_channel_names["O3"][(cal,ifo,"BeforeMay1")] = "GDS-CALIB_STRAIN" 
             # Correct channel name is for May 1 onward : need to use *non-clean* before May 1; see Alan W email and https://wiki.ligo.org/Calibration/CalReview_20190502
             if opts.online:
                 standard_channel_names["O3"][(cal,ifo)] = "GDS-CALIB_STRAIN" # Do not assume cleaning is available in low latency
-        if cal is "X01":  # experimental version of C01 calibration
+        if cal == "X01":  # experimental version of C01 calibration
             standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X01"
-        if cal is "X02":
+        if cal == "X02":
             standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_X02" 
-        if cal is 'C01':
+        if cal == 'C01':
             standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_C01" 
-        if cal is 'C01_nonlinear':
+        if cal == 'C01_nonlinear':
             standard_channel_names["O3"][(cal,ifo)] = "DCS-CALIB_STRAIN_CLEAN_SUB60HZ_C01" 
             data_types["O3"][(cal,ifo)] = ifo+"_HOFT_CLEAN_SUB60HZ_C01"
 data_types["O3"][("C00", "V1")] = "V1Online"
@@ -487,11 +487,11 @@ if (opts.observing_run is None) and not opts.fake_data:
     opts.observing_run = get_observing_run(tref)
     if opts.calibration_version is None and (opts.use_ini is None):
         # This should be a dictionary lookup.
-        if opts.observing_run is "O2":
+        if opts.observing_run == "O2":
             opts.calibration_version = "C02"
-        if opts.observing_run is "O1":
+        if opts.observing_run == "O1":
             opts.calibration_version = "C02"
-        if opts.observing_run is "O3":
+        if opts.observing_run == "O3":
             opts.calibration_version = "C00"   # for now! change as needed
 
 
@@ -550,10 +550,10 @@ if opts.use_ini is None:
     else:
         channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo)]
         # Channel names to use before May 1 in O3: need better lookup logic
-        if opts.observing_run is "O3" and  event_dict["tref"] < 1240750000 and opts.calibration_version is 'C00':
+        if opts.observing_run == "O3" and  event_dict["tref"] < 1240750000 and opts.calibration_version is 'C00':
             if ifo in ['H1', 'L1']:
                 channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo,"BeforeMay1")]
-        if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
+        if opts.observing_run == "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
             if ifo == 'V1':
                 channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version, ifo, "September")]
 
@@ -627,7 +627,7 @@ if not (opts.fake_data):
             data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
             # Special lookup for later in O3
             # https://wiki.ligo.org/LSC/JRPComm/ObsRun3#Virgo_AN1
-            if opts.observing_run is "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
+            if opts.observing_run == "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
                 data_type_here=data_types["O3"][(opts.calibration_version, ifo,"September")]        
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
 if not opts.cache:  # don't make a cache file if we have one!
