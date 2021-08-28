@@ -554,7 +554,7 @@ else:
 
 print("Selected %d cells for further analysis." % len(cells))
 if opts.setup:
-    fname = "HL-MASS_POINTS_LEVEL_0-0-1.xml.gz" if opts.output_xml_file_name is "" else opts.output_xml_file_name 
+    fname = "HL-MASS_POINTS_LEVEL_0-0-1.xml.gz" if opts.output_xml_file_name == "" else opts.output_xml_file_name 
     write_to_xml(cells, intr_prms, pin_prms, None, fname, verbose=opts.verbose)
 else:
     #m = re.search("LEVEL_(\d+)", opts.result_file)
@@ -563,5 +563,5 @@ else:
         #fname = "HL-MASS_POINTS_LEVEL_%d-0-1.xml.gz" % level
     #else:
         #fname = "HL-MASS_POINTS_LEVEL_X-0-1.xml.gz"
-    fname = "HL-MASS_POINTS_LEVEL_%d-0-1.xml.gz" % level if opts.output_xml_file_name is "" else opts.output_xml_file_name 
+    fname = "HL-MASS_POINTS_LEVEL_%d-0-1.xml.gz" % level if opts.output_xml_file_name == "" else opts.output_xml_file_name 
     write_to_xml(cells, intr_prms, pin_prms, None, fname, verbose=opts.verbose)
