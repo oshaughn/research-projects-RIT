@@ -216,7 +216,7 @@ argp.add_argument("-p", "--pin-param", action="append", help="Pin the parameter 
 
 grid_section = argp.add_argument_group("initial gridding options", "Options for setting up the initial grid.")
 grid_section.add_argument("--setup", help="Set up the initial grid based on template bank overlaps. The new grid will be saved to this argument, e.g. --setup grid will produce a grid.hdf file.")
-grid_section.add_argument("--output-xml-file-name",default="", help="Set the name of the output xml file. The default name is HL-MASS_POINTS_LEVEL_%d-0-1.xml.gz % level")
+grid_section.add_argument("--output-xml-file-name",default="", help="Set the name of the output xml file. The default name is HL-MASS_POINTS_LEVEL_x-0-1.xml.gz where x is the  level")
 grid_section.add_argument("-t", "--tmplt-bank", help="XML file with template bank.")
 grid_section.add_argument("-O", "--use-overlap", action="append",help="Use overlap information to define 'closeness'. If a list of files is given, the script will find the file with the closest template, and select nearby templates only from that file.")
 grid_section.add_argument("-T", "--overlap-threshold", default=0.9,type=float, help="Threshold on overlap value.")
