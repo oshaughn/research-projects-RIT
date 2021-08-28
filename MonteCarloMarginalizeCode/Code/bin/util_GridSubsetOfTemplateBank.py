@@ -30,7 +30,7 @@ import sys,os,json,ast,glob,h5py
 
 import numpy as np
 from sklearn.neighbors import BallTree
-from RIFT.modules import *   # argh!
+from RIFT.misc.modules import *   # argh!
 import configparser
 from configparser import ConfigParser
 
