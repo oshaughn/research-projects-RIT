@@ -1,5 +1,5 @@
 # amrlib.py
-#   From rapid_pe (Pankow)  https://github.com/CaitlinRose/rapidpe/blob/master/bin/rapidpe_compute_intrinsic_grid
+#   From rapid_pe (Pankow)  https://github.com/CaitlinRose/rapidpe/blob/master/rapid_pe/amrlib.py
 
 import itertools
 import copy
@@ -9,7 +9,7 @@ import h5py
 
 import lal
 
-from . import lalsimutils
+from .. import  lalsimutils
 
 m1m2 = numpy.vectorize(lalsimutils.m1m2)
 
@@ -567,11 +567,11 @@ def check_grid(grid, intr_prms, distance_coordinates):
         bounds_mask = check_mchirpeta(grid_check[m1_axis], grid_check[m2_axis])
 
     # FIXME: Needs general spin
-    if "spin1z" in intr_prms:
-        s1_axis = intr_prms.index("spin1z")
+    if "s1z" in intr_prms:
+        s1_axis = intr_prms.index("s1z")
         bounds_mask &= check_spins(grid_check[s1_axis])
-    if "spin2z" in intr_prms:
-        s2_axis = intr_prms.index("spin2z")
+    if "s2z" in intr_prms:
+        s2_axis = intr_prms.index("s2z")
         bounds_mask &= check_spins(grid_check[s2_axis])
     if "chi_z" in intr_prms:
         chi_axis = intr_prms.index("chi_z")
@@ -608,7 +608,7 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
     m1_idx, m2_idx = intr_prms.index("m1"), intr_prms.index("m2")
     if spin_transform:
         if spin_transform == "chi_z":
-            s1z_idx, s2z_idx = intr_prms.index("spin1z"), intr_prms.index("spin2z")
+            s1z_idx, s2z_idx = intr_prms.index("s1z"), intr_prms.index("s2z")
 #            chi_z = transform_s1zs2z_chi(pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx]) 
             #The grid is converted from m1 m2 s1 s2 to mc eta chi_eff because it's better to choose the closest grid points in mc eta chi_eff space. 
             #chi_a is not considered when choosing the closes grid points, but we do need it to transform back to s1 s2
@@ -631,7 +631,7 @@ def apply_inv_transform(pts, intr_prms, mass_transform=None,spin_transform=None)
     
     if spin_transform:
         if spin_transform == "chi_z":
-            s1z_idx, s2z_idx = intr_prms.index("spin1z"), intr_prms.index("spin2z")
+            s1z_idx, s2z_idx = intr_prms.index("s1z"), intr_prms.index("s2z")
             pts[:,s1z_idx],pts[:,s2z_idx] =transform_chi_eff_chi_a_s1zs2z(pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx])
 
         
