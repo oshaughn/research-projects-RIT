@@ -160,10 +160,10 @@ class integrator:
             if model is None:
                 # model doesn't exist yet
                 if isinstance(self.n_comp, int) and self.n_comp != 0:
-                    model = GMM.gmm(self.n_comp, new_bounds,epsilon=gmm_epsilon)
+                    model = GMM.gmm(self.n_comp, new_bounds,epsilon=self.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=log_weights)
                 elif isinstance(self.n_comp, dict) and self.n_comp[dim_group] != 0:
-                    model = GMM.gmm(self.n_comp[dim_group], new_bounds,epsilon=gmm_epsilon)
+                    model = GMM.gmm(self.n_comp[dim_group], new_bounds,epsilon=self.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=log_weights)
             else:
                 model.update(temp_samples, log_sample_weights=log_weights)
