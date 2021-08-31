@@ -37,6 +37,12 @@ from RIFT.misc.modules import *   # argh!
 import configparser
 from configparser import ConfigParser
 
+remap_rpe2rift = {'m1':'mass1','m2':'mass2'}
+def translate_params(param):
+    if param in remap_rpe2rift:
+        return remap_rpe2rift[param]
+    return param
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-ini",default=None,help="ini file (required)")
 parser.add_argument("--use-bank",default=None,help="path to bank files (top level directory), required. For example /home/sinead.walsh/20180214_O2_overlaps_from_heather_fong/")
@@ -164,7 +170,8 @@ def main():
     #Add the event trigger parameters, the inital grid will include all points in the overlap bank with overlap < the -T value  
     for param,val in intrinsic_param.items():
         print(param,val)
-        cmd += " -i "+param+"="+str(val)
+        translated_param = translate_params(param)  # variable name convention for lower-level variables is different
+        cmd += " -i "+translated_param+"="+str(val)
 
     cmd += additional_command_line_args
 
