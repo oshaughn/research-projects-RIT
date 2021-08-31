@@ -37,7 +37,7 @@ from RIFT.misc.modules import *   # argh!
 import configparser
 from configparser import ConfigParser
 
-remap_rpe2rift = {'m1':'mass1','m2':'mass2'}
+remap_rpe2rift = {'m1':'mass1','m2':'mass2','s1z':'spin1z', 's2z':'spin2z'}
 def translate_params(param):
     if param in remap_rpe2rift:
         return remap_rpe2rift[param]
