@@ -559,7 +559,7 @@ def check_grid(grid, intr_prms, distance_coordinates):
     """
     Check the validity of points in various coordinate spaces to ensure they are physical.
     """
-    m1_axis, m2_axis = intr_prms.index("m1"), intr_prms.index("m2")
+    m1_axis, m2_axis = intr_prms.index("m1"), intr_prms.index("mass2")
     grid_check = numpy.array(grid).T
     if distance_coordinates == "tau0_tau3":
         bounds_mask = check_tau0tau3(grid_check[m1_axis], grid_check[m2_axis])
@@ -605,7 +605,7 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
     # You know what... recarrays are dumb, and so's your face.
     # FIXME: Why does numpy want me to repack this into tuples!?
     #tpts = numpy.array([tuple(pt) for pt in pts.T], dtype = numpy.dtype([(a ,"float64") for a in intr_prms]))
-    m1_idx, m2_idx = intr_prms.index("m1"), intr_prms.index("m2")
+    m1_idx, m2_idx = intr_prms.index("mass1"), intr_prms.index("mass2")
     if spin_transform:
         if spin_transform == "chi_z":
             s1z_idx, s2z_idx = intr_prms.index("s1z"), intr_prms.index("s2z")
@@ -625,7 +625,7 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
     return pts
 
 def apply_inv_transform(pts, intr_prms, mass_transform=None,spin_transform=None):
-    m1_idx, m2_idx = intr_prms.index("m1"), intr_prms.index("m2")
+    m1_idx, m2_idx = intr_prms.index("mass1"), intr_prms.index("mass2")
     if mass_transform:
         pts[:,m1_idx], pts[:,m2_idx] = INVERSE_TRANSFORMS_MASS[VALID_TRANSFORMS_MASS[mass_transform]](pts[:,m1_idx], pts[:,m2_idx])
     
