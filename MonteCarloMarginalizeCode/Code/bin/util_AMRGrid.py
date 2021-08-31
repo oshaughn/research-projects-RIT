@@ -210,7 +210,7 @@ argp.add_argument("-v", "--verbose", action='store_true', help="Be verbose.")
 # FIXME: This could be a single value (lock a point in) or a range (adapt across
 # this is range). No argument given implies use entire known range (if
 # available).
-argp.add_argument("-i", "--intrinsic-param", action="append", help="Adapt in this intrinsic parameter. If a pre-existing value is known (e.g. a search template was identified), specify this parameter as -i mass1=1.4 . This will indicate to the program to choose grid points which are commensurate with this value.")
+argp.add_argument("-i", "--intrinsic-param", action="append", help="Adapt in this intrinsic parameter. If a pre-existing value is known (e.g. a search template was identified), specify this parameter as -i mass1=1.4 . This will indicate to the program to choose grid points which are commensurate with this value. Note that the mass1, mass2 names are hardcoded by fiat because they are used in the template bank files")
 argp.add_argument("-p", "--pin-param", action="append", help="Pin the parameter to this value in the template bank. If spin is not defined, spin1z,spin2z will be pinned to 0. ")
 #argp.add_argument( "--fmin-template",default=15.0, help="Min template frequency. Used in some mass transforms.") #Not implemented
 
