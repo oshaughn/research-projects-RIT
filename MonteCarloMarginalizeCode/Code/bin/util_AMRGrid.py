@@ -146,7 +146,10 @@ def write_to_xml_new(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verb
     for indx in numpy.arange(len(cells)):
         P = lalsimutils.ChooseWaveformParams()
         for name in ['m1','m2','s1z','s2z']:
-            setattr(P, name, cells[indx]._center[indx_lookup[name]])
+            fac_correct = 1
+            if 'm' in name:
+                fac_correct =lal.MSUN_SI
+            setattr(P, name, fac_correct*cells[indx]._center[indx_lookup[name]])
         P_list.append(P)
 
     fname_out = fname
