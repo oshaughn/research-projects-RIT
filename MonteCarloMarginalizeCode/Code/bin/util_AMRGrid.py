@@ -46,6 +46,13 @@ import lalsimulation
 from RIFT.misc import amrlib
 from RIFT import lalsimutils
 
+remap_rpe2rift = {'m1':'mass1','m2':'mass2','s1z':'spin1z', 's2z':'spin2z'}
+def translate_params(param):
+    if param in remap_rpe2rift:
+        return remap_rpe2rift[param]
+    return param
+
+
 def get_cr_from_grid(cells, weight, cr_thr=0.9, min_n=None, max_n=None):
     """
     Given a set of cells and the weight of that cell, calculate a N% CR including cells which contribute to that probability mass. If n is set, cr_thr is ignored and instead this many points are taken.
@@ -140,7 +147,8 @@ def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=
         intr_prms[intr_prms.index("eff_lambda")] = "psi0"
     if "deff_lambda" in intr_prms:
         intr_prms[intr_prms.index("deff_lambda")] = "psi3"
-    rows += list(intr_prms)
+    intr_params_revised = [ translate_params(param) for param in intr_prms]
+    rows += list(intr_params_revised) # relabel parameters for writing files out
     rows += list(pin_prms)
     if fvals is not None:
         rows.append("alpha1")
