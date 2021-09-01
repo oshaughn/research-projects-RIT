@@ -561,7 +561,7 @@ def check_grid(grid, intr_prms, distance_coordinates):
     """
     Check the validity of points in various coordinate spaces to ensure they are physical.
     """
-    m1_axis, m2_axis = intr_prms.index("m1"), intr_prms.index("mass2")
+    m1_axis, m2_axis = intr_prms.index("mass1"), intr_prms.index("mass2")
     grid_check = numpy.array(grid).T
     if distance_coordinates == "tau0_tau3":
         bounds_mask = check_tau0tau3(grid_check[m1_axis], grid_check[m2_axis])
