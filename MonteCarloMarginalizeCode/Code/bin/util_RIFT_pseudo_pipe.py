@@ -71,14 +71,10 @@ def retrieve_event_from_coinc(fname_coinc):
     samples = table.get_table(utils.load_filename(fname_coinc,contenthandler=lalsimutils.cthdler), lsctables.SnglInspiralTable.tableName)
     event_duration=4  # default
     ifo_list = []
-    snr_list = []
-    tref_list = []
     for row in samples:
         m1 = row.mass1
         m2 = row.mass2
         ifo_list.append(row.ifo)
-        snr_list.append(row.snr)
-        tref_list.append(row.end_time + 1e-9*row.end_time_ns)
         try:
             event_duration = row.event_duration # may not exist
         except:
@@ -87,11 +83,11 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["m2"] = row.mass2
     event_dict["s1z"] = row.spin1z
     event_dict["s2z"] = row.spin2z
+    event_dict["tref"] = row.end_time + 1e-9*row.end_time_ns
     event_dict["IFOs"] = list(set(ifo_list))
-    max_snr_idx = snr_list.index(max(snr_list))
-    event_dict['SNR'] = snr_list[max_snr_idx]
-    event_dict['tref'] = tref_list[max_snr_idx]
+    event_dict["SNR"] = row.snr
     return event_dict
+
 
 def unsafe_parse_arg_string(my_argstr,match):
     arglist  = [x for x in my_argstr.split("--") if len(x)>0]
