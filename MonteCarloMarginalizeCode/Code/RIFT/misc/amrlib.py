@@ -301,7 +301,9 @@ def create_regular_grid_from_cell(cell, side_pts=5, return_cells=False):
     # This produces a representation of the points, but not in a tuple form
     grid_pts = numpy.mgrid[grid_pts]
     # This tuplizes them
-    grid_pts = numpy.array(zip(*[grid.flatten() for grid in grid_pts]))
+    flat_grid = numpy.array([grid.flatten() for grid in grid_pts]).T
+    grid_pts = flat_grid
+#    grid_pts = numpy.array(zip(*[grid.flatten() for grid in grid_pts]))
 
     # useful knowledge for later
     grid_spacing = numpy.array([(rb - lb) / (side_pts - 1) for lb, rb in cell._bounds])
