@@ -131,6 +131,29 @@ def find_olap_index(tree, intr_prms, exact=True, **kwargs):
         exit("Could not find template in bank, closest pt was %f away" % dist)
     return m_idx, pt, dist
 
+def write_to_xml_new(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=False):
+    """
+    Write a set of cells, with dimensions corresponding to intr_prms to an XML file as sim_inspiral rows.
+    Uses RIFT-compatible syntax
+    """
+    P_list = []
+    # Assume everyhing in intrinsic grid, no pin_prms
+    indx_lookup['m1'] = intr_prms.index('mass1')
+    indx_lookup['m2'] = intr_prms.index('mass2')
+    indx_lookup['s1z'] = intr_prms.index('spin1z')
+    indx_lookup['s2z'] = intr_prms.index('spin2z')
+    for indx in numpy.arange(len(cells)):
+        P = lalsimutils.ChooseWaveformParams()
+        for name in ['m1','m2','s1z','s2z']:
+            setattr(P, name, cell[indx_lookup[name]]._center)
+        P_list.append(P)
+
+    fname_out = fname
+    if fname is None:
+        fname_out="my_grid.xml"
+    lalsimutils.ChooseWaveformParams_array_to_xml(P_list,fname_out)
+
+
 def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=False):
     """
     Write a set of cells, with dimensions corresponding to intr_prms to an XML file as sim_inspiral rows.
@@ -565,7 +588,7 @@ else:
 print("Selected %d cells for further analysis." % len(cells))
 if opts.setup:
     fname = "HL-MASS_POINTS_LEVEL_0-0-1.xml.gz" if opts.output_xml_file_name == "" else opts.output_xml_file_name 
-    write_to_xml(cells, intr_prms, pin_prms, None, fname, verbose=opts.verbose)
+    write_to_xml_new(cells, intr_prms, pin_prms, None, fname, verbose=opts.verbose)
 else:
     #m = re.search("LEVEL_(\d+)", opts.result_file)
     #if m is not None:
@@ -574,4 +597,4 @@ else:
     #else:
         #fname = "HL-MASS_POINTS_LEVEL_X-0-1.xml.gz"
     fname = "HL-MASS_POINTS_LEVEL_%d-0-1.xml.gz" % level if opts.output_xml_file_name == "" else opts.output_xml_file_name 
-    write_to_xml(cells, intr_prms, pin_prms, None, fname, verbose=opts.verbose)
+    write_to_xml_new(cells, intr_prms, pin_prms, None, fname, verbose=opts.verbose)
