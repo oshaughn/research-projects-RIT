@@ -154,7 +154,7 @@ def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=
     rows += list(pin_params_revised)
     if fvals is not None:
         rows.append("alpha1")
-    sim_insp_tbl = lsctables.New(lsctables.SimInspiralTable, list(set(rows))  # remove overlaps/duplicates !
+    sim_insp_tbl = lsctables.New(lsctables.SimInspiralTable, list(set(rows)))  # remove overlaps/duplicates !
     for itr, intr_prm in enumerate(cells):
         sim_insp = sim_insp_tbl.RowType()
         # FIXME: Need better IDs
