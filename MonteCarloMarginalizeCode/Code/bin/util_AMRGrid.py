@@ -134,6 +134,7 @@ def find_olap_index(tree, intr_prms, exact=True, **kwargs):
 def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=False):
     """
     Write a set of cells, with dimensions corresponding to intr_prms to an XML file as sim_inspiral rows.
+    Note this is NOT COMPATIBLE IN GENERAL with RIFT results in general
     """
     xmldoc = ligolw.Document()
     xmldoc.appendChild(ligolw.LIGO_LW())
@@ -153,7 +154,7 @@ def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=
     rows += list(pin_params_revised)
     if fvals is not None:
         rows.append("alpha1")
-    sim_insp_tbl = lsctables.New(lsctables.SimInspiralTable, rows)
+    sim_insp_tbl = lsctables.New(lsctables.SimInspiralTable, list(set(rows))  # remove overlaps/duplicates !
     for itr, intr_prm in enumerate(cells):
         sim_insp = sim_insp_tbl.RowType()
         # FIXME: Need better IDs
