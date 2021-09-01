@@ -88,6 +88,7 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["SNR"] = row.snr
     return event_dict
 
+
 def unsafe_parse_arg_string(my_argstr,match):
     arglist  = [x for x in my_argstr.split("--") if len(x)>0]
     for x in arglist:
@@ -406,7 +407,8 @@ if opts.use_osg:
 if opts.use_ini:
     cmd += " --use-ini " + opts.use_ini
     cmd += " --sim-xml {}/target_params.xml.gz --event 0 ".format(base_dir + "/"+ dirname_run)  # full path to target_params.xml.gz
-    cmd += " --event-time " + str(event_dict["tref"])
+    if (opts.event_time is None):
+        cmd += " --event-time " + str(event_dict["tref"])
     #
 else:
     cmd += " --calibration-version " + opts.calibration 
