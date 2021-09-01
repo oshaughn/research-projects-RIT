@@ -411,7 +411,7 @@ if opts.use_osg:
 if opts.use_ini:
     cmd += " --use-ini " + opts.use_ini
     cmd += " --sim-xml {}/target_params.xml.gz --event 0 ".format(base_dir + "/"+ dirname_run)  # full path to target_params.xml.gz
-    if not opts.event_time:
+    if not (opts.event_time is None):
         cmd += " --event-time " + str(event_dict["tref"])
     #
 else:
