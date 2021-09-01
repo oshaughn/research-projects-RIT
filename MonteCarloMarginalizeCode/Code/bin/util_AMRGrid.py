@@ -149,7 +149,8 @@ def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=
         intr_prms[intr_prms.index("deff_lambda")] = "psi3"
     intr_params_revised = [ translate_params(param) for param in intr_prms]
     rows += list(intr_params_revised) # relabel parameters for writing files out
-    rows += list(pin_prms)
+    pin_params_revised = [ translate_params(param) for param in pin_prms]
+    rows += list(pin_params_revised)
     if fvals is not None:
         rows.append("alpha1")
     sim_insp_tbl = lsctables.New(lsctables.SimInspiralTable, rows)
