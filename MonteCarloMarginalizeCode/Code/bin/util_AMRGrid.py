@@ -138,6 +138,7 @@ def write_to_xml_new(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verb
     """
     P_list = []
     # Assume everyhing in intrinsic grid, no pin_prms
+    indx_lookup={}
     indx_lookup['m1'] = intr_prms.index('mass1')
     indx_lookup['m2'] = intr_prms.index('mass2')
     indx_lookup['s1z'] = intr_prms.index('spin1z')
@@ -145,7 +146,7 @@ def write_to_xml_new(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verb
     for indx in numpy.arange(len(cells)):
         P = lalsimutils.ChooseWaveformParams()
         for name in ['m1','m2','s1z','s2z']:
-            setattr(P, name, cell[indx_lookup[name]]._center)
+            setattr(P, name, cells[indx]._center[indx_lookup[name]])
         P_list.append(P)
 
     fname_out = fname
