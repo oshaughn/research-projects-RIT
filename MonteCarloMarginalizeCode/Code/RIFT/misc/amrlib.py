@@ -379,7 +379,7 @@ def save_grid_cells_hdf(base_grp, cells, crd_sys, intr_prms=None, check=True):
         assert grids.attrs["distance_coordinates"] == crd_sys
 
     levels = []
-    for name, ds in grids.iteritems():
+    for name, ds in grids.items():
         levels.append((ds.attrs["level"], name))
 
     grid_res = numpy.diff(cells[0]._bounds).flatten()
@@ -431,9 +431,9 @@ def load_grid_level(h5file, level, return_labels= False, base_grp="rapidpe_grids
 
     grids = hfile[base_grp]["grids"]
     if level == -1:
-        level = sorted(dat.attrs["level"] for name, dat in grids.iteritems())[-1]
+        level = sorted(dat.attrs["level"] for name, dat in grids.items())[-1]
 
-    for name, dat in grids.iteritems():
+    for name, dat in grids.items():
         if dat.attrs["level"] == level:
             grid_res = dat.attrs["resolution"][numpy.newaxis,:]
             if return_labels:
