@@ -42,6 +42,7 @@ from glue.ligolw import utils, ligolw, lsctables, ilwd
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 from glue.ligolw.utils import process
 
+import lal
 import lalsimulation
 from RIFT.misc import amrlib
 from RIFT import lalsimutils
