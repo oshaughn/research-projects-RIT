@@ -693,20 +693,21 @@ else:
 #
 #dist_sampler = functools.partial(mcsampler.uniform_samp_vector,     param_limits["distance"][0], param_limits["distance"][1])
 #dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
-dist_sampler = mcsampler.ret_uniform_samp_vector_alt( param_limits["distance"][0], param_limits["distance"][1])
-dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
-dist_prior_pdf =   lambda x: x**2/(param_limits["distance"][1]**3/3.                   - param_limits["distance"][0]**3/3.) 
-if opts.d_prior == 'pseudo_cosmo':
-  nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(param_limits["distance"][0],param_limits["distance"][1])
-  dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm=nm)
-#dist_sampler_cdf_inv=None
-sampler.add_parameter("distance", 
-    pdf = dist_sampler, 
-    cdf_inv = dist_sampler_cdf_inv,
-    left_limit = param_limits["distance"][0], 
-    right_limit = param_limits["distance"][1],
-    prior_pdf = dist_prior_pdf,
-    adaptive_sampling = not (opts.no_adapt or opts.no_adapt_distance))
+if not opts.distance_marginalization:
+    dist_sampler = mcsampler.ret_uniform_samp_vector_alt( param_limits["distance"][0], param_limits["distance"][1])
+    dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
+    dist_prior_pdf =   lambda x: x**2/(param_limits["distance"][1]**3/3.                   - param_limits["distance"][0]**3/3.) 
+    if opts.d_prior == 'pseudo_cosmo':
+        nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(param_limits["distance"][0],param_limits["distance"][1])
+    dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm=nm)
+    #dist_sampler_cdf_inv=None
+    sampler.add_parameter("distance", 
+        pdf = dist_sampler, 
+        cdf_inv = dist_sampler_cdf_inv,
+        left_limit = param_limits["distance"][0], 
+        right_limit = param_limits["distance"][1],
+        prior_pdf = dist_prior_pdf,
+        adaptive_sampling = not (opts.no_adapt or opts.no_adapt_distance))
 
 
 #
@@ -1034,31 +1035,51 @@ else: # Sum over time for every point in other extrinsic params
         return numpy.exp(lnL-manual_avoid_overflow_logarithm)
     else:
         print( " Using CUDA GPU likelihood, if cupy available ")
-        def likelihood_function(right_ascension, declination, phi_orb, inclination,
-            psi, distance):
-            global nEvals
-            tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-            
+        if not opts.distance_marginalization:
+            def likelihood_function(right_ascension, declination, phi_orb, inclination, psi, distance):
+                global nEvals
+                tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+                if opts.declination_cosine_sampler:
+                    P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
+                else:
+                    P.theta = xpy_default.asarray(declination,dtype=np.float64)
+                P.tref = float(fiducial_epoch)
+                P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
+                if opts.inclination_cosine_sampler:
+                    P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
+                else:
+                     P.incl = xpy_default.asarray(inclination, dtype=np.float64)
+                P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
 
-            P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
-            if opts.declination_cosine_sampler:
-              P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
-            else:
-              P.theta = xpy_default.asarray(declination,dtype=np.float64)
-            P.tref = float(fiducial_epoch)
-            P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
-            if opts.inclination_cosine_sampler:
-              P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
-            else:
-              P.incl = xpy_default.asarray(inclination, dtype=np.float64)
-            P.psi = xpy_default.asarray(psi, dtype=np.float64)
-            P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
-
-            lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
-            nEvals +=len(right_ascension)
-            return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+                nEvals +=len(right_ascension)
+                return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+        else:
+            def likelihood_function(right_ascension, declination, phi_orb, inclination, psi):
+                global nEvals
+                tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+                if opts.declination_cosine_sampler:
+                    P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
+                else:
+                    P.theta = xpy_default.asarray(declination,dtype=np.float64)
+                P.tref = float(fiducial_epoch)
+                P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
+                if opts.inclination_cosine_sampler:
+                    P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
+                else:
+                     P.incl = xpy_default.asarray(inclination, dtype=np.float64)
+                P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                P.dist = xpy_default.asarray(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
 
+                #TODO: replace likelihood by dist-marg one
+                lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
+                nEvals +=len(right_ascension)
+                return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
     args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
     print( " --------> Arguments ", args)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
