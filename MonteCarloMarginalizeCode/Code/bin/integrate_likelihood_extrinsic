@@ -13,6 +13,7 @@ from optparse import OptionParser, OptionGroup
 
 import numpy
 import numpy as np
+from scipy.interpolate import RectBivariateSpline
 try:
   import cupy
   xpy_default=cupy
@@ -1058,6 +1059,21 @@ else: # Sum over time for every point in other extrinsic params
                 nEvals +=len(right_ascension)
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
         else:
+            lookup_table = dict(np.load(opts.distance_marginalization_lookup_table)) 
+            intp = RectBivariateSpline(
+                lookup_table["d_inner_h_ref_array"],
+                lookup_table["optimal_snr_squared_ref_array"],
+                lookup_table["dist_margd_loglikelihood_array"].T)
+
+            def distmarg_loglikelihood(kappa_sq, rho_sq):
+                out_of_bounds = (kappa_sq < lookup_table["d_inner_h_ref_array"][0]) | \
+                    (kappa_sq > lookup_table["d_inner_h_ref_array"][-1]) | \
+                    (rho_sq < lookup_table["optimal_snr_squared_ref_array"][0]) | \
+                    (rho_sq > lookup_table["optimal_snr_squared_ref_array"][-1])
+                l = intp(kappa_sq, rho_sq, grid=False)
+                l[out_of_bounds] = -np.inf
+                return l
+
             def likelihood_function(right_ascension, declination, phi_orb, inclination, psi):
                 global nEvals
                 tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
@@ -1075,11 +1091,11 @@ else: # Sum over time for every point in other extrinsic params
                 P.psi = xpy_default.asarray(psi, dtype=np.float64)
                 P.dist = xpy_default.asarray(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
 
-                #TODO: replace likelihood by dist-marg one
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
                 nEvals +=len(right_ascension)
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+
     args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
     print( " --------> Arguments ", args)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
