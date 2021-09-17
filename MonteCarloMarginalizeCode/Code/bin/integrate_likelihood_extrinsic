@@ -1059,7 +1059,7 @@ else: # Sum over time for every point in other extrinsic params
                 nEvals +=len(right_ascension)
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
         else:
-            lookup_table = dict(np.load(opts.distance_marginalization_lookup_table)) 
+            lookup_table = np.load(opts.distance_marginalization_lookup_table)
             intp = RectBivariateSpline(
                 lookup_table["d_inner_h_ref_array"],
                 lookup_table["optimal_snr_squared_ref_array"],
