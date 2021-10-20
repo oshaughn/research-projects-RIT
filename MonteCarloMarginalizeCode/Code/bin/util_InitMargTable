@@ -2,6 +2,8 @@
 
 import argparse
 import numpy as np
+from scipy import integrate
+from scipy.special import erfcinv, erf, erfcx
 
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 
@@ -22,12 +24,11 @@ xmin = dref / dmax
 xmax = dref / dmin
 x0min = -10. * xmax
 x0max = 10. * xmax
-bmax = options.max_snr
+bmax = opts.max_snr
 bref = 1. / ((xmax - xmin) * max(xmin + xmax - 2. * x0min, 2. * x0max - xmin - xmax))
 delta_s = 0.1
 delta_t = 0.1
-rel_error = options.relative_error
-assert rel_error < 1
+eps = opts.relative_error
 
 
 def exponent(x, x0, b):
@@ -73,8 +74,8 @@ def lnI(x0, b):
             xmin_integral, xmax_integral = max(x0 - dx, xmin), min(x0 + dx, xmax)
         else:
             xmin_integral, xmax_integral = xmin, xmax
-    result, _ = integrate.quad(lambda x, x0, b: x**(-4.) * np.exp(exponent(x0, a, b) - exponent_max),
-                               xmin_integral, xmax_integral, args=(x0, b), epsabs=-1, epsrel=rel_error)
+    result, _ = integrate.quad(lambda x, x0, b: x**(-4.) * np.exp(exponent(x, x0, b) - exponent_max),
+                               xmin_integral, xmax_integral, args=(x0, b), epsabs=-1, epsrel=eps)
     return np.log(result)
 
 
@@ -99,7 +100,7 @@ def s_to_x0(s):
         else:
             x0low = x0mid
             slow = smid
-        x0mid = (x0low + x0high)
+        x0mid = (x0low + x0high) / 2.
     return x0mid
 
 
@@ -119,7 +120,9 @@ t_array = np.arange(0., tmax, delta_t)
 x0_array = np.append(x0min, np.append(s_to_x0(s_array[1:-1]), x0max))
 b_array = t_to_b(t_array)
 x0_grid, b_grid = np.meshgrid(x0_array, b_array, indexing="ij")
-lnI_array = lnI(x0_grid, b_grid)
+lnI_array = np.ones(shape=x0_grid.shape)
+lnI_array[:, 0] *= np.log((xmin**(-3.) - xmax**(-3.)) / 3.)  # analytical solution for b=0
+lnI_array[:, 1:] = lnI(x0_grid[:, 1:], b_grid[:, 1:])
 
 # save the list
 np.savez(opts.out, phase_marginalization=False,
