@@ -24,7 +24,7 @@ x0min = -10. * xmax
 x0max = 10. * xmax
 bmax = options.max_snr
 bref = 1. / ((xmax - xmin) * max(xmin + xmax - 2. * x0min, 2. * x0max - xmin - xmax))
-delta_s = 1e-1
+delta_s = 0.1
 delta_t = 0.1
 rel_error = options.relative_error
 assert rel_error < 1
@@ -123,4 +123,5 @@ lnI_array = lnI(x0_grid, b_grid)
 
 # save the list
 np.savez(opts.out, phase_marginalization=False,
-         s_array=s_array, t_array=t_array, lnI_array=)
+         bmax=bmax, bref=bref, x0min=x0min, x0max=x0max,
+         s_array=s_array, t_array=t_array, lnI_array=lnI_array)
