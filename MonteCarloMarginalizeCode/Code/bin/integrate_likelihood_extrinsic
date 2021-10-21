@@ -40,6 +40,52 @@ import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
 import RIFT.likelihood.priors_utils as priors_utils
 import RIFT.misc.xmlutils as xmlutils
 
+
+class EvenBivariateLinearInterpolator:
+    def __init__(self, x0, dx, y0, dy, f):
+        self._x0 = x0
+        self._dx = dx
+        self._y0 = y0
+        self._dy = dy
+        self._fgrid = np.asarray(f)
+
+        self._dx_inv = 1.0 / self._dx
+        self._dy_inv = 1.0 / self._dy
+
+        self._N, self._M = self._fgrid.shape
+
+    def __call__(self, x, y):
+        # Compute the fractional indices into the lookup table where the free
+        # parameters lie.
+        i_mid = self._dx_inv * (x - self._x0)
+        j_mid = self._dy_inv * (y - self._y0)
+
+        # Compute the floor and ceiling of the fractional indices to get the
+        # indices of the boundaries of the bin `x` and `y` lie in.
+        # NOTE: In the case where `x` or `y` lie directly on a boundary, the
+        # floor and ceiling will be equal, but the output is written in such a
+        # way that we'd still get the correct result.
+        i_lo = np.floor(i_mid).astype(int)
+        j_lo = np.floor(j_mid).astype(int)
+        i_hi = np.ceil(i_mid).astype(int)
+        j_hi = np.ceil(j_mid).astype(int)
+
+        # Compute just the fractional part of each index from the low and high
+        # points.
+        p = i_mid - i_lo
+        q = j_mid - j_lo
+        p_ = 1-p
+        q_ = 1-q
+
+        # Compute the interpolated result.
+        f_approx =  p_*q_ * self._fgrid[i_lo,j_lo]
+        f_approx += p *q_ * self._fgrid[i_hi,j_lo]
+        f_approx += p_*q  * self._fgrid[i_lo,j_hi]
+        f_approx += p *q  * self._fgrid[i_hi,j_hi]
+
+        return f_approx
+
+
 #from lalinference.bayestar import fits as bfits
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
@@ -1064,16 +1110,19 @@ else: # Sum over time for every point in other extrinsic params
             lookup_table = np.load(opts.distance_marginalization_lookup_table)
             bmax = lookup_table["bmax"]
             bref = lookup_table["bref"]
-            x0min = lookup_table["x0min"]
-            x0max = lookup_table["x0max"]
             s_array = lookup_table["s_array"]
+            smin = s_array[0]
+            smax = s_array[-1]            
             t_array = lookup_table["t_array"]
+            tmax = t_array[-1]
             lnI_array = lookup_table["lnI_array"]
-            intp = RectBivariateSpline(s_array, t_array, lnI_array)
+            intp = EvenBivariateLinearInterpolator(s_array[0], s_array[1] - s_array[0], t_array[0], t_array[1] - t_array[0], lnI_array)
             lnLmarg_const = np.log(3. / (xmin**(-3.) - xmax**(-3.)))
 
             def exponent_max(x0, b):
-                x0_expmax = np.min(np.max(x0, xmin), xmax)
+                x0_expmax = x0
+                x0_expmax[x0 < xmin] = xmin
+                x0_expmax[x0 > xmax] = xmax
                 return (b / 2) * (x0_expmax**2. - (x0_expmax - x0)**2.)
 
             def b_to_t(b):
@@ -1086,11 +1135,11 @@ else: # Sum over time for every point in other extrinsic params
 
             def distmarg_loglikelihood(kappa_sq, rho_sq):
                 x0 = kappa_sq / rho_sq
-                out_of_bounds = (x0 < x0min) | (x0 > x0max) | (rho_sq > bmax)
+                lnI = np.ones(shape=x0.shape) * -np.inf
                 s = x0_to_s(x0)
                 t = b_to_t(rho_sq)
-                lnI = intp(s, t, grid=False)
-                lnI[out_of_bounds] = -np.inf
+                in_bounds = (s > smin) * (s < smax) * (t < tmax)
+                lnI[in_bounds] = intp(s[in_bounds], t[in_bounds])
                 return exponent_max(x0, rho_sq) + lnI + lnLmarg_const
 
             def likelihood_function(right_ascension, declination, phi_orb, inclination, psi):
