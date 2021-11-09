@@ -1112,6 +1112,7 @@ else: # Sum over time for every point in other extrinsic params
             xmax = factored_likelihood.distMpcRef / dmin
             lookup_table = np.load(opts.distance_marginalization_lookup_table)
             bmax = lookup_table["bmax"]
+            sqrt_bmax = np.sqrt(bmax)
             bref = lookup_table["bref"]
             s_array = lookup_table["s_array"]
             smin = s_array[0]
@@ -1123,25 +1124,42 @@ else: # Sum over time for every point in other extrinsic params
             lnLmarg_const = np.log(3. / (xmin**(-3.) - xmax**(-3.)))
 
             def exponent_max(x0, b):
-                x0_expmax = x0
+                x0_expmax = x0.copy()
                 x0_expmax[x0 < xmin] = xmin
                 x0_expmax[x0 > xmax] = xmax
-                return (b / 2) * (x0_expmax**2. - (x0_expmax - x0)**2.)
+#                return (b / 2) * (x0_expmax**2. - (x0_expmax - x0)**2.)
+                return 0.5*b * x0 * (2.*x0_expmax - x0)
 
             def b_to_t(b):
                 # TODO: this function is duplicate with what is in util_InitMargTable
-                return np.arcsinh(b / bref)
+#                return np.arcsinh(b / bref)
+                b_by_bref = b / bref
+                return np.arcsinh(b_by_bref, out=b_by_bref)
+
 
             def x0_to_s(x0):
                 # TODO: this function is duplicate with what is in util_InitMargTable
-                return np.arcsinh(np.sqrt(bmax) * (x0 - xmin)) - np.arcsinh(np.sqrt(bmax) * (xmax - x0))
+#                return np.arcsinh(np.sqrt(bmax) * (x0 - xmin)) - np.arcsinh(np.sqrt(bmax) * (xmax - x0))
+                A = x0 - xmin
+                A *= sqrt_bmax
+                np.arcsinh(A, out=A)
+
+                B = xmax - x0
+                B *= sqrt_bmax
+                np.arcsinh(B, out=B)
+
+                A -= B
+                return A
+
 
             def distmarg_loglikelihood(kappa_sq, rho_sq):
                 x0 = kappa_sq / rho_sq
-                lnI = np.ones(shape=x0.shape) * -np.inf
+#                lnI = np.ones(shape=x0.shape) * -np.inf
+                lnI = np.full_like(x0, np.NINF)
                 s = x0_to_s(x0)
                 t = b_to_t(rho_sq)
-                in_bounds = (s > smin) * (s < smax) * (t < tmax)
+#                in_bounds = (s > smin) * (s < smax) * (t < tmax)
+                in_bounds = (s > smin) & (s < smax) & (t < tmax)
                 lnI[in_bounds] = intp(s[in_bounds], t[in_bounds])
                 return exponent_max(x0, rho_sq) + lnI + lnLmarg_const
 
