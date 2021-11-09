@@ -46,7 +46,7 @@ class EvenBivariateLinearInterpolator:
         self._dx = dx
         self._y0 = y0
         self._dy = dy
-        self._fgrid = np.asarray(f)
+        self._fgrid = xpy_default.asarray(f)
 
         self._dx_inv = 1.0 / self._dx
         self._dy_inv = 1.0 / self._dy
@@ -64,10 +64,10 @@ class EvenBivariateLinearInterpolator:
         # NOTE: In the case where `x` or `y` lie directly on a boundary, the
         # floor and ceiling will be equal, but the output is written in such a
         # way that we'd still get the correct result.
-        i_lo = np.floor(i_mid).astype(int)
-        j_lo = np.floor(j_mid).astype(int)
-        i_hi = np.ceil(i_mid).astype(int)
-        j_hi = np.ceil(j_mid).astype(int)
+        i_lo = xpy_default.floor(i_mid).astype(int)
+        j_lo = xpy_default.floor(j_mid).astype(int)
+        i_hi = xpy_default.ceil(i_mid).astype(int)
+        j_hi = xpy_default.ceil(j_mid).astype(int)
 
         # Compute just the fractional part of each index from the low and high
         # points.
@@ -1111,17 +1111,18 @@ else: # Sum over time for every point in other extrinsic params
             xmin = factored_likelihood.distMpcRef / dmax
             xmax = factored_likelihood.distMpcRef / dmin
             lookup_table = np.load(opts.distance_marginalization_lookup_table)
-            bmax = lookup_table["bmax"]
-            sqrt_bmax = np.sqrt(bmax)
-            bref = lookup_table["bref"]
-            s_array = lookup_table["s_array"]
+            bmax = xpy_default.asarray(lookup_table["bmax"])
+            sqrt_bmax = xpy_default.sqrt(bmax)
+            bref = xpy_default.asarray(lookup_table["bref"])
+            s_array = xpy_default.asarray(lookup_table["s_array"])
             smin = s_array[0]
             smax = s_array[-1]
-            t_array = lookup_table["t_array"]
+            t_array = xpy_default.asarray(lookup_table["t_array"])
             tmax = t_array[-1]
-            lnI_array = lookup_table["lnI_array"]
+            lnI_array = xpy_default.asarray(lookup_table["lnI_array"])
+
             intp = EvenBivariateLinearInterpolator(s_array[0], s_array[1] - s_array[0], t_array[0], t_array[1] - t_array[0], lnI_array)
-            lnLmarg_const = np.log(3. / (xmin**(-3.) - xmax**(-3.)))
+            lnLmarg_const = xpy_default.log(3. / (xmin**(-3.) - xmax**(-3.)))
 
             def exponent_max(x0, b):
                 x0_expmax = x0.copy()
@@ -1134,7 +1135,7 @@ else: # Sum over time for every point in other extrinsic params
                 # TODO: this function is duplicate with what is in util_InitMargTable
 #                return np.arcsinh(b / bref)
                 b_by_bref = b / bref
-                return np.arcsinh(b_by_bref, out=b_by_bref)
+                return xpy_default.arcsinh(b_by_bref, out=b_by_bref)
 
 
             def x0_to_s(x0):
@@ -1142,11 +1143,11 @@ else: # Sum over time for every point in other extrinsic params
 #                return np.arcsinh(np.sqrt(bmax) * (x0 - xmin)) - np.arcsinh(np.sqrt(bmax) * (xmax - x0))
                 A = x0 - xmin
                 A *= sqrt_bmax
-                np.arcsinh(A, out=A)
+                xpy_default.arcsinh(A, out=A)
 
                 B = xmax - x0
                 B *= sqrt_bmax
-                np.arcsinh(B, out=B)
+                xpy_default.arcsinh(B, out=B)
 
                 A -= B
                 return A
@@ -1155,7 +1156,7 @@ else: # Sum over time for every point in other extrinsic params
             def distmarg_loglikelihood(kappa_sq, rho_sq):
                 x0 = kappa_sq / rho_sq
 #                lnI = np.ones(shape=x0.shape) * -np.inf
-                lnI = np.full_like(x0, np.NINF)
+                lnI = xpy_default.full_like(x0, xpy_default.NINF)
                 s = x0_to_s(x0)
                 t = b_to_t(rho_sq)
 #                in_bounds = (s > smin) * (s < smax) * (t < tmax)
