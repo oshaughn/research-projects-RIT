@@ -1054,6 +1054,10 @@ else: # Sum over time for every point in other extrinsic params
             ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
             epochDict[det] = cupy.asarray(epochDict[det])
     if (not opts.gpu):
+      if opts.distance_marginalization:
+          raise RuntimeError(
+              "Distance marginalization only supported on vectorized RIFT"
+          )
       def likelihood_function(right_ascension, declination, phi_orb, inclination,
             psi, distance):
         global nEvals
