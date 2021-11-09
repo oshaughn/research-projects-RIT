@@ -13,7 +13,6 @@ from optparse import OptionParser, OptionGroup
 
 import numpy
 import numpy as np
-from scipy.interpolate import RectBivariateSpline
 try:
   import cupy
   xpy_default=cupy
