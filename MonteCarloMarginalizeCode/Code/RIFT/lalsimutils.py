@@ -959,7 +959,7 @@ class ChooseWaveformParams:
                 fref = self.fref #user spec
             def ftor_PN(f, q, chi1, chi2, theta1, theta2, deltaphi):
                 '''Convert GW frequency to PN orbital separation conversion'''
-                om = 2*np.pi * f 
+                om = np.pi * f 
                 M_sec = m1 + m2
                 mom = M_sec * om                
                 eta = m1*m2
