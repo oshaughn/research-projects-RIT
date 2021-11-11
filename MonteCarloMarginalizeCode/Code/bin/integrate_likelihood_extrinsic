@@ -1256,6 +1256,12 @@ if opts.declination_cosine_sampler:
 if ("declination", "right_ascension") in sampler.params:
     sampler._rvs["declination"], sampler._rvs["right_ascension"] = sampler._rvs[("declination", "right_ascension")]
 
+# Insert reference distance if it was marginalized over
+if "distance" not in sampler._rvs:
+    sampler._rvs["distance"] = np.full_like(
+        sampler._rvs["psi"],
+        factored_likelihood.distMpcRef*1e6*lal.PC_SI,
+    )
 
 if opts.maximize_only and opts.output_file:
     # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
