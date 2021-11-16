@@ -39,6 +39,52 @@ import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
 import RIFT.likelihood.priors_utils as priors_utils
 import RIFT.misc.xmlutils as xmlutils
 
+
+class EvenBivariateLinearInterpolator:
+    def __init__(self, x0, dx, y0, dy, f):
+        self._x0 = x0
+        self._dx = dx
+        self._y0 = y0
+        self._dy = dy
+        self._fgrid = xpy_default.asarray(f)
+
+        self._dx_inv = 1.0 / self._dx
+        self._dy_inv = 1.0 / self._dy
+
+        self._N, self._M = self._fgrid.shape
+
+    def __call__(self, x, y):
+        # Compute the fractional indices into the lookup table where the free
+        # parameters lie.
+        i_mid = self._dx_inv * (x - self._x0)
+        j_mid = self._dy_inv * (y - self._y0)
+
+        # Compute the floor and ceiling of the fractional indices to get the
+        # indices of the boundaries of the bin `x` and `y` lie in.
+        # NOTE: In the case where `x` or `y` lie directly on a boundary, the
+        # floor and ceiling will be equal, but the output is written in such a
+        # way that we'd still get the correct result.
+        i_lo = xpy_default.floor(i_mid).astype(int)
+        j_lo = xpy_default.floor(j_mid).astype(int)
+        i_hi = xpy_default.ceil(i_mid).astype(int)
+        j_hi = xpy_default.ceil(j_mid).astype(int)
+
+        # Compute just the fractional part of each index from the low and high
+        # points.
+        p = i_mid - i_lo
+        q = j_mid - j_lo
+        p_ = 1-p
+        q_ = 1-q
+
+        # Compute the interpolated result.
+        f_approx =  p_*q_ * self._fgrid[i_lo,j_lo]
+        f_approx += p *q_ * self._fgrid[i_hi,j_lo]
+        f_approx += p_*q  * self._fgrid[i_lo,j_hi]
+        f_approx += p *q  * self._fgrid[i_hi,j_hi]
+
+        return f_approx
+
+
 #from lalinference.bayestar import fits as bfits
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
@@ -107,6 +153,8 @@ optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --
 optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Timescale of inverse spectrum truncation in seconds (Default is 8 - give 0 for no truncation)")
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
+optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
+optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
@@ -691,20 +739,21 @@ else:
 #
 #dist_sampler = functools.partial(mcsampler.uniform_samp_vector,     param_limits["distance"][0], param_limits["distance"][1])
 #dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
-dist_sampler = mcsampler.ret_uniform_samp_vector_alt( param_limits["distance"][0], param_limits["distance"][1])
-dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
-dist_prior_pdf =   lambda x: x**2/(param_limits["distance"][1]**3/3.                   - param_limits["distance"][0]**3/3.) 
-if opts.d_prior == 'pseudo_cosmo':
-  nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(param_limits["distance"][0],param_limits["distance"][1])
-  dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm=nm)
-#dist_sampler_cdf_inv=None
-sampler.add_parameter("distance", 
-    pdf = dist_sampler, 
-    cdf_inv = dist_sampler_cdf_inv,
-    left_limit = param_limits["distance"][0], 
-    right_limit = param_limits["distance"][1],
-    prior_pdf = dist_prior_pdf,
-    adaptive_sampling = not (opts.no_adapt or opts.no_adapt_distance))
+if not opts.distance_marginalization:
+    dist_sampler = mcsampler.ret_uniform_samp_vector_alt( param_limits["distance"][0], param_limits["distance"][1])
+    dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
+    dist_prior_pdf =   lambda x: x**2/(param_limits["distance"][1]**3/3.                   - param_limits["distance"][0]**3/3.)
+    if opts.d_prior == 'pseudo_cosmo':
+        nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(param_limits["distance"][0],param_limits["distance"][1])
+        dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm=nm)
+    #dist_sampler_cdf_inv=None
+    sampler.add_parameter("distance",
+        pdf = dist_sampler,
+        cdf_inv = dist_sampler_cdf_inv,
+        left_limit = param_limits["distance"][0],
+        right_limit = param_limits["distance"][1],
+        prior_pdf = dist_prior_pdf,
+        adaptive_sampling = not (opts.no_adapt or opts.no_adapt_distance))
 
 
 #
@@ -1005,6 +1054,10 @@ else: # Sum over time for every point in other extrinsic params
             ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
             epochDict[det] = cupy.asarray(epochDict[det])
     if (not opts.gpu):
+      if opts.distance_marginalization:
+          raise RuntimeError(
+              "Distance marginalization only supported on vectorized RIFT"
+          )
       def likelihood_function(right_ascension, declination, phi_orb, inclination,
             psi, distance):
         global nEvals
@@ -1032,30 +1085,106 @@ else: # Sum over time for every point in other extrinsic params
         return numpy.exp(lnL-manual_avoid_overflow_logarithm)
     else:
         print( " Using CUDA GPU likelihood, if cupy available ")
-        def likelihood_function(right_ascension, declination, phi_orb, inclination,
-            psi, distance):
-            global nEvals
-            tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-            
+        if not opts.distance_marginalization:
+            def likelihood_function(right_ascension, declination, phi_orb, inclination, psi, distance):
+                global nEvals
+                tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+                if opts.declination_cosine_sampler:
+                    P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
+                else:
+                    P.theta = xpy_default.asarray(declination,dtype=np.float64)
+                P.tref = float(fiducial_epoch)
+                P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
+                if opts.inclination_cosine_sampler:
+                    P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
+                else:
+                     P.incl = xpy_default.asarray(inclination, dtype=np.float64)
+                P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
 
-            P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
-            if opts.declination_cosine_sampler:
-              P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
-            else:
-              P.theta = xpy_default.asarray(declination,dtype=np.float64)
-            P.tref = float(fiducial_epoch)
-            P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
-            if opts.inclination_cosine_sampler:
-              P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
-            else:
-              P.incl = xpy_default.asarray(inclination, dtype=np.float64)
-            P.psi = xpy_default.asarray(psi, dtype=np.float64)
-            P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
-
-            lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
-            nEvals +=len(right_ascension)
-            return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+                nEvals +=len(right_ascension)
+                return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+        else:
+            xmin = factored_likelihood.distMpcRef / dmax
+            xmax = factored_likelihood.distMpcRef / dmin
+            lookup_table = np.load(opts.distance_marginalization_lookup_table)
+            bmax = xpy_default.asarray(lookup_table["bmax"])
+            sqrt_bmax = xpy_default.sqrt(bmax)
+            bref = xpy_default.asarray(lookup_table["bref"])
+            s_array = xpy_default.asarray(lookup_table["s_array"])
+            smin = s_array[0]
+            smax = s_array[-1]
+            t_array = xpy_default.asarray(lookup_table["t_array"])
+            tmax = t_array[-1]
+            lnI_array = xpy_default.asarray(lookup_table["lnI_array"])
+
+            intp = EvenBivariateLinearInterpolator(s_array[0], s_array[1] - s_array[0], t_array[0], t_array[1] - t_array[0], lnI_array)
+            lnLmarg_const = xpy_default.log(3. / (xmin**(-3.) - xmax**(-3.)))
+
+            def exponent_max(x0, b):
+                x0_expmax = x0.copy()
+                x0_expmax[x0 < xmin] = xmin
+                x0_expmax[x0 > xmax] = xmax
+#                return (b / 2) * (x0_expmax**2. - (x0_expmax - x0)**2.)
+                return 0.5*b * x0 * (2.*x0_expmax - x0)
+
+            def b_to_t(b):
+                # TODO: this function is duplicate with what is in util_InitMargTable
+#                return np.arcsinh(b / bref)
+                b_by_bref = b / bref
+                return xpy_default.arcsinh(b_by_bref, out=b_by_bref)
+
+
+            def x0_to_s(x0):
+                # TODO: this function is duplicate with what is in util_InitMargTable
+#                return np.arcsinh(np.sqrt(bmax) * (x0 - xmin)) - np.arcsinh(np.sqrt(bmax) * (xmax - x0))
+                A = x0 - xmin
+                A *= sqrt_bmax
+                xpy_default.arcsinh(A, out=A)
+
+                B = xmax - x0
+                B *= sqrt_bmax
+                xpy_default.arcsinh(B, out=B)
+
+                A -= B
+                return A
+
+
+            def distmarg_loglikelihood(kappa_sq, rho_sq):
+                x0 = kappa_sq / rho_sq
+#                lnI = np.ones(shape=x0.shape) * -np.inf
+                lnI = xpy_default.full_like(x0, xpy_default.NINF)
+                s = x0_to_s(x0)
+                t = b_to_t(rho_sq)
+#                in_bounds = (s > smin) * (s < smax) * (t < tmax)
+                in_bounds = (s > smin) & (s < smax) & (t < tmax)
+                lnI[in_bounds] = intp(s[in_bounds], t[in_bounds])
+                return exponent_max(x0, rho_sq) + lnI + lnLmarg_const
+
+            def likelihood_function(right_ascension, declination, phi_orb, inclination, psi):
+                global nEvals
+                tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+                if opts.declination_cosine_sampler:
+                    P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
+                else:
+                    P.theta = xpy_default.asarray(declination,dtype=np.float64)
+                P.tref = float(fiducial_epoch)
+                P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
+                if opts.inclination_cosine_sampler:
+                    P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
+                else:
+                     P.incl = xpy_default.asarray(inclination, dtype=np.float64)
+                P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                P.dist = xpy_default.asarray(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+
+                lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
+                nEvals +=len(right_ascension)
+                return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
     args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
     print( " --------> Arguments ", args)
@@ -1127,6 +1256,12 @@ if opts.declination_cosine_sampler:
 if ("declination", "right_ascension") in sampler.params:
     sampler._rvs["declination"], sampler._rvs["right_ascension"] = sampler._rvs[("declination", "right_ascension")]
 
+# Insert reference distance if it was marginalized over
+if "distance" not in sampler._rvs:
+    sampler._rvs["distance"] = np.full_like(
+        sampler._rvs["psi"],
+        factored_likelihood.distMpcRef*1e6*lal.PC_SI,
+    )
 
 if opts.maximize_only and opts.output_file:
     # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)

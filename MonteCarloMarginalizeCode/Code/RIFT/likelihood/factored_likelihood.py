@@ -1694,7 +1694,7 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time. 
@@ -1875,7 +1875,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             ).real 
 
 
-        kappa_sq += Q_prod_result * (distMpcRef/distMpc)[...,None]
+        kappa_sq += Q_prod_result * (distMpcRef/distMpc)[..., np.newaxis]
         # lnL_t_accum += Q_prod_result * (distMpcRef/distMpc)[...,None]
 
         # lnL_t_accum += Q_inner_product.Q_inner_product_cupy(
@@ -1894,16 +1894,16 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 #        lnL_t_accum += lnL_t
 
 
-    lnL = _factored_lnL_helper(kappa_sq, rho_sq)
+    lnL_t = loglikelihood(kappa_sq, rho_sq)
 
     # Take exponential of the log likelihood in-place.
-    lnLmax  = xpy.max(lnL_t_accum)
-    L_t = xpy.exp(lnL_t_accum - lnLmax, out=lnL_t_accum)
+    lnLmax  = xpy.max(lnL_t)
+    L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 
     L = simps(L_t, dx=deltaT, axis=-1)
 
     # Compute log likelihood in-place.
-    lnL = lnLmax+ xpy.log(L, out=L)
+    lnL = lnLmax + xpy.log(L, out=L)
 
     return lnL
 
