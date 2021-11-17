@@ -247,9 +247,6 @@ intrinsic_int_params.add_option("--adapt-intrinsic",action='store_true')
 optp.add_option_group(intrinsic_int_params)
 
 
-if opts.distance_marginalization:
-  lookup_table = np.load(opts.distance_marginalization_lookup_table)
-
 
 #
 # Add the pinnable parameters
@@ -261,6 +258,12 @@ for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
 optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
+
+if opts.distance_marginalization:
+  lookup_table = np.load(opts.distance_marginalization_lookup_table)
+
+if opts.gpu is None:
+  opts.gpu = False  # None can be treated differently from false?
 
 if opts.gpu and opts.force_gpu_only and not cupy_success:
   print("GPU requested but no GPU/cupy found: Hard fail by request")
@@ -949,9 +952,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
      elif opts.vectorized: # use array-based multiplications, fewer for loops
         if (not opts.gpu):
           if opts.distance_marginalization:
-          raise RuntimeError(
-              "Distance marginalization only supported on vectorized RIFT"
-          )
+            print(" **Warning**: distance marginalization not being used, this is the old vectorized code path not the xpy path.  Check your code path; you may want --force-xpy ")
           def likelihood_function(right_ascension, declination, phi_orb, inclination,
                 psi, distance):
 #            global nEvals
@@ -977,7 +978,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
             return numpy.exp(lnL-manual_avoid_overflow_logarithm)
-        else:
+        else: # vectorized and gpu either available or being forced to use xpy code path
             print( " Using CUDA GPU likelihood, if cupy available ")
             if not opts.distance_marginalization:
               def likelihood_function(right_ascension, declination, phi_orb, inclination,
@@ -1060,7 +1061,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 return exponent_max(x0, rho_sq) + lnI + lnLmarg_const
 
               def likelihood_function(right_ascension, declination, phi_orb, inclination, psi):
-                global nEvals
+#                global nEvals
                 tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
                 P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
                 if opts.declination_cosine_sampler:
@@ -1078,7 +1079,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
-                nEvals +=len(right_ascension)
+#                nEvals +=len(right_ascension)
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
      else: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
