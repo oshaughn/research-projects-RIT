@@ -97,6 +97,7 @@ def unsafe_parse_arg_string(my_argstr,match):
         
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration")
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
 parser.add_argument("--use-rundir",default=None,type=str,help="Intended to reproduce lalinference_pipe functionality. Must be absolute path.")
 parser.add_argument("--use-online-psd-file",default=None,type=str,help="Provides specific online PSD file, so no downloads are needed")
@@ -115,6 +116,7 @@ parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED
 parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
 parser.add_argument("--l-max",default=2,type=int)
 parser.add_argument("--no-matter",action='store_true', help="Force analysis without matter. Really only matters for BNS")
+parser.add_argument("--assume-nospin",action='store_true', help="Force analysis with zero spin")
 parser.add_argument("--assume-precessing",action='store_true', help="Force analysis *with* transverse spins")
 parser.add_argument("--assume-nonprecessing",action='store_true', help="Force analysis *without* transverse spins")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
@@ -390,7 +392,10 @@ if opts.assume_highq:
 #if is_event_bns and not opts.no_matter:
 #        cmd += " --assume-matter "
 #        npts_it = 1000
-if is_analysis_precessing:
+if  opts.assume_nospin:
+    cmd += " --assume-nospin "
+else:  
+  if is_analysis_precessing:
         cmd += " --assume-precessing-spin "
         npts_it = 1500
 if opts.internal_flat_strategy:
@@ -630,7 +635,10 @@ cip_mem  = 30000
 n_jobs_per_worker=opts.ile_jobs_per_worker
 if opts.cip_fit_method == 'rf':  # much lower memory requirement
     cip_mem = 4000
-cmd ="create_event_parameter_pipeline_BasicIteration  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args args_puff.txt  --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cepp = "create_event_parameter_pipeline_BasicIteration"
+if opts.use_subdags:
+    cepp = "create_event_parameter_pipeline_AlternateIteration"
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args args_puff.txt  --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if not(opts.ile_no_gpu):
     cmd +=" --request-gpu-ILE "
 if opts.add_extrinsic:
