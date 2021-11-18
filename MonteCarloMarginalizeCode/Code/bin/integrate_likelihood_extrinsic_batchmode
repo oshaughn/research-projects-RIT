@@ -261,6 +261,7 @@ opts, args = optp.parse_args()
 
 if opts.distance_marginalization:
   lookup_table = np.load(opts.distance_marginalization_lookup_table)
+  opts.maximize_only  = False
 
 if opts.gpu is None:
   opts.gpu = False  # None can be treated differently from false?
@@ -1165,6 +1166,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     if opts.save_samples and opts.output_file:
       import copy
       samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!
+      if opts.distance_marginalization:
+        # Add distance key to file.  Use reference distance, all samples at same distance
+        from RIFT.misc.samples_utils import add_field
+        samples = add_field(samples, [('distance',float)])
+        samples["distance"] =  factored_likelihood.distMpcRef * lal.PC_SI * 1e6
       if opts.inclination_cosine_sampler:
         samples["inclination"] = numpy.arccos(samples["inclination"].astype(numpy.float64))
       if opts.declination_cosine_sampler:
