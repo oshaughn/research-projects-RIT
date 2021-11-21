@@ -155,7 +155,7 @@ def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=
             sim_insp.alpha1 = fvals[itr]
         for p, v in zip(intr_prms, intr_prm._center):
             setattr(sim_insp, p, v)
-        for p, v in pin_prms.iteritems():
+        for p, v in pin_prms.items():
             setattr(sim_insp, p, v)
         sim_insp_tbl.append(sim_insp)
 
