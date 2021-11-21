@@ -560,7 +560,7 @@ def check_grid(grid, intr_prms, distance_coordinates):
     """
     Check the validity of points in various coordinate spaces to ensure they are physical.
     """
-    m1_axis, m2_axis = intr_prms.index("m1"), intr_prms.index("m2")
+    m1_axis, m2_axis = intr_prms.index("mass1"), intr_prms.index("mass2")
     grid_check = numpy.array(grid).T
     if distance_coordinates == "tau0_tau3":
         bounds_mask = check_tau0tau3(grid_check[m1_axis], grid_check[m2_axis])
@@ -568,11 +568,11 @@ def check_grid(grid, intr_prms, distance_coordinates):
         bounds_mask = check_mchirpeta(grid_check[m1_axis], grid_check[m2_axis])
 
     # FIXME: Needs general spin
-    if "s1z" in intr_prms:
-        s1_axis = intr_prms.index("s1z")
+    if "spin1z" in intr_prms:
+        s1_axis = intr_prms.index("spin1z")
         bounds_mask &= check_spins(grid_check[s1_axis])
-    if "s2z" in intr_prms:
-        s2_axis = intr_prms.index("s2z")
+    if "spin2z" in intr_prms:
+        s2_axis = intr_prms.index("spin2z")
         bounds_mask &= check_spins(grid_check[s2_axis])
     if "chi_z" in intr_prms:
         chi_axis = intr_prms.index("chi_z")
@@ -606,10 +606,10 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
     # You know what... recarrays are dumb, and so's your face.
     # FIXME: Why does numpy want me to repack this into tuples!?
     #tpts = numpy.array([tuple(pt) for pt in pts.T], dtype = numpy.dtype([(a ,"float64") for a in intr_prms]))
-    m1_idx, m2_idx = intr_prms.index("m1"), intr_prms.index("m2")
+    m1_idx, m2_idx = intr_prms.index("mass1"), intr_prms.index("mass2")
     if spin_transform:
         if spin_transform == "chi_z":
-            s1z_idx, s2z_idx = intr_prms.index("s1z"), intr_prms.index("s2z")
+            s1z_idx, s2z_idx = intr_prms.index("spin1z"), intr_prms.index("spin2z")
 #            chi_z = transform_s1zs2z_chi(pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx]) 
             #The grid is converted from m1 m2 s1 s2 to mc eta chi_eff because it's better to choose the closest grid points in mc eta chi_eff space. 
             #chi_a is not considered when choosing the closes grid points, but we do need it to transform back to s1 s2
@@ -626,13 +626,13 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
     return pts
 
 def apply_inv_transform(pts, intr_prms, mass_transform=None,spin_transform=None):
-    m1_idx, m2_idx = intr_prms.index("m1"), intr_prms.index("m2")
+    m1_idx, m2_idx = intr_prms.index("mass1"), intr_prms.index("mass2")
     if mass_transform:
         pts[:,m1_idx], pts[:,m2_idx] = INVERSE_TRANSFORMS_MASS[VALID_TRANSFORMS_MASS[mass_transform]](pts[:,m1_idx], pts[:,m2_idx])
     
     if spin_transform:
         if spin_transform == "chi_z":
-            s1z_idx, s2z_idx = intr_prms.index("s1z"), intr_prms.index("s2z")
+            s1z_idx, s2z_idx = intr_prms.index("spin1z"), intr_prms.index("spin2z")
             pts[:,s1z_idx],pts[:,s2z_idx] =transform_chi_eff_chi_a_s1zs2z(pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx])
 
         

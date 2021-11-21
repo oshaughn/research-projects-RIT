@@ -276,12 +276,12 @@ intr_prms = sorted(intr_prms.keys())
 
 #If spin 1 and 2 are not specified, they are pinned. This means the spin columns still appear in the output grid.
 spin_transform=None
-if not "s1z" in intr_prms or not "s2z" in intr_prms:
-    if not "s1z" in intr_prms and not "s2z" in intr_prms:
-        if not "s1z" in pin_prms:
-            pin_prms["s1z"] = 0.0
-        if not "s2z" in pin_prms:
-            pin_prms["s2z"] = 0.0
+if not "spin1z" in intr_prms or not "spin2z" in intr_prms:
+    if not "spin1z" in intr_prms and not "spin2z" in intr_prms:
+        if not "spin1z" in pin_prms:
+            pin_prms["spin1z"] = 0.0
+        if not "spin2z" in pin_prms:
+            pin_prms["spin2z"] = 0.0
     else:
         sys.exit("spin1z or spin2z is specified but not the other spin. compute intrinsic grid is not setup to search just one")
 else:
