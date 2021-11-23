@@ -526,11 +526,12 @@ for indx in np.arange(len(instructions_cip)):
     n_max_cip = 10000000;
     if opts.cip_sampler_method is "GMM":
         n_max_cip *=10   # it is faster, so run longer; helps with correlated-sampling cases
-    n_sample_target=10000
+    n_sample_target=opts.n_output_samples
     n_workers = 1
     if opts.cip_explode_jobs:
         n_workers = opts.cip_explode_jobs
-    line +=" --n-output-samples {}  --n-eff {} --n-max {}   --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), int(n_sample_target/n_workers),n_max_cip)
+    n_sample_min_per_worker = int(n_sample_target/n_workers/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
+    line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), int(n_sample_target/n_workers),n_max_cip,n_sample_min_per_worker)
     if not(opts.cip_fit_method is None):
         line = line.replace('--fit-method gp', '--fit-method ' + opts.cip_fit_method)
     if not (opts.cip_sampler_method is None):
