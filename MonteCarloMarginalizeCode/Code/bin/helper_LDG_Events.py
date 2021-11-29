@@ -192,12 +192,18 @@ parser.add_argument("--force-fit-method",type=str,default=None,help="Force speci
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
+parser.add_argument("--internal-marginalize-distance",action='store_true',help='Create options to marginalize over distance in the pipeline. Also create any necessary marginalization files at runtime, based on the maximum distance assumed')
+parser.add_argument("--internal-distance-max",type='float',default=None,help='If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances')
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-osg",action='store_true',help="If true, use pathnames consistent with OSG")
 parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.  This option insures that the cache file is properly transferred (because you have generated it)")
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
+
+
+#internal_dmax = None
+internal_dmax = opts.internal_distance_max # default is None
 
 fit_method='gp'
 if not(opts.force_fit_method is None):
@@ -806,6 +812,14 @@ if not use_ini:
 else:
     helper_ile_args += " --reference-freq " + str(unsafe_config_get(config,['engine','fref']))
 approx_str= "SEOBNRv4"  # default, should not be used.  See also cases where grid is tuned
+
+
+if use_ini:
+    # See above, provided by ini file
+    dmax = unsafe_config_get(config,['engine','distance-max'])
+    if internal_dmax is None: # overrride ini file if already set.  Note this will override the lowlatency propose approx
+        internal_dmax = dmax
+    
 if opts.lowlatency_propose_approximant:
 #    approx  = lalsim.TaylorF2
     approx_str = "SpinTaylorT4"
@@ -819,8 +833,10 @@ if opts.lowlatency_propose_approximant:
     # Also choose d-max. Relies on archival and fixed network sensitvity estimates.
     dmax_guess =(1./snr_fac)* 2.5*2.26*typical_bns_range_Mpc[opts.observing_run]* (mc_Msun/1.2)**(5./6.)
     dmax_guess = np.min([dmax_guess,10000]) # place ceiling
+    if internal_dmax is None:
+        internal_dmax = dmax_guess
     if opts.use_ini is None:
-        helper_ile_args +=  " --d-max " + str(int(dmax_guess))
+        helper_ile_args +=  " --d-max " + str(int(internal_dmax))  # note also used below
 
     if (opts.data_LI_seglen is None) and  (opts.data_start_time is None) and not(use_ini):
         # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
@@ -839,12 +855,14 @@ if opts.lowlatency_propose_approximant:
         window_shape = 0.4*2/T_window
         helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape " + str(window_shape)
 
-if use_ini:
-    # See above, provided by ini file
-    dmax = unsafe_config_get(config,['engine','distance-max'])
-    helper_ile_args +=  " --d-max " + str(int(dmax))
-    
-    
+if not(internal_dmax is None):
+    helper_ile_args +=  " --d-max " + str(int(internal_dmax))
+    if opts.internal_marginalize_distance:
+        # Generate marginalization file (should probably be in DAG? But we may also want to override it with internal file)
+        cmd_here = " util_InitMargTable --d-max {} ".format(internal_dmax)
+        os.cmd(cmd_here)
+        helper_ile_args += " --d -l {}/distance_marginalization_lookup.npz ".format(opts.working_directory)
+
 
 if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
     # Manually set the data start and end time.
