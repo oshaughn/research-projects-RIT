@@ -947,10 +947,13 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
     print(length_scale_est)
     print(length_scale_bounds_est)
 
+    alpha = 1e-10 # default from sklearn docs
+    if not(y_errors is None):
+        alpha = 1./y_errors**2  # added to diagonal of kernel, used to assign variances of measurements a priori; note also WhiteKernel also absorbs some of this
     if not (hypercube_rescale):
         # These parameters have been hand-tuned by experience to try to set to levels comparable to typical lnL Monte Carlo error
         kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
-        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=8)
+        gp = GaussianProcessRegressor(kernel=kernel, alpha=alpha,  n_restarts_optimizer=8)
 
         gp.fit(x,y)
 
@@ -975,7 +978,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
             x_scaled[indx] = (x[indx] - x_center)/length_scale_est # resize
 
         kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*RBF( len(x_center), (1e-3,1e1))
-        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=8)
+        gp = GaussianProcessRegressor(kernel=kernel, alpha=alpha,n_restarts_optimizer=8)
         
         gp.fit(x_scaled,y)
         print(" Fit: std: ", np.std(y - gp.predict(x_scaled)),  "using number of features ", len(y))  # should NOT be perfect
