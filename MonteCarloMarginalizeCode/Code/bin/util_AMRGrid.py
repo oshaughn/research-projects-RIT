@@ -42,9 +42,17 @@ from glue.ligolw import utils, ligolw, lsctables, ilwd
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 from glue.ligolw.utils import process
 
+import lal
 import lalsimulation
 from RIFT.misc import amrlib
 from RIFT import lalsimutils
+
+remap_rpe2rift = {'m1':'mass1','m2':'mass2','s1z':'spin1z', 's2z':'spin2z'}
+def translate_params(param):
+    if param in remap_rpe2rift:
+        return remap_rpe2rift[param]
+    return param
+
 
 def get_cr_from_grid(cells, weight, cr_thr=0.9, min_n=None, max_n=None):
     """
@@ -82,7 +90,7 @@ def determine_region(pt, pts, ovrlp, ovrlp_thresh, expand_prms={}):
     
 
     cell = amrlib.Cell.make_cell_from_boundaries(pt, pts[sidx:])
-    for k, lim in expand_prms.iteritems():
+    for k, lim in expand_prms.items():
         cell._bounds = numpy.vstack((cell._bounds, lim))
         # FIXME: Need to do center?
     #Force eta to be bounded at 0.25
@@ -124,9 +132,37 @@ def find_olap_index(tree, intr_prms, exact=True, **kwargs):
         exit("Could not find template in bank, closest pt was %f away" % dist)
     return m_idx, pt, dist
 
+def write_to_xml_new(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=False):
+    """
+    Write a set of cells, with dimensions corresponding to intr_prms to an XML file as sim_inspiral rows.
+    Uses RIFT-compatible syntax
+    """
+    P_list = []
+    # Assume everyhing in intrinsic grid, no pin_prms
+    indx_lookup={}
+    indx_lookup['m1'] = intr_prms.index('mass1')
+    indx_lookup['m2'] = intr_prms.index('mass2')
+    indx_lookup['s1z'] = intr_prms.index('spin1z')
+    indx_lookup['s2z'] = intr_prms.index('spin2z')
+    for indx in numpy.arange(len(cells)):
+        P = lalsimutils.ChooseWaveformParams()
+        for name in ['m1','m2','s1z','s2z']:
+            fac_correct = 1
+            if 'm' in name:
+                fac_correct =lal.MSUN_SI
+            setattr(P, name, fac_correct*cells[indx]._center[indx_lookup[name]])
+        P_list.append(P)
+
+    fname_out = fname
+    if fname is None:
+        fname_out="my_grid.xml"
+    lalsimutils.ChooseWaveformParams_array_to_xml(P_list,fname_out)
+
+
 def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=False):
     """
     Write a set of cells, with dimensions corresponding to intr_prms to an XML file as sim_inspiral rows.
+    Note this is NOT COMPATIBLE IN GENERAL with RIFT results in general
     """
     xmldoc = ligolw.Document()
     xmldoc.appendChild(ligolw.LIGO_LW())
@@ -140,11 +176,13 @@ def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=
         intr_prms[intr_prms.index("eff_lambda")] = "psi0"
     if "deff_lambda" in intr_prms:
         intr_prms[intr_prms.index("deff_lambda")] = "psi3"
-    rows += list(intr_prms)
-    rows += list(pin_prms)
+    intr_params_revised = [ translate_params(param) for param in intr_prms]
+    rows += list(intr_params_revised) # relabel parameters for writing files out
+    pin_params_revised = [ translate_params(param) for param in pin_prms]
+    rows += list(pin_params_revised)
     if fvals is not None:
         rows.append("alpha1")
-    sim_insp_tbl = lsctables.New(lsctables.SimInspiralTable, rows)
+    sim_insp_tbl = lsctables.New(lsctables.SimInspiralTable, list(set(rows)))  # remove overlaps/duplicates !
     for itr, intr_prm in enumerate(cells):
         sim_insp = sim_insp_tbl.RowType()
         # FIXME: Need better IDs
@@ -155,7 +193,7 @@ def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=
             sim_insp.alpha1 = fvals[itr]
         for p, v in zip(intr_prms, intr_prm._center):
             setattr(sim_insp, p, v)
-        for p, v in pin_prms.iteritems():
+        for p, v in pin_prms.items():
             setattr(sim_insp, p, v)
         sim_insp_tbl.append(sim_insp)
 
@@ -210,7 +248,7 @@ argp.add_argument("-v", "--verbose", action='store_true', help="Be verbose.")
 # FIXME: This could be a single value (lock a point in) or a range (adapt across
 # this is range). No argument given implies use entire known range (if
 # available).
-argp.add_argument("-i", "--intrinsic-param", action="append", help="Adapt in this intrinsic parameter. If a pre-existing value is known (e.g. a search template was identified), specify this parameter as -i mass1=1.4 . This will indicate to the program to choose grid points which are commensurate with this value.")
+argp.add_argument("-i", "--intrinsic-param", action="append", help="Adapt in this intrinsic parameter. If a pre-existing value is known (e.g. a search template was identified), specify this parameter as -i mass1=1.4 . This will indicate to the program to choose grid points which are commensurate with this value. Note that the mass1, mass2 names are hardcoded by fiat because they are used in the template bank files")
 argp.add_argument("-p", "--pin-param", action="append", help="Pin the parameter to this value in the template bank. If spin is not defined, spin1z,spin2z will be pinned to 0. ")
 #argp.add_argument( "--fmin-template",default=15.0, help="Min template frequency. Used in some mass transforms.") #Not implemented
 
@@ -555,7 +593,7 @@ else:
 print("Selected %d cells for further analysis." % len(cells))
 if opts.setup:
     fname = "HL-MASS_POINTS_LEVEL_0-0-1.xml.gz" if opts.output_xml_file_name == "" else opts.output_xml_file_name 
-    write_to_xml(cells, intr_prms, pin_prms, None, fname, verbose=opts.verbose)
+    write_to_xml_new(cells, intr_prms, pin_prms, None, fname, verbose=opts.verbose)
 else:
     #m = re.search("LEVEL_(\d+)", opts.result_file)
     #if m is not None:
@@ -564,4 +602,4 @@ else:
     #else:
         #fname = "HL-MASS_POINTS_LEVEL_X-0-1.xml.gz"
     fname = "HL-MASS_POINTS_LEVEL_%d-0-1.xml.gz" % level if opts.output_xml_file_name == "" else opts.output_xml_file_name 
-    write_to_xml(cells, intr_prms, pin_prms, None, fname, verbose=opts.verbose)
+    write_to_xml_new(cells, intr_prms, pin_prms, None, fname, verbose=opts.verbose)
