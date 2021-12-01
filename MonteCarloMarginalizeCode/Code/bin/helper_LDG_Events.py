@@ -861,7 +861,7 @@ if not(internal_dmax is None):
         # Generate marginalization file (should probably be in DAG? But we may also want to override it with internal file)
         cmd_here = " util_InitMargTable --d-max {} ".format(internal_dmax)
         os.system(cmd_here)
-        helper_ile_args += " --d -l {}/distance_marginalization_lookup.npz ".format(opts.working_directory)
+        helper_ile_args += " --distance-marginalization  --distance-marginalization-lookup-table {}/distance_marginalization_lookup.npz ".format(opts.working_directory)
 
 
 if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
