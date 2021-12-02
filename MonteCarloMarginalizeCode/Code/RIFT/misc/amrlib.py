@@ -301,7 +301,8 @@ def create_regular_grid_from_cell(cell, side_pts=5, return_cells=False):
     # This produces a representation of the points, but not in a tuple form
     grid_pts = numpy.mgrid[grid_pts]
     # This tuplizes them
-    grid_pts = numpy.array(zip(*[grid.flatten() for grid in grid_pts]))
+    #grid_pts = numpy.array(zip(*[grid.flatten() for grid in grid_pts])) # python2
+    grid_pts =  grid_pts.reshape(grid_pts.shape[0],-1).T.copy()
 
     # useful knowledge for later
     grid_spacing = numpy.array([(rb - lb) / (side_pts - 1) for lb, rb in cell._bounds])
@@ -377,7 +378,7 @@ def save_grid_cells_hdf(base_grp, cells, crd_sys, intr_prms=None, check=True):
         assert grids.attrs["distance_coordinates"] == crd_sys
 
     levels = []
-    for name, ds in grids.iteritems():
+    for name, ds in grids.items():
         levels.append((ds.attrs["level"], name))
 
     grid_res = numpy.diff(cells[0]._bounds).flatten()
@@ -429,9 +430,9 @@ def load_grid_level(h5file, level, return_labels= False, base_grp="rapidpe_grids
 
     grids = hfile[base_grp]["grids"]
     if level == -1:
-        level = sorted(dat.attrs["level"] for name, dat in grids.iteritems())[-1]
+        level = sorted(dat.attrs["level"] for name, dat in grids.items())[-1]
 
-    for name, dat in grids.iteritems():
+    for name, dat in grids.items():
         if dat.attrs["level"] == level:
             grid_res = dat.attrs["resolution"][numpy.newaxis,:]
             if return_labels:
@@ -559,7 +560,7 @@ def check_grid(grid, intr_prms, distance_coordinates):
     """
     Check the validity of points in various coordinate spaces to ensure they are physical.
     """
-    m1_axis, m2_axis = intr_prms.index("m1"), intr_prms.index("m2")
+    m1_axis, m2_axis = intr_prms.index("mass1"), intr_prms.index("mass2")
     grid_check = numpy.array(grid).T
     if distance_coordinates == "tau0_tau3":
         bounds_mask = check_tau0tau3(grid_check[m1_axis], grid_check[m2_axis])
@@ -567,11 +568,11 @@ def check_grid(grid, intr_prms, distance_coordinates):
         bounds_mask = check_mchirpeta(grid_check[m1_axis], grid_check[m2_axis])
 
     # FIXME: Needs general spin
-    if "s1z" in intr_prms:
-        s1_axis = intr_prms.index("s1z")
+    if "spin1z" in intr_prms:
+        s1_axis = intr_prms.index("spin1z")
         bounds_mask &= check_spins(grid_check[s1_axis])
-    if "s2z" in intr_prms:
-        s2_axis = intr_prms.index("s2z")
+    if "spin2z" in intr_prms:
+        s2_axis = intr_prms.index("spin2z")
         bounds_mask &= check_spins(grid_check[s2_axis])
     if "chi_z" in intr_prms:
         chi_axis = intr_prms.index("chi_z")
@@ -605,10 +606,10 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
     # You know what... recarrays are dumb, and so's your face.
     # FIXME: Why does numpy want me to repack this into tuples!?
     #tpts = numpy.array([tuple(pt) for pt in pts.T], dtype = numpy.dtype([(a ,"float64") for a in intr_prms]))
-    m1_idx, m2_idx = intr_prms.index("m1"), intr_prms.index("m2")
+    m1_idx, m2_idx = intr_prms.index("mass1"), intr_prms.index("mass2")
     if spin_transform:
         if spin_transform == "chi_z":
-            s1z_idx, s2z_idx = intr_prms.index("s1z"), intr_prms.index("s2z")
+            s1z_idx, s2z_idx = intr_prms.index("spin1z"), intr_prms.index("spin2z")
 #            chi_z = transform_s1zs2z_chi(pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx]) 
             #The grid is converted from m1 m2 s1 s2 to mc eta chi_eff because it's better to choose the closest grid points in mc eta chi_eff space. 
             #chi_a is not considered when choosing the closes grid points, but we do need it to transform back to s1 s2
@@ -625,13 +626,13 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
     return pts
 
 def apply_inv_transform(pts, intr_prms, mass_transform=None,spin_transform=None):
-    m1_idx, m2_idx = intr_prms.index("m1"), intr_prms.index("m2")
+    m1_idx, m2_idx = intr_prms.index("mass1"), intr_prms.index("mass2")
     if mass_transform:
         pts[:,m1_idx], pts[:,m2_idx] = INVERSE_TRANSFORMS_MASS[VALID_TRANSFORMS_MASS[mass_transform]](pts[:,m1_idx], pts[:,m2_idx])
     
     if spin_transform:
         if spin_transform == "chi_z":
-            s1z_idx, s2z_idx = intr_prms.index("s1z"), intr_prms.index("s2z")
+            s1z_idx, s2z_idx = intr_prms.index("spin1z"), intr_prms.index("spin2z")
             pts[:,s1z_idx],pts[:,s2z_idx] =transform_chi_eff_chi_a_s1zs2z(pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx])
 
         

@@ -155,7 +155,7 @@ def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=
             sim_insp.alpha1 = fvals[itr]
         for p, v in zip(intr_prms, intr_prm._center):
             setattr(sim_insp, p, v)
-        for p, v in pin_prms.iteritems():
+        for p, v in pin_prms.items():
             setattr(sim_insp, p, v)
         sim_insp_tbl.append(sim_insp)
 
@@ -276,12 +276,12 @@ intr_prms = sorted(intr_prms.keys())
 
 #If spin 1 and 2 are not specified, they are pinned. This means the spin columns still appear in the output grid.
 spin_transform=None
-if not "s1z" in intr_prms or not "s2z" in intr_prms:
-    if not "s1z" in intr_prms and not "s2z" in intr_prms:
-        if not "s1z" in pin_prms:
-            pin_prms["s1z"] = 0.0
-        if not "s2z" in pin_prms:
-            pin_prms["s2z"] = 0.0
+if not "spin1z" in intr_prms or not "spin2z" in intr_prms:
+    if not "spin1z" in intr_prms and not "spin2z" in intr_prms:
+        if not "spin1z" in pin_prms:
+            pin_prms["spin1z"] = 0.0
+        if not "spin2z" in pin_prms:
+            pin_prms["spin2z"] = 0.0
     else:
         sys.exit("spin1z or spin2z is specified but not the other spin. compute intrinsic grid is not setup to search just one")
 else:
