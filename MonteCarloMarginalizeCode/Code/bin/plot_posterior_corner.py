@@ -268,7 +268,11 @@ def fchipavg(sample):
             elif (P.s1x == 0 and P.s1y == 0 and P.s1z == 0) or (P.s2x == 0 and P.s2y == 0 and P.s2z == 0):
                 chipavg = P.extract_param('chi_p')
             else:
-                chipavg = P.extract_param('chi_pavg')
+                try:
+                    chipavg = P.extract_param('chi_pavg')
+                except ZeroDivisionError:
+                    #insulation against effective single-spin
+                    chipavg = P.extract_param('chi_p')                
             return chipavg     
 
 def fchip(sample):
