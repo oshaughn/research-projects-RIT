@@ -810,6 +810,26 @@ if opts.prior_lambda_linear:
 ### Linear fits. Resampling a quadratic. (Export me)
 ###
 
+def fit_quadratic_stored(fname_h5,loc,L_offset=200):
+    import h5py
+    with h5py.File(fname_h5,'r') as F:
+        event = F(loc)  # assumed to be mc_source ,eta, chi_eff for now!
+        mean = np.array(event["mean"])
+        cov = np.matrix(event["cov"])
+    cov_det = np.linalg.det(cov)
+    icov = np.linalg.pinv(cov)
+    n_params = len(mean)
+    def my_func(x): # Horribly slow implementation but much easier to read/understand
+        y_val = np.zeros(len(x))
+        for indx in np.arange(len(x)):
+            dx = x[indx]-mean
+            alt = np.dot(icov,dx)
+            eps2 = float(np.dot(dx.T,alt)) # convert to scalar
+            y_val[indx] = np.log((2*np.pi)**(-n_params/2.) * np.sqrt(1./cov_det) )  -0.5* eps2  + L_offset
+        return y_val
+    return my_func
+
+
 def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False):
     gamma_x = None
     if not (y_err is None):
@@ -1343,7 +1363,10 @@ elif sum(indx_ok) < 10: # and max_lnL > 30:
 X_raw = X.copy()
 
 my_fit= None
-if opts.fit_method == "quadratic":
+if not(opts.fit_load_quadratic is None):
+    print("FIT METHOD IS STORED QUADRATIC; no data used! ")
+    my_fit = fit_quadratic_stored(opts.fit_load_quadratic, opts.fit_load_quadratic_path)
+elif opts.fit_method == "quadratic":
     print(" FIT METHOD ", opts.fit_method, " IS QUADRATIC")
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
@@ -1526,48 +1549,6 @@ elif opts.fit_method == 'gp-sparse':
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp_sparse(X,Y,y_errors=Y_err)
 
-
-
-
-# Sort for later convenience (scatterplots, etc)
-indx = Y.argsort()#[::-1]
-X=X[indx]
-Y=Y[indx]
-dat_out_low_level_coord_names =dat_out_low_level_coord_names[indx]
-
-# Make grid plots for all pairs of points, to facilitate direct validation of where posterior support lies
-if not no_plots:
- import itertools
- for i, j in itertools.product( np.arange(len(coord_names)),np.arange(len(coord_names)) ):
-  if i < j:
-    plt.scatter( X[:,i],X[:,j],label='rapid_pe:'+opts.desc_ILE,c=Y); plt.legend(); plt.colorbar()
-    x_name = render_coord(coord_names[i])
-    y_name = render_coord(coord_names[j])
-    plt.xlabel( x_name)
-    plt.ylabel( y_name )
-    plt.title("rapid_pe evaluations (=inputs); no fits")
-    plt.savefig("scatter_"+coord_names[i]+"_"+coord_names[j]+".png"); plt.clf()
-
-
-###
-### Coordinate conversion tool
-###
-if not opts.using_eos:
- def convert_coords(x_in):
-    return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
-else:
- def convert_coords(x_in):
-    x_out = lalsimutils.convert_waveform_coordinates_with_eos(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,no_matter1=opts.no_matter1, no_matter2=opts.no_matter2,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
-    return x_out
-
-
-###
-### Integrate posterior
-###
-
-
-sampler = mcsampler.MCSampler()
-=======
 
 
 

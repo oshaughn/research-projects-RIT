@@ -17,6 +17,12 @@ Since last release
    - ILE, ILE_batchmode (option export extrinsic per iteration; hope to fix cosmo prior sampling; Dan's suggestion to
      remove np.vectorize calls), mcsampler (help export extrinsic per iteration), general analytic fisher matrix via
      gwbench calls (pseudo_pipe option), converter add missing py2->py3 print statements (rc7)
+   - remove ^M from CIPs; add eccentricity capability from Champion; add Henshaw/Gerosa chip_avg; CIP can import
+     gaussian likelihood fits; ILE extrinsic export bugfix for likelihood export (missing --manual-logarithm-offset
+     undo); CIP can use cos_theta1 and cos_theta2 as coordinates for sampling, and these are made default (rc8)
+   - fix merge error in CIP in above - travis fail! (rc9)
+   - fix another merge problem from CIP above which dropped the gaussians; add ILE hard fail on cuda errors (rc10)
+
 
 0.0.15.5
 -----------

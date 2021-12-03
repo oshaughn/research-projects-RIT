@@ -568,7 +568,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     return ile_job, ile_sub_name
 
 
-def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,simple_unique=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,request_disk=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,use_cvmfs_frames=False,frames_dir=None,cache_file=None,fragile_hold=False,max_runtime_minutes=None,**kwargs):
+def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,simple_unique=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,request_disk=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,use_cvmfs_frames=False,frames_dir=None,cache_file=None,fragile_hold=False,max_runtime_minutes=None,condor_commands=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -837,7 +837,9 @@ echo Starting ...
     # request_memory = ifthenelse( (LastHoldReasonCode=!=34 && LastHoldReasonCode=!=26), InitialRequestMemory, int(1.5 * NumJobStarts * MemoryUsage) )
     # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
     # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
-
+    if condor_commands is not None:
+        for cmd, value in condor_commands.iteritems():
+            ile_job.add_condor_cmd(cmd, value)
 
     return ile_job, ile_sub_name
 
@@ -1745,4 +1747,50 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
         print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
     return ile_job, ile_sub_name
+
+
+
+
+
+def write_subdagILE_sub(tag='subdag_ile', exe=None, universe='vanilla', submit_file=None,input_pattern=None,target_dir=None,output_suffix=None,log_dir=None,sim_xml=None, **kwargs):
+
+    """
+    Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.
+    """
+    exe = exe or which("create_ile_sub_dag.py") 
+    subfile = submit_file or 'ILE.sub'
+
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    ile_job.add_arg("--target-dir "+target_dir)
+    ile_job.add_arg("--output-suffix "+output_suffix)
+    ile_job.add_arg("--submit-script "+subfile)
+    ile_job.add_arg("--macroiteration $(macroiteration)")
+    ile_job.add_arg("--sim-xml "+sim_xml)
+
+    working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+#    ile_job.set_stdout_file(fname_out)
+
+#    ile_job.add_condor_cmd("+PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
+
+    return ile_job, ile_sub_name
+
 
