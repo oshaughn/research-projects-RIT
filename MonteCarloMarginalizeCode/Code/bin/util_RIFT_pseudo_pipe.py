@@ -139,7 +139,7 @@ parser.add_argument("--data-LI-seglen",default=None,type=int,help="If specified,
 parser.add_argument("--choose-data-LI-seglen",action='store_true')
 parser.add_argument("--fix-bns-sky",action='store_true')
 parser.add_argument("--ile-sampler-method",type=str,default=None)
-parser.add_argument("--ile-n-eff",type=float,default=None,help="ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous ")
+parser.add_argument("--ile-n-eff",type=int,default=None,help="ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous ")
 parser.add_argument("--cip-sampler-method",type=str,default=None)
 parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--ile-jobs-per-worker",type=int,default=20)
