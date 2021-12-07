@@ -139,6 +139,7 @@ parser.add_argument("--data-LI-seglen",default=None,type=int,help="If specified,
 parser.add_argument("--choose-data-LI-seglen",action='store_true')
 parser.add_argument("--fix-bns-sky",action='store_true')
 parser.add_argument("--ile-sampler-method",type=str,default=None)
+parser.add_argument("--ile-n-eff",type=float,default=None,help="ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous ")
 parser.add_argument("--cip-sampler-method",type=str,default=None)
 parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--ile-jobs-per-worker",type=int,default=20)
@@ -514,6 +515,8 @@ if not(opts.ile_runtime_max_minutes is None):
     line += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
+if not(opts.ile_n_eff is None):
+    line += " --ile-n-eff {} ".format(opts.ile_n_eff)
 with open('args_ile.txt','w') as f:
         f.write(line)
 os.system("cp helper_test_args.txt args_test.txt")
