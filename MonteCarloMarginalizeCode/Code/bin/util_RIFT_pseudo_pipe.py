@@ -543,6 +543,8 @@ for indx in np.arange(len(instructions_cip)):
     if not (opts.cip_sampler_method is None):
         line += " --sampler-method "+opts.cip_sampler_method
     line += prior_args_lookup[opts.spin_magnitude_prior]
+    if opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial':
+        line = line.replace('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc')     # quadratic fit needs eta coordinate
     if opts.hierarchical_merger_prior_1g:
         # Must use mtotal, q coordinates!  Change defaults
         line = line.replace('parameter mc', 'parameter mtot')
@@ -647,7 +649,7 @@ if not (opts.manual_initial_grid is None):
 # Build DAG
 cip_mem  = 30000
 n_jobs_per_worker=opts.ile_jobs_per_worker
-if opts.cip_fit_method == 'rf':  # much lower memory requirement
+if opts.cip_fit_method == 'rf' or opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # much lower memory requirement
     cip_mem = 4000
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
