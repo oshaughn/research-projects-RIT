@@ -138,6 +138,7 @@ parser.add_argument("--fmin-template",default=None,type=float,help="Mininum freq
 parser.add_argument("--data-LI-seglen",default=None,type=int,help="If specified, passed to the helper. Uses data selection appropriate to LI. Must specify the specific LI seglen used.")
 parser.add_argument("--choose-data-LI-seglen",action='store_true')
 parser.add_argument("--fix-bns-sky",action='store_true')
+parser.add_argument("--ile-sampler-method",type=str,default=None)
 parser.add_argument("--cip-sampler-method",type=str,default=None)
 parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--ile-jobs-per-worker",type=int,default=20)
@@ -510,7 +511,9 @@ else:
 if not(opts.manual_extra_ile_args is None):
     line += opts.manual_extra_ile_args
 if not(opts.ile_runtime_max_minutes is None):
-    lines += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
+    line += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
+if not(opts.ile_sampler_method is None):
+    line += " --sampler-method {} ".format(opts.ile_sampler_method)
 with open('args_ile.txt','w') as f:
         f.write(line)
 os.system("cp helper_test_args.txt args_test.txt")
