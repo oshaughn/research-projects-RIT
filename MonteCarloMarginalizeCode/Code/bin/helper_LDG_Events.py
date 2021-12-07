@@ -176,7 +176,7 @@ parser.add_argument("--assume-volumetric-spin",action='store_true',help="If pres
 parser.add_argument("--assume-highq",action='store_true',help="If present, the code will adopt a strategy that drops spin2. Also the precessing strategy will allow perpendicular spin to play a role early on (rather than as a subdominant parameter later)")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
-parser.add_argument("--ile-n-eff",default=50,type=float,help="Target n_eff passed to ILE.  Try to keep above 2")
+parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
 parser.add_argument("--online", action='store_true', help="Use online settings")
