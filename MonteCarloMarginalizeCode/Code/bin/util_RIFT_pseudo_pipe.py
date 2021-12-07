@@ -346,7 +346,6 @@ srate=4096  # default, built into helper, unwise to go lower, LI will almost nev
 if opts.make_bw_psds:
     helper_psd_args += " --assume-fiducial-psd-files --fmax " + str(srate/2-1)
 
-
 # Create provenance info : we want run to be reproducible
 if True:
         os.mkdir("reproducibility")
@@ -373,6 +372,8 @@ if True:
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound "
+if not(opts.ile_n_eff is None):
+    cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
 if not(opts.force_mc_range is None):
     cmd+= " --force-mc-range {} ".format(opts.force_mc_range)
 if not(opts.force_eta_range is None):
@@ -515,8 +516,6 @@ if not(opts.ile_runtime_max_minutes is None):
     line += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
-if not(opts.ile_n_eff is None):
-    line += " --ile-n-eff {} ".format(opts.ile_n_eff)
 with open('args_ile.txt','w') as f:
         f.write(line)
 os.system("cp helper_test_args.txt args_test.txt")
