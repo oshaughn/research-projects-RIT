@@ -832,6 +832,10 @@ def uniform_samp_vector(a,b,x,xpy=xpy_default):
 # if cupy_ok:
 #    uniform_samp_vector = uniform_samp_vector_lazy  
 
+def ret_uniform_samp_vector_alt(a,b):
+    return lambda x: 1./(b-a)
+
+
 def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=xpy_default):
     if isinstance(x, float):
         ret =0.
