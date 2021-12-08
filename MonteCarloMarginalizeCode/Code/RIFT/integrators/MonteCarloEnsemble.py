@@ -184,7 +184,7 @@ class integrator:
         
         # append to the cumulative arrays
         self.cumulative_samples = np.append(self.cumulative_samples, self.sample_array[mask], axis=0)
-        self.cumulative_values = np.append(self.cumulative_values, lnL[mask], axis=0)
+        self.cumulative_values = np.append(self.cumulative_values, lnL, axis=0)
         self.cumulative_p = np.append(self.cumulative_p, prior, axis=0)
         self.cumulative_p_s = np.append(self.cumulative_p_s, sampling_prior, axis=0)
         
