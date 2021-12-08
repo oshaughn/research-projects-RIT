@@ -1058,6 +1058,11 @@ if opts.propose_fit_strategy:
         for indx in np.arange(1,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
             helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
 
+    if ('quadratic' in fit_method) or ('polynomial' in fit_method):
+        helper_cip_arg_list[0] += " --lnL-offset " + str(lnLoffset_all)
+        for indx in np.arange(1,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
+            helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
+
     if opts.use_quadratic_early:
         helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method quadratic')
 
