@@ -521,6 +521,8 @@ if fit_method =='quadratic' or fit_method =='polynomial':
     if 'SNR' in event_dict.keys():
         lnLoffset_all = 0.25*2*lnLmax_true  # not that big, only keep some of th epoints
         lnLoffset_early = np.max([0.1*lnLmax_true,10])  # decent enough
+        lnL_start = lnLoffset_all
+        lnL_end = np.max([0.05*lnLmax_true,10])  # decent enough
     else:
         lnLoffset_early = 50   # for reasonable fits, not great for low ampltiude sources
         lnLoffset_all =50 # for reasonable sources, not great for low-amplitude sources, should provide override
@@ -1059,9 +1061,10 @@ if opts.propose_fit_strategy:
             helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
 
     if ('quadratic' in fit_method) or ('polynomial' in fit_method):
-        helper_cip_arg_list[0] += " --lnL-offset " + str(lnLoffset_all)
-        for indx in np.arange(1,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
-            helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
+        helper_cip_arg_list[0] += " --lnL-offset " + str(lnL_start)
+        n_levels = len(helper_cip_arg_list)
+        for indx in np.arange(1,n_levels):  # do NOT constrain the first CIP, as it has so few points!
+            helper_cip_arg_list[indx] += " --lnL-offset " + str( lnL_start*(1.- 1.*indx/(n_levels-1))  + lnL_end*indx/(n_levels-1) )
 
     if opts.use_quadratic_early:
         helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method quadratic')
