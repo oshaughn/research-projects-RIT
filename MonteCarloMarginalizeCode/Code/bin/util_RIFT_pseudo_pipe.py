@@ -372,6 +372,8 @@ if True:
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound "
+if not(opts.cip_fit_method is None):
+    cmd += " --force-fit-method {} ".format(opts.cip_fit_method)
 if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
 if not(opts.force_mc_range is None):
@@ -544,12 +546,12 @@ for indx in np.arange(len(instructions_cip)):
     n_sample_min_per_worker = int(n_sample_target/n_workers/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
     line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), int(n_sample_target/n_workers),n_max_cip,n_sample_min_per_worker)
     if not(opts.cip_fit_method is None):
-        line = line.replace('--fit-method gp', '--fit-method ' + opts.cip_fit_method)
+        line = line.replace('--fit-method gp', '--fit-method ' + opts.cip_fit_method)  # should not be called, see --force-fit-method argument to helper
     if not (opts.cip_sampler_method is None):
         line += " --sampler-method "+opts.cip_sampler_method
     line += prior_args_lookup[opts.spin_magnitude_prior]
     if opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial':
-        line = line.replace('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc')     # quadratic fit needs eta coordinate
+        line = line.replace('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc')     # quadratic fit needs eta coordinate. Should be done by helper ideally
     if opts.hierarchical_merger_prior_1g:
         # Must use mtotal, q coordinates!  Change defaults
         line = line.replace('parameter mc', 'parameter mtot')
