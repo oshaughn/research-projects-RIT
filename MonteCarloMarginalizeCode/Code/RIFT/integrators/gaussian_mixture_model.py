@@ -214,6 +214,7 @@ class gmm:
         self.p_nk = None
         self.log_prob = None
         self.N = 0
+        self.epsilon =epsilon
         if self.epsilon is None:
             self.epsilon = 1e-4  # allow very strong correlations
         else:
