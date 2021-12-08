@@ -517,6 +517,14 @@ else:
     lnLoffset_all = 1000
     lnLoffset_early = 500  # a fiducial value, good enough for a wide range of SNRs 
 
+if fit_method =='quadratic' or fit_method =='polynomial':
+    if 'SNR' in event_dict.keys():
+        lnLoffset_all = 0.25*2*lnLmax_true  # not that big, only keep some of th epoints
+        lnLoffset_early = np.max([0.1*lnLmax_true,10])  # decent enough
+    else:
+        lnLoffset_early = 50   # for reasonable fits, not great for low ampltiude sources
+        lnLoffset_all =50 # for reasonable sources, not great for low-amplitude sources, should provide override
+
 # Estimate signal duration
 t_event = event_dict["tref"]
 P=event_dict["P"]
