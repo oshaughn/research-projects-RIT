@@ -1060,12 +1060,6 @@ if opts.propose_fit_strategy:
         for indx in np.arange(1,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
             helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
 
-    if ('quadratic' in fit_method) or ('polynomial' in fit_method):
-        helper_cip_arg_list[0] += " --lnL-offset " + str(lnL_start)
-        n_levels = len(helper_cip_arg_list)
-        for indx in np.arange(1,n_levels):  # do NOT constrain the first CIP, as it has so few points!
-            helper_cip_arg_list[indx] += " --lnL-offset " + str( lnL_start*(1.- 1.*indx/(n_levels-1))  + lnL_end*indx/(n_levels-1) )
-
     if opts.use_quadratic_early:
         helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method quadratic')
 
@@ -1138,6 +1132,14 @@ if opts.propose_fit_strategy:
                     puff_max_it += n_its[2]
             except:
                 print("No mass information, can't add extra stages")
+
+
+    if ('quadratic' in fit_method) or ('polynomial' in fit_method):
+        helper_cip_arg_list[0] += " --lnL-offset " + str(lnL_start)
+        helper_cip_arg_list += helper_cip_arg_list[-1]  # add another set of iterations : these are super fast, and we want to get narrow
+        n_levels = len(helper_cip_arg_list)
+        for indx in np.arange(1,n_levels):  # do NOT constrain the first CIP, as it has so few points!
+            helper_cip_arg_list[indx] += " --lnL-offset " + str( lnL_start*(1.- 1.*indx/(n_levels-1.))  + lnL_end*indx/(n_levels-1.) )
 
     if opts.assume_matter:
         helper_puff_args += " --parameter LambdaTilde  --downselect-parameter s1z --downselect-parameter-range [-0.9,0.9] --downselect-parameter s2z --downselect-parameter-range [-0.9,0.9]  "  # Probably should also aggressively force sampling of low-lambda region
