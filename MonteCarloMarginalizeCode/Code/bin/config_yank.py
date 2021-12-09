@@ -56,7 +56,7 @@ with open("tmp_file_cip.args",'r') as f:
 # dump out arguments desired
 
 keys_ile = ['fmin-template', 'channel-name', 'fmin-ifo' ,'d-max', 'approx', 'event-time']
-keys_cip = ['mc-range', 'eta-range']
+keys_cip = ['mc-range', 'eta-range','fit-method','sampler-method','lnL-offset']  # latter two are very helpful for some diagnostics
 for name in keys_ile:
     if name in args_ile:
         print(name, args_ile[name])
