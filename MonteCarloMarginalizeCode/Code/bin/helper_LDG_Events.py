@@ -1061,6 +1061,7 @@ if opts.propose_fit_strategy:
             helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
 
     if opts.use_quadratic_early:
+        helper_cip_arg_list = [helper_cip_arg_list[0]] + helper_cip_arg_list  # augment the number of levels with an early quadratic stage
         helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method quadratic')
         if 'gp' in fit_method: # lnL offset only enabled for gp so far
             helper_cip_arg_list[0] = helper_cip_arg_list[0].replace(" --lnL-offset " + str(lnLoffset_all)," --lnL-offset " + str(lnL_start) )  # more sane initial range for quadratic; see later
