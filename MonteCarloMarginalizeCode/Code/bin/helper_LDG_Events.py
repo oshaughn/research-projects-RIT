@@ -517,7 +517,7 @@ else:
     lnLoffset_all = 1000
     lnLoffset_early = 500  # a fiducial value, good enough for a wide range of SNRs 
 
-if fit_method =='quadratic' or fit_method =='polynomial':
+if fit_method =='quadratic' or fit_method =='polynomial' or opts.use_quadratic_early:
     if 'SNR' in event_dict.keys():
         lnLoffset_all = 0.25*2*lnLmax_true  # not that big, only keep some of th epoints
         lnLoffset_early = np.max([0.1*lnLmax_true,10])  # decent enough
@@ -1062,7 +1062,10 @@ if opts.propose_fit_strategy:
 
     if opts.use_quadratic_early:
         helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method quadratic')
-        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace(" --lnL-offset " + str(lnLoffset_all)," --lnL-offset " + str(lnL_start) )  # more sane initial range for quadratic; see later
+        if 'gp' in fit_method: # lnL offset only enabled for gp so far
+            helper_cip_arg_list[0] = helper_cip_arg_list[0].replace(" --lnL-offset " + str(lnLoffset_all)," --lnL-offset " + str(lnL_start) )  # more sane initial range for quadratic; see later
+        elif 'rf' in fit_method:
+            helper_cip_arg_list[0] += " --lnL-offset " +   str(lnL_start)
 
     if not opts.assume_nospin:
         helper_puff_args += " --parameter chieff_aligned "
