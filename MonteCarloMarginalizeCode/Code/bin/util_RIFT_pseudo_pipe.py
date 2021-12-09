@@ -168,6 +168,7 @@ parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
+parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restructuring for ILE on OSG. The code will NOT use CVMFS, and instead will try to transfer the frame files.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
@@ -416,6 +417,8 @@ if opts.internal_flat_strategy:
     cmd +=  " --test-convergence --propose-flat-strategy "
 if opts.use_quadratic_early:
     cmd += " --use-quadratic-early "
+elif opts.use_gp_early:
+    cmd += " --use-gp-early "
 if opts.use_osg:
     cmd += " --use-osg "
     cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful

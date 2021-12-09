@@ -196,6 +196,7 @@ parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use 
 parser.add_argument("--internal-marginalize-distance",action='store_true',help='Create options to marginalize over distance in the pipeline. Also create any necessary marginalization files at runtime, based on the maximum distance assumed')
 parser.add_argument("--internal-distance-max",type=float,default=None,help='If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances')
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
+parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
 parser.add_argument("--use-osg",action='store_true',help="If true, use pathnames consistent with OSG")
 parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.  This option insures that the cache file is properly transferred (because you have generated it)")
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
@@ -1067,6 +1068,10 @@ if opts.propose_fit_strategy:
             helper_cip_arg_list[0] = helper_cip_arg_list[0].replace(" --lnL-offset " + str(lnLoffset_all)," --lnL-offset " + str(lnL_start) )  # more sane initial range for quadratic; see later
         elif 'rf' in fit_method:
             helper_cip_arg_list[0] += " --lnL-offset " +   str(lnL_start)
+    elif opts.use_gp_early:
+        helper_cip_arg_list = [helper_cip_arg_list[0]] + helper_cip_arg_list  # augment the number of levels with an early quadratic stage
+        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method gp')
+        helper_cip_arg_list[0] += " --lnL-offset " + str(lnLoffset_all)
 
     if not opts.assume_nospin:
         helper_puff_args += " --parameter chieff_aligned "
