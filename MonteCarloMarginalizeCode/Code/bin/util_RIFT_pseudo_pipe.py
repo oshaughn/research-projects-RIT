@@ -415,7 +415,7 @@ else:
 if opts.internal_flat_strategy:
     cmd +=  " --test-convergence --propose-flat-strategy "
 if opts.use_quadratic_early:
-    cmd == " --use-quadratic-early "
+    cmd += " --use-quadratic-early "
 if opts.use_osg:
     cmd += " --use-osg "
     cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful
