@@ -374,8 +374,24 @@ if True:
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound "
+if opts.assume_matter:
+        cmd += " --assume-matter "
+        npts_it = 1000
+if  opts.assume_nospin:
+    cmd += " --assume-nospin "
+else:  
+  if is_analysis_precessing:
+        cmd += " --assume-precessing-spin "
+        npts_it = 1500
+if opts.assume_highq:
+    cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
+    npts_it =1000
+
 if not(opts.cip_fit_method is None):
     cmd += " --force-fit-method {} ".format(opts.cip_fit_method)
+    if opts.cip_fit_method == 'rf':
+        npts_it*=2 # more iteration points if we use RF ... not sane otherwise. Note for precession this is a large iteration size
+
 if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
 if not(opts.force_mc_range is None):
@@ -396,23 +412,11 @@ if opts.use_online_psd:
         cmd += " --use-online-psd "
 if opts.data_LI_seglen:
         cmd += " --data-LI-seglen "+str(opts.data_LI_seglen)
-if opts.assume_matter:
-        cmd += " --assume-matter "
-        npts_it = 1000
 if opts.assume_well_placed:
     cmd += " --assume-well-placed "
-if opts.assume_highq:
-    cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
-    npts_it =1000
 #if is_event_bns and not opts.no_matter:
 #        cmd += " --assume-matter "
 #        npts_it = 1000
-if  opts.assume_nospin:
-    cmd += " --assume-nospin "
-else:  
-  if is_analysis_precessing:
-        cmd += " --assume-precessing-spin "
-        npts_it = 1500
 if opts.internal_flat_strategy:
     cmd +=  " --test-convergence --propose-flat-strategy "
 if opts.use_quadratic_early:
