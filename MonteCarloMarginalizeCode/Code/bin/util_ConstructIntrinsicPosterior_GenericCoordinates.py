@@ -1025,10 +1025,27 @@ def fit_gp_lazy(x,y,y_errors=None,dy_cov=5):
         gamma=1
         if 'gamma' in kwargs:
             gamma = kwargs['gamma']
-        dx = x - y 
+        if x.shape == y.shape:
+            dx = x - y 
+        else:
+            dx = x.reshape(len(x),1) -y
         return np.exp(-gamma*np.dot(dx.T,np.dot(Q,dx)))
     lazy_kernel= PairwiseKernel(metric=my_func_diff_exp)
     lazy_kernel.gamma_bounds = [0.01,10]  # control length scale range change
+
+    # Do it all by hand
+#     Ktrain = my_func_diff_exp(x.T,x.T); 
+#     myinv = np.linalg.pinv(Ktrain + y_errors**2)
+#     mybase = np.dot(myinv,y)  # should be an array
+#     print(myinv.shape, mybase.shape)
+#     def my_ret(xtest,func=my_func_diff_exp):
+# #      return np.dot(func(xtest.T,x.T),mybase)  # does not have quite the right shape
+#         ret = np.ones(len(xtest))
+#         for indx in np.arange(len(ret)):   # this is dumb
+#             val = np.dot(func(xtest[indx].T,x.T),mybase)
+#             print(val)
+#             ret[indx] = val
+#     return my_ret
 
     alpha = 1e-10 # default from sklearn docs
     noise_level = 0.1
