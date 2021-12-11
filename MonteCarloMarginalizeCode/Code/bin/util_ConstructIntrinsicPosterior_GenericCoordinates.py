@@ -904,7 +904,8 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
 
 
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as C
+from sklearn.gaussian_process.kernels import PairwiseKernel,RBF, WhiteKernel, ConstantKernel as C
+
 
 def adderr(y):
     val,err = y
@@ -1013,23 +1014,29 @@ def fit_gp_lazy(x,y,y_errors=None,dy_cov=5):
     ymax = np.max(y)
     indx_1 = y>ymax-dy_cov
     indx_2 = y>ymax-2*dy_cov
-    if (np.sum(indx_1) < 10*len(y)**2):  # 10*# of dimensions^2, so if dimension=3, we need 90 points, etc 
+    if (np.sum(indx_1) < 10*len(x[0])**2):  # 10*# of dimensions^2, so if dimension=3, we need 90 points, etc 
         print(" Failure : need sufficient data within threshold to perform local covariance estimate ")
         sys.exit(5)
-    cov1 = np.cov(x[indx_1])/(dy_cov**2)  # shrink based on dy
-    cov2 = np.cov(x[indx_2])/(4*dy_cov**2) # ditto
-    Q = 0.5*(cov1+cov2)  # average local estimate and nonlocal estimate
+    cov1 = np.cov(x[indx_1].T)/(dy_cov**2)  # shrink based on dy
+    cov2 = np.cov(x[indx_2].T)/(4*dy_cov**2) # ditto
+    Q = np.linalg.pinv(0.5*(cov1+cov2))  # average local estimate and nonlocal estimate. Take inverse for Q matrix. 
+    Q = 0.1*Q/np.power(len(x),1./len(x[0]))   # Add scale factor to smooth over smaller distance than the overall covariance. Reduce in size based on data size in some way
     def my_func_diff_exp(x,y,Q=Q,**kwargs):
+        gamma=1
+        if 'gamma' in kwargs:
+            gamma = kwargs['gamma']
         dx = x - y 
-        return np.exp(-np.dot(dx.T,np.dot(Q,dx)))
-    lazy_kernel= sklearn.gaussian_process.kernels.PairwiseKernel(metric=my_func_diff_exp)
+        return np.exp(-gamma*np.dot(dx.T,np.dot(Q,dx)))
+    lazy_kernel= PairwiseKernel(metric=my_func_diff_exp)
+    lazy_kernel.gamma_bounds = [0.01,10]  # control length scale range change
 
     alpha = 1e-10 # default from sklearn docs
+    noise_level = 0.1
     if not(y_errors is None):
         alpha = y_errors**2  # added to diagonal of kernel, used to assign variances of measurements a priori; note also WhiteKernel also absorbs some of this
+        noise_level = np.mean(np.abs(y_errors))
 
-
-    kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*lazy_kernel
+    kernel = WhiteKernel(noise_level=noise_level,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*lazy_kernel
     gp = GaussianProcessRegressor(kernel=kernel, alpha=alpha,  n_restarts_optimizer=8)
     print(" Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y))
 
