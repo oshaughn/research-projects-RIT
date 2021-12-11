@@ -50,6 +50,7 @@ class estimator:
 
     def _initialize(self, n, sample_array, log_sample_weights=None):
         p_weights = np.exp(log_sample_weights - np.max(log_sample_weights)).flatten()
+        p_weights[np.isnan(p_weights)] = 0 # zero out the nan weights
         p_weights /= np.sum(p_weights)
         self.means = sample_array[np.random.choice(n, self.k, p=p_weights.astype(sample_array.dtype)), :]
         self.covariances = [np.identity(self.d)] * self.k
