@@ -277,7 +277,7 @@ parser.add_argument("--n-max",default=3e8,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--fail-unless-n-eff",default=None,type=int,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
-parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
+parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper|gp_lazy")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
 parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
@@ -1004,6 +1004,43 @@ def fit_gp_pool(x,y,n_pool=10,**kwargs):
     print(" Testing ", fn_out([x[0]]))
     return fn_out
 
+def fit_gp_lazy(x,y,y_errors=None,dy_cov=5):
+    """
+    fit_gp_lazy : Attempts to build a quadratic form based on the highest amplitude parts of y
+    """
+    print(" GP: Input sample size ", len(x), len(y))
+
+    ymax = np.max(y)
+    indx_1 = y>ymax-dy_cov
+    indx_2 = y>ymax-2*dy_cov
+    if (np.sum(indx_1) < 10*len(y)**2):  # 10*# of dimensions^2, so if dimension=3, we need 90 points, etc 
+        print(" Failure : need sufficient data within threshold to perform local covariance estimate ")
+        sys.exit(5)
+    cov1 = np.cov(x[indx_1])/(dy_cov**2)  # shrink based on dy
+    cov2 = np.cov(x[indx_2])/(4*dy_cov**2) # ditto
+    Q = 0.5*(cov1+cov2)  # average local estimate and nonlocal estimate
+    def my_func_diff_exp(x,y,Q=Q,**kwargs):
+        dx = x - y 
+        return np.exp(-np.dot(dx.T,np.dot(Q,dx)))
+    lazy_kernel= sklearn.gaussian_process.kernels.PairwiseKernel(metric=my_func_diff_exp)
+
+    alpha = 1e-10 # default from sklearn docs
+    if not(y_errors is None):
+        alpha = y_errors**2  # added to diagonal of kernel, used to assign variances of measurements a priori; note also WhiteKernel also absorbs some of this
+
+
+    kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*lazy_kernel
+    gp = GaussianProcessRegressor(kernel=kernel, alpha=alpha,  n_restarts_optimizer=8)
+    print(" Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y))
+
+    if not (opts.fit_uncertainty_added):
+            if opts.protect_coordinate_conversions:
+                return lalsimutils.RangeProtectReduce( (lambda x: gp.predict(x) ), -np.inf)
+            return lambda x: gp.predict(x)
+    else:
+            return lambda x: adderr(gp.predict(x,return_std=True))
+
+
 def fit_nn(x,y,y_errors=None,fname_export='nn_fit',adaptive=True):
     y_packed = y[:,np.newaxis]
     if not (y_errors is None):
@@ -1098,6 +1135,39 @@ def fit_nn_rfwrapper(x,y,y_errors=None,fname_export='nn_fit'):
 
     print( " Demonstrating NN")   # debugging
     residuals = fn_return(x)-y
+    print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
+    return fn_return
+
+def fit_kde(x,y,y_errors=None):
+    """
+    Simple KDE -like fit:   estimate function as  lnLmax * [ w_k K(x-x_k)]  where w_k are weights based on lnL values.
+    Problem is normalization!   One way is to normalize one basically random point ... though that's an issue
+
+    NOT INTENDED FOR ACCURACY -- this will intentionally oversmooth, with worse oversmoothing farther away.
+    """
+    y_max = np.max(y) # [int(len(y)/2)]
+    y_min = np.min(y)
+    wts = y+y_min+1  # must be positive
+    x_max = x[np.argmax(y)]
+    d = len(x_max)
+#    print(x.shape,y.shape); print(x_max, y_max)
+    # wts = np.ones(x.shape)
+    # for indx in np.arange(len(x_max)):
+    #     wts[:,indx] = y
+    my_kde = scipy.stats.gaussian_kde(x.T, weights=wts,bw_method=4)   #
+#    nm = my_kde.integrate_gaussian(x_max.T, np.zeros((d,d)))
+#    print(nm)
+#    print(" KDE bandwidth {}  ".format(my_kde.factor))
+    val = my_kde(x.T)
+    my_kde_ref = np.max(val);   # change reference point, so at least max agrees
+#    print(" Location of peak ",x[np.argmax(val)])  
+#    my_kde_ref = my_kde(x_max)
+    def fn_return(z,y_max=y_max):
+        return y_max *my_kde(z.T)/my_kde_ref  # choose parameters so it attains maximum value : not safe given errors, but ...
+
+    print( " Demonstrating KDE")   # debugging
+    residuals = fn_return(x)-y
+#    print(fn_return(x),y,my_kde_ref,residuals)
     print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
     return fn_return
 
@@ -1484,6 +1554,23 @@ elif opts.fit_method == 'gp-torch':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gpytorch(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'gp_lazy':
+    print(" FIT METHOD ", opts.fit_method, " IS lazy GP")
+    # some data truncation IS used for the GP, but beware
+    print(" Truncating data set used for GP, to reduce memory usage needed in matrix operations")
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_gp_lazy(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'nn':
     print( " FIT METHOD ", opts.fit_method, " IS NN ")
     # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
@@ -1532,6 +1619,23 @@ elif opts.fit_method == 'nn_rfwrapper':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_nn_rfwrapper(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'kde':
+    print( " FIT METHOD ", opts.fit_method, " IS KDE ")
+    indx_ok = np.logical_and(indx_ok, Y>0)
+    # modest data truncation useful...
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_kde(X,Y)
 elif opts.fit_method == 'gp-sparse':
     print( " FIT METHOD ", opts.fit_method, " IS gp-sparse ")
     if not internalGP_ok:
