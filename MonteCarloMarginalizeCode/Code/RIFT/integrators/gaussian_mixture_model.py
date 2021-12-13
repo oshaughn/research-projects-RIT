@@ -10,7 +10,7 @@ Expectation-Maximization algorithm.
 from six.moves import range
 
 import numpy as np
-from scipy.stats import multivariate_normal
+from scipy.stats import multivariate_normal,norm
 from scipy.stats.mvn import mvnun # integrates multivariate normal distributions in rectangular domains - used for normalization
 #from scipy.misc import logsumexp
 from scipy.special import logsumexp
@@ -394,11 +394,17 @@ class gmm:
             w = self.weights[i]
             mean = self.means[i]
             cov = self.covariances[i]
-            scores += multivariate_normal.pdf(x=sample_array, mean=mean, cov=cov, allow_singular=True) * w
+            if(len(mean)>1):
+                scores += multivariate_normal.pdf(x=sample_array, mean=mean, cov=cov, allow_singular=True) * w
+                normalization_constant += w*mvnun(self.bounds[:,0], self.bounds[:,1], mean, cov)[0] # this function is very fast at integrating multivariate normal distributions
+            else:
+                sigma2 = cov[0,0]
+                val = 1./np.sqrt(2*np.pi*sigma2) * np.exp( - ( sample_array[:,0] - mean[0])**2)
+                scores += val * w
+                normalization_constant += w*norm(loc=mean[0],scale=np.sqrt(sigma2)).cdf( bounds[0,1]) - norm(loc=mean[0],scale=np.sqrt(sigma2)).cdf( bounds[0,0])
             # note that allow_singular=True in the above line is probably really dumb and
             # terrible, but it seems to occasionally keep the whole thing from blowing up
             # so it stays for now
-            normalization_constant += mvnun(self.bounds[:,0], self.bounds[:,1], mean, cov)[0] # this function is very fast at integrating multivariate normal distributions
         # we need to renormalize the PDF
         # to do this we sample from a full distribution (i.e. without truncation) and use the
         # fraction of samples that fall inside the bounds to renormalize
