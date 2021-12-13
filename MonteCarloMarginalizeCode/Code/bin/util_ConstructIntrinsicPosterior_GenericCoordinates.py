@@ -1660,8 +1660,8 @@ elif opts.fit_method == 'kde':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_kde(X,Y)
-elif opts.fit_method == 'gp-sparse':
-    print( " FIT METHOD ", opts.fit_method, " IS gp-sparse ")
+elif opts.fit_method == 'gp_sparse':
+    print( " FIT METHOD ", opts.fit_method, " IS gp_sparse ")
     if not internalGP_ok:
         print( " FAILED ")
         sys.exit(1)
@@ -1679,7 +1679,9 @@ elif opts.fit_method == 'gp-sparse':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp_sparse(X,Y,y_errors=Y_err)
-
+else:
+    print(" NO KNOWN FIT METHOD ")
+    sys.exit(55)
 
 
 
