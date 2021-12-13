@@ -189,10 +189,10 @@ class integrator:
         self.cumulative_p_s = np.append(self.cumulative_p_s, sampling_prior, axis=0)
         
         # compute the log sample weights
-        log_weights = lnL + np.log(prior) - np.log(sampling_prior)
-        
+        log_weights = lnL + np.log(prior) - sampling_prior
+
         # do a shift so that the highest log weight is 0, keeping track of the shift
-        log_scale_factor = np.max(log_weights)
+        log_scale_factor = np.max(log_weights) # don't insert nan here
         scale_factor = np.exp(log_scale_factor)
         log_weights -= log_scale_factor
         summed_vals = scale_factor * np.sum(np.exp(log_weights))
