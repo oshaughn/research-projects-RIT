@@ -839,6 +839,7 @@ if opts.sampler_method == "GMM":
     comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,tuple([0]):n_sky,tuple([1]):n_sky} 
     extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict}  # made up for now, should adjust
     if opts.distance_marginalization:
+      gmm_dict = {tuple([2]):None,tuple([4]):None,(3,):None,tuple([0]):None,tuple([1]):None} 
       comp_dict = {tuple([2]):1,tuple([4]):1,tuple([3]):3,tuple([0]):n_sky,tuple([1]):n_sky} 
       extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict}  # made up for now, should adjust
 
