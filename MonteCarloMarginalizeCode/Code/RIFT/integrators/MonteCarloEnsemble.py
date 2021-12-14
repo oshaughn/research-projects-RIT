@@ -146,10 +146,11 @@ class integrator:
         for dim_group in self.gmm_dict: # iterate over grouped dimensions
             # create a matrix of the left and right limits for this set of dimensions
             new_bounds = np.empty((len(dim_group), 2))
-            index = 0
-            for dim in dim_group:
-                new_bounds[index] = self.bounds[dim]
-                index += 1
+            new_bounds = self.bounds[dim_group]
+#            index = 0
+#            for dim in dim_group:
+#                new_bounds[index] = self.bounds[dim]
+#                index += 1
             model = self.gmm_dict[dim_group] # get model for this set of dimensions
             temp_samples = np.empty((self.n, len(dim_group)))
             index = 0
