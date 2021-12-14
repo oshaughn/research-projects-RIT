@@ -59,7 +59,7 @@ class integrator:
     '''
 
     def __init__(self, d, bounds, gmm_dict, n_comp, n=None, prior=None,
-                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,gmm_epsilon=None):
+                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,gmm_epsilon=None,tempering_exp=1):
         # user-specified parameters
         self.d = d
         self.bounds = bounds
@@ -95,6 +95,7 @@ class integrator:
         self.cumulative_values = np.empty(0)
         self.cumulative_p = np.empty(0)
         self.cumulative_p_s = np.empty(0)
+        self.tempering_exp=tempering_exp
         if L_cutoff is None:
             self.L_cutoff = -1
         else:
@@ -143,7 +144,7 @@ class integrator:
             lnL = value_array
         else:
             lnL = np.log(value_array)
-        log_weights = lnL + np.log(self.prior_array) - sampling_prior_array
+        log_weights = lnL*self.tempering_exp + np.log(self.prior_array) - sampling_prior_array
         for dim_group in self.gmm_dict: # iterate over grouped dimensions
             # create a matrix of the left and right limits for this set of dimensions
             new_bounds = np.empty((len(dim_group), 2))

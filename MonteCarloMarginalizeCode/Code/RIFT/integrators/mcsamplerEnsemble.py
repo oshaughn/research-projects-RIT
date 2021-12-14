@@ -228,6 +228,7 @@ class MCSampler(object):
         example, to print intermediate results)
 
         proc_count: size of multiprocessing pool. set to None to not use multiprocessing
+        tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
         '''
         nmax = kwargs["nmax"] if "nmax" in kwargs else 1e6
         neff = kwargs["neff"] if "neff" in kwargs else 1000
@@ -250,6 +251,7 @@ class MCSampler(object):
         gmm_adapt = kwargs['gmm_adapt'] if "gmm_adapt" in kwargs else None
         gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
         L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
+        tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
 
         # set up a lot of preliminary stuff
         self.func = func
@@ -290,7 +292,7 @@ class MCSampler(object):
         # do the integral
 
         integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=n, prior=self.calc_pdf,
-                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_epsilon=gmm_epsilon) # reflect=reflect,
+                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp) # reflect=reflect,
         if not direct_eval:
             func = self.evaluate
         integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax)
