@@ -258,20 +258,31 @@ class MCSampler(object):
             print('No n_comp given, assuming 1 component per dimension')
             n_comp = 1
         dim = len(args)
-        bounds = []
+        raw_bounds = []
         for param in args:
             bounds.append([self.llim[param], self.rlim[param]])
-        bounds = np.array(bounds)
+        raw_bounds = np.array(bounds)
 
+        bounds=None
         # generate default gmm_dict if not specified
         if gmm_dict is None:
+            bounds=raw_bounds
             if correlate_all_dims:
                 gmm_dict = {tuple(range(dim)):None}
             else:
                 gmm_dict = {}
                 for i in range(dim):
                     gmm_dict[(i,)] = None
-
+        else:
+            # create bounds that depend on the dimension specifiers in the gmm integrator
+            bounds ={}
+            for dims in gmm_dict:
+                n_dims = len(dims)
+                bounds_here = np.empty((n_dims,2))
+                for indx in np.arange(n_dims):
+                    bounds_here[indx] = raw_bounds[dims[indx]]  # pull out bounds index
+                bounds[dims]=bounds_here
+#            bounds = np.array(bounds)
         # do the integral
 
         integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=n, prior=self.calc_pdf,
