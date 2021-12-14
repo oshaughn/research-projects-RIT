@@ -401,7 +401,7 @@ class gmm:
                 sigma2 = cov[0,0]
                 val = 1./np.sqrt(2*np.pi*sigma2) * np.exp( - 0.5*( sample_array[:,0] - mean[0])**2/sigma2)
                 scores += val * w
-                normalization_constant += w*norm(loc=mean[0],scale=np.sqrt(sigma2)).cdf( bounds[0,1]) - norm(loc=mean[0],scale=np.sqrt(sigma2)).cdf( bounds[0,0])
+                normalization_constant += w*norm(loc=mean[0],scale=np.sqrt(sigma2)).cdf( self.bounds[0,1]) - norm(loc=mean[0],scale=np.sqrt(sigma2)).cdf( self.bounds[0,0])
             # note that allow_singular=True in the above line is probably really dumb and
             # terrible, but it seems to occasionally keep the whole thing from blowing up
             # so it stays for now
