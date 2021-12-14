@@ -399,7 +399,7 @@ class gmm:
                 normalization_constant += w*mvnun(self.bounds[:,0], self.bounds[:,1], mean, cov)[0] # this function is very fast at integrating multivariate normal distributions
             else:
                 sigma2 = cov[0,0]
-                val = 1./np.sqrt(2*np.pi*sigma2) * np.exp( - ( sample_array[:,0] - mean[0])**2)
+                val = 1./np.sqrt(2*np.pi*sigma2) * np.exp( - 0.5*( sample_array[:,0] - mean[0])**2/sigma2)
                 scores += val * w
                 normalization_constant += w*norm(loc=mean[0],scale=np.sqrt(sigma2)).cdf( bounds[0,1]) - norm(loc=mean[0],scale=np.sqrt(sigma2)).cdf( bounds[0,0])
             # note that allow_singular=True in the above line is probably really dumb and
