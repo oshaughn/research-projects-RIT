@@ -1,4 +1,4 @@
-s#!/usr/bin/env python
+#!/usr/bin/env python
 #
 # FOLLOWUP TEST (if known injection)
 #    util_PrintInjection.py --inj mdc.xml.gz --event 0 --verbose
