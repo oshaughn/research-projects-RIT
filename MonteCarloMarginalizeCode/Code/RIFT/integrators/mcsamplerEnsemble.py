@@ -266,6 +266,9 @@ class MCSampler(object):
         bounds=None
         # generate default gmm_dict if not specified
         if gmm_dict is None:
+            bounds = {}
+            for indx in np.arange(len(raw_bounds)):
+                bounds[(indx,)] = raw_bounds[indx]
             bounds=raw_bounds
             if correlate_all_dims:
                 gmm_dict = {tuple(range(dim)):None}
