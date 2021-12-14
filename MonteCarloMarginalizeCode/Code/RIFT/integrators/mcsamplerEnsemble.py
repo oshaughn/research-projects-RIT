@@ -258,7 +258,7 @@ class MCSampler(object):
             print('No n_comp given, assuming 1 component per dimension')
             n_comp = 1
         dim = len(args)
-        raw_bounds = []
+        bounds=[]
         for param in args:
             bounds.append([self.llim[param], self.rlim[param]])
         raw_bounds = np.array(bounds)
@@ -272,6 +272,7 @@ class MCSampler(object):
             bounds=raw_bounds
             if correlate_all_dims:
                 gmm_dict = {tuple(range(dim)):None}
+                bounds = {tuple(np.arange(len(bounds))): raw_bounds}
             else:
                 gmm_dict = {}
                 for i in range(dim):
