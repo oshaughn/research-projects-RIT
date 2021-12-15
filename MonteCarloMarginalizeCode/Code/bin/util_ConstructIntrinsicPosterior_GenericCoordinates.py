@@ -830,11 +830,11 @@ def fit_quadratic_stored(fname_h5,loc,L_offset=200):
     return my_func
 
 
-def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False):
+def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False,hard_regularize_negative=True):
     gamma_x = None
     if not (y_err is None):
         gamma_x =1./np.power(y_err,2)
-    the_quadratic_results = BayesianLeastSquares.fit_quadratic( x, y,gamma_x=gamma_x,verbose=verbose)#x0=None)#x0_val_here)
+    the_quadratic_results = BayesianLeastSquares.fit_quadratic( x, y,gamma_x=gamma_x,verbose=verbose,hard_regularize_negative=hard_regularize_negative)#x0=None)#x0_val_here)
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
 
     np.savetxt("lnL_peakval.dat",[peak_val_est])   # generally not very useful
@@ -842,7 +842,7 @@ def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False):
     np.savetxt("lnL_gamma.dat",my_fisher_est,header=' '.join(coord_names))
         
 
-    bic  =-2*( -0.5*np.sum(np.power((y - fn_estimate(x)),2))/2 - 0.5* len(y)*np.log(len(x[0])) )
+    bic  =-2*( -0.5*np.sum(np.power((y - fn_estimate(x)),2)/y_err**2)/2 - 0.5* len(y)*np.log(len(x[0])) )
 
     print("  Fit: std :" , np.std( y-fn_estimate(x)))
     print("  Fit: BIC :" , bic)
@@ -894,7 +894,7 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
         print(" Fit: std: ", np.std(y - clf.predict(X_)),  "using number of features ", len(y))  # should NOT be perfect
         if not (y_errors is None):
             print(" Fit: weighted error ", np.std( (y - clf.predict(X_))/y_errors))
-        bic = -2*( -0.5*np.sum(np.power(y - clf.predict(X_),2))  - 0.5*len(y)*np.log(len(x[0])))
+        bic = -2*( -0.5*np.sum(np.power((y - clf.predict(X_))/y_errors,2))  - 0.5*len(y)*np.log(len(x[0])))
         print(" Fit: BIC:", bic)
         bic_list.append(bic)
 
