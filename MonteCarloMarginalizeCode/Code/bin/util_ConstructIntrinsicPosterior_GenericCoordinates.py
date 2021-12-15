@@ -1449,14 +1449,16 @@ if max_lnL < 10 and np.mean(Y) > -10: # second condition to allow synthetic test
     print(" Resetting to use ALL input data -- beware ! ")
     # nothing matters, we will reject it anyways
     indx_ok = np.ones(len(Y),dtype=bool)
-elif sum(indx_ok) < 10: # and max_lnL > 30:
+elif sum(indx_ok) < 5*len(X[0])**2: # and max_lnL > 30:
+    n_crit_needed = np.min([5*len(X[0])**2,len(X)])
+    print("  Likely below threshold needed to fit a maximum , beware: {} {} ".format(n_crit_needed,len(X[0])))
     # mark the top 10 elements and use them for fits
     # this may be VERY VERY DANGEROUS if the peak is high and poorly sampled
     idx_sorted_index = np.lexsort((np.arange(len(Y)), Y))  # Sort the array of Y, recovering index values
     indx_list = np.array( [[k, Y[k]] for k in idx_sorted_index])     # pair up with the weights again
     indx_list = indx_list[::-1]  # reverse, so most significant are first
-    indx_ok = list(map(int,indx_list[:10,0]))
-    print(" Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:10])
+    indx_ok = list(map(int,indx_list[:n_crit_needed,0]))
+    print(" Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:n_crit_needed])
 X_raw = X.copy()
 
 my_fit= None
