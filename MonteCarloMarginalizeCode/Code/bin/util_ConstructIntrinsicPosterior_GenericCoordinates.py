@@ -277,7 +277,7 @@ parser.add_argument("--n-max",default=3e8,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--fail-unless-n-eff",default=None,type=int,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
-parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper|gp_lazy")
+parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper|gp_lazy|cov|kde")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
 parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
@@ -833,7 +833,7 @@ def fit_quadratic_stored(fname_h5,loc,L_offset=200):
 def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False,hard_regularize_negative=True):
     gamma_x = None
     if not (y_err is None):
-        gamma_x =1./np.power(y_err,2)
+        gamma_x =np.diag(1./np.power(y_err,2))
     the_quadratic_results = BayesianLeastSquares.fit_quadratic( x, y,gamma_x=gamma_x,verbose=verbose,hard_regularize_negative=hard_regularize_negative)#x0=None)#x0_val_here)
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
 
@@ -1196,6 +1196,36 @@ def fit_kde(x,y,y_errors=None):
 #    print(fn_return(x),y,my_kde_ref,residuals)
     print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
     return fn_return
+
+def fit_cov(x,y,y_errors=None,soften_factor=1):
+    """
+    Simple quadratic fit, based on *mean and covariance of points passing threshold*.
+
+    NOT INTENDED FOR ACCURACY -- this will intentionally massively oversmooth.
+    Only use for *placement early on*
+    """
+
+    ymax = np.max(y)
+    xmean = np.mean(x, axis=0)
+#    dy2mean = np.mean( (y-ymax)**2)
+    dy2mean = 2*len(x[0]) # don't reduce covariance much based on data, so we sample the whole thing. Motivated by chisquared.
+    cov = soften_factor*np.cov(x.T)/dy2mean  # scale to unit
+    Q = np.linalg.pinv(cov)  # average local estimate and nonlocal estimate. Take inverse for Q matrix. 
+
+
+    def fn_return(z,ymax=ymax,xmean=xmean,Q=Q):
+        val = np.zeros(len(z))
+        for indx in np.arange(len(val)):
+            dx = z[indx]-xmean
+            val[indx] = ymax - 0.5* np.dot( dx.T,np.dot(Q,dx))
+        return val
+
+    print( " Demonstrating cov")   # debugging
+    residuals = fn_return(x)-y
+#    print(fn_return(x),y,my_kde_ref,residuals)
+    print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
+    return fn_return
+
 
 if not(gpytorch_ok):
     def fit_gpytorch(x):
@@ -1599,6 +1629,15 @@ elif opts.fit_method == 'gp_lazy':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp_lazy(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'cov':
+    print(" FIT METHOD ", opts.fit_method, " IS cov (a placement-only approximation!). No errors used")
+    # some data truncation IS used for the GP, but beware
+    print(" Truncating data set used for GP, to reduce memory usage needed in matrix operations")
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    my_fit = fit_cov(X,Y)
 elif opts.fit_method == 'nn':
     print( " FIT METHOD ", opts.fit_method, " IS NN ")
     # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
