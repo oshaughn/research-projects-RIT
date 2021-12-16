@@ -841,8 +841,10 @@ def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False,ha
     np.savetxt("lnL_bestpt.dat",best_val_est)  
     np.savetxt("lnL_gamma.dat",my_fisher_est,header=' '.join(coord_names))
         
-
-    bic  =-2*( -0.5*np.sum(np.power((y - fn_estimate(x)),2)/y_err**2)/2 - 0.5* len(y)*np.log(len(x[0])) )
+    if y_err is None:
+        bic  =-2*( -0.5*np.sum(np.power((y - fn_estimate(x)),2))/2 - 0.5* len(y)*np.log(len(x[0])) )
+    else:
+        bic  =-2*( -0.5*np.sum(np.power((y - fn_estimate(x)),2)/y_err**2)/2 - 0.5* len(y)*np.log(len(x[0])) )
 
     print("  Fit: std :" , np.std( y-fn_estimate(x)))
     print("  Fit: BIC :" , bic)
@@ -1480,7 +1482,7 @@ elif opts.fit_method == "quadratic":
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     if opts.report_best_point:
-        my_fit = fit_quadratic_alt(X,Y,symmetry_list=symmetry_list,verbose=opts.verbose)
+        my_fit = fit_quadratic_alt(X,Y,y_err=Y_err,symmetry_list=symmetry_list,verbose=opts.verbose)
         pt_best_X = np.loadtxt("lnL_bestpt.dat")
         for indx in np.arange(len(coord_names)):
             fac = 1
@@ -1495,7 +1497,7 @@ elif opts.fit_method == "quadratic":
         print(" Parameters from fit ", pt_best_X)
         P.print_params()
         sys.exit(0)
-    my_fit = fit_quadratic_alt(X,Y,symmetry_list=symmetry_list,verbose=opts.verbose)
+    my_fit = fit_quadratic_alt(X,Y,y_err=Y_err,symmetry_list=symmetry_list,verbose=opts.verbose)
 elif opts.fit_method == "polynomial":
     print(" FIT METHOD ", opts.fit_method, " IS POLYNOMIAL")
     X=X[indx_ok]
