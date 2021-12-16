@@ -170,6 +170,7 @@ parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
+parser.add_argument("--use-cov-early",action='store_true',help="If provided, use cov fit in the early iterations'")
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restructuring for ILE on OSG. The code will NOT use CVMFS, and instead will try to transfer the frame files.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
@@ -394,7 +395,7 @@ if not(opts.cip_fit_method is None):
     cmd += " --force-fit-method {} ".format(opts.cip_fit_method)
     if opts.cip_fit_method == 'rf':
         npts_it*=2 # more iteration points if we use RF ... not sane otherwise. Note for precession this is a large iteration size
-    elif opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial' or opts.use_quadratic_early:
+    elif opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial' or opts.use_quadratic_early or opts.use_cov_early:
         npts_it*=2 # more iteration points if we use some initial quadratic iterations ... they also benefit from more samples overall. Default description is for GP
 
 
@@ -430,6 +431,8 @@ if opts.use_quadratic_early:
     cmd += " --use-quadratic-early "
 elif opts.use_gp_early:
     cmd += " --use-gp-early "
+elif opts.use_cov_early:
+    cmd += " --use-cov-early "
 if opts.use_osg:
     cmd += " --use-osg "
     cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful

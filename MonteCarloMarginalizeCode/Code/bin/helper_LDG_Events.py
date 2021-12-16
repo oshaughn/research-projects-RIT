@@ -197,6 +197,7 @@ parser.add_argument("--internal-marginalize-distance",action='store_true',help='
 parser.add_argument("--internal-distance-max",type=float,default=None,help='If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances')
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
+parser.add_argument("--use-cov-early",action='store_true',help="If provided, use cov fit in the early iterations'")
 parser.add_argument("--use-osg",action='store_true',help="If true, use pathnames consistent with OSG")
 parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.  This option insures that the cache file is properly transferred (because you have generated it)")
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
@@ -518,7 +519,7 @@ else:
     lnLoffset_all = 1000
     lnLoffset_early = 500  # a fiducial value, good enough for a wide range of SNRs 
 
-if fit_method =='quadratic' or fit_method =='polynomial' or opts.use_quadratic_early:
+if fit_method =='quadratic' or fit_method =='polynomial' or opts.use_quadratic_early or opts.use_cov_early:
     if 'SNR' in event_dict.keys():
         lnLoffset_all = 0.25*2*lnLmax_true  # not that big, only keep some of th epoints
         lnLoffset_early = np.max([0.1*lnLmax_true,10])  # decent enough
@@ -1068,15 +1069,18 @@ if opts.propose_fit_strategy:
         for indx in np.arange(1,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
             helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
 
-    if opts.use_quadratic_early:
-        helper_cip_arg_list = [helper_cip_arg_list[0]] + helper_cip_arg_list  # augment the number of levels with an early quadratic stage
-        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method quadratic')
+    if opts.use_quadratic_early or opts.use_cov_early:
+        helper_cip_arg_list = [helper_cip_arg_list[0]] + helper_cip_arg_list  # augment the number of levels with an early quadratic or 'cov' stage
+        if opts.use_quadratic_early:
+            helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method quadratic ')
+        else:
+            helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method cov ')
         if 'gp' in fit_method: # lnL offset only enabled for gp so far
             helper_cip_arg_list[0] = helper_cip_arg_list[0].replace(" --lnL-offset " + str(lnLoffset_all)," --lnL-offset " + str(lnL_start) )  # more sane initial range for quadratic; see later
         elif 'rf' in fit_method:
             helper_cip_arg_list[0] += " --lnL-offset " +   str(lnL_start)
     elif opts.use_gp_early:
-        helper_cip_arg_list = [helper_cip_arg_list[0]] + helper_cip_arg_list  # augment the number of levels with an early quadratic stage
+        helper_cip_arg_list = [helper_cip_arg_list[0]] + helper_cip_arg_list  # augment the number of levels with an early gp stage
         helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method gp')
         helper_cip_arg_list[0] += " --lnL-offset " + str(lnLoffset_all)
 
