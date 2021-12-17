@@ -572,6 +572,8 @@ for indx in np.arange(len(instructions_cip)):
     line += prior_args_lookup[opts.spin_magnitude_prior]
     if opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial':
         line = line.replace('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc')     # quadratic fit needs eta coordinate. Should be done by helper ideally
+    if opts.use_quadratic_early or opts.use_cov_early and indx < 1:
+        line = line.replace('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc')     # quadratic or cov fit needs eta coordinate
     if opts.hierarchical_merger_prior_1g:
         # Must use mtotal, q coordinates!  Change defaults
         line = line.replace('parameter mc', 'parameter mtot')
