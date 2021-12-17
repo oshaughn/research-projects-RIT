@@ -1631,8 +1631,8 @@ elif opts.fit_method == 'gp_lazy':
     my_fit = fit_gp_lazy(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'cov':
     print(" FIT METHOD ", opts.fit_method, " IS cov (a placement-only approximation!). No errors used")
-    # some data truncation IS used for the GP, but beware
-    print(" Truncating data set used for GP, to reduce memory usage needed in matrix operations")
+    print(" Truncating data set used for cov: don't fit to points with likelihood less than 2")
+    indx_ok = np.logical_and(Y>2,indx_ok)  # don't fit to points below o
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
