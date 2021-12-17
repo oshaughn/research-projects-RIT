@@ -1632,7 +1632,8 @@ elif opts.fit_method == 'gp_lazy':
 elif opts.fit_method == 'cov':
     print(" FIT METHOD ", opts.fit_method, " IS cov (a placement-only approximation!). No errors used")
     print(" Truncating data set used for cov: don't fit to points with likelihood less than 2")
-    indx_ok = np.logical_and(Y>2,indx_ok)  # don't fit to points below o
+    indx_ok = np.logical_and(Y>np.max(Y)*0.1,indx_ok)  # don't fit to points below 10% of peak value
+    indx_ok = np.logical_and(Y>2,indx_ok)  # don't fit to points below 2 absolute scale
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
