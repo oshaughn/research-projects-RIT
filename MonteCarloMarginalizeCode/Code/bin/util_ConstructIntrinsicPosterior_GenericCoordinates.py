@@ -1494,6 +1494,7 @@ elif sum(indx_ok) < 5*len(X[0])**2: # and max_lnL > 30:
     Y = Y[indx_ok]
     Y_err = Y_err[indx_ok]
     X = X[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
     # Reset indx_ok, so it operates correctly later
     indx_ok = np.ones(len(Y), dtype=bool)
 X_raw = X.copy()
