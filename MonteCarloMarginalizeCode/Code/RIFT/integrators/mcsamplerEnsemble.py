@@ -229,6 +229,8 @@ class MCSampler(object):
 
         proc_count: size of multiprocessing pool. set to None to not use multiprocessing
         tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
+
+        max_err : Maximum number of errors allowed for GMM sampler
         '''
         nmax = kwargs["nmax"] if "nmax" in kwargs else 1e6
         neff = kwargs["neff"] if "neff" in kwargs else 1000
@@ -253,6 +255,9 @@ class MCSampler(object):
         L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
 
+        max_err = kwargs["max_err"] if "max_err" in kwargs else 10  # default
+
+        
         # set up a lot of preliminary stuff
         self.func = func
         self.curr_args = args
@@ -295,7 +300,7 @@ class MCSampler(object):
                          user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp) # reflect=reflect,
         if not direct_eval:
             func = self.evaluate
-        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax)
+        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err)
 
         # get results
 
