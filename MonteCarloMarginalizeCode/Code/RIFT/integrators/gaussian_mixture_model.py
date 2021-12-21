@@ -41,6 +41,7 @@ class estimator:
         self.means = [None] * k
         self.covariances =[None] * k
         self.weights = [None] * k
+        self.adapt = [None] * k
         self.d = None
         self.p_nk = None
         self.log_prob = None
@@ -55,6 +56,7 @@ class estimator:
         self.means = sample_array[np.random.choice(n, self.k, p=p_weights.astype(sample_array.dtype)), :]
         self.covariances = [np.identity(self.d)] * self.k
         self.weights = np.ones(self.k) / self.k
+        self.adapt = [True] * self.k
 
     def _e_step(self, n, sample_array, log_sample_weights=None):
         '''
@@ -84,6 +86,7 @@ class estimator:
         p_nk = np.exp(self.p_nk)
         weights = np.sum(p_nk, axis=0)
         for index in range(self.k):
+          if self.adapt[index]:
             # (16.1.6)
             w = weights[index]
             p_k = p_nk[:,index]
@@ -96,7 +99,9 @@ class estimator:
             # attempt to fix non-positive-semidefinite covariances
             self.covariances[index] = self._near_psd(cov)
             # (16.17)
-        weights /= np.sum(p_nk)
+        weights /= np.sum(p_nk[:,self.adapt])
+        # if we are not adapting some of the gaussians, we need to renormalize again. Note the weight of the fixed item remains fixed!
+        weights /= np.sum(weights)
         self.weights = weights
 
 
