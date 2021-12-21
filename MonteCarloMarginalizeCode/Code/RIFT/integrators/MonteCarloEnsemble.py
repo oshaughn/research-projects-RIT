@@ -237,7 +237,7 @@ class integrator:
         
 
     def integrate(self, func, min_iter=10, max_iter=20, var_thresh=0.0, max_err=10,
-            neff=float('inf'), nmax=None, progress=False, epoch=None,verbose=True):
+            neff=float('inf'), nmax=None, progress=False, epoch=None,verbose=True,**kwargs):
         '''
         Evaluate the integral
 
@@ -259,12 +259,18 @@ class integrator:
             Maximum number of samples to draw
         progress : bool
             Print GMM parameters each iteration
+        n_adapt: number of *adaptations* we will perform, before freezing the GMM
         '''
+        n_adapt = int(kwargs["n_adapt"]) if "n_adapt" in kwargs else 100
+
         err_count = 0
         cumulative_eval_time = 0
+        adapting=True
         if nmax is None:
             nmax = max_iter * self.n
         while self.iterations < max_iter and self.ntotal < nmax and self.eff_samp < neff:
+            if self.iterations < n_adapt:
+                adapting=False
 #            print('Iteration:', self.iterations)
             if err_count >= max_err:
                 print('Exiting due to errors...')
@@ -306,7 +312,8 @@ class integrator:
             if self.iterations >= min_iter and np.log(self.scaled_error_squared) + self.log_error_scale_factor < np.log(var_thresh):
                 break
             try:
-                self._train()
+                if adapting:
+                    self._train()
             except KeyboardInterrupt:
                 print('KeyboardInterrupt, exiting...')
                 break
