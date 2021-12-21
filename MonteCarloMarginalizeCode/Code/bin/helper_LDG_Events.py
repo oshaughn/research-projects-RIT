@@ -1026,7 +1026,6 @@ if opts.propose_ile_convergence_options:
     helper_ile_args += " --vectorized --gpu  --no-adapt-after-first --no-adapt-distance --srate {} ".format(srate)
 
     prefactor = 0.1 # typical value. 0.3 fine for low amplitude, 0.1 for GMM
-    if 
     if snr_fac > 1.5:  # this is a pretty loud signal, so we need to tune the adaptive exponent too!
         helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
     else:
