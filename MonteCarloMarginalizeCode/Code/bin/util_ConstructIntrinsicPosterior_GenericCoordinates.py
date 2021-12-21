@@ -270,7 +270,7 @@ parser.add_argument("--save-plots",default=False,action='store_true', help="Writ
 parser.add_argument("--inj-file", help="Name of injection file")
 parser.add_argument("--event-num", type=int, default=0,help="Zero index of event in inj_file")
 parser.add_argument("--report-best-point",action='store_true')
-parser.add_argument("--adapt",action='store_true')
+parser.add_argument("--force-no-adapt",action='store_true',help="Disable adaptation, both of the tempering exponent *and* the individual sampling prior(s)")
 parser.add_argument("--fit-uses-reported-error",action='store_true')
 parser.add_argument("--fit-uses-reported-error-factor",type=float,default=1,help="Factor to add to standard deviation of fit, before adding to lnL. Multiplies number fitting dimensions")
 parser.add_argument("--n-max",default=3e8,type=float)
@@ -311,6 +311,8 @@ lnL_shift = 0
 lnL_default_large_negative = -500
 if opts.lnL_shift_prevent_overflow:
     lnL_shift  = opts.lnL_shift_prevent_overflow
+if not(opts.force_no_adapt):
+    opts.force_no_adapt=False  # force explicit boolean false
 
 source_redshift=opts.source_redshift
 
@@ -1902,9 +1904,6 @@ print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.
 
 
 extra_args={}
-extra_args.update({
-    "n_adapt": 100, # Number of chunks to allow adaption over
-})
 if opts.sampler_method == "GMM":
     n_max_blocks = ((1.0*int(opts.n_max))/n_step) 
     n_comp = 2 # default
@@ -1939,9 +1938,16 @@ if opts.sampler_method == "GMM":
         param_indexes = range(len(low_level_coord_names))
         gmm_dict  = {(k,):None for k in param_indexes} # no correlations
     extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - opts.lnL_offset)),'gmm_dict':gmm_dict,'max_err':50}  # made up for now, should adjust
-    
+extra_args.update({
+    "n_adapt": 100, # Number of chunks to allow adaption over
+    "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1D histograms with, 
+    "force_no_adapt":opts.force_no_adapt
+})
+tempering_adapt=True
+if opts.force_no_adapt:   
+    tempering_adapt=False
 # Result shifted by lnL_shift
-res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
+res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
