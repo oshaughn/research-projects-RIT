@@ -146,7 +146,7 @@ class integrator:
             lnL = value_array
         else:
             lnL = np.log(value_array+regularize_log_scale) # note we can get negative infinity here
-        log_weights = lnL*self.tempering_exp + np.log(self.prior_array) - sampling_prior_array
+        log_weights = self.tempering_exp*lnL + np.log(self.prior_array) - sampling_prior_array
         for dim_group in self.gmm_dict: # iterate over grouped dimensions
             # create a matrix of the left and right limits for this set of dimensions
             new_bounds = np.empty((len(dim_group), 2))
@@ -195,6 +195,9 @@ class integrator:
         
         # compute the log sample weights
         log_weights = lnL + np.log(prior) - sampling_prior
+        if np.max(log_weights) <-1000:  #this is a terrible fit
+           print(" TERRIBLE FIT ")
+           raise ValueError
 
         # do a shift so that the highest log weight is 0, keeping track of the shift
         log_scale_factor = np.max(log_weights) # don't insert nan here
@@ -287,7 +290,17 @@ class integrator:
                 p.close()
             cumulative_eval_time += time.time() - t1
             self._calculate_prior()
-            self._calculate_results()
+            try:
+                self._calculate_results()
+            except KeyboardInterrupt:
+                print('KeyboardInterrupt, exiting...')
+                break
+            except Exception as e:
+                print(traceback.format_exc())
+                print('Error calculating results, resetting...')
+                err_count += 1
+                self._reset()
+                continue
             self.iterations += 1
             self.ntotal += self.n
             if self.iterations >= min_iter and np.log(self.scaled_error_squared) + self.log_error_scale_factor < np.log(var_thresh):
