@@ -216,6 +216,7 @@ class gmm:
         self.means = [None] * k
         self.covariances =[None] * k
         self.weights = [None] * k
+        self.adapt = [True] * k
         self.d = None
         self.p_nk = None
         self.log_prob = None
@@ -258,7 +259,7 @@ class gmm:
         if log_sample_weights is None:
             log_sample_weights = np.zeros(self.N)
         # just use base estimator
-        model = estimator(self.k, tempering_coeff=self.tempering_coeff)
+        model = estimator(self.k, tempering_coeff=self.tempering_coeff,adapt=self.adapt)
         model.fit(self._normalize(sample_array), log_sample_weights)
         self.means = model.means
         self.covariances = model.covariances
@@ -472,8 +473,8 @@ class gmm:
             weight = self.weights[i]
             print('________________________________________\n')
             print('Component', i)
-            print('Mean')
-            print(mean)
+            print('Mean (scaled and unscaled)')
+            print(mean, self._unormalize([mean]))
             print('Covaraince')
             print(cov)
             print('Weight')
