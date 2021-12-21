@@ -1894,14 +1894,20 @@ if len(low_level_coord_names) ==10:
 
 
 n_step = 1e5
+if opts.sampler_method == 'GMM':
+    n_step *=3  # bigger steps for GMM
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
 print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto")
 
 
 extra_args={}
+extra_args.update({
+    "n_adapt": 100, # Number of chunks to allow adaption over
+})
 if opts.sampler_method == "GMM":
     n_max_blocks = ((1.0*int(opts.n_max))/n_step) 
+    n_comp = 2 # default
     def parse_corr_params(my_str):
         """
         Takes a string with no spaces, and returns a tuple
@@ -1932,7 +1938,7 @@ if opts.sampler_method == "GMM":
     else:
         param_indexes = range(len(low_level_coord_names))
         gmm_dict  = {(k,):None for k in param_indexes} # no correlations
-    extra_args = {'n_comp':2,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - opts.lnL_offset)),'gmm_dict':gmm_dict,'max_err':50}  # made up for now, should adjust
+    extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - opts.lnL_offset)),'gmm_dict':gmm_dict,'max_err':50}  # made up for now, should adjust
     
 # Result shifted by lnL_shift
 res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
