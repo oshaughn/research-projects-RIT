@@ -11,6 +11,8 @@ import traceback
 import time
 
 
+regularize_log_scale = 1e-64  # before taking np.log, add this, so we don't propagate infinities
+
 try:
     from multiprocess import Pool
 except:
@@ -143,7 +145,7 @@ class integrator:
         if self.use_lnL:
             lnL = value_array
         else:
-            lnL = np.log(value_array)
+            lnL = np.log(value_array+regularize_log_scale) # note we can get negative infinity here
         log_weights = lnL*self.tempering_exp + np.log(self.prior_array) - sampling_prior_array
         for dim_group in self.gmm_dict: # iterate over grouped dimensions
             # create a matrix of the left and right limits for this set of dimensions
@@ -177,7 +179,7 @@ class integrator:
         if self.use_lnL:
             lnL = np.copy(self.value_array) # changing the naming convention, just for this function, now that I know better
         else:
-            lnL = np.log(self.value_array)
+            lnL = np.log(self.value_array+regularize_log_scale)
         
         # strip off any samples with likelihoods less than our cutoff
         mask = lnL > (np.log(self.L_cutoff) if self.L_cutoff > 0 else -np.inf)
