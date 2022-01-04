@@ -1070,7 +1070,9 @@ if opts.propose_fit_strategy:
         for indx in np.arange(1,len(helper_cip_arg_list)):  # do NOT constrain the first CIP, as it has so few points!
             helper_cip_arg_list[indx] += " --lnL-offset " + str(lnLoffset_early)
 
+    extended_early=False
     if opts.use_quadratic_early or opts.use_cov_early:
+        extended_early=True
         helper_cip_arg_list = [helper_cip_arg_list[0]] + helper_cip_arg_list  # augment the number of levels with an early quadratic or 'cov' stage
         if opts.use_quadratic_early:
             helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method quadratic ')
@@ -1081,6 +1083,7 @@ if opts.propose_fit_strategy:
         elif 'rf' in fit_method:
             helper_cip_arg_list[0] += " --lnL-offset " +   str(lnL_start)
     elif opts.use_gp_early:
+        extended_early=True
         helper_cip_arg_list = [helper_cip_arg_list[0]] + helper_cip_arg_list  # augment the number of levels with an early gp stage
         helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('fit-method '+fit_method, 'fit-method gp')
         helper_cip_arg_list[0] += " --lnL-offset " + str(lnLoffset_all)
@@ -1091,11 +1094,13 @@ if opts.propose_fit_strategy:
             if not opts.assume_highq:
                 helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
                 helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
-                helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z '
+                for indx in np.arange(1,len(helper_cip_arg_list)): # allow for variable numbers of subsequent steps, with different settings
+                    helper_cip_arg_list[indx] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z '
             else: # highq
                 helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
                 helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z  ' 
-                helper_cip_arg_list[1] += ' --parameter-implied xi   --parameter-nofit s1z   ' 
+                for indx in np.arange(1,len(helper_cip_arg_list)): # allow for variable numbers of subsequent steps, with different settings
+                    helper_cip_arg_list[indx] += ' --parameter-implied xi   --parameter-nofit s1z   ' 
                 
             puff_max_it=4
 
@@ -1116,10 +1121,15 @@ if opts.propose_fit_strategy:
                 # # Default prior is *volumetric*
                 # helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
                 # helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
-            
+
+                if extended_early:
+                    for indx in np.arange(3,len(helper_cip_arg_list)-1): # allow for variable numbers of subsequent steps, with different settings
+                        helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
+                        helper_cip_arg_list[2] +=   ' --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y  '
+
                 # Last iterations are with a polar spin, to get spin prior  (as usually requested). Fir is the same as before, but sampling is more efficient
                 if not opts.assume_volumetric_spin:
-                    helper_cip_arg_list[3] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit cos_theta1 --parameter-nofit cos_theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
+                    helper_cip_arg_list[-1] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit cos_theta1 --parameter-nofit cos_theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
                 else:
                     helper_cip_arg_list.pop() # remove last stage of iterations as superfluous
         
