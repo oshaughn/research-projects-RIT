@@ -87,7 +87,7 @@ def retrieve_native(sourcedir,outfile,n_max=None,base_pattern="overlap-grid-*.xm
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input-json",type=str,default="fetch.json",help="input file")
-parser.add_argument("--output-file",type=str,default="merged_grid",help="output file")
+parser.add_argument("--inj-file-out",type=str,default="merged_grid",help="output file")
 opts=  parser.parse_args()
 
 
