@@ -244,7 +244,7 @@ parser.add_argument("--extra-verbose", action="store_true",default=False, help="
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
 opts=  parser.parse_args()
 if opts.inj_file_out:
-    opts.fname = opts.inj_file_out
+    opts.fname = opts.inj_file_out.replace(".xml.gz","")
 
 if opts.verbose:
     True
