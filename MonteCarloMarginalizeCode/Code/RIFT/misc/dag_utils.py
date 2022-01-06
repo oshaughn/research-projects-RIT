@@ -521,8 +521,10 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     arg_str = arg_str.lstrip('-')
     ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
-    ile_job.add_opt("inj-file", input_net)
-    ile_job.add_opt("inj-file-out", output)
+    if not(input_net is None):
+        ile_job.add_opt("inj-file", input_net)   # using this double-duty for FETCH, other use cases
+    if not(output is None):
+        ile_job.add_opt("inj-file-out", output)
 
 
     #
