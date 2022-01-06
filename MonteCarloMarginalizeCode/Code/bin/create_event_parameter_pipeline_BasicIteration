@@ -930,7 +930,7 @@ for it in np.arange(it_start,opts.n_iterations):
         fetch_node.add_macro("macroiteration", it)
         if not(parent_fit_node is None):
             fetch_node.add_parent(parent_fit_node)
-            parent_fit_node=fetch_node
+        parent_fit_node=fetch_node
         dag.add_node(fetch_node)
 
         print(" ILE jobs for fetch on iteration ", it)
