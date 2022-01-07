@@ -1710,13 +1710,28 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 #     os.system("chmod a+x "+exe_here)
 #     exe = exe_here  # update executable
 
+
+    fname_out =target_dir + "/" +output_base + ".xml.gz"
+    if n_explode ==1:   # we are really doing a glob match
+        extra_arg = ''
+        if old_add:
+            extra_arg = " --ilwdchar-compat "
+        with open("join_grids.sh",'w') as f:
+            f.write("#! /bin/bash  \n")
+            f.write(r"""
+# merge using glob command called from shell
+{}  {} --output-file {} --intput-file {}/{}*.xml.gz 
+""".format(exe,old_arg,fname_out,working_dir,output_base))
+    os.system("chmod a+x join_grids.sh")
+    exe = fname_out + "/join_grids.sh"
+
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    fname_out =target_dir + "/" +output_base + ".xml.gz"
-    ile_job.add_arg("--output="+fname_out)
+    if n_explode > 1:
+        ile_job.add_arg("--output="+fname_out)
 
     working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
 
@@ -1736,12 +1751,12 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
     if n_explode >1:
      for indx in np.arange(n_explode):
         explode_str+= " {}/{}-{}.xml.gz ".format(working_dir,output_base,indx)
+        ile_job.add_arg(explode_str)
     else:
         explode_str += " {}/{}-*.xml.gz ".format(working_dir,output_base)  # if n_explode is 1 or 0, use a matching pattern 
-    ile_job.add_arg(explode_str)
 #    ile_job.add_arg("overlap-grid*.xml.gz")  # working in our current directory
     
-    if old_add:
+    if old_add and n_explode > 1:
         ile_job.add_opt("ilwdchar-compat",'')  # needed?
 
     ile_job.add_condor_cmd('getenv', 'True')
