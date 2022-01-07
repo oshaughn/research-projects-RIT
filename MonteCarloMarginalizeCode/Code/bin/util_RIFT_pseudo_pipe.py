@@ -694,8 +694,10 @@ if opts.external_fetch_native_from:
     fetch_dict['n_max'] = 1000  # should tune this to grid structure needs; 1000 is probably safe; not yet implemented
     with open("my_dict.json",'w') as f:
         json.dump(fetch_dict,f)
+    with open("fetch_args.txt",'w') as f:
+        f.write(" X --input-json my_dict.json ")
     # Add command linke arguments
-    cmd += " --fetch-ext-grid-exe `which util_FetchExternalGrid.py`  --fetch-ext-grid-args `pwd`/my_dict.json "
+    cmd += " --fetch-ext-grid-exe `which util_FetchExternalGrid.py`  --fetch-ext-grid-args `pwd`/fetch_args.txt "
 if not(opts.ile_no_gpu):
     cmd +=" --request-gpu-ILE "
 if opts.add_extrinsic:
