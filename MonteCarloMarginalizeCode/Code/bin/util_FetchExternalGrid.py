@@ -109,4 +109,4 @@ with open(opts.input_json,'r') as f:
 
 method = config['method']
 if method =='native':
-    retrieve_native(config['source'],opts.output_file)
+    retrieve_native(config['source'],opts.inj_file_out)
