@@ -238,7 +238,7 @@ parser.add_argument("--lmax", default=2, type=int)
 parser.add_argument("--approx",type=str,default=None)
 # Output options
 parser.add_argument("--fname", default="overlap-grid", help="Base output file for ascii text (.dat) and xml (.xml.gz)")
-parser.add_argument("--inj-file-out", default="overlap-grid", help="For compatibility with fetch use cases. Just overwrites what is opts.fname")
+parser.add_argument("--inj-file-out", default=None help="For compatibility with fetch use cases. Just overwrites what is opts.fname")
 parser.add_argument("--verbose", action="store_true",default=False, help="Extra warnings")
 parser.add_argument("--extra-verbose", action="store_true",default=False, help="Lots of messages")
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
