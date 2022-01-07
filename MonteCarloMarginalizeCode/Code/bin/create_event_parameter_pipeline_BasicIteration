@@ -661,10 +661,12 @@ if not(opts.cip_explode_jobs is None):
     print(" Exploding stage 1, with  ",opts.cip_explode_jobs, " workers producing samples ")
     cip_args_base = cip_args_base.replace('fit-save-gp','fit-load-gp')
     n_explode =opts.cip_explode_jobs
+    fname_out = 'overlap-grid-$(macroiterationnext)-$(process)'
     if opts.cip_explode_jobs_dag:
         n_explode=1
+        fname_out = 'overlap-grid-$(macroiterationnext)-$(cluster)'
     cip_args_base = cip_args_base.replace('my_fit', 'my_fit.pkl')  # yes, asymmetric arguments
-    cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output='overlap-grid-$(macroiterationnext)-$(process)',out_dir=out_dir_base,exe=opts.cip_exe,ncopies=n_explode,universe=local_worker_universe,no_grid=no_worker_grid)
+    cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output=fname_out,out_dir=out_dir_base,exe=opts.cip_exe,ncopies=n_explode,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir'
     cip_job_worker.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
