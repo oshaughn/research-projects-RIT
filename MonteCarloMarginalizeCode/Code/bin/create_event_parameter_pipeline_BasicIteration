@@ -183,6 +183,7 @@ parser.add_argument("--input-grid",default="overlap-grid.xml.gz")
 parser.add_argument("--cip-args",default=None,help="filename of args_cip.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified. ")
 parser.add_argument("--cip-args-list",default=None,help="filename of args_cip_list.file, which holds CIP arguments.  Overrides cip-args if present. One CIP_n.sub file is created for each line in the file, which is used for an integer m iterations, where m is the first item of each line (normally 'X' in CIP)")
 parser.add_argument("--cip-explode-jobs",default=None,type=int,help="Number of CIP jobs to use to use in parallel to produce posterior samples for each iteration. Code will generate a fit first, save it, use this number of workers in parallel to generate samples, and then consolidates the samples together. Note that --n-output-samples and --n-eff are NOT adjusted ... if the user wants to adaptively fix the resolution, that needs to be controlled at a higher level")
+parser.add_argument("--cip-explode-jobs-dag",action='store_true',help="If using a worker, that worker has its own node, not a 'queue N' statement on one node. Helps for stability with many workers with high failure probability")
 parser.add_argument("--cip-explode-jobs-flat",action='store_true',help="Pass to use the same arguments for all worker jobs. The main job will be /bin/true.")
 parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball.py")
 parser.add_argument("--puff-args",default=None,help="util_ParameterPuffball arguments.  If not specified, puffball will not be performed  ")
@@ -659,8 +660,11 @@ cip_job.write_sub_file()
 if not(opts.cip_explode_jobs is None):
     print(" Exploding stage 1, with  ",opts.cip_explode_jobs, " workers producing samples ")
     cip_args_base = cip_args_base.replace('fit-save-gp','fit-load-gp')
+    n_explode =opts.cip_explode_jobs
+    if opts.cip_explode_jobs_dag:
+        n_explode=1
     cip_args_base = cip_args_base.replace('my_fit', 'my_fit.pkl')  # yes, asymmetric arguments
-    cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output='overlap-grid-$(macroiterationnext)-$(process)',out_dir=out_dir_base,exe=opts.cip_exe,ncopies=opts.cip_explode_jobs,universe=local_worker_universe,no_grid=no_worker_grid)
+    cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output='overlap-grid-$(macroiterationnext)-$(process)',out_dir=out_dir_base,exe=opts.cip_exe,ncopies=n_explode,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir'
     cip_job_worker.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -670,7 +674,7 @@ if not(opts.cip_explode_jobs is None):
     cip_job_worker.write_sub_file()
 
     # Create worker join job
-    join_cip_job,join_cip_job_name = dag_utils.write_joingrids_sub(input_pattern=opts.working_directory+"/iteration_$(macroiteration)_cip/output-grid-*.xml.gz",target_dir=opts.working_directory,output_base="overlap-grid-$(macroiterationnext)",n_explode=opts.cip_explode_jobs,log_dir=opts.working_directory+"/iteration_$(macroiteration)_cip/logs",universe=local_worker_universe,no_grid=no_worker_grid)
+    join_cip_job,join_cip_job_name = dag_utils.write_joingrids_sub(input_pattern=opts.working_directory+"/iteration_$(macroiteration)_cip/output-grid-*.xml.gz",target_dir=opts.working_directory,output_base="overlap-grid-$(macroiterationnext)",n_explode=n_explode,log_dir=opts.working_directory+"/iteration_$(macroiteration)_cip/logs",universe=local_worker_universe,no_grid=no_worker_grid)
     join_cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
     join_cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/join-$(cluster)-$(process).log")
@@ -737,13 +741,16 @@ else:
 
         if not(opts.cip_explode_jobs is None):
            print(" Exploding stage 2, with  ",opts.cip_explode_jobs, " workers producing samples ")
+           n_explode =opts.cip_explode_jobs
+           if opts.cip_explode_jobs_dag:
+                n_explode=1
            cip_args_extra = cip_args_extra.replace('fit-save-gp','fit-load-gp')
            cip_args_extra = cip_args_extra.replace('my_fit','my_fit.pkl')
            # if the last set of workers, we are making extrinsic samples, so change the output samples  
            if indx == len(cip_args_lines) -1 and opts.last_iteration_extrinsic: # on last iteration, doing extrinsic phase
                n_samples_per_job = int(opts.last_iteration_extrinsic_nsamples/(1.0*opts.cip_explode_jobs))
                cip_args_extra +=" --n-eff {} --n-output-samples {} ".format(n_samples_per_job,n_samples_per_job)
-           cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output='overlap-grid-$(macroiterationnext)-$(process)',out_dir=out_dir_base,exe=opts.cip_exe,ncopies=opts.cip_explode_jobs,universe=local_worker_universe,no_grid=no_worker_grid)
+           cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output='overlap-grid-$(macroiterationnext)-$(process)',out_dir=out_dir_base,exe=opts.cip_exe,ncopies=n_explode,universe=local_worker_universe,no_grid=no_worker_grid)
            # Modify: set 'initialdir'
            cip_job_worker.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
            # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -964,23 +971,33 @@ for it in np.arange(it_start,opts.n_iterations):
 
     if not(opts.cip_explode_jobs is None):
         print(" Exploding workers out ")
-        # Create exploded worker job nodes
-        worker_node =pipeline.CondorDAGNode(cip_worker_job)
-        worker_node.add_macro("macroiteration", it)
-        worker_node.add_macro("macroiterationnext", it+1)
-        worker_node.set_category("CIP_worker")
-        worker_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
-        worker_node.set_retry(opts.general_retries)
-
         # Create job to consolidate worker outputs
         join_node =pipeline.CondorDAGNode(join_cip_job)
         join_node.add_macro("macroiteration", it)
         join_node.add_macro("macroiterationnext", it+1)
         join_node.set_category("join_cip")
-        join_node.add_parent(worker_node)
         join_node.set_retry(opts.general_retries)
         
-        dag.add_node(worker_node)
+        # Create exploded worker job nodes
+        if opts.cip_explode_jobs is None:
+            worker_node =pipeline.CondorDAGNode(cip_worker_job)
+            worker_node.add_macro("macroiteration", it)
+            worker_node.add_macro("macroiterationnext", it+1)
+            worker_node.set_category("CIP_worker")
+            worker_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
+            worker_node.set_retry(opts.general_retries)
+            join_node.add_parent(worker_node)  # make sure to add worker node as parent
+            dag.add_node(worker_node)
+        else:
+            for indx in np.arange(opts.cip_explode_jobs):
+                worker_node =pipeline.CondorDAGNode(cip_worker_job)
+                worker_node.add_macro("macroiteration", it)
+                worker_node.add_macro("macroiterationnext", it+1)
+                worker_node.set_category("CIP_worker")
+                worker_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
+                worker_node.set_retry(opts.general_retries)
+                join_node.add_parent(worker_node)  # make sure to add worker node as parent
+                dag.add_node(worker_node)
         dag.add_node(join_node)
         parent_fit_node=join_node
 
