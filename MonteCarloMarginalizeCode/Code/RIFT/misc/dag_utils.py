@@ -1732,9 +1732,12 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 #    ile_job.add_condor_cmd("+PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
 
     explode_str = ""
-    for indx in np.arange(n_explode):
+    explode_str += " {}/{}.xml.gz ".format(working_dir,output_base)  # base result from fitting job
+    if n_explode >1:
+     for indx in np.arange(n_explode):
         explode_str+= " {}/{}-{}.xml.gz ".format(working_dir,output_base,indx)
-    explode_str += " {}/{}.xml.gz ".format(working_dir,output_base)
+    else:
+        explode_str += " {}/{}-*.xml.gz ".format(working_dir,output_base)  # if n_explode is 1 or 0, use a matching pattern 
     ile_job.add_arg(explode_str)
 #    ile_job.add_arg("overlap-grid*.xml.gz")  # working in our current directory
     
