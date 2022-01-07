@@ -81,7 +81,17 @@ def retrieve_native(sourcedir,outfile,n_max=None,base_pattern="overlap-grid-*.xm
         if verbose:
             print(" Transferring ", fname_to_use, " -> ", outfile)
         shutil.copyfile(fname_to_use, outfile)
-
+    elif n_max > 0:
+        import random
+        import RIFT.lalsimutils as lalsimutils
+        # Load in grid
+        P_list = lalsimutils.xml_to_ChooseWaveformParams_array(fname_to_use)
+        # select points randomly!
+        P_list_reduced = random.sample(P_list, int(n_max))
+        lalsimutils.ChooseWaveformParams_array_to_xml(P_list, outfile)
+    else:
+        print(" Invalid fetch size ", n_max)
+        import sys; sys.exit(99)
     return None
 
 
