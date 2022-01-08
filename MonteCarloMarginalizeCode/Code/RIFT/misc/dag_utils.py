@@ -1723,7 +1723,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
             f.write("#! /bin/bash  \n")
             f.write(r"""
 # merge using glob command called from shell
-{}  {} --output {} --intput-file {}/{}*.xml.gz 
+{}  {} --output {} --input-file {}/{}*.xml.gz 
 """.format(exe,extra_arg,fname_out,working_dir,output_base))
         os.system("chmod a+x join_grids.sh")
         exe = target_dir + "/join_grids.sh"
