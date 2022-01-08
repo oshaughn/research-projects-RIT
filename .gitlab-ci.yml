@@ -1,3 +1,10 @@
+stages:
+  - build
+  - test
+
+  
+
+
 language: python
 
 python:
@@ -6,18 +13,20 @@ python:
   - '3.8'
 
 before_install:
+ stage: build
+ script:
   # upgrade pip
   - pip install --quiet --upgrade pip
   # install requirements
   - pip install -r requirements.txt
   # install test-only requirements
   - pip install pytest coveralls
-
-install:
   # install this package (need editable for coverage)
   - pip install --editable .
 
 script:
+ stage: test
+ script: 
   # test --help for all executables
   - . .travis/test-all-bin.sh
   # test import statement for all declared packages
@@ -25,10 +34,6 @@ script:
   -  . .travis/test-posterior.sh
   -  . .travis/test-run.sh
 
-after_success:
-  # submit coverage to coveralls.io
-  #- coverage report
-#  - coveralls
 
 cache:
   pip: true
