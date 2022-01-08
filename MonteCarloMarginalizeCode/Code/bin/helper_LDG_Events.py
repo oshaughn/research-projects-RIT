@@ -788,7 +788,7 @@ helper_test_args="X "
 helper_cip_args = "X "
 helper_cip_arg_list = []
 
-helper_test_args += "  --method lame  --parameter mc "
+helper_test_args += "  --method lame  --parameter mc --parameter eta  --iteration $(macroiteration) "
 if not opts.assume_nospin:
     helper_test_args += " --parameter xi "  # require chi_eff distribution to be stable
 if not opts.test_convergence:
@@ -1210,8 +1210,15 @@ if opts.propose_flat_strategy:
         lines.append(' '.join(instructions_cip[indx][1:]))   # merge back together
     helper_cip_arg_list  = [str(n_iterations) + " " + lines[-1]]  # overwrite with new setup
 
+
 with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))
+
+
+# Impose test in last phase only
+n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
+n_its_to_not_test = np.sum(n_its) - n_its[-1]
+helper_test_args += " --threshold {} ".format(n_its_to_not_test)
 
 with open("helper_test_args.txt",'w+') as f:
     f.write(helper_test_args)
