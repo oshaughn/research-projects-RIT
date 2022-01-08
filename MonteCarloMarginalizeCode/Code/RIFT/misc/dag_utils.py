@@ -1724,7 +1724,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 {}  {} --output-file {} --intput-file {}/{}*.xml.gz 
 """.format(exe,extra_arg,fname_out,working_dir,output_base))
     os.system("chmod a+x join_grids.sh")
-    exe = fname_out + "/join_grids.sh"
+    exe = target_dir + "/join_grids.sh"
 
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
 
