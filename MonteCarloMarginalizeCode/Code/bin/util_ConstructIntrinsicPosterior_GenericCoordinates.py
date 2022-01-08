@@ -276,6 +276,7 @@ parser.add_argument("--fit-uses-reported-error-factor",type=float,default=1,help
 parser.add_argument("--n-max",default=3e8,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
+parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=int,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
 parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper|gp_lazy|cov|kde")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
@@ -1951,10 +1952,10 @@ res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_
 
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
-    if neff < opts.fail_unless_n_eff:
+    if neff < opts.fail_unless_n_eff   and not(opts.not_worker):     # if we need the output to continue:
         print(" FAILURE: n_eff too small")
         sys.exit(1)
-if neff < opts.n_eff:   
+if neff < opts.n_eff:
     print(" ==> neff (={}) is low <==".format(neff))
     if opts.contingency_unevolved_neff == 'quadpuff'  and neff < np.min([500,opts.n_eff]): # we can usually get by with about 500 points
         # Add errors
