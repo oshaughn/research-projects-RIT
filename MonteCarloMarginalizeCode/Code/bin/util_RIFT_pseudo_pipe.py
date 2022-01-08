@@ -376,7 +376,7 @@ if True:
 
 # Run helper command
 npts_it = 500
-cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound "
+cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options --propose-initial-grid --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
 if opts.force_initial_grid_size:
     cmd += " --force-initial-grid-size {} ".format(opts.force_initial_grid_size)
 if opts.assume_matter:
