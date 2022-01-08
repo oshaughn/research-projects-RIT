@@ -1710,6 +1710,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 #     os.system("chmod a+x "+exe_here)
 #     exe = exe_here  # update executable
 
+    working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
 
     fname_out =target_dir + "/" +output_base + ".xml.gz"
     if n_explode ==1:   # we are really doing a glob match
@@ -1733,7 +1734,6 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
     if n_explode > 1:
         ile_job.add_arg("--output="+fname_out)
 
-    working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
 
     #
     # Logging options
