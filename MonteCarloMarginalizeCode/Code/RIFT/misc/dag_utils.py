@@ -1714,6 +1714,8 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 
     fname_out =target_dir + "/" +output_base + ".xml.gz"
     if n_explode ==1:   # we are really doing a glob match
+        fname_out = fname_out.replace('$(macroteration)','$1')
+        fname_out = fname_out.replace('$(macroterationnext)','$2')
         extra_arg = ''
         if old_add:
             extra_arg = " --ilwdchar-compat "
@@ -1723,8 +1725,8 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 # merge using glob command called from shell
 {}  {} --output-file {} --intput-file {}/{}*.xml.gz 
 """.format(exe,extra_arg,fname_out,working_dir,output_base))
-    os.system("chmod a+x join_grids.sh")
-    exe = target_dir + "/join_grids.sh"
+        os.system("chmod a+x join_grids.sh")
+        exe = target_dir + "/join_grids.sh"
 
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
 
@@ -1753,7 +1755,8 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
         explode_str+= " {}/{}-{}.xml.gz ".format(working_dir,output_base,indx)
         ile_job.add_arg(explode_str)
     else:
-        explode_str += " {}/{}-*.xml.gz ".format(working_dir,output_base)  # if n_explode is 1 or 0, use a matching pattern 
+        ile_job.add_arg(" $(macroiteration) $(macroiterationnext) ")
+#        explode_str += " {}/{}-*.xml.gz ".format(working_dir,output_base)  # if n_explode is 1 or 0, use a matching pattern 
 #    ile_job.add_arg("overlap-grid*.xml.gz")  # working in our current directory
     
     if old_add and n_explode > 1:
