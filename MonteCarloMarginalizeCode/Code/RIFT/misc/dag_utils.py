@@ -1714,8 +1714,8 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 
     fname_out =target_dir + "/" +output_base + ".xml.gz"
     if n_explode ==1:   # we are really doing a glob match
-        fname_out = fname_out.replace('$(macroteration)','$1')
-        fname_out = fname_out.replace('$(macroterationnext)','$2')
+        fname_out = fname_out.replace('$(macroiteration)','$1')
+        fname_out = fname_out.replace('$(macroiterationnext)','$2')
         extra_arg = ''
         if old_add:
             extra_arg = " --ilwdchar-compat "
