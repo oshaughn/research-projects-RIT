@@ -1721,7 +1721,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
             f.write(r"""
 # merge using glob command called from shell
 {}  {} --output-file {} --intput-file {}/{}*.xml.gz 
-""".format(exe,old_arg,fname_out,working_dir,output_base))
+""".format(exe,extra_arg,fname_out,working_dir,output_base))
     os.system("chmod a+x join_grids.sh")
     exe = fname_out + "/join_grids.sh"
 
