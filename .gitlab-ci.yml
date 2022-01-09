@@ -5,22 +5,24 @@ stages:
   
 
 
-language: python
+#language: python
 
-python:
-  - '3.6'
-  - '3.7'
-  - '3.8'
+#python:
+#  - '3.6'
+#  - '3.7'
+#  - '3.8'
 
 before_install:
  stage: build
  script:
+  # setup
+  - apt-get update --assume-yes && apt-get upgrade --assume-yes && apt-get install --assume-yes git python3-pip
   # upgrade pip
   - pip install --quiet --upgrade pip
   # install requirements
   - pip install -r requirements.txt
   # install test-only requirements
-  - pip install pytest coveralls
+  - pip install pytest 
   # install this package (need editable for coverage)
   - pip install --editable .
 
