@@ -488,14 +488,14 @@ class ChooseWaveformParams:
         if p == 'thetaJN':
             if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
         if p == 'phiJL':
             if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=val,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
@@ -510,7 +510,7 @@ class ChooseWaveformParams:
         if p == 'theta1_Jfix':
             if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=val,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
@@ -535,7 +535,7 @@ class ChooseWaveformParams:
         if p == 'phi1':
             if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             # Do it MANUALLY, assuming the L frame! 
             chiperp_vec_now = np.array([self.s1x,self.s1y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
@@ -545,7 +545,7 @@ class ChooseWaveformParams:
         if p == 'theta2_Jfix':
             if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=theta1,theta2=val,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
@@ -570,7 +570,7 @@ class ChooseWaveformParams:
         if p == 'phi2':
             if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             # Do it MANUALLY, assuming the L frame! 
             chiperp_vec_now = np.array([self.s2x,self.s2y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
@@ -580,7 +580,7 @@ class ChooseWaveformParams:
         if p == 'psiJ':
             if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=val)
             return self
@@ -590,11 +590,11 @@ class ChooseWaveformParams:
             #    http://adsabs.harvard.edu/abs/2012PhRvD..86f4020B
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             if chi2 > 1e-5:
                 print(" Changing beta only supported for single spin ")
-                sys.exit(0)
+                sys.exit(2)
             if np.abs(val)<1e-4:
                 theta1=0
                 self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
@@ -604,7 +604,7 @@ class ChooseWaveformParams:
             # sanity check this value of beta is *possible*
             if  val and np.cos(val)**2 < 1-SoverL**2:
                 print(" This value of beta cannot be attained, because SoverL= ", SoverL, " so beta max = ", np.arccos(np.sqrt(1-SoverL**2)))
-                sys.exit(0)
+                sys.exit(3)
             x=np.cos(val)
             kappa = (- np.sin(val)**2 + x * np.sqrt( SoverL**2 - np.sin(val)**2))/SoverL
             # Note that if gamma < 1, there are two roots for each value of beta
@@ -617,7 +617,7 @@ class ChooseWaveformParams:
                 self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             else:
                 print(" beta assignment not implemented in non-radiation gauge ")
-                sys.exit(0)
+                sys.exit(4)
             return self
         # tidal parameters
         if p == 'LambdaTilde':
@@ -670,7 +670,7 @@ class ChooseWaveformParams:
             return self
         print(" No attribute ", p, " in ", dir(self))
         print(" Is in valid_params? ", p in valid_params)
-        sys.exit(0)
+        sys.exit(1)
     def extract_param(self,p):
         """
         assign_param
@@ -772,25 +772,25 @@ class ChooseWaveformParams:
         if p == 'thetaJN':
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return thetaJN
         if p == 'phiJL':
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return phiJL
         if p == 'theta1_Jfix':
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return theta1
         if p == 'theta2_Jfix':
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return theta2
         if p == 'theta1':
@@ -806,13 +806,13 @@ class ChooseWaveformParams:
         if p == 'cos_theta1':
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.cos(theta1)
         if p == 'cos_theta2':
             if self.fref is 0:
                 print( " Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.cos(theta2)
         if p == 'phi1':  # Assumes L frame!
@@ -826,25 +826,25 @@ class ChooseWaveformParams:
         if p == 'psiJ':
             if self.fref is 0:
                 print( " Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return psiJ
         if p == 'sin_phiJL':
             if self.fref is 0:
                 print( " Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.sin(phiJL)
         if p == 'cos_phiJL':
             if self.fref is 0:
                 print( " Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.cos(phiJL)
         if p == 'beta':
             if self.fref is 0:
                 print( " Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             Jref = self.TotalAngularMomentumAtReferenceOverM2()
             Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
             Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
@@ -853,7 +853,7 @@ class ChooseWaveformParams:
         if p == 'cos_beta':
             if self.fref is 0:
                 print( " Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             Jref = self.TotalAngularMomentumAtReferenceOverM2()
             Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
             Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
@@ -862,7 +862,7 @@ class ChooseWaveformParams:
         if p == 'sin_beta':
             if self.fref is 0:
                 print( " Changing geometry requires a reference frequency ")
-                sys.exit(0)
+                sys.exit(1)
             Jref = self.TotalAngularMomentumAtReferenceOverM2()
             Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
             Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
