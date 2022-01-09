@@ -808,7 +808,7 @@ class ChooseWaveformParams:
         if p == 'cos_theta2':
             return np.cos(self.extract_param('theta2'))
         if p == 'cos_theta1_alt': # alternate implementation, using lalsuite call. Not needed for theta1, theta2
-            if self.fref is 0:
+            if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
                 sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
@@ -828,25 +828,25 @@ class ChooseWaveformParams:
             phi2 =  np.angle(zfac)
             return phi2
         if p == 'psiJ':
-            if self.fref is 0:
+            if self.fref == 0:
                 print( " Changing geometry requires a reference frequency ")
                 sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return psiJ
         if p == 'sin_phiJL':
-            if self.fref is 0:
+            if self.fref == 0:
                 print( " Changing geometry requires a reference frequency ")
                 sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.sin(phiJL)
         if p == 'cos_phiJL':
-            if self.fref is 0:
+            if self.fref == 0:
                 print( " Changing geometry requires a reference frequency ")
                 sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.cos(phiJL)
         if p == 'beta':
-            if self.fref is 0:
+            if self.fref == 0:
                 print( " Changing geometry requires a reference frequency ")
                 sys.exit(1)
             Jref = self.TotalAngularMomentumAtReferenceOverM2()
@@ -855,7 +855,7 @@ class ChooseWaveformParams:
             Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
             return np.arccos(np.dot(Lhat,Jhat))   # holds in general
         if p == 'cos_beta':
-            if self.fref is 0:
+            if self.fref == 0:
                 print( " Changing geometry requires a reference frequency ")
                 sys.exit(1)
             Jref = self.TotalAngularMomentumAtReferenceOverM2()
@@ -864,7 +864,7 @@ class ChooseWaveformParams:
             Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
             return np.dot(Lhat,Jhat)   # holds in general
         if p == 'sin_beta':
-            if self.fref is 0:
+            if self.fref == 0:
                 print( " Changing geometry requires a reference frequency ")
                 sys.exit(1)
             Jref = self.TotalAngularMomentumAtReferenceOverM2()
