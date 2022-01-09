@@ -807,13 +807,13 @@ class ChooseWaveformParams:
             return np.cos(self.extract_param('theta1')
         if p == 'cos_theta2':
             return np.cos(self.extract_param('theta2')
-        if p == 'cos_thetaJS1':
+        if p == 'cos_theta1_alt': # alternate implementation, using lalsuite call. Not needed for theta1, theta2
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
                 sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.cos(theta1)
-        if p == 'cos_thetaJS2':
+        if p == 'cos_theta2_alt': # alternate implementation. Not needed for theta1, theta2
             if self.fref is 0:
                 print( " Changing geometry requires a reference frequency ")
                 sys.exit(1)
