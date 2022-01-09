@@ -804,9 +804,9 @@ class ChooseWaveformParams:
             chi_now = np.sqrt(self.s2z**2 + chiperp_now**2)
             return np.arccos(self.s2z/chi_now)
         if p == 'cos_theta1':
-            return np.cos(self.extract_param('theta1')
+            return np.cos(self.extract_param('theta1'))
         if p == 'cos_theta2':
-            return np.cos(self.extract_param('theta2')
+            return np.cos(self.extract_param('theta2'))
         if p == 'cos_theta1_alt': # alternate implementation, using lalsuite call. Not needed for theta1, theta2
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
