@@ -103,6 +103,7 @@ def unsafe_parse_arg_string(my_argstr,match):
         
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
 parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration")
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
 parser.add_argument("--use-rundir",default=None,type=str,help="Intended to reproduce lalinference_pipe functionality. Must be absolute path.")
@@ -180,6 +181,12 @@ parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Pr
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
+
+if opts.use_production_defaults:
+    opts.condor_nogrid_nonworker =True
+    opts.use_cov_early =True
+    opts.internal_marginalize_distance =True
+    opts.cip_explode_jobs = 5 # will be overriden later
 
 download_request = " get file "
 gracedb_exe =opts.gracedb_exe
@@ -344,6 +351,12 @@ if not(opts.use_ini is None):
     P.fref = unsafe_config_get(config,['engine','fref'])
     # Write 'target_params.xml.gz' file
     lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
+
+    if opts.use_production_defaults:
+        # use more workers for high-q triggers
+        # worker scale = (1+2/q), max of 50
+        q = P.m2/P.m1
+        opts.cip_explode_jobs = np.min([int(2+3./q),50])
 
 
 helper_psd_args = ''
