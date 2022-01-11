@@ -187,6 +187,8 @@ if opts.use_production_defaults:
     opts.use_cov_early =True
     opts.internal_marginalize_distance =True
     opts.cip_explode_jobs = 5 # will be overriden later
+    if opts.use_osg:
+        opts.use_nogrid_nonworker = True
 
 download_request = " get file "
 gracedb_exe =opts.gracedb_exe
