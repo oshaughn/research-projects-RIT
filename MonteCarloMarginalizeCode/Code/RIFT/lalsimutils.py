@@ -223,7 +223,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity', 'chi_pavg']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg']
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -262,6 +262,7 @@ tex_dictionary  = {
   "s2x": "$\chi_{2,x}$",
   "s1y": "$\chi_{1,y}$",
   "s2y": "$\chi_{2,y}$",
+  "eccentricity":"$e$",
   # tex labels for inherited LI names
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
@@ -304,7 +305,8 @@ class ChooseWaveformParams:
             ampO=0, phaseO=7, approx=lalsim.TaylorT4, 
             theta=0., phi=0., psi=0., tref=0., radec=False, detector="H1",
             deltaF=None, fmax=0., # for use w/ FD approximants
-            taper=lsu_TAPER_NONE # for use w/TD approximants
+            taper=lsu_TAPER_NONE, # for use w/TD approximants
+            eccentricity=0. # make eccentricity a parameter
             ):
         self.phiref = phiref
         self.deltaT = deltaT
@@ -332,13 +334,17 @@ class ChooseWaveformParams:
         self.psi = psi
         self.meanPerAno = 0.0  # port 
         self.longAscNodes = self.psi # port to master
-        self.eccentricity=0
+        self.eccentricity=eccentricity
         self.tref = tref
         self.radec = radec
         self.detector = "H1"
         self.deltaF=deltaF
         self.fmax=fmax
         self.taper = taper
+        
+        # force this waveform's PN order to be 3 to avoid crashes
+        if self.approx == lalsim.EccentricTD:
+            self.phaseO = 3
 
     # From Pankow/master
     try:
@@ -523,6 +529,9 @@ class ChooseWaveformParams:
             self.s1y = chi_now*np.sin(val) * self.s1y/chiperp_now
             self.s1z = chi_now*np.cos(val)
             return self
+        if p == 'cos_theta1':
+           self.assign_param('theta1',np.arccos(val))
+           return self
         if p == 'phi1':
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
@@ -555,6 +564,9 @@ class ChooseWaveformParams:
             self.s2y = chi_now*np.sin(val) * self.s2y/chiperp_now
             self.s2z = chi_now*np.cos(val)
             return self
+        if p == 'cos_theta2':
+           self.assign_param('theta2',np.arccos(val))
+           return self
         if p == 'phi2':
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
@@ -2833,8 +2845,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
             except Exception as e:
                 raise NameError(" Nyquist frequency error for v4P/v4PHM, check srate")
         hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
-        P.s1x, P.s1y, P.s1z, \
-        P.s2x, P.s2y, P.s2z, \
+            P.s1x, P.s1y, P.s1z, \
+            P.s2x, P.s2y, P.s2z, \
             P.fmin, P.fref, P.dist, extra_params, \
              Lmax, P.approx)
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
@@ -3704,7 +3716,15 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
         print( cachef.to_segmentlistdict())
         
     duration = stop - start if None not in (start, stop) else None
-    tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose,datatype='REAL8')
+    try:
+        tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose,datatype='REAL8')
+    except Exception as fail:
+        if str(fail) == "RuntimeError: Failure in an XLAL routine":
+            print(f"Encountered {fail}")
+            sys.exit(91)
+        else:
+            print(fail)
+            sys.exit(1)
     # Window the data - N.B. default is identity (no windowing)
     hoft_window = lal.CreateTukeyREAL8Window(tmp.data.length, window_shape)
     tmp.data.data *= hoft_window.data.data
