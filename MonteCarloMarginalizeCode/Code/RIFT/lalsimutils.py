@@ -223,7 +223,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','theta12']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity', 'chi_pavg']
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -253,8 +253,7 @@ tex_dictionary  = {
    "chiMinus":"$\chi_{eff,-}$",
   "chiz_plus":"$\chi_{z,+}$",
   "chiz_minus":"$\chi_{z,-}$",
-  "chi_pavg":r"$\langle\chi_{p}\rangle$",
-  "theta12":r"$\theta_{12}$", 
+  "chi_pavg":r"$\langle\chi_{p}\rangle$", 
   "lambda_plus":"$\lambda_{+}$",
   "lambda_minus":"$\lambda_{-}$",
   "s1z": "$\chi_{1,z}$",
@@ -263,7 +262,6 @@ tex_dictionary  = {
   "s2x": "$\chi_{2,x}$",
   "s1y": "$\chi_{1,y}$",
   "s2y": "$\chi_{2,y}$",
-  "eccentricity":"$e$",
   # tex labels for inherited LI names
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
@@ -306,8 +304,7 @@ class ChooseWaveformParams:
             ampO=0, phaseO=7, approx=lalsim.TaylorT4, 
             theta=0., phi=0., psi=0., tref=0., radec=False, detector="H1",
             deltaF=None, fmax=0., # for use w/ FD approximants
-            taper=lsu_TAPER_NONE, # for use w/TD approximants
-            eccentricity=0. # make eccentricity a parameter
+            taper=lsu_TAPER_NONE # for use w/TD approximants
             ):
         self.phiref = phiref
         self.deltaT = deltaT
@@ -335,17 +332,13 @@ class ChooseWaveformParams:
         self.psi = psi
         self.meanPerAno = 0.0  # port 
         self.longAscNodes = self.psi # port to master
-        self.eccentricity=eccentricity
+        self.eccentricity=0
         self.tref = tref
         self.radec = radec
         self.detector = "H1"
         self.deltaF=deltaF
         self.fmax=fmax
         self.taper = taper
-
-        # force this waveform's PN order to be 3 to avoid crashes
-        if self.approx == lalsim.EccentricTD:
-            self.phaseO = 3
 
     # From Pankow/master
     try:
@@ -530,9 +523,6 @@ class ChooseWaveformParams:
             self.s1y = chi_now*np.sin(val) * self.s1y/chiperp_now
             self.s1z = chi_now*np.cos(val)
             return self
-        if p == 'cos_theta1':
-           self.assign_param('theta1',np.arccos(val))
-           return self
         if p == 'phi1':
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
@@ -565,9 +555,6 @@ class ChooseWaveformParams:
             self.s2y = chi_now*np.sin(val) * self.s2y/chiperp_now
             self.s2z = chi_now*np.cos(val)
             return self
-        if p == 'cos_theta2':
-           self.assign_param('theta2',np.arccos(val))
-           return self
         if p == 'phi2':
             if self.fref is 0:
                 print(" Changing geometry requires a reference frequency ")
@@ -869,13 +856,6 @@ class ChooseWaveformParams:
             Lref = self.OrbitalAngularMomentumAtReferenceOverM2()
             Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
             return np.sqrt(1- np.dot(Lhat,Jhat)**2)   # holds in general
-        if p == 'theta12':
-            chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
-            chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
-            chi1Vecu = chi1Vec/np.linalg.norm(chi1Vec)
-            chi2Vecu = chi2Vec/np.linalg.norm(chi2Vec)
-            theta12 = np.arccos(np.clip(np.dot(chi1Vecu, chi2Vecu), -1.0,1.0))
-            return theta12
         # Other spin parameters of use in generalised fits
         if p == 'SoverM2':   # SCALAR
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
@@ -940,98 +920,107 @@ class ChooseWaveformParams:
             Sp = np.max([np.linalg.norm( A1*S1p), np.linalg.norm(A2*S2p)])
             return Sp/(A1*m1**2)  # divide by term for *larger* BH
         if p == 'chi_pavg':
-            # implementation of the averaged precession parameter from https://arxiv.org/pdf/2011.11948.pdf
-            # CH 21
-            ##########################################
-            G_SI = 6.67e-11 #SI units [m^3 kg^-1 s^-2]
-            c_SI = 2.99e8 #SI units [m s^-1]
-            SM = 1.98847e30 #Solar Mass in [kg]
-            conv = SM*G_SI/c_SI**3 #converts [SM] to [s kg^-1]
-            m1 = conv*self.extract_param('m1') #mass of object 1
-            m2 = conv*self.extract_param('m2') #mass of object 2
-            q = m2/m1 #mass ratio
-            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame() #inheriting values from system
-            deltaphi = phi12
-            #implementation
-            if self.fref == 0:
-                fref = 20 #default fixed frequency value
+            if (self.s1x == 0 and self.s1y == 0 and self.s2x == 0 and self.s2y == 0):
+                chipavg = 0
+            elif (self.s1x == 0 and self.s1y == 0 and self.s1z == 0) or (self.s2x == 0 and self.s2y == 0 and self.s2z == 0):
+                chipavg = self.extract_param('chi_p')
             else:
-                fref = self.fref #user spec
-            def ftor_PN(f, q, chi1, chi2, theta1, theta2, deltaphi):
-                '''Convert GW frequency to PN orbital separation conversion'''
-                om = np.pi * f 
-                M_sec = m1 + m2
-                mom = M_sec * om                
-                eta = m1*m2
-                ct1 = np.cos(theta1)
-                ct2 = np.cos(theta2)
-                ct12 = np.sin(theta1) * np.sin(theta2) * np.cos(deltaphi) + ct1 * ct2
-                # Eq. 4.13, Kidder 1995. gr-qc/9506022
-                r = (mom)**(-2./3.)*(1. \
-                                - (1./3.)*(3.-eta)*mom**(2./3.)  \
-                                - (1./3.)* ( chi1*ct1*(2.*m1**2.+3.*eta) + chi2*ct2*(2.*m2**2.+3.*eta))*mom \
-                                + ( eta*(19./4. + eta/9.) -eta*chi1*chi2/2. * (ct12 - 3.*ct1*ct2 ))*mom**(4./3.)\
-                                )
-                return r
-            def omegatilde(q):
-                '''Ratio between the spin frequency, leading order term. Eq (13)'''
-                return q*(4*q+3)/(4+3*q)
-            def chip_terms(q,chi1,chi2,theta1,theta2):
-                '''Two chip terms'''
-                term1 = chi1*np.sin(theta1)
-                term2 = omegatilde(q) * chi2*np.sin(theta2)
-                return term1,term2
-            def chip_generalized(q,chi1,chi2,theta1,theta2,deltaphi):
-                '''Generalized definition of chip. Eq (15)'''
-                term1, term2 = chip_terms(q,chi1,chi2,theta1,theta2)
-                return (term1**2 + term2**2 + 2*term1*term2*np.cos(deltaphi))**0.5
-            @np.vectorize
-            def chip_averaged(q,chi1,chi2,theta1,theta2,deltaphi,r=None,fref=None):
-                '''Averaged definition of chip. Eq (15) and Appendix A'''
-                # Convert frequency to separation, if necessary
-                if r is None and fref is None: raise ValueError
-                elif r is not None and fref is not None: raise ValueError
-                if r is None:
-                    # Eq A1
-                    r = ftor_PN(fref, q, chi1, chi2, theta1, theta2, deltaphi)
-                #Compute constants of motion
-                L = (r**0.5)*q/(1+q)**2
-                S1 = chi1/(1.+q)**2
-                S2 = (q**2)*chi2/(1.+q)**2
-                # Eq 5
-                chieff = (chi1*np.cos(theta1)+q*chi2*np.cos(theta2))/(1+q)
-                # Eq A2
-                J = (L**2 + S1**2 + S2**2 + 2*L*(S1*np.cos(theta1) + S2*np.cos(theta2)) + 2*S1*S2*(np.sin(theta1)*np.sin(theta2)*np.cos(deltaphi) + np.cos(theta1)*np.cos(theta2)))**0.5
-                # Solve dSdt=0. Details in arXiv:1506.03492
-                Sminus,Splus=precession.Sb_limits(chieff,J,q,S1,S2,r)
-                def integrand_numerator(S):
-                    '''chip(S)/dSdt(S)'''
-                    #Eq A3
-                    theta1ofS = np.arccos( (1/(2*(1-q)*S1)) * ( (J**2-L**2-S**2)/L - 2*q*chieff/(1+q) ) )
-                    #Eq A4
-                    theta2ofS = np.arccos( (q/(2*(1-q)*S2)) * ( -(J**2-L**2-S**2)/L + 2*chieff/(1+q) ) )
-                    # Eq A5
-                    deltaphiofS = np.arccos( ( S**2-S1**2-S2**2 - 2*S1*S2*np.cos(theta1ofS)*np.cos(theta2ofS) ) / (2*S1*S2*np.sin(theta1ofS)*np.sin(theta2ofS)) )
-                    # Eq A6 (prefactor cancels out)
-                    dSdtofS = np.sin(theta1ofS)*np.sin(theta2ofS)*np.sin(deltaphiofS)/S
-                    # Eq (15)
-                    chipofS = chip_generalized(q,chi1,chi2,theta1ofS,theta2ofS,deltaphiofS)
-                    return chipofS/dSdtofS
-                numerator = scipy.integrate.quad(integrand_numerator, Sminus, Splus)[0]
-                def integrand_denominator(S):
-                    '''1/dSdt(S)'''
-                    #Eq A3
-                    theta1ofS = np.arccos( (1/(2*(1-q)*S1)) * ( (J**2-L**2-S**2)/L - 2*q*chieff/(1+q) ) )
-                    #Eq A4
-                    theta2ofS = np.arccos( (q/(2*(1-q)*S2)) * ( -(J**2-L**2-S**2)/L + 2*chieff/(1+q) ) )
-                    # Eq A5
-                    deltaphiofS = np.arccos( ( S**2-S1**2-S2**2 - 2*S1*S2*np.cos(theta1ofS)*np.cos(theta2ofS) ) / (2*S1*S2*np.sin(theta1ofS)*np.sin(theta2ofS)) )
-                    # Eq A6 (prefactor cancels out)
-                    dSdtofS = np.sin(theta1ofS)*np.sin(theta2ofS)*np.sin(deltaphiofS)/S
-                    return 1/dSdtofS
-                denominator = scipy.integrate.quad(integrand_denominator, Sminus, Splus)[0]
-                return numerator/denominator
-            return chip_averaged(q,chi1,chi2,theta1,theta2,deltaphi,fref=fref)    
+                try:
+                    # implementation of the averaged precession parameter from https://arxiv.org/pdf/2011.11948.pdf
+                    # CH 21
+                    ##########################################
+                    G_SI = 6.67e-11 #SI units [m^3 kg^-1 s^-2]
+                    c_SI = 2.99e8 #SI units [m s^-1]
+                    SM = 1.98847e30 #Solar Mass in [kg]
+                    conv = SM*G_SI/c_SI**3 #converts [SM] to [s kg^-1]
+                    m1 = conv*self.extract_param('m1') #mass of object 1
+                    m2 = conv*self.extract_param('m2') #mass of object 2
+                    q = m2/m1 #mass ratio
+                    thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame() #inheriting values from system
+                    deltaphi = phi12
+                    #implementation
+                    if self.fref == 0:
+                        fref = 20 #default fixed frequency value
+                    else:
+                        fref = self.fref #user spec
+                    def ftor_PN(f, q, chi1, chi2, theta1, theta2, deltaphi):
+                        '''Convert GW frequency to PN orbital separation conversion'''
+                        om = np.pi * f 
+                        M_sec = m1 + m2
+                        mom = M_sec * om                
+                        eta = m1*m2
+                        ct1 = np.cos(theta1)
+                        ct2 = np.cos(theta2)
+                        ct12 = np.sin(theta1) * np.sin(theta2) * np.cos(deltaphi) + ct1 * ct2
+                        # Eq. 4.13, Kidder 1995. gr-qc/9506022
+                        r = (mom)**(-2./3.)*(1. \
+                                        - (1./3.)*(3.-eta)*mom**(2./3.)  \
+                                        - (1./3.)* ( chi1*ct1*(2.*m1**2.+3.*eta) + chi2*ct2*(2.*m2**2.+3.*eta))*mom \
+                                        + ( eta*(19./4. + eta/9.) -eta*chi1*chi2/2. * (ct12 - 3.*ct1*ct2 ))*mom**(4./3.)\
+                                        )
+                        return r
+                    def omegatilde(q):
+                        '''Ratio between the spin frequency, leading order term. Eq (13)'''
+                        return q*(4*q+3)/(4+3*q)
+                    def chip_terms(q,chi1,chi2,theta1,theta2):
+                        '''Two chip terms'''
+                        term1 = chi1*np.sin(theta1)
+                        term2 = omegatilde(q) * chi2*np.sin(theta2)
+                        return term1,term2
+                    def chip_generalized(q,chi1,chi2,theta1,theta2,deltaphi):
+                        '''Generalized definition of chip. Eq (15)'''
+                        term1, term2 = chip_terms(q,chi1,chi2,theta1,theta2)
+                        return (term1**2 + term2**2 + 2*term1*term2*np.cos(deltaphi))**0.5
+                    @np.vectorize
+                    def chip_averaged(q,chi1,chi2,theta1,theta2,deltaphi,r=None,fref=None):
+                        '''Averaged definition of chip. Eq (15) and Appendix A'''
+                        # Convert frequency to separation, if necessary
+                        if r is None and fref is None: raise ValueError
+                        elif r is not None and fref is not None: raise ValueError
+                        if r is None:
+                            # Eq A1
+                            r = ftor_PN(fref, q, chi1, chi2, theta1, theta2, deltaphi)
+                        #Compute constants of motion
+                        L = (r**0.5)*q/(1+q)**2
+                        S1 = chi1/(1.+q)**2
+                        S2 = (q**2)*chi2/(1.+q)**2
+                        # Eq 5
+                        chieff = (chi1*np.cos(theta1)+q*chi2*np.cos(theta2))/(1+q)
+                        # Eq A2
+                        J = (L**2 + S1**2 + S2**2 + 2*L*(S1*np.cos(theta1) + S2*np.cos(theta2)) + 2*S1*S2*(np.sin(theta1)*np.sin(theta2)*np.cos(deltaphi) + np.cos(theta1)*np.cos(theta2)))**0.5
+                        # Solve dSdt=0. Details in arXiv:1506.03492
+                        Sminus,Splus=precession.Sb_limits(chieff,J,q,S1,S2,r)
+                        def integrand_numerator(S):
+                            '''chip(S)/dSdt(S)'''
+                            #Eq A3
+                            theta1ofS = np.arccos( (1/(2*(1-q)*S1)) * ( (J**2-L**2-S**2)/L - 2*q*chieff/(1+q) ) )
+                            #Eq A4
+                            theta2ofS = np.arccos( (q/(2*(1-q)*S2)) * ( -(J**2-L**2-S**2)/L + 2*chieff/(1+q) ) )
+                            # Eq A5
+                            deltaphiofS = np.arccos( ( S**2-S1**2-S2**2 - 2*S1*S2*np.cos(theta1ofS)*np.cos(theta2ofS) ) / (2*S1*S2*np.sin(theta1ofS)*np.sin(theta2ofS)) )
+                            # Eq A6 (prefactor cancels out)
+                            dSdtofS = np.sin(theta1ofS)*np.sin(theta2ofS)*np.sin(deltaphiofS)/S
+                            # Eq (15)
+                            chipofS = chip_generalized(q,chi1,chi2,theta1ofS,theta2ofS,deltaphiofS)
+                            return chipofS/dSdtofS
+                        numerator = scipy.integrate.quad(integrand_numerator, Sminus, Splus)[0]
+                        def integrand_denominator(S):
+                            '''1/dSdt(S)'''
+                            #Eq A3
+                            theta1ofS = np.arccos( (1/(2*(1-q)*S1)) * ( (J**2-L**2-S**2)/L - 2*q*chieff/(1+q) ) )
+                            #Eq A4
+                            theta2ofS = np.arccos( (q/(2*(1-q)*S2)) * ( -(J**2-L**2-S**2)/L + 2*chieff/(1+q) ) )
+                            # Eq A5
+                            deltaphiofS = np.arccos( ( S**2-S1**2-S2**2 - 2*S1*S2*np.cos(theta1ofS)*np.cos(theta2ofS) ) / (2*S1*S2*np.sin(theta1ofS)*np.sin(theta2ofS)) )
+                            # Eq A6 (prefactor cancels out)
+                            dSdtofS = np.sin(theta1ofS)*np.sin(theta2ofS)*np.sin(deltaphiofS)/S
+                            return 1/dSdtofS
+                        denominator = scipy.integrate.quad(integrand_denominator, Sminus, Splus)[0]
+                        return numerator/denominator
+                    chipavg = chip_averaged(q,chi1,chi2,theta1,theta2,deltaphi,fref=fref)
+                except ZeroDivisionError:
+                        chipavg = self.extract_param('chi_p')                
+                return chipavg
         if p == 'LambdaTilde':
             Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
             return Lt
@@ -3715,15 +3704,7 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
         print( cachef.to_segmentlistdict())
         
     duration = stop - start if None not in (start, stop) else None
-    try:
-        tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose,datatype='REAL8')
-    except Exception as fail:
-        if str(fail) == "RuntimeError: Failure in an XLAL routine":
-            print(f"Encountered {fail}")
-            sys.exit(91)
-        else:
-            print(fail)
-            sys.exit(1)
+    tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose,datatype='REAL8')
     # Window the data - N.B. default is identity (no windowing)
     hoft_window = lal.CreateTukeyREAL8Window(tmp.data.length, window_shape)
     tmp.data.data *= hoft_window.data.data
