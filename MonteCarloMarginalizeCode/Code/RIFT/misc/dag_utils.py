@@ -1716,6 +1716,8 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
     if n_explode ==1:   # we are really doing a glob match
         fname_out = fname_out.replace('$(macroiteration)','$1')
         fname_out = fname_out.replace('$(macroiterationnext)','$2')
+        alt_work_dir = working_dir.replace('$(macroiteration)','$1')
+        alt_out = output_base.replace('$(macroiterationnext)','$2')
         extra_arg = ''
         if old_add:
             extra_arg = " --ilwdchar-compat "
@@ -1724,7 +1726,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
             f.write(r"""
 # merge using glob command called from shell
 {}  {} --output {}  {}/{}*.xml.gz 
-""".format(exe,extra_arg,fname_out,working_dir,output_base))
+""".format(exe,extra_arg,fname_out,alt_work_dir,alt_out))
         os.system("chmod a+x join_grids.sh")
         exe = target_dir + "/join_grids.sh"
 
