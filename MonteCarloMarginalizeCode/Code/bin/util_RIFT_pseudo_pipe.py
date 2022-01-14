@@ -189,6 +189,7 @@ if opts.use_production_defaults:
     opts.cip_explode_jobs = 5 # will be overriden later
     if opts.use_osg:
         opts.use_nogrid_nonworker = True
+        opts.ile_retries=10  # very unstable environment
 
 download_request = " get file "
 gracedb_exe =opts.gracedb_exe
