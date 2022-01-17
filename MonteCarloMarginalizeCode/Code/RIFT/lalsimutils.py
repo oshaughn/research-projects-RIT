@@ -67,7 +67,77 @@ TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 #spin_convention = "radiation"
 spin_convention = "L"
 
-cthdler = ligolw.LIGOLWContentHandler #defines a content handler to load xml grids
+from functools import wraps
+def strip_ilwdchar(_ContentHandler):
+    """Wrap a LIGO_LW content handler to swap ilwdchar for int on-the-fly
+    when reading a document
+    This is adapted from :func:`ligo.skymap.utils.ilwd`, copyright
+    Leo Singer (GPL-3.0-or-later).
+    This is taken directly from https://github.com/gwpy/gwpy/blob/master/gwpy/io/ligolw.py#L92
+    """
+    from ligo.lw.lsctables import TableByName
+    from ligo.lw.table import (Column, TableStream)
+    from ligo.lw.types import (FromPyType, ToPyType)
+
+    class IlwdMapContentHandler(_ContentHandler):
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._idconverter = {}
+
+        @wraps(_ContentHandler.startColumn)
+        def startColumn(self, parent, attrs):
+            result = super().startColumn(parent, attrs)
+
+            # if an old ID type, convert type definition to an int
+            if result.Type == "ilwd:char":
+                old_type = ToPyType[result.Type]
+
+                def converter(old):
+                    return int(old_type(old))
+
+                self._idconverter[(id(parent), result.Name)] = converter
+                result.Type = FromPyType[int]
+
+            try:
+                validcolumns = TableByName[parent.Name].validcolumns
+            except KeyError:  # parent.Name not in TableByName
+                return result
+            if result.Name not in validcolumns:
+                stripped_column_to_valid_column = {
+                    Column.ColumnName(name): name
+                    for name in validcolumns
+                }
+                if result.Name in stripped_column_to_valid_column:
+                    result.setAttribute(
+                        'Name',
+                        stripped_column_to_valid_column[result.Name],
+                    )
+
+            return result
+
+        @wraps(_ContentHandler.startStream)
+        def startStream(self, parent, attrs):
+            result = super().startStream(parent, attrs)
+            if isinstance(result, TableStream):
+                loadcolumns = set(parent.columnnames)
+                if parent.loadcolumns is not None:
+                    loadcolumns &= set(parent.loadcolumns)
+                pid = id(parent)
+                result._tokenizer.set_types([
+                    self._idconverter.pop((pid, colname), pytype)
+                    if colname in loadcolumns else None
+                    for pytype, colname in zip(
+                        parent.columnpytypes,
+                        parent.columnnames,
+                    )
+                ])
+            return result
+
+    return IlwdMapContentHandler
+
+
+cthdler = strip_ilwdchar(ligolw.LIGOLWContentHandler) #defines a content handler to load xml grids
 lsctables.use_in(cthdler)
 
 
