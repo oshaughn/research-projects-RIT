@@ -40,7 +40,7 @@ def safe_int(mystr):
         return None
 sci_ver = list(map(safe_int, scipy.version.version.split('.')))  # scipy version number as int list.
 
-from glue.ligolw import lsctables, table, utils, ligolw,ilwd # check all are needed
+from ligo.lw import lsctables, table, utils, ligolw,ilwd # check all are needed
 from glue.lal import Cache
 
 import lal

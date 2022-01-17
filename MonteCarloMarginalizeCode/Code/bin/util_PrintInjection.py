@@ -10,7 +10,7 @@ import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
 import lal
 import sys
-from glue.ligolw import utils, lsctables, table, ligolw
+from ligo.lw import utils, lsctables, table, ligolw
 
 cthdler = ligolw.LIGOLWContentHandler #defines a content handler to load xml grids
 lsctables.use_in(cthdler)

@@ -7,8 +7,8 @@ from functools import reduce
 import numpy
 
 from glue.lal import LIGOTimeGPS
-from glue.ligolw import ligolw, lsctables, table, ilwd
-from glue.ligolw.utils import process
+from ligo.lw import ligolw, lsctables, table, ilwd
+#from glue.ligolw.utils import process
 
 def assign_id(row, i):
     row.simulation_id = ilwd.ilwdchar("sim_inspiral_table:sim_inspiral:%d" % i)
@@ -230,5 +230,5 @@ if __file__ == sys.argv[0]:
     for m1i, m2i, loglikelihood in zip(m1, m2, loglikes):
         append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, **{"mass1": m1i, "mass2": m2i})
 
-    from glue.ligolw import utils
+    from ligo.lw import utils
     utils.write_filename(xmldoc, "iotest.xml.gz", gz=True)
