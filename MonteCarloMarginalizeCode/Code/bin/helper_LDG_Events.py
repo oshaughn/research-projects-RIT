@@ -420,6 +420,7 @@ if use_gracedb_event:
     if not(opts.use_legacy_gracedb):
         cmd_event += " > coinc.xml "
     os.system(cmd_event)
+    cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
     samples = table.get_table(utils.load_filename("coinc.xml",contenthandler=lalsimutils.cthdler), lsctables.SnglInspiralTable.tableName)
     event_duration=4  # default
     for row in samples:
