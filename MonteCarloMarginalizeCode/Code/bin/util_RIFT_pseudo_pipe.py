@@ -262,6 +262,7 @@ if opts.choose_data_LI_seglen:
     if not(opts.use_legacy_gracedb):
         cmd_event += " > coinc.xml "
     os.system(cmd_event)
+    cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
     event_dict = retrieve_event_from_coinc("coinc.xml")
     P=lalsimutils.ChooseWaveformParams()
     P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
