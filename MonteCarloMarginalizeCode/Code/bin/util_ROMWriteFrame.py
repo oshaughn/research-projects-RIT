@@ -58,7 +58,7 @@ if not opts.inj:
     else:
         P.approx = lalsim.GetApproximantFromString("SpinTaylorT2")
 else:
-    from glue.ligolw import lsctables, table, utils # check all are needed
+    from ligo.lw import lsctables, table, utils # check all are needed
 
     filename = opts.inj
     event = opts.event_id

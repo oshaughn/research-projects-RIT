@@ -20,8 +20,8 @@ import lal
 import lalsimulation as lalsim
 
 import glue.lal
-from glue.ligolw import utils, ligolw, lsctables, table
-from glue.ligolw.utils import process
+from ligo.lw import utils, ligolw, lsctables, table
+from ligo.lw.utils import process
 from glue import pipeline
 
 import RIFT.lalsimutils as  lsu
@@ -251,7 +251,7 @@ ile_job_type.write_sub_file()
 n_events= 0
 xmldoc = utils.load_filename( opts.sim_xml, contenthandler=lsu.cthdler )
 try:
-        from glue.ligolw import lsctables, table, utils, ligolw, ilwd # check all are needed
+        from ligo.lw import lsctables, table, utils, ligolw, ilwd # check all are needed
         # Read SimInspiralTable from the xml file, set row bounds
         sim_insp = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
         n_events = len(sim_insp)

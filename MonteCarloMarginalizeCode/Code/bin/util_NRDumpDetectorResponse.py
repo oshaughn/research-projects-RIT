@@ -88,7 +88,7 @@ print(" Loading injection file ... ")
 P = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))[opts.event]  # Load in the physical parameters of the inj
 
 ## LOAD WEIGHT REPORT (just in case)
-# from glue.ligolw import lsctables, utils, table
+# from ligo.lw import lsctables, utils, table
 # samples = table.get_table(utils.load_filename(opts.inj), lsctables.SimInspiralTable.tableName)
 # lnLmax = np.max([s.alpha1 for s in samples])
 # def sorted_indexes(seq):

@@ -6,7 +6,7 @@ import sys
 
 import numpy as np
 
-from glue.ligolw import utils, lsctables, table, ligolw
+from ligo.lw import utils, lsctables, table, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 from lal.series import read_psd_xmldoc
 

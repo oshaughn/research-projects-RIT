@@ -14,7 +14,7 @@ import itertools
 import joblib
 from scipy.integrate import nquad
 
-from glue.ligolw import lsctables, utils, ligolw
+from ligo.lw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 

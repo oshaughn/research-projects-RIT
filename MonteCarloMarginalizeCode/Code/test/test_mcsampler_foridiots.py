@@ -15,7 +15,7 @@ samplerPrior.add_parameter('x', pdf=np.vectorize(lambda x: 1.3), cdf_inv=None, l
 #    Note code above RELIES on our ability to set a default prior (of unity!) for x!
 #    AND our ability to construct a cdf_inverse function, which is done approximately, for sampling
 # Do an MC integral with this sampler (=the measure specified by the sampler).
-ret = samplerPrior.integrate(lambda x:np.ones(len(x)), 'x', nmax=1e4,verbose=True)
+ret = samplerPrior.integrate(lambda x,np=np:np.ones(len(x)), 'x', nmax=1e5,verbose=True)
 print("Integral of 1 over this range ", [samplerPrior.llim['x'] ,samplerPrior.rlim['x'] ], " is ", ret, " needs to be ", samplerPrior.rlim['x'] -  samplerPrior.llim['x'] ," and (small)")
 
 

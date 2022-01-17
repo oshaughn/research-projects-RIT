@@ -14,8 +14,8 @@ import scipy.stats
 import numpy
 
 import lal
-from glue.ligolw import utils, lsctables, table, ligolw
-from glue.ligolw.utils import process
+from ligo.lw import utils, lsctables, table, ligolw
+from ligo.lw.utils import process
 import glue.lal
 #import pylal
 

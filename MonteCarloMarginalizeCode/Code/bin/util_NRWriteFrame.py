@@ -92,7 +92,7 @@ if not opts.inj:
     wfP.P.tref = 1000000000 #1000000000            # default
     wfP.P.dist = 100*1e6*lal.PC_SI # default
 else:
-    from glue.ligolw import lsctables, table, utils # check all are needed
+    from ligo.lw import lsctables, table, utils # check all are needed
 
     filename = opts.inj
     event = opts.event_id

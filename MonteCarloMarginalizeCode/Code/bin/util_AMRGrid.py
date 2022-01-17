@@ -38,9 +38,9 @@ import numpy
 from scipy.special import binom
 from sklearn.neighbors import BallTree
 
-from glue.ligolw import utils, ligolw, lsctables, ilwd
+from ligo.lw import utils, ligolw, lsctables, ilwd
 lsctables.use_in(ligolw.LIGOLWContentHandler)
-from glue.ligolw.utils import process
+from ligo.lw.utils import process
 
 import lal
 import lalsimulation

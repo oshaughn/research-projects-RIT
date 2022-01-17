@@ -62,7 +62,7 @@ xmldoc = lal.series.make_psd_xmldoc(psd_dict)
 # Manually set the name
 xmldoc.childNodes[0].attributes._attrs  = {"Name": "psd"}
 
-from glue.ligolw import utils
+from ligo.lw import utils
 fname_out = opts.ifo+opts.prefix_out+"_fromascii_psd.xml.gz"
 if opts.conventional_postfix:
     fname_out = opts.ifo+"-psd.xml.gz"

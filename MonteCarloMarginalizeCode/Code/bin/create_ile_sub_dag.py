@@ -5,7 +5,7 @@ import sys
 import os
 import shutil
 from glue import pipeline # https://github.com/lscsoft/lalsuite-archive/blob/5a47239a877032e93b1ca34445640360d6c3c990/glue/glue/pipeline.py
-from glue.ligolw import utils, ligolw, lsctables, table, ilwd
+from ligo.lw import utils, ligolw, lsctables, table, ilwd
 import RIFT.lalsimutils as  lsu
 import numpy as np
 from math import ceil

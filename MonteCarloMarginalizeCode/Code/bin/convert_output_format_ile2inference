@@ -14,7 +14,7 @@ EXAMPLES
 import sys
 from optparse import OptionParser
 import numpy as np
-from glue.ligolw import utils, table, lsctables, ligolw
+from ligo.lw import utils, table, lsctables, ligolw
 try:
     import h5py
 except:

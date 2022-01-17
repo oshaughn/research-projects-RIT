@@ -11,7 +11,7 @@ import RIFT.misc.ourparams as ourparams
 import numpy as np
 opts,  rosDebugMessagesDictionary = ourparams.ParseStandardArguments()
 
-from glue.ligolw import utils, lsctables, table, ligolw
+from ligo.lw import utils, lsctables, table, ligolw
 
 if opts.coinc:
     xmldoc = utils.load_filename(opts.coinc)

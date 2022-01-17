@@ -59,7 +59,7 @@ else:
     print(" - Faiiled ModifiedScikitFit : No polynomial fits - ")
 from sklearn import linear_model
 
-from glue.ligolw import lsctables, utils, ligolw
+from ligo.lw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 import RIFT.integrators.mcsampler as mcsampler

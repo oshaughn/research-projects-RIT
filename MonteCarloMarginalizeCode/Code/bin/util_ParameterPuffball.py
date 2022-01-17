@@ -30,7 +30,7 @@ import functools
 import itertools
 
 
-from glue.ligolw import lsctables, utils, ligolw
+from ligo.lw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 

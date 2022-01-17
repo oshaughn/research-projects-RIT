@@ -47,7 +47,7 @@ from sklearn.preprocessing import PolynomialFeatures
 import RIFT.misc.ModifiedScikitFit as msf  # altenative polynomialFeatures
 from sklearn import linear_model
 
-from glue.ligolw import lsctables, utils, ligolw
+from ligo.lw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 import RIFT.integrators.mcsampler as mcsampler
