@@ -533,9 +533,9 @@ class ChooseWaveformParams:
            self.assign_param('theta1',np.arccos(val))
            return self
         if p == 'phi1':
-            if self.fref == 0:
-                print(" Changing geometry requires a reference frequency ")
-                sys.exit(1)
+            # if self.fref == 0:
+            #     print(" Changing geometry requires a reference frequency ")
+            #     sys.exit(1)
             # Do it MANUALLY, assuming the L frame! 
             chiperp_vec_now = np.array([self.s1x,self.s1y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
@@ -568,9 +568,9 @@ class ChooseWaveformParams:
            self.assign_param('theta2',np.arccos(val))
            return self
         if p == 'phi2':
-            if self.fref == 0:
-                print(" Changing geometry requires a reference frequency ")
-                sys.exit(1)
+            # if self.fref == 0:
+            #     print(" Changing geometry requires a reference frequency ")
+            #     sys.exit(1)
             # Do it MANUALLY, assuming the L frame! 
             chiperp_vec_now = np.array([self.s2x,self.s2y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
