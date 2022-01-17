@@ -588,7 +588,7 @@ class ChooseWaveformParams:
             # Documentation: *changing* beta is designed for a single-spin binary at present
             # Based on expressions in this paper
             #    http://adsabs.harvard.edu/abs/2012PhRvD..86f4020B
-            if self.fref is 0:
+            if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
                 sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
@@ -770,25 +770,25 @@ class ChooseWaveformParams:
             xi = np.dot(Lhat, (self.m1*chi1Vec - self.m2* chi2Vec))/(self.m1- self.m2)   # see also 'Xi', defined below
             return xi
         if p == 'thetaJN':
-            if self.fref is 0:
+            if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
                 sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return thetaJN
         if p == 'phiJL':
-            if self.fref is 0:
+            if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
                 sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return phiJL
         if p == 'theta1_Jfix':
-            if self.fref is 0:
+            if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
                 sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return theta1
         if p == 'theta2_Jfix':
-            if self.fref is 0:
+            if self.fref == 0:
                 print(" Changing geometry requires a reference frequency ")
                 sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
@@ -814,7 +814,7 @@ class ChooseWaveformParams:
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
             return np.cos(theta1)
         if p == 'cos_theta2_alt': # alternate implementation. Not needed for theta1, theta2
-            if self.fref is 0:
+            if self.fref == 0:
                 print( " Changing geometry requires a reference frequency ")
                 sys.exit(1)
             thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame()
@@ -1513,7 +1513,7 @@ class ChooseWaveformParams:
         # Convert from lsctables.SimInspiral --> lalmetaio.SimInspiral
         swigrow = lalmetaio.SimInspiralTable()
         for simattr in lsctables.SimInspiralTable.validcolumns.keys():
-            if simattr in ['process_id','simulation_id']:
+            if simattr in ['process_id','simulation_id','process::process_id','process:process_id']:
                 setattr(swigrow, simattr,0)
             elif simattr in ["waveform", "source", "numrel_data", "taper","process_id"]:
                 # unicode -> char* doesn't work
