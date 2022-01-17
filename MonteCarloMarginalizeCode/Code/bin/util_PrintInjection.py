@@ -12,7 +12,7 @@ import lal
 import sys
 from ligo.lw import utils, lsctables, table, ligolw
 
-cthdler = ligolw.LIGOLWContentHandler #defines a content handler to load xml grids
+cthdler = lalsimutils.cthdler  #ligolw.LIGOLWContentHandler #defines a content handler to load xml grids
 lsctables.use_in(cthdler)
 
 
