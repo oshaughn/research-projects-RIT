@@ -463,7 +463,7 @@ if opts.result_file:
 
         # FIXME: The template banks we make are sim inspirals, we should
         # revisit this decision -- it isn't really helping anything
-        if opts.prerefine:
+        if opts.prerefine or use_composite:
             results.extend(lsctables.SimInspiralTable.get_table(xmldoc))
         else:
             results.extend(lsctables.SnglInspiralTable.get_table(xmldoc))
@@ -477,7 +477,7 @@ if opts.result_file:
         # We only want toe overlap values
         # FIXME: this needs to be done in a more consistent way
         results = numpy.array([res.alpha1 for res in results])
-    elif opts.use_composite:
+    elif use_composite:
         # using composite file information
         # the composite field for lnL is *alpha3*
         maxlnevid = numpy.max([s.alpha3 for s in results])
