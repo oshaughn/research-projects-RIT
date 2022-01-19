@@ -133,6 +133,8 @@ parser.add_argument("--internal-marginalize-distance",action='store_true',help="
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
 parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
 parser.add_argument("--internal-flat-strategy",action='store_true',help="Use the same CIP options for every iteration, with convergence tests on.  Passes --test-convergence, ")
+parser.add_argument("--internal-use-amr",action='store_true',help="Changes refinement strategy (and initial grid) to use. PRESENTLY WE CAN'T MIX AND MATCH AMR, CIP ITERATIONS, so this is fixed for the whole run right now; use continuation and 'fetch' to augment")
+parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank used for template")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
@@ -190,6 +192,11 @@ if opts.use_production_defaults:
     if opts.use_osg:
         opts.use_nogrid_nonworker = True
         opts.ile_retries=10  # very unstable environment
+
+if opts.internal_use_amr:
+    # Disable incompatible settings
+    opts.external_fetch_native_from = None
+    opts.cip_explode_jobs= None
 
 download_request = " get file "
 gracedb_exe =opts.gracedb_exe
@@ -632,6 +639,13 @@ if opts.cip_quadratic_first:
     lines[0]=lines[0].replace(' --fit-method gp ', ' --fit-method quadratic ')
     lines[0]=lines[0].replace(' --parameter delta_mc ', ' --parameter eta ')   # almost without fail we are using mc, delta_mc, xi  as zeroth layer
 
+
+if opts.internal_use_amr:
+    lines =[ ] 
+    # Manually implement aligned spin.  Should parse some of this from ini file ...
+    print(" AMR prototype: Using hardcoded aligned-spin settings, setting arguments")
+    lines += ["5 --no-exact-match --overlap-thresh 0.99 --distance-coordinates mchirp_eta --verbose --intrinsic-param mass1 --intrinsic-param mass2 --intrinsic-param spin1z --intrinsic-param spin2z --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf" ]
+
 with open("args_cip_list.txt",'w') as f: 
    for line in lines:
            f.write(line)
@@ -702,6 +716,38 @@ cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
 cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args args_puff.txt  --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+if opts.internal_use_amr:
+    print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
+    cmd += " --cip-exe `which util_AMRGrid.py ` "
+    if not(os.path.exists("coinc.xml")):
+        # re-download coinc if not already present
+        cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
+        if not(opts.use_legacy_gracedb):
+            cmd_event += " > coinc.xml "
+        os.system(cmd_event)
+        cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
+    event_dict = retrieve_event_from_coinc("coinc.xml")
+    with open("toy.ini","w") as f:
+        f.write("""
+[General]
+
+#The name of the directory you want results output to
+output_parent_directory=output
+
+[GridRefine]
+no-exact-match=
+distance-coordinates=mchirp_eta
+overlap-thresh=0.99
+verbose=
+intrinsic-param=[mass1,mass2]
+
+[InitialGridOnly]
+overlap-threshold = 0.98
+points-per-side=8
+""")
+    cmd_amr_init = "util_GridSubsetOfTemplateBank.py --use-ini {}  --use-bank {} --mass1 {} --mass2 {} --spin1z {} --spin2z {} ".format("toy.ini",opts.internal_use_amr_bank,event_dict["m1"],event_dict["m2"],event_dict["s1z"],event_dict["s2z"])
+    os.system(cmd_amr_init)
+    
 if opts.external_fetch_native_from:
     import json
     # Write json file 
