@@ -237,7 +237,9 @@ def plot_grid_cells(cells, color, axis1=0, axis2=1):
         ax.add_patch(Rectangle((cell._bounds[axis1][0], cell._bounds[axis2][0]), ext1, ext2, edgecolor = color, facecolor='none'))
 
 argp = ArgumentParser()
-
+argp.add_argument("--fname",default=None,help="Overrides result-file, for RIFT compatibility")
+argp.add_argument("--fname-output-samples",default=None,help="Overrides output-xml-file-name, for RIFT compatibility")
+argp.add_argument("--fname-output-integral",default=None,help="Does nothing, for RIFT compatibility")
 argp.add_argument("-d", "--distance-coordinates", default=None, help="Coordinate system in which to calculate 'closeness'. Default is tau0_tau3.")
 argp.add_argument("-n", "--no-exact-match", action="store_true", help="Loosen criteria that the input intrinsic point must be a member of the input template bank.")
 argp.add_argument("-v", "--verbose", action='store_true', help="Be verbose.")
@@ -276,6 +278,11 @@ opts = argp.parse_args()
 if not (opts.setup or opts.refine or opts.prerefine):
     exit("Either --setup or --refine or --prerefine must be chosen")
 
+# RIFT compatibility
+if opts.fname:
+    opts.result_file = opts.fname
+if opts.fname_output_samples:
+    opts.output_xml_file_name = opts.fname_output_samples
 
 def parse_param(popts):
     """
