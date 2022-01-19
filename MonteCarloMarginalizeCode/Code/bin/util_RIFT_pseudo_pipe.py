@@ -644,7 +644,7 @@ if opts.internal_use_amr:
     lines =[ ] 
     # Manually implement aligned spin.  Should parse some of this from ini file ...
     print(" AMR prototype: Using hardcoded aligned-spin settings, setting arguments")
-    lines += ["5 --no-exact-match --overlap-thresh 0.99 --distance-coordinates mchirp_eta --verbose --intrinsic-param mass1 --intrinsic-param mass2 --intrinsic-param spin1z --intrinsic-param spin2z --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf" ]
+    lines += ["10 --no-exact-match --overlap-thresh 0.99 --distance-coordinates mchirp_eta --verbose --intrinsic-param mass1 --intrinsic-param mass2 --intrinsic-param spin1z --intrinsic-param spin2z --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf" ]
 
 with open("args_cip_list.txt",'w') as f: 
    for line in lines:
