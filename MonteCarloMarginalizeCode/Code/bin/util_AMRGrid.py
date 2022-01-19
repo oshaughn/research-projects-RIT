@@ -468,7 +468,7 @@ if opts.result_file:
         else:
             results.extend(lsctables.SnglInspiralTable.get_table(xmldoc))
 
-     res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms) for t in results])
+    res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms) for t in results])
     res_pts = amrlib.apply_transform(res_pts, intr_prms, opts.distance_coordinates,spin_transform)
 
     # In the prerefine case, the "result" is the overlap values, which we use as
