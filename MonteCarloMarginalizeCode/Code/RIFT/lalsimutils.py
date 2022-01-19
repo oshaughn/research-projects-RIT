@@ -411,6 +411,7 @@ class ChooseWaveformParams:
         self.deltaF=deltaF
         self.fmax=fmax
         self.taper = taper
+        self.snr = None  # Only used for compatibility with AMR grid rapid_pe, should not usually be setting or using this
 
         # force this waveform's PN order to be 3 to avoid crashes
         if self.approx == lalsim.EccentricTD:
