@@ -442,6 +442,14 @@ intr_prms = list(intr_prms) + list(expand_prms.keys())
 # we've calculated, or overlaps of points we've looked at
 results = []
 if opts.result_file:
+    # Default code path: assume XML formatted information, and we point to a glob of result files from ILE
+    # If instead we have RIFT-style output files, create a temporary XML file with the correct format
+    if '.composite' in opts.result_file or '.net' in opts.result_file:
+        tempfile = "temp_convert_file"
+        cmd = "convert_output_format_allnet2xml --fname {} --fname-output-samples temp_convert_file ".format(opts.result_file)
+        os.system(cmd)
+        opts.result_file = "temp_convert_file.xml.gz"
+
     for arg in glob.glob(opts.result_file):
         # FIXME: Bad hardcode
         # This is here because I'm too lazy to figure out the glob syntax to
@@ -458,7 +466,7 @@ if opts.result_file:
         else:
             results.extend(lsctables.SnglInspiralTable.get_table(xmldoc))
 
-    res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms) for t in results])
+     res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms) for t in results])
     res_pts = amrlib.apply_transform(res_pts, intr_prms, opts.distance_coordinates,spin_transform)
 
     # In the prerefine case, the "result" is the overlap values, which we use as
