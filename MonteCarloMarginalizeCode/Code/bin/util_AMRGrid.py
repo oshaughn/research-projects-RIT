@@ -444,7 +444,9 @@ results = []
 if opts.result_file:
     # Default code path: assume XML formatted information, and we point to a glob of result files from ILE
     # If instead we have RIFT-style output files, create a temporary XML file with the correct format
+    use_composite = False
     if '.composite' in opts.result_file or '.net' in opts.result_file:
+        use_composite=True
         tempfile = "temp_convert_file"
         cmd = "convert_output_format_allnet2xml --fname {} --fname-output-samples temp_convert_file ".format(opts.result_file)
         os.system(cmd)
@@ -475,6 +477,16 @@ if opts.result_file:
         # We only want toe overlap values
         # FIXME: this needs to be done in a more consistent way
         results = numpy.array([res.alpha1 for res in results])
+    elif opts.use_composite:
+        # using composite file information
+        # the composite field for lnL is *alpha3*
+        maxlnevid = numpy.max([s.alpha3 for s in results])
+        total_evid = numpy.exp([s.alpha3 - maxlnevid for s in results]).sum()
+        for res in results:
+            res.alpha3 = numpy.exp(res.alpha3 - maxlnevid)/total_evid
+
+        # FIXME: this needs to be done in a more consistent way
+        results = numpy.array([res.alpha3 for res in results])
     else:
         # Normalize
         # We're gathering the evidence values. We normalize here so as to avoid
