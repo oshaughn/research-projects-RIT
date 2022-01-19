@@ -745,7 +745,7 @@ intrinsic-param=[mass1,mass2]
 overlap-threshold = 0.98
 points-per-side=8
 """)
-    cmd_amr_init = "util_GridSubsetOfTemplateBank.py --use-ini {}  --use-bank {} --mass1 {} --mass2 {} --spin1z {} --spin2z {} ".format("toy.ini",opts.internal_use_amr_bank,event_dict["m1"],event_dict["m2"],event_dict["s1z"],event_dict["s2z"])
+    cmd_amr_init = "util_GridSubsetOfTemplateBank.py --use-ini {}  --use-bank {} --mass1 {} --mass2 {} --s1z {} --s2z {} ".format("toy.ini",opts.internal_use_amr_bank,event_dict["m1"],event_dict["m2"],event_dict["s1z"],event_dict["s2z"])
     os.system(cmd_amr_init)
     
 if opts.external_fetch_native_from:
