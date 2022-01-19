@@ -198,6 +198,7 @@ if opts.internal_use_amr:
     opts.external_fetch_native_from = None
     opts.cip_explode_jobs= None
 
+
 download_request = " get file "
 gracedb_exe =opts.gracedb_exe
 if opts.use_legacy_gracedb:
@@ -747,6 +748,7 @@ points-per-side=8
 """)
     cmd_amr_init = "util_GridSubsetOfTemplateBank.py --use-ini {}  --use-bank {} --mass1 {} --mass2 {} --s1z {} --s2z {} ".format("toy.ini",opts.internal_use_amr_bank,event_dict["m1"],event_dict["m2"],event_dict["s1z"],event_dict["s2z"])
     os.system(cmd_amr_init)
+    shutil.copyfile("intrinsic_grid_iteration_0.xml.gz", "proposed-grid.xml.gz")  # Actually put the grid in the right place
     
 if opts.external_fetch_native_from:
     import json
