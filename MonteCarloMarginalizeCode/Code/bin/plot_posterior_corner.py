@@ -217,12 +217,12 @@ def extract_combination_from_LI(samples_LI, p):
         return np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.cos(  samples_LI['phi_jl'])
 
     if p == 'mc':
-        m1v= samples["m1"]
-        m2v = samples["m2"]
+        m1v= samples_LI["m1"]
+        m2v = samples_LI["m2"]
         return lalsimutils.mchirp(m1v,m2v)
     if p == 'eta':
-        m1v= samples["m1"]
-        m2v = samples["m2"]
+        m1v= samples_LI["m1"]
+        m2v = samples_LI["m2"]
         return lalsimutils.symRatio(m1v,m2v)
 
     if p == 'chi_pavg':
