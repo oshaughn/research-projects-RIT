@@ -1559,6 +1559,8 @@ class ChooseWaveformParams:
         row.alpha5 = self.lambda1
         row.alpha6 = self.lambda2
         row.alpha4 = self.eccentricity
+        if self.snr:
+            row.snr = self.snr
         # Debug: 
         if rosDebugMessagesContainer[0]:
             print( " Constructing the following XML table ")
