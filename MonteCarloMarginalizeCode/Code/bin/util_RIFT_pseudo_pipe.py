@@ -212,6 +212,8 @@ if opts.use_production_defaults:
         opts.ile_retries=10  # very unstable environment
 
 if opts.internal_use_amr:
+    # Require subdags!  Makes sure we evaluate all subgrid points
+    opts.use_subdags = True
     # Disable incompatible settings
     opts.external_fetch_native_from = None
     opts.cip_explode_jobs= None
