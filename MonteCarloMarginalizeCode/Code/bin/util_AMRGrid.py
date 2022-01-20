@@ -141,7 +141,7 @@ def write_to_xml_new(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verb
     # Assume everyhing in intrinsic grid, no pin_prms
     indx_lookup={}
     namelist = []
-    if ('mass1' in intr_prms and 'eta' in intr_prms):
+    if ('mass1' in intr_prms and 'mass2' in intr_prms):
         indx_lookup['m1'] = intr_prms.index('mass1')
         indx_lookup['m2'] = intr_prms.index('mass2')
         namelist = ['m1','m2']
