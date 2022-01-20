@@ -101,6 +101,24 @@ def unsafe_parse_arg_string(my_argstr,match):
             return x
     return None
         
+def guess_mc_range(event_dict):
+    Mchirp_event = lalsimutils.mchirp( event_dict["m1"],event_dict["m2"])
+    # from helper code: choose some mc range that's plausible, not a delta function at trigger mass
+    fmin_fiducial = 20
+    v_PN_param = (np.pi* Mchirp_event*fmin_fiducial*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
+    snr_fac = 1 # not using that information
+    v_PN_param = v_PN_param
+    v_PN_param_max = 0.2
+    fac_search_correct = 1.5   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
+    ln_mc_error_pseudo_fisher = 1.5*np.array(fac_search_correct)*0.3*(v_PN_param/v_PN_param_max)**(7.)/snr_fac 
+    if ln_mc_error_pseudo_fisher  >1:
+        ln_mc_error_pseudo_fisher =0.8   # stabilize
+    mc_max = np.exp( ln_mc_error_pseudo_fisher) * Mchirp_event
+    mc_min = np.exp( -ln_mc_error_pseudo_fisher) * Mchirp_event
+
+    return mc_min,mc_max
+
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
@@ -647,7 +665,7 @@ if opts.internal_use_amr:
     lines =[ ] 
     # Manually implement aligned spin.  Should parse some of this from ini file ...
     print(" AMR prototype: Using hardcoded aligned-spin settings, setting arguments")
-    lines += ["10 --no-exact-match --overlap-thresh 0.99 --distance-coordinates mchirp_eta --verbose --intrinsic-param mass1 --intrinsic-param mass2 --intrinsic-param spin1z --intrinsic-param spin2z --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf" ]
+    lines += ["10 --no-exact-match --overlap-thresh 0.99 --distance-coordinates mchirp_eta --verbose --intrinsic-param mchirp --intrinsic-param eta --intrinsic-param spin1z --intrinsic-param spin2z --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf --max-n-points 5000 " ]
 
 with open("args_cip_list.txt",'w') as f: 
    for line in lines:
@@ -732,8 +750,9 @@ if opts.internal_use_amr:
         os.system(cmd_event)
         cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
     event_dict = retrieve_event_from_coinc("coinc.xml")
-    with open("toy.ini","w") as f:
-        f.write("""
+    if opts.internal_use_amr_bank:
+        with open("toy.ini","w") as f:
+            f.write("""
 [General]
 
 #The name of the directory you want results output to
@@ -750,9 +769,14 @@ intrinsic-param=[mass1,mass2]
 overlap-threshold = 0.98
 points-per-side=8
 """)
-    cmd_amr_init = "util_GridSubsetOfTemplateBank.py --use-ini {}  --use-bank {} --mass1 {} --mass2 {}  ".format("toy.ini",opts.internal_use_amr_bank,event_dict["m1"],event_dict["m2"]) #,event_dict["s1z"],event_dict["s2z"])  # --s1z {} --s2z {}
-    os.system(cmd_amr_init)
-    shutil.copyfile("intrinsic_grid_iteration_0.xml.gz", "proposed-grid.xml.gz")  # Actually put the grid in the right place
+        cmd_amr_init = "util_GridSubsetOfTemplateBank.py --use-ini {}  --use-bank {} --mass1 {} --mass2 {}  ".format("toy.ini",opts.internal_use_amr_bank,event_dict["m1"],event_dict["m2"]) #,event_dict["s1z"],event_dict["s2z"])  # --s1z {} --s2z {}
+        os.system(cmd_amr_init)
+        shutil.copyfile("intrinsic_grid_iteration_0.xml.gz", "proposed-grid.xml.gz")  # Actually put the grid in the right place
+    else:
+        # don't use bank files, instead use manually-prescribed mc, eta, spin range. SHOULD FIX TO BE TIGHTER
+        mc_min,mc_max = guess_mc_range(event_dict)
+        cmd_amr_init = "util_AMRGrid --distance-coordinates mchirp_eta --initial-region mchirp={},{} --initial-region eta=0.05,0.24999 --initial-region spin1z=-0.8,0.8 --initial-region spin2z=-0.8,0.8  --points-per-side 8 --fname-output-samples proposed-grid  --setup intrinsic_grid_all_iterations   ".format(mc_min,mc_max)
+        os.system(cmd_amr_init)
     
 if opts.external_fetch_native_from:
     import json
