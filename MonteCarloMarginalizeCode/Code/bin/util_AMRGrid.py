@@ -140,17 +140,30 @@ def write_to_xml_new(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verb
     P_list = []
     # Assume everyhing in intrinsic grid, no pin_prms
     indx_lookup={}
-    indx_lookup['m1'] = intr_prms.index('mass1')
-    indx_lookup['m2'] = intr_prms.index('mass2')
-    indx_lookup['s1z'] = intr_prms.index('spin1z')
-    indx_lookup['s2z'] = intr_prms.index('spin2z')
+    namelist = []
+    if ('mass1' in intr_prms and 'eta' in intr_prms):
+        indx_lookup['m1'] = intr_prms.index('mass1')
+        indx_lookup['m2'] = intr_prms.index('mass2')
+        namelist = ['m1','m2']
+    else:
+        indx_lookup['mc'] = intr_prms.index('mchirp')
+        indx_lookup['eta'] = intr_prms.index('eta')
+        namelist = ['mc','eta']
+    if 'spin1z' in intr_prms:
+        indx_lookup['s1z'] = intr_prms.index('spin1z')
+        indx_lookup['s2z'] = intr_prms.index('spin2z')
+        namelist += ['s1z','s2z']
     for indx in numpy.arange(len(cells)):
         P = lalsimutils.ChooseWaveformParams()
-        for name in ['m1','m2','s1z','s2z']:
+        for name in namelist:
             fac_correct = 1
             if 'm' in name:
                 fac_correct =lal.MSUN_SI
-            setattr(P, name, fac_correct*cells[indx]._center[indx_lookup[name]])
+#            setattr(P, name, fac_correct*cells[indx]._center[indx_lookup[name]])
+            if hasattr(P, name):
+                setattr(P, name, fac_correct*cells[indx]._center[indx_lookup[name]])
+            else:
+                P.assign_param(name, fac_correct*cells[indx]._center[indx_lookup[name]])
         P_list.append(P)
 
     fname_out = fname
