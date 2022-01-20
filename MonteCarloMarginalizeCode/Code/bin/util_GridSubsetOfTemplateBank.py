@@ -54,6 +54,7 @@ parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file co
 parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
 parser.add_argument("--mass1", default=1.50,type=float,help="Mass in solar masses")  # 150 turns out to be ok for Healy et al sims
 parser.add_argument("--mass2", default=1.35,type=float,help="Mass in solar masses")
+parser.add_argument("--mc-range",default=None,help="Manually input target chirp mass range")
 parser.add_argument("--s1z", default=0.,type=float,help="Spin1z")
 parser.add_argument("--s2z", default=0.,type=float,help="Spin1z")
 parser.add_argument("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given")
@@ -68,13 +69,19 @@ parser.add_argument("--match-value", type=float, default=0.01, help="Use this as
 parser.add_argument("--verbose", action="store_true",default=False, help="Extra warnings")
 opts=  parser.parse_args()
 
+if opts.mc_range:
+    # If user specifies it, create it
+    mc_range  = list(map(int,opts.mc_range.replace('[','').replace(']','').split(',')))
+    opts.mc_range = mc_range
+else:
+    print(" User not specifying mc range, using event-based selection")
 
 cfg = ConfigParser()
 cfg.optionxform = str
 cfgname = opts.use_ini
 if not cfgname:
     print("  No input file ")
-    sys.exit(0)
+    sys.exit(1)
 
 cfg.read(cfgname)
 
@@ -189,6 +196,22 @@ def main():
     eta_event = ((m1*m2)/((m1+m2)**2.))
     print("Event mchirp",Mchirp_event,eta_event)
 
+    # from helper code: choose some mc range that's plausible, not a delta function at trigger mass
+    fmin_fiducial = 20
+    v_PN_param = (np.pi* Mchirp_event*fmin_fiducial*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
+    snr_fac = 1 # not using that information
+    v_PN_param = v_PN_param
+    v_PN_param_max = 0.2
+    fac_search_correct = 1.5   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
+    ln_mc_error_pseudo_fisher = 1.5*np.array(fac_search_correct)*0.3*(v_PN_param/v_PN_param_max)**(7.)/snr_fac 
+    if ln_mc_error_pseudo_fisher  >1:
+        ln_mc_error_pseudo_fisher =0.8   # stabilize
+    mc_max = np.exp( ln_mc_error_pseudo_fisher) * Mchirp_event
+    mc_min = np.exp( -ln_mc_error_pseudo_fisher) * Mchirp_event
+    if opts.mc_range:
+        mc_min = opts.mc_range[0]
+        mc_max = opts.mc_range[1]
+
     #Reducing list of files to those in mchirp range
     olap_filenames = glob.glob(path_to_olap_files+"*.hdf")
     count_files = 0
@@ -204,7 +227,7 @@ def main():
         m1, m2 = mdata["mass1"][:ntemplates], mdata["mass2"][:ntemplates]
         Mchirps = ( (m1*m2)**(3/5.0) ) / ( (m1 + m2)**(1/5.0) )
 #        print Mchirp_event,min(Mchirps),max(Mchirps)
-        if Mchirp_event > min(Mchirps) and Mchirp_event < max(Mchirps):
+        if (mc_max > min(Mchirps) and  mc_max < max(Mchirps)) or (mc_min > min(Mchirps) and  mc_min < max(Mchirps)) or ( mc_max > max(Mchirps) and mc_min < min(Mchirps)) :
             print(hdf_filename)
             s1, s2 = mdata["spin1z"][:ntemplates], mdata["spin2z"][:ntemplates]
             etas = ((m1*m2)/((m1+m2)**2.))
