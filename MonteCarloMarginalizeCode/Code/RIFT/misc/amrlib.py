@@ -622,10 +622,11 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
         m1_idx, m2_idx = intr_prms.index("mass1"), intr_prms.index("mass2")
     elif ('mchirp' in intr_prms) and ('eta' in intr_prms):
         # we use mc, eta to specify parameters
+        # overwrite existing variables
         m1_idx,m2_idx = intr_prms.index("mchirp"), intr_prms.index("eta")
         intr_prms_extended[m1_idx] = "mass1"
         intr_prms_extended[m2_idx] = "mass2"
-        pts_extended[:,m1_idx], pts[:,m2_idx] = transform_mceta_m1m2(pts_extended[:,m1_idx], pts_extended[:,m2_idx])
+        pts_extended[:,m1_idx], pts_extended[:,m2_idx] = transform_mceta_m1m2(pts[:,m1_idx], pts[:,m2_idx])
     else:
         raise("apply_transform: Cannot perform requested transformation")
     if spin_transform:
