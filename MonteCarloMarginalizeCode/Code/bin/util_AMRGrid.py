@@ -617,8 +617,9 @@ print("%d cells after bounds checking" % len(grid))
 if len(grid) == 0:
     exit("All cells would be removed by physical boundaries.")
 
-# Convert back to physical mass
-grid = amrlib.apply_inv_transform(grid, intr_prms, opts.distance_coordinates,spin_transform)
+# Convert back to initial coordinate system.  Not needed if grid is *already* in this system?
+if not('mchirp' in intr_prms):
+    grid = amrlib.apply_inv_transform(grid, intr_prms, opts.distance_coordinates,spin_transform)
 #print "inv transform",grid
 
 cells = amrlib.grid_to_cells(grid, spacing)
