@@ -779,6 +779,8 @@ overlap-threshold = 0.4
 points-per-side=8
 """)
         cmd_amr_init = "util_GridSubsetOfTemplateBank.py --use-ini {}  --use-bank {} --mass1 {} --mass2 {}  ".format("toy.ini",opts.internal_use_amr_bank,event_dict["m1"],event_dict["m2"]) #,event_dict["s1z"],event_dict["s2z"])  # --s1z {} --s2z {}
+        if opts.assume_nospin:
+            cmd_amr_init += " --assume-nospin "
         os.system(cmd_amr_init)
         shutil.copyfile("intrinsic_grid_iteration_0.xml.gz", "proposed-grid.xml.gz")  # Actually put the grid in the right place
     else:
