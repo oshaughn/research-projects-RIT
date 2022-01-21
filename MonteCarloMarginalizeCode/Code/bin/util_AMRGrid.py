@@ -494,7 +494,7 @@ if opts.result_file:
     elif ('mchirp' in intr_prms):
         res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms) for t in results]) # can fill spin components if present
         # now overwrite eta values (all filled with 0 since no attr) with correct value
-        eta_indx = intr_prms.index['eta']
+        eta_indx = intr_prms.index('eta')
         mass_pts = numpy.array([tuple(getattr(t, a) for a in ['mass1','mass2']) for t in results])
         res_pts[:,eta_indx] = lalsimutils.symRatio(mass_pts[:,0],mass_pts[:,1])
         # res_pts = numpy.zeros((len(intr_prms),len(results)))
