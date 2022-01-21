@@ -557,7 +557,7 @@ def check_spins(spin):
     return numpy.sqrt(numpy.atleast_2d(spin**2).sum(axis=0)) <= 1
 
 # Make sure the new grid points are physical
-def check_grid(grid, intr_prms, distance_coordinates):
+def check_grid(grid, intr_prms, distance_coordinates,mass_lower_bound=1):
     """
     Check the validity of points in various coordinate spaces to ensure they are physical.
     """
@@ -569,10 +569,16 @@ def check_grid(grid, intr_prms, distance_coordinates):
             bounds_mask = check_tau0tau3(grid_check[m1_axis], grid_check[m2_axis])
         elif distance_coordinates == "mchirp_eta":
             bounds_mask = check_mchirpeta(grid_check[m1_axis], grid_check[m2_axis])
+    if 'mchirp' in intr_prms:
+        mc_axis, eta_axis = intr_prms.index("mchirp"), intr_prms.index("eta")
+        bounds_mask = grid_check[eta_axis] 
+        m1v,m2v = lalsimutils.m1m2( grid_check[mc_axis],grid_check[eta_axis])
+        bounds_mask = numpy.logical_and(bounds_mask, m2v>mass_lower_bound)
+
 
     # FIXME: Needs general spin
-    if "spin2z" in intr_prms:
-        s1_axis = intr_prms.index("spin2z")
+    if "spin1z" in intr_prms:
+        s1_axis = intr_prms.index("spin1z")
         bounds_mask &= check_spins(grid_check[s1_axis])
     if "spin2z" in intr_prms:
         s2_axis = intr_prms.index("spin2z")
