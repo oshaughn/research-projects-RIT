@@ -571,7 +571,7 @@ def check_grid(grid, intr_prms, distance_coordinates,mass_lower_bound=1):
             bounds_mask = check_mchirpeta(grid_check[m1_axis], grid_check[m2_axis])
     if 'mchirp' in intr_prms:
         mc_axis, eta_axis = intr_prms.index("mchirp"), intr_prms.index("eta")
-        bounds_mask = np.logical_and(grid_check[eta_axis] <=0.25 ,grid_check[eta_axis]>0)
+        bounds_mask = numpy.logical_and(grid_check[eta_axis] <=0.25 ,grid_check[eta_axis]>0)
         m1v,m2v = lalsimutils.m1m2( grid_check[mc_axis],grid_check[eta_axis])
         bounds_mask = numpy.logical_and(bounds_mask, m2v>mass_lower_bound)
 
