@@ -283,8 +283,8 @@ grid_section.add_argument("--mc-max", type=float, default=None, help="Restrict c
 refine_section = argp.add_argument_group("refine options", "Options for refining a pre-existing grid.")
 refine_section.add_argument("--refine", help="Refine a prexisting grid. Pass this option the grid points from previous levels (or the --setup) option.")
 refine_section.add_argument("-r", "--result-file", help="Input XML file containing newest result to refine.")
-refine_section.add_argument("-M", "--max-n-points", help="Refine *at most* this many points, can override confidence region thresholds.")
-refine_section.add_argument("-m", "--min-n-points", help="Refine *at least* this many points, can override confidence region thresholds.")
+refine_section.add_argument("-M", "--max-n-points",type=int, help="Refine *at most* this many points, can override confidence region thresholds.")
+refine_section.add_argument("-m", "--min-n-points", type=int, help="Refine *at least* this many points, can override confidence region thresholds.")
 
 opts = argp.parse_args()
 
