@@ -2264,6 +2264,8 @@ def m1m2(Mc, eta):
     if isinstance(etaV, float):
         if etaV < 0:
             etaV = 0
+    else:
+        eteaV[etaV<0] = 0 # set negative cases to 0, so no sqrt problems
     m1 = 0.5*Mc*eta**(-3./5.)*(1. + np.sqrt(etaV))
     m2 = 0.5*Mc*eta**(-3./5.)*(1. - np.sqrt(etaV))
     return m1, m2
