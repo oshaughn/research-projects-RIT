@@ -218,7 +218,11 @@ def main():
     strings_to_include = "{"
     min_dist = -1
     min_dist_filename = ""
-    for hdf_filename in olap_filenames:
+    # if we only provide one file, don't bother looking
+    if len(olap_filenames)==1:
+        cmd += " --use-overlap " + olap_filenames[0]
+    else:
+      for hdf_filename in olap_filenames:
         h5file = h5py.File(hdf_filename,"r")
         wfrm_fam = list(h5file.keys())[0]
         mdata = h5file[wfrm_fam]
@@ -247,12 +251,12 @@ def main():
                 min_dist_filename = hdf_filename
 
             count_files += 1
-            if not "s1z" in intrinsic_param:
+#            if not "s1z" in intrinsic_param:
                 #FIXME: rapidpe compute grid doesn't consider spin when checking for the closest template, which can lead to incorrect overlaps with other templates because the spin of the closest template assuming zero spin is actually non-zero, and if that was taken into account it wouldn't be the closest template
-                cmd += " --use-overlap "+hdf_filename
+            cmd += " --use-overlap "+hdf_filename
 
-    if "s1z" in intrinsic_param:                
-        cmd += " --use-overlap "+min_dist_filename
+#    if "s1z" in intrinsic_param:                
+#        cmd += " --use-overlap "+min_dist_filename
 
     print(("CLA",cmd))
     print(("Command line includes",count_files,"files to read"))
