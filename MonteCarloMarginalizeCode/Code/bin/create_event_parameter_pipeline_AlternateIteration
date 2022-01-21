@@ -929,7 +929,7 @@ for it in np.arange(it_start,opts.n_iterations):
     #   - first create the subdag itself at runtime, making the job to create the subdag occur
     #   - next add a node to make sure the external subddag file gets executed
     subdag_main_node = pipeline.CondorDAGNode(subdag_job)
-    subdag_main_node.set_retry(opts.general_retries) # ILE jobs fail a *lot*
+    subdag_main_node.set_retry(opts.general_retries) # dag writer job
 
     main_subdag =  pipeline.CondorDAGManJob("iteration_{}_ile_subdag.dag".format(it))  # assumes subdag is created
     subdag_main_node.add_macro("macroiteration",it)
@@ -937,6 +937,7 @@ for it in np.arange(it_start,opts.n_iterations):
             subdag_main_node.add_parent(parent_fit_node)
     main_analysis_node = main_subdag.create_node()
     main_analysis_node.add_parent(subdag_main_node)
+    main_analysis_node.set_retry(opts.general_retries) # ILE jobs fail a *lot*
     dag.add_node(subdag_main_node)
     dag.add_node(main_analysis_node)
     con_node.add_parent(main_analysis_node) # consolidate depends on all of the individual jobs
