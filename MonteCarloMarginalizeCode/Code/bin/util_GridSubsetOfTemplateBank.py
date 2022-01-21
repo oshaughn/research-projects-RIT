@@ -55,6 +55,7 @@ parser.add_argument("--event",type=int, dest="event_id", default=None,help="even
 parser.add_argument("--mass1", default=1.50,type=float,help="Mass in solar masses")  # 150 turns out to be ok for Healy et al sims
 parser.add_argument("--mass2", default=1.35,type=float,help="Mass in solar masses")
 parser.add_argument("--mc-range",default=None,help="Manually input target chirp mass range")
+parser.add_argument("--assume-nospin",action='store_true')
 parser.add_argument("--s1z", default=0.,type=float,help="Spin1z")
 parser.add_argument("--s2z", default=0.,type=float,help="Spin1z")
 parser.add_argument("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given")
@@ -117,6 +118,7 @@ else:
     P.m1 = opts.mass1 *lal.MSUN_SI
     P.m2 = opts.mass2 *lal.MSUN_SI
     P.s1z = opts.s1z
+    P.s2z = opts.s2z
     P.dist = 150*1e6*lal.PC_SI
     if opts.eff_lambda and Psig:
         lambda1, lambda2 = 0, 0
@@ -142,8 +144,9 @@ else:
 intrinsic_param ={}
 intrinsic_param["m1"] = P.m1/lal.MSUN_SI
 intrinsic_param["m2"] = P.m2/lal.MSUN_SI
-intrinsic_param["s1z"] = P.s1z
-intrinsic_param["s2z"] = P.s2z
+if not(opts.assume_nospin):
+    intrinsic_param["s1z"] = P.s1z
+    intrinsic_param["s2z"] = P.s2z
 #intrinsic_param = convert_list_string_to_dict(kwargs["intrinsic_param"])
 distance_coordinates = cfg.get("GridRefine","distance-coordinates") if cfg.has_option("GridRefine","distance-coordinates") else ""
 additional_command_line_args = convert_cfg_section_to_cmd_line(cfg,"InitialGridOnly") if cfg.has_section("InitialGridOnly") else ""
@@ -233,9 +236,10 @@ def main():
 #        print Mchirp_event,min(Mchirps),max(Mchirps)
         if (mc_max > min(Mchirps) and  mc_max < max(Mchirps)) or (mc_min > min(Mchirps) and  mc_min < max(Mchirps)) or ( mc_max > max(Mchirps) and mc_min < min(Mchirps)) :
             print(hdf_filename)
-            s1, s2 = mdata["spin1z"][:ntemplates], mdata["spin2z"][:ntemplates]
             etas = ((m1*m2)/((m1+m2)**2.))
-            chi_effs = transform_s1zs2z_chi(m1,m2,s1,s2)    
+            if 's1z' in intrinsic_param:
+                s1, s2 = mdata["spin1z"][:ntemplates], mdata["spin2z"][:ntemplates]
+                chi_effs = transform_s1zs2z_chi(m1,m2,s1,s2)    
             #FIXME:even if youre not searching over spin, you want to find the file with the closest template assuming spin=0
             #implement above here at same time as code
             list_for_tree = np.asarray([Mchirps,etas]).T
