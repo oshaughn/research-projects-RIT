@@ -488,7 +488,28 @@ if opts.result_file:
         else:
             results.extend(lsctables.SnglInspiralTable.get_table(xmldoc))
 
-    res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms) for t in results])
+    # original code only works if coordinates are in the XML table! 'eta' is not a field in the xml file
+    if 'mass1' in intr_prms:
+        res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms) for t in results])
+    elif ('mchirp' in intr_prms):
+        res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms) for t in results]) # can fill spin components if present
+        # now overwrite eta values (all filled with 0 since no attr) with correct value
+        eta_indx = intr_prms.index['eta']
+        mass_pts = numpy.array([tuple(getattr(t, a) for a in ['mass1','mass2']) for t in results])
+        res_pts[:,eta_indx] = lalsimutils.symRatio(mass_pts[:,0],mass_pts[:,1])
+        # res_pts = numpy.zeros((len(intr_prms),len(results)))
+        # indx_mc = intr_prms.index['mchirp']
+        # indx_eta = intr_prms.index['eta']
+        # indx_s1z = intr_prms.index['s1z']
+        # indx_s2z = intr_prms.index['s2z']
+        # rng = numpy.arange(len(results))
+        # # as in lalsimutils xml_to_ChooseWaveformParams_array
+        # Ps = [ChooseWaveformParams(deltaT=deltaT, fref=fref, lambda1=lambda1,
+        #     lambda2=lambda2, waveFlags=waveFlags, nonGRparams=nonGRparams,                                   
+        #     detector=detector, deltaF=deltaF, fmax=fmax) for i in rng]
+        # [Ps[i].copy_lsctables_sim_inspiral(sim_insp[i]) for i in rng]
+        # # could finish this
+
     res_pts = amrlib.apply_transform(res_pts, intr_prms, opts.distance_coordinates,spin_transform)
 
     # In the prerefine case, the "result" is the overlap values, which we use as
