@@ -216,7 +216,7 @@ def main():
         mc_max = opts.mc_range[1]
 
     #Reducing list of files to those in mchirp range
-    olap_filenames = glob.glob(path_to_olap_files+"*.hdf")
+    olap_filenames = glob.glob(path_to_olap_files+"/*.hdf")
     count_files = 0
     strings_to_include = "{"
     min_dist = -1
@@ -224,6 +224,7 @@ def main():
     # if we only provide one file, don't bother looking
     if len(olap_filenames)==1:
         cmd += " --use-overlap " + olap_filenames[0]
+        count_files +=1
     else:
       for hdf_filename in olap_filenames:
         h5file = h5py.File(hdf_filename,"r")
