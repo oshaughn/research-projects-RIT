@@ -685,7 +685,7 @@ with open("args_cip_list.txt",'w') as f:
 # Write test file
 with open("args_test.txt",'w') as f:
     test_args = " --method lame  --parameter m1 "
-    if not(opts.use_amr):   # ALWAYS run the test with AMR
+    if not(opts.internal_use_amr):   # ALWAYS run the test with AMR
         test_args +=  " --always-succeed  "
     else:
         test_args += " --threshold 0.02 "
