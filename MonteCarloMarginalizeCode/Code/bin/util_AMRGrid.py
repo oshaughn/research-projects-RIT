@@ -256,6 +256,7 @@ argp.add_argument("--fname-output-integral",default=None,help="Does nothing, for
 argp.add_argument("-d", "--distance-coordinates", default=None, help="Coordinate system in which to calculate 'closeness'. Default is tau0_tau3.")
 argp.add_argument("-n", "--no-exact-match", action="store_true", help="Loosen criteria that the input intrinsic point must be a member of the input template bank.")
 argp.add_argument("-v", "--verbose", action='store_true', help="Be verbose.")
+argp.add_argument("--n-max-output", type=int, help="HARD limit on output size, imposed at end, to throttle. Selected AT RANDOM from refinement.")
 
 # FIXME: These two probably should only be for the initial set up. While it
 # could work, in theory, for refinement, the procedure would be a bit more
@@ -279,12 +280,12 @@ grid_section.add_argument("-D", "--deactivate", action="store_true", help="Deact
 grid_section.add_argument("-P", "--prerefine", help="Refine this initial grid based on overlap values.")
 grid_section.add_argument("--mc-min", type=float, default=None, help="Restrict chirp mass grid points to be > mc-min. This is used when generating pp-plots, so that recovered Mc isn't outside of injected prior range.It should not be used otherwise.")
 grid_section.add_argument("--mc-max", type=float, default=None, help="Restrict chirp mass grid points to be < mc-max. This is used when generating pp-plots, so that recovered Mc isn't outside of injected prior range.It should not be used otherwise.")
-
 refine_section = argp.add_argument_group("refine options", "Options for refining a pre-existing grid.")
 refine_section.add_argument("--refine", help="Refine a prexisting grid. Pass this option the grid points from previous levels (or the --setup) option.")
 refine_section.add_argument("-r", "--result-file", help="Input XML file containing newest result to refine.")
 refine_section.add_argument("-M", "--max-n-points",type=int, help="Refine *at most* this many points, can override confidence region thresholds.")
 refine_section.add_argument("-m", "--min-n-points", type=int, help="Refine *at least* this many points, can override confidence region thresholds.")
+
 
 opts = argp.parse_args()
 
@@ -653,6 +654,12 @@ else:
     level = amrlib.save_grid_cells_hdf(grp, cells, "mass1_mass2", intr_prms)
 
 print("Selected %d cells for further analysis." % len(cells))
+if not(opts.n_max_output is None):
+    if len(cells) > opts.n_max_output:
+        print("Imposing HARD LIMIT on output size of " + opts.n_max_output)
+        indx_ok = numpy.random.choice(len(cells), size=opts.n_max_output,replace=False)
+        cells = cells[indx_ok]
+
 if opts.setup:
     fname = "HL-MASS_POINTS_LEVEL_0-0-1.xml.gz" if opts.output_xml_file_name == "" else opts.output_xml_file_name 
     write_to_xml_new(cells, intr_prms, pin_prms, None, fname, verbose=opts.verbose)
