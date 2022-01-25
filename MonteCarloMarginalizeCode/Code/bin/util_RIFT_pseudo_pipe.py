@@ -137,6 +137,7 @@ parser.add_argument("--manual-postfix",default='',type=str)
 parser.add_argument("--gracedb-id",default=None,type=str)
 parser.add_argument("--gracedb-exe",default="gracedb")
 parser.add_argument("--use-legacy-gracedb",action='store_true')
+parser.add_argument("--internal-use-gracedb-bayestar",action='store_true',help="Retrieve BS skymap from gracedb (bayestar.fits), and use it internally in integration with --use-skymap bayestar.fits.")
 parser.add_argument("--event-time",default=None,type=float,help="Event time. Intended to override use of GracedbID. MUST provide --manual-initial-grid ")
 parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
@@ -425,6 +426,8 @@ if True:
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
+if opts.internal_use_gracedb_bayestar:
+    cmd += " --internal-use-gracedb-bayestar "
 if not(opts.internal_use_amr) and not(opts.manual_initial_grid):
     cmd+= " --propose-initial-grid "
 if opts.force_initial_grid_size:
