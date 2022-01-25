@@ -645,6 +645,13 @@ if not('mchirp' in intr_prms):
 #print "inv transform",grid
 
 cells = amrlib.grid_to_cells(grid, spacing)
+print("Selected %d cells for further analysis." % len(cells))
+if not(opts.n_max_output is None):
+    if len(cells) > opts.n_max_output:
+        print("Imposing HARD LIMIT on output size of {}".format(opts.n_max_output))
+        indx_ok = numpy.random.choice(len(cells), size=opts.n_max_output,replace=False)
+        cells = cells[indx_ok]
+
 if opts.setup:
     hdf_filename = opts.setup+".hdf" if not ".hdf" in opts.setup else opts.setup
     grid_group = amrlib.init_grid_hdf(init_region, hdf_filename, opts.overlap_threshold, opts.distance_coordinates, intr_prms=intr_prms)
@@ -653,12 +660,6 @@ else:
     grp = amrlib.load_grid_level(opts.refine, None)
     level = amrlib.save_grid_cells_hdf(grp, cells, "mass1_mass2", intr_prms)
 
-print("Selected %d cells for further analysis." % len(cells))
-if not(opts.n_max_output is None):
-    if len(cells) > opts.n_max_output:
-        print("Imposing HARD LIMIT on output size of {}".format(opts.n_max_output))
-        indx_ok = numpy.random.choice(len(cells), size=opts.n_max_output,replace=False)
-        cells = cells[indx_ok]
 
 if opts.setup:
     fname = "HL-MASS_POINTS_LEVEL_0-0-1.xml.gz" if opts.output_xml_file_name == "" else opts.output_xml_file_name 
