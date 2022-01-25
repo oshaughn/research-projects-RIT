@@ -38,7 +38,7 @@ import numpy
 from scipy.special import binom
 from sklearn.neighbors import BallTree
 
-from ligo.lw import utils, ligolw, lsctables, ilwd
+from ligo.lw import utils, ligolw, lsctables # , ilwd
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 from ligo.lw.utils import process
 
@@ -200,7 +200,7 @@ def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=
         sim_insp = sim_insp_tbl.RowType()
         # FIXME: Need better IDs
         sim_insp.numrel_data = "INTR_SET_%d" % itr
-        sim_insp.simulation_id = ilwd.ilwdchar("sim_inspiral:sim_inspiral_id:%d" % itr)
+        sim_insp.simulation_id = itr #ilwd.ilwdchar("sim_inspiral:sim_inspiral_id:%d" % itr)
         sim_insp.process_id = procid
         if fvals:
             sim_insp.alpha1 = fvals[itr]
