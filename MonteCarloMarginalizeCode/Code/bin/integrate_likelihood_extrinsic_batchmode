@@ -107,7 +107,7 @@ class EvenBivariateLinearInterpolator:
         return f_approx
 
 try:
-  from lalinference.io import fits as bfits
+  from ligo.skymap.io import fits as bfits
 except:
   print(" -no bayestar- ")
 
