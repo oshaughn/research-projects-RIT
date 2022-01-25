@@ -106,7 +106,10 @@ class EvenBivariateLinearInterpolator:
 
         return f_approx
 
-#from lalinference.bayestar import fits as bfits
+try:
+  from lalinference.io import fits as bfits
+except:
+  print(" -no bayestar- ")
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
