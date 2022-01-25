@@ -1029,7 +1029,11 @@ if opts.propose_fit_strategy and (not opts.gracedb_id is None):
 
 
 if opts.propose_ile_convergence_options:
-    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler   --n-max 4000000 --n-eff {} ".format(opts.ile_n_eff)
+    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler   --n-max 4000000 --n-eff {} ".format(opts.ile_n_eff)
+    if not(opts.internal_use_gracedb_skymap):
+        helper_ile_args += " --declination-cosine-sampler  "  # skymap coordinates all fixed
+    else:
+        helper_ile_args += " --n-chunk 500 " # much smaller chunk size for integration for ILE if we are using an input skymap! Slow, but does the hard dimension
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs
     # Note that number of events to analyze is controlled by a different part of the workflow !
