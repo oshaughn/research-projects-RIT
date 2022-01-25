@@ -1042,7 +1042,7 @@ if opts.propose_ile_convergence_options:
         helper_ile_args += " --adapt-weight-exponent  {} ".format(prefactor)  
 
 if opts.internal_use_gracedb_bayestar:
-    helper_ile_args += " --skymap=file {}/bayestar.fits ".format(opts.working_directory)
+    helper_ile_args += " --skymap-file {}/bayestar.fits ".format(opts.working_directory)
 
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
