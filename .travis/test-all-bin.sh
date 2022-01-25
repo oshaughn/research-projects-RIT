@@ -50,5 +50,5 @@ for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
     EXEPATH=`which ${EXENAME}`
     # execute --help with coverage
     echo "Testing $EXEPATH --help..."
-    python -m coverage run --append --source=RIFT ${EXEPATH} --help 1>/dev/null;
+    python3 -m coverage run --append --source=RIFT ${EXEPATH} --help 1>/dev/null;
 done
