@@ -5,7 +5,7 @@ import sys
 import os
 import shutil
 from glue import pipeline # https://github.com/lscsoft/lalsuite-archive/blob/5a47239a877032e93b1ca34445640360d6c3c990/glue/glue/pipeline.py
-from ligo.lw import utils, ligolw, lsctables, table, ilwd
+from ligo.lw import utils, ligolw, lsctables
 import RIFT.lalsimutils as  lsu
 import numpy as np
 from math import ceil
@@ -26,7 +26,7 @@ xmldoc = utils.load_filename( opts.sim_xml, contenthandler=lsu.cthdler )
 
 try:
         # Read SimInspiralTable from the xml file, set row bounds
-        sim_insp = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
+        sim_insp = lsctables.SimInspiralTable.get_table(xmldoc) #table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
         n_events = len(sim_insp)
         print(" === NUMBER OF EVENTS === ")
         print(n_events)
