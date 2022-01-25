@@ -472,6 +472,8 @@ if use_gracedb_event:
   # Get bayestar.fits 
   if opts.internal_use_gracedb_bayestar:
       cmd_event = gracedb_exe + download_request + opts.gracedb_id + " bayestar.fits "
+      if not(opts.use_legacy_gracedb):
+          cmd_event += " > bayestar.fits "
       os.system(cmd_event)
 
 if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
