@@ -670,7 +670,7 @@ if opts.internal_use_amr:
     lines =[ ] 
     # Manually implement aligned spin.  Should parse some of this from ini file ...
     print(" AMR prototype: Using hardcoded aligned-spin settings, setting arguments")
-    lines += ["10 --no-exact-match --overlap-thresh 0.99 --distance-coordinates mchirp_eta --verbose   --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf --max-n-points 1000 --n-max-points 5000 " ]
+    lines += ["10 --no-exact-match --overlap-thresh 0.99 --distance-coordinates mchirp_eta --verbose   --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf --max-n-points 1000 --n-max-output 5000 " ]
     if opts.internal_use_amr_bank:
         lines[0] +=" --intrinsic-param mass1 --intrinsic-param mass2 "  # output by default written this way for bank files
     else:
