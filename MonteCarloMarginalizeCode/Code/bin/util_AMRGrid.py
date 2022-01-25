@@ -656,7 +656,7 @@ else:
 print("Selected %d cells for further analysis." % len(cells))
 if not(opts.n_max_output is None):
     if len(cells) > opts.n_max_output:
-        print("Imposing HARD LIMIT on output size of " + opts.n_max_output)
+        print("Imposing HARD LIMIT on output size of {}".format(opts.n_max_output))
         indx_ok = numpy.random.choice(len(cells), size=opts.n_max_output,replace=False)
         cells = cells[indx_ok]
 
