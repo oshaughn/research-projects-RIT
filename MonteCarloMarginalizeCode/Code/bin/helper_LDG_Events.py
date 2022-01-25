@@ -138,6 +138,7 @@ def get_observing_run(t):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
+parser.add_argument("--internal-use-gracedb-bayestar",action='store_true',help="Retrieve BS skymap from gracedb (bayestar.fits), and use it internally in integration with --use-skymap bayestar.fits.")
 parser.add_argument("--force-data-lookup",action='store_true',help='Use this flag if you want to use real data.')
 parser.add_argument("--force-mc-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region. Passed directly to MOG and CIP.")
 parser.add_argument("--force-eta-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region")
@@ -466,6 +467,12 @@ if use_gracedb_event:
       event_dict["epoch"]  = 0 # no estimate for now
       if not "SNR" in event_dict:
           event_dict["SNR"] = 10  # again made up so code will run
+
+
+  # Get bayestar.fits 
+  if opts.internal_use_gracedb_bayestar:
+      cmd_event = gracedb_exe + download_request + opts.gracedb_id + " bayestar.fits "
+      os.system(cmd_event)
 
 if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
@@ -1031,6 +1038,9 @@ if opts.propose_ile_convergence_options:
         helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
     else:
         helper_ile_args += " --adapt-weight-exponent  {} ".format(prefactor)  
+
+if opts.internal_use_gracedb_bayestar:
+    helper_ile_args += " --skymap=file {}/bayestar.fits ".format(opts.working_directory)
 
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
