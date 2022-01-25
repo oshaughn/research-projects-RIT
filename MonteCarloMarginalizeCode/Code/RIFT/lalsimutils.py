@@ -40,7 +40,7 @@ def safe_int(mystr):
         return None
 sci_ver = list(map(safe_int, scipy.version.version.split('.')))  # scipy version number as int list.
 
-from ligo.lw import lsctables, table, utils, ligolw,ilwd # check all are needed
+from ligo.lw import lsctables, utils, ligolw #, table, ,ilwd # check all are needed
 from glue.lal import Cache
 
 import lal
@@ -1644,7 +1644,7 @@ def xml_to_ChooseWaveformParams_array(fname, minrow=None, maxrow=None,
     xmldoc = utils.load_filename( fname ,contenthandler = cthdler )
     try:
         # Read SimInspiralTable from the xml file, set row bounds
-        sim_insp = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
+        sim_insp = lsctables.SimInspiralTable.get_table(xmldoc) #table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
         length = len(sim_insp)
         if not minrow and not maxrow:
             minrow = 0
@@ -1682,8 +1682,8 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
     indx =0
     for P in P_list:
         row= P.create_sim_inspiral()
-        row.process_id = ilwd.ilwdchar("process:process_id:{0}".format(indx))
-        row.simulation_id = ilwd.ilwdchar("sim_inspiral:simulation_id:{0}".format(indx))
+        row.process_id = indx # ilwd.ilwdchar("process:process_id:{0}".format(indx))
+        row.simulation_id = indx # ilwd.ilwdchar("sim_inspiral:simulation_id:{0}".format(indx))
         indx+=1
         sim_table.append(row)
     if rosDebugMessagesContainer[0]:
