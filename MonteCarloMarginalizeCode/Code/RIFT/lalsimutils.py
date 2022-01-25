@@ -1694,7 +1694,7 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
     fname_out = fname
     if not(".xml.gz" in fname):
         fname_out = fname+".xml.gz"
-    utils.write_filename(xmldoc, fname_out, gz=True)
+    utils.write_filename(xmldoc, fname_out, compress=True)
 
     return True
 
