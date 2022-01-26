@@ -217,7 +217,7 @@ def write_to_xml(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verbose=
         #start = int(event_time)
         start = 0
         fname = "%s-MASS_POINTS-%d-1.xml.gz" % (ifos, start)
-    utils.write_filename(xmldoc, fname, compress=True, verbose=verbose)
+    utils.write_filename(xmldoc, fname, compress="gz", verbose=verbose)
 
 def get_evidence_grid(points, res_pts, intr_prms, exact=False):
     """
