@@ -68,7 +68,7 @@ def retrieve_event_from_coinc(fname_coinc):
     from ligo.lw import lsctables, table, utils
     from RIFT import lalsimutils
     event_dict ={}
-    samples = lsctables.SimInspiralTable.get_table(utils.load_filename(fname_coinc,contenthandler=lalsimutils.cthdler), lsctables.SnglInspiralTable.tableName)
+    samples = lsctables.SnglInspiralTable.get_table(utils.load_filename(fname_coinc,contenthandler=lalsimutils.cthdler))
     event_duration=4  # default
     ifo_list = []
     snr_list = []
