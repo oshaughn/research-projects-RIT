@@ -42,7 +42,7 @@ xmldoc = utils.load_filename(filename,contenthandler = cthdler, verbose = True)
 Jlim = opts.force_J_limit
 
 
-sim_inspiral_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
+sim_inspiral_table = lsctables.SimInspiralTable.get_table(xmldoc)
 if event is not None:
     events = [event]
 else:
