@@ -15,7 +15,7 @@ from ligo.lw import utils, lsctables, table, ligolw
 
 if opts.coinc:
     xmldoc = utils.load_filename(opts.coinc)
-    coinc_table = table.get_table(xmldoc, lsctables.CoincInspiralTable.tableName)
+    coinc_table = lsctables.CoincInspiralTable.get_table(xmldoc)
     assert len(coinc_table) == 1
     coinc_row = coinc_table[0]
        # Populate the SNR sequence and mass sequence
