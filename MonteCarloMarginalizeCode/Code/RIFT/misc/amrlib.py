@@ -487,8 +487,16 @@ def deserialize_grid_cells(fname):
 def transform_m1m2_mceta(m1, m2):
     return lalsimutils.Mceta(m1, m2)
 
+def transform_m1m2_mcdelta(m1, m2):
+    mcV,etaV = lalsimutils.Mceta(m1, m2)
+    return mcV,numpy.sqrt(1-4*etaV)
+
 def transform_mceta_m1m2(mc, eta):
     return m1m2(mc, eta)
+
+def transform_mcdelta_m1m2(mc,delta):
+    return m1m2(mc, 0.25*(1-delta*delta))
+
 
 __prefac_0 = 5. / 256 / numpy.pi
 __prefac_3 = 1. / 8
@@ -590,6 +598,7 @@ def check_grid(grid, intr_prms, distance_coordinates,mass_lower_bound=1):
 
 VALID_TRANSFORMS_MASS = { \
     "mchirp_eta": transform_m1m2_mceta,
+    "mchirp_delta": transform_m1m2_mcdelta,
     "mchirp_q": transform_m1m2_mcq,
     "tau0_tau3": transform_m1m2_tau0tau3,
     None: None
@@ -597,6 +606,7 @@ VALID_TRANSFORMS_MASS = { \
 
 INVERSE_TRANSFORMS_MASS = { \
     transform_m1m2_mceta: transform_mceta_m1m2,
+    transform_m1m2_mcdelta: transform_mcdelta_m1m2,
     transform_m1m2_mcq: transform_mcq_m1m2,
     transform_m1m2_tau0tau3: transform_tau0tau3_m1m2,
     None: None
