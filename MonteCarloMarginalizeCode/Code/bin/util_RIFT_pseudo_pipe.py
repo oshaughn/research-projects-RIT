@@ -674,7 +674,11 @@ if opts.internal_use_amr:
     lines =[ ] 
     # Manually implement aligned spin.  Should parse some of this from ini file ...
     print(" AMR prototype: Using hardcoded aligned-spin settings, setting arguments")
-    lines += ["10 --no-exact-match --overlap-thresh 0.99 --distance-coordinates mchirp_eta --verbose   --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf --max-n-points 1000 --n-max-output 5000 " ]
+    internal_overlap_threshold = 0.01 # smallest it could be
+    if "SNR" in event_dict:
+        internal_overlap_threshold = np.max([internal_overlap_threshold, 0.5*(6./event_dict["SNR"])**2])  # try to 
+    internal_overlap_threshold = 1- internal_overlap_threshold
+    lines += ["10 --no-exact-match --overlap-thresh {} ".format(internal_overlap_threshold) + " --distance-coordinates mchirp_eta --verbose   --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf --max-n-points 1000 --n-max-output 5000 " ]
     if opts.internal_use_amr_bank:
         lines[0] +=" --intrinsic-param mass1 --intrinsic-param mass2 "  # output by default written this way for bank files
     else:
