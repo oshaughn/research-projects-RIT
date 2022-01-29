@@ -960,7 +960,7 @@ for it in np.arange(it_start,opts.n_iterations):
         dag.add_node(subdag_puff_node)
         con_node.add_parent(puff_analysis_node) # consolidate depends on all of the individual jobs
 
-    if fetch_args and:
+    if fetch_args :
         # puff subdag
         subdag_fetch_node = pipeline.CondorDAGNode(subdag_fetch_job)
 
