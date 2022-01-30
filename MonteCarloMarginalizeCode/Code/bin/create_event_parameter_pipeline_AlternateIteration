@@ -946,6 +946,7 @@ for it in np.arange(it_start,opts.n_iterations):
        
     # repeat for puff
     if puff_args and puff_cadence:
+      if it > 0 and it <= puff_max_it and it%puff_cadence ==0:
         # puff subdag.  CHANGE ARGUMENTS TO DO THIS
         subdag_puff_node = pipeline.CondorDAGNode(subdag_puff_job)
         subdag_puff_node.add_macro("macroiteration",it)
@@ -961,9 +962,19 @@ for it in np.arange(it_start,opts.n_iterations):
         con_node.add_parent(puff_analysis_node) # consolidate depends on all of the individual jobs
 
     if fetch_args :
-        # puff subdag
-        subdag_fetch_node = pipeline.CondorDAGNode(subdag_fetch_job)
+        # fetch job
+        print(" Fetching active for iteration ", it)  # must fetch before we can do the job
+        fetch_node = pipeline.CondorDAGNode(fetch_job)
+        fetch_node.set_retry(opts.ile_retries)
+        fetch_node.add_macro("macroiteration", it)
+        if not(parent_fit_node is None):
+            fetch_node.add_parent(parent_fit_node)
+        parent_fit_node=fetch_node
+        dag.add_node(fetch_node)
 
+        # ILE processing for fetch output
+        print(" ILE jobs via subdag for fetch on iteration ", it)
+        subdag_fetch_node = pipeline.CondorDAGNode(subdag_fetch_job)
         if not(parent_fit_node is None):
             subdag_fetch_node.add_parent(parent_fit_node)
         subdag_fetch_node.add_macro("macroiteration",it)
