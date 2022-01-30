@@ -650,7 +650,7 @@ subdag_job.write_sub_file()
 
 
 
-subdag_puff_job, subdag_puff_job_name = dag_utils.write_subdagILE_sub(tag='subdag_puff',submit_file='ILE_puff.sub',log_dir='',arg_str='', target_dir=opts.working_directory, output_suffix="ile_puff_subdag", universe='local',sim_xml="puffball-grid-$(macroiteration).xml.gz")
+subdag_puff_job, subdag_puff_job_name = dag_utils.write_subdagILE_sub(tag='subdag_puff',submit_file='ILE_puff.sub',log_dir='',arg_str='', target_dir=opts.working_directory, output_suffix="ile_puff_subdag", universe='local',sim_xml="puffball-$(macroiteration).xml.gz")
 
 subdag_puff_job.add_condor_cmd("initialdir",opts.working_directory)
 subdag_puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-puff-$(cluster)-$(process).log")
