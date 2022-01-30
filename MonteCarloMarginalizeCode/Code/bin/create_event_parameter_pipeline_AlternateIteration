@@ -856,6 +856,7 @@ if opts.gridinit_args:
 #    
 
 parent_fit_node = None
+parent_puff_node=None
 
 if opts.gridinit_args:
    grid_node = pipeline.CondorDAGNode(gridinit_job) 
@@ -946,13 +947,12 @@ for it in np.arange(it_start,opts.n_iterations):
        
     # repeat for puff
     if puff_args and puff_cadence:
-      if it > 0 and it <= puff_max_it and it%puff_cadence ==0:
+      if (it > 0 and it <= puff_max_it and it%puff_cadence ==0) and not(parent_puff_node is None):
         # puff subdag.  CHANGE ARGUMENTS TO DO THIS
         subdag_puff_node = pipeline.CondorDAGNode(subdag_puff_job)
         subdag_puff_node.add_macro("macroiteration",it)
         con_node.add_parent(subdag_puff_node) # consolidate depends on all of the individual jobs
-        if not(parent_fit_node is None):
-            subdag_main_node.add_parent(parent_fit_node)
+        subdag_main_node.add_parent(parent_puff_node)  # force to happen after puffball from previous ... set later. Cannot be none
 
         puff_subdag =  pipeline.CondorDAGManJob("iteration_{}_ile_puff_subdag.dag".format(it))  # assumes subdag is created
         puff_analysis_node = puff_subdag.create_node()
@@ -1041,6 +1041,7 @@ for it in np.arange(it_start,opts.n_iterations):
         dag.add_node(puff_node) 
         
         parent_fit_node = puff_node
+        parent_puff_node=puff_node
 
         
 
