@@ -589,8 +589,6 @@ else:
         sys.exit(1)
 if not(opts.manual_extra_ile_args is None):
     line += opts.manual_extra_ile_args
-if not(opts.ile_runtime_max_minutes is None):
-    line += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 with open('args_ile.txt','w') as f:
@@ -761,6 +759,8 @@ cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
 cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+if not(opts.ile_runtime_max_minutes is None):
+    cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args args_puff.txt "
 if opts.internal_use_amr:
