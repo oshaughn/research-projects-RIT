@@ -19,6 +19,7 @@ from ..integrators.statutils import cumvar, welford
 
 from multiprocessing import Pool
 
+import os
 if not( 'RIFT_LOWLATENCY'  in os.environ):
   # Dont support external packages in low latency
  try:
