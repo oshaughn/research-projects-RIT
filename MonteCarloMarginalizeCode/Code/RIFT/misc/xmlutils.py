@@ -13,13 +13,17 @@ from ligo.lw import ligolw, lsctables, table #, ilwd
 def assign_id(row, i):
     row.simulation_id = i # ilwd.ilwdchar("sim_inspiral_table:sim_inspiral:%d" % i)
 
+def assign_time(row, t):
+    setattr(row, "geocent_end_time",( int(t)))
+    setattr(row, "geocent_end_time_ns",( int(t-int(t))*1e9) )
+
 CMAP = { "right_ascension": "longitude",
     "longitude":"longitude",
     "latitude":"latitude",
     "declination": "latitude",
     "inclination": "inclination",
     "polarization": "polarization",
-    "t_ref": lambda r, t: r.set_time_geocent(LIGOTimeGPS(float(t))),
+    "t_ref": assign_time,#r.set_time_geocent(LIGOTimeGPS(float(t))),
     "coa_phase": "coa_phase",
     "distance": "distance",
     "mass1": "mass1",
@@ -43,8 +47,8 @@ CMAP = { "right_ascension": "longitude",
 
 # FIXME: Find way to intersect given cols with valid cols when making table.
 # Otherwise, we'll have to add them manually and ensure they all exist
-sim_valid_cols = ["process_id", "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha1", "alpha2", "alpha3","spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"]
-sngl_valid_cols = ["process_id", "event_id", "snr", "tau0", "tau3"]
+sim_valid_cols = ["simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha1", "alpha2", "alpha3","spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"]
+sngl_valid_cols = [ "event_id", "snr", "tau0", "tau3"]
 multi_valid_cols = ["process_id", "event_id", "snr"]
 
 def append_samples_to_xmldoc(xmldoc, sampdict):
