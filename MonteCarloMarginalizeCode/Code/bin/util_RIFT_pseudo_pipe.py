@@ -678,7 +678,7 @@ if opts.internal_use_amr:
     if "SNR" in event_dict:
         internal_overlap_threshold = np.max([internal_overlap_threshold, 0.5*(6./event_dict["SNR"])**2])  # try to 
     internal_overlap_threshold = 1- internal_overlap_threshold
-    lines += ["10 --no-exact-match --overlap-thresh {} ".format(internal_overlap_threshold) + " --distance-coordinates mchirp_eta --verbose   --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf --max-n-points 1000 --n-max-output 5000 " ]
+    lines += ["10 --no-exact-match --overlap-threshold {} ".format(internal_overlap_threshold) + " --distance-coordinates mchirp_eta --verbose   --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf --max-n-points 1000 --n-max-output 5000 " ]
     if opts.internal_use_amr_bank:
         lines[0] +=" --intrinsic-param mass1 --intrinsic-param mass2 "  # output by default written this way for bank files
     else:
