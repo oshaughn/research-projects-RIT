@@ -49,7 +49,7 @@ multi_valid_cols = ["process_id", "event_id", "snr"]
 
 def append_samples_to_xmldoc(xmldoc, sampdict):
     try: 
-        si_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
+        si_table = lsctables.SimInspiralTable.get_table(xmldoc)
         new_table = False
     # Warning: This will also get triggered if there is *more* than one table
     except ValueError:
@@ -66,7 +66,7 @@ def append_samples_to_xmldoc(xmldoc, sampdict):
 
     # Get the process
     # FIXME: Assumed that only we have appended information
-    procid = table.get_table(xmldoc, lsctables.ProcessTable.tableName)[-1].process_id
+    procid = lsctables.ProcessTable.get_table(xmldoc)[-1].process_id
     
     # map the samples to sim inspiral rows
     # NOTE :The list comprehension is to preserve the grouping of multiple 
@@ -85,7 +85,7 @@ def append_samples_to_xmldoc(xmldoc, sampdict):
 
 def append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, neff=0, converged=False,**cols):
     try: 
-        si_table = table.get_table(xmldoc, lsctables.SnglInspiralTable.tableName)
+        si_table = lsctables.SnglInspiralTable.get_table(xmldoc)
         new_table = False
         # NOTE: MultiInspiralTable has no spin columns
         #si_table = table.get_table(xmldoc, lsctables.MultiInspiralTable.tableName)
@@ -98,7 +98,7 @@ def append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, neff=0, converged=
 
     # Get the process
     # FIXME: Assumed that only we have appended information
-    procid = table.get_table(xmldoc, lsctables.ProcessTable.tableName)[-1].process_id
+    procid = lsctables.ProcessTable.get_table(xmldoc)[-1].process_id
     
     # map the samples to sim inspiral rows
     si_table.append(likelihood_to_snglinsp_row(si_table, loglikelihood, neff, converged,**cols))
