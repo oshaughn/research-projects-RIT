@@ -138,6 +138,7 @@ def get_observing_run(t):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
+parser.add_argument("--internal-use-gracedb-bayestar",action='store_true',help="Retrieve BS skymap from gracedb (bayestar.fits), and use it internally in integration with --use-skymap bayestar.fits.")
 parser.add_argument("--force-data-lookup",action='store_true',help='Use this flag if you want to use real data.')
 parser.add_argument("--force-mc-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region. Passed directly to MOG and CIP.")
 parser.add_argument("--force-eta-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region")
@@ -195,6 +196,7 @@ parser.add_argument("--no-propose-limits",action='store_true',help="If a fit str
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help='Create options to marginalize over distance in the pipeline. Also create any necessary marginalization files at runtime, based on the maximum distance assumed')
 parser.add_argument("--internal-distance-max",type=float,default=None,help='If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances')
+parser.add_argument("--internal-use-amr",action='store_true',help='If present,the code will set up to use AMR.  Currently not much implemented here, and most of the heavy lifting is elsewhere')
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
 parser.add_argument("--use-cov-early",action='store_true',help="If provided, use cov fit in the early iterations'")
@@ -421,7 +423,7 @@ if use_gracedb_event:
         cmd_event += " > coinc.xml "
     os.system(cmd_event)
     cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
-    samples = table.get_table(utils.load_filename("coinc.xml",contenthandler=lalsimutils.cthdler), lsctables.SnglInspiralTable.tableName)
+    samples = lsctables.SnglInspiralTable.get_table(utils.load_filename("coinc.xml",contenthandler=lalsimutils.cthdler))
     event_duration=4  # default
     for row in samples:
         m1 = row.mass1
@@ -466,6 +468,14 @@ if use_gracedb_event:
       event_dict["epoch"]  = 0 # no estimate for now
       if not "SNR" in event_dict:
           event_dict["SNR"] = 10  # again made up so code will run
+
+
+  # Get bayestar.fits 
+  if opts.internal_use_gracedb_bayestar:
+      cmd_event = gracedb_exe + download_request + opts.gracedb_id + " bayestar.fits "
+      if not(opts.use_legacy_gracedb):
+          cmd_event += " > bayestar.fits "
+      os.system(cmd_event)
 
 if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
@@ -1020,7 +1030,11 @@ if opts.propose_fit_strategy and (not opts.gracedb_id is None):
 
 
 if opts.propose_ile_convergence_options:
-    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler --declination-cosine-sampler   --n-max 4000000 --n-eff {} ".format(opts.ile_n_eff)
+    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler   --n-max 4000000 --n-eff {} ".format(opts.ile_n_eff)
+    if not(opts.internal_use_gracedb_bayestar):
+        helper_ile_args += " --declination-cosine-sampler  "  # skymap coordinates all fixed
+    else:
+        helper_ile_args += " --n-chunk 500 " # much smaller chunk size for integration for ILE if we are using an input skymap! Slow, but does the hard dimension
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs
     # Note that number of events to analyze is controlled by a different part of the workflow !
@@ -1031,6 +1045,9 @@ if opts.propose_ile_convergence_options:
         helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
     else:
         helper_ile_args += " --adapt-weight-exponent  {} ".format(prefactor)  
+
+if opts.internal_use_gracedb_bayestar:
+    helper_ile_args += " --skymap-file {}/bayestar.fits ".format(opts.working_directory)
 
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
@@ -1243,7 +1260,8 @@ if opts.propose_fit_strategy:
 if opts.propose_fit_strategy:
     helper_puff_args += " --downselect-parameter eta --downselect-parameter-range ["+str(eta_min) +","+str(eta_max)+"]"
     helper_puff_args += " --puff-factor " + str(puff_factor)
-    helper_puff_args += " --force-away " + str(0.05)  # prevent duplicate points
+    if not(opts.internal_use_amr):
+        helper_puff_args += " --force-away " + str(0.05)  # prevent duplicate points. Don't do this for AMR, since they are already quite sparse
     with open("helper_puff_args.txt",'w') as f:
         f.write(helper_puff_args)
 

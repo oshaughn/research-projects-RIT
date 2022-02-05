@@ -487,8 +487,16 @@ def deserialize_grid_cells(fname):
 def transform_m1m2_mceta(m1, m2):
     return lalsimutils.Mceta(m1, m2)
 
+def transform_m1m2_mcdelta(m1, m2):
+    mcV,etaV = lalsimutils.Mceta(m1, m2)
+    return mcV,numpy.sqrt(1-4*etaV)
+
 def transform_mceta_m1m2(mc, eta):
     return m1m2(mc, eta)
+
+def transform_mcdelta_m1m2(mc,delta):
+    return m1m2(mc, 0.25*(1-delta*delta))
+
 
 __prefac_0 = 5. / 256 / numpy.pi
 __prefac_3 = 1. / 8
@@ -557,20 +565,28 @@ def check_spins(spin):
     return numpy.sqrt(numpy.atleast_2d(spin**2).sum(axis=0)) <= 1
 
 # Make sure the new grid points are physical
-def check_grid(grid, intr_prms, distance_coordinates):
+def check_grid(grid, intr_prms, distance_coordinates,mass_lower_bound=1):
     """
     Check the validity of points in various coordinate spaces to ensure they are physical.
     """
-    m1_axis, m2_axis = intr_prms.index("mass1"), intr_prms.index("mass2")
+    bounds_mask = numpy.ones(len(grid),dtype=bool)
     grid_check = numpy.array(grid).T
-    if distance_coordinates == "tau0_tau3":
-        bounds_mask = check_tau0tau3(grid_check[m1_axis], grid_check[m2_axis])
-    elif distance_coordinates == "mchirp_eta":
-        bounds_mask = check_mchirpeta(grid_check[m1_axis], grid_check[m2_axis])
+    if 'mass1' in intr_prms and 'mass2' in intr_prms:
+        m1_axis, m2_axis = intr_prms.index("mass1"), intr_prms.index("mass2")
+        if distance_coordinates == "tau0_tau3":
+            bounds_mask = check_tau0tau3(grid_check[m1_axis], grid_check[m2_axis])
+        elif distance_coordinates == "mchirp_eta":
+            bounds_mask = check_mchirpeta(grid_check[m1_axis], grid_check[m2_axis])
+    if 'mchirp' in intr_prms:
+        mc_axis, eta_axis = intr_prms.index("mchirp"), intr_prms.index("eta")
+        bounds_mask = numpy.logical_and(grid_check[eta_axis] <=0.25 ,grid_check[eta_axis]>0)
+        m1v,m2v = lalsimutils.m1m2( grid_check[mc_axis],grid_check[eta_axis])
+        bounds_mask = numpy.logical_and(bounds_mask, m2v>mass_lower_bound)
+
 
     # FIXME: Needs general spin
-    if "spin2z" in intr_prms:
-        s1_axis = intr_prms.index("spin2z")
+    if "spin1z" in intr_prms:
+        s1_axis = intr_prms.index("spin1z")
         bounds_mask &= check_spins(grid_check[s1_axis])
     if "spin2z" in intr_prms:
         s2_axis = intr_prms.index("spin2z")
@@ -582,6 +598,7 @@ def check_grid(grid, intr_prms, distance_coordinates):
 
 VALID_TRANSFORMS_MASS = { \
     "mchirp_eta": transform_m1m2_mceta,
+    "mchirp_delta": transform_m1m2_mcdelta,
     "mchirp_q": transform_m1m2_mcq,
     "tau0_tau3": transform_m1m2_tau0tau3,
     None: None
@@ -589,6 +606,7 @@ VALID_TRANSFORMS_MASS = { \
 
 INVERSE_TRANSFORMS_MASS = { \
     transform_m1m2_mceta: transform_mceta_m1m2,
+    transform_m1m2_mcdelta: transform_mcdelta_m1m2,
     transform_m1m2_mcq: transform_mcq_m1m2,
     transform_m1m2_tau0tau3: transform_tau0tau3_m1m2,
     None: None
@@ -607,36 +625,61 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
     # You know what... recarrays are dumb, and so's your face.
     # FIXME: Why does numpy want me to repack this into tuples!?
     #tpts = numpy.array([tuple(pt) for pt in pts.T], dtype = numpy.dtype([(a ,"float64") for a in intr_prms]))
-    m1_idx, m2_idx = intr_prms.index("mass1"), intr_prms.index("mass2")
+    pts_extended = numpy.array(pts) # make a copy
+    intr_prms_extended = intr_prms.copy()
+    if ('mass1' in intr_prms and 'mass2' in intr_prms):   
+        # we have both m1,m2 in the parameter list for raw parameters
+        m1_idx, m2_idx = intr_prms.index("mass1"), intr_prms.index("mass2")
+    elif ('mchirp' in intr_prms) and ('eta' in intr_prms):
+        # we use mc, eta to specify parameters
+        # overwrite existing variables
+        m1_idx,m2_idx = intr_prms.index("mchirp"), intr_prms.index("eta")
+        intr_prms_extended[m1_idx] = "mass1"
+        intr_prms_extended[m2_idx] = "mass2"
+        pts_extended[:,m1_idx], pts_extended[:,m2_idx] = transform_mceta_m1m2(pts[:,m1_idx], pts[:,m2_idx])
+    else:
+        raise("apply_transform: Cannot perform requested transformation")
     if spin_transform:
         if spin_transform == "chi_z":
             s1z_idx, s2z_idx = intr_prms.index("spin2z"), intr_prms.index("spin2z")
 #            chi_z = transform_s1zs2z_chi(pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx]) 
             #The grid is converted from m1 m2 s1 s2 to mc eta chi_eff because it's better to choose the closest grid points in mc eta chi_eff space. 
             #chi_a is not considered when choosing the closes grid points, but we do need it to transform back to s1 s2
-            pts[:,s1z_idx],pts[:,s2z_idx] = transform_s1zs2z_chi_eff_chi_a(pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx])
+            pts_extended[:,s1z_idx],pts_extended[:,s2z_idx] = transform_s1zs2z_chi_eff_chi_a(pts_extended[:,m1_idx], pts_extended[:,m2_idx], pts_extended[:,s1z_idx], pts_extended[:,s2z_idx])
             
 #            pts = numpy.vstack((pts.T, chi_eff)).T
 #            intr_prms.append("chi_z")
 
     if mass_transform:
-       pts[:,m1_idx], pts[:,m2_idx] = VALID_TRANSFORMS_MASS[mass_transform](pts[:,m1_idx], pts[:,m2_idx])
+       pts_extended[:,m1_idx], pts_extended[:,m2_idx] = VALID_TRANSFORMS_MASS[mass_transform](pts_extended[:,m1_idx], pts_extended[:,m2_idx])
 
     # Independent transforms go here
 
-    return pts
+    return pts_extended
 
 def apply_inv_transform(pts, intr_prms, mass_transform=None,spin_transform=None):
-    m1_idx, m2_idx = intr_prms.index("mass1"), intr_prms.index("mass2")
+    pts_extended = numpy.array(pts) # make a copy
+    intr_prms_extended = intr_prms.copy()
+    if ('mass1' in intr_prms and 'mass2' in intr_prms):   
+        # we have both m1,m2 in the parameter list for raw parameters
+        m1_idx, m2_idx = intr_prms.index("mass1"), intr_prms.index("mass2")
+    elif ('mchirp' in intr_prms) and ('eta' in intr_prms):
+        # we use mc, eta to specify parameters
+        m1_idx,m2_idx = intr_prms.index("mchirp"), intr_prms.index("eta")
+        intr_prms_extended[m1_idx] = "mass1"
+        intr_prms_extended[m2_idx] = "mass2"
+        pts_extended[:,m1_idx], pts[:,m2_idx] = transform_mceta_m1m2(pts_extended[:,m1_idx], pts_extended[:,m2_idx])
+    else:
+        raise("apply_transform: Cannot perform requested transformation")
     if mass_transform:
-        pts[:,m1_idx], pts[:,m2_idx] = INVERSE_TRANSFORMS_MASS[VALID_TRANSFORMS_MASS[mass_transform]](pts[:,m1_idx], pts[:,m2_idx])
+        pts_extended[:,m1_idx], pts_extended[:,m2_idx] = INVERSE_TRANSFORMS_MASS[VALID_TRANSFORMS_MASS[mass_transform]](pts_extended[:,m1_idx], pts_extended[:,m2_idx])
     
     if spin_transform:
         if spin_transform == "chi_z":
             s1z_idx, s2z_idx = intr_prms.index("spin2z"), intr_prms.index("spin2z")
-            pts[:,s1z_idx],pts[:,s2z_idx] =transform_chi_eff_chi_a_s1zs2z(pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx])
+            pts_extended[:,s1z_idx],pts_extended[:,s2z_idx] =transform_chi_eff_chi_a_s1zs2z(pts_extended[:,m1_idx], pts_extended[:,m2_idx], pts_extended[:,s1z_idx], pts_extended[:,s2z_idx])
 
         
     # Independent transforms go here
 
-    return pts
+    return pts_extended

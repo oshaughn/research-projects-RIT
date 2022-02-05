@@ -275,6 +275,7 @@ parser.add_argument("--fit-uses-reported-error",action='store_true')
 parser.add_argument("--fit-uses-reported-error-factor",type=float,default=1,help="Factor to add to standard deviation of fit, before adding to lnL. Multiplies number fitting dimensions")
 parser.add_argument("--n-max",default=3e8,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
+parser.add_argument("--n-chunk",default=1e5,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=int,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
@@ -1230,6 +1231,37 @@ def fit_cov(x,y,y_errors=None,soften_factor=1):
     return fn_return
 
 
+def fit_nearest(x,y,y_errors=None):
+    """
+    Weighted nearest-neighbor fit.  We *should* use a distance based on the covariance, but let's be simple here
+    """
+    from sklearn.neighbors import RadiusNeighborsRegressor
+
+    
+    rad_default = np.sqrt(np.trace(np.cov(x))/len(x[0]))/np.sqrt(len(x))
+    print(" Default radius coordinate ", rad_default)
+
+    nn_regressor =  RadiusNeighborsRegressor(radius=rad_default, weights='distance', algorithm='ball_tree')
+    nn_regressor.fit(x,y)
+    print(" Fit: std: ", np.std(y - nn_regressor.predict(x)),  "using number of features ", len(y))
+    print(y, nn_regressor.predict(x))
+    
+    if opts.protect_coordinate_conversions:
+        return lalsimutils.RangeProtectReduce( (lambda x: nn_regressor.predict(x) ), -np.inf)
+    def my_return(x_in,default_val=-100):
+        my_nearby = nn_regressor.radius_neighbors(x_in,rad_default)[0] # tells me if there's anything nearby
+#        print(len(my_nearby),my_nearby[0])
+        my_nearby_len = np.array([ len(z) for z in my_nearby])
+#        print(my_nearby,my_nearby_len)
+        val =nn_regressor.predict(x_in)
+        val = np.where(my_nearby_len <1, default_val, val)
+ #       print(x,val)
+        return val
+    return my_return
+    #return lambda x: nn_regressor.predict(x)
+
+
+
 if not(gpytorch_ok):
     def fit_gpytorch(x):
         sys.exit(1)
@@ -1732,6 +1764,22 @@ elif opts.fit_method == 'gp_sparse':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp_sparse(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'weighted_nearest':
+    print( " FIT METHOD ", opts.fit_method, " IS weighted_nearest ")
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_nearest(X,Y,y_errors=Y_err)
 else:
     print(" NO KNOWN FIT METHOD ")
     sys.exit(55)
@@ -1896,7 +1944,7 @@ if len(low_level_coord_names) ==10:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g])))
 
 
-n_step = 1e5
+n_step = int(opts.n_chunk)
 if opts.sampler_method == 'GMM':
     n_step *=3  # bigger steps for GMM
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast

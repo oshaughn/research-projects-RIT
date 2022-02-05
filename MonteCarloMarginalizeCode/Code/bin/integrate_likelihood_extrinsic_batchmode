@@ -106,7 +106,10 @@ class EvenBivariateLinearInterpolator:
 
         return f_approx
 
-#from lalinference.bayestar import fits as bfits
+try:
+  from ligo.skymap.io import fits as bfits
+except:
+  print(" -no bayestar- ")
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -383,10 +386,12 @@ P_list = None
 if opts.sim_xml:
     print( "====Loading injection XML:", opts.sim_xml, opts.event, " =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
-    if  len(P_list) < opts.event+opts.n_events_to_analyze:
+    if  len(P_list) < opts.event: 
+#+opts.n_events_to_analyze:
         print( " Event list of range; soft exit")
         sys.exit(0)
-    P_list = P_list[opts.event:(opts.event+opts.n_events_to_analyze)]
+    n_event_max= np.min([len(P_list), opts.event+opts.n_events_to_analyze])
+    P_list = P_list[opts.event:n_event_max]
     for P in P_list:
         P.radec =False  # do NOT propagate the epoch later
         P.fref = opts.reference_freq

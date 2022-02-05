@@ -61,30 +61,36 @@ if 'PROFILE' not in os.environ:
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
-try:
+if not( 'RIFT_LOWLATENCY'  in os.environ):
+  # Dont support external packages in low latency
+ try:
         import NRWaveformCatalogManager3 as nrwf
         useNR =True
         print(" factored_likelihood.py : NRWaveformCatalogManager3 available ")
-except ImportError:
+ except ImportError:
         useNR=False
 
-try:
+ try:
         import RIFT.physics.ROMWaveformManager as romwf
         print(" factored_likelihood.py: ROMWaveformManager as romwf")
         useROM=True
         rom_basis_scale = 1.0*1e-21   # Fundamental problem: Inner products with ROM basis vectors/Sh are tiny. Need to rescale to avoid overflow/underflow and simplify comparisons
-except ImportError:
+ except ImportError:
         useROM=False
         print(" factored_likelihood.py: - no ROM - ")
         rom_basis_scale =1
 
-try:
+ try:
     hasEOB=True
     import RIFT.physics.EOBTidalExternalC as eobwf
-#    import EOBTidalExternal as eobwf
-except:
+ #    import EOBTidalExternal as eobwf
+ except:
     hasEOB=False
     print(" factored_likelihood: no EOB ")
+else:
+  hasEOB=False
+  useROM=False; rom_basis_scale=1
+  useNR=False
 
 distMpcRef = 1000 # a fiducial distance for the template source.
 tWindowExplore = [-0.15, 0.15] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.

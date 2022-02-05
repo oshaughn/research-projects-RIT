@@ -40,7 +40,7 @@ def safe_int(mystr):
         return None
 sci_ver = list(map(safe_int, scipy.version.version.split('.')))  # scipy version number as int list.
 
-from ligo.lw import lsctables, table, utils, ligolw,ilwd # check all are needed
+from ligo.lw import lsctables, utils, ligolw #, table, ,ilwd # check all are needed
 from glue.lal import Cache
 
 import lal
@@ -1644,7 +1644,7 @@ def xml_to_ChooseWaveformParams_array(fname, minrow=None, maxrow=None,
     xmldoc = utils.load_filename( fname ,contenthandler = cthdler )
     try:
         # Read SimInspiralTable from the xml file, set row bounds
-        sim_insp = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
+        sim_insp = lsctables.SimInspiralTable.get_table(xmldoc) #table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
         length = len(sim_insp)
         if not minrow and not maxrow:
             minrow = 0
@@ -1682,8 +1682,8 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
     indx =0
     for P in P_list:
         row= P.create_sim_inspiral()
-        row.process_id = ilwd.ilwdchar("process:process_id:{0}".format(indx))
-        row.simulation_id = ilwd.ilwdchar("sim_inspiral:simulation_id:{0}".format(indx))
+        row.process_id = indx # ilwd.ilwdchar("process:process_id:{0}".format(indx))
+        row.simulation_id = indx # ilwd.ilwdchar("sim_inspiral:simulation_id:{0}".format(indx))
         indx+=1
         sim_table.append(row)
     if rosDebugMessagesContainer[0]:
@@ -1694,7 +1694,7 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
     fname_out = fname
     if not(".xml.gz" in fname):
         fname_out = fname+".xml.gz"
-    utils.write_filename(xmldoc, fname_out, gz=True)
+    utils.write_filename(xmldoc, fname_out, compress="gz")
 
     return True
 
@@ -2261,8 +2261,11 @@ def symRatio(m1, m2):
 def m1m2(Mc, eta):
     """Compute component masses from Mc, eta. Returns m1 >= m2"""
     etaV = 1-4*eta
-    if etaV < 0:
-        etaV = 0
+    if isinstance(etaV, float):
+        if etaV < 0:
+            etaV = 0
+    else:
+        etaV[etaV<0] = 0 # set negative cases to 0, so no sqrt problems
     m1 = 0.5*Mc*eta**(-3./5.)*(1. + np.sqrt(etaV))
     m2 = 0.5*Mc*eta**(-3./5.)*(1. - np.sqrt(etaV))
     return m1, m2

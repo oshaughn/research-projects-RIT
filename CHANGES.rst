@@ -22,6 +22,11 @@ Since last release
      undo); CIP can use cos_theta1 and cos_theta2 as coordinates for sampling, and these are made default (rc8)
    - fix merge error in CIP in above - travis fail! (rc9)
    - fix another merge problem from CIP above which dropped the gaussians; add ILE hard fail on cuda errors (rc10)
+     Probably should have been major release around July 19, 2021
+
+   - GMM updates and bugfixes; 'fetch' mode to grab info from related jobs; chip_av; GP fits informed by lnL errors;
+     alternate fits for placement (cov, quadratic), glue->ligo.lw, assorted minor edits
+    UWM hackathon outcomes (distance marginalization (Wysocki/Morisaki); AMR grids)   (rc11)
 
 
 0.0.15.5

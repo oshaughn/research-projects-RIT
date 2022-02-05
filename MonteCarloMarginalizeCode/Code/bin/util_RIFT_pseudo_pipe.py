@@ -68,7 +68,7 @@ def retrieve_event_from_coinc(fname_coinc):
     from ligo.lw import lsctables, table, utils
     from RIFT import lalsimutils
     event_dict ={}
-    samples = table.get_table(utils.load_filename(fname_coinc,contenthandler=lalsimutils.cthdler), lsctables.SnglInspiralTable.tableName)
+    samples = lsctables.SnglInspiralTable.get_table(utils.load_filename(fname_coinc,contenthandler=lalsimutils.cthdler))
     event_duration=4  # default
     ifo_list = []
     snr_list = []
@@ -101,6 +101,27 @@ def unsafe_parse_arg_string(my_argstr,match):
             return x
     return None
         
+def guess_mc_range(event_dict):
+    Mchirp_event = lalsimutils.mchirp( event_dict["m1"],event_dict["m2"])
+    # from helper code: choose some mc range that's plausible, not a delta function at trigger mass
+    fmin_fiducial = 20
+    v_PN_param = (np.pi* Mchirp_event*fmin_fiducial*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
+    snr_fac = 1 # not using that information
+    v_PN_param = v_PN_param
+    v_PN_param_max = 0.2
+    fac_search_correct = 1.5   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
+    ln_mc_error_pseudo_fisher = 1.5*np.array(fac_search_correct)*0.3*(v_PN_param/v_PN_param_max)**(7.)/snr_fac 
+    if ln_mc_error_pseudo_fisher  >1:
+        ln_mc_error_pseudo_fisher =0.8   # stabilize
+    mc_max = np.exp( ln_mc_error_pseudo_fisher) * Mchirp_event
+    mc_min = np.exp( -ln_mc_error_pseudo_fisher) * Mchirp_event
+
+    if opts.force_mc_range:
+        mc_min,mc_max = list(map(float, opts.force_mc_range.replace('[','').replace(']','').split(',')))
+
+    return mc_min,mc_max
+
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
@@ -116,6 +137,7 @@ parser.add_argument("--manual-postfix",default='',type=str)
 parser.add_argument("--gracedb-id",default=None,type=str)
 parser.add_argument("--gracedb-exe",default="gracedb")
 parser.add_argument("--use-legacy-gracedb",action='store_true')
+parser.add_argument("--internal-use-gracedb-bayestar",action='store_true',help="Retrieve BS skymap from gracedb (bayestar.fits), and use it internally in integration with --use-skymap bayestar.fits.")
 parser.add_argument("--event-time",default=None,type=float,help="Event time. Intended to override use of GracedbID. MUST provide --manual-initial-grid ")
 parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
@@ -135,6 +157,7 @@ parser.add_argument("--internal-correlate-default",action='store_true',help='For
 parser.add_argument("--internal-flat-strategy",action='store_true',help="Use the same CIP options for every iteration, with convergence tests on.  Passes --test-convergence, ")
 parser.add_argument("--internal-use-amr",action='store_true',help="Changes refinement strategy (and initial grid) to use. PRESENTLY WE CAN'T MIX AND MATCH AMR, CIP ITERATIONS, so this is fixed for the whole run right now; use continuation and 'fetch' to augment")
 parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank used for template")
+parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
@@ -194,6 +217,8 @@ if opts.use_production_defaults:
         opts.ile_retries=10  # very unstable environment
 
 if opts.internal_use_amr:
+    # Require subdags!  Makes sure we evaluate all subgrid points
+    opts.use_subdags = True
     # Disable incompatible settings
     opts.external_fetch_native_from = None
     opts.cip_explode_jobs= None
@@ -402,6 +427,10 @@ if True:
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
+if opts.internal_use_gracedb_bayestar:
+    cmd += " --internal-use-gracedb-bayestar "
+if opts.internal_use_amr:
+    cmd += " --internal-use-amr " # minimal support performed in this routine, mainly for puff
 if not(opts.internal_use_amr) and not(opts.manual_initial_grid):
     cmd+= " --propose-initial-grid "
 if opts.force_initial_grid_size:
@@ -562,8 +591,6 @@ else:
         sys.exit(1)
 if not(opts.manual_extra_ile_args is None):
     line += opts.manual_extra_ile_args
-if not(opts.ile_runtime_max_minutes is None):
-    line += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 with open('args_ile.txt','w') as f:
@@ -647,7 +674,17 @@ if opts.internal_use_amr:
     lines =[ ] 
     # Manually implement aligned spin.  Should parse some of this from ini file ...
     print(" AMR prototype: Using hardcoded aligned-spin settings, setting arguments")
-    lines += ["10 --no-exact-match --overlap-thresh 0.99 --distance-coordinates mchirp_eta --verbose --intrinsic-param mass1 --intrinsic-param mass2 --intrinsic-param spin1z --intrinsic-param spin2z --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf" ]
+    internal_overlap_threshold = 0.01 # smallest it could be
+    if "SNR" in event_dict:
+        internal_overlap_threshold = np.max([internal_overlap_threshold, 0.5*(6./event_dict["SNR"])**2])  # try to 
+    internal_overlap_threshold = 1- internal_overlap_threshold
+    lines += ["10 --no-exact-match --overlap-thresh {} ".format(internal_overlap_threshold) + " --distance-coordinates mchirp_eta --verbose   --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf --max-n-points 1000 --n-max-output 5000 " ]
+    if opts.internal_use_amr_bank:
+        lines[0] +=" --intrinsic-param mass1 --intrinsic-param mass2 "  # output by default written this way for bank files
+    else:
+        lines[0] +=" --intrinsic-param mchirp --intrinsic-param eta "     # if we built the bank, we used mc, eta coordiantes
+    if not(opts.assume_nospin):
+        lines[0] += " --intrinsic-param spin1z --intrinsic-param spin2z "
 
 with open("args_cip_list.txt",'w') as f: 
    for line in lines:
@@ -655,7 +692,12 @@ with open("args_cip_list.txt",'w') as f:
 
 # Write test file
 with open("args_test.txt",'w') as f:
-        f.write("X --always-succeed --method lame  --parameter m1")
+    test_args = " --method lame  --parameter m1 "
+    if not(opts.internal_use_amr):   # ALWAYS run the test with AMR
+        test_args +=  " --always-succeed  "
+    else:
+        test_args += " --threshold 0.02 "
+    f.write("X  "+test_args)
 
 
 # Write puff file
@@ -719,7 +761,9 @@ cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
 cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
-if not(opts.internal_use_amr):
+if not(opts.ile_runtime_max_minutes is None):
+    cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
+if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args args_puff.txt "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
@@ -732,8 +776,9 @@ if opts.internal_use_amr:
         os.system(cmd_event)
         cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
     event_dict = retrieve_event_from_coinc("coinc.xml")
-    with open("toy.ini","w") as f:
-        f.write("""
+    if opts.internal_use_amr_bank:
+        with open("toy.ini","w") as f:
+            f.write("""
 [General]
 
 #The name of the directory you want results output to
@@ -747,12 +792,20 @@ verbose=
 intrinsic-param=[mass1,mass2]
 
 [InitialGridOnly]
-overlap-threshold = 0.98
+overlap-threshold = 0.4
 points-per-side=8
 """)
-    cmd_amr_init = "util_GridSubsetOfTemplateBank.py --use-ini {}  --use-bank {} --mass1 {} --mass2 {}  ".format("toy.ini",opts.internal_use_amr_bank,event_dict["m1"],event_dict["m2"]) #,event_dict["s1z"],event_dict["s2z"])  # --s1z {} --s2z {}
-    os.system(cmd_amr_init)
-    shutil.copyfile("intrinsic_grid_iteration_0.xml.gz", "proposed-grid.xml.gz")  # Actually put the grid in the right place
+        cmd_amr_init = "util_GridSubsetOfTemplateBank.py --use-ini {}  --use-bank {} --mass1 {} --mass2 {}  ".format("toy.ini",opts.internal_use_amr_bank,event_dict["m1"],event_dict["m2"]) #,event_dict["s1z"],event_dict["s2z"])  # --s1z {} --s2z {}
+        if opts.assume_nospin:
+            cmd_amr_init += " --assume-nospin "
+        print(" INIT ",cmd_amr_init)
+        os.system(cmd_amr_init)
+        shutil.copyfile("intrinsic_grid_iteration_0.xml.gz", "proposed-grid.xml.gz")  # Actually put the grid in the right place
+    else:
+        # don't use bank files, instead use manually-prescribed mc, eta, spin range. SHOULD FIX TO BE TIGHTER
+        mc_min,mc_max = guess_mc_range(event_dict)
+        cmd_amr_init = "util_AMRGrid.py --mc-min {} --mc-max {} --distance-coordinates mchirp_eta --initial-region mchirp={},{} --initial-region eta=0.05,0.24999 --initial-region spin1z=-0.8,0.8 --initial-region spin2z=-0.8,0.8  --points-per-side 8 --fname-output-samples proposed-grid  --setup intrinsic_grid_all_iterations   ".format(mc_min,mc_max,mc_min,mc_max)
+        os.system(cmd_amr_init)
     
 if opts.external_fetch_native_from:
     import json

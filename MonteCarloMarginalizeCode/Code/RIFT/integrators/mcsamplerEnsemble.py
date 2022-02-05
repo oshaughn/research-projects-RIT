@@ -13,6 +13,10 @@ import functools
 
 from multiprocessing import Pool
 
+
+# Mirror healpy stuff
+from RIFT.integrators.mcsampler import HealPixSampler
+
 from . import MonteCarloEnsemble as monte_carlo
 
 __author__ = "Ben Champion"

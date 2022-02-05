@@ -642,7 +642,6 @@ unify_job.write_sub_file()
 #   - create adaptively-sized subdag for each iteration's ILE jobs
 
 subdag_job, subdag_job_name = dag_utils.write_subdagILE_sub(tag='subdag',submit_file='ILE.sub',log_dir='',arg_str='', target_dir=opts.working_directory, output_suffix="ile_subdag", universe='local',sim_xml="overlap-grid-$(macroiteration).xml.gz")
-
 subdag_job.add_condor_cmd("initialdir",opts.working_directory)
 subdag_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-$(cluster)-$(process).log")
 subdag_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-$(cluster)-$(process).err")
@@ -651,7 +650,7 @@ subdag_job.write_sub_file()
 
 
 
-subdag_puff_job, subdag_puff_job_name = dag_utils.write_subdagILE_sub(tag='subdag_puff',submit_file='ILE_puff.sub',log_dir='',arg_str='', target_dir=opts.working_directory, output_suffix="ile_puff_subdag", universe='local',sim_xml="puffball-grid-$(macroiteration).xml.gz")
+subdag_puff_job, subdag_puff_job_name = dag_utils.write_subdagILE_sub(tag='subdag_puff',submit_file='ILE_puff.sub',log_dir='',arg_str='', target_dir=opts.working_directory, output_suffix="ile_puff_subdag", universe='local',sim_xml="puffball-$(macroiteration).xml.gz")
 
 subdag_puff_job.add_condor_cmd("initialdir",opts.working_directory)
 subdag_puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-puff-$(cluster)-$(process).log")
@@ -661,7 +660,6 @@ subdag_puff_job.write_sub_file()
 
 
 subdag_fetch_job, subdag_fetch_job_name = dag_utils.write_subdagILE_sub(tag='subdag_fetch',submit_file='ILE_fetch.sub',log_dir='',arg_str='',target_dir=opts.working_directory, output_suffix="ile_fetch_subdag", universe='local',sim_xml="fetch-$(macroiteration).xml.gz")
-
 subdag_fetch_job.add_condor_cmd("initialdir",opts.working_directory)
 subdag_fetch_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-fetch-$(cluster)-$(process).log")
 subdag_fetch_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/subdag-fetch-$(cluster)-$(process).err")
@@ -858,6 +856,7 @@ if opts.gridinit_args:
 #    
 
 parent_fit_node = None
+parent_puff_node=None
 
 if opts.gridinit_args:
    grid_node = pipeline.CondorDAGNode(gridinit_job) 
@@ -931,6 +930,7 @@ for it in np.arange(it_start,opts.n_iterations):
     #   - first create the subdag itself at runtime, making the job to create the subdag occur
     #   - next add a node to make sure the external subddag file gets executed
     subdag_main_node = pipeline.CondorDAGNode(subdag_job)
+    subdag_main_node.set_retry(opts.general_retries) # dag writer job
 
     main_subdag =  pipeline.CondorDAGManJob("iteration_{}_ile_subdag.dag".format(it))  # assumes subdag is created
     subdag_main_node.add_macro("macroiteration",it)
@@ -938,6 +938,7 @@ for it in np.arange(it_start,opts.n_iterations):
             subdag_main_node.add_parent(parent_fit_node)
     main_analysis_node = main_subdag.create_node()
     main_analysis_node.add_parent(subdag_main_node)
+    main_analysis_node.set_retry(opts.general_retries) # ILE jobs fail a *lot*
     dag.add_node(subdag_main_node)
     dag.add_node(main_analysis_node)
     con_node.add_parent(main_analysis_node) # consolidate depends on all of the individual jobs
@@ -945,13 +946,13 @@ for it in np.arange(it_start,opts.n_iterations):
 
        
     # repeat for puff
-    if puff_args and puff_cadence and False:
+    if puff_args and puff_cadence:
+      if (it > 0 and it <= puff_max_it and it%puff_cadence ==0) and not(parent_puff_node is None):
         # puff subdag.  CHANGE ARGUMENTS TO DO THIS
         subdag_puff_node = pipeline.CondorDAGNode(subdag_puff_job)
         subdag_puff_node.add_macro("macroiteration",it)
         con_node.add_parent(subdag_puff_node) # consolidate depends on all of the individual jobs
-        if not(parent_fit_node is None):
-            subdag_main_node.add_parent(parent_fit_node)
+        subdag_main_node.add_parent(parent_puff_node)  # force to happen after puffball from previous ... set later. Cannot be none
 
         puff_subdag =  pipeline.CondorDAGManJob("iteration_{}_ile_puff_subdag.dag".format(it))  # assumes subdag is created
         puff_analysis_node = puff_subdag.create_node()
@@ -960,10 +961,20 @@ for it in np.arange(it_start,opts.n_iterations):
         dag.add_node(subdag_puff_node)
         con_node.add_parent(puff_analysis_node) # consolidate depends on all of the individual jobs
 
-    if fetch_args and False:
-        # puff subdag
-        subdag_fetch_node = pipeline.CondorDAGNode(subdag_fetch_job)
+    if fetch_args :
+        # fetch job
+        print(" Fetching active for iteration ", it)  # must fetch before we can do the job
+        fetch_node = pipeline.CondorDAGNode(fetch_job)
+        fetch_node.set_retry(opts.ile_retries)
+        fetch_node.add_macro("macroiteration", it)
+        if not(parent_fit_node is None):
+            fetch_node.add_parent(parent_fit_node)
+        parent_fit_node=fetch_node
+        dag.add_node(fetch_node)
 
+        # ILE processing for fetch output
+        print(" ILE jobs via subdag for fetch on iteration ", it)
+        subdag_fetch_node = pipeline.CondorDAGNode(subdag_fetch_job)
         if not(parent_fit_node is None):
             subdag_fetch_node.add_parent(parent_fit_node)
         subdag_fetch_node.add_macro("macroiteration",it)
@@ -1030,6 +1041,7 @@ for it in np.arange(it_start,opts.n_iterations):
         dag.add_node(puff_node) 
         
         parent_fit_node = puff_node
+        parent_puff_node=puff_node
 
         
 

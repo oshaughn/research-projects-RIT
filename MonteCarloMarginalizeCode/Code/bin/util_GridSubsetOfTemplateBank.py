@@ -54,6 +54,8 @@ parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file co
 parser.add_argument("--event",type=int, dest="event_id", default=None,help="event ID of injection XML to use.")
 parser.add_argument("--mass1", default=1.50,type=float,help="Mass in solar masses")  # 150 turns out to be ok for Healy et al sims
 parser.add_argument("--mass2", default=1.35,type=float,help="Mass in solar masses")
+parser.add_argument("--mc-range",default=None,help="Manually input target chirp mass range")
+parser.add_argument("--assume-nospin",action='store_true')
 parser.add_argument("--s1z", default=0.,type=float,help="Spin1z")
 parser.add_argument("--s2z", default=0.,type=float,help="Spin1z")
 parser.add_argument("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given")
@@ -68,13 +70,19 @@ parser.add_argument("--match-value", type=float, default=0.01, help="Use this as
 parser.add_argument("--verbose", action="store_true",default=False, help="Extra warnings")
 opts=  parser.parse_args()
 
+if opts.mc_range:
+    # If user specifies it, create it
+    mc_range  = list(map(int,opts.mc_range.replace('[','').replace(']','').split(',')))
+    opts.mc_range = mc_range
+else:
+    print(" User not specifying mc range, using event-based selection")
 
 cfg = ConfigParser()
 cfg.optionxform = str
 cfgname = opts.use_ini
 if not cfgname:
     print("  No input file ")
-    sys.exit(0)
+    sys.exit(1)
 
 cfg.read(cfgname)
 
@@ -110,6 +118,7 @@ else:
     P.m1 = opts.mass1 *lal.MSUN_SI
     P.m2 = opts.mass2 *lal.MSUN_SI
     P.s1z = opts.s1z
+    P.s2z = opts.s2z
     P.dist = 150*1e6*lal.PC_SI
     if opts.eff_lambda and Psig:
         lambda1, lambda2 = 0, 0
@@ -135,8 +144,9 @@ else:
 intrinsic_param ={}
 intrinsic_param["m1"] = P.m1/lal.MSUN_SI
 intrinsic_param["m2"] = P.m2/lal.MSUN_SI
-intrinsic_param["s1z"] = P.s1z
-intrinsic_param["s2z"] = P.s2z
+if not(opts.assume_nospin):
+    intrinsic_param["s1z"] = P.s1z
+    intrinsic_param["s2z"] = P.s2z
 #intrinsic_param = convert_list_string_to_dict(kwargs["intrinsic_param"])
 distance_coordinates = cfg.get("GridRefine","distance-coordinates") if cfg.has_option("GridRefine","distance-coordinates") else ""
 additional_command_line_args = convert_cfg_section_to_cmd_line(cfg,"InitialGridOnly") if cfg.has_section("InitialGridOnly") else ""
@@ -189,13 +199,34 @@ def main():
     eta_event = ((m1*m2)/((m1+m2)**2.))
     print("Event mchirp",Mchirp_event,eta_event)
 
+    # from helper code: choose some mc range that's plausible, not a delta function at trigger mass
+    fmin_fiducial = 20
+    v_PN_param = (np.pi* Mchirp_event*fmin_fiducial*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
+    snr_fac = 1 # not using that information
+    v_PN_param = v_PN_param
+    v_PN_param_max = 0.2
+    fac_search_correct = 1.5   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
+    ln_mc_error_pseudo_fisher = 1.5*np.array(fac_search_correct)*0.3*(v_PN_param/v_PN_param_max)**(7.)/snr_fac 
+    if ln_mc_error_pseudo_fisher  >1:
+        ln_mc_error_pseudo_fisher =0.8   # stabilize
+    mc_max = np.exp( ln_mc_error_pseudo_fisher) * Mchirp_event
+    mc_min = np.exp( -ln_mc_error_pseudo_fisher) * Mchirp_event
+    if opts.mc_range:
+        mc_min = opts.mc_range[0]
+        mc_max = opts.mc_range[1]
+
     #Reducing list of files to those in mchirp range
-    olap_filenames = glob.glob(path_to_olap_files+"*.hdf")
+    olap_filenames = glob.glob(path_to_olap_files+"/*.hdf")
     count_files = 0
     strings_to_include = "{"
     min_dist = -1
     min_dist_filename = ""
-    for hdf_filename in olap_filenames:
+    # if we only provide one file, don't bother looking
+    if len(olap_filenames)==1:
+        cmd += " --use-overlap " + olap_filenames[0]
+        count_files +=1
+    else:
+      for hdf_filename in olap_filenames:
         h5file = h5py.File(hdf_filename,"r")
         wfrm_fam = list(h5file.keys())[0]
         mdata = h5file[wfrm_fam]
@@ -204,11 +235,12 @@ def main():
         m1, m2 = mdata["mass1"][:ntemplates], mdata["mass2"][:ntemplates]
         Mchirps = ( (m1*m2)**(3/5.0) ) / ( (m1 + m2)**(1/5.0) )
 #        print Mchirp_event,min(Mchirps),max(Mchirps)
-        if Mchirp_event > min(Mchirps) and Mchirp_event < max(Mchirps):
+        if (mc_max > min(Mchirps) and  mc_max < max(Mchirps)) or (mc_min > min(Mchirps) and  mc_min < max(Mchirps)) or ( mc_max > max(Mchirps) and mc_min < min(Mchirps)) :
             print(hdf_filename)
-            s1, s2 = mdata["spin1z"][:ntemplates], mdata["spin2z"][:ntemplates]
             etas = ((m1*m2)/((m1+m2)**2.))
-            chi_effs = transform_s1zs2z_chi(m1,m2,s1,s2)    
+            if 's1z' in intrinsic_param:
+                s1, s2 = mdata["spin1z"][:ntemplates], mdata["spin2z"][:ntemplates]
+                chi_effs = transform_s1zs2z_chi(m1,m2,s1,s2)    
             #FIXME:even if youre not searching over spin, you want to find the file with the closest template assuming spin=0
             #implement above here at same time as code
             list_for_tree = np.asarray([Mchirps,etas]).T
@@ -224,12 +256,12 @@ def main():
                 min_dist_filename = hdf_filename
 
             count_files += 1
-            if not "s1z" in intrinsic_param:
+#            if not "s1z" in intrinsic_param:
                 #FIXME: rapidpe compute grid doesn't consider spin when checking for the closest template, which can lead to incorrect overlaps with other templates because the spin of the closest template assuming zero spin is actually non-zero, and if that was taken into account it wouldn't be the closest template
-                cmd += " --use-overlap "+hdf_filename
+            cmd += " --use-overlap "+hdf_filename
 
-    if "s1z" in intrinsic_param:                
-        cmd += " --use-overlap "+min_dist_filename
+#    if "s1z" in intrinsic_param:                
+#        cmd += " --use-overlap "+min_dist_filename
 
     print(("CLA",cmd))
     print(("Command line includes",count_files,"files to read"))

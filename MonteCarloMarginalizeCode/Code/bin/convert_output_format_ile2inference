@@ -82,7 +82,7 @@ if opts.convention == 'LI':
       print( " weights ", )
   print('')
   for fname in args:
-    points = table.get_table(utils.load_filename(fname,contenthandler=ligolw.LIGOLWContentHandler), lsctables.SimInspiralTable.tableName)
+    points = lsctables.SimInspiralTable.get_table(utils.load_filename(fname,contenthandler=ligolw.LIGOLWContentHandler), lsctables.SimInspiralTable.tableName)
 
     like = [row.alpha1 for row in points]  # hardcoded name
     p = [row.alpha2 for row in points]
@@ -199,7 +199,7 @@ for fname in args:
          print('')
      f.close()
  else:
-    points = table.get_table(utils.load_filename(fname,contenthandler=ligolw.LIGOLWContentHandler), lsctables.SimInspiralTable.tableName)
+    points = lsctables.SimInspiralTable.get_table(utils.load_filename(fname,contenthandler=ligolw.LIGOLWContentHandler))
     like = [row.alpha1 for row in points]  # hardcoded name
     p = [row.alpha2 for row in points]
     ps = [row.alpha3 for row in points]

@@ -59,11 +59,6 @@ from multiprocessing import Pool
 
 from RIFT.likelihood import vectorized_general_tools
 
-try:
-    import vegas
-except:
-    print(" - No vegas - ")
-
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
 rosDebugMessages = True

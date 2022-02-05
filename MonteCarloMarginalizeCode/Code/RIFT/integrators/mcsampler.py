@@ -19,9 +19,12 @@ from ..integrators.statutils import cumvar, welford
 
 from multiprocessing import Pool
 
-try:
+import os
+if not( 'RIFT_LOWLATENCY'  in os.environ):
+  # Dont support external packages in low latency
+ try:
     import vegas
-except:
+ except:
     print(" - No vegas - ")
 
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"

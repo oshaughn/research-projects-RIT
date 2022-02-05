@@ -7,11 +7,11 @@ from functools import reduce
 import numpy
 
 from glue.lal import LIGOTimeGPS
-from ligo.lw import ligolw, lsctables, table, ilwd
+from ligo.lw import ligolw, lsctables, table #, ilwd
 #from glue.ligolw.utils import process
 
 def assign_id(row, i):
-    row.simulation_id = ilwd.ilwdchar("sim_inspiral_table:sim_inspiral:%d" % i)
+    row.simulation_id = i # ilwd.ilwdchar("sim_inspiral_table:sim_inspiral:%d" % i)
 
 CMAP = { "right_ascension": "longitude",
     "longitude":"longitude",
