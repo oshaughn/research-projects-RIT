@@ -52,6 +52,8 @@ import lalmetaio
 from lal.series import read_psd_xmldoc
 from lalframe import frread
 
+import RIFT.misc.tools as tools 
+
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
@@ -735,6 +737,15 @@ class ChooseWaveformParams:
                 self.assign_param('chi1', chieff_new)
                 self.assign_param('chi2', chieff_new)                
             return self
+        # Soichiro's coordinates : mu1, mu2, q_mu, chi2z_mu
+        if p == 'mu1':
+            raise("Not implemented yet")
+        if p == 'mu2':
+            raise("Not implemented yet")
+        if p == 'q_mu':
+            raise("Not implemented yet")
+        if p == 'chi2z_mu':
+            raise("Not implemented yet")
         # assign an attribute
         if hasattr(self,p):
             setattr(self,p,val)
@@ -824,6 +835,19 @@ class ChooseWaveformParams:
             xi = np.dot(Lhat, (self.m1*chi1Vec + self.m2* chi2Vec))/(self.m1+self.m2)   # see also 'Xi', defined below
             shu = xi - 0.5*np.dot(Lhat, chi1Vec+chi2Vec) * (self.m1*self.m2)/ (self.m1+self.m2)**2
             return shu
+        # Soichiro's coordinates : mu1, mu2, q_mu, chi2z_mu
+        if p == 'mu1':
+            mc = mchirp(self.m1,self.m2)/lal.MSUN_SI
+            mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(mc, self.m2/self.m1, self.s1z, self.s2z)
+            return mu1
+        if p == 'mu2':
+            mc = mchirp(self.m1,self.m2)/lal.MSUN_SI
+            mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(mc, self.m2/self.m1, self.s1z, self.s2z)
+            return mu2
+        if p == 'q_mu':   # trivial, more important what is treated as constant
+            return self.m2/self.m1  
+        if p == 'chi2z_mu':
+            return P.s2z
         if p == 'lambda_plus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
             return (self.lambda1+self.lambda2)/2.
@@ -1819,7 +1843,7 @@ class InnerProduct(object):
             raise ValueError("analyticPSD_Q must be either True or False")
 
         # Do inverse spectrum truncation if requested
-        if inv_spec_trunc_Q is True and T_spec is not 0.:
+        if inv_spec_trunc_Q is True and T_spec != 0.:
             N_spec = int(T_spec / self.deltaT ) # number of non-zero TD pts
             # Ensure you will have some uncorrupted region in IP time series
             assert N_spec < self.len2side / 2
