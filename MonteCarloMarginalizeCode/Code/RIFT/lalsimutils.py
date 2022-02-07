@@ -739,12 +739,22 @@ class ChooseWaveformParams:
             return self
         # Soichiro's coordinates : mu1, mu2, q_mu, chi2z_mu
         if p == 'mu1':
-            raise("Not implemented yet")
+            mc = mchirp(self.m1,self.m2)/lal.MSUN_SI
+            mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(mc, self.m2/self.m1, self.s1z, self.s2z)
+            mc,q,chi1z,chi2z = tools.mu1mu2qchi2ToMcqchi1chi2(val, mu2,self.m2/self.m1, self.s2z) # q,chi2z is fixed
+            self.chi1z = chi1z
+            # now change mc at fixed q
+            self.assign_param('mc',mc*lal.MSUN_SI)
+            return self
         if p == 'mu2':
-            raise("Not implemented yet")
-        if p == 'q_mu':
-            raise("Not implemented yet")
-        if p == 'chi2z_mu':
+            mc = mchirp(self.m1,self.m2)/lal.MSUN_SI
+            mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(mc, self.m2/self.m1, self.s1z, self.s2z)
+            mc,q,chi1z,chi2z = tools.mu1mu2qchi2ToMcqchi1chi2(mu1, val,self.m2/self.m1, self.s2z) # q,chi2z is fixed
+            self.chi1z = chi1z
+            # now change mc at fixed q
+            self.assign_param('mc',mc*lal.MSUN_SI)
+            return self
+        if p == 'chi1z_mu':
             raise("Not implemented yet")
         # assign an attribute
         if hasattr(self,p):
