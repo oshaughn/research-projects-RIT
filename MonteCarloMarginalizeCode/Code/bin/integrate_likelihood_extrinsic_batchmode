@@ -1220,7 +1220,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       dict_out={"mass1": m1, "mass2": m2, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": numpy.sqrt(var)/res, "ttotal": sampler.ntotal}
       if 'distance' in pinned_params:
             dict_out['distance'] = pinned_params["distance"]
-      xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=dict_return["convergence_test_results"]["normal_integral"], **dict_out)
+      converged_result = False
+      if "convergence_test_results" in dict_return:
+        converged_result = dict_return["convergence_test_results"]["normal_integral"]
+      xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=converged_result, **dict_out)
       fname_output_xml = opts.output_file +"_"+str(indx_event)+"_" + ".xml.gz"
       utils.write_filename(xmldoc, fname_output_xml, compress="gz")
 
