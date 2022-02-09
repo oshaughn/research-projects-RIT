@@ -197,6 +197,7 @@ parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use 
 parser.add_argument("--internal-marginalize-distance",action='store_true',help='Create options to marginalize over distance in the pipeline. Also create any necessary marginalization files at runtime, based on the maximum distance assumed')
 parser.add_argument("--internal-distance-max",type=float,default=None,help='If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances')
 parser.add_argument("--internal-use-amr",action='store_true',help='If present,the code will set up to use AMR.  Currently not much implemented here, and most of the heavy lifting is elsewhere')
+parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
 parser.add_argument("--use-cov-early",action='store_true',help="If provided, use cov fit in the early iterations'")
@@ -1067,7 +1068,11 @@ if opts.propose_fit_strategy:
     # Strategy: One iteration of low-dimensional, followed by other dimensions of high-dimensional
     print(" Fit strategy NOT IMPLEMENTED -- currently just provides basic parameterization options. Need to work in real strategies (e.g., cip-arg-list)")
     lnLoffset_late = 15 # default
-    helper_cip_args += ' --no-plots --fit-method {}  --parameter mc --parameter delta_mc '.format(fit_method)
+    helper_cip_args += ' --no-plots --fit-method {}  '.format(fit_method)
+    if not opts.internal_use_aligned_phase_coordinates:
+        helper_cip_args += '   --parameter mc --parameter delta_mc '
+    else:
+        helper_cip_args += " --parameter-implied mu1 --parameter-implied mu2 --parameter-nofit mc --parameter delta_mc "  
     if 'gp' in fit_method:
         helper_cip_args += " --cap-points 12000 "
     if not opts.no_propose_limits:
@@ -1109,7 +1114,14 @@ if opts.propose_fit_strategy:
     if not opts.assume_nospin:
         helper_puff_args += " --parameter chieff_aligned "
         if not opts.assume_precessing_spin:
-            if not opts.assume_highq:
+            # aligned spin branch
+            if opts.internal_use_aligned_phase_coordinates:
+                # mu1,mu2,q,s2z are coordinates, with mu1,mu2,delta_mc already implemented
+                helper_cip_args += ' --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools                
+                for indx in np.arange(1,len(helper_cip_arg_list)): # allow for variable numbers of subsequent steps, with different settings
+                    helper_cip_arg_list[indx] += ' --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z '
+            elif not opts.assume_highq:
+                # normal aligned spin
                 helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
                 helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
                 for indx in np.arange(1,len(helper_cip_arg_list)): # allow for variable numbers of subsequent steps, with different settings
