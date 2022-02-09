@@ -1118,6 +1118,7 @@ if opts.propose_fit_strategy:
             if opts.internal_use_aligned_phase_coordinates:
                 # mu1,mu2,q,s2z are coordinates, with mu1,mu2,delta_mc already implemented
                 helper_cip_args += ' --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools                
+                helper_cip_arg_list[0] += " --parameter-nofit s1z --parameter-nofit s2z  "
                 for indx in np.arange(1,len(helper_cip_arg_list)): # allow for variable numbers of subsequent steps, with different settings
                     helper_cip_arg_list[indx] += ' --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z '
             elif not opts.assume_highq:
