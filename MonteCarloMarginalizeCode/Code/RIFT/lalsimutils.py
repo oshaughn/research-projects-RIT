@@ -355,7 +355,9 @@ tex_dictionary  = {
   'lambdat': r'$\tilde{\Lambda}$',
   'DeltaLambdaTilde': r'$\Delta\tilde{\Lambda}$',
   'dlambdat': r'$\Delta\tilde{\Lambda}$',
-  'distance':r'$d_L$'
+  'distance':r'$d_L$',
+  'mu1':r'$\mu_1$',
+  'mu2':r'$\mu_2$',
 }
 
 
@@ -751,6 +753,7 @@ class ChooseWaveformParams:
             self.assign_param('mc',mc*fac_scale)
             return self
         if p == 'mu2':
+            fac_scale=1
             if self.m1 > 1e10:
                 fac_scale = lal.MSUN_SI
             mc = mchirp(self.m1,self.m2)/fac_scale
