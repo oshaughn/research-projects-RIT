@@ -2402,8 +2402,8 @@ if opts.verbose:
 cum_sum  = np.cumsum(weights)
 cum_sum = cum_sum/cum_sum[-1]
 indx_list = list(map(lambda x : np.sum(cum_sum < x),  p_thresholds))  # this can lead to duplicates
-if opts.internal_bound_factor_if_n_eff_small and n_eff <opts.n_ouptut_samples  and opts.internal_bound_factor_if_n_eff_small* neff < opts.n_ouptut_samples:
-    my_size_out = int(opts.n_ouptut_samples*opts.internal_bound_factor_if_n_eff_small)+1  # make sure at least one sample
+if opts.internal_bound_factor_if_n_eff_small and neff <opts.n_ouptut_samples  and opts.internal_bound_factor_if_n_eff_small* neff < opts.n_ouptut_samples:
+    my_size_out = int(neff*opts.internal_bound_factor_if_n_eff_small)+1  # make sure at least one sample
     indx_list = np.random.choice(indx_list, my_size_out, replace=False)
 if opts.verbose:
     print(" output size: selected random indices N=", len(indx_list))
