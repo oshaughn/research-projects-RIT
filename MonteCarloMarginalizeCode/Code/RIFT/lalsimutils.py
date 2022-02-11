@@ -745,23 +745,23 @@ class ChooseWaveformParams:
             fac_scale = 1
             if self.m1 > 1e10:
                 fac_scale = lal.MSUN_SI
-            mc = mchirp(self.m1,self.m2)/fac_scale
+            mc = mchirp(self.m1/fac_scale,self.m2/fac_scale)
             mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(mc, self.m2/self.m1, self.s1z, self.s2z)
-            mc,q,chi1z,chi2z = tools.mu1mu2qchi2ToMcqchi1chi2(val, mu2,self.m2/self.m1, self.s2z) # q,chi2z is fixed
-            self.chi1z = chi1z
+            mcNew,q,chi1z,chi2z = tools.mu1mu2qchi2ToMcqchi1chi2(val, mu2,self.m2/self.m1, self.s2z) # q,chi2z is fixed
+            self.s1z = chi1z
             # now change mc at fixed q
-            self.assign_param('mc',mc*fac_scale)
+            self.assign_param('mc',mcNew*fac_scale)
             return self
         if p == 'mu2':
             fac_scale=1
             if self.m1 > 1e10:
                 fac_scale = lal.MSUN_SI
-            mc = mchirp(self.m1,self.m2)/fac_scale
+            mc = mchirp(self.m1/fac_scale,self.m2/fac_scale)
             mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(mc, self.m2/self.m1, self.s1z, self.s2z)
-            mc,q,chi1z,chi2z = tools.mu1mu2qchi2ToMcqchi1chi2(mu1, val,self.m2/self.m1, self.s2z) # q,chi2z is fixed
-            self.chi1z = chi1z
+            mcNew,q,chi1z,chi2z = tools.mu1mu2qchi2ToMcqchi1chi2(mu1, val,self.m2/self.m1, self.s2z) # q,chi2z is fixed
+            self.s1z = chi1z
             # now change mc at fixed q
-            self.assign_param('mc',mc*fac_scale)
+            self.assign_param('mc',mcNew*fac_scale)
             return self
         if p == 'chi1z_mu':
             raise("Not implemented yet")
@@ -1171,7 +1171,7 @@ class ChooseWaveformParams:
 
     def randomize(self,zero_spin_Q=False,aligned_spin_Q=False,volumetric_spin_prior_Q=False,default_inclination=None,default_phase=None,default_polarization=None,dMax=500.,dMin=1.,sMax=1):
         mMin = 2.   # min component mass (Msun)
-        mMax = 10.  # max component mass (Msun)
+        mMax = 100.  # max component mass (Msun)
         sMin = 0.   # min spin magnitude
 #        sMax = 1.   # max spin magnitude
 #        dMin = float(dMin)   # min distance (Mpc)
