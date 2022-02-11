@@ -2389,19 +2389,15 @@ print(" ---- Subset for posterior samples (and further corner work) --- ")
 
 # pick random numbers
 p_threshold_size = np.min([5*opts.n_output_samples,len(weights)])
-p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=p_threshold_size)#opts.n_output_samples)
+#p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=p_threshold_size)#opts.n_output_samples)
 if opts.verbose:
     print(" output size: selected thresholds N=", len(p_thresholds))
 # find sample indexes associated with the random numbers
 #    - FIXME: first truncate the bad ones
-# idx_sorted_index = numpy.lexsort((numpy.arange(len(weights)), weights))  # Sort the array of weights, recovering index values
-# indx_list = numpy.array( [[k, weights[k]] for k in idx_sorted_index])     # pair up with the weights again
-# cum_weights = np.cumsum(indx_list[:,1)
-# cum_weights = cum_weights/cum_weights[-1]
-# indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probabilit
-cum_sum  = np.cumsum(weights)
-cum_sum = cum_sum/cum_sum[-1]
-indx_list = list(map(lambda x : np.sum(cum_sum < x),  p_thresholds))  # this can lead to duplicates
+#cum_sum  = np.cumsum(weights)
+#cum_sum = cum_sum/cum_sum[-1]
+#indx_list = list(map(lambda x : np.sum(cum_sum < x),  p_thresholds))  # this can lead to duplicates
+indx_list = np.random.choice(np.arange(len(weights)),len(p_threshold_size),p=np.array(weights/np.sum(weights),dtype=float),replace=False)
 if opts.verbose:
     print(" output size: selected random indices N=", len(indx_list))
 if opts.internal_bound_factor_if_n_eff_small and neff <opts.n_output_samples  and opts.internal_bound_factor_if_n_eff_small* neff < opts.n_output_samples:
