@@ -275,6 +275,7 @@ parser.add_argument("--fit-uses-reported-error",action='store_true')
 parser.add_argument("--fit-uses-reported-error-factor",type=float,default=1,help="Factor to add to standard deviation of fit, before adding to lnL. Multiplies number fitting dimensions")
 parser.add_argument("--n-max",default=3e8,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
+parser.add_argument("--internal-bound-factor-if-n-eff-small",default=None,type=float,help="If n_eff < n_ouptut_samples, we truncate the output size based on n_eff*(factor)")
 parser.add_argument("--n-chunk",default=1e5,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
@@ -697,7 +698,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'cos_theta2':[-1,1],
   'phi1':[0,2*np.pi],
   'phi2':[0,2*np.pi],
-  'mu1':[-10,1e3],    # suboptimal, but something  
+  'mu1':[0.01,1e3],    # suboptimal, but something  
   'mu2':[-300,1e3]
 }
 if not (opts.chiz_plus_range is None):
@@ -2401,6 +2402,9 @@ if opts.verbose:
 cum_sum  = np.cumsum(weights)
 cum_sum = cum_sum/cum_sum[-1]
 indx_list = list(map(lambda x : np.sum(cum_sum < x),  p_thresholds))  # this can lead to duplicates
+if opts.internal_bound_factor_if_n_eff_small and n_eff <opts.n_ouptut_samples  and opts.internal_bound_factor_if_n_eff_small* neff < opts.n_ouptut_samples:
+    my_size_out = int(opts.n_ouptut_samples*opts.internal_bound_factor_if_n_eff_small)+1  # make sure at least one sample
+    indx_list = np.random.choice(indx_list, my_size_out, replace=False)
 if opts.verbose:
     print(" output size: selected random indices N=", len(indx_list))
 lnL_list = []
@@ -2431,6 +2435,8 @@ for indx_here in indx_list:
         # Test for downselect
         for p in downselect_dict.keys():
             val = Pgrid.extract_param(p) 
+            if np.isnan(val):  # this can happen for some odd coordinate systems like mu1, mu2 if we are out of range
+                include_item = False
             if p in ['mc','m1','m2','mtot']:
                 val = val/lal.MSUN_SI
             if val < downselect_dict[p][0] or val > downselect_dict[p][1]:
