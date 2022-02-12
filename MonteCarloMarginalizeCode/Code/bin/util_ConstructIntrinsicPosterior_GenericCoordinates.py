@@ -2394,7 +2394,7 @@ print(" ---- Subset for posterior samples (and further corner work) --- ")
 p_threshold_size = np.min([5*opts.n_output_samples,len(weights)])
 #p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=p_threshold_size)#opts.n_output_samples)
 if opts.verbose:
-    print(" output size: selected thresholds N=", len(p_thresholds))
+    print(" output size: selected thresholds N=", p_threshold_size)
 # find sample indexes associated with the random numbers
 #    - FIXME: first truncate the bad ones
 #cum_sum  = np.cumsum(weights)
