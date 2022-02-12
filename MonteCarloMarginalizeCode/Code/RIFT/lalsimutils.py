@@ -2309,14 +2309,20 @@ def symRatio(m1, m2):
 
 def m1m2(Mc, eta):
     """Compute component masses from Mc, eta. Returns m1 >= m2"""
-    etaV = 1-4*eta
-    if isinstance(etaV, float):
+    etaV = np.array(1-4*eta,dtype=float) 
+    etaV_sqrt = np.zeros(len(etaV),dtype=float)
+    if isinstance(eta, float):
         if etaV < 0:
             etaV = 0
+            etaV_sqrt =0
+        else:
+            etaV_sqrt = np.sqrt(etaV)
     else:
-        etaV[etaV<0] = 0 # set negative cases to 0, so no sqrt problems
-    m1 = 0.5*Mc*eta**(-3./5.)*(1. + np.sqrt(etaV))
-    m2 = 0.5*Mc*eta**(-3./5.)*(1. - np.sqrt(etaV))
+        indx_ok = etaV>=0
+        etaV_sqrt[indx_ok] = np.sqrt(etaV[indx_ok])
+        etaV_sqrt[np.logical_not(indx_ok)] = 0 # set negative cases to 0, so no sqrt problems
+    m1 = 0.5*Mc*eta**(-3./5.)*(1. + etaV_sqrt)
+    m2 = 0.5*Mc*eta**(-3./5.)*(1. - etaV_sqrt)
     return m1, m2
 
 def eta_crit(Mc, m2_min):
@@ -4344,6 +4350,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
     # Check for common coordinates we need to transform: xi, chiMinus as the most common, from cartesian
     if ('xi' in coord_names_reduced) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names) and ('mc' in low_level_coord_names):
         indx_p_out = coord_names.index('xi')
+        p = 'xi'
         indx_mc = low_level_coord_names.index('mc')
         indx_s1z = low_level_coord_names.index('s1z')
         indx_s2z = low_level_coord_names.index('s2z')
@@ -4356,7 +4363,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
             x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
             coord_names_reduced.remove(p)
-        if ('eta' in low_level_coord_names):
+        elif ('eta' in low_level_coord_names):
             indx_eta = low_level_coord_names.index('eta')
             eta_vals = 0.25*(1- x_in[:,indx_eta]**2)
             m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
@@ -4364,6 +4371,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             coord_names_reduced.remove(p)
     if ('chiMinus' in coord_names_reduced) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names) and ('mc' in low_level_coord_names):
         indx_p_out = coord_names.index('chiMinus')
+        p = 'chiMinus'
         indx_mc = low_level_coord_names.index('mc')
         indx_s1z = low_level_coord_names.index('s1z')
         indx_s2z = low_level_coord_names.index('s2z')
@@ -4376,7 +4384,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
             x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
             coord_names_reduced.remove(p)
-        if ('eta' in low_level_coord_names):
+        elif ('eta' in low_level_coord_names):
             indx_eta = low_level_coord_names.index('eta')
             eta_vals = 0.25*(1- x_in[:,indx_eta]**2)
             m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
