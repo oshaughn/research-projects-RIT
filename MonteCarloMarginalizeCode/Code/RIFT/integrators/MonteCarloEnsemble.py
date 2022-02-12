@@ -269,7 +269,7 @@ class integrator:
         if nmax is None:
             nmax = max_iter * self.n
         while self.iterations < max_iter and self.ntotal < nmax and self.eff_samp < neff:
-            if self.iterations < n_adapt:
+            if self.iterations >= n_adapt:
                 adapting=False
 #            print('Iteration:', self.iterations)
             if err_count >= max_err:
