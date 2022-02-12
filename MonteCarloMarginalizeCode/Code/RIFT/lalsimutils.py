@@ -4328,6 +4328,19 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
+    # Check for trivial identity transformations and do those by direct copy, then remove those from the list of output coord names
+    coord_names_reduced = coord_names.copy() 
+    for p in low_level_coord_names:
+        if p in coord_names:
+            indx_p_out = coord_names.index(p)
+            indx_p_in = low_level_coord_names.index(p)
+            coord_names_reduced.remove(p)
+            x_out[:,indx_p_out] = x_in[:,indx_p_in]
+    # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
+    if len(coord_names_reduced)<1:
+        return x_out
+
+    
     P = ChooseWaveformParams()
     # note NO MASS CONVERSION here, because the fit is in solar mass units!
     for indx_out  in np.arange(len(x_in)):
@@ -4336,8 +4349,10 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
         P.m1 = P.m1*(1+source_redshift)
         P.m2 = P.m2*(1+source_redshift)
-        for indx in np.arange(len(coord_names)):
-            x_out[indx_out,indx] = P.extract_param(coord_names[indx])
+        for indx in np.arange(len(coord_names_reduced)):
+            p = coord_names_reduced[indx]
+            indx_p_out= coord_names.index(p)
+            x_out[indx_out,indx_p_out] = P.extract_param(p)
         if enforce_kerr and (P.extract_param('chi1') > 1 or P.extract_param('chi2') >1):  # insure Kerr bound satisfied
             x_out[indx_out] = -np.inf*np.ones( len(coord_names) ) # return negative infinity for all coordinates, if Kerr bound violated
     return x_out
