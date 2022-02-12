@@ -4335,7 +4335,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
 
     Special cases:
       - coordinates in x_out already in x_in are copied over directly
-      - 
+      - xi==chi_eff, chiMinus, mu1,mu2 : transformed directly from mc, delta_mc, s1z,s2z coordinates, using fast vectorized transformations.
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     # Check for trivial identity transformations and do those by direct copy, then remove those from the list of output coord names
@@ -4390,6 +4390,22 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
             x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
             coord_names_reduced.remove(p)
+
+    if ('mu1' in coord_names_reduced) and ('mu2' in coord_names_reduced) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names):
+        indx_pout_mu1 = coord_names.index('mu1')
+        indx_pout_mu2 = coord_names.index('mu2')
+        indx_mc = low_level_coord_names.index('mc')
+        indx_delta = low_level_coord_names.index('delta_mc')
+        indx_s1z = low_level_coord_names.index('s1z')
+        indx_s2z = low_level_coord_names.index('s2z')
+        # delta == (m1-m2)/(m1+m2) == (1-q)/(1+q), so q ==(1-delta)/(1+delta)
+        qvals = (1- x_in[:,indx_delta])/(1+x_in[:,indx_delta])
+        mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(x_in[:,indx_mc], qvals, x_in[:,indx_s1z], x_in[:,indx_s2z])
+        x_out[:,indx_pout_mu1] = mu1
+        x_out[:,indx_pout_mu2] = mu2
+        coord_names_reduced.remove('mu1')
+        coord_names_reduced.remove('mu2')
+
 
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
     if len(coord_names_reduced)<1:
