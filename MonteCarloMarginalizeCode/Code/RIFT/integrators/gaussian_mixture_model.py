@@ -382,10 +382,13 @@ class gmm:
         self._merge(new_model, M)
         self.N += M
 
-    def score(self, sample_array):
+    def score(self, sample_array,assume_normalized=True):
         '''
         Score samples (i.e. calculate likelihood of each sample) under the current
         model.
+
+        Note the bounds are stored *not* normalized, and we need to compensate for that.
+        Note the normalized bounds are always -1,1 ... but we won't hardcode that, in case normalization changes
 
         Parameters
         ----------
@@ -395,8 +398,10 @@ class gmm:
             Bounds for samples, used for renormalizing scores
         '''
         n, d = sample_array.shape
-        scores = np.zeros(n)
+        scores = np.zeros(n):
         sample_array = self._normalize(sample_array)
+        bounds_normalized = np.zeros(self.bounds.shape)
+        bounds_normalized= self._normalize(self.bounds.T).T
         normalization_constant = 0.
         for i in range(self.k):
             w = self.weights[i]
@@ -404,12 +409,13 @@ class gmm:
             cov = self.covariances[i]
             if(len(mean)>1):
                 scores += multivariate_normal.pdf(x=sample_array, mean=mean, cov=cov, allow_singular=True) * w
-                normalization_constant += w*mvnun(self.bounds[:,0], self.bounds[:,1], mean, cov)[0] # this function is very fast at integrating multivariate normal distributions
+                normalization_constant += w*mvnun(bounds_normalized[:,0], bounds_normalized[:,1], mean, cov)[0] # this function is very fast at integrating multivariate normal distributions
             else:
                 sigma2 = cov[0,0]
                 val = 1./np.sqrt(2*np.pi*sigma2) * np.exp( - 0.5*( sample_array[:,0] - mean[0])**2/sigma2)
                 scores += val * w
-                normalization_constant += w*norm(loc=mean[0],scale=np.sqrt(sigma2)).cdf( self.bounds[0,1]) - norm(loc=mean[0],scale=np.sqrt(sigma2)).cdf( self.bounds[0,0])
+                my_cdf = norm(loc=mean[0],scale=np.sqrt(sigma2)).cdf
+                normalization_constant += w*(my_cdf( bounds_normalized[0,1]) - my_cdf( bounds_normalized[0,0]))
             # note that allow_singular=True in the above line is probably really dumb and
             # terrible, but it seems to occasionally keep the whole thing from blowing up
             # so it stays for now
@@ -476,8 +482,8 @@ class gmm:
             print('________________________________________\n')
             print('Component', i)
             print('Mean (scaled and unscaled)')
-            print(mean, self._unormalize([mean]))
-            print('Covaraince')
+            print(mean, self._unnormalize(np.array([mean])))
+            print('Covariance')
             print(cov)
             print('Weight')
             print(weight, '\n')
