@@ -33,6 +33,12 @@ import itertools
 
 import joblib  # http://scikit-learn.org/stable/modules/model_persistence.html
 
+# GPU acceleration: NOT YET, just do usual
+xpy_default=numpy  # just in case, to make replacement clear and to enable override
+identity_convert = lambda x: x  # trivial return itself
+cupy_success=False
+
+
 no_plots = True
 internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
 
@@ -70,6 +76,12 @@ try:
 except:
     print(" No mcsamplerEnsemble ")
     mcsampler_gmm_ok = False
+try:
+    import RIFT.integrators.mcsamplerGPU as mcsamplerGPU
+    mcsampler_gpu_ok = True
+except:
+    print( " No mcsamplerGPU ")
+    mcsampler_gpu_ok = False
 try:
     import RIFT.interpolators.senni as senni
     senni_ok = True
@@ -1834,6 +1846,16 @@ else:
 
 
 sampler = mcsampler.MCSampler()
+if opts.sampler_method == "adaptive_cartesian_gpu":
+    sampler = mcsamplerGPU.MCSampler()
+    sampler.xpy = xpy_default
+    sampler.identity_convert=identity_convert
+    mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+
+    # if opts.sampler_xpy == "numpy":
+    #   mcsampler.set_xpy_to_numpy()
+    #   sampler.xpy= numpy
+    #   sampler.identity_convert= lambda x: x
 if opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 
