@@ -35,13 +35,15 @@ class estimator:
         Maximum number of Expectation-Maximization iterations
     '''
 
-    def __init__(self, k, max_iters=100, tempering_coeff=0.001):
+    def __init__(self, k, max_iters=100, tempering_coeff=0.001,adapt=None):
         self.k = k # number of gaussian components
         self.max_iters = max_iters # maximum number of iterations to convergence
         self.means = [None] * k
         self.covariances =[None] * k
         self.weights = [None] * k
         self.adapt = [None] * k
+        if adapt:
+            self.adapt = adapt
         self.d = None
         self.p_nk = None
         self.log_prob = None
