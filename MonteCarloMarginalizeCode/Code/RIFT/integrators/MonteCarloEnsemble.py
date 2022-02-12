@@ -237,7 +237,7 @@ class integrator:
         
 
     def integrate(self, func, min_iter=10, max_iter=20, var_thresh=0.0, max_err=10,
-            neff=float('inf'), nmax=None, progress=False, epoch=None,verbose=True,**kwargs):
+            neff=float('inf'), nmax=None, progress=False, epoch=None,verbose=True,force_no_adapt=False,**kwargs):
         '''
         Evaluate the integral
 
@@ -269,7 +269,7 @@ class integrator:
         if nmax is None:
             nmax = max_iter * self.n
         while self.iterations < max_iter and self.ntotal < nmax and self.eff_samp < neff:
-            if self.iterations >= n_adapt:
+            if force_no_adapt or self.iterations >= n_adapt:
                 adapting=False
 #            print('Iteration:', self.iterations)
             if err_count >= max_err:
