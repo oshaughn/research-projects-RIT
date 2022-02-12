@@ -4325,7 +4325,11 @@ def DataRollTime(ht,DeltaT):  # ONLY FOR TIME DOMAIN. ACTS IN PLACE
 
 def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,source_redshift=0):
     """
-    A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
+    A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q).  Note that if ChooseWaveformParam structuers are built ,the loops can be quite slow
+
+    Special cases:
+      - coordinates in x_out already in x_in are copied over directly
+      - 
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     # Check for trivial identity transformations and do those by direct copy, then remove those from the list of output coord names
@@ -4336,6 +4340,49 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             indx_p_in = low_level_coord_names.index(p)
             coord_names_reduced.remove(p)
             x_out[:,indx_p_out] = x_in[:,indx_p_in]
+
+    # Check for common coordinates we need to transform: xi, chiMinus as the most common, from cartesian
+    if ('xi' in coord_names_reduced) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names) and ('mc' in low_level_coord_names):
+        indx_p_out = coord_names.index('xi')
+        indx_mc = low_level_coord_names.index('mc')
+        indx_s1z = low_level_coord_names.index('s1z')
+        indx_s2z = low_level_coord_names.index('s2z')
+        eta_vals = np.zeros(len(x_in))  
+        m1_vals =np.zeros(len(x_in))  
+        m2_vals =np.zeros(len(x_in))  
+        if ('delta_mc' in low_level_coord_names):
+            indx_delta = low_level_coord_names.index('delta_mc')
+            eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+            coord_names_reduced.remove(p)
+        if ('eta' in low_level_coord_names):
+            indx_eta = low_level_coord_names.index('eta')
+            eta_vals = 0.25*(1- x_in[:,indx_eta]**2)
+            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+            coord_names_reduced.remove(p)
+    if ('chiMinus' in coord_names_reduced) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names) and ('mc' in low_level_coord_names):
+        indx_p_out = coord_names.index('chiMinus')
+        indx_mc = low_level_coord_names.index('mc')
+        indx_s1z = low_level_coord_names.index('s1z')
+        indx_s2z = low_level_coord_names.index('s2z')
+        eta_vals = np.zeros(len(x_in))  
+        m1_vals =np.zeros(len(x_in))  
+        m2_vals =np.zeros(len(x_in))  
+        if ('delta_mc' in low_level_coord_names):
+            indx_delta = low_level_coord_names.index('delta_mc')
+            eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+            coord_names_reduced.remove(p)
+        if ('eta' in low_level_coord_names):
+            indx_eta = low_level_coord_names.index('eta')
+            eta_vals = 0.25*(1- x_in[:,indx_eta]**2)
+            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+            coord_names_reduced.remove(p)
+
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
     if len(coord_names_reduced)<1:
         return x_out
