@@ -2310,7 +2310,6 @@ def symRatio(m1, m2):
 def m1m2(Mc, eta):
     """Compute component masses from Mc, eta. Returns m1 >= m2"""
     etaV = np.array(1-4*eta,dtype=float) 
-    etaV_sqrt = np.zeros(len(etaV),dtype=float)
     if isinstance(eta, float):
         if etaV < 0:
             etaV = 0
@@ -2319,6 +2318,7 @@ def m1m2(Mc, eta):
             etaV_sqrt = np.sqrt(etaV)
     else:
         indx_ok = etaV>=0
+        etaV_sqrt = np.zeros(len(etaV),dtype=float)
         etaV_sqrt[indx_ok] = np.sqrt(etaV[indx_ok])
         etaV_sqrt[np.logical_not(indx_ok)] = 0 # set negative cases to 0, so no sqrt problems
     m1 = 0.5*Mc*eta**(-3./5.)*(1. + etaV_sqrt)
