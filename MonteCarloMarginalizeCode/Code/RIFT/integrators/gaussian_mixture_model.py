@@ -398,7 +398,7 @@ class gmm:
             Bounds for samples, used for renormalizing scores
         '''
         n, d = sample_array.shape
-        scores = np.zeros(n):
+        scores = np.zeros(n)
         sample_array = self._normalize(sample_array)
         bounds_normalized = np.zeros(self.bounds.shape)
         bounds_normalized= self._normalize(self.bounds.T).T
