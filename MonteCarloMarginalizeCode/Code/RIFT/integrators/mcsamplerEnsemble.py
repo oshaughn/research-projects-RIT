@@ -257,7 +257,7 @@ class MCSampler(object):
         gmm_adapt = kwargs['gmm_adapt'] if "gmm_adapt" in kwargs else None
         gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
         L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
-        tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
+        tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 1.0
 
         max_err = kwargs["max_err"] if "max_err" in kwargs else 10  # default
 
