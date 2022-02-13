@@ -262,7 +262,7 @@ class MCSampler(object):
         max_err = kwargs["max_err"] if "max_err" in kwargs else 10  # default
 
         super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
-
+        dict_return_q = kwargs["dict_return"] if "dict_return" in kwargs else False  # default.  Method for passing back rich data structures for debugging
         
         # set up a lot of preliminary stuff
         self.func = func
@@ -334,14 +334,18 @@ class MCSampler(object):
         self._rvs['joint_s_prior'] = p_array
         self._rvs['integrand'] = value_array
 
-        # write data to file
+        # if special return structure, fill it
+        dict_return = {}
+        if dict_return_q:
+            dict_return["integrator"] = integrator
 
+        # write data to file
         if write_to_file:
             dat_out = np.c_[sample_array, value_array, p_array]
             np.savetxt('mcsampler_data.txt', dat_out,
                         header=" ".join(['sample_array', 'value_array', 'p_array']))
 
-        return integral, error_squared, eff_samp, {}
+        return integral, error_squared, eff_samp, dict_return
 
 
 def inv_uniform_cdf(a, b, x):
