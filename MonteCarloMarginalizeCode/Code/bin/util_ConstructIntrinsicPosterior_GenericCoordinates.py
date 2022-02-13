@@ -79,6 +79,8 @@ except:
 try:
     import RIFT.integrators.mcsamplerGPU as mcsamplerGPU
     mcsampler_gpu_ok = True
+    mcsamplerGPU.xpy_default =xpy_default  # force consistent, in case GPU present
+    mcsamplerGPU.identity_convert = identity_convert
 except:
     print( " No mcsamplerGPU ")
     mcsampler_gpu_ok = False
@@ -713,7 +715,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'cos_theta2':[-1,1],
   'phi1':[0,2*np.pi],
   'phi2':[0,2*np.pi],
-  'mu1':[0.01,1e3],    # suboptimal, but something  
+  'mu1':[0.0001,1e3],    # suboptimal, but something  
   'mu2':[-300,1e3]
 }
 if not (opts.chiz_plus_range is None):
@@ -1878,6 +1880,13 @@ for p in low_level_coord_names:
         range_here = [np.max([range_here[0],mc_min]), np.min([range_here[1],mc_max])]
     if p =='mtot' and opts.mtot_range:
         range_here = eval(opts.mtot_range)
+    # special cases mu1,mu2: rather than try to choose intelligently, just use training box data for limits
+    if (p=='ln_mu1' or p == 'mu1' or p=='mu2') and opts.trust_sample_parameter_box:
+        # extremely special/unusual use case, looking up from *input* data : mu1 only used as coordinate if also used for fitting
+        indx_lnmu = coord_names.index(p)
+        lnmu_max = np.max(dat_out[:,indx_lnmu])
+        lnmu_min = np.min(dat_out[:,indx_lnmu])
+        range_here = [lnmu_min,lnmu_max]
 
     sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=True)
 
