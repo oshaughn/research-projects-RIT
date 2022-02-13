@@ -69,6 +69,7 @@ npts_here = 500
 my_demo_samples = my_gmm.sample(npts_here)[:,0]
 my_demo_samples.sort()
 plt.scatter(my_demo_samples,np.arange(npts_here)/(1.*npts_here))
+plt.plot(my_demo_samples, truncnorm( (llim-mu)/sigma, (rlim-mu)/sigma, loc=mu,scale=sigma).cdf(my_demo_samples),label='truncnorm(crap)')
 plt.xlabel("x")
 plt.ylabel("CDF of sampling distribution")
 plt.savefig("my_cdf_sampler.png")
