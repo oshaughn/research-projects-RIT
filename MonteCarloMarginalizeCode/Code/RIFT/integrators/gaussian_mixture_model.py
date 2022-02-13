@@ -4,6 +4,8 @@ Gaussian Mixture Model
 ----------------------
 Fit a Gaussian Mixture Model (GMM) to data and draw samples from it. Uses the
 Expectation-Maximization algorithm.
+
+Weighted data GMM formulae: different from framework in eg. https://arxiv.org/pdf/1509.01509.pdf
 '''
 
 
@@ -78,7 +80,8 @@ class estimator:
             p_nk[:,index] = log_pdf + log_p # (16.1.5)
         p_xn = logsumexp(p_nk, axis=1)#, keepdims=True) # (16.1.3)
         self.p_nk = p_nk - p_xn[:,np.newaxis] # (16.1.5)
-        self.p_nk += log_sample_weights[:,np.newaxis]
+        # normalize log sample weights as well, before modifying things with them
+        self.p_nk += log_sample_weights[:,np.newaxis]  -         logsumexp(log_sample_weights) 
         self.log_prob = np.sum(p_xn + log_sample_weights) # (16.1.2)
 
     def _m_step(self, n, sample_array):
@@ -86,11 +89,11 @@ class estimator:
         Maximization step
         '''
         p_nk = np.exp(self.p_nk)
-        weights = np.sum(p_nk, axis=0)
+        weights = np.sum(p_nk, axis=0)   # weight of a single component
         for index in range(self.k):
           if self.adapt[index]:
             # (16.1.6)
-            w = weights[index]
+            w = weights[index]   # should be 1 for a single component, note
             p_k = p_nk[:,index]
             mean = np.sum(np.multiply(sample_array, p_k[:,np.newaxis]), axis=0)
             mean /= w
