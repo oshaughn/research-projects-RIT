@@ -261,6 +261,8 @@ class MCSampler(object):
 
         max_err = kwargs["max_err"] if "max_err" in kwargs else 10  # default
 
+        super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
+
         
         # set up a lot of preliminary stuff
         self.func = func
@@ -304,7 +306,7 @@ class MCSampler(object):
                          user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp) # reflect=reflect,
         if not direct_eval:
             func = self.evaluate
-        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err)
+        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,progress=super_verbose)
 
         # get results
 
