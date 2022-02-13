@@ -181,18 +181,23 @@ class estimator:
         '''
         Prints the model's parameters in an easily-readable format
         '''
+        if self.d ==1:
+            print("GMM:   component wt mean std ")
         for i in range(self.k):
             mean = self.means[i]
             cov = self.covariances[i]
             weight = self.weights[i]
-            print('________________________________________\n')
-            print('Component', i)
-            print('Mean')
-            print(mean)
-            print('Covaraince')
-            print(cov)
-            print('Weight')
-            print(weight, '\n')
+            if self.d >1:
+                print('________________________________________\n')
+                print('Component', i)
+                print('Mean')
+                print(mean)
+                print('Covaraince')
+                print(cov)
+                print('Weight')
+                print(weight, '\n')
+            else:
+                print(i, weight, mean[0], np.sqrt(cov[0,0]))
 
 
 class gmm:
@@ -475,15 +480,20 @@ class gmm:
         '''
         Prints the model's parameters in an easily-readable format
         '''
+        if self.d ==1:
+            print("GMM:   component wt mean_unscaled mean std ")
         for i in range(self.k):
             mean = self.means[i]
             cov = self.covariances[i]
             weight = self.weights[i]
-            print('________________________________________\n')
-            print('Component', i)
-            print('Mean (scaled and unscaled)')
-            print(mean, self._unnormalize(np.array([mean])))
-            print('Covariance')
-            print(cov)
-            print('Weight')
-            print(weight, '\n')
+            if self.d >1:
+                print('________________________________________\n')
+                print('Component', i)
+                print('Mean (scaled and unscaled)')
+                print(mean, self._unnormalize(np.array([mean])))
+                print('Covariance')
+                print(cov)
+                print('Weight')
+                print(weight, '\n')
+            else:
+                print(i, weight, self._unnormalize(np.array([mean]))[0,0], mean[0], np.sqrt(cov[0,0]))
