@@ -52,17 +52,19 @@ for p in params:
             prior_pdf=np.vectorize(lambda x:1),
             left_limit=llim, right_limit=rlim,
             adaptive_sampling=True)
-    samplerEnsemble.add_parameter(p, left_limit=llim, right_limit=rlim)
+    samplerEnsemble.add_parameter(p, left_limit=llim, right_limit=rlim,adaptive_sampling=True)
 
 # number of Gaussian components to use in GMM
-n_comp = 2
+n_comp = 1
 
 ### integrate
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
         no_protect_names=True, nmax=20000, save_intg=True)
+print(" --- finished default --")
 integral_2, var_2, eff_samp_2, _ = samplerEnsemble.integrate(f, *params, 
-        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp)
-
+        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=True)
+print(" --- finished GMM --")
+print("mu",mu)
 ### CDFs
 
 ### get our posterior samples as a single array
