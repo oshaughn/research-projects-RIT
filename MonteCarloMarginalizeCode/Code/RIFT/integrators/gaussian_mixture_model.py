@@ -476,7 +476,7 @@ class gmm:
                 start = end
             except:
                 print('Exiting due to non-positive-semidefinite')
-                exit()
+                raise Exception("gmm covariance not positive-semidefinite")
         return self._unnormalize(sample_array)
 
     def print_params(self):
