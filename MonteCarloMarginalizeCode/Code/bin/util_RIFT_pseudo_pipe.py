@@ -652,7 +652,7 @@ for indx in np.arange(len(instructions_cip)):
             chi_max = opts.force_chi_max
         q_min = lalsimutils.waveform_approx_limit_dict[opts.approx]["q-min"]
         eta_min = q_min/(1+q_min)**2
-        line += " --chi-max {}  "
+        line += " --chi-max {}  ".format(chi_max)
         # Parse arguments, impose limit based on the approximant used, as described above
 #        import StringIO
         my_parser = argparse.ArgumentParser()
