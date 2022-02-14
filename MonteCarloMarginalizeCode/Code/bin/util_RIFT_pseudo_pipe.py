@@ -694,13 +694,13 @@ with open("args_cip_list.txt",'w') as f:
            f.write(line)
 
 # Write test file
-with open("args_test.txt",'w') as f:
-    test_args = " --method lame  --parameter m1 "
-    if not(opts.internal_use_amr):   # ALWAYS run the test with AMR
-        test_args +=  " --always-succeed  "
-    else:
-        test_args += " --threshold 0.02 "
-    f.write("X  "+test_args)
+# with open("args_test.txt",'w') as f:
+#     test_args = " --method lame  --parameter m1 "
+#     if not(opts.internal_use_amr):   # ALWAYS run the test with AMR
+#         test_args +=  " --always-succeed  "
+#     else:
+#         test_args += " --threshold 0.02 "
+#     f.write("X  "+test_args)
 
 
 # Write puff file

@@ -1080,12 +1080,16 @@ if opts.propose_fit_strategy:
 
     helper_cip_arg_list_common = str(helper_cip_args)[1:] # drop X
     n_it_early =3
+    n_it_mid = 4
     if opts.assume_highq:
         n_it_early =5
         qmin_puff = 0.05 # 20:1
     if opts.assume_well_placed:
         n_it_early = 1
-    helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
+    if opts.internal_use_aligned_phase_coordinates:
+        n_it_early = 2
+        n_it_mid =2
+    helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "{} ".format(n_it_mid) +  helper_cip_arg_list_common ]
     
     # Impose a cutoff on the range of parameter used, IF the fit is a gp fit
     if 'gp' in fit_method:
@@ -1249,7 +1253,8 @@ with open("helper_cip_arg_list.txt",'w+') as f:
 # Impose test in last phase only
 n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
 n_its_to_not_test = np.sum(n_its) - n_its[-1]
-helper_test_args += " --threshold {} ".format(n_its_to_not_test)
+helper_test_args += " --iteration-threshold {} ".format(n_its_to_not_test)
+helper_test_args += " --threshold 0.02 "
 
 with open("helper_test_args.txt",'w+') as f:
     f.write(helper_test_args)
