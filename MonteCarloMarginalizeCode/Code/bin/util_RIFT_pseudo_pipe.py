@@ -615,8 +615,8 @@ for indx in np.arange(len(instructions_cip)):
     n_iterations += int(instructions_cip[indx][0])
     line = ' ' .join(instructions_cip[indx])
     n_max_cip = 10000000;
-    if opts.cip_sampler_method is "GMM":
-        n_max_cip *=10   # it is faster, so run longer; helps with correlated-sampling cases
+    if (opts.cip_sampler_method == "GMM") or (opts.cip_sampler_method == 'adaptive_cartesian_gpu'):
+        n_max_cip *=100   # it is faster, so run longer; helps with correlated-sampling cases
     n_sample_target=opts.n_output_samples
     n_workers = 1
     if opts.cip_explode_jobs:
