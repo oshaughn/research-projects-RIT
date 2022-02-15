@@ -111,9 +111,10 @@ print("Integral of 1 over this range, using a normalized prior, must be 1 ", [sa
 
 
 
-sig = 0.05
-print(" -- Performing integral of gaussian, stopping after neff = 100 points -- ")
-res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=100,verbose=False)
+sig = 0.1
+n_eff_stop=100
+print(" -- Performing integral of non-normalized gaussian, stopping after neff = {} points -- ".format(n_eff_stop))
+res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=n_eff_stop,verbose=False)
 print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", np.sqrt(2*np.pi)*sig)
 print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to relative predicted and actual errors: ", np.sqrt(var)/res, ", ",  (res - np.sqrt(2*np.pi)*sig)/res)
 
@@ -121,6 +122,6 @@ print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to 
 sig = 0.1
 tempering_exp=0.2
 print(" -- repeat test, but with tempering_exp active -- ")
-res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=5000,gmm_dict=gmm_dict,tempering_exp=tempering_exp)
+res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=n_eff_stop,gmm_dict=gmm_dict,tempering_exp=tempering_exp)
 print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", np.sqrt(2*np.pi)*sig)
 print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to relative predicted and actual errors: ", np.sqrt(var)/res, ", ",  (res - np.sqrt(2*np.pi)*sig)/res)
