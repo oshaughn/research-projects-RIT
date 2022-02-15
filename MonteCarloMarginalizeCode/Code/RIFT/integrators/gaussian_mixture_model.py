@@ -37,7 +37,7 @@ class estimator:
         Maximum number of Expectation-Maximization iterations
     '''
 
-    def __init__(self, k, max_iters=100, tempering_coeff=0.001,adapt=None):
+    def __init__(self, k, max_iters=100, tempering_coeff=0.00001,adapt=None):
         self.k = k # number of gaussian components
         self.max_iters = max_iters # maximum number of iterations to convergence
         self.means = [None] * k
@@ -101,6 +101,9 @@ class estimator:
             # (16.1.6)
             diff = sample_array - mean
             cov = np.dot((p_k[:,np.newaxis] * diff).T, diff) / w
+#            cov = np.cov(diff.T, aweights=p_k)/w   # don't reinvent the wheel
+#            if len(mean)<2:
+#                cov =np.array([[cov]])
             # attempt to fix non-positive-semidefinite covariances
             self.covariances[index] = self._near_psd(cov)
             # (16.17)
@@ -177,6 +180,7 @@ class estimator:
         for index in range(self.k):
             cov = self.covariances[index]
             # temper
+            #   - note this introduces a PREFERRED LENGTH SCALE into the problem, which is dangerous
             cov = (cov + self.tempering_coeff * np.eye(self.d)) / (1 + self.tempering_coeff)
             self.covariances[index] = cov
 
@@ -484,7 +488,7 @@ class gmm:
         Prints the model's parameters in an easily-readable format
         '''
         if self.d ==1:
-            print("GMM:   component wt mean_unscaled mean std ")
+            print("GMM:   component wt mean_correct mean_normed std_normed ")
         for i in range(self.k):
             mean = self.means[i]
             cov = self.covariances[i]
