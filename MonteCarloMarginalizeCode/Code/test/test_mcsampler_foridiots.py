@@ -3,8 +3,7 @@ import numpy as np
 from matplotlib import pylab as plt
 
 import RIFT.integrators.mcsampler as mcsampler
-#import RIFT.integrators.mcsamplerEnsemble as mcsampler
-import ourio
+#import ourio
 
 #import dill # so I can pickle lambda functions: https://stackoverflow.com/questions/25348532/can-python-pickle-lambda-functions?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
 
@@ -15,14 +14,16 @@ samplerPrior.add_parameter('x', pdf=np.vectorize(lambda x: 1.3), cdf_inv=None, l
 #    Note code above RELIES on our ability to set a default prior (of unity!) for x!
 #    AND our ability to construct a cdf_inverse function, which is done approximately, for sampling
 # Do an MC integral with this sampler (=the measure specified by the sampler).
-ret = samplerPrior.integrate(lambda x,np=np:np.ones(len(x)), 'x', nmax=1e5,verbose=True)
+def my_func(x):
+    return np.ones(len(x))
+ret,var, neff,dict_return = samplerPrior.integrate(my_func, 'x', nmax=1e5,verbose=True)
 print("Integral of 1 over this range ", [samplerPrior.llim['x'] ,samplerPrior.rlim['x'] ], " is ", ret, " needs to be ", samplerPrior.rlim['x'] -  samplerPrior.llim['x'] ," and (small)")
 
 
 # Do a gaussian integral.  Create normalizatio interactively
 samplerNewPrior = mcsampler.MCSampler()
 samplerNewPrior.add_parameter('y', pdf=(lambda x: np.exp(-x**2/2.)), cdf_inv=None, left_limit=-1,right_limit=1, prior_pdf = np.vectorize(lambda x: 1/2.)) # normalized prior!
-ret = samplerNewPrior.integrate((lambda x:np.ones(len(x))), 'y', nmax=1e4,no_protect_names=True)
+ret,var, neff,dict_return = samplerNewPrior.integrate((lambda x:np.ones(len(x))), 'y', nmax=1e4,no_protect_names=True)
 print("Integral of 1 over a normalized pdf  is ", ret, " and needs to be 1")
 
 
@@ -63,25 +64,36 @@ print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to 
 
 
 
-# Save the sampled points to a file
-#ourio.dumpSamplesToFile("sampler-foridiots-example.dat", ret, ['x', 'lnL'])
-# plot the array of partial sums, to illustrate convergence
-print(" -- Integral convergence ---")
-xarr, lnL = np.transpose(ret)
-lnLmax = np.maximum.accumulate(lnL)
-plt.plot(np.arange(len(lnLmax)), lnLmax,label='lnLmax')      # array of running-maximum lnL values
-plt.plot(np.arange(len(lnLmarg)), lnLmarg,label='lnLmarg')    # array of marginalized L values
-plt.xlabel('iteration')
-plt.ylabel('lnL')
-plt.legend()
-plt.savefig("test_fig_1.png")
-plt.clf()
-# Plot the sampled points (as example for direct access to 'ret')
-print(" -- Sampled array of points  -- ")
-xvals = np.transpose(ret)[0]
-yvals = np.exp(np.transpose(ret)[1])  # lnL is last element of array
-plt.scatter(xvals,yvals)
-plt.xlabel('x')
-plt.ylabel('L')
-plt.savefig("test_fig_2.png")
 
+
+### mcsamplerEnsemble
+print(" --- mcsamplerEnsemble ---- ")
+import RIFT.integrators.mcsamplerEnsemble as mcsampler
+# Integrate a constant function
+samplerPrior = mcsampler.MCSampler()
+gmm_dict = {(0,):None}  # note required for this type of integrator, to indicate sampling parameter groups
+samplerPrior.add_parameter('x', pdf=np.vectorize(lambda x: 1./(2.5)),  left_limit=-1.5,right_limit=1,adaptive_sampling=True)  # is this correctly renormalized?
+#    Note code above RELIES on our ability to set a default prior (of unity!) for x!
+#    AND our ability to construct a cdf_inverse function, which is done approximately, for sampling
+# Do an MC integral with this sampler (=the measure specified by the sampler).
+def my_func2(x):
+    return np.ones(len(x))
+ret,var, neff,dict_return = samplerPrior.integrate(my_func2, *['x'], nmax=1e5,verbose=True,gmm_dict=gmm_dict) #,super_verbose=True)
+print("Integral of 1 over this range ", [samplerPrior.llim['x'] ,samplerPrior.rlim['x'] ], " is ", ret, " needs to be ", samplerPrior.rlim['x'] -  samplerPrior.llim['x'] ," and (small)")
+import sys
+
+
+
+sig = 0.1
+print(" -- Performing integral of gaussian, stopping after neff = 5000 points -- ")
+res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=5000,gmm_dict=gmm_dict)
+print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", np.sqrt(2*np.pi)*sig)
+print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to relative predicted and actual errors: ", np.sqrt(var)/res, ", ",  (res - np.sqrt(2*np.pi)*sig)/res)
+
+
+sig = 0.1
+tempering_exp=0.2
+print(" -- repeat test, but with tempering_exp active -- ")
+res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=5000,gmm_dict=gmm_dict,tempering_exp=tempering_exp)
+print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", np.sqrt(2*np.pi)*sig)
+print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to relative predicted and actual errors: ", np.sqrt(var)/res, ", ",  (res - np.sqrt(2*np.pi)*sig)/res)
