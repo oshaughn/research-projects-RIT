@@ -37,7 +37,7 @@ class estimator:
         Maximum number of Expectation-Maximization iterations
     '''
 
-    def __init__(self, k, max_iters=100, tempering_coeff=0.00001,adapt=None):
+    def __init__(self, k, max_iters=100, tempering_coeff=0.0000001,adapt=None):
         self.k = k # number of gaussian components
         self.max_iters = max_iters # maximum number of iterations to convergence
         self.means = [None] * k
@@ -467,7 +467,7 @@ class gmm:
             w = self.weights[component]
             mean = self.means[component]
             cov = self.covariances[component]
-            num_samples = int(n * w)
+            num_samples = int(n * w)  # NOT a poisson draw, note : we draw exactly the expected number from each one (since we have a fixed number to fill)
             if component == self.k - 1:
                 end = n
             else:
