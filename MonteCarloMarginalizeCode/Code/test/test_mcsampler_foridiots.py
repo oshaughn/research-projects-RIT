@@ -73,8 +73,6 @@ import RIFT.integrators.mcsamplerEnsemble as mcsampler
 samplerPrior = mcsampler.MCSampler()
 gmm_dict = {(0,):None}  # note required for this type of integrator, to indicate sampling parameter groups
 samplerPrior.add_parameter('x', pdf=np.vectorize(lambda x: 1./(2.5)),  left_limit=-1.5,right_limit=1,adaptive_sampling=True)  # is this correctly renormalized?
-#    Note code above RELIES on our ability to set a default prior (of unity!) for x!
-#    AND our ability to construct a cdf_inverse function, which is done approximately, for sampling
 # Do an MC integral with this sampler (=the measure specified by the sampler).
 def my_func2(x):
     return np.ones(len(x))
@@ -87,6 +85,35 @@ import sys
 sig = 0.1
 print(" -- Performing integral of gaussian, stopping after neff = 5000 points -- ")
 res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=5000,gmm_dict=gmm_dict)
+print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", np.sqrt(2*np.pi)*sig)
+print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to relative predicted and actual errors: ", np.sqrt(var)/res, ", ",  (res - np.sqrt(2*np.pi)*sig)/res)
+
+
+sig = 0.1
+tempering_exp=0.2
+print(" -- repeat test, but with tempering_exp active -- ")
+res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=5000,gmm_dict=gmm_dict,tempering_exp=tempering_exp)
+print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", np.sqrt(2*np.pi)*sig)
+print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to relative predicted and actual errors: ", np.sqrt(var)/res, ", ",  (res - np.sqrt(2*np.pi)*sig)/res)
+
+
+### mcsamplerGPU
+print(" --- mcsamplerGPU ---- ")
+import RIFT.integrators.mcsamplerGPU as mcsampler
+# Integrate a constant function
+samplerPrior = mcsampler.MCSampler()
+samplerPrior.add_parameter('x', pdf=np.vectorize(lambda x: 1./(2.5)), cdf_inv=None, prior_pdf=np.vectorize(lambda x:1./2.5),left_limit=-1.5,right_limit=1,adaptive_sampling=True)  # is this correctly renormalized?
+# Do an MC integral with this sampler (=the measure specified by the sampler).
+def my_func2(x):
+    return np.ones(len(x))
+ret,var, neff,dict_return = samplerPrior.integrate(my_func2, *['x'], nmax=1e5,verbose=True) #,super_verbose=True)
+print("Integral of 1 over this range, using a normalized prior, must be 1 ", [samplerPrior.llim['x'] ,samplerPrior.rlim['x'] ], " is ", ret, " needs to be 1")
+
+
+
+sig = 0.05
+print(" -- Performing integral of gaussian, stopping after neff = 100 points -- ")
+res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=100,verbose=False)
 print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", np.sqrt(2*np.pi)*sig)
 print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to relative predicted and actual errors: ", np.sqrt(var)/res, ", ",  (res - np.sqrt(2*np.pi)*sig)/res)
 
