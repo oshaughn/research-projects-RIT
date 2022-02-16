@@ -620,13 +620,13 @@ for indx in np.arange(len(instructions_cip)):
         n_max_cip *=100   # it is faster, so run longer; helps with correlated-sampling cases
     n_sample_target=opts.n_output_samples
     if indx < len(instructions_cip)-1: # on all but last iteration, cap the number of points coming out : this drives the total amount of work for AMR, etc!
-        n_sample_target= np.min([opts.n_output_samples,10*opts.internal_cap_cip_neff])
+        n_sample_target= np.min([opts.n_output_samples,10*opts.internal_cip_cap_neff])
     n_workers = 1
     if opts.cip_explode_jobs:
         n_workers = opts.cip_explode_jobs
     n_eff_cip_here = int(n_sample_target/n_workers)
     if indx < len(instructions_cip)-1: # on all but 
-        n_eff_cip_here = np.min([opts.internal_cap_cip_neff, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
+        n_eff_cip_here = np.min([opts.internal_cip_cap_neff, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
     n_sample_min_per_worker = int(n_eff_cip_here/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
     line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), n_eff_cip_here, n_max_cip,n_sample_min_per_worker)
     if not(opts.cip_fit_method is None):
