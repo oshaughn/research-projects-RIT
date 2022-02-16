@@ -743,7 +743,7 @@ if opts.aligned_prior == 'alignedspin-zprior':
     prior_map["s1z"] = s_component_zprior
     prior_map["s2z"] = functools.partial(s_component_zprior,R=chi_small_max)
     if  'chiz_plus' in low_level_coord_names:
-        if opts.spin_prior_chizplusminus_alternate_sampling is 'alignedspin_zprior':
+        if opts.spin_prior_chizplusminus_alternate_sampling == 'alignedspin_zprior':
             # just a  trick to make reweighting more efficient.
             prior_map['chiz_plus'] = s_component_zprior
             prior_map['chiz_minus'] = s_component_zprior
