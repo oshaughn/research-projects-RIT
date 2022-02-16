@@ -32,6 +32,7 @@ parser.add_argument("--test-output",  help="Filename to return output. Result is
 parser.add_argument("--always-succeed",action='store_true',help="Test output is always success.  Use for plotting convergence diagnostics so jobs insured to run for many iterations.")
 parser.add_argument("--iteration-threshold",default=0,type=int,help="Test is applied if iteration >= iteration-threshold. Default is 0")
 parser.add_argument("--iteration",default=0,type=int,help="Current reported iteration. Default is 0.")
+parser.add_argument("--write-file-on-success",type=str,default="INTRINSIC_CONVERGED",help="Produces an (empty) file with this name if the convergence tests passes.  Note you should pass the FULL PATH to this file if you want it to occur in the run directory for example")
 opts=  parser.parse_args()
 
 if len(opts.samples)<2:
@@ -135,6 +136,7 @@ if opts.always_succeed or (opts.threshold is None):
     sys.exit(0)
 
 if (val_test < opts.threshold):  
+    np.savetxt(opts.write_file_on_success,np.array([]))
     sys.exit(1)
 else:
     sys.exit(0)
