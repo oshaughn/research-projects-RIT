@@ -193,6 +193,7 @@ parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--n-output-samples",type=int,default=8000,help="Number of output samples generated in the final iteration")
+parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
@@ -618,11 +619,16 @@ for indx in np.arange(len(instructions_cip)):
     if (opts.cip_sampler_method == "GMM") or (opts.cip_sampler_method == 'adaptive_cartesian_gpu'):
         n_max_cip *=100   # it is faster, so run longer; helps with correlated-sampling cases
     n_sample_target=opts.n_output_samples
+    if indx < len(instructions_cip)-1: # on all but last iteration, cap the number of points coming out : this drives the total amount of work for AMR, etc!
+        n_sample_target= np.min([opts.n_output_samples,10*opts.internal_cap_cip_neff])
     n_workers = 1
     if opts.cip_explode_jobs:
         n_workers = opts.cip_explode_jobs
-    n_sample_min_per_worker = int(n_sample_target/n_workers/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
-    line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), int(n_sample_target/n_workers),n_max_cip,n_sample_min_per_worker)
+    n_eff_cip_here = int(n_sample_target/n_workers)
+    if indx < len(instructions_cip)-1: # on all but 
+        n_eff_cip_here = np.min([opts.internal_cap_cip_neff, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
+    n_sample_min_per_worker = int(n_eff_cip_here/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
+    line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), n_eff_cip_here, n_max_cip,n_sample_min_per_worker)
     if not(opts.cip_fit_method is None):
         line = line.replace('--fit-method gp ', '--fit-method ' + opts.cip_fit_method)  # should not be called, see --force-fit-method argument to helper
     if not (opts.cip_sampler_method is None):
