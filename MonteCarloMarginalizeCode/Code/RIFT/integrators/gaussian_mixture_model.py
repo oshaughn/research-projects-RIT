@@ -37,7 +37,7 @@ class estimator:
         Maximum number of Expectation-Maximization iterations
     '''
 
-    def __init__(self, k, max_iters=100, tempering_coeff=0.0000001,adapt=None):
+    def __init__(self, k, max_iters=100, tempering_coeff=1e-8,adapt=None):
         self.k = k # number of gaussian components
         self.max_iters = max_iters # maximum number of iterations to convergence
         self.means = [None] * k
@@ -222,7 +222,7 @@ class gmm:
         Maximum number of Expectation-Maximization iterations
     '''
 
-    def __init__(self, k, bounds, max_iters=1000,epsilon=None):
+    def __init__(self, k, bounds, max_iters=1000,epsilon=None,tempering_coeff=1e-8):
         self.k = k
         self.bounds = bounds
         #self.tol = tol
@@ -237,10 +237,10 @@ class gmm:
         self.N = 0
         self.epsilon =epsilon
         if self.epsilon is None:
-            self.epsilon = 1e-4  # allow very strong correlations
+            self.epsilon = 1e-6  # allow very strong correlations
         else:
             self.epsilon=epsilon
-        self.tempering_coeff = 0.01
+        self.tempering_coeff = tempering_coeff
 
     def _normalize(self, samples):
         n, d = samples.shape
