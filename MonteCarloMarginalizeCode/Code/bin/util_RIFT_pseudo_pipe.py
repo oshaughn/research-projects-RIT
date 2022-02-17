@@ -616,9 +616,9 @@ lines  = []
 for indx in np.arange(len(instructions_cip)):
     n_iterations += int(instructions_cip[indx][0])
     line = ' ' .join(instructions_cip[indx])
-    n_max_cip = 10000000;  # 1e7; doing more than this requires special memory management within the integrators in general
+    n_max_cip = 100000000;  # 1e8; doing more than this requires special memory management within the integrators in general. This lets us get a decent number of samples even with one worker for hard problems
     # if (opts.cip_sampler_method == "GMM") or (opts.cip_sampler_method == 'adaptive_cartesian_gpu'):
-    #     n_max_cip *=100   # it is faster, so run longer; helps with correlated-sampling cases
+    #     n_max_cip *=3   # it is faster, so run longer; helps with correlated-sampling cases
     n_sample_target=opts.n_output_samples
     if indx < len(instructions_cip)-1: # on all but last iteration, cap the number of points coming out : this drives the total amount of work for AMR, etc!
         n_sample_target= np.min([opts.n_output_samples,10*opts.internal_cip_cap_neff])
