@@ -770,11 +770,14 @@ else:
 
 
        # augment the CIP job list
+        n_to_add = cip_args_n[indx]
+        if (indx == len(cip_args_lines)-1) and np.sum(cip_args_n[:indx])<opts.n_iterations:
+            n_to_add = opts.n_iterations - np.sum(cip_args_n[:(indx-1)]) 
         if opts.cip_explode_jobs is None:
-            cip_job_list = cip_job_list + cip_args_n[indx]*[cip_job]
+            cip_job_list = cip_job_list + n_to_add*[cip_job]
         else:
             print(" Exploding stage 3 ")
-            cip_job_list = cip_job_list + cip_args_n[indx]*[[cip_job,cip_job_worker]]
+            cip_job_list = cip_job_list + n_to_add*[[cip_job,cip_job_worker]]
 
 ##   Test job (terminate, convergence
 if opts.test_args:
