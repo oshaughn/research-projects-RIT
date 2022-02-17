@@ -772,7 +772,7 @@ else:
        # augment the CIP job list
         n_to_add = int(cip_args_n[indx])
         if (indx == len(cip_args_lines)-1) and np.sum(cip_args_n[:indx])<opts.n_iterations:
-            n_to_add = opts.n_iterations - np.sum(cip_args_n[:(indx-1)]) 
+            n_to_add = int(opts.n_iterations - np.sum(cip_args_n[:(indx-1)]) )
         if opts.cip_explode_jobs is None:
             cip_job_list = cip_job_list + n_to_add*[cip_job]
         else:
