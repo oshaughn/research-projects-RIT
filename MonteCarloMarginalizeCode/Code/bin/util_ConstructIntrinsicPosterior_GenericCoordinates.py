@@ -587,6 +587,8 @@ def xi_uniform_prior(x):
     return np.ones(x.shape)
 def s_component_uniform_prior(x,R=chi_max):  # If all three are used, a volumetric prior
     return np.ones(x.shape)/(2.*R)
+def s_component_sqrt_prior(x,R=chi_max):  # If all three are used, a volumetric prior
+    return 1./(4.*R*np.sqrt(np.abs(x)/R))  # -R,R range
 def s_component_gaussian_prior(x,R=chi_max/3.):
     """
     (proportinal to) prior on range in one-dimensional components, in a cartesian domain.
@@ -756,6 +758,11 @@ if opts.transverse_prior == 'alignedspin-zprior':
     prior_map["s1y"] = s_component_zprior
     prior_map["s2x"] = functools.partial(s_component_zprior,R=chi_small_max)
     prior_map["s2y"] = functools.partial(s_component_zprior,R=chi_small_max)
+elif opts.transverse_prior = 'sqrt-prior':
+    prior_map["s1x"] = s_component_sqrt_prior
+    prior_map["s1y"] = s_component_sqrt_prior
+    prior_map["s2x"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
+    prior_map["s2y"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
 
 if opts.aligned_prior == 'volumetric':
     prior_map["s1z"] = s_component_aligned_volumetricprior
