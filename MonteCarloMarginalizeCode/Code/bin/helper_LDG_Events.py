@@ -1140,17 +1140,17 @@ if opts.propose_fit_strategy:
             puff_max_it=4
 
         else: #  opts.assume_precessing_spin:
-            # # Use cartesian +volumetric for FIRST FEW ITERATIONS (or as default).  
+            # # Use cartesian as default early, using modfied transverse spin prior so we effectively sample the smallest spins for the next stagesx
             helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
             helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "2 " +  helper_cip_arg_list_common,"2 " +  helper_cip_arg_list_common,"3 " +  helper_cip_arg_list_common  ]
             if not opts.assume_highq:
                 helper_cip_arg_list[0] +=  '  --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
-                helper_cip_arg_list[0] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  '
+                helper_cip_arg_list[0] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior alignedspin-zprior '
             
                 helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
-                helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  '
+                helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior alignedspin-zprior '
 
-                # this will be perfectly adequate volumetric result
+                # this will be perfectly adequate volumetric result ...but note the spin priors above are using more concentrated spins near the origin
                 helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
                 helper_cip_arg_list[2] +=   ' --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y  '
                 # # Default prior is *volumetric*
