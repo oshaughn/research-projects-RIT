@@ -763,6 +763,12 @@ elif opts.transverse_prior == 'sqrt-prior':
     prior_map["s1y"] = s_component_sqrt_prior
     prior_map["s2x"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
     prior_map["s2y"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
+elif opts.transverse_prior == 'taper-down':
+    prior_map["s1x"] = functools.partial(mcsampler.linear_down_samp,xmin=-1,xmax=1)
+    prior_map["s1y"] = functools.partial(mcsampler.linear_down_samp,xmin=-1,xmax=1)
+    prior_map["s2x"] = functools.partial(mcsampler.linear_down_samp,xmin=-chi_small_max,xmax=chi_small_max)
+    prior_map["s2y"] = functools.partial(mcsampler.linear_down_samp,xmin=-chi_small_max,xmax=chi_small_max)
+    
 
 if opts.aligned_prior == 'volumetric':
     prior_map["s1z"] = s_component_aligned_volumetricprior
