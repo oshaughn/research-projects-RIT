@@ -232,7 +232,7 @@ parser.add_argument("--desc-lalinference",type=str,default='',help="String to ad
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
-#parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
+parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
@@ -758,7 +758,7 @@ if opts.transverse_prior == 'alignedspin-zprior':
     prior_map["s1y"] = s_component_zprior
     prior_map["s2x"] = functools.partial(s_component_zprior,R=chi_small_max)
     prior_map["s2y"] = functools.partial(s_component_zprior,R=chi_small_max)
-elif opts.transverse_prior = 'sqrt-prior':
+elif opts.transverse_prior == 'sqrt-prior':
     prior_map["s1x"] = s_component_sqrt_prior
     prior_map["s1y"] = s_component_sqrt_prior
     prior_map["s2x"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
@@ -1896,7 +1896,10 @@ for p in low_level_coord_names:
         lnmu_min = np.min(dat_out[:,indx_lnmu])
         range_here = [lnmu_min,lnmu_max]
 
-    sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=True)
+    adapt_me = True
+    if p in opts.no_adapt_parameter:
+        adapt_me=False
+    sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
 
 
 # Import prior
