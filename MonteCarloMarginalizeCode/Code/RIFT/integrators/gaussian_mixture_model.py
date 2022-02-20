@@ -389,7 +389,9 @@ class gmm:
         '''
         self.tempering_coeff /= 2
         new_model = estimator(self.k, self.max_iters, self.tempering_coeff)
-        new_model.fit(self._normalize(sample_array), log_sample_weights)
+        # Strip non-finite training data
+        indx_ok = np.isfinite(log_sample_weights)  
+        new_model.fit(self._normalize(sample_array[indx_ok]), log_sample_weights[indx_ok])
         M, _ = sample_array.shape
         self._merge(new_model, M)
         self.N += M
