@@ -775,7 +775,9 @@ if not (opts.manual_initial_grid is None):
 # Build DAG
 cip_mem  = 30000
 n_jobs_per_worker=opts.ile_jobs_per_worker
-if opts.cip_fit_method == 'rf' or opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # much lower memory requirement
+if opts.cip_fit_method == 'rf':
+    cip_mem = 10000  # typical, and will need long-duration run
+if opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # much lower memory requirement
     cip_mem = 4000
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
@@ -846,7 +848,7 @@ if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples)
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
-   if not(opts.cip_fit_method is None) and not(opts.cip_fit_method == 'gp'):
+   if not(opts.cip_fit_method) and not(opts.cip_fit_method == 'gp'):
        # if we are not using default GP fit, so all fit instances are equal
        cmd += " --cip-explode-jobs-flat "  
 if opts.make_bw_psds:
