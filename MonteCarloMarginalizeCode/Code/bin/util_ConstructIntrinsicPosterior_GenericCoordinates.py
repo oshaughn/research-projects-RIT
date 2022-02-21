@@ -585,6 +585,9 @@ def delta_mc_prior(x,norm_factor=1.44):
 def m_prior(x):
     return 1/(1e3-1.)  # uniform in mass, use a square.  Should always be used as m1,m2 in pairs. Note this does NOT restrict m1>m2.
 
+
+def triangle_prior(x,R=chi_max):
+    return (np.ones(x.shape)-np.abs(x/R))  # triangle from -R to R centered on zero
 def xi_uniform_prior(x):
     return np.ones(x.shape)
 def s_component_uniform_prior(x,R=chi_max):  # If all three are used, a volumetric prior
@@ -766,10 +769,10 @@ elif opts.transverse_prior == 'sqrt-prior':
     prior_map["s2x"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
     prior_map["s2y"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
 elif opts.transverse_prior == 'taper-down':
-    prior_map["s1x"] = functools.partial(mcsampler.linear_down_samp,xmin=-1,xmax=1)
-    prior_map["s1y"] = functools.partial(mcsampler.linear_down_samp,xmin=-1,xmax=1)
-    prior_map["s2x"] = functools.partial(mcsampler.linear_down_samp,xmin=-chi_small_max,xmax=chi_small_max)
-    prior_map["s2y"] = functools.partial(mcsampler.linear_down_samp,xmin=-chi_small_max,xmax=chi_small_max)
+    prior_map["s1x"] = triangle_prior
+    prior_map["s1y"] = triangle_prior
+    prior_map["s2x"] = functools.partial(triangle_prior,R=chi_small_max)
+    prior_map["s2y"] = functools.partial(triangle_prior,R=chi_small_max)
     
 
 if opts.aligned_prior == 'volumetric':
