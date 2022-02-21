@@ -325,6 +325,8 @@ parser.add_argument("--fixed-parameter", action="append")
 parser.add_argument("--fixed-parameter-value", action="append")
 
 opts=  parser.parse_args()
+if not(opts.no_adapt_parameter):
+    opts.no_adapt_parameter =[] # needs to default to empty list
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
