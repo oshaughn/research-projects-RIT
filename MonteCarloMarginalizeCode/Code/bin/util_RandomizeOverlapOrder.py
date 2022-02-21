@@ -18,6 +18,7 @@ try:
 except:
     print(" - no h5py - ")
 
+import RIFT.lalsimutils as lalsimutils
 
 # Contenthandlers : argh
 #   - http://software.ligo.org/docs/glue/
