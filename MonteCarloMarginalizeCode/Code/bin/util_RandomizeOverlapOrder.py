@@ -43,6 +43,7 @@ for fname in args:
 n_min = np.min(n_list)
 for indx in np.arange(len(P_list_list)):
     indx_to_take = np.random.choice(np.arange(len(P_list_list[indx])),size=n_min)
-    P_list.append( P_list_list[indx][indx_to_take])
+    P_to_add = [P_list_list[indx][a] for a in indx_to_take]
+    P_list += P_to_add
 
 lalsimutils.ChooseWaveformParams_array_to_xml(P_list,opts.output_file)
