@@ -796,7 +796,7 @@ else:
                 print(" Exploding stage 3 ")
                 cip_job_list = cip_job_list + n_to_add*[[cip_job,cip_job_worker]]
         else:
-            print(" Indefinite subdag-to-convergence requested for ", indx)
+            print(" Indefinite subdag-to-convergence requested for group ", indx)
             cip_job_list += ["Subdag"]
 
 ##   Test job (terminate, convergence
@@ -989,23 +989,32 @@ for it in np.arange(it_start,opts.n_iterations):
 
     # Create fit node, which depends on consolidate node
     cip_job = cip_job_list[it]
+#    print(it, cip_job,creating_subdag_arg_list)
     if isinstance(cip_job,list):
         cip_worker_job = cip_job[1]
         cip_job=cip_job[0]
     elif isinstance(cip_job, str):
+        print(" ==> attempting indefinite convergence subdag : {} <== ".format(it))
         # Subdag procedure, with indefinite convergence being requested
         # Write modified CIP arg string to file!
         #   - problem, need to know which CIP arg list to use.  Assume list exists
         subdag_args_now = creating_subdag_arg_list[0]; creating_subdag_arg_list = creating_subdag_arg_list[1:]
         cip_args_here = '10 ' + subdag_args_now
-        fname_subdag_cip_args = "iteration_{}_cip/args_cip.txt"
+        fname_subdag_cip_args = "iteration_{}_cip/args_cip.txt".format(it)
         with open(fname_subdag_cip_args,'w') as f:
             f.write(cip_args_here)
         # Create dag inside directory, as usual,  pointing to existing run (note grid size issue problem)
         cmd = "create_event_parameter_pipeline_BasicIteration "
         cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} --cip-args {}"
         # 
-        
+
+        # PLACEHOLDER: Create viable cip job, based on PREVIOUS iterations
+        if isinstance(cip_job_list[it-1],list):
+            cip_job = cip_job_list[it-1][0]
+        else:
+            cip_job= cip_job_list[it-1]
+
+    # Node generation for cip job tasks
     fit_node = pipeline.CondorDAGNode(cip_job)
     fit_node.add_macro("macroiteration", it)
     fit_node.add_macro("macroiterationnext", it+1)
