@@ -656,7 +656,7 @@ unify_job.write_sub_file()
 cip_args_base = cip_args
 out_dir_base = opts.working_directory
 cip_exe = opts.cip_exe
-if (opts.cip_explode_jobs)
+if (opts.cip_explode_jobs):
     if not opts.cip_explode_jobs_flat:
         cip_args_base += " --fit-save-gp " + opts.working_directory + "/iteration_$(macroiteration)_cip/my_fit"
     else:
