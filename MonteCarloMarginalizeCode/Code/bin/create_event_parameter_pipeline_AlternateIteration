@@ -389,7 +389,7 @@ if opts.gridinit_args:
 it_start = opts.start_iteration
 n_initial = opts.n_samples_per_job
 if (it_start is 0) and not gridinit_args:
-    shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
+    shutil.copyfile(opts.input_grid,working_dir_inside+"/overlap-grid-0.xml.gz")  # put in working directory !
     n_initial = len(lalsimutils.xml_to_ChooseWaveformParams_array("overlap-grid-0.xml.gz"))
 
 transfer_file_names = []
