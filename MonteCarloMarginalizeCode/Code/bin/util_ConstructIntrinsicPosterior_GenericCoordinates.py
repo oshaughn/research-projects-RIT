@@ -587,7 +587,7 @@ def m_prior(x):
 
 
 def triangle_prior(x,R=chi_max):
-    return (np.ones(x.shape)-np.abs(x/R))  # triangle from -R to R centered on zero
+    return (np.ones(x.shape)-np.abs(x/R))/R  # triangle from -R to R centered on zero
 def xi_uniform_prior(x):
     return np.ones(x.shape)
 def s_component_uniform_prior(x,R=chi_max):  # If all three are used, a volumetric prior
