@@ -1778,7 +1778,8 @@ def write_subdagILE_sub(tag='subdag_ile', full_path_name=True, exe=None, univers
     exe = exe or which("create_ile_sub_dag.py") 
     subfile = submit_file or 'ILE.sub'
     if full_path_name and target_dir:
-        subfile = target_dir + "/"+subfile
+        if subfile[0]!= '/': # if not already a full path
+            subfile = target_dir + "/"+subfile
 
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
 
