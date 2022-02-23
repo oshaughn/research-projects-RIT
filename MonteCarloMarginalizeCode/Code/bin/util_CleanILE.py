@@ -32,11 +32,14 @@ parser.add_argument("--eccentricity", action="store_true")
 opts = parser.parse_args()
 
 #print opts.fname
-
+from pathlib import Path
 for fname in opts.fname[0]: #sys.argv[1:]:
+    fname  = Path(fname).resolve()
+    if not( os.path.exists(fname)):  # skip symbolic links that don't resolve : important for .composite files
+        continue
     if os.stat(fname).st_size==0:  # skip files of zero length
         continue
-    sys.stderr.write(fname)
+    sys.stderr.write(str(fname))
 #    data = np.loadtxt(fname)  # this will FAIL if we have a heterogeneous data source!  BE CAREFUL
     data = np.genfromtxt(fname,invalid_raise=False)  #  Protect against inhomogeneous data
     if len(data.shape) ==1:
