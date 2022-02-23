@@ -803,6 +803,7 @@ else:
 
 ##   Test job (terminate, convergence
 if opts.test_args:
+    test_node_list = []
     ##  Convert job : make results accessible after every iteration.  (Only performed if the tests are active, to make my life easier)
     convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe)
     convert_job.add_condor_cmd("initialdir",opts.working_directory)
@@ -1133,6 +1134,7 @@ for it in np.arange(it_start,opts.n_iterations):
         test_node.add_parent(parent_fit_node)
         test_node.set_category("CONVERGE")
         dag.add_node(test_node)
+        test_node_list.append(test_node)
 
         parent_fit_node=test_node
 
@@ -1202,3 +1204,10 @@ if plot_args:
 dag_name="marginalize_intrinsic_parameters_BasicIterationWorkflow"
 dag.set_dag_file(dag_name)
 dag.write_concrete_dag()
+
+# if convergence tests are active, add the ABORT-DAG-ON operation to the dag we just wrote, and STOP THE DAG WITH SUCCESS if we test ok
+# https://htcondor.readthedocs.io/en/latest/users-manual/dagman-workflows.html
+if opts.test_args:
+    my_names = [x._CondorDAGNode__md5name for x in test_node_list]
+    with open(dag_name+".dag",'a') as f:
+        f.write("ABORT-DAG-ON "+ ' '.join(my_names) + " 1 RETURN 0 \n")
