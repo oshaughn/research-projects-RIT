@@ -65,6 +65,7 @@ import lalsimulation as lalsim
 import lal
 import functools
 import itertools
+import json
 
 from glue import pipeline # https://github.com/lscsoft/lalsuite-archive/blob/5a47239a877032e93b1ca34445640360d6c3c990/glue/glue/pipeline.py
 
@@ -294,6 +295,7 @@ if not (opts.cip_args_list is None):
     for line in cip_args_lines:
         print(" CIP ", line)
 
+    # Above only makes sense if last iteration isn't 'Z'
     if np.sum(cip_args_n) < opts.n_iterations:
         print(" Not enough CIP versions to complete all requested iterations; extending ")
         cip_args_n[-1]  = opts.n_iterations - np.sum(cip_args_n)
@@ -1018,6 +1020,28 @@ for it in np.arange(it_start,opts.n_iterations):
         # Create viable job
         main_analysis_node = main_subdag.create_node()
         main_analysis_node.add_parent(parent_fit_node)
+
+        # Add post script OR NODE to fetch information from the job
+        #   - problem: dagman jobs don't allow post scripts usually, may need to write this manually
+        fname_fetch = opts.working_directory+"/"+"internal_fetch_from_{}.json".format(it)
+        my_dict = {"method":"native", "source":opts.working_directory+"/iteration_{}_cip".format(it),"n_max":3000}
+        with open(fname_fetch,'w') as f:
+            json.dump(my_dict,f)
+        fetch_subdag_args =" --inj-file-out overlap-grid-{}.xml.gz ".format(it+1)
+        fetch_subdag_args += " --input-json {} ".format(fname_fetch)
+        fetch_subdag_job, fetch_subdag_job_name = dag_utils.write_puff_sub(tag='FETCH_{}_subdag'.format(it),log_dir=None,arg_str=fetch_subdag_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',out_dir=opts.working_directory,exe="util_FetchExternalGrid.py",universe=local_worker_universe,no_grid=no_worker_grid)
+        fetch_subdag_job.write_sub_file()
+
+        # Because later we are going to take care of the iteration crap and parents for the 
+        dag.add_node(main_analysis_node)
+        cip_node= main_analysis_node
+        cip_node.add_parent(unify_node)
+        # increment definitions, so the code later works fine
+        unify_node=main_analysis_node
+        cip_job = fetch_subdag_job  # we will create this as a job and make its parent equal to above
+
+
+        print(" ==> end setup convergence subdag : {} <== ".format(it))
         # Need postprocessing, based on previous stage
 
         # if isinstance(cip_job_list[it-1],list):
