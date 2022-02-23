@@ -1046,6 +1046,13 @@ for it in np.arange(it_start,opts.n_iterations):
         os.system(cmd_fetch_composite)
 
 
+        # Create link to FEED  COMPOSITE DATA generated during top-level run into low-level directory
+        # Make sure we are only linking *prior* iterations information, for clarity of provenance
+        for indx in np.arange(it):
+            cmd_fetch_composite = "ln -sf {}/consolidated_{}.composite {}/iteration_{}_cip/input_{}.composite   ".format(opts.working_directory, indx,  opts.working_directory, it,indx)
+            os.system(cmd_fetch_composite)
+
+
         print(" ==> end setup convergence subdag : {} <== ".format(it))
         # Need postprocessing, based on previous stage
 
