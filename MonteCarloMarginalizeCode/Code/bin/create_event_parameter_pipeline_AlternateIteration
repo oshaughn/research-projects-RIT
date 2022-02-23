@@ -1143,4 +1143,5 @@ dag.write_concrete_dag()
 if opts.test_args:
     my_names = [x._CondorDAGNode__md5name for x in test_node_list]
     with open(dag_name+".dag",'a') as f:
-        f.write("ABORT-DAG-ON "+ ' '.join(my_names) + " 1 RETURN 0 \n")
+        for name in my_names:
+            f.write("ABORT-DAG-ON "+ name + " 1 RETURN 0 \n")
