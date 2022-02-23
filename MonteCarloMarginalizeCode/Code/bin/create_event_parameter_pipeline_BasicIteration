@@ -1041,6 +1041,10 @@ for it in np.arange(it_start,opts.n_iterations):
         unify_node=main_analysis_node
         cip_job = fetch_subdag_job  # we will create this as a job and make its parent equal to above
 
+        # Create link to HARVEST ALL COMPOSITE DATA generated during subdag operation, so we don't need to regenerate it
+        cmd_fetch_composite = "ln -sf {}/iteration_{}_cip/all.net {}/bonus_subdag_{}.composite ".format(opts.working_directory, it,opts.working_directory,it)
+        os.system(cmd_fetch_composite)
+
 
         print(" ==> end setup convergence subdag : {} <== ".format(it))
         # Need postprocessing, based on previous stage
