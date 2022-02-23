@@ -1140,32 +1140,34 @@ if opts.propose_fit_strategy:
             puff_max_it=4
 
         else: #  opts.assume_precessing_spin:
-            # # Use cartesian +volumetric for FIRST FEW ITERATIONS (or as default).  
+            # # Use cartesian as default early, using modfied transverse spin prior so we effectively sample the smallest spins for the next stagesx
             helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
-            helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "2 " +  helper_cip_arg_list_common,"2 " +  helper_cip_arg_list_common,"3 " +  helper_cip_arg_list_common  ]
+            # REMOVE intermediate stage where we used to do chiMinus ... it is NOT the dominant issue for precession, by far
+            helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "2 " +  helper_cip_arg_list_common,"3 " +  helper_cip_arg_list_common  ]
             if not opts.assume_highq:
                 helper_cip_arg_list[0] +=  '  --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
-                helper_cip_arg_list[0] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  '
+                helper_cip_arg_list[0] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior taper-down '
             
-                helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
-                helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  '
+                # helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
+                # helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior alignedspin-zprior '
 
-                # this will be perfectly adequate volumetric result
+                # this will be perfectly adequate volumetric result ...but note the spin priors above are using more concentrated spins near the origin
                 helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
-                helper_cip_arg_list[2] +=   ' --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y  '
+                helper_cip_arg_list[2] +=   ' --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y  --transverse-prior taper-down '
                 # # Default prior is *volumetric*
                 # helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
                 # helper_cip_arg_list[1] +=   ' --parameter s1x --parameter s1y --parameter s2x  --parameter s2y --use-precessing '
 
                 if extended_early:
                     for indx in np.arange(3,len(helper_cip_arg_list)-1): # allow for variable numbers of subsequent steps, with different settings
-                        helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
-                        helper_cip_arg_list[2] +=   ' --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y  '
+                        helper_cip_arg_list[indx] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
+                        helper_cip_arg_list[indx] +=   ' --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y  '
 
                 # Last iterations are with a polar spin, to get spin prior  (as usually requested). Fir is the same as before, but sampling is more efficient
                 if not opts.assume_volumetric_spin:
                     helper_cip_arg_list[-1] +=  '  --use-precessing --parameter-implied xi  --parameter-implied chiMinus  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit cos_theta1 --parameter-nofit cos_theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
                 else:
+                    print(" IMPLEMENT VOLUMETRIC SPINS - no longer automatic")
                     helper_cip_arg_list.pop() # remove last stage of iterations as superfluous
         
                 # Change convergence threshold at late times
@@ -1253,7 +1255,7 @@ with open("helper_cip_arg_list.txt",'w+') as f:
 # Impose test in last phase only
 n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
 n_its_to_not_test = np.sum(n_its) - n_its[-1]
-helper_test_args += " --iteration-threshold {} ".format(n_its_to_not_test)
+helper_test_args += " --iteration-threshold {} ".format(int(n_its_to_not_test))
 helper_test_args += " --threshold 0.02 "
 
 with open("helper_test_args.txt",'w+') as f:

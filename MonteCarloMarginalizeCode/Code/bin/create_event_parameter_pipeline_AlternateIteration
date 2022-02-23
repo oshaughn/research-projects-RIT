@@ -242,6 +242,7 @@ if opts.condor_nogrid_nonworker:
 
 
 working_dir_inside_local = working_dir_inside = opts.working_directory
+os.chdir(opts.working_directory)
 # working_dir_inside_local is for jobs on local nodes
 if opts.use_singularity or opts.use_osg:
     working_dir_inside = "./" # all files on the remote machine are in the current directory
@@ -388,8 +389,8 @@ if opts.gridinit_args:
 # Copy seed grid into place as overlap-grid-0.xml.gz
 it_start = opts.start_iteration
 n_initial = opts.n_samples_per_job
-if (it_start is 0) and not gridinit_args:
-    shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
+if (it_start == 0) and not gridinit_args:
+    shutil.copyfile(opts.input_grid,working_dir_inside+"/overlap-grid-0.xml.gz")  # put in working directory !
     n_initial = len(lalsimutils.xml_to_ChooseWaveformParams_array("overlap-grid-0.xml.gz"))
 
 transfer_file_names = []

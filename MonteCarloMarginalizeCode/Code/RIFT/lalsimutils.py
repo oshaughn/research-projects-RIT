@@ -4406,6 +4406,60 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         coord_names_reduced.remove('mu1')
         coord_names_reduced.remove('mu2')
 
+    # Spin spherical coordinate names
+    if ('xi' in coord_names_reduced) and ('chi1' in low_level_coord_names) and ('cos_theta1' in low_level_coord_names) and ('phi1' in low_level_coord_names) and ('chi2' in low_level_coord_names) and ('cos_theta2' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
+        indx_pout_xi = coord_names.index('xi')
+        indx_mc = low_level_coord_names.index('mc')
+        indx_delta = low_level_coord_names.index('delta_mc')
+        indx_chi1 = low_level_coord_names.index('chi1')
+        indx_chi2 = low_level_coord_names.index('chi2')
+        indx_ct1 = low_level_coord_names.index('cos_theta1')
+        indx_ct2 = low_level_coord_names.index('cos_theta2')
+
+        s1z= x_in[:,indx_chi1]*x_in[:,indx_ct1]
+        s2z= x_in[:,indx_chi2]*x_in[:,indx_ct1]
+
+        m1_vals =np.zeros(len(x_in))  
+        m2_vals =np.zeros(len(x_in))  
+        eta_vals = np.zeros(len(x_in))  
+        eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+        m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+        x_out[:,indx_pout_xi] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+        coord_names_reduced.remove('xi')
+        
+        # also build chiMinus, s1x,s1y, ... , if present : usual use case of doing all of these in spherical coordinates
+        if 'chiMinus' in coord_names_reduced:
+            indx_pout_chiminus = coord_names.index('chiMinus')
+            x_out[:,indx_pout_chiminus] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+        if ('s1x' in coord_names_reduced) and ('s1y' in coord_names_reduced):
+            indx_pout_s1x = coord_names.index('s1x')
+            indx_pout_s1y = coord_names.index('s1y')
+
+            indx_phi1=low_level_coord_names.index('phi1')
+            cosphi1 = np.cos(x_in[:,indx_phi1])
+            sinphi1 = np.sin(x_in[:,indx_phi1])
+            sintheta1 = np.sqrt(1-x_in[:,indx_ct1]**2)
+
+            x_out[:,indx_pout_s1x] = x_in[:,indx_chi1]*sintheta1*cosphi1
+            x_out[:,indx_pout_s1y] = x_in[:,indx_chi1]*sintheta1*sinphi1
+            coord_names_reduced.remove('s1x')
+            coord_names_reduced.remove('s1y')
+        if ('s2x' in coord_names_reduced) and ('s2y' in coord_names_reduced):
+            indx_pout_s2x = coord_names.index('s2x')
+            indx_pout_s2y = coord_names.index('s2y')
+
+            indx_phi2=low_level_coord_names.index('phi2')
+            cosphi2 = np.cos(x_in[:,indx_phi2])
+            sinphi2 = np.sin(x_in[:,indx_phi2])
+            sintheta2 = np.sqrt(1-x_in[:,indx_ct2]**2)
+
+            x_out[:,indx_pout_s2x] = x_in[:,indx_chi2]*sintheta2*cosphi2
+            x_out[:,indx_pout_s2y] = x_in[:,indx_chi2]*sintheta2*sinphi2
+            coord_names_reduced.remove('s2x')
+            coord_names_reduced.remove('s2y')
+            
+
+
 
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
     if len(coord_names_reduced)<1:

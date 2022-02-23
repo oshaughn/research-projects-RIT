@@ -180,7 +180,6 @@ class integrator:
             lnL = np.copy(self.value_array) # changing the naming convention, just for this function, now that I know better
         else:
             lnL = np.log(self.value_array+regularize_log_scale)
-        
         # strip off any samples with likelihoods less than our cutoff
         mask = lnL > (np.log(self.L_cutoff) if self.L_cutoff > 0 else -np.inf)
         lnL = lnL[mask]
@@ -194,7 +193,7 @@ class integrator:
         self.cumulative_p_s = np.append(self.cumulative_p_s, sampling_prior, axis=0)
         
         # compute the log sample weights
-        log_weights = lnL + np.log(prior) - sampling_prior
+        log_weights = lnL + np.log(prior) - np.log(sampling_prior)
         if np.max(log_weights) <-1000:  #this is a terrible fit
            print(" TERRIBLE FIT ")
            raise ValueError

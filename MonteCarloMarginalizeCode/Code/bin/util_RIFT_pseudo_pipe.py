@@ -154,6 +154,7 @@ parser.add_argument("--assume-well-placed",action='store_true',help="If present,
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
 parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
+parser.add_argument("--internal-force-iterations",type=int,default=None,help="If inteeger provided, overrides internal guidance on number of iterations, attempts to force prolonged run. By default puts convergence tests on")
 parser.add_argument("--internal-flat-strategy",action='store_true',help="Use the same CIP options for every iteration, with convergence tests on.  Passes --test-convergence, ")
 parser.add_argument("--internal-use-amr",action='store_true',help="Changes refinement strategy (and initial grid) to use. PRESENTLY WE CAN'T MIX AND MATCH AMR, CIP ITERATIONS, so this is fixed for the whole run right now; use continuation and 'fetch' to augment")
 parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank used for template")
@@ -193,6 +194,7 @@ parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--n-output-samples",type=int,default=8000,help="Number of output samples generated in the final iteration")
+parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
@@ -614,15 +616,26 @@ lines  = []
 for indx in np.arange(len(instructions_cip)):
     n_iterations += int(instructions_cip[indx][0])
     line = ' ' .join(instructions_cip[indx])
-    n_max_cip = 10000000;
-    if (opts.cip_sampler_method == "GMM") or (opts.cip_sampler_method == 'adaptive_cartesian_gpu'):
-        n_max_cip *=100   # it is faster, so run longer; helps with correlated-sampling cases
+    n_max_cip = 100000000;  # 1e8; doing more than this requires special memory management within the integrators in general. This lets us get a decent number of samples even with one worker for hard problems
+    # if (opts.cip_sampler_method == "GMM") or (opts.cip_sampler_method == 'adaptive_cartesian_gpu'):
+    #     n_max_cip *=3   # it is faster, so run longer; helps with correlated-sampling cases
     n_sample_target=opts.n_output_samples
+    if indx < len(instructions_cip)-1: # on all but last iteration, cap the number of points coming out : this drives the total amount of work for AMR, etc!
+        n_sample_target= np.min([opts.n_output_samples,10*opts.internal_cip_cap_neff])
     n_workers = 1
     if opts.cip_explode_jobs:
         n_workers = opts.cip_explode_jobs
-    n_sample_min_per_worker = int(n_sample_target/n_workers/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
-    line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), int(n_sample_target/n_workers),n_max_cip,n_sample_min_per_worker)
+    n_eff_cip_here = int(n_sample_target/n_workers)
+    if indx < len(instructions_cip)-1: # on all but 
+        n_eff_cip_here = np.min([opts.internal_cip_cap_neff, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
+    n_sample_min_per_worker = int(n_eff_cip_here/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
+
+    # Analyze the iteration report
+    n_eff_expected_max_easy = 1e-2 * n_max_cip
+    n_eff_expected_max_hard = 1e-7 * n_max_cip
+    print( " cip iteration group {} : n_eff likely will be between {} and {}, you are asking for at least {} and targeting {}".format(indx,n_eff_expected_max_easy, n_eff_expected_max_hard, n_sample_min_per_worker,n_eff_cip_here))
+
+    line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), n_eff_cip_here, n_max_cip,n_sample_min_per_worker)
     if not(opts.cip_fit_method is None):
         line = line.replace('--fit-method gp ', '--fit-method ' + opts.cip_fit_method)  # should not be called, see --force-fit-method argument to helper
     if not (opts.cip_sampler_method is None):
@@ -751,6 +764,10 @@ if opts.archive_pesummary_label:
     with open("args_plot.txt",'w') as f:
         f.write(plot_args)
 
+# Overwrite iteration number
+if opts.internal_force_iterations:
+    n_iterations = opts.internal_force_iterations
+
 # Overwrite grid if needed
 if not (opts.manual_initial_grid is None):
     shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
@@ -758,7 +775,9 @@ if not (opts.manual_initial_grid is None):
 # Build DAG
 cip_mem  = 30000
 n_jobs_per_worker=opts.ile_jobs_per_worker
-if opts.cip_fit_method == 'rf' or opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # much lower memory requirement
+if opts.cip_fit_method == 'rf':
+    cip_mem = 10000  # typical, and will need long-duration run
+if opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # much lower memory requirement
     cip_mem = 4000
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
@@ -829,7 +848,7 @@ if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples)
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
-   if not(opts.cip_fit_method is None) and not(opts.cip_fit_method == 'gp'):
+   if opts.cip_fit_method and not(opts.cip_fit_method == 'gp'):
        # if we are not using default GP fit, so all fit instances are equal
        cmd += " --cip-explode-jobs-flat "  
 if opts.make_bw_psds:

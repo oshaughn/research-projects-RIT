@@ -65,6 +65,7 @@ import lalsimulation as lalsim
 import lal
 import functools
 import itertools
+import json
 
 from glue import pipeline # https://github.com/lscsoft/lalsuite-archive/blob/5a47239a877032e93b1ca34445640360d6c3c990/glue/glue/pipeline.py
 
@@ -274,13 +275,27 @@ cip_args_lines = None
 if not (opts.cip_args_list is None):
     with open(opts.cip_args_list) as f:
         cip_args_lines = f.readlines()
-    cip_args_n = [int(x.split(' ')[0]) for x in cip_args_lines]  # Pull off the integer
+    # if one of the prefixes is 'Z', we will be calling a RECURSIVE dag writer, warning!  It will go inside the corresponding CIP directory...
+    cip_args_prefixes = [(x.split(' ')[0]) for x in cip_args_lines]  # Pull off the integer
+    # 
+    cip_args_n = (cip_args_prefixes.copy())
+    creating_subdag_list = []
+    creating_subdag_arg_list = []
+    for indx in np.arange(len(cip_args_n)):
+        if cip_args_prefixes[indx][0]=='Z':
+            creating_subdag_list.append(indx)
+            creating_subdag_arg_list.append(' '.join(cip_args_lines[indx].split(' ')[1:]))
+            cip_args_n[indx] = 1  # one nominal iteration; the CIP stage in this iteration is replaced by 'run until convergence'
+        else:
+            cip_args_n[indx]  = int(cip_args_n[indx])
+#    cip_args_n = [int(x.split(' ')[0]) for x in cip_args_lines]  # Pull off the integer
     cip_args_lines = [' '.join(x.split(' ')[1:]) for x in cip_args_lines] # pull off the integer
     cip_args_lines = [x.replace('[', ' \'[').replace(']', ']\'').rstrip() for x in cip_args_lines]
     cip_args_lines = [x.lstrip() for x in cip_args_lines] # remove leading whitespace
     for line in cip_args_lines:
         print(" CIP ", line)
 
+    # Above only makes sense if last iteration isn't 'Z'
     if np.sum(cip_args_n) < opts.n_iterations:
         print(" Not enough CIP versions to complete all requested iterations; extending ")
         cip_args_n[-1]  = opts.n_iterations - np.sum(cip_args_n)
@@ -388,7 +403,7 @@ if opts.gridinit_args:
 # Copy seed grid into place as overlap-grid-0.xml.gz
 it_start = opts.start_iteration
 n_initial = opts.n_samples_per_job
-if (it_start is 0) and not gridinit_args:
+if (it_start == 0) and not gridinit_args:
     shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
     n_initial = len(lalsimutils.xml_to_ChooseWaveformParams_array("overlap-grid-0.xml.gz"))
 
@@ -643,7 +658,7 @@ unify_job.write_sub_file()
 cip_args_base = cip_args
 out_dir_base = opts.working_directory
 cip_exe = opts.cip_exe
-if not(opts.cip_explode_jobs is None):
+if (opts.cip_explode_jobs):
     if not opts.cip_explode_jobs_flat:
         cip_args_base += " --fit-save-gp " + opts.working_directory + "/iteration_$(macroiteration)_cip/my_fit"
     else:
@@ -659,7 +674,7 @@ cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip
 if opts.cip_explode_jobs:
     cip_job.add_arg('--not-worker')  # prevent anything that causes failure, reduce writing of output
 cip_job.write_sub_file()
-if not(opts.cip_explode_jobs is None):
+if opts.cip_explode_jobs:
     print(" Exploding stage 1, with  ",opts.cip_explode_jobs, " workers producing samples ")
     cip_args_base = cip_args_base.replace('fit-save-gp','fit-load-gp')
     n_explode =opts.cip_explode_jobs
@@ -727,12 +742,14 @@ else:
         cip_args_extra = ""
         cip_args_truncate=''
         cip_exe = opts.cip_exe
-        if not(opts.cip_explode_jobs is None):
+        if opts.cip_explode_jobs:
             if not opts.cip_explode_jobs_flat:
                 cip_args_extra += " --fit-save-gp " + opts.working_directory + "/iteration_$(macroiteration)_cip/my_fit"
+            else:
+                cip_exe = "/bin/true"
             out_dir_base += "/iteration_$(macroiteration)_cip/"
             # set n_eff for primary job to be small. ONLY used for the primary non-worker job
-            cip_args_truncate = " --n-eff 5 --n-max 10000 "  # cap n_eff and number of iterations for non-worker jobs. Nonzero to avoid accidental crashes.
+            cip_args_truncate = " --n-eff 5 --n-max 10000 --n-output-samples 1 "  # cap n_eff, number of iterations, and *output samples* for non-worker jobs, to avoid contamination
         # Write the appropriate CIP jobs. [note only one CIP per iteration, so unique
         cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP_'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra+cip_args_truncate,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=out_dir_base,exe=cip_exe,universe=local_worker_universe,no_grid=no_worker_grid)
         # Modify: set 'initialdir'
@@ -746,7 +763,7 @@ else:
         cip_job.write_sub_file()
 
 
-        if not(opts.cip_explode_jobs is None):
+        if opts.cip_explode_jobs:
            print(" Exploding stage 2, with  ",opts.cip_explode_jobs, " workers producing samples ")
            n_explode =opts.cip_explode_jobs
            fname_out = 'overlap-grid-$(macroiterationnext)-$(process)'
@@ -769,12 +786,20 @@ else:
            cip_job_worker.write_sub_file()
 
 
-       # augment the CIP job list
-        if opts.cip_explode_jobs is None:
-            cip_job_list = cip_job_list + cip_args_n[indx]*[cip_job]
+        # augment the CIP job list
+        # Note, if we have a subdag, we create the word "subdag"
+        if not(cip_args_prefixes[indx][0]=='Z'):
+            n_to_add = int(cip_args_n[indx])
+            if (indx == len(cip_args_lines)-1) and np.sum(cip_args_n[:indx])<opts.n_iterations:
+                n_to_add = int(opts.n_iterations - np.sum(cip_args_n[:(indx-1)]) )
+            if opts.cip_explode_jobs is None:
+                cip_job_list = cip_job_list + n_to_add*[cip_job]
+            else:
+                print(" Exploding stage 3 ")
+                cip_job_list = cip_job_list + n_to_add*[[cip_job,cip_job_worker]]
         else:
-            print(" Exploding stage 3 ")
-            cip_job_list = cip_job_list + cip_args_n[indx]*[[cip_job,cip_job_worker]]
+            print(" Indefinite subdag-to-convergence requested for group ", indx)
+            cip_job_list += ["Subdag"]
 
 ##   Test job (terminate, convergence
 if opts.test_args:
@@ -966,10 +991,69 @@ for it in np.arange(it_start,opts.n_iterations):
 
     # Create fit node, which depends on consolidate node
     cip_job = cip_job_list[it]
+#    print(it, cip_job,creating_subdag_arg_list)
     if isinstance(cip_job,list):
         cip_worker_job = cip_job[1]
         cip_job=cip_job[0]
-    fit_node = pipeline.CondorDAGNode(cip_job)
+    elif isinstance(cip_job, str):
+        print(" ==> attempting indefinite convergence subdag : {} <== ".format(it))
+        # Subdag procedure, with indefinite convergence being requested
+        # Write modified CIP arg string to file!
+        #   - problem, need to know which CIP arg list to use.  Assume list exists
+        subdag_args_now = creating_subdag_arg_list[0]; creating_subdag_arg_list = creating_subdag_arg_list[1:]
+        cip_args_here = '10 ' + subdag_args_now
+        fname_subdag_cip_args = "iteration_{}_cip/args_cip.txt".format(it)
+        with open(fname_subdag_cip_args,'w') as f:
+            f.write(cip_args_here)
+        # Create dag inside directory, as usual,  pointing to existing run (note grid size issue problem)
+        cmd = "create_event_parameter_pipeline_AlternateIteration "
+        # note we will use subdags, and do this actively.  The 0th iteration needs a SPECIFIC grid though!
+        cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.xml.gz".format(it),opts.ile_exe, opts.ile_args)
+        cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)
+        cmd += " --working-directory {}/iteration_{}_cip/ ".format(opts.working_directory,it)
+        # 
+        print(" SUBDAG COMMAND : ", cmd)
+        os.system(cmd)
+
+        main_subdag =  pipeline.CondorDAGManJob("{}/iteration_{}_cip/marginalize_intrinsic_parameters_BasicIterationWorkflow.dag".format(opts.working_directory,it))  # assumes subdag is created
+
+        # Create viable job
+        main_analysis_node = main_subdag.create_node()
+        main_analysis_node.add_parent(parent_fit_node)
+
+        # Add post script OR NODE to fetch information from the job
+        #   - problem: dagman jobs don't allow post scripts usually, may need to write this manually
+        fname_fetch = opts.working_directory+"/"+"internal_fetch_from_{}.json".format(it)
+        my_dict = {"method":"native", "source":opts.working_directory+"/iteration_{}_cip".format(it),"n_max":3000}
+        with open(fname_fetch,'w') as f:
+            json.dump(my_dict,f)
+        fetch_subdag_args =" --inj-file-out overlap-grid-{}.xml.gz ".format(it+1)
+        fetch_subdag_args += " --input-json {} ".format(fname_fetch)
+        fetch_subdag_job, fetch_subdag_job_name = dag_utils.write_puff_sub(tag='FETCH_{}_subdag'.format(it),log_dir=None,arg_str=fetch_subdag_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',out_dir=opts.working_directory,exe="util_FetchExternalGrid.py",universe=local_worker_universe,no_grid=no_worker_grid)
+        fetch_subdag_job.write_sub_file()
+
+        # Because later we are going to take care of the iteration crap and parents for the 
+        dag.add_node(main_analysis_node)
+        cip_node= main_analysis_node
+        cip_node.add_parent(unify_node)
+        # increment definitions, so the code later works fine
+        unify_node=main_analysis_node
+        cip_job = fetch_subdag_job  # we will create this as a job and make its parent equal to above
+
+
+        print(" ==> end setup convergence subdag : {} <== ".format(it))
+        # Need postprocessing, based on previous stage
+
+        # if isinstance(cip_job_list[it-1],list):
+        #     cip_job = cip_job_list[it-1][0]
+        # else:
+        #     cip_job= cip_job_list[it-1]
+
+    # Node generation for cip job tasks
+    if not(isinstance(cip_job,str)):
+        fit_node = pipeline.CondorDAGNode(cip_job)
+    else:
+        fit_node = main_analysis_node
     fit_node.add_macro("macroiteration", it)
     fit_node.add_macro("macroiterationnext", it+1)
     fit_node.set_category("CIP")

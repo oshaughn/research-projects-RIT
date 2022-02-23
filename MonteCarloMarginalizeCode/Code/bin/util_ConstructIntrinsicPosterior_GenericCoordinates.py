@@ -232,7 +232,7 @@ parser.add_argument("--desc-lalinference",type=str,default='',help="String to ad
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
-#parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
+parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
@@ -314,6 +314,7 @@ parser.add_argument("--eos-param-values", default=None, help="Specific parameter
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
 parser.add_argument("--internal-n-comp",default=1,type=int,help="number of components to use for GMM sampling. Default is 1, because we expect a unimodal posterior in well-adapted coordinates.  If you have crappy coordinates, use more")
+parser.add_argument("--internal-gmm-memory-chisquared-factor",default=None,type=float,help="Multiple of the number of degrees of freedom to save. 5 is a part in 10^6, 4 is 10^{-4}, and None keeps all up to lnL_offset.  Note that low-weight points can contribute notably to n_eff, and it can be dangerous to assume a simple chisquared likelihood!  Provided in case we need very long runs")
 parser.add_argument("--use-eccentricity", action="store_true")
 
 ECC_MAX = 0.25 # maximum value of eccentricity, hard-coding here for ease of editing
@@ -324,6 +325,8 @@ parser.add_argument("--fixed-parameter", action="append")
 parser.add_argument("--fixed-parameter-value", action="append")
 
 opts=  parser.parse_args()
+if not(opts.no_adapt_parameter):
+    opts.no_adapt_parameter =[] # needs to default to empty list
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
@@ -582,10 +585,15 @@ def delta_mc_prior(x,norm_factor=1.44):
 def m_prior(x):
     return 1/(1e3-1.)  # uniform in mass, use a square.  Should always be used as m1,m2 in pairs. Note this does NOT restrict m1>m2.
 
+
+def triangle_prior(x,R=chi_max):
+    return (np.ones(x.shape)-np.abs(x/R))/R  # triangle from -R to R centered on zero
 def xi_uniform_prior(x):
     return np.ones(x.shape)
 def s_component_uniform_prior(x,R=chi_max):  # If all three are used, a volumetric prior
     return np.ones(x.shape)/(2.*R)
+def s_component_sqrt_prior(x,R=chi_max):  # If all three are used, a volumetric prior
+    return 1./(4.*R*np.sqrt(np.abs(x)/R))  # -R,R range
 def s_component_gaussian_prior(x,R=chi_max/3.):
     """
     (proportinal to) prior on range in one-dimensional components, in a cartesian domain.
@@ -742,7 +750,7 @@ if opts.aligned_prior == 'alignedspin-zprior':
     prior_map["s1z"] = s_component_zprior
     prior_map["s2z"] = functools.partial(s_component_zprior,R=chi_small_max)
     if  'chiz_plus' in low_level_coord_names:
-        if opts.spin_prior_chizplusminus_alternate_sampling is 'alignedspin_zprior':
+        if opts.spin_prior_chizplusminus_alternate_sampling == 'alignedspin_zprior':
             # just a  trick to make reweighting more efficient.
             prior_map['chiz_plus'] = s_component_zprior
             prior_map['chiz_minus'] = s_component_zprior
@@ -755,6 +763,17 @@ if opts.transverse_prior == 'alignedspin-zprior':
     prior_map["s1y"] = s_component_zprior
     prior_map["s2x"] = functools.partial(s_component_zprior,R=chi_small_max)
     prior_map["s2y"] = functools.partial(s_component_zprior,R=chi_small_max)
+elif opts.transverse_prior == 'sqrt-prior':
+    prior_map["s1x"] = s_component_sqrt_prior
+    prior_map["s1y"] = s_component_sqrt_prior
+    prior_map["s2x"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
+    prior_map["s2y"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
+elif opts.transverse_prior == 'taper-down':
+    prior_map["s1x"] = triangle_prior
+    prior_map["s1y"] = triangle_prior
+    prior_map["s2x"] = functools.partial(triangle_prior,R=chi_small_max)
+    prior_map["s2y"] = functools.partial(triangle_prior,R=chi_small_max)
+    
 
 if opts.aligned_prior == 'volumetric':
     prior_map["s1z"] = s_component_aligned_volumetricprior
@@ -1888,7 +1907,10 @@ for p in low_level_coord_names:
         lnmu_min = np.min(dat_out[:,indx_lnmu])
         range_here = [lnmu_min,lnmu_max]
 
-    sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=True)
+    adapt_me = True
+    if p in opts.no_adapt_parameter:
+        adapt_me=False
+    sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
 
 
 # Import prior
@@ -1988,7 +2010,10 @@ if len(low_level_coord_names) ==10:
 n_step = int(opts.n_chunk)
 if opts.sampler_method == 'GMM':
     n_step *=3  # bigger steps for GMM
+# tempering exp: most appropriate for histogram method to avoid oversampling
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
+if opts.sampler_method == 'GMM':
+    my_exp = np.min([1,4*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
 print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto")
 
@@ -2027,7 +2052,11 @@ if opts.sampler_method == "GMM":
     else:
         param_indexes = range(len(low_level_coord_names))
         gmm_dict  = {(k,):None for k in param_indexes} # no correlations
-    extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - opts.lnL_offset)),'gmm_dict':gmm_dict,'max_err':50}  # made up for now, should adjust
+    if opts.internal_gmm_memory_chisquared_factor:
+        lnL_offset_saving = len(low_level_coord_names)*opts.internal_gmm_memory_chisquared_factor  # based on chisquared distribution, we should not be keeping more than this for output.  This is PURELY FOR MEMORY MANAGEMENT
+    else:
+        lnL_offset_saving = opts.lnL_offset
+    extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - lnL_offset_saving)),'gmm_dict':gmm_dict,'max_err':50}  # made up for now, should adjust
 extra_args.update({
     "n_adapt": 100, # Number of chunks to allow adaption over
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1D histograms with, 

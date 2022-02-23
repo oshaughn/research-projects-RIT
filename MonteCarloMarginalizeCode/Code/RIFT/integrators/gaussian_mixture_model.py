@@ -37,7 +37,7 @@ class estimator:
         Maximum number of Expectation-Maximization iterations
     '''
 
-    def __init__(self, k, max_iters=100, tempering_coeff=0.001,adapt=None):
+    def __init__(self, k, max_iters=100, tempering_coeff=1e-8,adapt=None):
         self.k = k # number of gaussian components
         self.max_iters = max_iters # maximum number of iterations to convergence
         self.means = [None] * k
@@ -101,6 +101,9 @@ class estimator:
             # (16.1.6)
             diff = sample_array - mean
             cov = np.dot((p_k[:,np.newaxis] * diff).T, diff) / w
+#            cov = np.cov(diff.T, aweights=p_k)/w   # don't reinvent the wheel
+#            if len(mean)<2:
+#                cov =np.array([[cov]])
             # attempt to fix non-positive-semidefinite covariances
             self.covariances[index] = self._near_psd(cov)
             # (16.17)
@@ -177,6 +180,7 @@ class estimator:
         for index in range(self.k):
             cov = self.covariances[index]
             # temper
+            #   - note this introduces a PREFERRED LENGTH SCALE into the problem, which is dangerous
             cov = (cov + self.tempering_coeff * np.eye(self.d)) / (1 + self.tempering_coeff)
             self.covariances[index] = cov
 
@@ -218,7 +222,7 @@ class gmm:
         Maximum number of Expectation-Maximization iterations
     '''
 
-    def __init__(self, k, bounds, max_iters=1000,epsilon=None):
+    def __init__(self, k, bounds, max_iters=1000,epsilon=None,tempering_coeff=1e-8):
         self.k = k
         self.bounds = bounds
         #self.tol = tol
@@ -233,10 +237,10 @@ class gmm:
         self.N = 0
         self.epsilon =epsilon
         if self.epsilon is None:
-            self.epsilon = 1e-4  # allow very strong correlations
+            self.epsilon = 1e-6  # allow very strong correlations
         else:
             self.epsilon=epsilon
-        self.tempering_coeff = 0.01
+        self.tempering_coeff = tempering_coeff
 
     def _normalize(self, samples):
         n, d = samples.shape
@@ -385,7 +389,9 @@ class gmm:
         '''
         self.tempering_coeff /= 2
         new_model = estimator(self.k, self.max_iters, self.tempering_coeff)
-        new_model.fit(self._normalize(sample_array), log_sample_weights)
+        # Strip non-finite training data
+        indx_ok = np.isfinite(log_sample_weights)  
+        new_model.fit(self._normalize(sample_array[indx_ok]), log_sample_weights[indx_ok])
         M, _ = sample_array.shape
         self._merge(new_model, M)
         self.N += M
@@ -463,7 +469,7 @@ class gmm:
             w = self.weights[component]
             mean = self.means[component]
             cov = self.covariances[component]
-            num_samples = int(n * w)
+            num_samples = int(n * w)  # NOT a poisson draw, note : we draw exactly the expected number from each one (since we have a fixed number to fill)
             if component == self.k - 1:
                 end = n
             else:
@@ -484,7 +490,7 @@ class gmm:
         Prints the model's parameters in an easily-readable format
         '''
         if self.d ==1:
-            print("GMM:   component wt mean_unscaled mean std ")
+            print("GMM:   component wt mean_correct mean_normed std_normed ")
         for i in range(self.k):
             mean = self.means[i]
             cov = self.covariances[i]
