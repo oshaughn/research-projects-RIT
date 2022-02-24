@@ -1030,7 +1030,7 @@ for it in np.arange(it_start,opts.n_iterations):
             json.dump(my_dict,f)
         fetch_subdag_args =" --inj-file-out overlap-grid-{}.xml.gz ".format(it+1)
         fetch_subdag_args += " --input-json {} ".format(fname_fetch)
-        fetch_subdag_job, fetch_subdag_job_name = dag_utils.write_puff_sub(tag='FETCH_{}_subdag'.format(it),log_dir=None,arg_str=fetch_subdag_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',out_dir=opts.working_directory,exe="util_FetchExternalGrid.py",universe=local_worker_universe,no_grid=no_worker_grid)
+        fetch_subdag_job, fetch_subdag_job_name = dag_utils.write_puff_sub(tag='FETCH_{}_subdag'.format(it),log_dir=opts.working_directory+"/"+"iteration_{}_cip/logs/".format(it),arg_str=fetch_subdag_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',out_dir=opts.working_directory,exe=dag_utils.which("util_FetchExternalGrid.py"),universe=local_worker_universe,no_grid=no_worker_grid)
         fetch_subdag_job.write_sub_file()
 
         # Because later we are going to take care of the iteration crap and parents for the 
