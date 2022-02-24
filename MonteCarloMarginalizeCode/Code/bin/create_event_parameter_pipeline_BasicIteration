@@ -1011,7 +1011,20 @@ for it in np.arange(it_start,opts.n_iterations):
         # note we will use subdags, and do this actively.  The 0th iteration needs a SPECIFIC grid though!
         cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.xml.gz".format(it),opts.ile_exe, opts.ile_args)
         cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)
+        if opts.test_args:
+            import re
+            test_args_optin = "X " + test_args  # copy not reference
+            test_args_optin.replace(' --always-succeed ', '')  # tests must operate
+            # remove iteration threshold, so they ALWAYS operate
+            test_args_optin = re.sub('--iteration-threshold [1-9] ', '', test_args_optin)
+        else:
+            test_args_optin = "X  --parameter m1 --method lame "
+        fname_subdag_test_args = opts.working_directory+"/iteration_{}_cip/args_test.txt".format(it)
+        with open(fname_subdag_test_args,'w') as f:
+            f.write(test_args_optin)
+        cmd+= " --test-args {}/iteration_{}_cip/args_test.txt ".format(opts.working_directory,it)
         cmd += " --working-directory {}/iteration_{}_cip/ ".format(opts.working_directory,it)
+        cmd += " --n-iterations 10 " # default will be 10 iterations
         # 
         print(" SUBDAG COMMAND : ", cmd)
         os.system(cmd)
