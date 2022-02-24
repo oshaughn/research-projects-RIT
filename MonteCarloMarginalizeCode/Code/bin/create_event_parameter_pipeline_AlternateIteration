@@ -1113,7 +1113,6 @@ for it in np.arange(it_start,opts.n_iterations):
         convert_node.set_category("CONVERT")
         convert_node.set_retry(opts.general_retries)
         dag.add_node(convert_node)
-        test_node_list.append(test_node)
 
         parent_fit_node = convert_node
 
@@ -1127,6 +1126,7 @@ for it in np.arange(it_start,opts.n_iterations):
         test_node.add_parent(parent_fit_node)
         test_node.set_category("CONVERGE")
         dag.add_node(test_node)
+        test_node_list.append(test_node)
 
         parent_fit_node=test_node
 
