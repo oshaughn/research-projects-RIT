@@ -148,7 +148,7 @@ if opts.convention == 'LI':
             z = cosmo_func(pt.distance)
             m1_source = pt.mass1/(1+z)
             m2_source = pt.mass2/(1+z)
-            print( m1_source, m2_source, mc_here/(1+z), mtot_here/(1+z), z, end=' ')
+            print( m1_source, m2_source, mc_here/(1+z), mtot_here/(1+z), float(z), end=' ')
         if opts.export_weights:
             print(wt[indx],end=' ')
         if opts.export_eccentricity:
