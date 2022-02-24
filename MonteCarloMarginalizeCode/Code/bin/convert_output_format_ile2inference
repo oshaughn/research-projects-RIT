@@ -144,7 +144,8 @@ if opts.convention == 'LI':
             print( pt.alpha5, pt.alpha6, lam_tilde,end=' ')
         if opts.export_cosmology:
 #            z = astropy.cosmology( default_cosmology.luminosity_distance, pt.distance *u.Mpc)
-            z =astropy.cosmology.z_at_value(cosmo.luminosity_distance, pt.distance*u.Mpc)
+            #z =astropy.cosmology.z_at_value(cosmo.luminosity_distance, pt.distance*u.Mpc)
+            z = cosmo_func(pt.distance)
             m1_source = pt.mass1/(1+z)
             m2_source = pt.mass2/(1+z)
             print( m1_source, m2_source, mc_here/(1+z), mtot_here/(1+z), z, end=' ')
