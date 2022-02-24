@@ -194,6 +194,9 @@ class integrator:
         
         # compute the log sample weights
         log_weights = lnL + np.log(prior) - np.log(sampling_prior)
+        if np.any(np.isnan(log_weights)):
+            print(" NAN weight ")
+            raise ValueError
         if np.max(log_weights) <-1000:  #this is a terrible fit
            print(" TERRIBLE FIT ")
            raise ValueError
