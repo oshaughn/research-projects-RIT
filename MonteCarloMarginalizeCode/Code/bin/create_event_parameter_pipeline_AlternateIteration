@@ -844,6 +844,9 @@ else:
            cip_job_worker.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cipworker-$(cluster)-$(process).log")
            cip_job_worker.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cipworker-$(cluster)-$(process).err")
            cip_job_worker.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cipworker-$(cluster)-$(process).out")
+           if opts.use_full_submit_paths:
+               fname = opts.working_directory+"/"+cip_job_worker.get_sub_file()
+               cip_job_worker.set_sub_file(fname)
            cip_job_worker.write_sub_file()
 
 
