@@ -856,6 +856,9 @@ if opts.test_args:
     convert_job.add_condor_cmd("initialdir",opts.working_directory)
     convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).log")
     convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).err")
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+convert_job.get_sub_file()
+        convert_job.set_sub_file(fname)
     convert_job.write_sub_file()
 
 
@@ -866,6 +869,9 @@ if opts.test_args:
     test_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).log")
     test_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).err")
     test_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).out")
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+test_job.get_sub_file()
+        test_job.set_sub_file(fname)
     test_job.write_sub_file()
 
 
@@ -882,6 +888,9 @@ if opts.plot_args and opts.test_args:
     plot_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).log")
     plot_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).err")
     plot_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).out")
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+plot_job.get_sub_file()
+        plot_job.set_sub_file(fname)
     plot_job.write_sub_file()
 
 
@@ -890,6 +899,9 @@ if opts.gridinit_args:
     gridinit_job.set_log_file(opts.working_directory+"/init-$(cluster)-$(process).log")
     gridinit_job.set_stderr_file(opts.working_directory+"init--$(cluster)-$(process).err")
     gridinit_job.set_stdout_file(opts.working_directory+"/init-$(cluster)-$(process).out")
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+gridinit_job.get_sub_file()
+        gridinit_job.set_sub_file(fname)
     gridinit_job.write_sub_file()
 
 
