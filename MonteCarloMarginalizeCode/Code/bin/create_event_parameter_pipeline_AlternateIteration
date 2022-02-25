@@ -787,6 +787,9 @@ if fetch_args:
     fetch_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/fetch-$(cluster)-$(process).log")
     fetch_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/fetch-$(cluster)-$(process).err")
     fetch_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/fetch-$(cluster)-$(process).out")
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+fetch_job.get_sub_file()
+        fetch_job.set_sub_file(fname)
     fetch_job.write_sub_file()
 
 
@@ -820,6 +823,9 @@ else:
         cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
         cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
         cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory+"/"+cip_job.get_sub_file()
+            cip_job.set_sub_file(fname)
         cip_job.write_sub_file()
 
 
