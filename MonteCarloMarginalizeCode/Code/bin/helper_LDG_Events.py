@@ -1260,6 +1260,10 @@ with open("helper_cip_arg_list.txt",'w+') as f:
 
 
 # Impose test in last phase only
+#   - for convenience, transform last Z 
+#   - note Z will override iteration thresholding anyways
+if opts.propose_converge_last_stage:
+    helper_cip_arg_list[-1] = helper_cip_arg_list[-1].replace('Z','1') # treat as one iteration
 n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
 n_its_to_not_test = np.sum(n_its) - n_its[-1]
 helper_test_args += " --iteration-threshold {} ".format(int(n_its_to_not_test))
