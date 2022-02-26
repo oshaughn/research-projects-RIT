@@ -161,6 +161,7 @@ parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank use
 parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
+parser.add_argument("--internal-propose-converge-last-stage",action='store_true',default="Pass through to helper")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
@@ -452,7 +453,8 @@ else:
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
-
+if opts.internal_propose_converge_last_stage:
+    cmd += " --propose-converge-last-stage "
 if not(opts.cip_fit_method is None):
     cmd += " --force-fit-method {} ".format(opts.cip_fit_method)
     if opts.cip_fit_method == 'rf':
@@ -614,7 +616,10 @@ instructions_cip = list(map(lambda x: x.rstrip().split(' '), raw_lines))#np.load
 n_iterations =0
 lines  = []
 for indx in np.arange(len(instructions_cip)):
-    n_iterations += int(instructions_cip[indx][0])
+    if intructions_cip[indx][0] == 'Z':
+        n_iterations += 1
+    else:
+        n_iterations += int(instructions_cip[indx][0])
     line = ' ' .join(instructions_cip[indx])
     n_max_cip = 100000000;  # 1e8; doing more than this requires special memory management within the integrators in general. This lets us get a decent number of samples even with one worker for hard problems
     # if (opts.cip_sampler_method == "GMM") or (opts.cip_sampler_method == 'adaptive_cartesian_gpu'):
