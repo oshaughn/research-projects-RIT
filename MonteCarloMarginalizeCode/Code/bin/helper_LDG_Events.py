@@ -189,6 +189,7 @@ parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prev
 parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
 parser.add_argument("--propose-flat-strategy",action="store_true",help="If present AND propose-fit-strategy is present, the strategy proposed will have puffball and convergence tests for every iteration, and the same CIP")
+parser.add_argument("--propose-converge-last-stage",action="store_true",help="If present, the last pre-extrinsic stage is 'iterate to convergence' form")
 parser.add_argument("--force-fit-method",type=str,default=None,help="Force specific fit method")
 #parser.add_argument("--internal-fit-strategy-enforces-cut",action='store_true',help="Fit strategy enforces lnL-offset (default 15) after the first batch of iterations. ACTUALLY DEFAULT - SHOULD BE REDUNDANT")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
@@ -1247,6 +1248,12 @@ if opts.propose_flat_strategy:
         lines.append(' '.join(instructions_cip[indx][1:]))   # merge back together
     helper_cip_arg_list  = [str(n_iterations) + " " + lines[-1]]  # overwrite with new setup
 
+
+if opts.propose_converge_last_stage:
+    lastline = helper_cip_arg_list[-1].lstrip()
+    lastline_split = lastline.split(' ')
+    lastline_split[0] = 'Z'
+    helper_cip_arg_list[-1]  = ' '.join(lastline_split)
 
 with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))
