@@ -616,7 +616,7 @@ instructions_cip = list(map(lambda x: x.rstrip().split(' '), raw_lines))#np.load
 n_iterations =0
 lines  = []
 for indx in np.arange(len(instructions_cip)):
-    if intructions_cip[indx][0] == 'Z':
+    if instructions_cip[indx][0] == 'Z':
         n_iterations += 1
     else:
         n_iterations += int(instructions_cip[indx][0])
