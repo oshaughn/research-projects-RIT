@@ -227,6 +227,9 @@ if opts.internal_use_amr:
     opts.external_fetch_native_from = None
     opts.cip_explode_jobs= None
 
+if opts.internal_force_iterations and opts.internal_propose_converge_last_stage:
+    print("==> Inconsistent options --internal-force-iterations and --internal-propose-converge-last-stage, overriding former")
+    opts.internal_force_iterations= None # Can't force iteration number if we are using arbitrary iterate to convergence!
 
 download_request = " get file "
 gracedb_exe =opts.gracedb_exe
