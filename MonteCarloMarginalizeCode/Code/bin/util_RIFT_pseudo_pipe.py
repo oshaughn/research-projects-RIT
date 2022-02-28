@@ -784,7 +784,7 @@ if not (opts.manual_initial_grid is None):
 cip_mem  = 30000
 n_jobs_per_worker=opts.ile_jobs_per_worker
 if opts.cip_fit_method == 'rf':
-    cip_mem = 10000  # typical, and will need long-duration run
+    cip_mem = 15000  # more typical for long-duration single-worker runs
 if opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # much lower memory requirement
     cip_mem = 4000
 cepp = "create_event_parameter_pipeline_BasicIteration"
