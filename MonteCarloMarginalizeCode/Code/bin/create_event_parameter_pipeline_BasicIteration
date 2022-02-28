@@ -244,6 +244,7 @@ if opts.condor_nogrid_nonworker:
 
 
 working_dir_inside_local = working_dir_inside = opts.working_directory
+os.chdir(opts.working_directory)
 # working_dir_inside_local is for jobs on local nodes
 if opts.use_singularity or opts.use_osg:
     working_dir_inside = "./" # all files on the remote machine are in the current directory
