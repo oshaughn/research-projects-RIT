@@ -1083,7 +1083,7 @@ if opts.propose_fit_strategy:
     n_it_early =3
     n_it_mid = 4
     if opts.assume_highq:
-        n_it_early =5
+        n_it_early =2
         qmin_puff = 0.05 # 20:1
     if opts.assume_well_placed:
         n_it_early = 1
@@ -1151,6 +1151,8 @@ if opts.propose_fit_strategy:
             
                 # helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
                 # helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior alignedspin-zprior '
+                helper_cip_arg_list[1] +=  '  --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z --parameter-implied chi_p ' 
+                helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y   --transverse-prior taper-down '
 
                 # this will be perfectly adequate volumetric result ...but note the spin priors above are using more concentrated spins near the origin
                 helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
