@@ -1074,7 +1074,7 @@ for it in np.arange(it_start,opts.n_iterations):
         with open(fname_subdag_cip_args,'w') as f:
             f.write(cip_args_here)
         # Create dag inside directory, as usual,  pointing to existing run (note grid size issue problem)
-        cmd = "create_event_parameter_pipeline_AlternateIteration --use-full-submit-paths "
+        cmd = "create_event_parameter_pipeline_BasicIteration --use-full-submit-paths "
         # note we will use subdags, and do this actively.  The 0th iteration needs a SPECIFIC grid though!
         cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.xml.gz".format(it),opts.ile_exe, opts.ile_args)
         cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)
