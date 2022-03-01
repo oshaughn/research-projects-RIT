@@ -264,6 +264,9 @@ class MCSampler(object):
 
         super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
         dict_return_q = kwargs["dict_return"] if "dict_return" in kwargs else False  # default.  Method for passing back rich data structures for debugging
+
+        tripwire_fraction = kwargs["tripwire_fraction"] if "tripwire_fraction" in kwargs else 2  # make it impossible to trigger
+        tripwire_epsilon = kwargs["tripwire_epsilon"] if "tripwire_epsilon" in kwargs else 0.001 # if we are not reasonably far away from unity, fail!
         
         # set up a lot of preliminary stuff
         self.func = func
@@ -307,7 +310,7 @@ class MCSampler(object):
                          user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp) # reflect=reflect,
         if not direct_eval:
             func = self.evaluate
-        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,progress=super_verbose)
+        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon)
 
         # get results
 

@@ -264,6 +264,8 @@ class integrator:
         n_adapt: number of *adaptations* we will perform, before freezing the GMM
         '''
         n_adapt = int(kwargs["n_adapt"]) if "n_adapt" in kwargs else 100
+        tripwire_fraction = kwargs["tripwire_fraction"] if "tripwire_fraction" in kwargs else 2  # make it impossible to trigger
+        tripwire_epsilon = kwargs["tripwire_epsilon"] if "tripwire_epsilon" in kwargs else 0.001 # if we are not reasonably far away from unity, fail!
 
         err_count = 0
         cumulative_eval_time = 0
@@ -271,6 +273,10 @@ class integrator:
         if nmax is None:
             nmax = max_iter * self.n
         while self.iterations < max_iter and self.ntotal < nmax and self.eff_samp < neff:
+            if (self.ntotal > nmax*tripwire_fraction) and (self.eff_samp < 1+tripwire_epsilon):
+                print(" Tripwire: n_eff too low ")
+                raise Exception("Tripwire on n_eff")
+
             if force_no_adapt or self.iterations >= n_adapt:
                 adapting=False
 #            print('Iteration:', self.iterations)
