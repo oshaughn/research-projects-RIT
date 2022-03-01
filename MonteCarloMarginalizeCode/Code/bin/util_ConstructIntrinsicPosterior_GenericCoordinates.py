@@ -2060,7 +2060,8 @@ if opts.sampler_method == "GMM":
 extra_args.update({
     "n_adapt": 100, # Number of chunks to allow adaption over
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1D histograms with, 
-    "force_no_adapt":opts.force_no_adapt
+    "force_no_adapt":opts.force_no_adapt,
+    "tripwire_fraction":0.05
 })
 tempering_adapt=True
 if opts.force_no_adapt:   
