@@ -161,6 +161,7 @@ parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank use
 parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
+parser.add_argument("--internal-propose-converge-last-stage",action='store_true',default="Pass through to helper")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
@@ -226,6 +227,9 @@ if opts.internal_use_amr:
     opts.external_fetch_native_from = None
     opts.cip_explode_jobs= None
 
+if opts.internal_force_iterations and opts.internal_propose_converge_last_stage:
+    print("==> Inconsistent options --internal-force-iterations and --internal-propose-converge-last-stage, overriding former")
+    opts.internal_force_iterations= None # Can't force iteration number if we are using arbitrary iterate to convergence!
 
 download_request = " get file "
 gracedb_exe =opts.gracedb_exe
@@ -452,7 +456,8 @@ else:
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
-
+if opts.internal_propose_converge_last_stage:
+    cmd += " --propose-converge-last-stage "
 if not(opts.cip_fit_method is None):
     cmd += " --force-fit-method {} ".format(opts.cip_fit_method)
     if opts.cip_fit_method == 'rf':
@@ -614,7 +619,10 @@ instructions_cip = list(map(lambda x: x.rstrip().split(' '), raw_lines))#np.load
 n_iterations =0
 lines  = []
 for indx in np.arange(len(instructions_cip)):
-    n_iterations += int(instructions_cip[indx][0])
+    if instructions_cip[indx][0] == 'Z':
+        n_iterations += 1
+    else:
+        n_iterations += int(instructions_cip[indx][0])
     line = ' ' .join(instructions_cip[indx])
     n_max_cip = 100000000;  # 1e8; doing more than this requires special memory management within the integrators in general. This lets us get a decent number of samples even with one worker for hard problems
     # if (opts.cip_sampler_method == "GMM") or (opts.cip_sampler_method == 'adaptive_cartesian_gpu'):
@@ -776,13 +784,13 @@ if not (opts.manual_initial_grid is None):
 cip_mem  = 30000
 n_jobs_per_worker=opts.ile_jobs_per_worker
 if opts.cip_fit_method == 'rf':
-    cip_mem = 10000  # typical, and will need long-duration run
+    cip_mem = 15000  # more typical for long-duration single-worker runs
 if opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # much lower memory requirement
     cip_mem = 4000
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if not(opts.ile_runtime_max_minutes is None):
     cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.internal_use_amr) or opts.internal_use_amr_puff:

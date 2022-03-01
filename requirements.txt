@@ -4,10 +4,10 @@ pip
 numpy
 h5py 
 numba 
+pandas
 #vegas 
 corner 
 scikit-learn 
-#healpy 
 matplotlib 
 lalsuite 
 gwdatafind 
@@ -15,3 +15,4 @@ ligo-segments
 python-ligo-lw 
 six
 precession
+ligo.skymap

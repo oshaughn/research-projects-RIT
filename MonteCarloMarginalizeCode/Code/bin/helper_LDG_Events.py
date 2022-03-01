@@ -189,6 +189,7 @@ parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prev
 parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
 parser.add_argument("--propose-flat-strategy",action="store_true",help="If present AND propose-fit-strategy is present, the strategy proposed will have puffball and convergence tests for every iteration, and the same CIP")
+parser.add_argument("--propose-converge-last-stage",action="store_true",help="If present, the last pre-extrinsic stage is 'iterate to convergence' form")
 parser.add_argument("--force-fit-method",type=str,default=None,help="Force specific fit method")
 #parser.add_argument("--internal-fit-strategy-enforces-cut",action='store_true',help="Fit strategy enforces lnL-offset (default 15) after the first batch of iterations. ACTUALLY DEFAULT - SHOULD BE REDUNDANT")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
@@ -1082,7 +1083,7 @@ if opts.propose_fit_strategy:
     n_it_early =3
     n_it_mid = 4
     if opts.assume_highq:
-        n_it_early =5
+        n_it_early =2
         qmin_puff = 0.05 # 20:1
     if opts.assume_well_placed:
         n_it_early = 1
@@ -1150,6 +1151,8 @@ if opts.propose_fit_strategy:
             
                 # helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
                 # helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior alignedspin-zprior '
+                helper_cip_arg_list[1] +=  '  --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z --parameter-implied chi_p ' 
+                helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y   --transverse-prior taper-down '
 
                 # this will be perfectly adequate volumetric result ...but note the spin priors above are using more concentrated spins near the origin
                 helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
@@ -1248,11 +1251,21 @@ if opts.propose_flat_strategy:
     helper_cip_arg_list  = [str(n_iterations) + " " + lines[-1]]  # overwrite with new setup
 
 
+if opts.propose_converge_last_stage:
+    lastline = helper_cip_arg_list[-1].lstrip()
+    lastline_split = lastline.split(' ')
+    lastline_split[0] = 'Z'
+    helper_cip_arg_list[-1]  = ' '.join(lastline_split)
+
 with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))
 
 
 # Impose test in last phase only
+#   - for convenience, transform last Z 
+#   - note Z will override iteration thresholding anyways
+if opts.propose_converge_last_stage:
+    helper_cip_arg_list[-1] = helper_cip_arg_list[-1].replace('Z','1') # treat as one iteration
 n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
 n_its_to_not_test = np.sum(n_its) - n_its[-1]
 helper_test_args += " --iteration-threshold {} ".format(int(n_its_to_not_test))
