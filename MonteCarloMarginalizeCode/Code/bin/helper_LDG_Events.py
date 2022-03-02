@@ -1008,7 +1008,7 @@ elif opts.propose_initial_grid:
         if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
             grid_size *=1.5  # denser grid at low mass, because of tight correlations
 
-    if  not ( opts.internal_use_aligned_phase_coordiantes )  and (('quadratic' in fit_method) or ('polynomial' in fit_method) or 'rf' in fit_method) :
+    if  not ( opts.internal_use_aligned_phase_coordinates )  and (('quadratic' in fit_method) or ('polynomial' in fit_method) or 'rf' in fit_method) :
         grid_size *= 1.5  # denser initial grid for these methods, since they need more training to stabilize at times. But not for new coordinates
 
     if not (opts.force_initial_grid_size is None):
