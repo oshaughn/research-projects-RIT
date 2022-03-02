@@ -582,7 +582,7 @@ if opts.use_ini is None:
     else:
         channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo)]
         # Channel names to use before May 1 in O3: need better lookup logic
-        if opts.observing_run == "O3" and  event_dict["tref"] < 1240750000 and opts.calibration_version is 'C00':
+        if opts.observing_run == "O3" and  event_dict["tref"] < 1240750000 and opts.calibration_version == 'C00':
             if ifo in ['H1', 'L1']:
                 channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo,"BeforeMay1")]
         if opts.observing_run == "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
