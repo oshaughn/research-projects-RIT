@@ -1081,7 +1081,9 @@ for it in np.arange(it_start,opts.n_iterations+1):
         cmd = "create_event_parameter_pipeline_BasicIteration --use-full-submit-paths "
         # note we will use subdags, and do this actively.  The 0th iteration needs a SPECIFIC grid though!
         cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.xml.gz".format(it),opts.ile_exe, opts.ile_args)
-        cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)
+        cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)e
+        if opts.request_gpu_ILE:
+            cmd += " --request-gpu-ILE "  # DAG writer needs to make appropririate requests
         if opts.test_args:
             import re
             test_args_optin = "X " + test_args  # copy not reference
