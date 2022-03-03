@@ -986,6 +986,7 @@ if opts.use_bw_psd:
 
 n_group = opts.ile_n_events_to_analyze
 
+unify_node_list = []
 for it in np.arange(it_start,opts.n_iterations+1):
     print(it, opts.n_iterations)
     consolidate_now = None
@@ -1000,6 +1001,7 @@ for it in np.arange(it_start,opts.n_iterations+1):
     unify_node.add_macro("macroiteration",it)
     unify_node.add_parent(con_node)
     unify_node.set_retry(opts.general_retries)
+    unify_node_list.append(unify_node)
     
     # Create one node per job
     n_jobs_this_time = opts.n_samples_per_job
@@ -1313,3 +1315,16 @@ if opts.test_args:
     with open(dag_name+".dag",'a') as f:
         for name in my_names:
             f.write("ABORT-DAG-ON "+ name + " 1 RETURN 0 \n")
+
+my_names_unify = [x._CondorDAGNode__md5name for x in unify_node_list]
+indx =0
+with open("confirm_exist.sh",'w') as f:
+    f.write("""
+#! /bin/bash
+[ -s $1 ]
+""")
+st=os.stat("confirm_exist.sh"); os.chmod("confirm_exist.sh", st.st_mode | stat.S_IEXEC)
+with open(dag_name+".dag",'a') as f:
+    for name in my_names:
+        f.write("SCRIPT POST "+ name + " {}/confirm_exists.sh {}/consolidated_{}.composite \n".format(opts.working_directory,opts.working_directory,indx))
+        indx+=1
