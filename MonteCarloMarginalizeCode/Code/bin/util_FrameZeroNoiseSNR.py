@@ -62,6 +62,20 @@ for ifo in ifo_list:
         plt.figure(2)
         plt.plot(np.log10(fvals), np.log10(1./IP.weights2side)/2)
         plt. savefig("frameplot_psd_"+ifo+".png"); plt.clf()
+
+        # Some time domain plots, which can be quite useful
+        hT = lalsimutils.DataInverseFourier(data_dict[ifo])
+        tvals = lalsimutils.evaluate_tvals(hT) - hT.epoch
+        tmax = tvals[np.argmax(np.abs(hT.data.data))]
+        tvals = tvals - tmax
+        plt.plot(tvals,hT.data.data)
+        plt.xlim(-1,0.2)
+        plt.savefig("frameplot-{}-hT.png".format(ifo))
+        plt.figure(0) ; plt.clf()
+        plt.plot(tvals,np.log10(np.abs(hT.data.data+1e-40)))
+        plt.xlim(-8,1)
+        plt.savefig("frameplot-{}-loghT.png".format(ifo))
+
     data_dict[ifo] = None  # clear it
   except:
       print(" No IFO ", ifo)
