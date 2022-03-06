@@ -246,13 +246,13 @@ class integrator:
             log_integral_here = log_sum_weights - np.log(self.n)
             if not(self.integral ):
                 self.integral = log_integral_here + log_scale_factor
-                self.total_value = log_sum_weights 
+                self.total_value = log_sum_weights +log_scale_factor
                 self.max_value = log_scale_factor
             else:
                 self.integral = logsumexp([ self.integral +np.log(self.iterations), log_integral_here]) - np.log(self.iterations+1)
-                self.total_value= logsumexp([self.total_value, log_sum_weights])
+                self.total_value= logsumexp([self.total_value, log_sum_weights+log_scale_factor])
                 self.max_value = np.max([self.max_value,log_scale_factor])
-            self.eff_samp = np.exp(self.total_value - (self.max_value - log_scale_factor))
+            self.eff_samp = np.exp(self.total_value - (self.max_value  ))
 
             # Evaluate error squared, avoiding overflow
             log_scaled_error_squared = np.log(np.var(np.exp(log_weights - log_scale_factor)))
