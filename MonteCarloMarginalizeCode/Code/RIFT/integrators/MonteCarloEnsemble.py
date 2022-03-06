@@ -87,6 +87,8 @@ class integrator:
         self.sampling_prior_array = None
         self.prior_array = None
         self.scaled_error_squared = 0.
+        if self.return_lnI:
+            self.scaled_error_squared = None
         self.log_error_scale_factor = 0.
         self.integral = 0
         if self.return_lnI:
@@ -239,6 +241,7 @@ class integrator:
             self.max_value = max(scale_factor, self.max_value)
             self.eff_samp = self.total_value / self.max_value
         else: # using lnI return values
+            # Evaluate integral and effective sample count
             log_sum_weights = logsumexp(log_weights) - log_scale_factor
             log_integral_here = log_sum_weights - np.log(self.n)
             if not(self.integral ):
@@ -249,8 +252,14 @@ class integrator:
                 self.integral = logsumexp([ self.integral +np.log(self.iterations), log_integral_here]) - np.log(self.iterations+1)
                 self.total_value= logsumexp([self.total_value, log_sum_weights])
                 self.max_value = np.max([self.max_value,log_scale_factor])
-            self.eff_samp = np.exp(self.total_value - self.max_value)
+            self.eff_samp = np.exp(self.total_value - (self.max_value - log_scale_factor))
 
+            # Evaluate error squared, avoiding overflow
+            log_scaled_error_squared = np.log(np.var(np.exp(log_weights - log_scale_factor)))
+            if not(self.scaled_error_squared):
+                self.scaled_error_squared = log_scaled_error_squared
+            else:
+                self.scaled_error_squared = logsumexp([ self.scaled_error_squared + np.log(self.iterations), log_scaled_error_squared]) - np.log(self.iterations+1)
 
     def _reset(self):
         ### reset GMMs
@@ -259,7 +268,7 @@ class integrator:
         
 
     def integrate(self, func, min_iter=10, max_iter=20, var_thresh=0.0, max_err=10,
-            neff=float('inf'), nmax=None, progress=False, epoch=None,verbose=True,force_no_adapt=False,use_lnL=False,**kwargs):
+            neff=float('inf'), nmax=None, progress=False, epoch=None,verbose=True,force_no_adapt=False,use_lnL=False,return_lnI=False,**kwargs):
         '''
         Evaluate the integral
 
@@ -287,6 +296,7 @@ class integrator:
         tripwire_fraction = kwargs["tripwire_fraction"] if "tripwire_fraction" in kwargs else 2  # make it impossible to trigger
         tripwire_epsilon = kwargs["tripwire_epsilon"] if "tripwire_epsilon" in kwargs else 0.001 # if we are not reasonably far away from unity, fail!
         self.use_lnL = use_lnL   # option to override initialization of sampler : argument passed in another way
+        self.return_lnI = return_lnI   # option to override initialization of sampler : argument passed in another way
 
 
         err_count = 0
@@ -362,6 +372,9 @@ class integrator:
                 self._reset()
             if verbose:
                 # Standard mcsampler message, to monitor convergence
-                print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*np.log(self.integral)), "-" ) )
+                if not(self.return_lnI):
+                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*np.log(self.integral)), "-" ) )
+                else:
+                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*self.integral), "-" ) )
         print('cumulative eval time: ', cumulative_eval_time)
         print('integrator iterations: ', self.iterations)
