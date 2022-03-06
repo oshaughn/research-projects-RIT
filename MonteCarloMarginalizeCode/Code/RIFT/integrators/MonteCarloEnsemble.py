@@ -239,7 +239,7 @@ class integrator:
         
 
     def integrate(self, func, min_iter=10, max_iter=20, var_thresh=0.0, max_err=10,
-            neff=float('inf'), nmax=None, progress=False, epoch=None,verbose=True,force_no_adapt=False,**kwargs):
+            neff=float('inf'), nmax=None, progress=False, epoch=None,verbose=True,force_no_adapt=False,use_lnL=False,**kwargs):
         '''
         Evaluate the integral
 
@@ -266,6 +266,8 @@ class integrator:
         n_adapt = int(kwargs["n_adapt"]) if "n_adapt" in kwargs else 100
         tripwire_fraction = kwargs["tripwire_fraction"] if "tripwire_fraction" in kwargs else 2  # make it impossible to trigger
         tripwire_epsilon = kwargs["tripwire_epsilon"] if "tripwire_epsilon" in kwargs else 0.001 # if we are not reasonably far away from unity, fail!
+        self.use_lnL = use_lnL   # option to override initialization of sampler : argument passed in another way
+
 
         err_count = 0
         cumulative_eval_time = 0
