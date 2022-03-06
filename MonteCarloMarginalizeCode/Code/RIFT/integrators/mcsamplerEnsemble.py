@@ -315,6 +315,8 @@ class MCSampler(object):
             func = self.evaluate
         if use_lnL:
             print(" ==> input assumed as lnL ")
+        if return_lnI:
+            print(" ==> internal calculations and return values are lnI ")
         integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI)
 
         # get results
