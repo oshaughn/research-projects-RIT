@@ -269,6 +269,7 @@ class MCSampler(object):
         tripwire_epsilon = kwargs["tripwire_epsilon"] if "tripwire_epsilon" in kwargs else 0.001 # if we are not reasonably far away from unity, fail!
 
         use_lnL = kwargs["use_lnL"] if "use_lnL" in kwargs else False 
+        return_lnI = kwargs["return_lnI"] if "return_lnI" in kwargs else False 
         
         # set up a lot of preliminary stuff
         self.func = func
@@ -314,7 +315,7 @@ class MCSampler(object):
             func = self.evaluate
         if use_lnL:
             print(" ==> input assumed as lnL ")
-        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon,use_lnL=use_lnL)
+        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI)
 
         # get results
 
