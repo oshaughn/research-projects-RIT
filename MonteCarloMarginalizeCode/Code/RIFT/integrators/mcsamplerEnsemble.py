@@ -327,7 +327,10 @@ class MCSampler(object):
         error_squared = integrator.scaled_error_squared * np.exp(integrator.log_error_scale_factor)
         eff_samp = integrator.eff_samp
         sample_array = integrator.cumulative_samples
-        value_array = np.exp(integrator.cumulative_values)  # stored as ln(integrand) !
+        if not(return_lnI):
+            value_array = np.exp(integrator.cumulative_values)  # stored as ln(integrand) !
+        else:
+            value_array = integrator.cumulative_values
         p_array = integrator.cumulative_p_s
         prior_array = integrator.cumulative_p
 
