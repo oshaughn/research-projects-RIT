@@ -2194,7 +2194,10 @@ samples = sampler._rvs
 print(samples.keys())
 n_params = len(coord_names)
 dat_mass = np.zeros((len(samples[low_level_coord_names[0]]),n_params+3))
-dat_logL = np.log(samples["integrand"])
+if not(opts.internal_use_lnL):
+    dat_logL = np.log(samples["integrand"])
+else:
+    dat_logL = samples["integrand"]
 lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
 print(" Max lnL ", np.max(dat_logL))
 if opts.lnL_protect_overflow:
@@ -2573,11 +2576,17 @@ for indx_here in indx_list:
         if include_item:
          if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
             P_list.append(Pgrid)
-            lnL_list.append(np.log(samples["integrand"][indx_here]))
+            if not(opts.internal_use_lnL):
+                lnL_list.append(np.log(samples["integrand"][indx_here]))
+            else:
+                lnL_list.append(samples["integrand"][indx_here])
          else:
             Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
             P_list.append(Pgrid)
-            lnL_list.append(np.log(samples["integrand"][indx_here]))
+            if not(opts.internal_use_lnL):
+                lnL_list.append(np.log(samples["integrand"][indx_here]))
+            else:
+                lnL_list.append(samples["integrand"][indx_here])
         else:
             True
 
