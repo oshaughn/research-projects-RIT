@@ -269,7 +269,7 @@ class MCSampler(object):
         tripwire_epsilon = kwargs["tripwire_epsilon"] if "tripwire_epsilon" in kwargs else 0.001 # if we are not reasonably far away from unity, fail!
 
         use_lnL = kwargs["use_lnL"] if "use_lnL" in kwargs else False 
-        return_lnI = kwargs["return_lnI"] if "return_lnI" in kwargs else False 
+        return_lnI = kwargs["return_lnI"] if "return_lnI" in kwargs else False
         
         # set up a lot of preliminary stuff
         self.func = func
