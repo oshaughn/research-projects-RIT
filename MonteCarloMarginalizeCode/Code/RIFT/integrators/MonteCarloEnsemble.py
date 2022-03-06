@@ -9,7 +9,7 @@ import numpy as np
 from . import gaussian_mixture_model as GMM
 import traceback
 import time
-
+from scipy.special import logsumexp
 
 regularize_log_scale = 1e-64  # before taking np.log, add this, so we don't propagate infinities
 
@@ -61,7 +61,8 @@ class integrator:
     '''
 
     def __init__(self, d, bounds, gmm_dict, n_comp, n=None, prior=None,
-                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,gmm_epsilon=None,tempering_exp=1):
+                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_epsilon=None,tempering_exp=1):
+        # if 'return_lnI' is active, 'integral' holds the *logarithm* of the integral.
         # user-specified parameters
         self.d = d
         self.bounds = bounds
@@ -72,6 +73,7 @@ class integrator:
         self.prior = prior
         self.proc_count = proc_count
         self.use_lnL = use_lnL
+        self.return_lnI = return_lnI
         # constants
         self.t = 0.02 # percent estimated error threshold
         if n is None:
@@ -87,10 +89,15 @@ class integrator:
         self.scaled_error_squared = 0.
         self.log_error_scale_factor = 0.
         self.integral = 0
+        if self.return_lnI:
+            self.integral=None
         self.eff_samp = 0
         self.iterations = 0 # for weighted averages and count
+        self.log_scale_factor = 0  # to handle very large answers
         self.max_value = float('-inf') # for calculating eff_samp
         self.total_value = 0 # for calculating eff_samp
+        if self.return_lnI:
+            self.total_value = None
         self.n_max = float('inf')
         # saved values
         self.cumulative_samples = np.empty((0, d))
@@ -203,34 +210,47 @@ class integrator:
 
         # do a shift so that the highest log weight is 0, keeping track of the shift
         log_scale_factor = np.max(log_weights) # don't insert nan here
-        scale_factor = np.exp(log_scale_factor)
-        log_weights -= log_scale_factor
-        summed_vals = scale_factor * np.sum(np.exp(log_weights))
-        integral_value = summed_vals / self.n
+        if not(self.return_lnI):
+            scale_factor = np.exp(log_scale_factor)
+            log_weights -= log_scale_factor
+            summed_vals = scale_factor * np.sum(np.exp(log_weights))
+            integral_value = summed_vals / self.n
         
-        # Calculate the log of the Monte Carlo integration error.
-        # Let `a` be the scale factor, and let `w` be the weights with the scale factor divided out (i.e. weight = a w), then
-        #     error^2 = var(a w) / N = a^2 var(w) / N.
-        # The point is that 0 <= w <= 1, so there's no potential for overflow here when calculating the variance.
-        # Since the scale factor `a` is potentially very large, squaring it could overflow; therefore, we keep out a factor of ln(a^2) = 2ln(a).
-        # Note that ln(a) is exactly the log_scale_factor variable defined above.
-        scaled_error_squared = np.var(np.exp(log_weights)) / self.n
-        log_error_scale_factor = 2. * log_scale_factor
+            # Calculate the log of the Monte Carlo integration error.
+            # Let `a` be the scale factor, and let `w` be the weights with the scale factor divided out (i.e. weight = a w), then
+            #     error^2 = var(a w) / N = a^2 var(w) / N.
+            # The point is that 0 <= w <= 1, so there's no potential for overflow here when calculating the variance.
+            # Since the scale factor `a` is potentially very large, squaring it could overflow; therefore, we keep out a factor of ln(a^2) = 2ln(a).
+            # Note that ln(a) is exactly the log_scale_factor variable defined above.
+            scaled_error_squared = np.var(np.exp(log_weights)) / self.n
+            log_error_scale_factor = 2. * log_scale_factor
         
-        # calculate the running average of the integral
-        self.integral = (self.iterations * self.integral + integral_value) / (self.iterations + 1)
+            self.integral = (self.iterations * self.integral + integral_value) / (self.iterations + 1)
         
-        # Calculate the running average of the variance.
-        # This calculation is complicated by the scale factors: the previous running average is scaled by exp(self.log_error_scale_factor),
-        # which is currently the log_error_scale_factor from the previous iteration.
-        # We can avoid overflows by factoring our *new* log_error_scale_factor out of the running average, so that we exponentiate a smaller number.
-        self.scaled_error_squared = (self.iterations * np.exp(self.log_error_scale_factor - log_error_scale_factor) * self.scaled_error_squared + scaled_error_squared) / (self.iterations + 1)
-        self.log_error_scale_factor = log_error_scale_factor # having computed the running average, update this
+            # Calculate the running average of the variance.
+            # This calculation is complicated by the scale factors: the previous running average is scaled by exp(self.log_error_scale_factor),
+            # which is currently the log_error_scale_factor from the previous iteration.
+            # We can avoid overflows by factoring our *new* log_error_scale_factor out of the running average, so that we exponentiate a smaller number.
+            self.scaled_error_squared = (self.iterations * np.exp(self.log_error_scale_factor - log_error_scale_factor) * self.scaled_error_squared + scaled_error_squared) / (self.iterations + 1)
+            self.log_error_scale_factor = log_error_scale_factor # having computed the running average, update this
         
-        # calculate the effective samples
-        self.total_value += summed_vals
-        self.max_value = max(scale_factor, self.max_value)
-        self.eff_samp = self.total_value / self.max_value
+            # calculate the effective samples
+            self.total_value += summed_vals
+            self.max_value = max(scale_factor, self.max_value)
+            self.eff_samp = self.total_value / self.max_value
+        else: # using lnI return values
+            log_sum_weights = logsumexp(log_weights) - log_scale_factor
+            log_integral_here = log_sum_weights - np.log(self.n)
+            if not(self.integral ):
+                self.integral = log_integral_here + log_scale_factor
+                self.total_value = log_sum_weights 
+                self.max_value = log_scale_factor
+            else:
+                self.integral = logsumexp([ self.integral +np.log(self.iterations), log_integral_here]) - np.log(self.iterations+1)
+                self.total_value= logsumexp([self.total_value, log_sum_weights])
+                self.max_value = np.max([self.max_value,log_scale_factor])
+            self.eff_samp = np.exp(self.total_value - self.max_value)
+
 
     def _reset(self):
         ### reset GMMs
