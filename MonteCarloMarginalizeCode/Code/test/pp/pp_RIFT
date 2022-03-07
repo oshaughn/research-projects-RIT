@@ -350,7 +350,7 @@ for indx in np.arange(n_events):
             print(" Unknown approx ", approx_recover_str)
             sys.exit(1)
         if use_distance_marginalization:
-            line += " --distance-marginalization --distance-marginalization-lookup-table {}/{} ".format(working_dir_full,"distance_marginalization_lookup.npz")
+            line += " --force-xpy --distance-marginalization --distance-marginalization-lookup-table {}/{} ".format(working_dir_full,"distance_marginalization_lookup.npz")
         with open('args_ile.txt','w') as f:
             f.write(line)
 
