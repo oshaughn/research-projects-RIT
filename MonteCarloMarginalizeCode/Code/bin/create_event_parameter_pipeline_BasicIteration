@@ -783,9 +783,9 @@ if  (cip_args_lines is None):
     # Write the default cip_job into cip_job_list n times
     # add some redundancy in case this happens : we're hitting a problem with having too few copies of this/fencepost error later
     if opts.cip_explode_jobs is None:
-        cip_job_list =(opts.n_iterations+1)* [cip_job ]
+        cip_job_list =(opts.n_iterations)* [cip_job ]
     else:
-        cip_job_list =(opts.n_iterations+1)* [ [cip_job, cip_job_worker] ]
+        cip_job_list =(opts.n_iterations)* [ [cip_job, cip_job_worker] ]
 else:  
     # we have different cip jobs for different iteration numbers
     cip_job_list = []
@@ -987,7 +987,7 @@ if opts.use_bw_psd:
 n_group = opts.ile_n_events_to_analyze
 
 unify_node_list = []
-for it in np.arange(it_start,opts.n_iterations+1):
+for it in np.arange(it_start,opts.n_iterations):
     print(it, opts.n_iterations)
     consolidate_now = None
     fit_node_now = None
@@ -1184,7 +1184,8 @@ for it in np.arange(it_start,opts.n_iterations+1):
         else:
             n_explode = opts.cip_explode_jobs
             # if we are on the last iteration and we want to use more exploded jobs now, explode more jobs
-            if opts.cip_explode_jobs_last and (it == opts.n_iterations):
+            if opts.cip_explode_jobs_last and (it == opts.n_iterations-1): # last iteration
+                print("   Last iteration explode size ", opts.cip_explode_jobs_last)
                 n_explode = opts.cip_explode_jobs_last
             for indx in np.arange(n_explode):
                 worker_node =pipeline.CondorDAGNode(cip_worker_job)
