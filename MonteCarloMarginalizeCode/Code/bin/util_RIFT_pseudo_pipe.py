@@ -193,6 +193,7 @@ parser.add_argument("--general-retries",default=3,type=int)
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this argument to CIP. GP plot for each iteration will be saved. Useful for followup investigations or reweighting. Warning: lots of disk space (1G or so per iteration)")
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
+parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number of jobs to use in last stage.  Hopefully in future auto-set")
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--n-output-samples",type=int,default=8000,help="Number of output samples generated in the final iteration")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
@@ -866,6 +867,8 @@ if opts.cip_explode_jobs:
    if opts.cip_fit_method and not(opts.cip_fit_method == 'gp'):
        # if we are not using default GP fit, so all fit instances are equal
        cmd += " --cip-explode-jobs-flat "  
+   if opts.cip_explode_jobs_last:
+       cmd += " --cip-explode-jobs-last {} ".format(opts.cip_explode_jobs_last)
 if opts.make_bw_psds:
     cmd+= " --use-bw-psd --bw-exe `which BayesWave` --bw-post-exe `which BayesWavePost` "
 if opts.use_osg:
