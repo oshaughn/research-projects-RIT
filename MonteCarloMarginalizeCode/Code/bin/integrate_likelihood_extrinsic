@@ -1263,7 +1263,7 @@ if ("declination", "right_ascension") in sampler.params:
 if "distance" not in sampler._rvs:
     sampler._rvs["distance"] = np.full_like(
         sampler._rvs["psi"],
-        factored_likelihood.distMpcRef*1e6*lal.PC_SI,
+        factored_likelihood.distMpcRef #*1e6*lal.PC_SI,
     )
 
 if opts.maximize_only and opts.output_file:
