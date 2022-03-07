@@ -161,7 +161,7 @@ parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank use
 parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
-parser.add_argument("--internal-propose-converge-last-stage",action='store_true',default="Pass through to helper")
+parser.add_argument("--internal-propose-converge-last-stage",action='store_true',help="Pass through to helper")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
@@ -172,7 +172,7 @@ parser.add_argument("--ile-sampler-method",type=str,default=None)
 parser.add_argument("--ile-n-eff",type=int,default=None,help="ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous ")
 parser.add_argument("--cip-sampler-method",type=str,default=None)
 parser.add_argument("--cip-fit-method",type=str,default=None)
-parser.add_argument("--ile-jobs-per-worker",type=int,default=20)
+parser.add_argument("--ile-jobs-per-worker",type=int,default=None,help="Default will be 20 per worker usually for moderate-speed approximants, and more for very fast configurations")
 parser.add_argument("--ile-no-gpu",action='store_true')
 parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
@@ -193,6 +193,7 @@ parser.add_argument("--general-retries",default=3,type=int)
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this argument to CIP. GP plot for each iteration will be saved. Useful for followup investigations or reweighting. Warning: lots of disk space (1G or so per iteration)")
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
+parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number of jobs to use in last stage.  Hopefully in future auto-set")
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--n-output-samples",type=int,default=8000,help="Number of output samples generated in the final iteration")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
@@ -210,6 +211,13 @@ parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Pr
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
+
+if not(opts.ile_jobs_per_worker):
+    opts.ile_jobs_per_worker=20
+    if opts.assume_nospin or opts.assume_nonprecessing or (opts.approx == "IMRPhenomD" or opts.approx == "SEOBNRv4"):
+        if opts.internal_marginalize_distance:
+            # if we are using distance marginalization, use many more jobs per worker, to reduce startup transient relative cost (and queuing time latency). Jobs are too fast.
+            opts.ile_jobs_per_worker =100 
 
 if opts.use_production_defaults:
     opts.condor_nogrid_nonworker =True
@@ -859,6 +867,8 @@ if opts.cip_explode_jobs:
    if opts.cip_fit_method and not(opts.cip_fit_method == 'gp'):
        # if we are not using default GP fit, so all fit instances are equal
        cmd += " --cip-explode-jobs-flat "  
+   if opts.cip_explode_jobs_last:
+       cmd += " --cip-explode-jobs-last {} ".format(opts.cip_explode_jobs_last)
 if opts.make_bw_psds:
     cmd+= " --use-bw-psd --bw-exe `which BayesWave` --bw-post-exe `which BayesWavePost` "
 if opts.use_osg:

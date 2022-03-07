@@ -91,6 +91,10 @@ def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_d
         with open(fname_out_raw,'r') as f:
             lines = f.readlines()
             lines = map(lambda x: str(CacheEntry.from_T050017(x)), lines)
+        # Add carriage return if not present
+        for indx in np.arange(len(lines)):
+            if lines[indx][-1] != "\n":
+                liens[indx]+= "\n"
         with open(fname_out,'w') as f:
             for line in lines:
                 f.write(line)
@@ -582,7 +586,7 @@ if opts.use_ini is None:
     else:
         channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo)]
         # Channel names to use before May 1 in O3: need better lookup logic
-        if opts.observing_run == "O3" and  event_dict["tref"] < 1240750000 and opts.calibration_version is 'C00':
+        if opts.observing_run == "O3" and  event_dict["tref"] < 1240750000 and opts.calibration_version == 'C00':
             if ifo in ['H1', 'L1']:
                 channel_names[ifo] = standard_channel_names[opts.observing_run][(opts.calibration_version,ifo,"BeforeMay1")]
         if opts.observing_run == "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
@@ -973,7 +977,10 @@ elif opts.propose_initial_grid:
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
         cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
-        grid_size =2500
+        if opts.internal_use_aligned_phase_coordinates:
+            grid_size=1500
+        else:
+            grid_size =2500
 
         if opts.assume_precessing_spin:
             # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
@@ -1001,12 +1008,12 @@ elif opts.propose_initial_grid:
         cmd += " --random-parameter lambda1 --random-parameter-range [{},{}] --random-parameter lambda2 --random-parameter-range [{},{}] ".format(lambda1_min,lambda1_max,lambda2_min,lambda2_max)
         grid_size *=2   # denser grid
 
-    if opts.propose_fit_strategy:
+    if opts.propose_fit_strategy and not opts.internal_use_aligned_phase_coordinates:
         if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
             grid_size *=1.5  # denser grid at low mass, because of tight correlations
 
-    if ('quadratic' in fit_method) or ('polynomial' in fit_method) or 'rf' in fit_method:
-        grid_size *= 1.5  # denser initial grid for these methods, since they need more training to stabilize at times
+    if  not ( opts.internal_use_aligned_phase_coordinates )  and (('quadratic' in fit_method) or ('polynomial' in fit_method) or 'rf' in fit_method) :
+        grid_size *= 1.5  # denser initial grid for these methods, since they need more training to stabilize at times. But not for new coordinates
 
     if not (opts.force_initial_grid_size is None):
         grid_size = opts.force_initial_grid_size

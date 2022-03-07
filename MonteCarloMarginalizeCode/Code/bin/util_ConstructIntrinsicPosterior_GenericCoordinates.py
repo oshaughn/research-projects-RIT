@@ -312,6 +312,7 @@ parser.add_argument("--source-redshift",default=0,type=float,help="Source redshi
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
+parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL. ONLY VIABLE FOR GMM AT PRESENT")
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
 parser.add_argument("--internal-n-comp",default=1,type=int,help="number of components to use for GMM sampling. Default is 1, because we expect a unimodal posterior in well-adapted coordinates.  If you have crappy coordinates, use more")
 parser.add_argument("--internal-gmm-memory-chisquared-factor",default=None,type=float,help="Multiple of the number of degrees of freedom to save. 5 is a part in 10^6, 4 is 10^{-4}, and None keeps all up to lnL_offset.  Note that low-weight points can contribute notably to n_eff, and it can be dangerous to assume a simple chisquared likelihood!  Provided in case we need very long runs")
@@ -1948,12 +1949,23 @@ if len(low_level_coord_names) ==1:
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x],dtype=internal_dtype).T) ))
             return np.exp(my_fit(convert_coords(np.c_[x])))
+    def log_likelihood_function(x):  
+        if isinstance(x,float):
+            return my_fit([x])
+        else:
+#            return np.exp(my_fit(convert_coords(np.array([x],dtype=internal_dtype).T) ))
+            return my_fit(convert_coords(np.c_[x]))
 if len(low_level_coord_names) ==2:
     def likelihood_function(x,y):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y])))
+    def log_likelihood_function(x,y):  
+        if isinstance(x,float):
+            return my_fit([x,y])
+        else:
+            return my_fit(convert_coords(np.c_[x,y]))
 if len(low_level_coord_names) ==3:
     def likelihood_function(x,y,z):  
         if isinstance(x,float):
@@ -1961,12 +1973,23 @@ if len(low_level_coord_names) ==3:
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z],dtype=internal_dtype).T)))
             return np.exp(my_fit(convert_coords(np.c_[x,y,z])))
+    def log_likelihood_function(x,y,z):  
+        if isinstance(x,float):
+            return my_fit([x,y,z])
+        else:
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z],dtype=internal_dtype).T)))
+            return my_fit(convert_coords(np.c_[x,y,z]))
 if len(low_level_coord_names) ==4:
     def likelihood_function(x,y,z,a):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a])))
+    def log_likelihood_function(x,y,z,a):  
+        if isinstance(x,float):
+            return my_fit([x,y,z,a])
+        else:
+            return my_fit(convert_coords(np.c_[x,y,z,a]))
 if len(low_level_coord_names) ==5:
     def likelihood_function(x,y,z,a,b):  
         if isinstance(x,float):
@@ -1974,6 +1997,12 @@ if len(low_level_coord_names) ==5:
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b],dtype=internal_dtype).T)))
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b])))
+    def log_likelihood_function(x,y,z,a,b):  
+        if isinstance(x,float):
+            return my_fit([x,y,z,a,b])
+        else:
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b],dtype=internal_dtype).T)))
+            return my_fit(convert_coords(np.c_[x,y,z,a,b]))
 if len(low_level_coord_names) ==6:
     def likelihood_function(x,y,z,a,b,c):  
         if isinstance(x,float):
@@ -1981,18 +2010,34 @@ if len(low_level_coord_names) ==6:
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c],dtype=internal_dtype).T)))
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c])))
+    def log_likelihood_function(x,y,z,a,b,c):  
+        if isinstance(x,float):
+            return my_fit([x,y,z,a,b,c])
+        else:
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c],dtype=internal_dtype).T)))
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c]))
 if len(low_level_coord_names) ==7:
     def likelihood_function(x,y,z,a,b,c,d):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d])))
+    def log_likelihood_function(x,y,z,a,b,c,d):  
+        if isinstance(x,float):
+            return my_fit([x,y,z,a,b,c,d])
+        else:
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d]))
 if len(low_level_coord_names) ==8:
     def likelihood_function(x,y,z,a,b,c,d,e):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e])))
+    def log_likelihood_function(x,y,z,a,b,c,d,e):  
+        if isinstance(x,float):
+            return my_fit([x,y,z,a,b,c,d,e])
+        else:
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e]))
 if len(low_level_coord_names) ==9:
     def likelihood_function(x,y,z,a,b,c,d,e,f):  
         if isinstance(x,float):
@@ -2060,13 +2105,18 @@ if opts.sampler_method == "GMM":
 extra_args.update({
     "n_adapt": 100, # Number of chunks to allow adaption over
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1D histograms with, 
-    "force_no_adapt":opts.force_no_adapt
+    "force_no_adapt":opts.force_no_adapt,
+    "tripwire_fraction":0.05
 })
 tempering_adapt=True
 if opts.force_no_adapt:   
     tempering_adapt=False
 # Result shifted by lnL_shift
-res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
+fn_passed = likelihood_function
+if opts.sampler_method=="GMM" and opts.internal_use_lnL:
+    fn_passed = log_likelihood_function   # helps regularize large values
+    extra_args.update({"use_lnL":True,"return_lnI":True})
+res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
@@ -2144,7 +2194,10 @@ samples = sampler._rvs
 print(samples.keys())
 n_params = len(coord_names)
 dat_mass = np.zeros((len(samples[low_level_coord_names[0]]),n_params+3))
-dat_logL = np.log(samples["integrand"])
+if not(opts.internal_use_lnL):
+    dat_logL = np.log(samples["integrand"])
+else:
+    dat_logL = samples["integrand"]
 lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
 print(" Max lnL ", np.max(dat_logL))
 if opts.lnL_protect_overflow:
@@ -2523,11 +2576,17 @@ for indx_here in indx_list:
         if include_item:
          if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
             P_list.append(Pgrid)
-            lnL_list.append(np.log(samples["integrand"][indx_here]))
+            if not(opts.internal_use_lnL):
+                lnL_list.append(np.log(samples["integrand"][indx_here]))
+            else:
+                lnL_list.append(samples["integrand"][indx_here])
          else:
             Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
             P_list.append(Pgrid)
-            lnL_list.append(np.log(samples["integrand"][indx_here]))
+            if not(opts.internal_use_lnL):
+                lnL_list.append(np.log(samples["integrand"][indx_here]))
+            else:
+                lnL_list.append(samples["integrand"][indx_here])
         else:
             True
 

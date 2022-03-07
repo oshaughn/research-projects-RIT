@@ -1182,9 +1182,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!
       # Insert reference distance if it was marginalized over
       if "distance" not in samples:
+        # Not distance output is the same as internal calculations: in *Mpc*
         samples["distance"] = np.full_like(
           samples["psi"],
-          factored_likelihood.distMpcRef*1e6*lal.PC_SI,
+          factored_likelihood.distMpcRef,  #*1e6*lal.PC_SI,
           )
       if opts.inclination_cosine_sampler:
         samples["inclination"] = numpy.arccos(samples["inclination"].astype(numpy.float64))

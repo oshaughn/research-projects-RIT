@@ -249,6 +249,19 @@ if use_gpu:
     print(" ====> USING GPUS <=== ")
 else:
     print(" ====> NO GPUS <=== ")
+try:
+    use_distance_marginalization = unsafe_config_get(config,['make_workflow','use_distance_marginalization'])
+except:
+    use_distance_marginalization = False
+if use_distance_marginalization:
+    print(" ====> USING DMARG <=== ")
+    print("  ...building common distance marginalization table ")
+    cmd_dmarg_init = " util_InitMargTable --d-min {} --d-max {} ".format(d_min,d_max)
+    os.system(cmd_dmarg_init)
+try:
+    ile_n_eff = int(unsafe_config_get(config, ['make_workflow', 'ile_n_eff']))
+except:
+    ile_n_eff = 50  # default will be 50, as in original testsa
 n_events_per_worker = int(config.get('make_workflow','n_events_per_worker'))
 n_copies = int(config.get('make_workflow','n_copies'))
 n_iterations = int(config.get('make_workflow','n_iterations'))
@@ -262,6 +275,7 @@ add_extrinsic=False
 use_osg=opts.use_osg #False
 cip_explode_jobs=False
 
+
 for indx in np.arange(n_events):
     print(" ::: Event {} ::: ".format(indx))
     dir_target= working_dir_full+'/analysis_event_{}'.format(indx)
@@ -274,6 +288,7 @@ for indx in np.arange(n_events):
         os.system(cmd)
     here = os.getcwd()
     cmd = "helper_LDG_Events.py --sim-xml {}/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache --working-directory {}  ".format(working_dir_full,indx,P_list[indx].tref,here,dir_target)
+    cmd += " --ile-n-eff {} ".format(ile_n_eff)
     cmd += " --fmin {} ".format(fmin_template)  # used for placement, we will be undoing some of these effects later with a 'replace'
     cmd += " --fmax {} ".format(fmax)
     cmd += " --fmin-template {} ".format(fmin_template)
@@ -339,6 +354,8 @@ for indx in np.arange(n_events):
         else:
             print(" Unknown approx ", approx_recover_str)
             sys.exit(1)
+        if use_distance_marginalization:
+            line += " --force-xpy --distance-marginalization --distance-marginalization-lookup-table {}/{} ".format(working_dir_full,"distance_marginalization_lookup.npz")
         with open('args_ile.txt','w') as f:
             f.write(line)
 

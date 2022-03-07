@@ -184,6 +184,7 @@ parser.add_argument("--input-grid",default="overlap-grid.xml.gz")
 parser.add_argument("--cip-args",default=None,help="filename of args_cip.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified. ")
 parser.add_argument("--cip-args-list",default=None,help="filename of args_cip_list.file, which holds CIP arguments.  Overrides cip-args if present. One CIP_n.sub file is created for each line in the file, which is used for an integer m iterations, where m is the first item of each line (normally 'X' in CIP)")
 parser.add_argument("--cip-explode-jobs",default=None,type=int,help="Number of CIP jobs to use to use in parallel to produce posterior samples for each iteration. Code will generate a fit first, save it, use this number of workers in parallel to generate samples, and then consolidates the samples together. Note that --n-output-samples and --n-eff are NOT adjusted ... if the user wants to adaptively fix the resolution, that needs to be controlled at a higher level")
+parser.add_argument("--cip-explode-jobs-last",default=None,type=int,help="Like cip_explode_jobs, but ONLY for last batch. Only applies if using --cip-args-list. Note does NOT adjust control settinggs like n-eff, n-max, so you will need to do this in outside control tools")
 parser.add_argument("--cip-explode-jobs-dag",action='store_true',help="If using a worker, that worker has its own node, not a 'queue N' statement on one node. Helps for stability with many workers with high failure probability")
 parser.add_argument("--cip-explode-jobs-flat",action='store_true',help="Pass to use the same arguments for all worker jobs. The main job will be /bin/true.")
 parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball.py")
@@ -780,10 +781,11 @@ if fetch_args:
 cip_job_list = None
 if  (cip_args_lines is None):
     # Write the default cip_job into cip_job_list n times
+    # add some redundancy in case this happens : we're hitting a problem with having too few copies of this/fencepost error later
     if opts.cip_explode_jobs is None:
-        cip_job_list =opts.n_iterations* [cip_job ]
+        cip_job_list =(opts.n_iterations)* [cip_job ]
     else:
-        cip_job_list =opts.n_iterations* [ [cip_job, cip_job_worker] ]
+        cip_job_list =(opts.n_iterations)* [ [cip_job, cip_job_worker] ]
 else:  
     # we have different cip jobs for different iteration numbers
     cip_job_list = []
@@ -856,7 +858,7 @@ else:
         else:
             print(" Indefinite subdag-to-convergence requested for group ", indx)
             cip_job_list += ["Subdag"]
-
+print(" ===> Iteration size ", len(cip_job_list), opts.n_iterations)
 ##   Test job (terminate, convergence
 if opts.test_args:
     test_node_list = []
@@ -984,7 +986,9 @@ if opts.use_bw_psd:
 
 n_group = opts.ile_n_events_to_analyze
 
+unify_node_list = []
 for it in np.arange(it_start,opts.n_iterations):
+    print(it, opts.n_iterations)
     consolidate_now = None
     fit_node_now = None
     ile_nodes_now =[]
@@ -997,6 +1001,7 @@ for it in np.arange(it_start,opts.n_iterations):
     unify_node.add_macro("macroiteration",it)
     unify_node.add_parent(con_node)
     unify_node.set_retry(opts.general_retries)
+    unify_node_list.append(unify_node)
     
     # Create one node per job
     n_jobs_this_time = opts.n_samples_per_job
@@ -1079,6 +1084,8 @@ for it in np.arange(it_start,opts.n_iterations):
         # note we will use subdags, and do this actively.  The 0th iteration needs a SPECIFIC grid though!
         cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.xml.gz".format(it),opts.ile_exe, opts.ile_args)
         cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)
+        if opts.request_gpu_ILE:
+            cmd += " --request-gpu-ILE "  # DAG writer needs to make appropririate requests
         if opts.test_args:
             import re
             test_args_optin = "X " + test_args  # copy not reference
@@ -1175,7 +1182,12 @@ for it in np.arange(it_start,opts.n_iterations):
             join_node.add_parent(worker_node)  # make sure to add worker node as parent
             dag.add_node(worker_node)
         else:
-            for indx in np.arange(opts.cip_explode_jobs):
+            n_explode = opts.cip_explode_jobs
+            # if we are on the last iteration and we want to use more exploded jobs now, explode more jobs
+            if opts.cip_explode_jobs_last and (it == opts.n_iterations-1): # last iteration
+                print("   Last iteration explode size ", opts.cip_explode_jobs_last)
+                n_explode = opts.cip_explode_jobs_last
+            for indx in np.arange(n_explode):
                 worker_node =pipeline.CondorDAGNode(cip_worker_job)
                 worker_node.add_macro("macroiteration", it)
                 worker_node.add_macro("macroiterationnext", it+1)
@@ -1304,3 +1316,16 @@ if opts.test_args:
     with open(dag_name+".dag",'a') as f:
         for name in my_names:
             f.write("ABORT-DAG-ON "+ name + " 1 RETURN 0 \n")
+
+my_names_unify = [x._CondorDAGNode__md5name for x in unify_node_list]
+indx =0
+with open("confirm_exist.sh",'w') as f:
+    f.write("""
+#! /bin/bash
+[ -s $1 ]
+""")
+st=os.stat("confirm_exist.sh"); os.chmod("confirm_exist.sh", st.st_mode | stat.S_IEXEC)
+with open(dag_name+".dag",'a') as f:
+    for name in my_names:
+        f.write("SCRIPT POST "+ name + " {}/confirm_exists.sh {}/consolidated_{}.composite \n".format(opts.working_directory,opts.working_directory,indx))
+        indx+=1
