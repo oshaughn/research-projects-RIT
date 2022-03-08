@@ -343,8 +343,8 @@ if not "s1z" in intr_prms or not "s2z" in intr_prms:
     else:
         sys.exit("spin1z or spin2z is specified but not the other spin. compute intrinsic grid is not setup to search just one")
 else:
-    if opts.distance_coordinates = "mu1_mu2_q_s2z":
-        spin_transform = opts.distance_coordinates:
+    if opts.distance_coordinates == "mu1_mu2_q_s2z":
+        spin_transform = opts.distance_coordinates
     else:
         spin_transform = "chi_z"
 
