@@ -842,7 +842,10 @@ points-per-side=8
     else:
         # don't use bank files, instead use manually-prescribed mc, eta, spin range. SHOULD FIX TO BE TIGHTER
         mc_min,mc_max = guess_mc_range(event_dict)
-        cmd_amr_init = "util_AMRGrid.py --mc-min {} --mc-max {} --distance-coordinates mchirp_eta --initial-region mchirp={},{} --initial-region eta=0.05,0.24999 --initial-region spin1z=-0.8,0.8 --initial-region spin2z=-0.8,0.8  --points-per-side 8 --fname-output-samples proposed-grid  --setup intrinsic_grid_all_iterations   ".format(mc_min,mc_max,mc_min,mc_max)
+        amr_coord_dist  = "mchirp_eta"
+        if opts.internal_use_aligned_phase_coordinates:
+            amr_coord_dist = "mu1_mu2_q_s2z"
+        cmd_amr_init = "util_AMRGrid.py --mc-min {} --mc-max {} --distance-coordinates {} --initial-region mchirp={},{} --initial-region eta=0.05,0.24999 --initial-region spin1z=-0.8,0.8 --initial-region spin2z=-0.8,0.8  --points-per-side 8 --fname-output-samples proposed-grid  --setup intrinsic_grid_all_iterations   ".format(mc_min,mc_max,amr_coord_dist,mc_min,mc_max)
         os.system(cmd_amr_init)
     
 if opts.external_fetch_native_from:
