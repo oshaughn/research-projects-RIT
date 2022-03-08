@@ -10,6 +10,7 @@ import h5py
 import lal
 
 from .. import  lalsimutils
+from . import tools
 
 m1m2 = numpy.vectorize(lalsimutils.m1m2)
 
@@ -601,7 +602,7 @@ VALID_TRANSFORMS_MASS = { \
     "mchirp_delta": transform_m1m2_mcdelta,
     "mchirp_q": transform_m1m2_mcq,
     "tau0_tau3": transform_m1m2_tau0tau3,
-    "mu1_mu2_q_s2z": tools.transform_mu1mu2qs2z_m1m2s1zs2z
+    "mu1_mu2_q_s2z": tools.transform_mu1mu2qs2z_m1m2s1zs2z,
     None: None
 }
 
@@ -641,7 +642,11 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
         pts_extended[:,m1_idx], pts_extended[:,m2_idx] = transform_mceta_m1m2(pts[:,m1_idx], pts[:,m2_idx])
     else:
         raise("apply_transform: Cannot perform requested transformation")
-    if spin_transform:
+    if mass_transform == "mu1_mu2_q_s2z":
+        s1z_idx, s2z_idx = ntr_prms.index("spin1z"), intr_prms.index("spin2z")
+        pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx],pts[:,s2z_idx] = VALID_TRANSFORMS_MASS[mass_transform](pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx]) 
+
+    elif spin_transform:
         if spin_transform == "chi_z":
             s1z_idx, s2z_idx = intr_prms.index("spin2z"), intr_prms.index("spin2z")
 #            chi_z = transform_s1zs2z_chi(pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx]) 
@@ -652,7 +657,7 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
 #            pts = numpy.vstack((pts.T, chi_eff)).T
 #            intr_prms.append("chi_z")
 
-    if mass_transform:
+    elif mass_transform:
        pts_extended[:,m1_idx], pts_extended[:,m2_idx] = VALID_TRANSFORMS_MASS[mass_transform](pts_extended[:,m1_idx], pts_extended[:,m2_idx])
 
     # Independent transforms go here
@@ -673,13 +678,17 @@ def apply_inv_transform(pts, intr_prms, mass_transform=None,spin_transform=None)
         pts_extended[:,m1_idx], pts[:,m2_idx] = transform_mceta_m1m2(pts_extended[:,m1_idx], pts_extended[:,m2_idx])
     else:
         raise("apply_transform: Cannot perform requested transformation")
-    if mass_transform:
-        pts_extended[:,m1_idx], pts_extended[:,m2_idx] = INVERSE_TRANSFORMS_MASS[VALID_TRANSFORMS_MASS[mass_transform]](pts_extended[:,m1_idx], pts_extended[:,m2_idx])
+    if mass_transform == "mu1_mu2_q_s2z":
+        s1z_idx, s2z_idx = intr_prms.index("spin1z"), intr_prms.index("spin2z")
+        pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx],pts[:,s2z_idx] = INVERSE_TRANSFORMS_MASS[VALID_TRANSFORMS_MASS[mass_transform]](pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx])
+    else:
+        if mass_transform:
+            pts_extended[:,m1_idx], pts_extended[:,m2_idx] = INVERSE_TRANSFORMS_MASS[VALID_TRANSFORMS_MASS[mass_transform]](pts_extended[:,m1_idx], pts_extended[:,m2_idx])
     
-    if spin_transform:
-        if spin_transform == "chi_z":
-            s1z_idx, s2z_idx = intr_prms.index("spin2z"), intr_prms.index("spin2z")
-            pts_extended[:,s1z_idx],pts_extended[:,s2z_idx] =transform_chi_eff_chi_a_s1zs2z(pts_extended[:,m1_idx], pts_extended[:,m2_idx], pts_extended[:,s1z_idx], pts_extended[:,s2z_idx])
+        if spin_transform:
+            if spin_transform == "chi_z":
+                s1z_idx, s2z_idx = intr_prms.index("spin2z"), intr_prms.index("spin2z")
+                pts_extended[:,s1z_idx],pts_extended[:,s2z_idx] =transform_chi_eff_chi_a_s1zs2z(pts_extended[:,m1_idx], pts_extended[:,m2_idx], pts_extended[:,s1z_idx], pts_extended[:,s2z_idx])
 
         
     # Independent transforms go here
