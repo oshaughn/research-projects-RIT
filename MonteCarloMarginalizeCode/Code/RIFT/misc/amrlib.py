@@ -601,6 +601,7 @@ VALID_TRANSFORMS_MASS = { \
     "mchirp_delta": transform_m1m2_mcdelta,
     "mchirp_q": transform_m1m2_mcq,
     "tau0_tau3": transform_m1m2_tau0tau3,
+    "mu1_mu2_q_s2z": tools.transform_mu1mu2qs2z_m1m2s1zs2z
     None: None
 }
 
@@ -609,6 +610,7 @@ INVERSE_TRANSFORMS_MASS = { \
     transform_m1m2_mcdelta: transform_mcdelta_m1m2,
     transform_m1m2_mcq: transform_mcq_m1m2,
     transform_m1m2_tau0tau3: transform_tau0tau3_m1m2,
+    tools.transform_m1m2s1zs2z_mu1mu2qs2z: tools.transform_mu1mu2qs2z_m1m2s1zs2z,
     None: None
 }
 
