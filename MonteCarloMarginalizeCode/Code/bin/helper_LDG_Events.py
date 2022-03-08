@@ -94,7 +94,7 @@ def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_d
         # Add carriage return if not present
         for indx in np.arange(len(lines)):
             if lines[indx][-1] != "\n":
-                liens[indx]+= "\n"
+                lines[indx]+= "\n"
         with open(fname_out,'w') as f:
             for line in lines:
                 f.write(line)
