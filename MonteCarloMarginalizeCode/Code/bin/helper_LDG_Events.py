@@ -90,7 +90,7 @@ def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_d
         # see util_CacheFileConvert.py  (here)
         with open(fname_out_raw,'r') as f:
             lines = f.readlines()
-            lines = map(lambda x: str(CacheEntry.from_T050017(x)), lines)
+            lines = list(map(lambda x: str(CacheEntry.from_T050017(x)), lines))
         # Add carriage return if not present
         for indx in np.arange(len(lines)):
             if lines[indx][-1] != "\n":
