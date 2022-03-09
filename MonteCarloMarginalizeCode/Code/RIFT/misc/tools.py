@@ -41,6 +41,9 @@ def McqTom1m2(Mc, q):
     Mtot = McqToMtot(Mc, q)
     return Mtot / (1 + q), Mtot * q / (1 + q)
 
+def m1m2(Mc,eta):
+    return McqTom1m2(Mc, etaToq(eta))
+
 
 def psi0(Mc):
     """chirpmass to the 0PN phase coefficient"""
@@ -118,8 +121,9 @@ def transform_mu1mu2qs2z_m1m2s1zs2z(mu1, mu2, q, s2z):
     """mu1, mu2, q=m2/m1, z-component of secondary spin to component masses: m1, m2 and z-components of spins: s1z, s2z"""
     eta = qToeta(q)
     mc = mu1mu2etaToMc(mu1, mu2, eta)
-    s1z = mu2Mcetas2zTochi1(mu2, mc, eta, s2z)
-    m1, m2 = lalsimutils.m1m2(mc, eta)
+    s1z = mu2Mcetachi2Tochi1(mu2, mc, eta, s2z)
+#    m1, m2 = lalsimutils.m1m2(mc, eta)
+    m1, m2 = McqTom1m2(mc, q)
     return m1, m2, s1z, s2z
 def transform_m1m2s1zs2z_mu1mu2qs2z(m1, m2, s1z, s2z):
     """component masses: m1, m2 and z-components of spins: s1z, s2z to mu1, mu2, q=m2/m1, s2z"""
