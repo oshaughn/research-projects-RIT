@@ -643,7 +643,7 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
     else:
         raise("apply_transform: Cannot perform requested transformation")
     if mass_transform == "mu1_mu2_q_s2z":
-        s1z_idx, s2z_idx = ntr_prms.index("spin1z"), intr_prms.index("spin2z")
+        s1z_idx, s2z_idx = intr_prms.index("spin1z"), intr_prms.index("spin2z")
         pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx],pts[:,s2z_idx] = VALID_TRANSFORMS_MASS[mass_transform](pts[:,m1_idx], pts[:,m2_idx], pts[:,s1z_idx], pts[:,s2z_idx]) 
 
     elif spin_transform:
