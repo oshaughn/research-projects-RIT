@@ -117,9 +117,9 @@ def mu1mu2qchi2ToMcqchi1chi2(mu1, mu2, q, chi2):
 def transform_mu1mu2qs2z_m1m2s1zs2z(mu1, mu2, q, s2z):
     """mu1, mu2, q=m2/m1, z-component of secondary spin to component masses: m1, m2 and z-components of spins: s1z, s2z"""
     eta = qToeta(q)
-    mc = mu1mu2etaTomc(mu1, mu2, eta)
-    s1z = mu2mcetas2zTos1z(mu2, mc, eta, s2z)
-    m1, m2 = m1m2(mc, eta)
+    mc = mu1mu2etaToMc(mu1, mu2, eta)
+    s1z = mu2Mcetas2zTochi1(mu2, mc, eta, s2z)
+    m1, m2 = lalsimutils.m1m2(mc, eta)
     return m1, m2, s1z, s2z
 def transform_m1m2s1zs2z_mu1mu2qs2z(m1, m2, s1z, s2z):
     """component masses: m1, m2 and z-components of spins: s1z, s2z to mu1, mu2, q=m2/m1, s2z"""
