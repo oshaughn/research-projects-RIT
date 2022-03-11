@@ -342,7 +342,7 @@ source_redshift=opts.source_redshift
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
 if opts.using_eos!=None:
-    import EOSManager
+    import RIFT.physics.EOSManager as EOSManager
     eos_name=opts.using_eos
     if opts.verbose:
         print(" Using EOS ", eos_name, opts.eos_param, opts.eos_param_values)
