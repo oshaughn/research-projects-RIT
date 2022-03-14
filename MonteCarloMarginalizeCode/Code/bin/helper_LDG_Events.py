@@ -1149,20 +1149,33 @@ if opts.propose_fit_strategy:
 
         else: #  opts.assume_precessing_spin:
             # # Use cartesian as default early, using modfied transverse spin prior so we effectively sample the smallest spins for the next stagesx
-            helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
+            helper_cip_args += '  --parameter-nofit s1z --parameter-nofit s2z  '
+            if not(opts.internal_use_aligned_phase_coordinates):
+                helper_cip_args += ' --parameter-implied xi  ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
+chiMinus out, until we add flexible tools
             # REMOVE intermediate stage where we used to do chiMinus ... it is NOT the dominant issue for precession, by far
             helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "2 " +  helper_cip_arg_list_common,"3 " +  helper_cip_arg_list_common  ]
             if not opts.assume_highq:
-                helper_cip_arg_list[0] +=  '  --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
+                # First three batches use cartersian coordinates
+                helper_cip_arg_list[0] += "  --parameter-nofit s1z --parameter-nofit s2z "
+                helper_cip_arg_list[1] +=  '    --parameter-nofit s1z --parameter-nofit s2z  ' 
+                helper_cip_arg_list[2] +=  '    --parameter-nofit s1z --parameter-nofit s2z  ' 
+                if not(opts.internal_use_aligned_phase_coordinates):
+                    helper_cip_arg_list[0] +=  '  --parameter-implied xi   ' 
+                    helper_cip_arg_list[1] +=  '  --parameter-implied xi   ' 
                 helper_cip_arg_list[0] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior taper-down '
             
                 # helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
                 # helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior alignedspin-zprior '
-                helper_cip_arg_list[1] +=  '  --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z --parameter-implied chi_p ' 
-                helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y   --transverse-prior taper-down '
+                
+                helper_cip_arg_list[1] +=   ' --parameter-implied chi_p --use-precessing  --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y   --transverse-prior taper-down '
 
                 # this will be perfectly adequate volumetric result ...but note the spin priors above are using more concentrated spins near the origin
-                helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
+                
+                if not(opts.internal_use_aligned_phase_coordinates):
+                    helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus  ' 
+                else:
+                    helper_cip_arg_list[2] += '   --parameter-implied chiMinus  ' 
                 helper_cip_arg_list[2] +=   ' --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y  --transverse-prior taper-down '
                 # # Default prior is *volumetric*
                 # helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
