@@ -1320,8 +1320,7 @@ if opts.test_args:
 my_names_unify = [x._CondorDAGNode__md5name for x in unify_node_list]
 indx =0
 with open("confirm_exist.sh",'w') as f:
-    f.write("""
-#! /bin/bash
+    f.write("""#! /bin/bash
 [ -s $1 ]
 """)
 st=os.stat("confirm_exist.sh"); os.chmod("confirm_exist.sh", st.st_mode | stat.S_IEXEC)
