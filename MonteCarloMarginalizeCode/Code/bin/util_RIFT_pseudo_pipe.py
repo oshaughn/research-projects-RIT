@@ -212,6 +212,26 @@ parser.add_argument("--archive-pesummary-label",default=None,help="If provided, 
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
 
+
+if (opts.use_ini):
+    # Attempt to lazy-parse all command line arguments from ini file
+    config = ConfigParser.ConfigParser()
+    config.read(opts.use_ini)
+    if 'rift-pseudo-pipe' in config:
+        # get the list of items
+        rift_items = config["rift-pseudo-pipe"]
+        config_dict = vars(opts) # access dictionry of options
+#        print(config_dict)
+#        print(list(rift_items))
+        # attempt to lazy-select the items that are present in the dictionary 
+        for item in rift_items:
+            item_renamed = item.replace('-','_')
+            if (item_renamed in config_dict):
+#                if not(config_dict[item_renamed]):   # needs to be set to some value. Don't *disable* what is enabled on command line
+                    print(" ini file parser (overrides command line, except booleans): ",item, rift_items[item])
+                    config_dict[item_renamed] = eval(rift_items[item])
+        print(config_dict)
+
 if not(opts.ile_jobs_per_worker):
     opts.ile_jobs_per_worker=20
     if opts.assume_nospin or opts.assume_nonprecessing or (opts.approx == "IMRPhenomD" or opts.approx == "SEOBNRv4"):
