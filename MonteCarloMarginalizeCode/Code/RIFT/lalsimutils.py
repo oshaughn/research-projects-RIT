@@ -4480,8 +4480,8 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
 
         q_vals =   m2_vals/m1_vals
-        A1 = (2+3.*q/2)
-        A2 = (2+3./(2*q))
+        A1 = (2+3.*q_vals/2)
+        A2 = (2+3./(2*q_vals))
         S1p = m1_vals**2 * np.c_[s1x,s1y]
         S2p = m2_vals**2 * np.c_[s2x,s2y]
         Sp =np.maximum(np.linalg.norm( A1*S1p,axis=-1), np.linalg.norm(A2*S2p,axis=-1))
