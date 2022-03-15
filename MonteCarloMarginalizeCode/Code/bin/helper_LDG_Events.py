@@ -1152,7 +1152,6 @@ if opts.propose_fit_strategy:
             helper_cip_args += '  --parameter-nofit s1z --parameter-nofit s2z  '
             if not(opts.internal_use_aligned_phase_coordinates):
                 helper_cip_args += ' --parameter-implied xi  ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
-chiMinus out, until we add flexible tools
             # REMOVE intermediate stage where we used to do chiMinus ... it is NOT the dominant issue for precession, by far
             helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "2 " +  helper_cip_arg_list_common,"3 " +  helper_cip_arg_list_common  ]
             if not opts.assume_highq:
