@@ -631,6 +631,9 @@ if not(opts.manual_extra_ile_args is None):
     line += opts.manual_extra_ile_args
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
+if opts.add_extrinsic: 
+    # We NEVER want to terminate if we're doing extrinsic at the end.  Block termination, so extrinsic occurs on schedule
+    line += " --always-succeed "
 with open('args_ile.txt','w') as f:
         f.write(line)
 os.system("cp helper_test_args.txt args_test.txt")
