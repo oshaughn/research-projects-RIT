@@ -703,7 +703,12 @@ for indx in np.arange(len(instructions_cip)):
     elif opts.assume_highq and ('s1z' in line):
         line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
     elif opts.internal_correlate_default and ('s1z' in line):
-        line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
+        addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
+        if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
+            addme = addme.replace(',s1z,s2z', ',chi1,cos_theta1')
+        line += addme
+
+    # on last iteration, usually don't want to use correlated sampling if precessing, need to change coordinates
     if opts.approx in lalsimutils.waveform_approx_limit_dict:
         chi_max = lalsimutils.waveform_approx_limit_dict[opts.approx]["chi-max"]
         if not(opts.force_chi_max is None):
