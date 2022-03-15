@@ -636,7 +636,7 @@ with open('args_ile.txt','w') as f:
 
 
 #os.system("cp helper_test_args.txt args_test.txt")
-with open ("helper_args_test.txt",'r') as f:
+with open ("helper_test_args.txt",'r') as f:
     line = f.readline()
     if opts.add_extrinsic: 
         # We NEVER want to terminate if we're doing extrinsic at the end.  Block termination, so extrinsic occurs on schedule
