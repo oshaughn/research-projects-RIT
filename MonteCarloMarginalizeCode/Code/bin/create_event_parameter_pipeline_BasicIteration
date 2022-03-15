@@ -1325,6 +1325,6 @@ with open("confirm_exist.sh",'w') as f:
 """)
 st=os.stat("confirm_exist.sh"); os.chmod("confirm_exist.sh", st.st_mode | stat.S_IEXEC)
 with open(dag_name+".dag",'a') as f:
-    for name in my_names:
+    for name in my_names_unify:
         f.write("SCRIPT POST "+ name + " {}/confirm_exist.sh {}/consolidated_{}.composite \n".format(opts.working_directory,opts.working_directory,indx))
         indx+=1
