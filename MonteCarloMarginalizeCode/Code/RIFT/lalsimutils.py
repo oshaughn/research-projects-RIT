@@ -4482,9 +4482,9 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         q_vals =   m2_vals/m1_vals
         A1 = (2+3.*q_vals/2)
         A2 = (2+3./(2*q_vals))
-        S1p =  np.c_[m1_vals**2 *s1x,m1_vals**2 *s1y]
-        S2p =  np.c_[m2_vals**2 *s2x,m2_vals**2 *s2y]
-        Sp =np.maximum(np.linalg.norm( A1*S1p,axis=-1), np.linalg.norm(A2*S2p,axis=-1))
+        A1S1p =  np.c_[A1*m1_vals**2 *s1x,  A1*m1_vals**2 *s1y]
+        A2S2p =  np.c_[A2*m2_vals**2 *s2x,  A2*m2_vals**2 *s2y]
+        Sp =np.maximum(np.linalg.norm( A1Sp1,axis=-1), np.linalg.norm(A2Sp2,axis=-1))
         x_out[:,indx_pout_chip] = Sp/(A1*m1**2)
             # mtot = self.extract_param('mtot')
             # m1 = self.extract_param('m1')
