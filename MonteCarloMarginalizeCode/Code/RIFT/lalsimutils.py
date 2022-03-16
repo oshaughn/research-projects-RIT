@@ -21,7 +21,7 @@ built from the SWIG wrappings of LAL and LALSimulation.
 import sys
 import copy
 import types
-
+import EOBRun_module
 from six.moves import range
 
 import numpy as np
@@ -268,6 +268,8 @@ except:
 
 MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
 
+def modes_to_k(modes):
+    return [int(x[0]*(x[0]-1)/2 + x[1]-2) for x in modes]
 
 # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_l_a_l_sim_inspiral_8c_source.html#l02910
 def lsu_StringFromPNOrder(order):
@@ -2993,6 +2995,102 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 	    P.s2x, P.s2y, P.s2z, \
             P.fmin, P.fref, P.dist, extra_params, \
              Lmax, P.approx)
+    elif P.approx ==lalsim.TEOBResumS:
+        print("Using TEOBResumS hlms")
+        modes_used = []
+        distance_s = P.dist/lal.C_SI
+        m_total_s = MsunInSec*(P.m1+P.m2)/lal.MSUN_SI
+        for l in np.arange(2,Lmax+1,1):
+            for m in np.arange(0,l+1,1):
+                if m !=0:
+                    modes_used.append((l,m))
+        print(modes_used)
+        k = modes_to_k(modes_used)
+        print(k)
+        M1=P.m1/lal.MSUN_SI
+        M2=P.m2/lal.MSUN_SI
+        nu=M1*M2/((M1+M2)**2)
+        if P.eccentricity == 0.0:
+            print("Using ResumS master; not eccentric")
+            pars = {
+                'M'                  : M1+M2,
+                'q'                  : M1/M2,
+                'Lambda1'            : P.lambda1,
+                'Lambda2'            : P.lambda2,
+                'chi1x'              : P.s1x,
+                'chi1y'              : P.s1y,
+                'chi1z'              : P.s1z,
+                'chi2x'              : P.s2x,
+                'chi2y'              : P.s2y,
+                'chi2z'              : P.s2z,
+                'domain'             : 0,
+                'arg_out'            : 1,
+                'use_mode_lm'        : k,
+#                'output_lm'          : k,
+                'srate_interp'       : 1./P.deltaT,
+                'df'                 : P.deltaF,
+                'use_geometric_units': "no",
+                'initial_frequency'  : P.fmin,
+                'interp_uniform_grid': "yes",
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'inclination'        : P.incl,
+                'output_hpc'         : "no"
+            }
+        else:
+            print("Using eccentric call")
+            pars = {
+                'M'                  : M1+M2,
+                'q'                  : M1/M2,
+                'Lambda1'            : P.lambda1,
+                'Lambda2'            : P.lambda2,
+                'chi1'               : P.s1z,
+                'chi2'               : P.s2z,
+                'domain'             : 0,
+                'arg_out'            : 1,
+                'use_mode_lm'        : k,
+                'output_lm'          : k,
+                'srate_interp'       : 1./P.deltaT,
+                'use_gceometric_units': 0,
+                'initial_frequency'  : P.fmin,
+                'df'                 : P.deltaF,
+                'interp_uniform_grid': 1,
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'inclination'        : P.incl,
+                'output_hpc'         : 0,
+                'ecc'                : P.eccentricity,
+                'ecc_freq'           : 1 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
+            }
+        # Run the WF generator
+        print("Starting EOBRun_module")
+        print(pars)
+        t, hptmp, hctmp, hlmtmp = EOBRun_module.EOBRunPy(pars)
+        print("EOBRun_module done")
+        k_list_orig = hlmtmp.keys()
+        hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+        hlmlen = len(hptmp)
+        hlm = {}
+        hlmtmp2 = {}
+        for count,mode in enumerate(modes_used):
+            hlmtmp2[mode]=np.array(hlmtmp[str(count)])
+        for mode in modes_used:
+            hlmtmp2[mode][0]*=(m_total_s/distance_s)*nu
+            hlm[mode] = lal.CreateCOMPLEX16TimeSeries("Complex hlm(t)", hpepoch, 0,
+                                                      P.deltaT, lsu_DimensionlessUnit, hlmlen)
+            hlm[mode].data.data = (hlmtmp2[mode][0] * np.exp(-1j*(mode[1]*(np.pi/2.)+hlmtmp2[mode][1])))
+            if not (P.deltaF is None):
+                TDlen = int(1./P.deltaF * 1./P.deltaT)
+                if TDlen < hlm[mode].data.length:
+                    print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
+                    sys.exit()
+                hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
+            mode_conj = (mode[0],-mode[1])
+            if not mode_conj in hlm:
+                hC = hlm[mode]
+                hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0,
+                                                    hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
+                hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
+                hlm[mode_conj] = hC2
+        return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
         extra_params = P.to_lal_dict()
         # Format about to change: should not have several of these parameters
@@ -3419,6 +3517,7 @@ def complex_hoft(P, sgn=-1):
         lalsim.SimInspiralREAL8WaveTaper(hc.data, P.taper)
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
+        print(TDlen,hp.data.length)
         assert TDlen >= hp.data.length
         hp = lal.ResizeREAL8TimeSeries(hp, 0, TDlen)
         hc = lal.ResizeREAL8TimeSeries(hc, 0, TDlen)
