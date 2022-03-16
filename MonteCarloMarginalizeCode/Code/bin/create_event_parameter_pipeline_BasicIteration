@@ -1104,7 +1104,7 @@ for it in np.arange(it_start,opts.n_iterations):
         print(" SUBDAG COMMAND : ", cmd)
         os.system(cmd)
         # link the *input* grid in, overwriting the (temporary, placeholder) grid used to create the workflow
-        cmd = "ln -sf {}/overlap-grid-{}.xml.gz iteration_{}_cip/overlap-0.xml.gz".format(opts.working_directory,it,it)
+        cmd = "ln -sf {}/overlap-grid-{}.xml.gz iteration_{}_cip/overlap-grid-0.xml.gz".format(opts.working_directory,it,it)
         os.system(cmd)
 
         main_subdag =  pipeline.CondorDAGManJob("{}/iteration_{}_cip/marginalize_intrinsic_parameters_BasicIterationWorkflow.dag".format(opts.working_directory,it))  # assumes subdag is created
