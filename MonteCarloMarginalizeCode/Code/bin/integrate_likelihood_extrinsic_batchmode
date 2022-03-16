@@ -392,6 +392,9 @@ if opts.sim_xml:
         sys.exit(0)
     n_event_max= np.min([len(P_list), opts.event+opts.n_events_to_analyze])
     P_list = P_list[opts.event:n_event_max]
+    if len(P_list) ==0:
+      print(" No events to analyze, terminating with success ")
+      sys.exit(0)
     for P in P_list:
         P.radec =False  # do NOT propagate the epoch later
         P.fref = opts.reference_freq
