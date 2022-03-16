@@ -1112,6 +1112,7 @@ for it in np.arange(it_start,opts.n_iterations):
         # Create viable job
         main_analysis_node = main_subdag.create_node()
         main_analysis_node.add_parent(parent_fit_node)
+        main_analysis_node.set_retry(opts.general_retries)
 
         # Add post script OR NODE to fetch information from the job
         #   - problem: dagman jobs don't allow post scripts usually, may need to write this manually
