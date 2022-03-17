@@ -1084,8 +1084,20 @@ for it in np.arange(it_start,opts.n_iterations):
         # note we will use subdags, and do this actively.  The 0th iteration needs a SPECIFIC grid though!
         cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.xml.gz".format(it),opts.ile_exe, opts.ile_args)
         cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)
+        cmd += " --n-samples-per-job {} ".format(opts.n_samples_per_job) 
+        cmd += " --neff-threshold {} ".format(opts.neff-threshold)
+        if opts.cip_explode_jobs:
+            cmd += " --cip-explode-jobs ".format(opts.cip_explode_jobs)
+        if opts.cip_explode_jobs_dag:   # should be deafult
+            cmd += " --cip-explode-jobs_dag "  
         if opts.request_gpu_ILE:
             cmd += " --request-gpu-ILE "  # DAG writer needs to make appropririate requests
+        if opts.ile_retries:
+            cmd += " --ile-retries {} ".format(opts.ile_retries)
+        if opts.general_retries:
+            cmd += " --general-retries {} ".format(opts.general_retries)
+        if opts.use_osg:
+            cmd += " --use-osg "
         if opts.test_args:
             import re
             test_args_optin = "X " + test_args  # copy not reference
