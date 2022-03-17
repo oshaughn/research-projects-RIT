@@ -1148,8 +1148,6 @@ if opts.propose_fit_strategy:
             puff_max_it=4
 
         else: #  opts.assume_precessing_spin:
-            # # Use cartesian as default early, using modfied transverse spin prior so we effectively sample the smallest spins for the next stagesx
-            helper_cip_args += '  --parameter-nofit s1z --parameter-nofit s2z  '
             if not(opts.internal_use_aligned_phase_coordinates):
                 helper_cip_args += ' --parameter-implied xi  ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
             # REMOVE intermediate stage where we used to do chiMinus ... it is NOT the dominant issue for precession, by far
@@ -1178,6 +1176,8 @@ if opts.propose_fit_strategy:
                 if not(opts.assume_volumetric_spin):
                     helper_cip_arg_list[2] +=  '  --use-precessing  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit cos_theta1 --parameter-nofit cos_theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
                 else:
+                    # if we are doing a FLAT structure, we are volumeric or not
+                    helper_cip_args += '  --parameter-nofit s1z --parameter-nofit s2z  '
                     # this will be perfectly adequate volumetric result ...but note the spin priors above are using more concentrated spins near the origin
                     helper_cip_arg_list[2] +=   ' --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y   '
                 # # Default prior is *volumetric*
