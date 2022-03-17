@@ -1157,7 +1157,7 @@ if opts.propose_fit_strategy:
                 # First three batches use cartersian coordinates
                 helper_cip_arg_list[0] += "  --parameter-nofit s1z --parameter-nofit s2z "
                 helper_cip_arg_list[1] +=  '    --parameter-nofit s1z --parameter-nofit s2z  ' 
-                helper_cip_arg_list[2] +=  '    --parameter-nofit s1z --parameter-nofit s2z  ' 
+                # element 2 can have an optional prior change, so do NOT apply it here
                 if not(opts.internal_use_aligned_phase_coordinates):
                     helper_cip_arg_list[0] +=  '  --parameter-implied xi   ' 
                     helper_cip_arg_list[1] +=  '  --parameter-implied xi   ' 
@@ -1179,6 +1179,7 @@ if opts.propose_fit_strategy:
                     # if we are doing a FLAT structure, we are volumeric or not
                     helper_cip_args += '  --parameter-nofit s1z --parameter-nofit s2z  '
                     # this will be perfectly adequate volumetric result ...but note the spin priors above are using more concentrated spins near the origin
+                    helper_cip_arg_list[2] +=  '    --parameter-nofit s1z --parameter-nofit s2z  ' 
                     helper_cip_arg_list[2] +=   ' --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y   '
                 # # Default prior is *volumetric*
                 # helper_cip_args += ' --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y --use-precessing '
