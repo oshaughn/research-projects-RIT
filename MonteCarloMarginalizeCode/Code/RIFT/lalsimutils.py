@@ -4426,7 +4426,21 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
         x_out[:,indx_pout_xi] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
         coord_names_reduced.remove('xi')
-        
+
+        # also build mu1, mu2, ... if present!
+        if ('mu1' in coord_names_reduced) and ('mu2' in coord_names_reduced) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
+            indx_pout_mu1 = coord_names.index('mu1')
+            indx_pout_mu2 = coord_names.index('mu2')
+
+            qvals = m2_vals/m1_vals
+            mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(x_in[:,indx_mc], qvals, s1z, s2z)
+            x_out[:,indx_pout_mu1] = mu1
+            x_out[:,indx_pout_mu2] = mu2
+            coord_names_reduced.remove('mu1')
+            coord_names_reduced.remove('mu2')
+
+
+
         # also build chiMinus, s1x,s1y, ... , if present : usual use case of doing all of these in spherical coordinates
         if 'chiMinus' in coord_names_reduced:
             indx_pout_chiminus = coord_names.index('chiMinus')
