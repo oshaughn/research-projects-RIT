@@ -795,8 +795,7 @@ if opts.external_grid_txt:
 #if using an external EOS add lambda to grid (Richard, you may want to fix this to be more general)
 elif opts.use_eos!=None:
 #   from gwemlightcurves.KNModels import table 
-   import EOSManager
-
+   import RIFT.physics.EOSManager as EOSManager
    grid_tmp=np.zeros((len(grid[:,0]), len(grid[0,:])+2))
    anEOS = EOSManager.EOSLALSimulation(opts.use_eos)
 #   eos,eos_fam=table.get_lalsim_eos(opts.use_eos)

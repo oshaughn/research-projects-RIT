@@ -25,7 +25,7 @@ eos_param_names = ['logp1', 'gamma1','gamma2', 'gamma3', 'R1_km', 'R2_km']
 try:
     import matplotlib
     print(" Matplotlib backend ", matplotlib.get_backend())
-    if matplotlib.get_backend() is 'agg':
+    if matplotlib.get_backend() == 'agg':
         fig_extension = '.png'
         bNoInteractivePlots=True
     else:

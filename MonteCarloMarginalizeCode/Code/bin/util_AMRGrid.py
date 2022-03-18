@@ -84,9 +84,8 @@ def determine_region(pt, pts, ovrlp, ovrlp_thresh, expand_prms={}):
     Given a point (pt) in a set of points (pts), with a function value at those points (ovrlp), return a rectangular hull such that the function exceeds the value ovrlp_thresh.
     """
     sidx = bisect.bisect(ovrlp, ovrlp_thresh)
-#    print "Found %d neighbors with overlap >= %f" % (len(ovrlp[sidx:]), ovrlp_thresh)
+    print("Found %d neighbors with overlap >= %f" % (len(ovrlp[sidx:]), ovrlp_thresh))
     print("HERE",ovrlp_thresh,ovrlp[sidx:],pts[sidx:],pt)
-#    print "HERE",ovrlp_thresh,ovrlp[sidx:],pts[sidx:],pt
     
 
     cell = amrlib.Cell.make_cell_from_boundaries(pt, pts[sidx:])
@@ -344,7 +343,10 @@ if not "s1z" in intr_prms or not "s2z" in intr_prms:
     else:
         sys.exit("spin1z or spin2z is specified but not the other spin. compute intrinsic grid is not setup to search just one")
 else:
-    spin_transform = "chi_z"
+    if opts.distance_coordinates == "mu1_mu2_q_s2z":
+        spin_transform = opts.distance_coordinates
+    else:
+        spin_transform = "chi_z"
 
 #
 # Step 2: Set up metric space

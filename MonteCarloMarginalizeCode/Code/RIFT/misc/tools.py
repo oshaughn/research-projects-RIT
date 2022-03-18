@@ -41,6 +41,9 @@ def McqTom1m2(Mc, q):
     Mtot = McqToMtot(Mc, q)
     return Mtot / (1 + q), Mtot * q / (1 + q)
 
+def m1m2(Mc,eta):
+    return McqTom1m2(Mc, etaToq(eta))
+
 
 def psi0(Mc):
     """chirpmass to the 0PN phase coefficient"""
@@ -113,6 +116,28 @@ def mu1mu2qchi2ToMcqchi1chi2(mu1, mu2, q, chi2):
     chi1 = mu2Mcetachi2Tochi1(mu2, Mc, eta, chi2)
     return (Mc, q, chi1, chi2)
 
+# Vinaya's versions, for AMR
+def transform_mu1mu2qs2z_m1m2s1zs2z(mu1, mu2, q, s2z):
+    """mu1, mu2, q=m2/m1, z-component of secondary spin to component masses: m1, m2 and z-components of spins: s1z, s2z"""
+    eta = qToeta(q)
+    mc = mu1mu2etaToMc(mu1, mu2, eta)
+    s1z = mu2Mcetachi2Tochi1(mu2, mc, eta, s2z)
+#    m1, m2 = lalsimutils.m1m2(mc, eta)
+    m1, m2 = McqTom1m2(mc, q)
+    return m1, m2, s1z, s2z
+def transform_m1m2s1zs2z_mu1mu2qs2z(m1, m2, s1z, s2z):
+    """component masses: m1, m2 and z-components of spins: s1z, s2z to mu1, mu2, q=m2/m1, s2z"""
+    mc, q = transform_m1m2_mcq(m1, m2)
+    eta = qToeta(q)
+    psi0 = mcTopsi0(mc)
+    psi2 = mcetaTopsi2(mc, eta)
+    psi3 = mcqs1zs2zTopsi3(mc, q, s1z, s2z)
+    return (
+        mu_coeffs[0, 0] * psi0 + mu_coeffs[0, 1] * psi2 + mu_coeffs[0, 2] * psi3,
+        mu_coeffs[1, 0] * psi0 + mu_coeffs[1, 1] * psi2 + mu_coeffs[1, 2] * psi3,
+        q,
+        s2z
+    )
 
 def Mcqchi1chi2Tomu1mu2mu3(mc, q, chi1, chi2):
     """chirpmass, q, chi1, chi2 to mu1, mu2, mu3"""

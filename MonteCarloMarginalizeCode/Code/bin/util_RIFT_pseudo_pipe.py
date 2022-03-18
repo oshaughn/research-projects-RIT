@@ -212,6 +212,26 @@ parser.add_argument("--archive-pesummary-label",default=None,help="If provided, 
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
 
+
+if (opts.use_ini):
+    # Attempt to lazy-parse all command line arguments from ini file
+    config = ConfigParser.ConfigParser()
+    config.read(opts.use_ini)
+    if 'rift-pseudo-pipe' in config:
+        # get the list of items
+        rift_items = config["rift-pseudo-pipe"]
+        config_dict = vars(opts) # access dictionry of options
+#        print(config_dict)
+#        print(list(rift_items))
+        # attempt to lazy-select the items that are present in the dictionary 
+        for item in rift_items:
+            item_renamed = item.replace('-','_')
+            if (item_renamed in config_dict):
+#                if not(config_dict[item_renamed]):   # needs to be set to some value. Don't *disable* what is enabled on command line
+                    print(" ini file parser (overrides command line, except booleans): ",item, rift_items[item])
+                    config_dict[item_renamed] = eval(rift_items[item])
+        print(config_dict)
+
 if not(opts.ile_jobs_per_worker):
     opts.ile_jobs_per_worker=20
     if opts.assume_nospin or opts.assume_nonprecessing or (opts.approx == "IMRPhenomD" or opts.approx == "SEOBNRv4"):
@@ -613,7 +633,16 @@ if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 with open('args_ile.txt','w') as f:
         f.write(line)
-os.system("cp helper_test_args.txt args_test.txt")
+
+
+#os.system("cp helper_test_args.txt args_test.txt")
+with open ("helper_test_args.txt",'r') as f:
+    line = f.readline()
+    if opts.add_extrinsic: 
+        # We NEVER want to terminate if we're doing extrinsic at the end.  Block termination, so extrinsic occurs on schedule
+        line += " --always-succeed "
+    with open("args_test.txt",'w') as g:
+        g.write(line)
 
 # CIP
 #   - modify priors to be consistent with the spin priors used in the paper
@@ -674,7 +703,12 @@ for indx in np.arange(len(instructions_cip)):
     elif opts.assume_highq and ('s1z' in line):
         line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
     elif opts.internal_correlate_default and ('s1z' in line):
-        line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
+        addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
+        if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
+            addme = addme.replace(',s1z,s2z', ',chi1,cos_theta1')
+        line += addme
+
+    # on last iteration, usually don't want to use correlated sampling if precessing, need to change coordinates
     if opts.approx in lalsimutils.waveform_approx_limit_dict:
         chi_max = lalsimutils.waveform_approx_limit_dict[opts.approx]["chi-max"]
         if not(opts.force_chi_max is None):
@@ -710,7 +744,10 @@ if opts.internal_use_amr:
     if "SNR" in event_dict:
         internal_overlap_threshold = np.max([internal_overlap_threshold, 0.5*(6./event_dict["SNR"])**2])  # try to 
     internal_overlap_threshold = 1- internal_overlap_threshold
-    lines += ["10 --no-exact-match --overlap-threshold {} ".format(internal_overlap_threshold) + " --distance-coordinates mchirp_eta --verbose   --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf --max-n-points 1000 --n-max-output 5000 " ]
+    amr_coord_dist  = "mchirp_eta"
+    if opts.internal_use_aligned_phase_coordinates:
+        amr_coord_dist = "mu1_mu2_q_s2z"
+    lines += ["10 --no-exact-match --overlap-threshold {} ".format(internal_overlap_threshold) + " --distance-coordinates {} --verbose   --refine ".format(amr_coord_dist)+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf --max-n-points 1000 --n-max-output 5000 " ]
     if opts.internal_use_amr_bank:
         lines[0] +=" --intrinsic-param mass1 --intrinsic-param mass2 "  # output by default written this way for bank files
     else:
@@ -842,7 +879,10 @@ points-per-side=8
     else:
         # don't use bank files, instead use manually-prescribed mc, eta, spin range. SHOULD FIX TO BE TIGHTER
         mc_min,mc_max = guess_mc_range(event_dict)
-        cmd_amr_init = "util_AMRGrid.py --mc-min {} --mc-max {} --distance-coordinates mchirp_eta --initial-region mchirp={},{} --initial-region eta=0.05,0.24999 --initial-region spin1z=-0.8,0.8 --initial-region spin2z=-0.8,0.8  --points-per-side 8 --fname-output-samples proposed-grid  --setup intrinsic_grid_all_iterations   ".format(mc_min,mc_max,mc_min,mc_max)
+        amr_coord_dist  = "mchirp_eta"
+        if opts.internal_use_aligned_phase_coordinates:
+            amr_coord_dist = "mu1_mu2_q_s2z"
+        cmd_amr_init = "util_AMRGrid.py --mc-min {} --mc-max {} --distance-coordinates {} --initial-region mchirp={},{} --initial-region eta=0.05,0.24999 --initial-region spin1z=-0.8,0.8 --initial-region spin2z=-0.8,0.8  --points-per-side 8 --fname-output-samples proposed-grid  --setup intrinsic_grid_all_iterations   ".format(mc_min,mc_max,amr_coord_dist,mc_min,mc_max)
         os.system(cmd_amr_init)
     
 if opts.external_fetch_native_from:
