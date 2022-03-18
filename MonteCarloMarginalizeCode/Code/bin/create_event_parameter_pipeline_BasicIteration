@@ -1087,9 +1087,9 @@ for it in np.arange(it_start,opts.n_iterations):
         cmd += " --n-samples-per-job {} ".format(opts.n_samples_per_job) 
         cmd += " --neff-threshold {} ".format(opts.neff_threshold)
         if opts.cip_explode_jobs:
-            cmd += " --cip-explode-jobs ".format(opts.cip_explode_jobs)
+            cmd += " --cip-explode-jobs {} ".format(opts.cip_explode_jobs)
         if opts.cip_explode_jobs_dag:   # should be deafult
-            cmd += " --cip-explode-jobs_dag "  
+            cmd += " --cip-explode-jobs-dag "  
         if opts.request_gpu_ILE:
             cmd += " --request-gpu-ILE "  # DAG writer needs to make appropririate requests
         if opts.ile_retries:
