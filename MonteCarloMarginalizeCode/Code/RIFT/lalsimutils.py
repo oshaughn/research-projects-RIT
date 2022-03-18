@@ -3063,7 +3063,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         # Run the WF generator
         print("Starting EOBRun_module")
         print(pars)
-        t, hptmp, hctmp, hlmtmp = EOBRun_module.EOBRunPy(pars)
+        t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
         print("EOBRun_module done")
         k_list_orig = hlmtmp.keys()
         hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
