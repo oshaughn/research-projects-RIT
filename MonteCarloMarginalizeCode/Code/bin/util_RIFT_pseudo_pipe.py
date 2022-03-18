@@ -172,6 +172,7 @@ parser.add_argument("--ile-sampler-method",type=str,default=None)
 parser.add_argument("--ile-n-eff",type=int,default=None,help="ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous ")
 parser.add_argument("--cip-sampler-method",type=str,default=None)
 parser.add_argument("--cip-fit-method",type=str,default=None)
+parser.add_argument("--cip-internal-use-eta-in-sampler",action='store_true', help="Use 'eta' as a sampling parameter. Designed to make GMM sampling behave particularly nicely for objects which could be equal mass")
 parser.add_argument("--ile-jobs-per-worker",type=int,default=None,help="Default will be 20 per worker usually for moderate-speed approximants, and more for very fast configurations")
 parser.add_argument("--ile-no-gpu",action='store_true')
 parser.add_argument("--ile-force-gpu",action='store_true')
@@ -686,6 +687,8 @@ for indx in np.arange(len(instructions_cip)):
     if not (opts.cip_sampler_method is None):
         line += " --sampler-method "+opts.cip_sampler_method
     line += prior_args_lookup[opts.spin_magnitude_prior]
+    if opts.cip_internal_use_eta_in_sampler:
+        line = line.replace('parameter delta_mc','parameter eta')
     if opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial':
         line = line.replace('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc')     # quadratic fit needs eta coordinate. Should be done by helper ideally
     if opts.use_quadratic_early or opts.use_cov_early and indx < 1:
