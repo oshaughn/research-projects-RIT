@@ -542,7 +542,7 @@ else:
     cmd += " --calibration-version " + opts.calibration 
 if opts.use_online_psd_file:
     # Get IFO list from ini file
-    import ConfigParser
+#    import ConfigParser
     config = ConfigParser.ConfigParser()
     config.read(opts.use_ini)
     ifo_list = eval(config.get('analysis','ifos'))
