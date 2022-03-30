@@ -4365,7 +4365,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             coord_names_reduced.remove(p)
         elif ('eta' in low_level_coord_names):
             indx_eta = low_level_coord_names.index('eta')
-            eta_vals = 0.25*(1- x_in[:,indx_eta]**2)
+            eta_vals = x_in[:,indx_eta]
             m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
             x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
             coord_names_reduced.remove(p)
@@ -4395,11 +4395,16 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         indx_pout_mu1 = coord_names.index('mu1')
         indx_pout_mu2 = coord_names.index('mu2')
         indx_mc = low_level_coord_names.index('mc')
-        indx_delta = low_level_coord_names.index('delta_mc')
+        if 'delta_mc' in low_level_coord_names:
+            indx_delta = low_level_coord_names.index('delta_mc')
+            qvals = (1- x_in[:,indx_delta])/(1+x_in[:,indx_delta])
+        elif 'eta' in low_level_coord_names:
+            indx_eta = low_level_coord_names.index('eta')
+            eta_vals = x_in[:,indx_eta]
+            qvals = -1 + (1-np.sqrt(1-4*eta_vals))/(2*eta_vals)
         indx_s1z = low_level_coord_names.index('s1z')
         indx_s2z = low_level_coord_names.index('s2z')
         # delta == (m1-m2)/(m1+m2) == (1-q)/(1+q), so q ==(1-delta)/(1+delta)
-        qvals = (1- x_in[:,indx_delta])/(1+x_in[:,indx_delta])
         mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(x_in[:,indx_mc], qvals, x_in[:,indx_s1z], x_in[:,indx_s2z])
         x_out[:,indx_pout_mu1] = mu1
         x_out[:,indx_pout_mu2] = mu2
@@ -4476,7 +4481,6 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
     if ('chi_p' in coord_names_reduced) and ('s1x' in low_level_coord_names  and 's1y' in low_level_coord_names) and ('mc' in low_level_coord_names):
         indx_pout_chip = coord_names.index('chi_p')
         indx_mc = low_level_coord_names.index('mc')
-        indx_delta = low_level_coord_names.index('delta_mc')
         indx_s1x = low_level_coord_names.index('s1x')
         indx_s2x = low_level_coord_names.index('s2x')
         indx_s1y = low_level_coord_names.index('s1y')
@@ -4487,10 +4491,15 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         s1y= x_in[:,indx_s1y]
         s2y= x_in[:,indx_s2y]
 
+        if ('delta_mc' in low_level_coord_names):
+            indx_delta = low_level_coord_names.index('delta_mc')
+            eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+        elif ('eta' in low_level_coord_names):
+            indx_eta = low_level_coord_names.index('eta')
+            eta_vals = x_in[:,indx_eta]
         m1_vals =np.zeros(len(x_in))  
         m2_vals =np.zeros(len(x_in))  
         eta_vals = np.zeros(len(x_in))  
-        eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
         m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
 
         q_vals =   m2_vals/m1_vals

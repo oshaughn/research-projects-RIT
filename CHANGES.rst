@@ -38,8 +38,8 @@ Since last release
       pp_RIFT updates including testing d_marg; GMM sampler fix overflow protection, can now analyze high-lnL sources;
       allow last iteration explode size to be larger than others; fix bug with convert_output_format_ile2inference
       introduced by change in upstream astropy; more glue.ligo_lw -> ligo.lw and many changes;  more on 
-      util_AMRGrid.py as refinement engine; improved tests for MC integration tools, validating GMM and mcsamplerGPU
-
+      util_AMRGrid.py as refinement engine; improved tests for MC integration tools, validating GMM and mcsamplerGPU;
+      minor fixes (rc12)
 
 0.0.15.5
 -----------

@@ -1376,6 +1376,11 @@ P_list = []
 dat_out =[]
  
 extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['mc', 'eta'], ['m1', 'm2'], ['s1z','s2z'] ] # replot
+# simplify/recast None -> [] so I cna use 'in' below
+if opts.parameter==None:
+    opts.parameter = [] # force list, so avoid 'is iterable' below
+if opts.parameter_implied==None:
+    opts.parameter_implied = []
 if 's1x' in opts.parameter:  # in practice, we always use the transverse cartesian components 
     print(" Plotting coordinates include spin magnitude and transverse spins ")
     extra_plot_coord_names += [['chi1_perp', 's1z'], ['chi2_perp','s2z'],['chi1','chi2'],['cos_theta1','cos_theta2']]
