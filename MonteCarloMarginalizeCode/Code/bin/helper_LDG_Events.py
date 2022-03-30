@@ -778,10 +778,14 @@ if chieff_min >0 and use_gracedb_event:
 
 
 if use_ini:
-    mc_min = unsafe_config_get(config,['engine','chirpmass-min'])
-    mc_max = float(config.get('engine','chirpmass-max'))
-    q_min = float(config.get('engine','q-min'))
-    eta_min = q_min/(1.+q_min)**2
+    engine_dict = dict(config['engine'])
+    if 'chirpmass-min' in engine_dict:
+        mc_min = float(engine_dict['chirpmass-min'])
+    if 'chirpmass-max' in engine_dict:
+        mc_max = float(engine_dict['chirpmass-max'])
+    if 'q-min'  in engine_dict:
+        q_min = float(engine_dict['q-min'])
+        eta_min = q_min/(1.+q_min)**2
 
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
 if not(opts.manual_mc_min is None):
