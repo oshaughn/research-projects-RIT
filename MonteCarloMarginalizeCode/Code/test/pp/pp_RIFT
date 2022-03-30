@@ -273,7 +273,12 @@ cip_fit_method = config.get('make_workflow','cip_fit_method')
 cip_sampler_method = config.get('make_workflow','cip_sampler_method')
 add_extrinsic=False
 use_osg=opts.use_osg #False
+if not(use_osg) and ('use_osg' in config['helper-args']):
+    use_osg = unsafe_config_get('helper-args','use_osg')
 cip_explode_jobs=False
+if 'cip_explode_jobs' in config['make_workflow']:
+    cip_explode_jobs = config.get('make_workflow','cip_explode_jobs')
+
 
 
 for indx in np.arange(n_events):
@@ -291,6 +296,18 @@ for indx in np.arange(n_events):
     cmd += " --ile-n-eff {} ".format(ile_n_eff)
     cmd += " --fmin {} ".format(fmin_template)  # used for placement, we will be undoing some of these effects later with a 'replace'
     cmd += " --fmax {} ".format(fmax)
+    # Pull out arbitrary arguments to be determined later, lieke --internal-marginalize-distance, --internal-use-aligned-phase-coordinates, etc
+    if 'helper-args' in config:
+        for arg in config["helper-args"]:
+            arg_renamed =  arg.replace('_','-')
+            val = config.get("helper-args",arg)
+            if val == False or val=="False":
+                continue;
+            elif val == None or val=='True':
+                cmd += " --{} ".format(arg_renamed)
+            else:
+                cmd += " --{} {} ".format(arg_renamed,val)
+            
     cmd += " --fmin-template {} ".format(fmin_template)
     cmd += " --force-mc-range [{},{}] --force-eta-range [{},{}] ".format(mc_min, mc_max,eta_min,eta_max)
     if use_osg:
