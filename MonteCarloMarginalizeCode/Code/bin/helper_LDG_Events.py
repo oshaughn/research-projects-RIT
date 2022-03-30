@@ -854,7 +854,13 @@ approx_str= "SEOBNRv4"  # default, should not be used.  See also cases where gri
 
 if use_ini:
     # See above, provided by ini file
-    dmax = unsafe_config_get(config,['engine','distance-max'])
+    engine_dict = dict(config['engine'])
+    if 'distance-max' in engine_dict:
+        dmax = float(engine_dict['distance-max'])
+    else:
+        mc_Msun = P.extract_param('mc')/lal.MSUN_SI
+        dmax_guess =(1./snr_fac)* 2.5*2.26*typical_bns_range_Mpc[opts.observing_run]* (mc_Msun/1.2)**(5./6.)
+        internal_dmax = np.min([dmax_guess,10000]) # place ceiling
     if internal_dmax is None: # overrride ini file if already set.  Note this will override the lowlatency propose approx
         internal_dmax = dmax
     
