@@ -4034,7 +4034,7 @@ try:
     my_content = lal.series.PSDContentHandler
 
     def get_psd_series_from_xmldoc(fname, inst):
-        return read_psd_xmldoc(utils.load_filename(fname ,contenthandler = my_content))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
+        return read_psd_xmldoc(utils.load_filename(fname ,contenthandler = my_content),root_name=None)[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
 except:
     def get_psd_series_from_xmldoc(fname, inst):
         return read_psd_xmldoc(utils.load_filename(fname))[inst]  # return value is pylal wrapping of the data type; index data by a.data[k]
