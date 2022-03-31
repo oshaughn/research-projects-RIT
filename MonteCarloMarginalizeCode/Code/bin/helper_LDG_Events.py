@@ -631,8 +631,9 @@ if not(opts.use_ini is None):
         fmin_fiducial = fmin_vals[ifo]
 
     # overwrite arguments associated with seglen
-    opts.choose_LI_data_seglen=False
-    opts.data_LI_seglen = unsafe_config_get(config,['engine','seglen'])
+    if 'seglen' in dict(config['engine']):
+        opts.choose_LI_data_seglen=False
+        opts.data_LI_seglen = unsafe_config_get(config,['engine','seglen'])
 
     # overwrite arguments used with srate/2, OR fmax if provided
     opts.fmax = unsafe_config_get(config,['engine','srate'])/2 -1  # LI default is not to set srate as an independent variable. Occasional danger with maximum frequency limit in PSD
