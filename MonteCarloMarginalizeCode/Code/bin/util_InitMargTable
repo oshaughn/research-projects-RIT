@@ -1,4 +1,6 @@
 #! /usr/bin/env python
+# S. Morisaki, based on his
+# https://dcc.ligo.org/LIGO-T2100485
 
 import argparse
 import numpy as np
@@ -42,7 +44,7 @@ def lnI(x0, b):
         xmin_integral = xmin
         # determine the upper limit of the integral
         alpha1 = np.sqrt(b / 2.) * (xmin - x0 + 4. / (b * xmin))
-        alpha2 = np.sqrt(b / 2.) * (xmax - x0 + 4. / (b * xmax))
+        alpha2 = np.sqrt(b / 2.) * (xmax - x0 + 4. / (b * xmin))
         tmp = eps * (erfcx(alpha1) - np.exp(-(alpha2**2. - alpha1**2.)) * erfcx(alpha2))
         if 0. < tmp < 1.:
             A = -np.log(tmp)
