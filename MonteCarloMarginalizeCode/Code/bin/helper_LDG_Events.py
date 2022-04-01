@@ -655,7 +655,9 @@ if not(opts.use_ini is None):
     # Force safe PSD
 
 # Set up, perform datafind (if not fake data)
+made_ifo_cache_files=False
 if not (opts.fake_data):
+    made_ifo_cache_files =True
     for ifo in ifos:
         # LI-style parsing
         if use_ini:
@@ -671,7 +673,8 @@ if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
     real_data = real_data or  opts.check_ifo_availability
     real_data = real_data or opts.force_data_lookup
-    ldg_make_cache(retrieve=real_data) # we are using the ifo_local.cache files
+    real_data = real_data or made_ifo_cache_files
+    ldg_make_cache(retrieve=real_data) # we are using the ifo_local.cache files, generated in the previous step, almost without fail.
     opts.cache = "local.cache" # standard filename populated
 
 # If needed, build PSDs
