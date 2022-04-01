@@ -63,7 +63,7 @@ else:
     filename = opts.inj
     event = opts.event_id
     xmldoc = utils.load_filename(filename, verbose = True, contenthandler =lalsimutils.cthdler)
-    sim_inspiral_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
+    sim_inspiral_table = lsctables.SimInspiralTable.get_table(xmldoc)
     P.copy_sim_inspiral(sim_inspiral_table[int(event)])
     if opts.approx:
         P.approx=lalsimutils.StringToLALApproximant(opts.approx)
@@ -109,7 +109,7 @@ if opts.stop and hoft.epoch+hoft.data.length*hoft.deltaT < opts.stop:
 channel = opts.instrument+":FAKE-STRAIN"
 
 tstart = int(hoft.epoch)
-duration = int(hoft.data.length*hoft.deltaT)
+duration = int(round(hoft.data.length*hoft.deltaT))
 if not opts.fname:
     fname = opts.instrument.replace("1","")+"-fake_strain-"+str(tstart)+"-"+str(duration)+".gwf"
 
