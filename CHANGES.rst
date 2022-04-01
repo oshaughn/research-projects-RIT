@@ -42,7 +42,7 @@ Since last release
       minor fixes (rc12)
 
     - pseudo_pipe/helper updates to use ini files/coinc-embedded PSD appropriate to low-latency; lalsimutils update psd
-      parser; util_InitMargTable undo tentative change noted in rc12; pp_RIFT more flexible ini file parsing  
+      parser; util_InitMargTable undo tentative change noted in rc12; pp_RIFT more flexible ini file parsing (rc13) 
 
 
 0.0.15.5
