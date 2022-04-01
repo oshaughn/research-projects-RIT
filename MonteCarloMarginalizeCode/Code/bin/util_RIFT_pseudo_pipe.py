@@ -289,8 +289,8 @@ if opts.assume_highq:
 event_dict={}
 
 if (opts.approx is None) and not (opts.use_ini is None):
-    config = ConfigParser.ConfigParser()
-    config.read(opts.use_ini)
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
     approx_name_ini = config.get('engine','approx')
     approx_name_cleaned = lalsim.GetStringFromApproximant(lalsim.GetApproximantFromString(approx_name_ini))
     opts.approx = approx_name_cleaned
@@ -428,8 +428,8 @@ if not(opts.use_ini is None):
     P=lalsimutils.ChooseWaveformParams()
     P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     # Load in ini file to select relevant fmin, fref [latter usually unused]
-    config = ConfigParser.ConfigParser()
-    config.read(opts.use_ini)
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
     fmin_vals ={}
     fmin_fiducial = -1
     ifo_list = eval(config.get('analysis','ifos'))
@@ -561,9 +561,9 @@ else:
     cmd += " --calibration-version " + opts.calibration 
 if opts.use_online_psd_file:
     # Get IFO list from ini file
-#    import ConfigParser
-    config = ConfigParser.ConfigParser()
-    config.read(opts.use_ini)
+##    import ConfigParser
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
     ifo_list = eval(config.get('analysis','ifos'))
     # Create command line arguments for those IFOs, so helper can correctly pass then downward
     for ifo in ifo_list:
@@ -582,8 +582,8 @@ if not(opts.internal_distance_max is None):
 
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
 if opts.use_ini:
-    config = ConfigParser.ConfigParser()
-    config.read(opts.use_ini)
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
     if config.has_option("lalinference", "fake-cache"):
         # dictionary, entries are individual lcf files; we just need to concatenate their contents
         fake_cache_dict = unsafe_config_get(config,["lalinference","fake-cache"])
