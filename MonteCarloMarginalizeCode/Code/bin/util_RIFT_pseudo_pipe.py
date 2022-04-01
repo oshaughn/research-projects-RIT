@@ -217,10 +217,11 @@ opts=  parser.parse_args()
 if (opts.use_ini):
     # Attempt to lazy-parse all command line arguments from ini file
     config = ConfigParser.ConfigParser()
+    config.optionxform=str # force preserve case! Important for --choose-data-LI-seglen
     config.read(opts.use_ini)
     if 'rift-pseudo-pipe' in config:
         # get the list of items
-        rift_items = config["rift-pseudo-pipe"]
+        rift_items = dict(config["rift-pseudo-pipe"])
         config_dict = vars(opts) # access dictionry of options
 #        print(config_dict)
 #        print(list(rift_items))
@@ -228,9 +229,13 @@ if (opts.use_ini):
         for item in rift_items:
             item_renamed = item.replace('-','_')
             if (item_renamed in config_dict):
+                val = rift_items[item].strip()
 #                if not(config_dict[item_renamed]):   # needs to be set to some value. Don't *disable* what is enabled on command line
-                    print(" ini file parser (overrides command line, except booleans): ",item, rift_items[item])
+                print(" ini file parser (overrides command line, except booleans): ",item, rift_items[item])
+                if val != "":
                     config_dict[item_renamed] = eval(rift_items[item])
+                else:
+                    config_dict[item_renamed] = True
         print(config_dict)
 
 if not(opts.ile_jobs_per_worker):
@@ -327,9 +332,10 @@ if opts.use_rundir:
 
 
 if opts.choose_data_LI_seglen:
-    cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
-    if not(opts.use_legacy_gracedb):
-        cmd_event += " > coinc.xml "
+    if not(opts.coinc):
+        cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
+        if not(opts.use_legacy_gracedb):
+            cmd_event += " > coinc.xml "
     os.system(cmd_event)
     cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
     event_dict = retrieve_event_from_coinc("coinc.xml")
