@@ -230,7 +230,14 @@ if (opts.use_ini):
         config_dict = vars(opts) # access dictionry of options
 #        print(config_dict)
 #        print(list(rift_items))
-        # attempt to lazy-select the items that are present in the dictionary 
+
+        # acounting groups/users: if presnet and NOT DEFINED IN ENV (which dominates!), define them
+        if not('LIGO_USER_NAME'  in os.environ) and 'accounting_group_user' in rift_items:
+            os.environ["LIGO_USER_NAME"] = rift_items['accounting_group_user']
+        if not('LIGO_ACCOUNTING'  in os.environ) and 'accounting_group' in rift_items:
+            os.environ["LIGO_ACCOUNTING"] = rift_items['accounting_group']
+        
+        # attempt to lazy-select the command-line that are present in the ini file section
         for item in rift_items:
             item_renamed = item.replace('-','_')
             if (item_renamed in config_dict):
