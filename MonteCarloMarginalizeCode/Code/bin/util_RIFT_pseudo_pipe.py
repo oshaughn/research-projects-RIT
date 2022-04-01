@@ -332,7 +332,7 @@ if opts.use_rundir:
 
 
 if opts.choose_data_LI_seglen:
-    if not(opts.coinc):
+    if not(opts.use_coinc):
         cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
         if not(opts.use_legacy_gracedb):
             cmd_event += " > coinc.xml "
