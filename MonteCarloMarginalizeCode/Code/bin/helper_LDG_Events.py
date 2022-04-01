@@ -604,14 +604,15 @@ if not(opts.use_ini is None):
     # Overwrite general settings
     ifos = unsafe_config_get(config,['analysis','ifos'])
     event_dict["IFOs"] = ifos # overwrite this
-    opts.assume_fiducial_psd_files=True # for now.  
-    for ifo in ifos:
-        if not ifo in psd_names:
+    if not(opts.psd_file): # only do the below  if we are not specifying the PSD fies by passing arguments directly (e.g., as used for online use)
+        opts.assume_fiducial_psd_files=True # for now.  
+        for ifo in ifos:
+            if not ifo in psd_names:
             # overwrite PSD names
-            if not opts.use_osg:
-                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
-            else:
-                psd_names[ifo] =  ifo + "-psd.xml.gz"
+                if not opts.use_osg:
+                    psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+                else:
+                    psd_names[ifo] =  ifo + "-psd.xml.gz"
 
     
     # opts.use_osg = config.get('analysis','osg')
@@ -631,8 +632,9 @@ if not(opts.use_ini is None):
         fmin_fiducial = fmin_vals[ifo]
 
     # overwrite arguments associated with seglen
-    opts.choose_LI_data_seglen=False
-    opts.data_LI_seglen = unsafe_config_get(config,['engine','seglen'])
+    if 'seglen' in dict(config['engine']):
+        opts.choose_LI_data_seglen=False
+        opts.data_LI_seglen = unsafe_config_get(config,['engine','seglen'])
 
     # overwrite arguments used with srate/2, OR fmax if provided
     opts.fmax = unsafe_config_get(config,['engine','srate'])/2 -1  # LI default is not to set srate as an independent variable. Occasional danger with maximum frequency limit in PSD
@@ -654,7 +656,9 @@ if not(opts.use_ini is None):
     # Force safe PSD
 
 # Set up, perform datafind (if not fake data)
+made_ifo_cache_files=False
 if not (opts.fake_data):
+    made_ifo_cache_files =True
     for ifo in ifos:
         # LI-style parsing
         if use_ini:
@@ -670,7 +674,8 @@ if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
     real_data = real_data or  opts.check_ifo_availability
     real_data = real_data or opts.force_data_lookup
-    ldg_make_cache(retrieve=real_data) # we are using the ifo_local.cache files
+    real_data = real_data or made_ifo_cache_files
+    ldg_make_cache(retrieve=real_data) # we are using the ifo_local.cache files, generated in the previous step, almost without fail.
     opts.cache = "local.cache" # standard filename populated
 
 # If needed, build PSDs
@@ -778,10 +783,14 @@ if chieff_min >0 and use_gracedb_event:
 
 
 if use_ini:
-    mc_min = unsafe_config_get(config,['engine','chirpmass-min'])
-    mc_max = float(config.get('engine','chirpmass-max'))
-    q_min = float(config.get('engine','q-min'))
-    eta_min = q_min/(1.+q_min)**2
+    engine_dict = dict(config['engine'])
+    if 'chirpmass-min' in engine_dict:
+        mc_min = float(engine_dict['chirpmass-min'])
+    if 'chirpmass-max' in engine_dict:
+        mc_max = float(engine_dict['chirpmass-max'])
+    if 'q-min'  in engine_dict:
+        q_min = float(engine_dict['q-min'])
+        eta_min = q_min/(1.+q_min)**2
 
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
 if not(opts.manual_mc_min is None):
@@ -850,7 +859,13 @@ approx_str= "SEOBNRv4"  # default, should not be used.  See also cases where gri
 
 if use_ini:
     # See above, provided by ini file
-    dmax = unsafe_config_get(config,['engine','distance-max'])
+    engine_dict = dict(config['engine'])
+    if 'distance-max' in engine_dict:
+        dmax = float(engine_dict['distance-max'])
+    else:
+        mc_Msun = P.extract_param('mc')/lal.MSUN_SI
+        dmax_guess =(1./snr_fac)* 2.5*2.26*typical_bns_range_Mpc[opts.observing_run]* (mc_Msun/1.2)**(5./6.)
+        internal_dmax = np.min([dmax_guess,10000]) # place ceiling
     if internal_dmax is None: # overrride ini file if already set.  Note this will override the lowlatency propose approx
         internal_dmax = dmax
     

@@ -23,6 +23,11 @@ import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
 import configparser as ConfigParser
 
+if ( 'RIFT_LOWLATENCY'  in os.environ):
+    assume_lowlatency = True
+else:
+    assume_lowlatency=False
+
 import shutil
 
 # Default setup assumes the underlying sampling will be *cartesian* 
@@ -217,20 +222,32 @@ opts=  parser.parse_args()
 if (opts.use_ini):
     # Attempt to lazy-parse all command line arguments from ini file
     config = ConfigParser.ConfigParser()
+    config.optionxform=str # force preserve case! Important for --choose-data-LI-seglen
     config.read(opts.use_ini)
     if 'rift-pseudo-pipe' in config:
         # get the list of items
-        rift_items = config["rift-pseudo-pipe"]
+        rift_items = dict(config["rift-pseudo-pipe"])
         config_dict = vars(opts) # access dictionry of options
 #        print(config_dict)
 #        print(list(rift_items))
-        # attempt to lazy-select the items that are present in the dictionary 
+
+        # acounting groups/users: if presnet and NOT DEFINED IN ENV (which dominates!), define them
+        if not('LIGO_USER_NAME'  in os.environ) and 'accounting_group_user' in rift_items:
+            os.environ["LIGO_USER_NAME"] = rift_items['accounting_group_user']
+        if not('LIGO_ACCOUNTING'  in os.environ) and 'accounting_group' in rift_items:
+            os.environ["LIGO_ACCOUNTING"] = rift_items['accounting_group']
+        
+        # attempt to lazy-select the command-line that are present in the ini file section
         for item in rift_items:
             item_renamed = item.replace('-','_')
             if (item_renamed in config_dict):
+                val = rift_items[item].strip()
 #                if not(config_dict[item_renamed]):   # needs to be set to some value. Don't *disable* what is enabled on command line
-                    print(" ini file parser (overrides command line, except booleans): ",item, rift_items[item])
+                print(" ini file parser (overrides command line, except booleans): ",item, rift_items[item])
+                if val != "":
                     config_dict[item_renamed] = eval(rift_items[item])
+                else:
+                    config_dict[item_renamed] = True
         print(config_dict)
 
 if not(opts.ile_jobs_per_worker):
@@ -272,8 +289,8 @@ if opts.assume_highq:
 event_dict={}
 
 if (opts.approx is None) and not (opts.use_ini is None):
-    config = ConfigParser.ConfigParser()
-    config.read(opts.use_ini)
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
     approx_name_ini = config.get('engine','approx')
     approx_name_cleaned = lalsim.GetStringFromApproximant(lalsim.GetApproximantFromString(approx_name_ini))
     opts.approx = approx_name_cleaned
@@ -327,11 +344,12 @@ if opts.use_rundir:
 
 
 if opts.choose_data_LI_seglen:
-    cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
-    if not(opts.use_legacy_gracedb):
-        cmd_event += " > coinc.xml "
-    os.system(cmd_event)
-    cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
+    if not(opts.use_coinc):
+        cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
+        if not(opts.use_legacy_gracedb):
+            cmd_event += " > coinc.xml "
+        os.system(cmd_event)
+        cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
     event_dict = retrieve_event_from_coinc("coinc.xml")
     P=lalsimutils.ChooseWaveformParams()
     P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
@@ -410,8 +428,8 @@ if not(opts.use_ini is None):
     P=lalsimutils.ChooseWaveformParams()
     P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     # Load in ini file to select relevant fmin, fref [latter usually unused]
-    config = ConfigParser.ConfigParser()
-    config.read(opts.use_ini)
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
     fmin_vals ={}
     fmin_fiducial = -1
     ifo_list = eval(config.get('analysis','ifos'))
@@ -438,7 +456,8 @@ if opts.make_bw_psds:
     helper_psd_args += " --assume-fiducial-psd-files --fmax " + str(srate/2-1)
 
 # Create provenance info : we want run to be reproducible
-if True:
+# for low-latency analysis, we can assume we have provenance.
+if not(assume_lowlatency):
         os.mkdir("reproducibility")
         # Write this script and its arguments
         import shutil, json
@@ -448,8 +467,8 @@ if True:
         with open("reproducibility/the_arguments_used.json",'w') as f:
                 json.dump(argparse_dict,f)
         # Write commits
-        cmd = "(cd ${ILE_CODE_PATH}; git rev-parse HEAD) > reproducibility/RIFT.commit"
-        os.system(cmd)
+#        cmd = "(cd ${ILE_CODE_PATH}; git rev-parse HEAD) > reproducibility/RIFT.commit"
+#        os.system(cmd)
         module_list = ['gwsurrogate',  'NRSur7dq2', 'scipy', 'numpy', 'sklearn', 'lalsimulation','lal']
         with open("reproducibility/module_versions", 'w') as f:
                 for name in module_list:
@@ -542,9 +561,9 @@ else:
     cmd += " --calibration-version " + opts.calibration 
 if opts.use_online_psd_file:
     # Get IFO list from ini file
-    import ConfigParser
-    config = ConfigParser.ConfigParser()
-    config.read(opts.use_ini)
+##    import ConfigParser
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
     ifo_list = eval(config.get('analysis','ifos'))
     # Create command line arguments for those IFOs, so helper can correctly pass then downward
     for ifo in ifo_list:
@@ -563,8 +582,8 @@ if not(opts.internal_distance_max is None):
 
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
 if opts.use_ini:
-    config = ConfigParser.ConfigParser()
-    config.read(opts.use_ini)
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
     if config.has_option("lalinference", "fake-cache"):
         # dictionary, entries are individual lcf files; we just need to concatenate their contents
         fake_cache_dict = unsafe_config_get(config,["lalinference","fake-cache"])
