@@ -604,14 +604,15 @@ if not(opts.use_ini is None):
     # Overwrite general settings
     ifos = unsafe_config_get(config,['analysis','ifos'])
     event_dict["IFOs"] = ifos # overwrite this
-    opts.assume_fiducial_psd_files=True # for now.  
-    for ifo in ifos:
-        if not ifo in psd_names:
+    if not(opts.psd_file): # only do the below  if we are not specifying the PSD fies by passing arguments directly (e.g., as used for online use)
+        opts.assume_fiducial_psd_files=True # for now.  
+        for ifo in ifos:
+            if not ifo in psd_names:
             # overwrite PSD names
-            if not opts.use_osg:
-                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
-            else:
-                psd_names[ifo] =  ifo + "-psd.xml.gz"
+                if not opts.use_osg:
+                    psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+                else:
+                    psd_names[ifo] =  ifo + "-psd.xml.gz"
 
     
     # opts.use_osg = config.get('analysis','osg')
