@@ -23,6 +23,11 @@ import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
 import configparser as ConfigParser
 
+if ( 'RIFT_LOWLATENCY'  in os.environ):
+    assume_lowlatency = True
+else:
+    assume_lowlatency=False
+
 import shutil
 
 # Default setup assumes the underlying sampling will be *cartesian* 
@@ -444,7 +449,8 @@ if opts.make_bw_psds:
     helper_psd_args += " --assume-fiducial-psd-files --fmax " + str(srate/2-1)
 
 # Create provenance info : we want run to be reproducible
-if True:
+# for low-latency analysis, we can assume we have provenance.
+if not(assume_lowlatency):
         os.mkdir("reproducibility")
         # Write this script and its arguments
         import shutil, json
@@ -454,8 +460,8 @@ if True:
         with open("reproducibility/the_arguments_used.json",'w') as f:
                 json.dump(argparse_dict,f)
         # Write commits
-        cmd = "(cd ${ILE_CODE_PATH}; git rev-parse HEAD) > reproducibility/RIFT.commit"
-        os.system(cmd)
+#        cmd = "(cd ${ILE_CODE_PATH}; git rev-parse HEAD) > reproducibility/RIFT.commit"
+#        os.system(cmd)
         module_list = ['gwsurrogate',  'NRSur7dq2', 'scipy', 'numpy', 'sklearn', 'lalsimulation','lal']
         with open("reproducibility/module_versions", 'w') as f:
                 for name in module_list:
