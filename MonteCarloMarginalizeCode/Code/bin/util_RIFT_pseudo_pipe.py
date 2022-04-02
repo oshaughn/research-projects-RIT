@@ -344,13 +344,16 @@ if opts.use_rundir:
 
 
 if opts.choose_data_LI_seglen:
+    coinc_file = "coinc.xml"
     if not(opts.use_coinc):
         cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
         if not(opts.use_legacy_gracedb):
             cmd_event += " > coinc.xml "
         os.system(cmd_event)
         cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
-    event_dict = retrieve_event_from_coinc("coinc.xml")
+    else:
+        coinc_file = opts.use_coinc
+    event_dict = retrieve_event_from_coinc(coinc_file)
     P=lalsimutils.ChooseWaveformParams()
     P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     P.fmin = opts.fmin  #  fmin we will use internally
@@ -865,14 +868,17 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
     cmd += " --cip-exe `which util_AMRGrid.py ` "
-    if not(os.path.exists("coinc.xml")):
+    coinc_file = "coinc.xml"
+    if not(os.path.exists("coinc.xml")) and not(opts.use_coinc):
         # re-download coinc if not already present
         cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
         if not(opts.use_legacy_gracedb):
             cmd_event += " > coinc.xml "
         os.system(cmd_event)
         cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
-    event_dict = retrieve_event_from_coinc("coinc.xml")
+    else:
+        coinc_file = opts.use_coinc
+    event_dict = retrieve_event_from_coinc(coinc_file)
     if opts.internal_use_amr_bank:
         with open("toy.ini","w") as f:
             f.write("""
