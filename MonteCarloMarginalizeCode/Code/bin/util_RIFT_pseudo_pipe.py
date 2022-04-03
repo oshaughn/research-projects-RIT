@@ -765,9 +765,9 @@ if opts.internal_use_amr:
     lines =[ ] 
     # Manually implement aligned spin.  Should parse some of this from ini file ...
     print(" AMR prototype: Using hardcoded aligned-spin settings, setting arguments")
-    internal_overlap_threshold = 0.01 # smallest it could be
-    if "SNR" in event_dict:
-        internal_overlap_threshold = np.max([internal_overlap_threshold, 0.5*(6./event_dict["SNR"])**2])  # try to 
+    internal_overlap_threshold = 0.001 # smallest it should be
+    # if "SNR" in event_dict:
+    #     internal_overlap_threshold = np.max([internal_overlap_threshold, 0.5*(6./event_dict["SNR"])**2])  # try to 
     internal_overlap_threshold = 1- internal_overlap_threshold
     amr_coord_dist  = "mchirp_eta"
     if opts.internal_use_aligned_phase_coordinates:
