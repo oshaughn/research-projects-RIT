@@ -144,6 +144,10 @@ def write_to_xml_new(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verb
         indx_lookup['m1'] = intr_prms.index('mass1')
         indx_lookup['m2'] = intr_prms.index('mass2')
         namelist = ['m1','m2']
+    elif 'mchirp' in intr_prms and 'delta' in intr_prms:
+        indx_lookup['mc'] = intr_prms.index('mchirp')
+        indx_lookup['delta_mc'] = intr_prms.index('delta')
+        namelist = ['mc','delta_mc']
     else:
         indx_lookup['mc'] = intr_prms.index('mchirp')
         indx_lookup['eta'] = intr_prms.index('eta')
