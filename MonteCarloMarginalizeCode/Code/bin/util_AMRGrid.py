@@ -160,7 +160,7 @@ def write_to_xml_new(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verb
         P = lalsimutils.ChooseWaveformParams()
         for name in namelist:
             fac_correct = 1
-            if 'm' in name:
+            if name in ['mc', 'm1', 'm2']:
                 fac_correct =lal.MSUN_SI
 #            setattr(P, name, fac_correct*cells[indx]._center[indx_lookup[name]])
             if hasattr(P, name):
