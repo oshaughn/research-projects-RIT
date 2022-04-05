@@ -355,7 +355,7 @@ if opts.choose_data_LI_seglen:
             cmd_event += " > coinc.xml "
         os.system(cmd_event)
         cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
-    else:
+    elif opts.use_coinc:
         coinc_file = opts.use_coinc
     event_dict = retrieve_event_from_coinc(coinc_file)
     P=lalsimutils.ChooseWaveformParams()
