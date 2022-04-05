@@ -1078,9 +1078,6 @@ with open("helper_ile_args.txt",'w') as f:
 if not opts.lowlatency_propose_approximant:
     print(" helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max ")
 
-#if opts.last_iteration_extrinsic:
-#    helper_cip_args += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 5000 "
-
 puff_max_it=0
 helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
 if event_dict["MChirp"] >25:
@@ -1243,6 +1240,11 @@ if opts.propose_fit_strategy:
             except:
                 print("No mass information, can't add extra stages")
 
+    if opts.last_iteration_extrinsic:
+        # create a new item, which is like the last one, except ... we will assume we have more workers, and just one iteration
+        # NOTE: assume util_RIFT_pseudo_pipe will handle setting n-eff and workers correctly for that iteration, since we can't control it here.
+        helper_cip_last_it = '1 ' +  ' '.join(hielper_cip_arg_list[-1].split()[1:])
+        helper_cip_arg_list += helper_cip_last_it
 
     if ('quadratic' in fit_method) or ('polynomial' in fit_method):
         helper_cip_arg_list[0] += " --lnL-offset " + str(lnL_start)
