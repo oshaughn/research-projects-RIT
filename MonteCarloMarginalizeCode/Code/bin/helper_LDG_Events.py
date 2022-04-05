@@ -1243,7 +1243,7 @@ if opts.propose_fit_strategy:
     if opts.last_iteration_extrinsic:
         # create a new item, which is like the last one, except ... we will assume we have more workers, and just one iteration
         # NOTE: assume util_RIFT_pseudo_pipe will handle setting n-eff and workers correctly for that iteration, since we can't control it here.
-        helper_cip_last_it = '1 ' +  ' '.join(hielper_cip_arg_list[-1].split()[1:])
+        helper_cip_last_it = '1 ' +  ' '.join(helper_cip_arg_list[-1].split()[1:])
         helper_cip_arg_list += helper_cip_last_it
 
     if ('quadratic' in fit_method) or ('polynomial' in fit_method):
