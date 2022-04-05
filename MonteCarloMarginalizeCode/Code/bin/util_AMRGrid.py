@@ -499,11 +499,21 @@ if opts.result_file:
     if 'mass1' in intr_prms:
         res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms) for t in results])
     elif ('mchirp' in intr_prms):
-        res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms) for t in results]) # can fill spin components if present
-        # now overwrite eta values (all filled with 0 since no attr) with correct value
-        eta_indx = intr_prms.index('eta')
+        res_pts = numpy.zeros( (len(results), len(intr_prms)))
         mass_pts = numpy.array([tuple(getattr(t, a) for a in ['mass1','mass2']) for t in results])
-        res_pts[:,eta_indx] = lalsimutils.symRatio(mass_pts[:,0],mass_pts[:,1])
+        def blank_entry(name):
+            if name in ['delta', 'eta']:
+                return 'eta'
+            return name
+        intr_prms_reduced = list(map(blank_entry, intr_prms))
+        res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms_reduced) for t in results]) # can fill spin components if present
+        # now overwrite eta values (all filled with 0 since no attr) with correct value
+        if 'eta' in intr_prms:
+            eta_indx = intr_prms.index('eta')
+            res_pts[:,eta_indx] = lalsimutils.symRatio(mass_pts[:,0],mass_pts[:,1])
+        if 'delta' in intr_prms:
+            delta_indx = intr_prms.index('delta')
+            res_pts[:,delta_indx] = (mass_pts[:,0] - mass_pts[:,1])/(mass_pts[:,0]+mass_pts[:,1]) # hardcode definition, easy
         # res_pts = numpy.zeros((len(intr_prms),len(results)))
         # indx_mc = intr_prms.index['mchirp']
         # indx_eta = intr_prms.index['eta']
