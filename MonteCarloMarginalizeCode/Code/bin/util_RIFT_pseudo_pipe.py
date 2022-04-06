@@ -276,7 +276,9 @@ if opts.internal_use_amr:
     opts.cip_explode_jobs= None
 
     amr_q_coord = "delta"
-    amr_q_coord_range="0.05,0.2499"
+    amr_q_coord_range="0.0,0.95"
+#    amr_q_coord = "eta"
+#    amr_q_coord_range="0.05,0.249999"
 
 if opts.internal_force_iterations and opts.internal_propose_converge_last_stage:
     print("==> Inconsistent options --internal-force-iterations and --internal-propose-converge-last-stage, overriding former")
