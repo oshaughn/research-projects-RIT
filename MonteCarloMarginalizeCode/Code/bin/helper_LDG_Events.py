@@ -200,6 +200,7 @@ parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does 
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help='Create options to marginalize over distance in the pipeline. Also create any necessary marginalization files at runtime, based on the maximum distance assumed')
+parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,default=None,help='If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances')
 parser.add_argument("--internal-use-amr",action='store_true',help='If present,the code will set up to use AMR.  Currently not much implemented here, and most of the heavy lifting is elsewhere')
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
@@ -906,12 +907,19 @@ if opts.lowlatency_propose_approximant:
 
 if not(internal_dmax is None):
     helper_ile_args +=  " --d-max " + str(int(internal_dmax))
-    if opts.internal_marginalize_distance:
+    if opts.internal_marginalize_distance and not(opts.internal_marginalize_distance_file):
         # Generate marginalization file (should probably be in DAG? But we may also want to override it with internal file)
         cmd_here = " util_InitMargTable --d-max {} ".format(internal_dmax)
         os.system(cmd_here)
         helper_ile_args += " --distance-marginalization  --distance-marginalization-lookup-table {}/distance_marginalization_lookup.npz ".format(opts.working_directory)
-
+    elif opts.internal_marginalize_distance_file:
+        helper_ile_args += " --distance-marginalization "
+        if opts.use_osg:
+            helper_ile_args += " --distance-marginalization-lookup-table {} ".format(opts.internal_marginalize_distance_file)
+        else:
+            transfer_files += [ opts.internal_marginalize_distance_file ]
+            fname_short = opts.internal_marginalize_distance_file.split('/')[-1]
+            helper_ile_args += " --distance-marginalization-lookup-table {} ".format(fname_short)
 
 if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
     # Manually set the data start and end time.
@@ -1077,9 +1085,6 @@ with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
 if not opts.lowlatency_propose_approximant:
     print(" helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max ")
-
-#if opts.last_iteration_extrinsic:
-#    helper_cip_args += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 5000 "
 
 puff_max_it=0
 helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
@@ -1290,10 +1295,17 @@ if opts.propose_flat_strategy:
 
 
 if opts.propose_converge_last_stage:
+    helper_cip_last_it = '1 ' +  ' '.join(helper_cip_arg_list[-1].split()[1:])
     lastline = helper_cip_arg_list[-1].lstrip()
     lastline_split = lastline.split(' ')
     lastline_split[0] = 'Z'
     helper_cip_arg_list[-1]  = ' '.join(lastline_split)
+
+    if opts.last_iteration_extrinsic:
+        # create a new item, which is like the last one, except ... we will assume we have more workers, and just one iteration
+        # NOTE: assume util_RIFT_pseudo_pipe will handle setting n-eff and workers correctly for that iteration, since we can't control it here.
+        helper_cip_arg_list += [helper_cip_last_it]
+
 
 with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))
@@ -1303,7 +1315,10 @@ with open("helper_cip_arg_list.txt",'w+') as f:
 #   - for convenience, transform last Z 
 #   - note Z will override iteration thresholding anyways
 if opts.propose_converge_last_stage:
-    helper_cip_arg_list[-1] = helper_cip_arg_list[-1].replace('Z','1') # treat as one iteration
+    for indx in np.arange(len(helper_cip_arg_list)):
+        firstword = helper_cip_arg_list[indx].split(' ')[0]
+        if firstword == 'Z':
+            helper_cip_arg_list[indx]  = '1 ' +  ' '.join(helper_cip_arg_list[indx].split(' ')[1:])
 n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
 n_its_to_not_test = np.sum(n_its) - n_its[-1]
 helper_test_args += " --iteration-threshold {} ".format(int(n_its_to_not_test))

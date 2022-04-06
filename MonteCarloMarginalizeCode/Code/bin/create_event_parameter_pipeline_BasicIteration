@@ -1120,7 +1120,7 @@ for it in np.arange(it_start,opts.n_iterations):
         if opts.test_args:
             import re
             test_args_optin = "X " + test_args  # copy not reference
-            test_args_optin = test_args_optin.replace(' --always-succeed ', '')  # tests must operate
+            test_args_optin = test_args_optin.replace(' --always-succeed', '')  # tests must operate
             # remove iteration threshold, so they ALWAYS operate
             test_args_optin = re.sub('--iteration-threshold [1-9] ', '', test_args_optin)
         else:

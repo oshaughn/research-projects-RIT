@@ -154,9 +154,11 @@ parser.add_argument("--assume-nospin",action='store_true', help="Force analysis 
 parser.add_argument("--assume-precessing",action='store_true', help="Force analysis *with* transverse spins")
 parser.add_argument("--assume-nonprecessing",action='store_true', help="Force analysis *without* transverse spins")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
+parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
+parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
 parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
 parser.add_argument("--internal-force-iterations",type=int,default=None,help="If inteeger provided, overrides internal guidance on number of iterations, attempts to force prolonged run. By default puts convergence tests on")
@@ -212,12 +214,15 @@ parser.add_argument("--use-cov-early",action='store_true',help="If provided, use
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restructuring for ILE on OSG. The code will NOT use CVMFS, and instead will try to transfer the frame files.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
-parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
+parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="NOW STANDARD, auto-set if you pass use-osg   Causes flock_local for 'internal' jobs")
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
 
+
+if opts.use_osg:
+    opts.condor_nogrid_nonworker = True
 
 if (opts.use_ini):
     # Attempt to lazy-parse all command line arguments from ini file
@@ -272,6 +277,11 @@ if opts.internal_use_amr:
     # Disable incompatible settings
     opts.external_fetch_native_from = None
     opts.cip_explode_jobs= None
+
+    amr_q_coord = "delta"
+    amr_q_coord_range="0.0,0.95"
+#    amr_q_coord = "eta"
+#    amr_q_coord_range="0.05,0.249999"
 
 if opts.internal_force_iterations and opts.internal_propose_converge_last_stage:
     print("==> Inconsistent options --internal-force-iterations and --internal-propose-converge-last-stage, overriding former")
@@ -344,13 +354,16 @@ if opts.use_rundir:
 
 
 if opts.choose_data_LI_seglen:
+    coinc_file = "coinc.xml"
     if not(opts.use_coinc):
         cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
         if not(opts.use_legacy_gracedb):
             cmd_event += " > coinc.xml "
         os.system(cmd_event)
         cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
-    event_dict = retrieve_event_from_coinc("coinc.xml")
+    elif opts.use_coinc:
+        coinc_file = opts.use_coinc
+    event_dict = retrieve_event_from_coinc(coinc_file)
     P=lalsimutils.ChooseWaveformParams()
     P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     P.fmin = opts.fmin  #  fmin we will use internally
@@ -576,9 +589,12 @@ if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
     cmd += " --manual-ifo-list {} ".format(opts.manual_ifo_list)
 if (opts.internal_marginalize_distance):
     cmd += " --internal-marginalize-distance "
+if (opts.internal_marginalize_distance_file ):
+    cmd += " --internal-marginalize-distance-file {} ".format(opts.internal_marginalize_distance_file)
 if not(opts.internal_distance_max is None):
     cmd += ' --internal-distance-max {} '.format(opts.internal_distance_max)
-
+if opts.add_extrinsic:
+    cmd += " --last-iteration-extrinsic "
 
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
 if opts.use_ini:
@@ -762,9 +778,9 @@ if opts.internal_use_amr:
     lines =[ ] 
     # Manually implement aligned spin.  Should parse some of this from ini file ...
     print(" AMR prototype: Using hardcoded aligned-spin settings, setting arguments")
-    internal_overlap_threshold = 0.01 # smallest it could be
-    if "SNR" in event_dict:
-        internal_overlap_threshold = np.max([internal_overlap_threshold, 0.5*(6./event_dict["SNR"])**2])  # try to 
+    internal_overlap_threshold = 0.001 # smallest it should be
+    # if "SNR" in event_dict:
+    #     internal_overlap_threshold = np.max([internal_overlap_threshold, 0.5*(6./event_dict["SNR"])**2])  # try to 
     internal_overlap_threshold = 1- internal_overlap_threshold
     amr_coord_dist  = "mchirp_eta"
     if opts.internal_use_aligned_phase_coordinates:
@@ -773,9 +789,11 @@ if opts.internal_use_amr:
     if opts.internal_use_amr_bank:
         lines[0] +=" --intrinsic-param mass1 --intrinsic-param mass2 "  # output by default written this way for bank files
     else:
-        lines[0] +=" --intrinsic-param mchirp --intrinsic-param eta "     # if we built the bank, we used mc, eta coordiantes
+        lines[0] +=" --intrinsic-param mchirp --intrinsic-param {} ".format(amr_q_coord)     # if we built the bank, we used mc, eta/q coordinates
     if not(opts.assume_nospin):
-        lines[0] += " --intrinsic-param spin1z --intrinsic-param spin2z "
+        lines[0] += " --intrinsic-param spin1z "
+        if not(opts.assume_lowlatency_tradeoffs):
+            lines[0] += " --intrinsic-param spin2z "
 
 with open("args_cip_list.txt",'w') as f: 
    for line in lines:
@@ -865,14 +883,17 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
     cmd += " --cip-exe `which util_AMRGrid.py ` "
-    if not(os.path.exists("coinc.xml")):
+    coinc_file = "coinc.xml"
+    if not(os.path.exists("coinc.xml")) and not(opts.use_coinc):
         # re-download coinc if not already present
         cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
         if not(opts.use_legacy_gracedb):
             cmd_event += " > coinc.xml "
         os.system(cmd_event)
         cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
-    event_dict = retrieve_event_from_coinc("coinc.xml")
+    elif opts.use_coinc:
+        coinc_file = opts.use_coinc
+    event_dict = retrieve_event_from_coinc(coinc_file)
     if opts.internal_use_amr_bank:
         with open("toy.ini","w") as f:
             f.write("""
@@ -904,7 +925,10 @@ points-per-side=8
         amr_coord_dist  = "mchirp_eta"
         if opts.internal_use_aligned_phase_coordinates:
             amr_coord_dist = "mu1_mu2_q_s2z"
-        cmd_amr_init = "util_AMRGrid.py --mc-min {} --mc-max {} --distance-coordinates {} --initial-region mchirp={},{} --initial-region eta=0.05,0.24999 --initial-region spin1z=-0.8,0.8 --initial-region spin2z=-0.8,0.8  --points-per-side 8 --fname-output-samples proposed-grid  --setup intrinsic_grid_all_iterations   ".format(mc_min,mc_max,amr_coord_dist,mc_min,mc_max)
+        cmd_amr_init = "util_AMRGrid.py --mc-min {} --mc-max {} --distance-coordinates {} --initial-region mchirp={},{} --initial-region {}={} --initial-region spin1z=-0.8,0.8  --points-per-side 8 --fname-output-samples proposed-grid  --setup intrinsic_grid_all_iterations   ".format(mc_min,mc_max,amr_coord_dist,mc_min,mc_max,amr_q_coord,amr_q_coord_range)
+        if not(opts.assume_lowlatency_tradeoffs):
+            cmd_amr_init += "  --initial-region spin2z=-0.8,0.8  " # for lowlatency tradeoffs, drop spin2 as superfluous
+        print(" INIT ", cmd_amr_init)
         os.system(cmd_amr_init)
     
 if opts.external_fetch_native_from:

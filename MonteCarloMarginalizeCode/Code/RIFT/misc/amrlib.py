@@ -581,10 +581,16 @@ def check_grid(grid, intr_prms, distance_coordinates,mass_lower_bound=1):
             bounds_mask = check_tau0tau3(grid_check[m1_axis], grid_check[m2_axis])
         elif distance_coordinates == "mchirp_eta":
             bounds_mask = check_mchirpeta(grid_check[m1_axis], grid_check[m2_axis])
-    if 'mchirp' in intr_prms:
+    if 'mchirp' in intr_prms and 'eta' in intr_prms:
         mc_axis, eta_axis = intr_prms.index("mchirp"), intr_prms.index("eta")
         bounds_mask = numpy.logical_and(grid_check[eta_axis] <=0.25 ,grid_check[eta_axis]>0)
         m1v,m2v = lalsimutils.m1m2( grid_check[mc_axis],grid_check[eta_axis])
+        bounds_mask = numpy.logical_and(bounds_mask, m2v>mass_lower_bound)
+    elif 'mchirp' in intr_prms and 'delta' in intr_prms:
+        mc_axis, delta_axis = intr_prms.index("mchirp"), intr_prms.index("delta")
+        bounds_mask = numpy.logical_and(grid_check[delta_axis] <=1 ,grid_check[delta_axis]>=0)
+        eta_vals = 0.25*(1-grid_check[delta_axis]**2)
+        m1v,m2v = lalsimutils.m1m2( grid_check[mc_axis],eta_vals)
         bounds_mask = numpy.logical_and(bounds_mask, m2v>mass_lower_bound)
     elif distance_coordinates == "mu1_mu2_q_s2z":
         # spin1z axis is replaced by values for q if distance_coordinates = mu1_mu2_q_s2z'
@@ -647,6 +653,13 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
         intr_prms_extended[m1_idx] = "mass1"
         intr_prms_extended[m2_idx] = "mass2"
         pts_extended[:,m1_idx], pts_extended[:,m2_idx] = transform_mceta_m1m2(pts[:,m1_idx], pts[:,m2_idx])
+    elif ('mchirp' in intr_prms) and 'delta' in intr_prms:
+        m1_idx,m2_idx = intr_prms.index("mchirp"), intr_prms.index("delta")
+        intr_prms_extended[m1_idx] = "mass1"
+        intr_prms_extended[m2_idx] = "mass2"
+        eta_vals = 0.25*(1-pts[:,m2_idx]**2)
+        pts_extended[:,m1_idx], pts_extended[:,m2_idx] = transform_mceta_m1m2(pts[:,m1_idx], pts[:,m2_idx])
+        
     else:
         raise("apply_transform: Cannot perform requested transformation")
     if mass_transform == "mu1_mu2_q_s2z":
