@@ -200,6 +200,7 @@ parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does 
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help='Create options to marginalize over distance in the pipeline. Also create any necessary marginalization files at runtime, based on the maximum distance assumed')
+parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,default=None,help='If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances')
 parser.add_argument("--internal-use-amr",action='store_true',help='If present,the code will set up to use AMR.  Currently not much implemented here, and most of the heavy lifting is elsewhere')
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
@@ -906,12 +907,19 @@ if opts.lowlatency_propose_approximant:
 
 if not(internal_dmax is None):
     helper_ile_args +=  " --d-max " + str(int(internal_dmax))
-    if opts.internal_marginalize_distance:
+    if opts.internal_marginalize_distance and not(opts.internal_marginalize_distance_file):
         # Generate marginalization file (should probably be in DAG? But we may also want to override it with internal file)
         cmd_here = " util_InitMargTable --d-max {} ".format(internal_dmax)
         os.system(cmd_here)
         helper_ile_args += " --distance-marginalization  --distance-marginalization-lookup-table {}/distance_marginalization_lookup.npz ".format(opts.working_directory)
-
+    elif opts.internal_marginalize_distance_file:
+        helper_ile_args += " --distance-marginalization "
+        if opts.use_osg:
+            helper_ile_args += " --distance-marginalization-lookup-table {} ".format(opts.internal_marginalize_distance_file)
+        else:
+            transfer_files += [ opts.internal_marginalize_distance_file ]
+            fname_short = opts.internal_marginalize_distance_file.split('/')[-1]
+            helper_ile_args += " --distance-marginalization-lookup-table {} ".format(fname_short)
 
 if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
     # Manually set the data start and end time.

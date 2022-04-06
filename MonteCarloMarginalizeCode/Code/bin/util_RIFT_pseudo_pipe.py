@@ -158,6 +158,7 @@ parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="F
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
+parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
 parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
 parser.add_argument("--internal-force-iterations",type=int,default=None,help="If inteeger provided, overrides internal guidance on number of iterations, attempts to force prolonged run. By default puts convergence tests on")
@@ -583,6 +584,8 @@ if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
     cmd += " --manual-ifo-list {} ".format(opts.manual_ifo_list)
 if (opts.internal_marginalize_distance):
     cmd += " --internal-marginalize-distance "
+if (opts.internal_marginalize_distance_file ):
+    cmd += " --internal-marginalize-distance-file {} ".format(opts.internal_marginalize_distance_file)
 if not(opts.internal_distance_max is None):
     cmd += ' --internal-distance-max {} '.format(opts.internal_distance_max)
 if opts.add_extrinsic:
