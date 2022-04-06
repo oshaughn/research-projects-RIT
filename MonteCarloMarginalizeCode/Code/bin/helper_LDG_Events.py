@@ -1307,7 +1307,10 @@ with open("helper_cip_arg_list.txt",'w+') as f:
 #   - for convenience, transform last Z 
 #   - note Z will override iteration thresholding anyways
 if opts.propose_converge_last_stage:
-    helper_cip_arg_list[-1] = helper_cip_arg_list[-1].replace('Z','1') # treat as one iteration
+    for indx in np.arange(len(helper_cip_arg_list)):
+        firstword = helper_cip_arg_list[indx].split(' ')[0]
+        if firstword == 'Z':
+            helper_cip_arg_list[indx]  = '1 ' +  ' '.join(helper_cip_arg_list[indx].split(' ')[1:])
 n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
 n_its_to_not_test = np.sum(n_its) - n_its[-1]
 helper_test_args += " --iteration-threshold {} ".format(int(n_its_to_not_test))
