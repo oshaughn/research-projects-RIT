@@ -588,7 +588,7 @@ def check_grid(grid, intr_prms, distance_coordinates,mass_lower_bound=1):
         bounds_mask = numpy.logical_and(bounds_mask, m2v>mass_lower_bound)
     elif 'mchirp' in intr_prms and 'delta' in intr_prms:
         mc_axis, delta_axis = intr_prms.index("mchirp"), intr_prms.index("delta")
-        bounds_mask = numpy.logical_and(grid_check[delta_axis] <=1 ,grid_check[delta_axis]>0)
+        bounds_mask = numpy.logical_and(grid_check[delta_axis] <=1 ,grid_check[delta_axis]>=0)
         eta_vals = 0.25*(1-grid_check[delta_axis]**2)
         m1v,m2v = lalsimutils.m1m2( grid_check[mc_axis],eta_vals)
         bounds_mask = numpy.logical_and(bounds_mask, m2v>mass_lower_bound)
