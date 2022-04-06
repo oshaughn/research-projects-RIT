@@ -392,6 +392,9 @@ if opts.sim_xml:
         sys.exit(0)
     n_event_max= np.min([len(P_list), opts.event+opts.n_events_to_analyze])
     P_list = P_list[opts.event:n_event_max]
+    if len(P_list) ==0:
+      print(" No events to analyze, terminating with success ")
+      sys.exit(0)
     for P in P_list:
         P.radec =False  # do NOT propagate the epoch later
         P.fref = opts.reference_freq
@@ -1180,11 +1183,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     if opts.save_samples and opts.output_file:
       import copy
       samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!
-      if opts.distance_marginalization:
-        # Add distance key to file.  Use reference distance, all samples at same distance
-        from RIFT.misc.samples_utils import add_field
-        samples = add_field(samples, [('distance',float)])
-        samples["distance"] =  factored_likelihood.distMpcRef * lal.PC_SI * 1e6
+      # Insert reference distance if it was marginalized over
+      if "distance" not in samples:
+        # Not distance output is the same as internal calculations: in *Mpc*
+        samples["distance"] = np.full_like(
+          samples["psi"],
+          factored_likelihood.distMpcRef,  #*1e6*lal.PC_SI,
+          )
       if opts.inclination_cosine_sampler:
         samples["inclination"] = numpy.arccos(samples["inclination"].astype(numpy.float64))
       if opts.declination_cosine_sampler:
@@ -1219,9 +1224,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       dict_out={"mass1": m1, "mass2": m2, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": numpy.sqrt(var)/res, "ttotal": sampler.ntotal}
       if 'distance' in pinned_params:
             dict_out['distance'] = pinned_params["distance"]
-      xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=dict_return["convergence_test_results"]["normal_integral"], **dict_out)
+      converged_result = False
+      if "convergence_test_results" in dict_return:
+        converged_result = dict_return["convergence_test_results"]["normal_integral"]
+      xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=converged_result, **dict_out)
       fname_output_xml = opts.output_file +"_"+str(indx_event)+"_" + ".xml.gz"
-      utils.write_filename(xmldoc, fname_output_xml, gz=True)
+      utils.write_filename(xmldoc, fname_output_xml, compress="gz")
+
+
+
 
     if opts.maximize_only and opts.output_file:
       # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)

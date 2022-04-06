@@ -65,6 +65,7 @@ import lalsimulation as lalsim
 import lal
 import functools
 import itertools
+import json
 
 from glue import pipeline # https://github.com/lscsoft/lalsuite-archive/blob/5a47239a877032e93b1ca34445640360d6c3c990/glue/glue/pipeline.py
 
@@ -183,6 +184,7 @@ parser.add_argument("--input-grid",default="overlap-grid.xml.gz")
 parser.add_argument("--cip-args",default=None,help="filename of args_cip.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified. ")
 parser.add_argument("--cip-args-list",default=None,help="filename of args_cip_list.file, which holds CIP arguments.  Overrides cip-args if present. One CIP_n.sub file is created for each line in the file, which is used for an integer m iterations, where m is the first item of each line (normally 'X' in CIP)")
 parser.add_argument("--cip-explode-jobs",default=None,type=int,help="Number of CIP jobs to use to use in parallel to produce posterior samples for each iteration. Code will generate a fit first, save it, use this number of workers in parallel to generate samples, and then consolidates the samples together. Note that --n-output-samples and --n-eff are NOT adjusted ... if the user wants to adaptively fix the resolution, that needs to be controlled at a higher level")
+parser.add_argument("--cip-explode-jobs-last",default=None,type=int,help="Like cip_explode_jobs, but ONLY for last batch. Only applies if using --cip-args-list. Note does NOT adjust control settinggs like n-eff, n-max, so you will need to do this in outside control tools")
 parser.add_argument("--cip-explode-jobs-dag",action='store_true',help="If using a worker, that worker has its own node, not a 'queue N' statement on one node. Helps for stability with many workers with high failure probability")
 parser.add_argument("--cip-explode-jobs-flat",action='store_true',help="Pass to use the same arguments for all worker jobs. The main job will be /bin/true.")
 parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball.py")
@@ -195,6 +197,7 @@ parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt fil
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
 parser.add_argument("--general-retries",default=0,type=int,help="Number of retry attempts for internal jobs (convert, CIP, ...). (These can fail, albeit more rarely, usually due to filesystem problems)")
+parser.add_argument("--general-request-disk",default="4M",type=str,help="Request disk passed to condor. Must be done for all jobs now")
 parser.add_argument("--ile-n-events-to-analyze",default=1,type=int,help="If >1, you are using ILE_batchmode.  Structures the DAG correctly to account for batch cadence")
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
@@ -230,6 +233,7 @@ parser.add_argument('--neff-threshold',default=800,type=int,help="Number of samp
 parser.add_argument("--workflow",default='single',help="[single|fit+posterior|full] describes workflow layout used.  'Single' is a single node, running the fit and posterior for each iteration; 'full' produces many followup jobs to produce a reliable posterior")
 parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior jobs. Used in posterior and fit+posterior workflows")
 parser.add_argument("--use-bw-psd",action='store_true',help="Use BW PSD, attempting to use fiducial arguments as in LI for placement (i.e., signal at seglen -2). Assumes LI style data convention.  Necessary BW will be parsed out of ile-args.txt (required)")
+parser.add_argument("--use-full-submit-paths",action='store_true',help="DAG created has full paths to submit files generated. Note this is implemented on a per-file/as-needed basis, mainly to facilitate using this dag as an external subdag")
 opts=  parser.parse_args()
 
 
@@ -242,6 +246,7 @@ if opts.condor_nogrid_nonworker:
 
 
 working_dir_inside_local = working_dir_inside = opts.working_directory
+os.chdir(opts.working_directory)
 # working_dir_inside_local is for jobs on local nodes
 if opts.use_singularity or opts.use_osg:
     working_dir_inside = "./" # all files on the remote machine are in the current directory
@@ -274,13 +279,27 @@ cip_args_lines = None
 if not (opts.cip_args_list is None):
     with open(opts.cip_args_list) as f:
         cip_args_lines = f.readlines()
-    cip_args_n = [int(x.split(' ')[0]) for x in cip_args_lines]  # Pull off the integer
+    # if one of the prefixes is 'Z', we will be calling a RECURSIVE dag writer, warning!  It will go inside the corresponding CIP directory...
+    cip_args_prefixes = [(x.split(' ')[0]) for x in cip_args_lines]  # Pull off the integer
+    # 
+    cip_args_n = (cip_args_prefixes.copy())
+    creating_subdag_list = []
+    creating_subdag_arg_list = []
+    for indx in np.arange(len(cip_args_n)):
+        if cip_args_prefixes[indx][0]=='Z':
+            creating_subdag_list.append(indx)
+            creating_subdag_arg_list.append(' '.join(cip_args_lines[indx].split(' ')[1:]))
+            cip_args_n[indx] = 1  # one nominal iteration; the CIP stage in this iteration is replaced by 'run until convergence'
+        else:
+            cip_args_n[indx]  = int(cip_args_n[indx])
+#    cip_args_n = [int(x.split(' ')[0]) for x in cip_args_lines]  # Pull off the integer
     cip_args_lines = [' '.join(x.split(' ')[1:]) for x in cip_args_lines] # pull off the integer
     cip_args_lines = [x.replace('[', ' \'[').replace(']', ']\'').rstrip() for x in cip_args_lines]
     cip_args_lines = [x.lstrip() for x in cip_args_lines] # remove leading whitespace
     for line in cip_args_lines:
         print(" CIP ", line)
 
+    # Above only makes sense if last iteration isn't 'Z'
     if np.sum(cip_args_n) < opts.n_iterations:
         print(" Not enough CIP versions to complete all requested iterations; extending ")
         cip_args_n[-1]  = opts.n_iterations - np.sum(cip_args_n)
@@ -388,7 +407,7 @@ if opts.gridinit_args:
 # Copy seed grid into place as overlap-grid-0.xml.gz
 it_start = opts.start_iteration
 n_initial = opts.n_samples_per_job
-if (it_start is 0) and not gridinit_args:
+if (it_start == 0) and not gridinit_args:
     shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
     n_initial = len(lalsimutils.xml_to_ChooseWaveformParams_array("overlap-grid-0.xml.gz"))
 
@@ -483,6 +502,10 @@ if opts.use_bw_psd:
         bw_universe='vanilla'
     bw_job, bw_job_name = dag_utils.write_psd_sub_BW_monoblock(cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/",exe=opts.bw_exe,no_grid=no_worker_grid,universe=bw_universe)
     bw_job.add_condor_cmd("initialdir",bw_dir+"/$(ifo)")
+    bw_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+bw_job.get_sub_file()
+        bw_job.set_sub_file(fname)
     bw_job.write_sub_file()
 
     # bw_job, bw_job_name = dag_utils.write_psd_sub_BW_step0(channel_dict=channel_dict_bw,cache_file=opts_ile.cache_file,psd_length=seglen,srate=opts_ile.srate,event_time=opts_ile.event_time,log_dir=bw_dir+"/",exe=opts.bw_exe)
@@ -497,6 +520,10 @@ if opts.use_bw_psd:
 #    convert_psd_job, convert_psd_job_name = dag_utils.write_convertpsd_sub(ifo="$(ifo)",file_input=bw_dir+"/" + str(event_time_trunc) + "_$(ifo)-PSD.dat",log_dir=bw_dir+"/")
     convert_psd_job, convert_psd_job_name = dag_utils.write_convertpsd_sub(ifo="$(ifo)",file_input=bw_dir+"/$(ifo)/$(ifo)_fairdraw_psd.dat",log_dir=bw_dir+"/$(ifo)/")
     convert_psd_job.add_condor_cmd('initialdir',working_dir_inside)
+    convert_psd_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+convert_job.get_sub_file()
+        convert_job.set_sub_file(fname)
     convert_psd_job.write_sub_file()
 
 
@@ -531,7 +558,7 @@ ile_exe =opts.ile_exe
 if (opts.ile_n_events_to_analyze > 1) and (exe is None):
     ile_exe = dag_utils.which("integrate_likelihood_extrinsic_batchmode")
 output_file_names = None
-request_disk=False
+request_disk=opts.general_request_disk
 if opts.use_singularity or opts.use_osg:
     transfer_file_names.append("../overlap-grid-$(macroiteration).xml.gz")
     request_disk=4000
@@ -548,6 +575,9 @@ ile_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroit
 ile_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).log")
 ile_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).err")
 ile_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).out")
+if opts.use_full_submit_paths:
+    fname = opts.working_directory+"/"+ile_job.get_sub_file()
+    ile_job.set_sub_file(fname)
 ile_job.write_sub_file()
 
 if not (opts.puff_args is None):
@@ -560,6 +590,9 @@ if not (opts.puff_args is None):
     ilePuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).log")
     ilePuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).err")
     ilePuff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).out")
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+ilePuff_job.get_sub_file()
+        ilePuff_job.set_sub_file(fname)
     ilePuff_job.write_sub_file()
 
 if not (fetch_args is None):
@@ -572,6 +605,9 @@ if not (fetch_args is None):
     ileFetch_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).log")
     ileFetch_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).err")
     ileFetch_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).out")
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+ileFetch_job.get_sub_file()
+        ileFetch_job.set_sub_file(fname)
     ileFetch_job.write_sub_file()
 
 
@@ -587,6 +623,9 @@ if  (opts.last_iteration_extrinsic):
     ileExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).log")
     ileExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).err")
     ileExtr_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).out")
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+ileExtr_job.get_sub_file()
+        ileExtr_job.set_sub_file(fname)
     ileExtr_job.write_sub_file()
     
     # Convert task
@@ -597,6 +636,10 @@ if  (opts.last_iteration_extrinsic):
     convertExtr_job.add_condor_cmd("initialdir",opts.working_directory)
     convertExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/convert-$(macroevent)-$(macroindx).log")
     convertExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/convert-$(macroevent)-$(macroindx).err")
+    convertExtr_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+convertExtr_job.get_sub_file()
+        convertExtr_job.set_sub_file(fname)
     convertExtr_job.write_sub_file()
 
     # Resample task 
@@ -605,6 +648,10 @@ if  (opts.last_iteration_extrinsic):
     resample_job.add_condor_cmd("initialdir",opts.working_directory)
     resample_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).log")
     resample_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).err")
+    resample_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+resample_job.get_sub_file()
+        resample_job.set_sub_file(fname)
     resample_job.write_sub_file()
 
     # Combination task at end -- probably should be a general utility
@@ -613,6 +660,10 @@ if  (opts.last_iteration_extrinsic):
     cat_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/cat-$(cluster)-$(process).log")
     cat_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/cat-$(cluster)-$(process).out")
     cat_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/cat-$(cluster)-$(process).err")
+    cat_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+cat_job.get_sub_file()
+        cat_job.set_sub_file(fname)
     cat_job.write_sub_file()
 
 
@@ -625,6 +676,10 @@ con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_di
 con_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(cluster)-$(process).log")
 con_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(cluster)-$(process).err")
 con_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(cluster)-$(process).out")
+con_job.add_condor_cmd('request_disk',opts.general_request_disk)
+if opts.use_full_submit_paths:
+    fname = opts.working_directory+"/"+con_job.get_sub_file()
+    con_job.set_sub_file(fname)
 con_job.write_sub_file()
 
 ##   Unify job
@@ -634,6 +689,10 @@ unify_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).log")
 unify_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).err")
 unify_job.set_stdout_file(opts.working_directory+"/all.net")
+unify_job.add_condor_cmd('request_disk',opts.general_request_disk)
+if opts.use_full_submit_paths:
+    fname = opts.working_directory+"/"+unify_job.get_sub_file()
+    unify_job.set_sub_file(fname)
 unify_job.write_sub_file()
 
 
@@ -643,7 +702,7 @@ unify_job.write_sub_file()
 cip_args_base = cip_args
 out_dir_base = opts.working_directory
 cip_exe = opts.cip_exe
-if not(opts.cip_explode_jobs is None):
+if (opts.cip_explode_jobs):
     if not opts.cip_explode_jobs_flat:
         cip_args_base += " --fit-save-gp " + opts.working_directory + "/iteration_$(macroiteration)_cip/my_fit"
     else:
@@ -656,10 +715,14 @@ cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroit
 cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
 cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
 cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
+cip_job.add_condor_cmd('request_disk',opts.general_request_disk)
 if opts.cip_explode_jobs:
     cip_job.add_arg('--not-worker')  # prevent anything that causes failure, reduce writing of output
+if opts.use_full_submit_paths:
+    fname = opts.working_directory+"/"+cip_job.get_sub_file()
+    cip_job.set_sub_file(fname)
 cip_job.write_sub_file()
-if not(opts.cip_explode_jobs is None):
+if opts.cip_explode_jobs:
     print(" Exploding stage 1, with  ",opts.cip_explode_jobs, " workers producing samples ")
     cip_args_base = cip_args_base.replace('fit-save-gp','fit-load-gp')
     n_explode =opts.cip_explode_jobs
@@ -675,6 +738,10 @@ if not(opts.cip_explode_jobs is None):
     cip_job_worker.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
     cip_job_worker.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
     cip_job_worker.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
+    cip_job_worker.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+cip_job_worker.get_sub_file()
+        cip_job_worker.set_sub_file(fname)
     cip_job_worker.write_sub_file()
 
     # Create worker join job
@@ -685,6 +752,10 @@ if not(opts.cip_explode_jobs is None):
     join_cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/join-$(cluster)-$(process).log")
     join_cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/join-$(cluster)-$(process).err")
     join_cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/join-$(cluster)-$(process).out")
+    join_cip_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+join_cip_job.get_sub_file()
+        join_cip_job.set_sub_file(fname)
     join_cip_job.write_sub_file()
 
 ##   puffball job: default case
@@ -696,6 +767,10 @@ if puff_args and puff_cadence:
     puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).log")
     puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).err")
     puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).out")
+    puff_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+puff_job.get_sub_file()
+        puff_job.set_sub_file(fname)
     puff_job.write_sub_file()
 
 
@@ -708,6 +783,10 @@ if fetch_args:
     fetch_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/fetch-$(cluster)-$(process).log")
     fetch_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/fetch-$(cluster)-$(process).err")
     fetch_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/fetch-$(cluster)-$(process).out")
+    fetch_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+fetch_job.get_sub_file()
+        fetch_job.set_sub_file(fname)
     fetch_job.write_sub_file()
 
 
@@ -715,10 +794,11 @@ if fetch_args:
 cip_job_list = None
 if  (cip_args_lines is None):
     # Write the default cip_job into cip_job_list n times
+    # add some redundancy in case this happens : we're hitting a problem with having too few copies of this/fencepost error later
     if opts.cip_explode_jobs is None:
-        cip_job_list =opts.n_iterations* [cip_job ]
+        cip_job_list =(opts.n_iterations)* [cip_job ]
     else:
-        cip_job_list =opts.n_iterations* [ [cip_job, cip_job_worker] ]
+        cip_job_list =(opts.n_iterations)* [ [cip_job, cip_job_worker] ]
 else:  
     # we have different cip jobs for different iteration numbers
     cip_job_list = []
@@ -727,12 +807,14 @@ else:
         cip_args_extra = ""
         cip_args_truncate=''
         cip_exe = opts.cip_exe
-        if not(opts.cip_explode_jobs is None):
+        if opts.cip_explode_jobs:
             if not opts.cip_explode_jobs_flat:
                 cip_args_extra += " --fit-save-gp " + opts.working_directory + "/iteration_$(macroiteration)_cip/my_fit"
+            else:
+                cip_exe = "/bin/true"
             out_dir_base += "/iteration_$(macroiteration)_cip/"
             # set n_eff for primary job to be small. ONLY used for the primary non-worker job
-            cip_args_truncate = " --n-eff 5 --n-max 10000 "  # cap n_eff and number of iterations for non-worker jobs. Nonzero to avoid accidental crashes.
+            cip_args_truncate = " --n-eff 5 --n-max 10000 --n-output-samples 1 "  # cap n_eff, number of iterations, and *output samples* for non-worker jobs, to avoid contamination
         # Write the appropriate CIP jobs. [note only one CIP per iteration, so unique
         cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP_'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra+cip_args_truncate,request_memory=opts.request_memory_CIP,input_net=opts.working_directory+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=out_dir_base,exe=cip_exe,universe=local_worker_universe,no_grid=no_worker_grid)
         # Modify: set 'initialdir'
@@ -741,12 +823,16 @@ else:
         cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
         cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
         cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
+        cip_job.add_condor_cmd('request_disk',opts.general_request_disk)
         if opts.cip_explode_jobs:
             cip_job.add_arg("--not-worker")
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory+"/"+cip_job.get_sub_file()
+            cip_job.set_sub_file(fname)
         cip_job.write_sub_file()
 
 
-        if not(opts.cip_explode_jobs is None):
+        if opts.cip_explode_jobs:
            print(" Exploding stage 2, with  ",opts.cip_explode_jobs, " workers producing samples ")
            n_explode =opts.cip_explode_jobs
            fname_out = 'overlap-grid-$(macroiterationnext)-$(process)'
@@ -766,23 +852,40 @@ else:
            cip_job_worker.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cipworker-$(cluster)-$(process).log")
            cip_job_worker.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cipworker-$(cluster)-$(process).err")
            cip_job_worker.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cipworker-$(cluster)-$(process).out")
+           cip_job_worker.add_condor_cmd('request_disk',opts.general_request_disk)
+           if opts.use_full_submit_paths:
+               fname = opts.working_directory+"/"+cip_job_worker.get_sub_file()
+               cip_job_worker.set_sub_file(fname)
            cip_job_worker.write_sub_file()
 
 
-       # augment the CIP job list
-        if opts.cip_explode_jobs is None:
-            cip_job_list = cip_job_list + cip_args_n[indx]*[cip_job]
+        # augment the CIP job list
+        # Note, if we have a subdag, we create the word "subdag"
+        if not(cip_args_prefixes[indx][0]=='Z'):
+            n_to_add = int(cip_args_n[indx])
+            if (indx == len(cip_args_lines)-1) and np.sum(cip_args_n[:indx])<opts.n_iterations:
+                n_to_add = int(opts.n_iterations - np.sum(cip_args_n[:(indx-1)]) )
+            if opts.cip_explode_jobs is None:
+                cip_job_list = cip_job_list + n_to_add*[cip_job]
+            else:
+                print(" Exploding stage 3 ")
+                cip_job_list = cip_job_list + n_to_add*[[cip_job,cip_job_worker]]
         else:
-            print(" Exploding stage 3 ")
-            cip_job_list = cip_job_list + cip_args_n[indx]*[[cip_job,cip_job_worker]]
-
+            print(" Indefinite subdag-to-convergence requested for group ", indx)
+            cip_job_list += ["Subdag"]
+print(" ===> Iteration size ", len(cip_job_list), opts.n_iterations)
 ##   Test job (terminate, convergence
 if opts.test_args:
+    test_node_list = []
     ##  Convert job : make results accessible after every iteration.  (Only performed if the tests are active, to make my life easier)
     convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe)
     convert_job.add_condor_cmd("initialdir",opts.working_directory)
     convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).log")
     convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).err")
+    convert_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+convert_job.get_sub_file()
+        convert_job.set_sub_file(fname)
     convert_job.write_sub_file()
 
 
@@ -793,6 +896,10 @@ if opts.test_args:
     test_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).log")
     test_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).err")
     test_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).out")
+    test_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+test_job.get_sub_file()
+        test_job.set_sub_file(fname)
     test_job.write_sub_file()
 
 
@@ -809,6 +916,10 @@ if opts.plot_args and opts.test_args:
     plot_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).log")
     plot_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).err")
     plot_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_plot/logs/test-$(cluster)-$(process).out")
+    plot_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+plot_job.get_sub_file()
+        plot_job.set_sub_file(fname)
     plot_job.write_sub_file()
 
 
@@ -817,6 +928,10 @@ if opts.gridinit_args:
     gridinit_job.set_log_file(opts.working_directory+"/init-$(cluster)-$(process).log")
     gridinit_job.set_stderr_file(opts.working_directory+"init--$(cluster)-$(process).err")
     gridinit_job.set_stdout_file(opts.working_directory+"/init-$(cluster)-$(process).out")
+    gridinit_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+gridinit_job.get_sub_file()
+        gridinit_job.set_sub_file(fname)
     gridinit_job.write_sub_file()
 
 
@@ -890,7 +1005,9 @@ if opts.use_bw_psd:
 
 n_group = opts.ile_n_events_to_analyze
 
+unify_node_list = []
 for it in np.arange(it_start,opts.n_iterations):
+    print(it, opts.n_iterations)
     consolidate_now = None
     fit_node_now = None
     ile_nodes_now =[]
@@ -903,6 +1020,7 @@ for it in np.arange(it_start,opts.n_iterations):
     unify_node.add_macro("macroiteration",it)
     unify_node.add_parent(con_node)
     unify_node.set_retry(opts.general_retries)
+    unify_node_list.append(unify_node)
     
     # Create one node per job
     n_jobs_this_time = opts.n_samples_per_job
@@ -966,10 +1084,115 @@ for it in np.arange(it_start,opts.n_iterations):
 
     # Create fit node, which depends on consolidate node
     cip_job = cip_job_list[it]
+#    print(it, cip_job,creating_subdag_arg_list)
     if isinstance(cip_job,list):
         cip_worker_job = cip_job[1]
         cip_job=cip_job[0]
-    fit_node = pipeline.CondorDAGNode(cip_job)
+    elif isinstance(cip_job, str):
+        print(" ==> attempting indefinite convergence subdag : {} <== ".format(it))
+        # Subdag procedure, with indefinite convergence being requested
+        # Write modified CIP arg string to file!
+        #   - problem, need to know which CIP arg list to use.  Assume list exists
+        subdag_args_now = creating_subdag_arg_list[0]; creating_subdag_arg_list = creating_subdag_arg_list[1:]
+        cip_args_here = '10 ' + subdag_args_now
+        fname_subdag_cip_args = "iteration_{}_cip/args_cip.txt".format(it)
+        with open(fname_subdag_cip_args,'w') as f:
+            f.write(cip_args_here)
+        # Create dag inside directory, as usual,  pointing to existing run (note grid size issue problem)
+        cmd = "create_event_parameter_pipeline_BasicIteration --use-full-submit-paths "
+        # note we will use subdags, and do this actively.  The 0th iteration needs a SPECIFIC grid though!
+        cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.xml.gz".format(it),opts.ile_exe, opts.ile_args)
+        cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)
+        cmd += " --n-samples-per-job {} ".format(opts.n_samples_per_job) 
+        cmd += " --neff-threshold {} ".format(opts.neff_threshold)
+        if opts.cip_explode_jobs:
+            cmd += " --cip-explode-jobs {} ".format(opts.cip_explode_jobs)
+        if opts.cip_explode_jobs_dag:   # should be deafult
+            cmd += " --cip-explode-jobs-dag "  
+        if opts.request_gpu_ILE:
+            cmd += " --request-gpu-ILE "  # DAG writer needs to make appropririate requests
+        if opts.ile_retries:
+            cmd += " --ile-retries {} ".format(opts.ile_retries)
+        if opts.general_retries:
+            cmd += " --general-retries {} ".format(opts.general_retries)
+        if opts.use_osg:
+            cmd += " --use-osg "
+        if opts.test_args:
+            import re
+            test_args_optin = "X " + test_args  # copy not reference
+            test_args_optin = test_args_optin.replace(' --always-succeed', '')  # tests must operate
+            # remove iteration threshold, so they ALWAYS operate
+            test_args_optin = re.sub('--iteration-threshold [1-9] ', '', test_args_optin)
+        else:
+            test_args_optin = "X  --parameter m1 --method lame "
+        if opts.puff_args and opts.puff_cadence:
+            # always puff in the final stage, it can be dangerous not to
+            cmd += " --puff-args {} --puff-cadence {} ".format(opts.puff_args, opts.puff_cadence)
+        fname_subdag_test_args = opts.working_directory+"/iteration_{}_cip/args_test.txt".format(it)
+        with open(fname_subdag_test_args,'w') as f:
+            f.write(test_args_optin)
+        cmd+= " --test-args {}/iteration_{}_cip/args_test.txt ".format(opts.working_directory,it)
+        cmd += " --working-directory {}/iteration_{}_cip/ ".format(opts.working_directory,it)
+        cmd += " --n-iterations 10 " # default will be 10 iterations
+        # 
+        print(" SUBDAG COMMAND : ", cmd)
+        os.system(cmd)
+        # link the *input* grid in, overwriting the (temporary, placeholder) grid used to create the workflow
+        cmd = "ln -sf {}/overlap-grid-{}.xml.gz iteration_{}_cip/overlap-grid-0.xml.gz".format(opts.working_directory,it,it)
+        os.system(cmd)
+
+        main_subdag =  pipeline.CondorDAGManJob("{}/iteration_{}_cip/marginalize_intrinsic_parameters_BasicIterationWorkflow.dag".format(opts.working_directory,it))  # assumes subdag is created
+
+        # Create viable job
+        main_analysis_node = main_subdag.create_node()
+        main_analysis_node.add_parent(parent_fit_node)
+        main_analysis_node.set_retry(opts.general_retries)
+
+        # Add post script OR NODE to fetch information from the job
+        #   - problem: dagman jobs don't allow post scripts usually, may need to write this manually
+        fname_fetch = opts.working_directory+"/"+"internal_fetch_from_{}.json".format(it)
+        my_dict = {"method":"native", "source":opts.working_directory+"/iteration_{}_cip".format(it),"n_max":3000}
+        with open(fname_fetch,'w') as f:
+            json.dump(my_dict,f)
+        fetch_subdag_args =" --inj-file-out overlap-grid-{}.xml.gz ".format(it+1)
+        fetch_subdag_args += " --input-json {} ".format(fname_fetch)
+        fetch_subdag_job, fetch_subdag_job_name = dag_utils.write_puff_sub(tag='FETCH_{}_subdag'.format(it),log_dir=opts.working_directory+"/"+"iteration_{}_cip/logs/".format(it),arg_str=fetch_subdag_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',out_dir=opts.working_directory,exe=dag_utils.which("util_FetchExternalGrid.py"),universe=local_worker_universe,no_grid=no_worker_grid)
+        fetch_subdag_job.add_condor_cmd('request_disk',opts.general_request_disk)
+        fetch_subdag_job.write_sub_file()
+
+        # Because later we are going to take care of the iteration crap and parents for the 
+        dag.add_node(main_analysis_node)
+        cip_node= main_analysis_node
+        cip_node.add_parent(unify_node)
+        # increment definitions, so the code later works fine
+        unify_node=main_analysis_node
+        cip_job = fetch_subdag_job  # we will create this as a job and make its parent equal to above
+
+        # Create link to HARVEST ALL COMPOSITE DATA generated during subdag operation, so we don't need to regenerate it
+        cmd_fetch_composite = "ln -sf {}/iteration_{}_cip/all.net {}/bonus_subdag_{}.composite ".format(opts.working_directory, it,opts.working_directory,it)
+        os.system(cmd_fetch_composite)
+
+
+        # Create link to FEED  COMPOSITE DATA generated during top-level run into low-level directory
+        # Make sure we are only linking *prior* iterations information, for clarity of provenance
+        for indx in np.arange(it):
+            cmd_fetch_composite = "ln -sf {}/consolidated_{}.composite {}/iteration_{}_cip/input_{}.composite   ".format(opts.working_directory, indx,  opts.working_directory, it,indx)
+            os.system(cmd_fetch_composite)
+
+
+        print(" ==> end setup convergence subdag : {} <== ".format(it))
+        # Need postprocessing, based on previous stage
+
+        # if isinstance(cip_job_list[it-1],list):
+        #     cip_job = cip_job_list[it-1][0]
+        # else:
+        #     cip_job= cip_job_list[it-1]
+
+    # Node generation for cip job tasks
+    if not(isinstance(cip_job,str)):
+        fit_node = pipeline.CondorDAGNode(cip_job)
+    else:
+        fit_node = main_analysis_node
     fit_node.add_macro("macroiteration", it)
     fit_node.add_macro("macroiterationnext", it+1)
     fit_node.set_category("CIP")
@@ -998,7 +1221,12 @@ for it in np.arange(it_start,opts.n_iterations):
             join_node.add_parent(worker_node)  # make sure to add worker node as parent
             dag.add_node(worker_node)
         else:
-            for indx in np.arange(opts.cip_explode_jobs):
+            n_explode = opts.cip_explode_jobs
+            # if we are on the last iteration and we want to use more exploded jobs now, explode more jobs
+            if opts.cip_explode_jobs_last and (it == opts.n_iterations-1): # last iteration
+                print("   Last iteration explode size ", opts.cip_explode_jobs_last)
+                n_explode = opts.cip_explode_jobs_last
+            for indx in np.arange(n_explode):
                 worker_node =pipeline.CondorDAGNode(cip_worker_job)
                 worker_node.add_macro("macroiteration", it)
                 worker_node.add_macro("macroiterationnext", it+1)
@@ -1049,6 +1277,7 @@ for it in np.arange(it_start,opts.n_iterations):
         test_node.add_parent(parent_fit_node)
         test_node.set_category("CONVERGE")
         dag.add_node(test_node)
+        test_node_list.append(test_node)
 
         parent_fit_node=test_node
 
@@ -1118,3 +1347,23 @@ if plot_args:
 dag_name="marginalize_intrinsic_parameters_BasicIterationWorkflow"
 dag.set_dag_file(dag_name)
 dag.write_concrete_dag()
+
+# if convergence tests are active, add the ABORT-DAG-ON operation to the dag we just wrote, and STOP THE DAG WITH SUCCESS if we test ok
+# https://htcondor.readthedocs.io/en/latest/users-manual/dagman-workflows.html
+if opts.test_args:
+    my_names = [x._CondorDAGNode__md5name for x in test_node_list]
+    with open(dag_name+".dag",'a') as f:
+        for name in my_names:
+            f.write("ABORT-DAG-ON "+ name + " 1 RETURN 0 \n")
+
+my_names_unify = [x._CondorDAGNode__md5name for x in unify_node_list]
+indx =0
+with open("confirm_exist.sh",'w') as f:
+    f.write("""#! /bin/bash
+[ -s $1 ]
+""")
+st=os.stat("confirm_exist.sh"); os.chmod("confirm_exist.sh", st.st_mode | stat.S_IEXEC)
+with open(dag_name+".dag",'a') as f:
+    for name in my_names_unify:
+        f.write("SCRIPT POST "+ name + " {}/confirm_exist.sh {}/consolidated_{}.composite \n".format(opts.working_directory,opts.working_directory,indx))
+        indx+=1

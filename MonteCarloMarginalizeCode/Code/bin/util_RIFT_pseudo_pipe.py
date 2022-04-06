@@ -23,6 +23,11 @@ import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
 import configparser as ConfigParser
 
+if ( 'RIFT_LOWLATENCY'  in os.environ):
+    assume_lowlatency = True
+else:
+    assume_lowlatency=False
+
 import shutil
 
 # Default setup assumes the underlying sampling will be *cartesian* 
@@ -149,16 +154,21 @@ parser.add_argument("--assume-nospin",action='store_true', help="Force analysis 
 parser.add_argument("--assume-precessing",action='store_true', help="Force analysis *with* transverse spins")
 parser.add_argument("--assume-nonprecessing",action='store_true', help="Force analysis *without* transverse spins")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
+parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
+parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
 parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
+parser.add_argument("--internal-force-iterations",type=int,default=None,help="If inteeger provided, overrides internal guidance on number of iterations, attempts to force prolonged run. By default puts convergence tests on")
 parser.add_argument("--internal-flat-strategy",action='store_true',help="Use the same CIP options for every iteration, with convergence tests on.  Passes --test-convergence, ")
 parser.add_argument("--internal-use-amr",action='store_true',help="Changes refinement strategy (and initial grid) to use. PRESENTLY WE CAN'T MIX AND MATCH AMR, CIP ITERATIONS, so this is fixed for the whole run right now; use continuation and 'fetch' to augment")
 parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank used for template")
 parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
+parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
+parser.add_argument("--internal-propose-converge-last-stage",action='store_true',help="Pass through to helper")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
@@ -169,7 +179,8 @@ parser.add_argument("--ile-sampler-method",type=str,default=None)
 parser.add_argument("--ile-n-eff",type=int,default=None,help="ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous ")
 parser.add_argument("--cip-sampler-method",type=str,default=None)
 parser.add_argument("--cip-fit-method",type=str,default=None)
-parser.add_argument("--ile-jobs-per-worker",type=int,default=20)
+parser.add_argument("--cip-internal-use-eta-in-sampler",action='store_true', help="Use 'eta' as a sampling parameter. Designed to make GMM sampling behave particularly nicely for objects which could be equal mass")
+parser.add_argument("--ile-jobs-per-worker",type=int,default=None,help="Default will be 20 per worker usually for moderate-speed approximants, and more for very fast configurations")
 parser.add_argument("--ile-no-gpu",action='store_true')
 parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
@@ -190,8 +201,10 @@ parser.add_argument("--general-retries",default=3,type=int)
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this argument to CIP. GP plot for each iteration will be saved. Useful for followup investigations or reweighting. Warning: lots of disk space (1G or so per iteration)")
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
+parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number of jobs to use in last stage.  Hopefully in future auto-set")
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--n-output-samples",type=int,default=8000,help="Number of output samples generated in the final iteration")
+parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
@@ -201,11 +214,53 @@ parser.add_argument("--use-cov-early",action='store_true',help="If provided, use
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restructuring for ILE on OSG. The code will NOT use CVMFS, and instead will try to transfer the frame files.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
-parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
+parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="NOW STANDARD, auto-set if you pass use-osg   Causes flock_local for 'internal' jobs")
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
+
+
+if opts.use_osg:
+    opts.condor_nogrid_nonworker = True
+
+if (opts.use_ini):
+    # Attempt to lazy-parse all command line arguments from ini file
+    config = ConfigParser.ConfigParser()
+    config.optionxform=str # force preserve case! Important for --choose-data-LI-seglen
+    config.read(opts.use_ini)
+    if 'rift-pseudo-pipe' in config:
+        # get the list of items
+        rift_items = dict(config["rift-pseudo-pipe"])
+        config_dict = vars(opts) # access dictionry of options
+#        print(config_dict)
+#        print(list(rift_items))
+
+        # acounting groups/users: if presnet and NOT DEFINED IN ENV (which dominates!), define them
+        if not('LIGO_USER_NAME'  in os.environ) and 'accounting_group_user' in rift_items:
+            os.environ["LIGO_USER_NAME"] = rift_items['accounting_group_user']
+        if not('LIGO_ACCOUNTING'  in os.environ) and 'accounting_group' in rift_items:
+            os.environ["LIGO_ACCOUNTING"] = rift_items['accounting_group']
+        
+        # attempt to lazy-select the command-line that are present in the ini file section
+        for item in rift_items:
+            item_renamed = item.replace('-','_')
+            if (item_renamed in config_dict):
+                val = rift_items[item].strip()
+#                if not(config_dict[item_renamed]):   # needs to be set to some value. Don't *disable* what is enabled on command line
+                print(" ini file parser (overrides command line, except booleans): ",item, rift_items[item])
+                if val != "":
+                    config_dict[item_renamed] = eval(rift_items[item])
+                else:
+                    config_dict[item_renamed] = True
+        print(config_dict)
+
+if not(opts.ile_jobs_per_worker):
+    opts.ile_jobs_per_worker=20
+    if opts.assume_nospin or opts.assume_nonprecessing or (opts.approx == "IMRPhenomD" or opts.approx == "SEOBNRv4"):
+        if opts.internal_marginalize_distance:
+            # if we are using distance marginalization, use many more jobs per worker, to reduce startup transient relative cost (and queuing time latency). Jobs are too fast.
+            opts.ile_jobs_per_worker =100 
 
 if opts.use_production_defaults:
     opts.condor_nogrid_nonworker =True
@@ -223,6 +278,14 @@ if opts.internal_use_amr:
     opts.external_fetch_native_from = None
     opts.cip_explode_jobs= None
 
+    amr_q_coord = "delta"
+    amr_q_coord_range="0.0,0.95"
+#    amr_q_coord = "eta"
+#    amr_q_coord_range="0.05,0.249999"
+
+if opts.internal_force_iterations and opts.internal_propose_converge_last_stage:
+    print("==> Inconsistent options --internal-force-iterations and --internal-propose-converge-last-stage, overriding former")
+    opts.internal_force_iterations= None # Can't force iteration number if we are using arbitrary iterate to convergence!
 
 download_request = " get file "
 gracedb_exe =opts.gracedb_exe
@@ -236,8 +299,8 @@ if opts.assume_highq:
 event_dict={}
 
 if (opts.approx is None) and not (opts.use_ini is None):
-    config = ConfigParser.ConfigParser()
-    config.read(opts.use_ini)
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
     approx_name_ini = config.get('engine','approx')
     approx_name_cleaned = lalsim.GetStringFromApproximant(lalsim.GetApproximantFromString(approx_name_ini))
     opts.approx = approx_name_cleaned
@@ -291,12 +354,16 @@ if opts.use_rundir:
 
 
 if opts.choose_data_LI_seglen:
-    cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
-    if not(opts.use_legacy_gracedb):
-        cmd_event += " > coinc.xml "
-    os.system(cmd_event)
-    cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
-    event_dict = retrieve_event_from_coinc("coinc.xml")
+    coinc_file = "coinc.xml"
+    if not(opts.use_coinc):
+        cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
+        if not(opts.use_legacy_gracedb):
+            cmd_event += " > coinc.xml "
+        os.system(cmd_event)
+        cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
+    elif opts.use_coinc:
+        coinc_file = opts.use_coinc
+    event_dict = retrieve_event_from_coinc(coinc_file)
     P=lalsimutils.ChooseWaveformParams()
     P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     P.fmin = opts.fmin  #  fmin we will use internally
@@ -374,8 +441,8 @@ if not(opts.use_ini is None):
     P=lalsimutils.ChooseWaveformParams()
     P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     # Load in ini file to select relevant fmin, fref [latter usually unused]
-    config = ConfigParser.ConfigParser()
-    config.read(opts.use_ini)
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
     fmin_vals ={}
     fmin_fiducial = -1
     ifo_list = eval(config.get('analysis','ifos'))
@@ -402,7 +469,8 @@ if opts.make_bw_psds:
     helper_psd_args += " --assume-fiducial-psd-files --fmax " + str(srate/2-1)
 
 # Create provenance info : we want run to be reproducible
-if True:
+# for low-latency analysis, we can assume we have provenance.
+if not(assume_lowlatency):
         os.mkdir("reproducibility")
         # Write this script and its arguments
         import shutil, json
@@ -412,8 +480,8 @@ if True:
         with open("reproducibility/the_arguments_used.json",'w') as f:
                 json.dump(argparse_dict,f)
         # Write commits
-        cmd = "(cd ${ILE_CODE_PATH}; git rev-parse HEAD) > reproducibility/RIFT.commit"
-        os.system(cmd)
+#        cmd = "(cd ${ILE_CODE_PATH}; git rev-parse HEAD) > reproducibility/RIFT.commit"
+#        os.system(cmd)
         module_list = ['gwsurrogate',  'NRSur7dq2', 'scipy', 'numpy', 'sklearn', 'lalsimulation','lal']
         with open("reproducibility/module_versions", 'w') as f:
                 for name in module_list:
@@ -431,6 +499,8 @@ if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
     cmd += " --internal-use-amr " # minimal support performed in this routine, mainly for puff
+if opts.internal_use_aligned_phase_coordinates:
+    cmd += " --internal-use-aligned-phase-coordinates "
 if not(opts.internal_use_amr) and not(opts.manual_initial_grid):
     cmd+= " --propose-initial-grid "
 if opts.force_initial_grid_size:
@@ -447,7 +517,8 @@ else:
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
-
+if opts.internal_propose_converge_last_stage:
+    cmd += " --propose-converge-last-stage "
 if not(opts.cip_fit_method is None):
     cmd += " --force-fit-method {} ".format(opts.cip_fit_method)
     if opts.cip_fit_method == 'rf':
@@ -503,9 +574,9 @@ else:
     cmd += " --calibration-version " + opts.calibration 
 if opts.use_online_psd_file:
     # Get IFO list from ini file
-    import ConfigParser
-    config = ConfigParser.ConfigParser()
-    config.read(opts.use_ini)
+##    import ConfigParser
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
     ifo_list = eval(config.get('analysis','ifos'))
     # Create command line arguments for those IFOs, so helper can correctly pass then downward
     for ifo in ifo_list:
@@ -518,14 +589,17 @@ if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
     cmd += " --manual-ifo-list {} ".format(opts.manual_ifo_list)
 if (opts.internal_marginalize_distance):
     cmd += " --internal-marginalize-distance "
+if (opts.internal_marginalize_distance_file ):
+    cmd += " --internal-marginalize-distance-file {} ".format(opts.internal_marginalize_distance_file)
 if not(opts.internal_distance_max is None):
     cmd += ' --internal-distance-max {} '.format(opts.internal_distance_max)
-
+if opts.add_extrinsic:
+    cmd += " --last-iteration-extrinsic "
 
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
 if opts.use_ini:
-    config = ConfigParser.ConfigParser()
-    config.read(opts.use_ini)
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
     if config.has_option("lalinference", "fake-cache"):
         # dictionary, entries are individual lcf files; we just need to concatenate their contents
         fake_cache_dict = unsafe_config_get(config,["lalinference","fake-cache"])
@@ -595,7 +669,16 @@ if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 with open('args_ile.txt','w') as f:
         f.write(line)
-os.system("cp helper_test_args.txt args_test.txt")
+
+
+#os.system("cp helper_test_args.txt args_test.txt")
+with open ("helper_test_args.txt",'r') as f:
+    line = f.readline()
+    if opts.add_extrinsic: 
+        # We NEVER want to terminate if we're doing extrinsic at the end.  Block termination, so extrinsic occurs on schedule
+        line += " --always-succeed "
+    with open("args_test.txt",'w') as g:
+        g.write(line)
 
 # CIP
 #   - modify priors to be consistent with the spin priors used in the paper
@@ -609,22 +692,38 @@ instructions_cip = list(map(lambda x: x.rstrip().split(' '), raw_lines))#np.load
 n_iterations =0
 lines  = []
 for indx in np.arange(len(instructions_cip)):
-    n_iterations += int(instructions_cip[indx][0])
+    if instructions_cip[indx][0] == 'Z':
+        n_iterations += 1
+    else:
+        n_iterations += int(instructions_cip[indx][0])
     line = ' ' .join(instructions_cip[indx])
-    n_max_cip = 10000000;
-    if opts.cip_sampler_method is "GMM":
-        n_max_cip *=10   # it is faster, so run longer; helps with correlated-sampling cases
+    n_max_cip = 100000000;  # 1e8; doing more than this requires special memory management within the integrators in general. This lets us get a decent number of samples even with one worker for hard problems
+    # if (opts.cip_sampler_method == "GMM") or (opts.cip_sampler_method == 'adaptive_cartesian_gpu'):
+    #     n_max_cip *=3   # it is faster, so run longer; helps with correlated-sampling cases
     n_sample_target=opts.n_output_samples
+    if indx < len(instructions_cip)-1: # on all but last iteration, cap the number of points coming out : this drives the total amount of work for AMR, etc!
+        n_sample_target= np.min([opts.n_output_samples,10*opts.internal_cip_cap_neff])
     n_workers = 1
     if opts.cip_explode_jobs:
         n_workers = opts.cip_explode_jobs
-    n_sample_min_per_worker = int(n_sample_target/n_workers/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
-    line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), int(n_sample_target/n_workers),n_max_cip,n_sample_min_per_worker)
+    n_eff_cip_here = int(n_sample_target/n_workers)
+    if indx < len(instructions_cip)-1: # on all but 
+        n_eff_cip_here = np.min([opts.internal_cip_cap_neff, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
+    n_sample_min_per_worker = int(n_eff_cip_here/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
+
+    # Analyze the iteration report
+    n_eff_expected_max_easy = 1e-2 * n_max_cip
+    n_eff_expected_max_hard = 1e-7 * n_max_cip
+    print( " cip iteration group {} : n_eff likely will be between {} and {}, you are asking for at least {} and targeting {}".format(indx,n_eff_expected_max_easy, n_eff_expected_max_hard, n_sample_min_per_worker,n_eff_cip_here))
+
+    line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), n_eff_cip_here, n_max_cip,n_sample_min_per_worker)
     if not(opts.cip_fit_method is None):
         line = line.replace('--fit-method gp ', '--fit-method ' + opts.cip_fit_method)  # should not be called, see --force-fit-method argument to helper
     if not (opts.cip_sampler_method is None):
         line += " --sampler-method "+opts.cip_sampler_method
     line += prior_args_lookup[opts.spin_magnitude_prior]
+    if opts.cip_internal_use_eta_in_sampler:
+        line = line.replace('parameter delta_mc','parameter eta')
     if opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial':
         line = line.replace('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc')     # quadratic fit needs eta coordinate. Should be done by helper ideally
     if opts.use_quadratic_early or opts.use_cov_early and indx < 1:
@@ -642,14 +741,19 @@ for indx in np.arange(len(instructions_cip)):
     elif opts.assume_highq and ('s1z' in line):
         line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
     elif opts.internal_correlate_default and ('s1z' in line):
-        line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
+        addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
+        if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
+            addme = addme.replace(',s1z,s2z', ',chi1,cos_theta1')
+        line += addme
+
+    # on last iteration, usually don't want to use correlated sampling if precessing, need to change coordinates
     if opts.approx in lalsimutils.waveform_approx_limit_dict:
         chi_max = lalsimutils.waveform_approx_limit_dict[opts.approx]["chi-max"]
         if not(opts.force_chi_max is None):
             chi_max = opts.force_chi_max
         q_min = lalsimutils.waveform_approx_limit_dict[opts.approx]["q-min"]
         eta_min = q_min/(1+q_min)**2
-        line += " --chi-max {}  "
+        line += " --chi-max {}  ".format(chi_max)
         # Parse arguments, impose limit based on the approximant used, as described above
 #        import StringIO
         my_parser = argparse.ArgumentParser()
@@ -674,30 +778,35 @@ if opts.internal_use_amr:
     lines =[ ] 
     # Manually implement aligned spin.  Should parse some of this from ini file ...
     print(" AMR prototype: Using hardcoded aligned-spin settings, setting arguments")
-    internal_overlap_threshold = 0.01 # smallest it could be
-    if "SNR" in event_dict:
-        internal_overlap_threshold = np.max([internal_overlap_threshold, 0.5*(6./event_dict["SNR"])**2])  # try to 
+    internal_overlap_threshold = 0.001 # smallest it should be
+    # if "SNR" in event_dict:
+    #     internal_overlap_threshold = np.max([internal_overlap_threshold, 0.5*(6./event_dict["SNR"])**2])  # try to 
     internal_overlap_threshold = 1- internal_overlap_threshold
-    lines += ["10 --no-exact-match --overlap-thresh {} ".format(internal_overlap_threshold) + " --distance-coordinates mchirp_eta --verbose   --refine "+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf --max-n-points 1000 --n-max-output 5000 " ]
+    amr_coord_dist  = "mchirp_eta"
+    if opts.internal_use_aligned_phase_coordinates:
+        amr_coord_dist = "mu1_mu2_q_s2z"
+    lines += ["10 --no-exact-match --overlap-threshold {} ".format(internal_overlap_threshold) + " --distance-coordinates {} --verbose   --refine ".format(amr_coord_dist)+base_dir + "/" + dirname_run + "/intrinsic_grid_all_iterations.hdf --max-n-points 1000 --n-max-output 5000 " ]
     if opts.internal_use_amr_bank:
         lines[0] +=" --intrinsic-param mass1 --intrinsic-param mass2 "  # output by default written this way for bank files
     else:
-        lines[0] +=" --intrinsic-param mchirp --intrinsic-param eta "     # if we built the bank, we used mc, eta coordiantes
+        lines[0] +=" --intrinsic-param mchirp --intrinsic-param {} ".format(amr_q_coord)     # if we built the bank, we used mc, eta/q coordinates
     if not(opts.assume_nospin):
-        lines[0] += " --intrinsic-param spin1z --intrinsic-param spin2z "
+        lines[0] += " --intrinsic-param spin1z "
+        if not(opts.assume_lowlatency_tradeoffs):
+            lines[0] += " --intrinsic-param spin2z "
 
 with open("args_cip_list.txt",'w') as f: 
    for line in lines:
            f.write(line)
 
 # Write test file
-with open("args_test.txt",'w') as f:
-    test_args = " --method lame  --parameter m1 "
-    if not(opts.internal_use_amr):   # ALWAYS run the test with AMR
-        test_args +=  " --always-succeed  "
-    else:
-        test_args += " --threshold 0.02 "
-    f.write("X  "+test_args)
+# with open("args_test.txt",'w') as f:
+#     test_args = " --method lame  --parameter m1 "
+#     if not(opts.internal_use_amr):   # ALWAYS run the test with AMR
+#         test_args +=  " --always-succeed  "
+#     else:
+#         test_args += " --threshold 0.02 "
+#     f.write("X  "+test_args)
 
 
 # Write puff file
@@ -748,6 +857,10 @@ if opts.archive_pesummary_label:
     with open("args_plot.txt",'w') as f:
         f.write(plot_args)
 
+# Overwrite iteration number
+if opts.internal_force_iterations:
+    n_iterations = opts.internal_force_iterations
+
 # Overwrite grid if needed
 if not (opts.manual_initial_grid is None):
     shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
@@ -755,27 +868,32 @@ if not (opts.manual_initial_grid is None):
 # Build DAG
 cip_mem  = 30000
 n_jobs_per_worker=opts.ile_jobs_per_worker
-if opts.cip_fit_method == 'rf' or opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # much lower memory requirement
+if opts.cip_fit_method == 'rf':
+    cip_mem = 15000  # more typical for long-duration single-worker runs
+if opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # much lower memory requirement
     cip_mem = 4000
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if not(opts.ile_runtime_max_minutes is None):
     cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
-    cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args args_puff.txt "
+    cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
     cmd += " --cip-exe `which util_AMRGrid.py ` "
-    if not(os.path.exists("coinc.xml")):
+    coinc_file = "coinc.xml"
+    if not(os.path.exists("coinc.xml")) and not(opts.use_coinc):
         # re-download coinc if not already present
         cmd_event = gracedb_exe + download_request + opts.gracedb_id  + " coinc.xml"
         if not(opts.use_legacy_gracedb):
             cmd_event += " > coinc.xml "
         os.system(cmd_event)
         cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
-    event_dict = retrieve_event_from_coinc("coinc.xml")
+    elif opts.use_coinc:
+        coinc_file = opts.use_coinc
+    event_dict = retrieve_event_from_coinc(coinc_file)
     if opts.internal_use_amr_bank:
         with open("toy.ini","w") as f:
             f.write("""
@@ -804,7 +922,13 @@ points-per-side=8
     else:
         # don't use bank files, instead use manually-prescribed mc, eta, spin range. SHOULD FIX TO BE TIGHTER
         mc_min,mc_max = guess_mc_range(event_dict)
-        cmd_amr_init = "util_AMRGrid.py --mc-min {} --mc-max {} --distance-coordinates mchirp_eta --initial-region mchirp={},{} --initial-region eta=0.05,0.24999 --initial-region spin1z=-0.8,0.8 --initial-region spin2z=-0.8,0.8  --points-per-side 8 --fname-output-samples proposed-grid  --setup intrinsic_grid_all_iterations   ".format(mc_min,mc_max,mc_min,mc_max)
+        amr_coord_dist  = "mchirp_eta"
+        if opts.internal_use_aligned_phase_coordinates:
+            amr_coord_dist = "mu1_mu2_q_s2z"
+        cmd_amr_init = "util_AMRGrid.py --mc-min {} --mc-max {} --distance-coordinates {} --initial-region mchirp={},{} --initial-region {}={} --initial-region spin1z=-0.8,0.8  --points-per-side 8 --fname-output-samples proposed-grid  --setup intrinsic_grid_all_iterations   ".format(mc_min,mc_max,amr_coord_dist,mc_min,mc_max,amr_q_coord,amr_q_coord_range)
+        if not(opts.assume_lowlatency_tradeoffs):
+            cmd_amr_init += "  --initial-region spin2z=-0.8,0.8  " # for lowlatency tradeoffs, drop spin2 as superfluous
+        print(" INIT ", cmd_amr_init)
         os.system(cmd_amr_init)
     
 if opts.external_fetch_native_from:
@@ -826,9 +950,11 @@ if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples)
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
-   if not(opts.cip_fit_method is None) and not(opts.cip_fit_method == 'gp'):
+   if opts.cip_fit_method and not(opts.cip_fit_method == 'gp'):
        # if we are not using default GP fit, so all fit instances are equal
        cmd += " --cip-explode-jobs-flat "  
+   if opts.cip_explode_jobs_last:
+       cmd += " --cip-explode-jobs-last {} ".format(opts.cip_explode_jobs_last)
 if opts.make_bw_psds:
     cmd+= " --use-bw-psd --bw-exe `which BayesWave` --bw-post-exe `which BayesWavePost` "
 if opts.use_osg:

@@ -1,4 +1,6 @@
 #! /usr/bin/env python
+# S. Morisaki, based on his
+# https://dcc.ligo.org/LIGO-T2100485
 
 import argparse
 import numpy as np

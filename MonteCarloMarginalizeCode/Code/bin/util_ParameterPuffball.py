@@ -228,6 +228,8 @@ if len(coord_names)>1:
 else:
     print(" The one dimensional width is", np.sqrt(cov_out))
 
+print(" The number of raw points is ", len(P_list))
+
 # Copy parameters back in.  MAKE SURE THIS IS POSSIBLE
 P_out = []
 for indx_P in np.arange(len(P_list)):
@@ -280,6 +282,7 @@ if len(opts.random_parameter) >0:
             val = val* lal.MSUN_SI
         P.assign_param(param,val)
 
+print(" The number of exported points is ", len(P_out))
 
 # Export
 lalsimutils.ChooseWaveformParams_array_to_xml(P_out,fname=opts.inj_file_out,fref=P.fref)

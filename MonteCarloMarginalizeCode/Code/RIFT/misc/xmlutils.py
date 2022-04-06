@@ -13,13 +13,17 @@ from ligo.lw import ligolw, lsctables, table #, ilwd
 def assign_id(row, i):
     row.simulation_id = i # ilwd.ilwdchar("sim_inspiral_table:sim_inspiral:%d" % i)
 
+def assign_time(row, t):
+    setattr(row, "geocent_end_time",( int(t)))
+    setattr(row, "geocent_end_time_ns",( int(t-int(t))*1e9) )
+
 CMAP = { "right_ascension": "longitude",
     "longitude":"longitude",
     "latitude":"latitude",
     "declination": "latitude",
     "inclination": "inclination",
     "polarization": "polarization",
-    "t_ref": lambda r, t: r.set_time_geocent(LIGOTimeGPS(float(t))),
+    "t_ref": assign_time,#r.set_time_geocent(LIGOTimeGPS(float(t))),
     "coa_phase": "coa_phase",
     "distance": "distance",
     "mass1": "mass1",
@@ -43,13 +47,13 @@ CMAP = { "right_ascension": "longitude",
 
 # FIXME: Find way to intersect given cols with valid cols when making table.
 # Otherwise, we'll have to add them manually and ensure they all exist
-sim_valid_cols = ["process_id", "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha1", "alpha2", "alpha3","spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"]
-sngl_valid_cols = ["process_id", "event_id", "snr", "tau0", "tau3"]
+sim_valid_cols = ["simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha1", "alpha2", "alpha3","spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"]
+sngl_valid_cols = [ "event_id", "snr", "tau0", "tau3"]
 multi_valid_cols = ["process_id", "event_id", "snr"]
 
 def append_samples_to_xmldoc(xmldoc, sampdict):
     try: 
-        si_table = table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
+        si_table = lsctables.SimInspiralTable.get_table(xmldoc)
         new_table = False
     # Warning: This will also get triggered if there is *more* than one table
     except ValueError:
@@ -66,7 +70,7 @@ def append_samples_to_xmldoc(xmldoc, sampdict):
 
     # Get the process
     # FIXME: Assumed that only we have appended information
-    procid = table.get_table(xmldoc, lsctables.ProcessTable.tableName)[-1].process_id
+    procid = lsctables.ProcessTable.get_table(xmldoc)[-1].process_id
     
     # map the samples to sim inspiral rows
     # NOTE :The list comprehension is to preserve the grouping of multiple 
@@ -85,7 +89,7 @@ def append_samples_to_xmldoc(xmldoc, sampdict):
 
 def append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, neff=0, converged=False,**cols):
     try: 
-        si_table = table.get_table(xmldoc, lsctables.SnglInspiralTable.tableName)
+        si_table = lsctables.SnglInspiralTable.get_table(xmldoc)
         new_table = False
         # NOTE: MultiInspiralTable has no spin columns
         #si_table = table.get_table(xmldoc, lsctables.MultiInspiralTable.tableName)
@@ -98,7 +102,7 @@ def append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, neff=0, converged=
 
     # Get the process
     # FIXME: Assumed that only we have appended information
-    procid = table.get_table(xmldoc, lsctables.ProcessTable.tableName)[-1].process_id
+    procid = lsctables.ProcessTable.get_table(xmldoc)[-1].process_id
     
     # map the samples to sim inspiral rows
     si_table.append(likelihood_to_snglinsp_row(si_table, loglikelihood, neff, converged,**cols))

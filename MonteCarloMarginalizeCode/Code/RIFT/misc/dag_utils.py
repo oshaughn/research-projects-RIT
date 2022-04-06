@@ -1690,25 +1690,18 @@ def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,t
     return ile_job, ile_sub_name
 
 
-def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pattern=None,target_dir=None,output_base=None,log_dir=None,n_explode=1, gzip="/usr/bin/gzip", old_add=False, **kwargs):
+def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pattern=None,target_dir=None,output_base=None,log_dir=None,n_explode=1, gzip="/usr/bin/gzip", old_add=False, old_style_add=False, **kwargs):
     """
-    Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.
+    Write script to merge CIP 'overlap-grid-(iteration)-*.xml.gz  results.  Issue is that
     """
-    exe = exe or which("ligolw_add")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
+    default_add = "util_RandomizeOverlapOrder.py"
+    if old_style_add:
+        default_add = "ligolw_add"
+    
+    exe = exe or which(default_add)  
+    if not(exe):
+        exe = "ligolw_add"   # go back to fallback if there is a weird disaster -- eg we are using an old-style install before this was updated
 
-#     exe_here = "my_join.sh"
-#     with open(exe_here,'w') as f:
-#             f.write("#! /bin/bash  \n")
-#             f.write(r"""
-# #!/bin/bash
-# # Modules and scripts run directly from repository
-# # Note the repo and branch are self-referential ! Not a robust solution long-term
-# # Exit on failure:
-# # set -e
-# {} {}  > {}/{}.xml
-# gzip {}.{}.xml""".format(exe,input_pattern,target_dir,output_base,target_dir,output_base) )
-#     os.system("chmod a+x "+exe_here)
-#     exe = exe_here  # update executable
 
     working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
 
@@ -1720,7 +1713,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
         alt_out = output_base.replace('$(macroiterationnext)','$2')
         extra_arg = ''
         if old_add:
-            extra_arg = " --ilwdchar-compat "
+            extra_arg = " --ilwdchar-compat "  # should never be used anymore
         with open("join_grids.sh",'w') as f:
             f.write("#! /bin/bash  \n")
             f.write(r"""
@@ -1777,17 +1770,22 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 
 
 
-def write_subdagILE_sub(tag='subdag_ile', exe=None, universe='vanilla', submit_file=None,input_pattern=None,target_dir=None,output_suffix=None,log_dir=None,sim_xml=None, **kwargs):
+def write_subdagILE_sub(tag='subdag_ile', full_path_name=True, exe=None, universe='vanilla', submit_file=None,input_pattern=None,target_dir=None,output_suffix=None,log_dir=None,sim_xml=None, **kwargs):
 
     """
     Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.
     """
     exe = exe or which("create_ile_sub_dag.py") 
     subfile = submit_file or 'ILE.sub'
+    if full_path_name and target_dir:
+        if subfile[0]!= '/': # if not already a full path
+            subfile = target_dir + "/"+subfile
 
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
 
     ile_sub_name = tag + '.sub'
+#    if full_path_name and target_dir:
+#        ile_sub_name = target_dir +"/" + ile_sub_name
     ile_job.set_sub_file(ile_sub_name)
 
     ile_job.add_arg("--target-dir "+target_dir)

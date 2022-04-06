@@ -84,9 +84,8 @@ def determine_region(pt, pts, ovrlp, ovrlp_thresh, expand_prms={}):
     Given a point (pt) in a set of points (pts), with a function value at those points (ovrlp), return a rectangular hull such that the function exceeds the value ovrlp_thresh.
     """
     sidx = bisect.bisect(ovrlp, ovrlp_thresh)
-#    print "Found %d neighbors with overlap >= %f" % (len(ovrlp[sidx:]), ovrlp_thresh)
+    print("Found %d neighbors with overlap >= %f" % (len(ovrlp[sidx:]), ovrlp_thresh))
     print("HERE",ovrlp_thresh,ovrlp[sidx:],pts[sidx:],pt)
-#    print "HERE",ovrlp_thresh,ovrlp[sidx:],pts[sidx:],pt
     
 
     cell = amrlib.Cell.make_cell_from_boundaries(pt, pts[sidx:])
@@ -145,6 +144,10 @@ def write_to_xml_new(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verb
         indx_lookup['m1'] = intr_prms.index('mass1')
         indx_lookup['m2'] = intr_prms.index('mass2')
         namelist = ['m1','m2']
+    elif 'mchirp' in intr_prms and 'delta' in intr_prms:
+        indx_lookup['mc'] = intr_prms.index('mchirp')
+        indx_lookup['delta_mc'] = intr_prms.index('delta')
+        namelist = ['mc','delta_mc']
     else:
         indx_lookup['mc'] = intr_prms.index('mchirp')
         indx_lookup['eta'] = intr_prms.index('eta')
@@ -157,7 +160,7 @@ def write_to_xml_new(cells, intr_prms, pin_prms={}, fvals=None, fname=None, verb
         P = lalsimutils.ChooseWaveformParams()
         for name in namelist:
             fac_correct = 1
-            if 'm' in name:
+            if name in ['mc', 'm1', 'm2']:
                 fac_correct =lal.MSUN_SI
 #            setattr(P, name, fac_correct*cells[indx]._center[indx_lookup[name]])
             if hasattr(P, name):
@@ -344,7 +347,10 @@ if not "s1z" in intr_prms or not "s2z" in intr_prms:
     else:
         sys.exit("spin1z or spin2z is specified but not the other spin. compute intrinsic grid is not setup to search just one")
 else:
-    spin_transform = "chi_z"
+    if opts.distance_coordinates == "mu1_mu2_q_s2z":
+        spin_transform = opts.distance_coordinates
+    else:
+        spin_transform = "chi_z"
 
 #
 # Step 2: Set up metric space
@@ -493,11 +499,21 @@ if opts.result_file:
     if 'mass1' in intr_prms:
         res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms) for t in results])
     elif ('mchirp' in intr_prms):
-        res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms) for t in results]) # can fill spin components if present
-        # now overwrite eta values (all filled with 0 since no attr) with correct value
-        eta_indx = intr_prms.index('eta')
+        res_pts = numpy.zeros( (len(results), len(intr_prms)))
         mass_pts = numpy.array([tuple(getattr(t, a) for a in ['mass1','mass2']) for t in results])
-        res_pts[:,eta_indx] = lalsimutils.symRatio(mass_pts[:,0],mass_pts[:,1])
+        def blank_entry(name):
+            if name in ['delta', 'eta']:
+                return 'eta'
+            return name
+        intr_prms_reduced = list(map(blank_entry, intr_prms))
+        res_pts = numpy.array([tuple(getattr(t, a) for a in intr_prms_reduced) for t in results]) # can fill spin components if present
+        # now overwrite eta values (all filled with 0 since no attr) with correct value
+        if 'eta' in intr_prms:
+            eta_indx = intr_prms.index('eta')
+            res_pts[:,eta_indx] = lalsimutils.symRatio(mass_pts[:,0],mass_pts[:,1])
+        if 'delta' in intr_prms:
+            delta_indx = intr_prms.index('delta')
+            res_pts[:,delta_indx] = (mass_pts[:,0] - mass_pts[:,1])/(mass_pts[:,0]+mass_pts[:,1]) # hardcode definition, easy
         # res_pts = numpy.zeros((len(intr_prms),len(results)))
         # indx_mc = intr_prms.index['mchirp']
         # indx_eta = intr_prms.index['eta']

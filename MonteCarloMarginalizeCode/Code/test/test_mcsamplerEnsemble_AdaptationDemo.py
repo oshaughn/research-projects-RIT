@@ -4,7 +4,7 @@
 
 from __future__ import print_function
 import numpy as np
-from scipy.stats import multivariate_normal
+from scipy.stats import multivariate_normal, norm
 from scipy.stats import truncnorm
 import matplotlib.pyplot as plt
 
@@ -14,39 +14,30 @@ from RIFT.integrators import mcsampler, mcsamplerEnsemble
 
 # width of domain of integration, same for all dimensions
 width = 10.0                                                    
-# number of dimensions
-ndim = 3                                                        
-# mean of the Gaussian, allowed to occupy middle half of each dimension
-mu = np.random.uniform(-1 * width / 4.0, width / 4.0, ndim)    
-# number of iterations for mcsamplerEnsemble
-n_iters = 40                                                    
-# max number of samples for mcsampler
-nmax = 40000                                                    
-
 llim = -1 * width / 2
 rlim = width / 2
+ndim = 1                                                        
+mu = np.random.uniform(rlim*0.75,rlim)
+sigma = 1
+cov = sigma**2
+# number of iterations for mcsamplerEnsemble
+n_iters = 40                                                    
+nmax = 40000                                                    
 
-### generate list of named parameters
-params = [str(i) for i in range(ndim)]
 
-### generate the covariance matrix
-cov = np.identity(ndim)
-cov[ndim - 1][ndim - 1] = 0.05 # make it narrower in one dimension
+### define integrand as a single gaussian
+def f(x1):
+    x = np.array(x1,dtype=float)
+    return (norm.pdf(x, loc=mu, scale=sigma))
 
-### add some covariance (to test handling of strongly-correlated likelihoods)
-cov[0][ndim - 1] = -0.1
-cov[ndim - 1][0] = -0.1
-
-### define integrand as a weighted sum of Gaussians
-def f(x1, x2, x3):
-    x = np.array([x1, x2, x3]).T
-    return (multivariate_normal.pdf(x, mu, cov))
+#print(f(np.random.uniform(llim,rlim,size=100)))
 
 ### initialize samplers
 sampler = mcsampler.MCSampler()
 samplerEnsemble = mcsamplerEnsemble.MCSampler()
 
 ### add parameters
+params = [str(i) for i in range(ndim)]
 for p in params:
     sampler.add_parameter(p, np.vectorize(lambda x:1), 
             prior_pdf=np.vectorize(lambda x:1),
@@ -61,10 +52,29 @@ n_comp = 1
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
         no_protect_names=True, nmax=20000, save_intg=True)
 print(" --- finished default --")
-integral_2, var_2, eff_samp_2, _ = samplerEnsemble.integrate(f, *params, 
-        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=True)
+integral_2, var_2, eff_samp_2, dict_return = samplerEnsemble.integrate(f, *params, 
+        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=True,dict_return=True)
 print(" --- finished GMM --")
-print("mu",mu)
+print("mu sigma in ",mu, sigma)
+my_integrator = dict_return["integrator"]
+gmm_dict = my_integrator.gmm_dict
+my_gmm = gmm_dict[(0,)]  # pull out the specific thing we just optimized
+scale_from_unnorm = 0.5*(rlim-llim) # scale factor, does not also account for offset 
+mu_sampler =my_gmm.means[0][0]*scale_from_unnorm
+sigma_sampler =  np.sqrt(my_gmm.covariances[0])[0,0]*scale_from_unnorm
+print("mu, sigma for sampler ",mu_sampler,sigma_sampler) # print mean and covariance
+
+# Validate: draw from sampler
+npts_here = 500
+my_demo_samples = my_gmm.sample(npts_here)[:,0]
+my_demo_samples.sort()
+plt.scatter(my_demo_samples,np.arange(npts_here)/(1.*npts_here))
+plt.plot(my_demo_samples, truncnorm( (llim-mu)/sigma, (rlim-mu)/sigma, loc=mu,scale=sigma).cdf(my_demo_samples),label='truncnorm(crap)')
+plt.xlabel("x")
+plt.ylabel("CDF of sampling distribution")
+plt.savefig("my_cdf_sampler.png")
+
+### Now pull out the integrator's model
 ### CDFs
 
 ### get our posterior samples as a single array
@@ -79,12 +89,12 @@ colors = ["black", "red", "blue", "green", "orange"]
 plt.figure(figsize=(10, 8))
 
 for i in range(ndim):
-    s = np.sqrt(cov[i][i])
+    s = sigma
     ### get sorted samples (for the current dimension)
     x_1 = arr_1[:,i][np.argsort(arr_1[:,i])]
     x_2 = arr_2[:,i][np.argsort(arr_2[:,i])]
     ### plot true cdf
-    plt.plot(x_1, truncnorm.cdf(x_1, llim, rlim, mu[i], s), label="True CDF",
+    plt.plot(x_1, truncnorm.cdf(x_1, llim, rlim, mu, s), label="True CDF",
             color=colors[i], linewidth=0.5)
     # NOTE: old mcsampler stores L, mcsamplerEnsemble stores lnL
     L = sampler._rvs["integrand"]
@@ -109,7 +119,7 @@ for i in range(ndim):
 
 plt.legend()
 
-fname = "cdf.png"
+fname = "cdf_adapt_test.png"
 
 print("Saving CDF figure as " + fname + "...")
 

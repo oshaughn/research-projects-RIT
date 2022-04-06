@@ -360,6 +360,9 @@ class MCSampler(object):
         n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
         convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
 
+        tripwire_fraction - fraction of nmax of iterations after which n_eff needs to be greater than 1+epsilon for epsilon a small number
+        tripwire_epsilon - small number used in tripwire test
+
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """
 
@@ -438,6 +441,9 @@ class MCSampler(object):
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
+        tripwire_fraction = kwargs["tripwire_fraction"] if "tripwire_fraction" in kwargs else 2  # make it impossible to trigger
+        tripwire_epsilon = kwargs["tripwire_epsilon"] if "tripwire_epsilon" in kwargs else 0.001 # if we are not reasonably far away from unity, fail!
+
         bUseMultiprocessing = kwargs['use_multiprocessing'] if 'use_multiprocessing' in kwargs else False
         nProcesses = kwargs['nprocesses'] if 'nprocesses' in kwargs else 2
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
@@ -467,6 +473,9 @@ class MCSampler(object):
             bConvergenceTests = False    # if tests are not available, assume not converged. The other criteria will stop it
             last_convergence_test = defaultdict(lambda: False)   # need record of tests to be returned always
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
+            if (self.ntotal > nmax*tripwire_fraction) and (eff_samp < 1+tripwire_epsilon):
+                print(" Tripwire: n_eff too low ")
+                raise Exception("Tripwire on n_eff")
             # Draw our sample points
             args_draw ={}
             if force_no_adapt or save_no_samples:  # don't save permanent sample history if not needed

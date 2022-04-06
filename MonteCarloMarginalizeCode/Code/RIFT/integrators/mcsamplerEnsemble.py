@@ -257,10 +257,19 @@ class MCSampler(object):
         gmm_adapt = kwargs['gmm_adapt'] if "gmm_adapt" in kwargs else None
         gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
         L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
-        tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
+        tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 1.0
+        tempering_exp = kwargs["adapt_weight_exponent"] if "adapt_weight_exponent" in kwargs else 1.0
 
         max_err = kwargs["max_err"] if "max_err" in kwargs else 10  # default
 
+        super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
+        dict_return_q = kwargs["dict_return"] if "dict_return" in kwargs else False  # default.  Method for passing back rich data structures for debugging
+
+        tripwire_fraction = kwargs["tripwire_fraction"] if "tripwire_fraction" in kwargs else 2  # make it impossible to trigger
+        tripwire_epsilon = kwargs["tripwire_epsilon"] if "tripwire_epsilon" in kwargs else 0.001 # if we are not reasonably far away from unity, fail!
+
+        use_lnL = kwargs["use_lnL"] if "use_lnL" in kwargs else False 
+        return_lnI = kwargs["return_lnI"] if "return_lnI" in kwargs else False
         
         # set up a lot of preliminary stuff
         self.func = func
@@ -304,7 +313,11 @@ class MCSampler(object):
                          user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp) # reflect=reflect,
         if not direct_eval:
             func = self.evaluate
-        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err)
+        if use_lnL:
+            print(" ==> input assumed as lnL ")
+        if return_lnI:
+            print(" ==> internal calculations and return values are lnI ")
+        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI)
 
         # get results
 
@@ -314,7 +327,10 @@ class MCSampler(object):
         error_squared = integrator.scaled_error_squared * np.exp(integrator.log_error_scale_factor)
         eff_samp = integrator.eff_samp
         sample_array = integrator.cumulative_samples
-        value_array = np.exp(integrator.cumulative_values)  # stored as ln(integrand) !
+        if not(return_lnI):
+            value_array = np.exp(integrator.cumulative_values)  # stored as ln(integrand) !
+        else:
+            value_array = integrator.cumulative_values
         p_array = integrator.cumulative_p_s
         prior_array = integrator.cumulative_p
 
@@ -332,14 +348,18 @@ class MCSampler(object):
         self._rvs['joint_s_prior'] = p_array
         self._rvs['integrand'] = value_array
 
-        # write data to file
+        # if special return structure, fill it
+        dict_return = {}
+        if dict_return_q:
+            dict_return["integrator"] = integrator
 
+        # write data to file
         if write_to_file:
             dat_out = np.c_[sample_array, value_array, p_array]
             np.savetxt('mcsampler_data.txt', dat_out,
                         header=" ".join(['sample_array', 'value_array', 'p_array']))
 
-        return integral, error_squared, eff_samp, {}
+        return integral, error_squared, eff_samp, dict_return
 
 
 def inv_uniform_cdf(a, b, x):

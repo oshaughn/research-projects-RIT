@@ -94,14 +94,14 @@ def write_CIP_sub(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
-    if kwargs.has_key("fname_output_samples") and kwargs["fname_output_samples"] is not None:
+    if "fname_output_samples" in kwargs and kwargs["fname_output_samples"] is not None:
         #
         # Need to modify the output file so it's unique
         #
         ofname = kwargs["fname_output_samples"].split(".")
         ofname, ext = ofname[0], ".".join(ofname[1:])
         ile_job.add_file_opt("output-file", "%s-%s.%s" % (ofname, uniq_str, ext))
-    if kwargs.has_key("fname_output_integral") and kwargs["fname_output_integral"] is not None:
+    if "fname_output_integral" in kwargs and kwargs["fname_output_integral"] is not None:
         #
         # Need to modify the output file so it's unique
         #
@@ -113,7 +113,7 @@ def write_CIP_sub(tag='integrate', exe=None, log_dir=None, use_eos=False,ncopies
     # Add normal arguments
     # FIXME: Get valid options from a module
     #
-    for opt, param in kwargs.items():
+    for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
             # NOTE: Hack to get around multiple instances of the same option
             for p in param:
@@ -170,7 +170,7 @@ if opts.cip_args is None:
 # Load args.txt. Remove first item.  Store
 with open(opts.cip_args) as f:
     cip_args_list = f.readlines()
-cip_args = ' '.join( map( lambda x: x.replace('\\',''),cip_args_list) )
+cip_args = ' '.join( [x.replace('\\','') for x in cip_args_list] )
 cip_args = ' '.join(cip_args.split(' ')[1:])
 # Some argument protection for later
 cip_args = cip_args.replace('[', ' \'[')

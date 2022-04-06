@@ -28,6 +28,22 @@ Since last release
      alternate fits for placement (cov, quadratic), glue->ligo.lw, assorted minor edits
     UWM hackathon outcomes (distance marginalization (Wysocki/Morisaki); AMR grids)   (rc11)
 
+    - **soichiro mu1,mu2 coordinates**; subdag iterate to convergence ('Z'); lalsimutils convert_waveform_coordinates vectorized (duplicate
+      implementations for transforms); helper fixes for architecture to use new subdags; ILE_batchmode fix if no events
+      to analyze; dag auto-completes if test successful (for subdag system); merge procedure for workers randomizes
+      results, so next iteration isn't dominated by one worker; **architecture change** to use transverse spins earlier
+      in fit, with suitable prior for sampling, and generally be more efficient for precessing systems; dag checks if composite files are nonempty;
+      partial untested import from Vinaya of using Soichiro mu1,mu2 coordinates for util_AMRGrid; 
+      **tentative change in 200a505dbad6c3d6911e5043aabfe2880c991545** of xmax in dmarg, pending review; 
+      pp_RIFT updates including testing d_marg; GMM sampler fix overflow protection, can now analyze high-lnL sources;
+      allow last iteration explode size to be larger than others; fix bug with convert_output_format_ile2inference
+      introduced by change in upstream astropy; more glue.ligo_lw -> ligo.lw and many changes;  more on 
+      util_AMRGrid.py as refinement engine; improved tests for MC integration tools, validating GMM and mcsamplerGPU;
+      minor fixes (rc12)
+
+    - pseudo_pipe/helper updates to use ini files/coinc-embedded PSD appropriate to low-latency; lalsimutils update psd
+      parser; util_InitMargTable undo tentative change noted in rc12; pp_RIFT more flexible ini file parsing (rc13) 
+
 
 0.0.15.5
 -----------

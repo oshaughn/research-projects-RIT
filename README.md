@@ -35,11 +35,14 @@ If you are working with this development repository, please try to add your name
      d.  NRSur7dq2 interface: Lange et al 2018 (RIFT) [paper](https://arxiv.org/abs/1805.10457), and ...
 
   5. If you are using an updated Monte Carlo integration package, please acknowledge the authors; papers will be prepared soon
-     a.  GMM integrator: Elizabeth Champion; see [repo](https://git.ligo.org/benjamin.champion/Monte-Carlo-Integrator), see MonteCarloEnsemble and mcsamplerEnsemble
-     b.  GPU MC integrator:  Wysocki, O'Shaughnessy 
+     a.  GMM integrator: Elizabeth Champion; see [original repo](https://git.ligo.org/benjamin.champion/Monte-Carlo-Integrator), implemented via MonteCarloEnsemble and mcsamplerEnsemble; please cite Ristic et al https://arxiv.org/abs/2105.07013
+     b.  GPU MC integrator:  Wysocki, O'Shaughnessy; cite Wofford et al https://dcc.ligo.org/P2200059
 
   6. If you are using a distance-marginalized likeliihood, please acknowledge the authors; papers will be prepared soon
      a. Distance marginalization : Soichiro Morisaki, Dan Wysocki
+
+  7. If you are using a special coordinate sy
+     a. Rotated inspiral-phase : cite the original Lee, Morisaki, Tanaka paper (https://dcc.ligo.org/LIGO-P2200037); also cite Wofford et al in prep https://dcc.ligo.org/P2200059
 
 ## Authorlists: Opt-in model
 Several aspects of this code are very actively developed.  We encourage  close collaboration with the lead developers (O'Shaughnessy and Lange) to produce the best possible results, particularly given comparatively rapid changes to the interface and pipeline in the past and planned for the future as the user- and developer-base expands.
