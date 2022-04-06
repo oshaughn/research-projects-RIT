@@ -920,7 +920,7 @@ points-per-side=8
         cmd_amr_init = "util_AMRGrid.py --mc-min {} --mc-max {} --distance-coordinates {} --initial-region mchirp={},{} --initial-region {}={} --initial-region spin1z=-0.8,0.8  --points-per-side 8 --fname-output-samples proposed-grid  --setup intrinsic_grid_all_iterations   ".format(mc_min,mc_max,amr_coord_dist,mc_min,mc_max,amr_q_coord,amr_q_coord_range)
         if not(opts.assume_lowlatency_tradeoffs):
             cmd_amr_init += "  --initial-region spin2z=-0.8,0.8  " # for lowlatency tradeoffs, drop spin2 as superfluous
-        print(" INIT ", cmd_mar_init)
+        print(" INIT ", cmd_amr_init)
         os.system(cmd_amr_init)
     
 if opts.external_fetch_native_from:
