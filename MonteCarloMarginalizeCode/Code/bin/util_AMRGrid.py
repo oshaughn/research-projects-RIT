@@ -82,8 +82,15 @@ def get_cr_from_grid(cells, weight, cr_thr=0.9, min_n=None, max_n=None,delta_log
         return cell_sort[idx:,1:]
     else:
         cell_sort[:,0] /= cell_sort[-1,0]  #normalize out peak
-        cell_sort[:,0] := numpy.log(cell_sort[:,0] + 1e-40)  # go to log.  All will be negative
-        idx = cell_sort[:,0].searchsorted(-delta_lnL_threshold)
+        cell_sort[:,0] = numpy.log(cell_sort[:,0] + 1e-40)  # go to log.  All will be negative
+        idx = cell_sort[:,0].searchsorted(-delta_logL_threshold)
+        n_select = cell_sort.shape[0] - idx
+        if min_n is not None:
+            n_select = max(n_select, min_n)
+        if max_n is not None:
+            n_select = min(n_select, max_n)
+        idx = cell_sort.shape[0] - n_select
+
         return cell_sort[idx,1:]
 
 def determine_region(pt, pts, ovrlp, ovrlp_thresh, expand_prms={}):
@@ -633,7 +640,7 @@ if opts.result_file is not None:
 
     if opts.refine:
         # FIXME: We use overlap threshold as a proxy for confidence level
-        selected = get_cr_from_grid(selected, results, cr_thr=opts.overlap_threshold, min_n=opts.min_n_points, max_n=opts.max_n_points, delta_lnL_threshold=opts.lnL_threshold)
+        selected = get_cr_from_grid(selected, results, cr_thr=opts.overlap_threshold, min_n=opts.min_n_points, max_n=opts.max_n_points, delta_logL_threshold=opts.lnL_threshold)
         if not(opts.lnL_threshold):
             print("Selected %d cells from %3.2f%% confidence region" % (len(selected), opts.overlap_threshold*100))
         else:
