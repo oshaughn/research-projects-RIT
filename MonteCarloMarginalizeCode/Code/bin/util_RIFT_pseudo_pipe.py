@@ -641,7 +641,7 @@ except:
 instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
 line = ' '.join(instructions_ile)
 line += " --l-max " + str(opts.l_max) 
-if (opts.use_ini is None):
+if (opts.use_ini is None) and not('--d-max' in line):
     line += " --d-max " + str(dmax_guess)
 if opts.ile_force_gpu:
     line +=" --force-gpu-only "

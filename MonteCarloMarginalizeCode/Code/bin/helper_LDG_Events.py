@@ -866,7 +866,7 @@ if use_ini:
     else:
         mc_Msun = P.extract_param('mc')/lal.MSUN_SI
         dmax_guess =(1./snr_fac)* 2.5*2.26*typical_bns_range_Mpc[opts.observing_run]* (mc_Msun/1.2)**(5./6.)
-        internal_dmax = np.min([dmax_guess,10000]) # place ceiling
+        dmax = np.min([dmax_guess,10000]) # place ceiling
     if internal_dmax is None: # overrride ini file if already set.  Note this will override the lowlatency propose approx
         internal_dmax = dmax
     
@@ -885,8 +885,8 @@ if opts.lowlatency_propose_approximant:
     dmax_guess = np.min([dmax_guess,10000]) # place ceiling
     if internal_dmax is None:
         internal_dmax = dmax_guess
-    if opts.use_ini is None:
-        helper_ile_args +=  " --d-max " + str(int(internal_dmax))  # note also used below
+    # if opts.use_ini is None:
+    #     helper_ile_args +=  " --d-max " + str(int(internal_dmax))  # note also used below
 
     if (opts.data_LI_seglen is None) and  (opts.data_start_time is None) and not(use_ini):
         # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
