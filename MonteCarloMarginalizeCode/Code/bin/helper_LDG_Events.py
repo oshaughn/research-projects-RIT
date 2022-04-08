@@ -914,7 +914,7 @@ if not(internal_dmax is None):
         helper_ile_args += " --distance-marginalization  --distance-marginalization-lookup-table {}/distance_marginalization_lookup.npz ".format(opts.working_directory)
     elif opts.internal_marginalize_distance_file:
         helper_ile_args += " --distance-marginalization "
-        if opts.use_osg:
+        if not(opts.use_osg):
             helper_ile_args += " --distance-marginalization-lookup-table {} ".format(opts.internal_marginalize_distance_file)
         else:
             transfer_files += [ opts.internal_marginalize_distance_file ]
