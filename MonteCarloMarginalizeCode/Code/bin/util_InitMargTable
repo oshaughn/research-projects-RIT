@@ -129,4 +129,5 @@ lnI_array[:, 1:] = lnI(x0_grid[:, 1:], b_grid[:, 1:])
 # save the list
 np.savez(opts.out, phase_marginalization=False,
          bmax=bmax, bref=bref, x0min=x0min, x0max=x0max,
-         s_array=s_array, t_array=t_array, lnI_array=lnI_array,opts.d_min,opts.d_max)
+         dmin=dmin,dmax=dmax,
+         s_array=s_array, t_array=t_array, lnI_array=lnI_array)
