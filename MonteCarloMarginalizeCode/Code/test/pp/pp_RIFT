@@ -273,7 +273,8 @@ cip_fit_method = config.get('make_workflow','cip_fit_method')
 cip_sampler_method = config.get('make_workflow','cip_sampler_method')
 add_extrinsic=False
 use_osg=opts.use_osg #False
-if not(use_osg) and ('use_osg' in config['helper-args']):
+if not(use_osg) and 'helper-args' in config:
+  if ('use_osg' in config['helper-args']):
     use_osg = unsafe_config_get('helper-args','use_osg')
 cip_explode_jobs=False
 if 'cip_explode_jobs' in config['make_workflow']:
