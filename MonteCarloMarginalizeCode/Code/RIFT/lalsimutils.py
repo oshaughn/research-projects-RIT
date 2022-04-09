@@ -1849,15 +1849,28 @@ class InnerProduct(object):
                 assert abs(psd.deltaF - self.deltaF) <= TOL_DF
                 fPSD = (psd.data.length - 1) * psd.deltaF # -1 b/c start at f=0
                 assert self.fMax <= fPSD
-                for i in range(self.minIdx,self.maxIdx):
-                    if psd.data.data[i] != 0.:
-                        extra_weight=1.0
-                        if waveform_is_psi4:
-                            extra_weight=1.0/(2*np.pi*i*deltaF)/(2*np.pi*i*deltaF)
-                        self.weights[i] = 1./psd.data.data[i]*extra_weight
+                ivals = np.arange(self.minIdx,self.maxIdx)
+                ivals_test_ok = psd.data.data[ivals]>0
+                ivals_ok = ivals[ivals_test_ok] 
+                extra_weight=np.ones(len(self.weights))
+                if waveform_is_psi4:
+                    extra_weight[ivals_ok] = 1./(2*np.pi*ivals[ivals_ok]*deltaF)**2
+                self.weights[ivals_ok] = 1./psd.data.data[ivals_ok] * extra_weight[ivals_ok]
+                # for i in range(self.minIdx,self.maxIdx):
+                #     if psd.data.data[i] != 0.:
+                #         extra_weight=1.0
+                #         if waveform_is_psi4:
+                #             extra_weight=1.0/(2*np.pi*i*deltaF)/(2*np.pi*i*deltaF)
+                #         self.weights[i] = 1./psd.data.data[i]*extra_weight
             else: # if we get here psd must be an array
                 fPSD = (len(psd) - 1) * self.deltaF # -1 b/c start at f=0
                 assert self.fMax <= fPSD
+                # ivals = np.arange(self.minIdx,self.maxIdx)
+                # ivals_ok = psd[ivals]>0
+                # extra_weight=np.ones(len(self.weights))
+                # if waveform_is_psi4:
+                #     extra_weight[ivals_ok] = 1./(2*np.pi*ivals[ivals_ok]*deltaF)**2
+                # self.weights[ivals_ok] = 1./psd[ivals_ok] * extra_weight[ivals_ok]
                 for i in range(self.minIdx,self.maxIdx):
                     if psd[i] != 0.:
                         extra_weight=1.0
