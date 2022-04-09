@@ -941,6 +941,8 @@ pinned_params.update({
     "igrand_fairdraw_samples": opts.fairdraw_extrinsic_output,
     "igrand_fairdraw_samples_max": opts.n_eff
 })
+if opts.sampler_method == "adaptive_cartesian_gpu":
+  pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
 if opts.sampler_method == "GMM":
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
