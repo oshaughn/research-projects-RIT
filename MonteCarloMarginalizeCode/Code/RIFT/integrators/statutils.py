@@ -66,3 +66,33 @@ def int_var(samples):
     mean = numpy.mean(samples)
     sq_mean = numpy.mean(samples**2)
     return (sq_mean-mean**2)/(len(samples)-1)
+
+
+# Alternative implementation that uses a state variable, rather than recomputing every step (as the algorithm above does!)
+# https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm
+# https://stackoverflow.com/questions/56402955/whats-the-formula-for-welfords-algorithm-for-variance-std-with-batch-updates
+# https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+# CONFIRM CORRECTNESS for batched update 
+def update(existingAggregate, newValues):
+    if isinstance(newValues, (int, float, complex)):
+        # Handle single digits.
+        newValues = [newValues]
+
+    (count, mean, M2) = existingAggregate
+    count += len(newValues) 
+    # newvalues - oldMean
+    delta = np.subtract(newValues, [mean] * len(newValues))
+    mean += np.sum(delta / count)
+    # newvalues - newMeant
+    delta2 = np.subtract(newValues, [mean] * len(newValues))
+    M2 += np.sum(delta * delta2)
+
+    return (count, mean, M2)
+
+def finalize(existingAggregate):
+    (count, mean, M2) = existingAggregate
+    (mean, variance, sampleVariance) = (mean, M2/count, M2/(count - 1)) 
+    if count < 2:
+        return float('nan')
+    else:
+        return (mean, variance, sampleVariance)
