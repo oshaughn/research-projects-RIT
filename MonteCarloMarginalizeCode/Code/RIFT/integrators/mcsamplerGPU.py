@@ -663,7 +663,7 @@ class MCSampler(object):
             #
             # FIXME: While not technically a fatal error, this will kill the 
             # adaptive sampling
-            if not(no_cupy): # only do this check if not on GPU
+            if not(cupy_ok): # only do this check if not on GPU
               if fval.sum() == 0:
                 for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
