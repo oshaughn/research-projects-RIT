@@ -28,6 +28,19 @@ try:
 
   from RIFT.interpolators.interp_gpu import interp
 
+#  from logging import info as log
+#  import inspect
+#  def verbose_cupy_asarray(*args, **kwargs):
+#     print("Transferring data to VRAM", *args, **kwargs)
+#     return cupy.asarray(*args, **kwargs)
+#  def verbose_cupy_asnumpy(*args, **kwargs):
+#     curframe = inspect.currentframe()
+#     calframe = inspect.getouterframes(curframe, 2)
+#     log("Transferring data to RAM",calframe[1][3]) #,args[0].__name__) #, *args, **kwargs)
+#     return cupy.ndarray.asnumpy(*args, **kwargs)
+#  cupy.asarray = verbose_cupy_asarray  
+#  cupy.ndarray.asnumpy = verbose_cupy_asnumpy
+
 except:
   print(' no cupy (mcsamplerGPU)')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
@@ -183,11 +196,14 @@ class MCSampler(object):
                 self.rlim[params] = right_limit
         self.pdf[params] = pdf
         # FIXME: This only works automagically for the 1d case currently
-        self.cdf_inv[params] = cdf_inv or self.cdf_inverse(params)
+        if cdf_inv:
+          self.cdf_inv[params] = cdf_inv
+        else:
+          self.cdf_inv[params] =  self.cdf_inverse(params)
         self.pdf_initial[params] = pdf
         self.cdf_inv_initial[params] = self.cdf_inv[params]
         if not isinstance(params, tuple):
-            self.cdf[params] =  self.cdf_function(params)
+#            self.cdf[params] =  self.cdf_function(params)
             if prior_pdf is None:
                 self.prior_pdf[params] = lambda x:1
             else:
@@ -298,7 +314,10 @@ class MCSampler(object):
     def cdf_function(self, param):
         """
         Numerically determine the  CDF from a given sampling PDF. If the PDF itself is not normalized, the class will keep an internal record of the normalization and adjust the PDF values as necessary. Returns a function object which is the interpolated CDF.
+        NOT USED IN THIS ROUTINE, SHOULD NOT BE CALLED
         """
+        print(" Do not call this routine! ")
+        raise Exception(" mcsamplerGPU: cdf_function not to be used ")
         # Solve P'(x) == p(x), with P[lower_boun] == 0
         def dP_cdf(p, x):
             if x > self.rlim[param] or x < self.llim[param]:
@@ -381,8 +400,9 @@ class MCSampler(object):
             # joint PDF and joint prior at those samples.
             rv[i] = param_samples
             joint_p_s *= self.pdf[param](param_samples)
+            #val= self.pdf[param](param_samples); print(type(val),param,xpy_default)
             joint_p_prior *= self.prior_pdf[param](param_samples)
-
+            #val=self.prior_pdf[param](param_samples); print(type(val),param)
 
         #
         # Cache the samples we chose
@@ -604,7 +624,8 @@ class MCSampler(object):
             # Prevent zeroes in the sampling prior
             #
             # FIXME: If we get too many of these, we should bail
-            if any(joint_p_s <= 0):
+            if not(cupy_ok):  # don't do this if using cupy! 
+              if any(joint_p_s <= 0):
                 for p in self.params_ordered:
                     self._rvs[p] = identity_convert_togpu(numpy.resize(identity_convert(self._rvs[p]), len(self._rvs[p])-n))
                     self.cdf_inv = self.cdf_inv_initial
@@ -642,7 +663,8 @@ class MCSampler(object):
             #
             # FIXME: While not technically a fatal error, this will kill the 
             # adaptive sampling
-            if fval.sum() == 0:
+            if not(no_cupy): # only do this check if not on GPU
+              if fval.sum() == 0:
                 for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
                 print("No contribution to integral, skipping.", file=sys.stderr)
@@ -823,12 +845,13 @@ def uniform_samp_vector(a,b,x,xpy=xpy_default):
       Implement uniform sampling as multiplication by a constant.
       Much faster and lighter weight. We never use the cutoffs anyways, because the limits are hardcoded elsewhere.
    """
-   return 1./(b-a)  # requires the variable in range.  Needed because there is no cupy implementation of np.heavyside
+   return xpy.ones(len(x))/(b-a)  # requires the variable in range.  Needed because there is no cupy implementation of np.heavyside
 # if cupy_ok:
 #    uniform_samp_vector = uniform_samp_vector_lazy  
 
 def ret_uniform_samp_vector_alt(a,b):
-    return lambda x: 1./(b-a)
+    return lambda x: xpy_default.ones(len(x))/(b-a)
+#    return lambda x: 1./(b-a)
 
 
 def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=xpy_default):
