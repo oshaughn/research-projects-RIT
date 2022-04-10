@@ -222,16 +222,17 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     elif (not (NR_group) or not (NR_param)) and  (not use_external_EOB) and (not nr_lookup):
         if not quiet:
                 print( "  FACTORED LIKELIHOOD WITH hlmoff (default ChooseTDModes) " )
-        hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
-        if not isinstance(hlms_list, dict):
-                hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
-        else:
-                hlms = hlms_list
-        hlms_conj_list = lsu.conj_hlmoff(P, Lmax)
-        if not isinstance(hlms_list,dict):
-                hlms_conj = lsu.SphHarmFrequencySeries_to_dict(hlms_conj_list, Lmax) # a dictionary
-        else:
-                hlms_conj = hlms_conj_list
+        # hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
+        # if not isinstance(hlms_list, dict):
+        #         hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
+        # else:
+        #         hlms = hlms_list
+        # hlms_conj_list = lsu.conj_hlmoff(P, Lmax)
+        # if not isinstance(hlms_list,dict):
+        #         hlms_conj = lsu.SphHarmFrequencySeries_to_dict(hlms_conj_list, Lmax) # a dictionary
+        # else:
+        #         hlms_conj = hlms_conj_list
+        hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax)
     elif (nr_lookup or NR_group) and useNR:
 	    # look up simulation
 	    # use nrwf to get hlmf
