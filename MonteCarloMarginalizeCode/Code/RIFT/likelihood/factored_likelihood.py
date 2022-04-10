@@ -1939,7 +1939,10 @@ def ComputeYlmsArray(lookupNK, theta, phi):
     return Ylms
 
 
-try: 
+if not('RIFT_LOWLATENCY' in os.environ): 
+  # numba is rarely used : we use GPU optimized almost always.  No point incurring these import costs.
+ fallback=False
+ try:
         import numba
         from numba import vectorize, complex128, float64, int64
         numba_on = True
@@ -1969,7 +1972,10 @@ try:
                         T[indx] = ComputeArrivalTimeAtDetector(det, RA[indx],DEC[indx],  tref)
                 return T
 
-except:
+ except:
+   fallback=True
+
+if fallback or ('RIFT_LOWLATENCY' in os.environ): 
         numba_on = False
         print(" Numba off ")
         # Very inefficient
