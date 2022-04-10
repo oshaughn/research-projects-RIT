@@ -79,14 +79,14 @@ def int_var(samples):
 #   - compute for new set
 #   - update aggregate
 
-def update(existingAggregate, newValues):
+def update(existingAggregate, newValues,xpy=numpy):
     if isinstance(newValues, (int, float, complex)):
         # Handle single digits.
         newValues = [newValues]
     (nA, xAmean, M2A) = existingAggregate
     nB = len(newValues)
-    xBmean = np.mean(newValues)
-    M2B = np.sum((newValues - xBmean)**2)   # classical problem of overflow ... sum of squares of these quantities, usually integrands, and large.
+    xBmean = xpy.mean(newValues)
+    M2B = xpy.sum((newValues - xBmean)**2)   # classical problem of overflow ... sum of squares of these quantities, usually integrands, and large.
     
     delta = xBmean - xAmean
     mean = xAmean + delta* nB/(nA+nB)
