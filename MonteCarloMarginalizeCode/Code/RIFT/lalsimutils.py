@@ -3316,6 +3316,42 @@ def conj_hlmoff(P, Lmax=2):
 
     return Hlms
 
+def std_and_conj_hlmoff(P, Lmax=2):
+    hlms = hlmoft(P, Lmax)
+    if isinstance(hlms,dict):
+        hlmsF = {}
+        hlms_conj_F = {}
+        for mode in hlms:
+            hlmsF[mode] = DataFourier(hlms[mode])
+            hlms[mode].data.data = np.conj(hlms[mode].data.data)
+            hlms_conj_F[mode] = DataFourier(hlms[mode])
+        return hlmsF, hlms_conj_F
+    hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
+    if P.deltaF == None: # h_lm(t) was not zero-padded, so do it now
+        TDlen = nextPow2(hxx.data.length)
+        hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
+    else: # Check zero-padding was done to expected length
+        TDlen = int(1./P.deltaF * 1./P.deltaT)
+        assert TDlen == hxx.data.length
+
+    # Make into dictionary, and do what we did above
+    hlmsT = {}
+    for l in range(2, Lmax+1):
+        for m in range(-l, l+1):
+            hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, l, m)
+            if hxx:
+                hlmsT[mode]=hxx
+    hlms=hlmsT
+    #
+    hlmsF = {}
+    hlms_conj_F = {}
+    for mode in hlms:
+            hlmsF[mode] = DataFourier(hlms[mode])
+            hlms[mode].data.data = np.conj(hlms[mode].data.data)
+            hlms_conj_F[mode] = DataFourier(hlms[mode])
+    return hlmsF, hlms_conj_F
+
+
 def SphHarmTimeSeries_to_dict(hlms, Lmax):
     """
     Convert a SphHarmTimeSeries SWIG-wrapped linked list into a dictionary.
