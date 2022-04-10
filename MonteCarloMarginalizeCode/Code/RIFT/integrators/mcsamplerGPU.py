@@ -6,11 +6,11 @@
 
 import sys
 import math
-import bisect
+#import bisect
 from collections import defaultdict
 
 import numpy
-import numpy as np
+np=numpy #import numpy as np
 from scipy import integrate, interpolate
 import itertools
 import functools
@@ -61,9 +61,11 @@ if 'PROFILE' not in os.environ:
    def profile(fn):
         return fn
 
-try:
+if not( 'RIFT_LOWLATENCY'  in os.environ):
+    # Dont support selected external packages in low latency
+ try:
     import healpy
-except:
+ except:
     print(" - No healpy - ")
 
 from ..integrators.statutils import  cumvar, update,finalize
@@ -72,7 +74,7 @@ from multiprocessing import Pool
 
 from RIFT.likelihood import vectorized_general_tools
 
-__author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
+__author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>, Dan Wysocki, R. O'Shaughnessy"
 
 rosDebugMessages = True
 
