@@ -603,6 +603,8 @@ class MCSampler(object):
         maxlnL = -float("Inf")
         eff_samp = 0
         mean, var = None, numpy.float128(0)    # to prevent infinite variance due to overflow
+        if cupy_ok:
+          var = xpy_default.float64(0)   # cupy doesn't have float128
 
         if bShowEvaluationLog:
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
@@ -719,7 +721,7 @@ class MCSampler(object):
             if var is None:
               var=0
             if mean is None:
-              mean=0
+              mean=identity_convert_togpu(0.0)
             current_aggregate = [int(self.ntotal),mean, (self.ntotal-1)*var]
             current_aggregate = update(current_aggregate, int_val,xpy=xpy_default)
             outvals = finalize(current_aggregate)
@@ -731,8 +733,7 @@ class MCSampler(object):
             # running number of evaluations
             self.ntotal += n
             # FIXME: Likely redundant with int_val1
-            mean = int_val1/self.ntotal
-            #maxval = maxval[-1]
+            mean = identity_convert_togpu(xpy_default.float64(int_val1/self.ntotal))
 
             eff_samp = int_val1/maxval
 
@@ -743,7 +744,8 @@ class MCSampler(object):
                 raise NanOrInf("maxlnL = inf")
 
             if bShowEvaluationLog:
-                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/self.ntotal)), numpy.log(int_val1/self.ntotal)-maxlnL, numpy.sqrt(var*self.ntotal)/int_val1)
+                var_print = identity_convert(var)
+                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/self.ntotal)), numpy.log(int_val1/self.ntotal)-maxlnL, numpy.sqrt(var_print*self.ntotal)/int_val1)
 
             if (not convergence_tests) and self.ntotal >= nmax and neff != float("inf"):
                 print("WARNING: User requested maximum number of samples reached... bailing.", file=sys.stderr)
@@ -828,7 +830,7 @@ class MCSampler(object):
         if convergence_tests is not None:
             dict_return["convergence_test_results"] = last_convergence_test
 
-        return int_val1/self.ntotal, var/self.ntotal, eff_samp, dict_return
+        return int_val1/self.ntotal, identity_convert(var)/self.ntotal, eff_samp, dict_return
 
 ### UTILITIES: Predefined distributions
 #  Be careful: vectorization is not always implemented consistently in new versions of numpy
