@@ -66,7 +66,7 @@ try:
 except:
     print(" - No healpy - ")
 
-from ..integrators.statutils import  cumvar
+from ..integrators.statutils import  cumvar, update,finalize
 
 from multiprocessing import Pool
 
@@ -715,7 +715,17 @@ class MCSampler(object):
             #    maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
             # running variance
-            var = cumvar(identity_convert(int_val), mean, var, int(self.ntotal))[-1]
+#            var = cumvar(identity_convert(int_val), mean, var, int(self.ntotal))[-1]
+            if var is None:
+              var=0
+            if mean is None:
+              mean=0
+            current_aggregate = [int(self.ntotal),mean, (self.ntotal-1)*var]
+            current_aggregate = update(current_aggregate, int_val,xpy=xpy_default)
+            outvals = finalize(current_aggregate)
+#            print(var, outvals[-1])
+            var = outvals[-1]
+
             # running integral
             int_val1 += identity_convert(int_val.sum())
             # running number of evaluations
