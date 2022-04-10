@@ -1939,9 +1939,10 @@ def ComputeYlmsArray(lookupNK, theta, phi):
     return Ylms
 
 
+fallback=False
+
 if not('RIFT_LOWLATENCY' in os.environ): 
   # numba is rarely used : we use GPU optimized almost always.  No point incurring these import costs.
- fallback=False
  try:
         import numba
         from numba import vectorize, complex128, float64, int64
