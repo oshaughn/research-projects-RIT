@@ -13,22 +13,23 @@ from optparse import OptionParser, OptionGroup
 
 import numpy
 import numpy as np
+import os
 try:
   import cupy
   xpy_default=cupy
   identity_convert = cupy.asnumpy
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
+  if not('RIFT_LOWLATENCY' in os.environ):
+    print(cupy.show_config())  # print provenance/debugging information
 
-  print(cupy.show_config())  # print provenance/debugging information
-
-  # Check memory allocation
-  mem_info = cupy.cuda.Device().mem_info  # memory available in bytes
-  n_mb_total = mem_info[1]/1024./1024.
-  n_mb_used = mem_info[0]/1024/1024.
-  print(  " cupy memory [total, available] {} {} Mb".format(n_mb_total,n_mb_total-n_mb_used))
-  # Add failure mode test if memory insufficient!
-  if n_mb_total - n_mb_used < 3000:
-    print( "  - low cupy memory - ")
+    # Check memory allocation
+    mem_info = cupy.cuda.Device().mem_info  # memory available in bytes
+    n_mb_total = mem_info[1]/1024./1024.
+    n_mb_used = mem_info[0]/1024/1024.
+    print(  " cupy memory [total, available] {} {} Mb".format(n_mb_total,n_mb_total-n_mb_used))
+    # Add failure mode test if memory insufficient!
+    if n_mb_total - n_mb_used < 3000:
+      print( "  - low cupy memory - ")
   cupy_success=True
 except:
   print( ' no cupy')
