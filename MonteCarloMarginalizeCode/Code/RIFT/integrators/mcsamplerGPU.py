@@ -832,6 +832,12 @@ class MCSampler(object):
         if convergence_tests is not None:
             dict_return["convergence_test_results"] = last_convergence_test
 
+        # perform type conversion of all stored variables
+        if cupy_ok:
+          for name in self._rvs:
+            if isinstance(self._rvs[name],xpy_default.ndarray):
+              self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
+
         return int_val1/self.ntotal, identity_convert(var)/self.ntotal, eff_samp, dict_return
 
 ### UTILITIES: Predefined distributions
