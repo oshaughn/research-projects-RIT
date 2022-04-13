@@ -1118,7 +1118,7 @@ for it in np.arange(it_start,opts.n_iterations):
         if opts.use_singularity:
             cmd += " --use-singularity "
         if opts.cache_file:
-            cmd += " --cache_file {} ".format(opts.cache_file)
+            cmd += " --cache-file {} ".format(opts.cache_file)
         if opts.use_osg:
             cmd += " --use-osg "
             if opts.use_osg_simple_requirements:
