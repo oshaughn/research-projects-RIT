@@ -416,7 +416,13 @@ if opts.sim_xml:
             P.phaseO = 3
 
     P = P_list[0]  # Load in the physical parameters of the injection.  
-
+else:
+    # Some debugging information
+    print(" --sim-xml required ",opts.sim_xml)
+    print(" ... common parsing error accident might be inserting -- into your command line without an associated argument")
+    print(opts)
+    print(sys.argv[1:])
+    sys.exit(1)
 
 # User requested bounds for data segment
 if not (opts.data_start_time == None) and  not (opts.data_end_time == None):
