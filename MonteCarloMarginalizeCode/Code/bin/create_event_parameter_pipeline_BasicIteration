@@ -1115,8 +1115,20 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += " --ile-retries {} ".format(opts.ile_retries)
         if opts.general_retries:
             cmd += " --general-retries {} ".format(opts.general_retries)
+        if opts.use_singularity:
+            cmd += " --use-singularity "
+        if opts.cache_file:
+            cmd += " --cache_file {} ".format(opts.cache_file)
         if opts.use_osg:
             cmd += " --use-osg "
+            if opts.use_osg_simple_requirements:
+                cmd +=  " --use-osg-simple-requirements "
+            if opts.condor_local_nonworker:
+                cmd += " --condor-local-nonworker "
+            if opts.condor_nogrid_nonworker:
+                cmd += " --condor-nogrid-nonworker "
+            if opts.transfer_file_list:
+                cmd += " --transfer-file-list {} ".format(opts.transfer_file_list)
         if opts.test_args:
             import re
             test_args_optin = "X " + test_args  # copy not reference
