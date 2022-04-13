@@ -384,6 +384,7 @@ fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more di
 
 # Struct to hold template parameters
 P_list = None
+P=None # force allocation so I can use the preferred event later
 if opts.sim_xml:
     print( "====Loading injection XML:", opts.sim_xml, opts.event, " =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
