@@ -39,6 +39,7 @@ import glue.lal
 import RIFT.lalsimutils as lalsimutils
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 import RIFT.integrators.mcsampler as mcsampler
+import RIFT.misc.sky_rotations as sky_rotations
 try:
     import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
     mcsampler_gmm_ok = True
@@ -207,6 +208,7 @@ integration_params.add_option("--d-max", default=10000,type=float,help="Maximum 
 integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
+integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
 integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
@@ -785,6 +787,18 @@ if not opts.distance_marginalization:
         adaptive_sampling = not (opts.no_adapt or opts.no_adapt_distance))
 
 
+# 
+# Rotate sky coordinates
+#
+if opts.internal_sky_network_coordinates:
+  ifo_list = list(psd_dict)
+  if len(ifo_list) <2:
+    opts.internal_sky_network_coordinates = False # stop using this code
+  else:
+    sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
+  
+
+
 #
 # Intrinsic parameters
 #
@@ -1133,6 +1147,12 @@ else: # Sum over time for every point in other extrinsic params
                      P.incl = xpy_default.asarray(inclination, dtype=np.float64)
                 P.psi = xpy_default.asarray(psi, dtype=np.float64)
                 P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+
+                # rotate sky if needed
+                if opts.internal_sky_network_coordinates:
+                  P.theta,P.phi = sky_rotations.rotate_sky_backwards(np.pi/2 - P.theta,P.phi)
+                  P.theta = np.pi/2 - P.theta
+                  P.phi = xpy_default.mod(P.psi, 2*np.pi)
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
