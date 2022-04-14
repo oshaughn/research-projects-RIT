@@ -1023,9 +1023,9 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
         requirements.append("IS_GLIDEIN=?=undefined")
 
     # no grid
-    if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+#    if no_grid:
+#        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+#        ile_job.add_condor_cmd("+flock_local",'true')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -1730,9 +1730,9 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
 
     # no grid
-    if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+#    if no_grid:
+#        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+#        ile_job.add_condor_cmd("+flock_local",'true')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
