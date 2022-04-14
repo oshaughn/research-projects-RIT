@@ -2,30 +2,31 @@
 
 import sys
 import math
-import bisect
+#import bisect
 from collections import defaultdict
 
 import numpy
 from scipy import integrate, interpolate
+from ..integrators.statutils import cumvar, welford, update, finalize
 import itertools
 import functools
 
-try:
-    import healpy
-except:
-    print(" - No healpy - ")
-
-from ..integrators.statutils import cumvar, welford
-
-from multiprocessing import Pool
 
 import os
 if not( 'RIFT_LOWLATENCY'  in os.environ):
-  # Dont support external packages in low latency
+    # Dont support selected external packages in low latency
+ try:
+    import healpy
+ except:
+    print(" - No healpy - ")
  try:
     import vegas
  except:
     print(" - No vegas - ")
+
+
+from multiprocessing import Pool
+
 
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
@@ -580,8 +581,17 @@ class MCSampler(object):
 
             # running variance
 #            var = cumvar(int_val, mean, var, int(self.ntotal))[-1]
-            var = welford(int_val, mean, var, int(self.ntotal))
-            # running integral
+#            var = welford(int_val, mean, var, int(self.ntotal))
+            if var is None:
+                var=0
+            if mean is None:
+                mean=0
+            current_aggregate = [int(self.ntotal),mean, (self.ntotal-1)*var]
+            current_aggregate = update(current_aggregate, int_val)
+            outvals = finalize(current_aggregate)
+#            print(var, outvals[-1])
+            var = outvals[-1]
+            # running integral (note also in current_aggregate)
             int_val1 += int_val.sum()
             # running number of evaluations
             self.ntotal += n

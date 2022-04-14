@@ -17,11 +17,16 @@ try:
   import cupy
   xpy_default=cupy
   identity_convert = cupy.asnumpy
+  junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
+
+  print(cupy.show_config())  # print provenance/debugging information
+  cupy_success=True
 except:
   print(' no cupy')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
+  cupy_success=False
 
 
 
@@ -34,7 +39,18 @@ import glue.lal
 import RIFT.lalsimutils as lalsimutils
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 import RIFT.integrators.mcsampler as mcsampler
-import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
+try:
+    import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
+    mcsampler_gmm_ok = True
+except:
+    print(" No mcsamplerEnsemble ")
+    mcsampler_gmm_ok = False
+try:
+    import RIFT.integrators.mcsamplerGPU as mcsamplerGPU
+    mcsampler_gpu_ok = True
+except:
+    print( " No mcsamplerGPU ")
+    mcsampler_gpu_ok = False
 
 import RIFT.likelihood.priors_utils as priors_utils
 import RIFT.misc.xmlutils as xmlutils
@@ -679,6 +695,16 @@ param_limits = { "psi": (0, 2*numpy.pi),
 #
 params = {}
 sampler = mcsampler.MCSampler()
+if opts.sampler_method == "adaptive_cartesian_gpu":
+    sampler = mcsamplerGPU.MCSampler()
+    sampler.xpy = xpy_default
+    sampler.identity_convert=identity_convert
+    mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+
+    if opts.sampler_xpy == "numpy":
+      mcsampler.set_xpy_to_numpy()
+      sampler.xpy= numpy
+      sampler.identity_convert= lambda x: x
 if opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 
@@ -915,6 +941,8 @@ pinned_params.update({
     "igrand_fairdraw_samples": opts.fairdraw_extrinsic_output,
     "igrand_fairdraw_samples_max": opts.n_eff
 })
+if opts.sampler_method == "adaptive_cartesian_gpu":
+  pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
 if opts.sampler_method == "GMM":
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)

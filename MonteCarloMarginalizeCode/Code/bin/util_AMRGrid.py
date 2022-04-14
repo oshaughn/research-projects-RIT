@@ -54,7 +54,7 @@ def translate_params(param):
     return param
 
 
-def get_cr_from_grid(cells, weight, cr_thr=0.9, min_n=None, max_n=None):
+def get_cr_from_grid(cells, weight, cr_thr=0.9, min_n=None, max_n=None,delta_logL_threshold=None):
     """
     Given a set of cells and the weight of that cell, calculate a N% CR including cells which contribute to that probability mass. If n is set, cr_thr is ignored and instead this many points are taken.
     """
@@ -66,18 +66,32 @@ def get_cr_from_grid(cells, weight, cr_thr=0.9, min_n=None, max_n=None):
 
     # Sort and form the CDF
     cell_sort = cell_sort[cell_sort[:,0].argsort()]
-    cell_sort[:,0] = cell_sort[:,0].cumsum()
-    cell_sort[:,0] /= cell_sort[-1,0]
 
-    idx = cell_sort[:,0].searchsorted(1-cr_thr)
-    n_select = cell_sort.shape[0] - idx
-    if min_n is not None:
-        n_select = max(n_select, min_n)
-    if max_n is not None:
-        n_select = min(n_select, max_n)
-    idx = cell_sort.shape[0] - n_select
+    if delta_logL_threshold == None:
+        cell_sort[:,0] = cell_sort[:,0].cumsum()
+        cell_sort[:,0] /= cell_sort[-1,0]
+    
+        idx = cell_sort[:,0].searchsorted(1-cr_thr)
+        n_select = cell_sort.shape[0] - idx
+        if min_n is not None:
+            n_select = max(n_select, min_n)
+        if max_n is not None:
+            n_select = min(n_select, max_n)
+        idx = cell_sort.shape[0] - n_select
 
-    return cell_sort[idx:,1:]
+        return cell_sort[idx:,1:]
+    else:
+        cell_sort[:,0] /= cell_sort[-1,0]  #normalize out peak
+        cell_sort[:,0] = numpy.log(cell_sort[:,0] + 1e-40)  # go to log.  All will be negative
+        idx = cell_sort[:,0].searchsorted(-delta_logL_threshold)
+        n_select = cell_sort.shape[0] - idx
+        if min_n is not None:
+            n_select = max(n_select, min_n)
+        if max_n is not None:
+            n_select = min(n_select, max_n)
+        idx = cell_sort.shape[0] - n_select
+
+        return cell_sort[idx,1:]
 
 def determine_region(pt, pts, ovrlp, ovrlp_thresh, expand_prms={}):
     """
@@ -277,6 +291,7 @@ grid_section.add_argument("--output-xml-file-name",default="", help="Set the nam
 grid_section.add_argument("-t", "--tmplt-bank", help="XML file with template bank.")
 grid_section.add_argument("-O", "--use-overlap", action="append",help="Use overlap information to define 'closeness'. If a list of files is given, the script will find the file with the closest template, and select nearby templates only from that file.")
 grid_section.add_argument("-T", "--overlap-threshold", default=0.9,type=float, help="Threshold on overlap value.")
+grid_section.add_argument("--lnL-threshold", default=None,type=float, help="Threshold on difference betwene lnLmax and lnL for refinement. IF USED, OVERRIDES THE OTHER CHOICE.  Suggested value of 6 to 8")
 grid_section.add_argument("-s", "--points-per-side", type=int, default=10, help="Number of points per side, default is 10.")
 grid_section.add_argument("-I", "--initial-region", action="append", help="Override the initial region with a custom specification. Specify multiple times like, -I mass1=1.0,2.0 -I mass2=1.0,1.5")
 grid_section.add_argument("-D", "--deactivate", action="store_true", help="Deactivate cells initially which have no template within them.")
@@ -625,8 +640,11 @@ if opts.result_file is not None:
 
     if opts.refine:
         # FIXME: We use overlap threshold as a proxy for confidence level
-        selected = get_cr_from_grid(selected, results, cr_thr=opts.overlap_threshold, min_n=opts.min_n_points, max_n=opts.max_n_points)
-        print("Selected %d cells from %3.2f%% confidence region" % (len(selected), opts.overlap_threshold*100))
+        selected = get_cr_from_grid(selected, results, cr_thr=opts.overlap_threshold, min_n=opts.min_n_points, max_n=opts.max_n_points, delta_logL_threshold=opts.lnL_threshold)
+        if not(opts.lnL_threshold):
+            print("Selected %d cells from %3.2f%% confidence region" % (len(selected), opts.overlap_threshold*100))
+        else:
+            print("Selected {} cells from region within {} of max lnL ".format(len(selected), opts.lnL_threshold))
 
 if opts.prerefine:
     print("Performing refinement for points with overlap > %1.3f" % opts.overlap_threshold)

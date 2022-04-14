@@ -13,22 +13,23 @@ from optparse import OptionParser, OptionGroup
 
 import numpy
 import numpy as np
+import os
 try:
   import cupy
   xpy_default=cupy
   identity_convert = cupy.asnumpy
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
+  if not('RIFT_LOWLATENCY' in os.environ):
+    print(cupy.show_config())  # print provenance/debugging information
 
-  print(cupy.show_config())  # print provenance/debugging information
-
-  # Check memory allocation
-  mem_info = cupy.cuda.Device().mem_info  # memory available in bytes
-  n_mb_total = mem_info[1]/1024./1024.
-  n_mb_used = mem_info[0]/1024/1024.
-  print(  " cupy memory [total, available] {} {} Mb".format(n_mb_total,n_mb_total-n_mb_used))
-  # Add failure mode test if memory insufficient!
-  if n_mb_total - n_mb_used < 3000:
-    print( "  - low cupy memory - ")
+    # Check memory allocation
+    mem_info = cupy.cuda.Device().mem_info  # memory available in bytes
+    n_mb_total = mem_info[1]/1024./1024.
+    n_mb_used = mem_info[0]/1024/1024.
+    print(  " cupy memory [total, available] {} {} Mb".format(n_mb_total,n_mb_total-n_mb_used))
+    # Add failure mode test if memory insufficient!
+    if n_mb_total - n_mb_used < 3000:
+      print( "  - low cupy memory - ")
   cupy_success=True
 except:
   print( ' no cupy')
@@ -383,6 +384,7 @@ fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more di
 
 # Struct to hold template parameters
 P_list = None
+P=None # force allocation so I can use the preferred event later
 if opts.sim_xml:
     print( "====Loading injection XML:", opts.sim_xml, opts.event, " =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
@@ -414,7 +416,13 @@ if opts.sim_xml:
             P.phaseO = 3
 
     P = P_list[0]  # Load in the physical parameters of the injection.  
-
+else:
+    # Some debugging information
+    print(" --sim-xml required ",opts.sim_xml)
+    print(" ... common parsing error accident might be inserting -- into your command line without an associated argument")
+    print(opts)
+    print(sys.argv[1:])
+    sys.exit(1)
 
 # User requested bounds for data segment
 if not (opts.data_start_time == None) and  not (opts.data_end_time == None):

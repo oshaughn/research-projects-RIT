@@ -684,7 +684,7 @@ con_job.write_sub_file()
 
 ##   Unify job
 #   - update 'all.net' to include all previous events
-unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str='', base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe)
+unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str='', base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe,no_grid=no_worker_grid)
 unify_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).log")
 unify_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).err")
@@ -1115,12 +1115,24 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += " --ile-retries {} ".format(opts.ile_retries)
         if opts.general_retries:
             cmd += " --general-retries {} ".format(opts.general_retries)
+        if opts.use_singularity:
+            cmd += " --use-singularity "
+        if opts.cache_file:
+            cmd += " --cache-file {} ".format(opts.cache_file)
         if opts.use_osg:
             cmd += " --use-osg "
+            if opts.use_osg_simple_requirements:
+                cmd +=  " --use-osg-simple-requirements "
+            if opts.condor_local_nonworker:
+                cmd += " --condor-local-nonworker "
+            if opts.condor_nogrid_nonworker:
+                cmd += " --condor-nogrid-nonworker "
+            if opts.transfer_file_list:
+                cmd += " --transfer-file-list {} ".format(opts.transfer_file_list)
         if opts.test_args:
             import re
             test_args_optin = "X " + test_args  # copy not reference
-            test_args_optin = test_args_optin.replace(' --always-succeed', '')  # tests must operate
+            test_args_optin = re.sub('--always-succeed', '', test_args_optin)  # tests must operate
             # remove iteration threshold, so they ALWAYS operate
             test_args_optin = re.sub('--iteration-threshold [1-9] ', '', test_args_optin)
         else:

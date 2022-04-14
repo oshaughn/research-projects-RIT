@@ -106,26 +106,6 @@ def unsafe_parse_arg_string(my_argstr,match):
             return x
     return None
         
-def guess_mc_range(event_dict):
-    Mchirp_event = lalsimutils.mchirp( event_dict["m1"],event_dict["m2"])
-    # from helper code: choose some mc range that's plausible, not a delta function at trigger mass
-    fmin_fiducial = 20
-    v_PN_param = (np.pi* Mchirp_event*fmin_fiducial*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
-    snr_fac = 1 # not using that information
-    v_PN_param = v_PN_param
-    v_PN_param_max = 0.2
-    fac_search_correct = 1.5   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
-    ln_mc_error_pseudo_fisher = 1.5*np.array(fac_search_correct)*0.3*(v_PN_param/v_PN_param_max)**(7.)/snr_fac 
-    if ln_mc_error_pseudo_fisher  >1:
-        ln_mc_error_pseudo_fisher =0.8   # stabilize
-    mc_max = np.exp( ln_mc_error_pseudo_fisher) * Mchirp_event
-    mc_min = np.exp( -ln_mc_error_pseudo_fisher) * Mchirp_event
-
-    if opts.force_mc_range:
-        mc_min,mc_max = list(map(float, opts.force_mc_range.replace('[','').replace(']','').split(',')))
-
-    return mc_min,mc_max
-
 
 
 parser = argparse.ArgumentParser()
@@ -641,7 +621,7 @@ except:
 instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
 line = ' '.join(instructions_ile)
 line += " --l-max " + str(opts.l_max) 
-if (opts.use_ini is None):
+if (opts.use_ini is None) and not('--d-max' in line):
     line += " --d-max " + str(dmax_guess)
 if opts.ile_force_gpu:
     line +=" --force-gpu-only "
@@ -921,7 +901,7 @@ points-per-side=8
         shutil.copyfile("intrinsic_grid_iteration_0.xml.gz", "proposed-grid.xml.gz")  # Actually put the grid in the right place
     else:
         # don't use bank files, instead use manually-prescribed mc, eta, spin range. SHOULD FIX TO BE TIGHTER
-        mc_min,mc_max = guess_mc_range(event_dict)
+        mc_min,mc_max = guess_mc_range(event_dict,force_mc_range=opts.force_mc_range)
         amr_coord_dist  = "mchirp_eta"
         if opts.internal_use_aligned_phase_coordinates:
             amr_coord_dist = "mu1_mu2_q_s2z"
