@@ -4730,3 +4730,24 @@ def guess_mc_range(event_dict,force_mc_range=None):
 
     return mc_min,mc_max
 
+## prior range argument for injections
+def guess_mc_range_mdc(P,force_mc_range=None):
+    Mchirp_event = mchirp(P.m1/lal.MSUN_SI,P.m2/lal.MSUN_SI)
+    # from helper code: choose some mc range that's plausible, not a delta function at trigger mass
+    fmin_fiducial = 20
+    v_PN_param = (np.pi* Mchirp_event*fmin_fiducial*MsunInSec)**(1./3.)  # 'v' parameter
+    snr_fac = 1 # not using that information
+    v_PN_param = v_PN_param
+    v_PN_param_max = 0.2
+    fac_search_correct = 1.5   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
+    ln_mc_error_pseudo_fisher = 1.5*np.array(fac_search_correct)*0.3*(v_PN_param/v_PN_param_max)**(7.)/snr_fac
+    if ln_mc_error_pseudo_fisher  >1:
+        ln_mc_error_pseudo_fisher =0.8   # stabilize
+    mc_max = np.exp( ln_mc_error_pseudo_fisher) * Mchirp_event
+    mc_min = np.exp( -ln_mc_error_pseudo_fisher) * Mchirp_event
+
+    if force_mc_range:
+        mc_min,mc_max = list(map(float, force_mc_range.replace('[','').replace(']','').split(',')))
+
+    return mc_min,mc_max
+
