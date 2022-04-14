@@ -283,12 +283,6 @@ if 'cip_explode_jobs' in config['make_workflow']:
 # trial- use guess_mc_range to get a tailored mc prior, compare against the default mc-prior set by ini file and then choose each limits accordingly- vague, get clear
 P_list=lalsimutils.xml_to_ChooseWaveformParams_array(working_dir_full+"/mdc.xml.gz")
 P = [P_list[i] for i in range(len(P_list))]
-for indx in np.arange(n_events):
-    #mc_min=[]
-    #mc_max=[]
-    mc_min, mc_max = lalsimutils.guess_mc_range_mdc(P_list[indx],force_mc_range=None)
-    print(mc_min, mc_max)
-
 
 for indx in np.arange(n_events):
     print(" ::: Event {} ::: ".format(indx))
@@ -301,6 +295,7 @@ for indx in np.arange(n_events):
         print(cmd)
         os.system(cmd)
     here = os.getcwd()
+    mc_min, mc_max = lalsimutils.guess_mc_range_mdc(P_list[indx],force_mc_range=None) # this chooses the right mc-prior
     cmd = "helper_LDG_Events.py --sim-xml {}/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache --working-directory {}  ".format(working_dir_full,indx,P_list[indx].tref,here,dir_target)
     cmd += " --ile-n-eff {} ".format(ile_n_eff)
     cmd += " --fmin {} ".format(fmin_template)  # used for placement, we will be undoing some of these effects later with a 'replace'
