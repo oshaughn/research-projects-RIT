@@ -1022,6 +1022,11 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     if universe=='local':
         requirements.append("IS_GLIDEIN=?=undefined")
 
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
+
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
@@ -1702,7 +1707,6 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
     if not(exe):
         exe = "ligolw_add"   # go back to fallback if there is a weird disaster -- eg we are using an old-style install before this was updated
 
-
     working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
 
     fname_out =target_dir + "/" +output_base + ".xml.gz"
@@ -1724,6 +1728,11 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
         exe = target_dir + "/join_grids.sh"
 
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
