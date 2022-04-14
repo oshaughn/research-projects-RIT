@@ -12,6 +12,8 @@
 
 import numpy as np
 import lalsimulation as lalsim
+import lal
+import RIFT.lalsimutils as lalsimutils
 
 # defaults at start
 frm=np.diag(np.ones(3))
