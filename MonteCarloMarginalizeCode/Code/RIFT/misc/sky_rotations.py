@@ -37,10 +37,15 @@ def assign_sky_frame(det0,det1,theEpochFiducial):
     frmInverse= np.asarray(np.matrix(frm).I)                                    # Create an orthonormal frame to undo the transform above
 
 
+# USE INSTEAD
+#  functools(lalsimutils.polar_angles_in_frame_alt,frm)
 def rotate_sky_forwards_scalar(theta,phi,frm=frm):   # When theta=0 we are describing the coordinats of the zhat direction in the vecZ frame
 #    global frm
     return lalsimutils.polar_angles_in_frame_alt(frm, theta,phi)
 
+# superfluous
+# USE INSTEAD
+#  functools(lalsimutils.polar_angles_in_frame_alt,frm)
 def rotate_sky_forwards(th,ph,frm=frm):
     th_out= np.zeros(len(th))
     ph_out= np.zeros(len(th))
@@ -49,10 +54,12 @@ def rotate_sky_forwards(th,ph,frm=frm):
         return th_out, ph_out
     
 
+#  functools(lalsimutils.polar_angles_in_frame_alt,frmInverse)
 def rotate_sky_backwards_scalar(theta,phi,frmInverse=frmInverse): # When theta=0, the vector should be along the vecZ direction and the polar angles returned its polar angles
 #    global frmInverse
     return lalsimutils.polar_angles_in_frame_alt(frmInverse, theta,phi)
 
+#  functools(lalsimutils.polar_angles_in_frame_alt,frmInverse)
 def rotate_sky_backwards(th,ph,frmInverse=frmInverse):
     th_out= np.zeros(len(th))
     ph_out= np.zeros(len(th))
