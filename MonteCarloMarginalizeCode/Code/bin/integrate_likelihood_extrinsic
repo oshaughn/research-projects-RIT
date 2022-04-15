@@ -1146,13 +1146,13 @@ else: # Sum over time for every point in other extrinsic params
                 else:
                     P.theta = xpy_asarray_already(declination)
                 P.tref = float(fiducial_epoch)
-                P.phiref = xpy_asarray_alrady(phi_orb)
+                P.phiref = xpy_asarray_already(phi_orb)
                 if opts.inclination_cosine_sampler:
                     P.incl = xpy_default.arccos(xpy_asarray_already(inclination))
                 else:
-                     P.incl = xpy_asarray_alraedy(inclination)
+                     P.incl = xpy_asarray_already(inclination)
                 P.psi = xpy_asarray_already(psi)
-                P.dist = xpy_asarray_alraedy(distance* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
+                P.dist = xpy_asarray_already(distance* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
 
                 # rotate sky if needed
                 if opts.internal_sky_network_coordinates:
