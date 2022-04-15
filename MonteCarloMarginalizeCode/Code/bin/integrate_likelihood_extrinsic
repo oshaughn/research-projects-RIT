@@ -17,6 +17,7 @@ try:
   import cupy
   xpy_default=cupy
   identity_convert = cupy.asnumpy
+  identity_convert_togpu = cupy.asarray
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
 
   print(cupy.show_config())  # print provenance/debugging information
@@ -796,7 +797,7 @@ if opts.internal_sky_network_coordinates:
     opts.internal_sky_network_coordinates = False # stop using this code
   else:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
-    frm = sky_rotations.frm
+    frm = identity_convert(sky_rotations.frm)
     my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default) 
   
 
