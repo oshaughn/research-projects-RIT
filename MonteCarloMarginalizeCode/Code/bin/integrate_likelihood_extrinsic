@@ -698,11 +698,14 @@ param_limits = { "psi": (0, 2*numpy.pi),
 #
 params = {}
 sampler = mcsampler.MCSampler()
+xpy_asarray_already = functools.partial(xpy_default.asarray,dtype=np.float64)
 if opts.sampler_method == "adaptive_cartesian_gpu":
     sampler = mcsamplerGPU.MCSampler()
     sampler.xpy = xpy_default
     sampler.identity_convert=identity_convert
     mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+
+    xpy_asarray_already = lambda x: x  # do nothing because we are already on the board for GPU-generated 
 
     if opts.sampler_xpy == "numpy":
       mcsampler.set_xpy_to_numpy()
@@ -1137,19 +1140,19 @@ else: # Sum over time for every point in other extrinsic params
             def likelihood_function(right_ascension, declination, phi_orb, inclination, psi, distance):
                 global nEvals
                 tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-                P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+                P.phi = xpy_asarray_already(right_ascension)  # cast to float
                 if opts.declination_cosine_sampler:
-                    P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
+                    P.theta = numpy.pi/2 - xpy_default.arccos(xpy_asarray_already(declination))
                 else:
-                    P.theta = xpy_default.asarray(declination,dtype=np.float64)
+                    P.theta = xpy_asarray_already(declination)
                 P.tref = float(fiducial_epoch)
-                P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
+                P.phiref = xpy_asarray_alrady(phi_orb)
                 if opts.inclination_cosine_sampler:
-                    P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
+                    P.incl = xpy_default.arccos(xpy_asarray_already(inclination))
                 else:
-                     P.incl = xpy_default.asarray(inclination, dtype=np.float64)
-                P.psi = xpy_default.asarray(psi, dtype=np.float64)
-                P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+                     P.incl = xpy_asarray_alraedy(inclination)
+                P.psi = xpy_asarray_already(psi)
+                P.dist = xpy_asarray_alraedy(distance* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
 
                 # rotate sky if needed
                 if opts.internal_sky_network_coordinates:
