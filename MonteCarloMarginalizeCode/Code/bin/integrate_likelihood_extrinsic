@@ -797,7 +797,7 @@ if opts.internal_sky_network_coordinates:
     opts.internal_sky_network_coordinates = False # stop using this code
   else:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
-    frm = identity_convert(sky_rotations.frm)
+    frm = identity_convert_togpu(sky_rotations.frm)
     my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default) 
   
 
@@ -1155,7 +1155,7 @@ else: # Sum over time for every point in other extrinsic params
                 if opts.internal_sky_network_coordinates:
                   P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
                   P.theta = np.pi/2 - P.theta
-                  P.phi = xpy_default.mod(P.psi, 2*np.pi)
+                  P.phi = xpy_default.mod(P.phi, 2*np.pi)
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
