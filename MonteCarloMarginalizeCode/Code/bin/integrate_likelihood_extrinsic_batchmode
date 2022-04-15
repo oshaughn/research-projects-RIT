@@ -37,6 +37,7 @@ except:
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
+  identity_convert_togpu = lambda x: x
   cupy_success=False
 
 import lal
