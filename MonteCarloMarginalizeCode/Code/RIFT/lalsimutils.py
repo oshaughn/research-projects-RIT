@@ -4274,9 +4274,13 @@ def polar_angles_in_frame(frm,vec):
     xhat = frm[0]
     yhat = frm[1]
     zhat = frm[2]
-    th = np.arccos( np.dot(zhat,vec))/np.sqrt(np.dot(vec,vec)*np.dot(zhat,zhat))
-    vPerp = vec - zhat *np.dot(zhat,vec)/np.sqrt(np.dot(zhat,zhat))
-    ph = np.angle( np.dot(vPerp,xhat+ 1j*yhat))
+    # probably not needed but just in case
+    nmz = np.sqrt(np.dot(zhat,zhat))
+    zhat = zhat/nmz
+    if len(vec.shape)==1:
+        th = np.arccos( np.dot(zhat,vec))/np.sqrt(np.dot(vec,vec))
+        vPerp = vec - zhat *np.dot(zhat,vec)
+        ph = np.angle( np.dot(vPerp,xhat+ 1j*yhat))
     return th,ph
 
 
@@ -4286,11 +4290,19 @@ def polar_angles_in_frame_alt(frm, theta,phi):
     Evaluate the polar angles of that unit vector in a new (orthonormal) frame 'frmInverse'.
     Probably easier to vectorize
     """
-    frmInverse = frm.T
-    vec = np.cos(phi)*np.sin(theta)*frmInverse[0] \
-        + np.sin(phi)*np.sin(theta)*frmInverse[1] \
-        + np.cos(theta)*frmInverse[2] 
-    return np.arccos(vec[2]), np.angle(vec[0]+1j*vec[1])
+    frmInverse = frm.T 
+    if isinstance(theta,float):
+        vec = np.cos(phi)*np.sin(theta)*frmInverse[0] \
+            + np.sin(phi)*np.sin(theta)*frmInverse[1] \
+            + np.cos(theta)*frmInverse[2] 
+        return np.arccos(vec[2]), np.angle(vec[0]+1j*vec[1])
+    else:
+        vec = np.outer(np.cos(phi)*np.sin(theta),frmInverse[0]) \
+            + np.outer(np.sin(phi)*np.sin(theta),frmInverse[1]) \
+            + np.outer(np.cos(theta),frmInverse[2])
+        return np.arccos(vec[:,2]), np.angle(vec[:,0]+1j*vec[:,1])
+        
+
 
 # Borrowed: http://stackoverflow.com/questions/6802577/python-rotation-of-3d-vector
 import math
