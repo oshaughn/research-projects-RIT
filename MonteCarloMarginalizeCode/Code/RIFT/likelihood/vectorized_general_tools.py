@@ -17,10 +17,7 @@ def histogram(samples, n_bins, xpy=numpy,weights=None):
         wts=weights
     histogram_counts = xpy.bincount(
         indices, minlength=n_bins,
-        weights=xpy.broadcast_to(
-            xpy.asarray([float(n_bins)/n_samples]),
-            (n_samples,),
-        ),
+        weights=wts
     )
     return histogram_counts
 
