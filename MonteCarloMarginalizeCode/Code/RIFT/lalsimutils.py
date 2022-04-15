@@ -4284,7 +4284,7 @@ def polar_angles_in_frame(frm,vec):
     return th,ph
 
 
-def polar_angles_in_frame_alt(frm, theta,phi): 
+def polar_angles_in_frame_alt(frm, theta,phi,xpy=np): 
     """
     Take polar angles in the default frame.
     Evaluate the polar angles of that unit vector in a new (orthonormal) frame 'frmInverse'.
@@ -4292,15 +4292,15 @@ def polar_angles_in_frame_alt(frm, theta,phi):
     """
     frmInverse = frm.T 
     if isinstance(theta,float):
-        vec = np.cos(phi)*np.sin(theta)*frmInverse[0] \
-            + np.sin(phi)*np.sin(theta)*frmInverse[1] \
-            + np.cos(theta)*frmInverse[2] 
-        return np.arccos(vec[2]), np.angle(vec[0]+1j*vec[1])
+        vec = xpy.cos(phi)*xpy.sin(theta)*frmInverse[0] \
+            + xpy.sin(phi)*xpy.sin(theta)*frmInverse[1] \
+            + xpy.cos(theta)*frmInverse[2] 
+        return xpy.arccos(vec[2]), xpy.angle(vec[0]+1j*vec[1])
     else:
-        vec = np.outer(np.cos(phi)*np.sin(theta),frmInverse[0]) \
-            + np.outer(np.sin(phi)*np.sin(theta),frmInverse[1]) \
-            + np.outer(np.cos(theta),frmInverse[2])
-        return np.arccos(vec[:,2]), np.angle(vec[:,0]+1j*vec[:,1])
+        vec = xpy.outer(xpy.cos(phi)*xpy.sin(theta),frmInverse[0]) \
+            + xpy.outer(xpy.sin(phi)*xpy.sin(theta),frmInverse[1]) \
+            + xpy.outer(xpy.cos(theta),frmInverse[2])
+        return xpy.arccos(vec[:,2]), xpy.angle(vec[:,0]+1j*vec[:,1])
         
 
 
