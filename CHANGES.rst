@@ -44,6 +44,13 @@ Since last release
     - pseudo_pipe/helper updates to use ini files/coinc-embedded PSD appropriate to low-latency; lalsimutils update psd
       parser; util_InitMargTable undo tentative change noted in rc12; pp_RIFT more flexible ini file parsing (rc13) 
 
+    - rotated sky coordinates in ILE/ILE_batchmode (not comprehensive); mcsamplerGPU bugfixes; ILE/ILE_batchmode changes
+      to avoid GPU reallocations; bugfixes for join_grids in dag_utils, cepp_basic subdag system and +flock_local for OSG; reduce imports
+      and superfluous setup for low latency; only generate hlm(t) once in factored_likelihood; better running variance
+      estimate, that GPU-izes; lalsimutils PSD init vectorized; initMargTable save metadata; ongoing increments to
+      amrlib/util_AMRGrid; pseudo_pipe 'last-iteration-extrinsic'
+      
+
 
 0.0.15.5
 -----------
