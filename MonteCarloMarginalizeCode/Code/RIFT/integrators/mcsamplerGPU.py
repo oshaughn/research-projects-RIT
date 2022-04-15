@@ -272,8 +272,8 @@ class MCSampler(object):
             weights=weights
         )
         # Smooth the histogram
-        kernel_size =3
-        histogram_vales = self.xpy.convolve( histogram_values, self.xpy.ones(kernel_size)/kernel_size)
+#        kernel_size =3
+#        histogram_values = self.xpy.convolve( histogram_values, self.xpy.ones(kernel_size)/kernel_size,mode='same')
         # Mix with a uniform sampling
         histogram_values =    histogram_values*(1-floor_level)+floor_level*self.xpy.ones(len(histogram_values))/len(histogram_values)
 
@@ -793,6 +793,7 @@ class MCSampler(object):
             else:
                 #print(fval, self._rvs["integrand"][-n_history:])
                 weights_alt =((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp )
+            weights_alt = self.xpy.maximum(weights_alt,10)
             weights_alt = weights_alt/(weights_alt.sum())
             weights_alt = floor_integrated_probability*xpy_default.ones(len(weights_alt))/len(weights_alt) + (1-floor_integrated_probability)*weights_alt
 
