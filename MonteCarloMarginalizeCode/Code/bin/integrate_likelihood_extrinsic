@@ -796,6 +796,8 @@ if opts.internal_sky_network_coordinates:
     opts.internal_sky_network_coordinates = False # stop using this code
   else:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
+    frm = sky_rotations.frm
+    my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm) 
   
 
 
@@ -1150,7 +1152,7 @@ else: # Sum over time for every point in other extrinsic params
 
                 # rotate sky if needed
                 if opts.internal_sky_network_coordinates:
-                  P.theta,P.phi = sky_rotations.rotate_sky_backwards(np.pi/2 - P.theta,P.phi)
+                  P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
                   P.theta = np.pi/2 - P.theta
                   P.phi = xpy_default.mod(P.psi, 2*np.pi)
 
