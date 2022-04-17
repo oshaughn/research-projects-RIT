@@ -1185,8 +1185,7 @@ else: # Sum over time for every point in other extrinsic params
                 x0_expmax = x0.copy()
                 x0_expmax[x0 < xmin] = xmin
                 x0_expmax[x0 > xmax] = xmax
-#                return (b / 2) * (x0_expmax**2. - (x0_expmax - x0)**2.)
-                return 0.5*b * x0 * (2.*x0_expmax - x0)
+                return 0.5*b * x0_expmax * (2.*x0 - x0_expmax)
 
             def b_to_t(b):
                 # TODO: this function is duplicate with what is in util_InitMargTable
