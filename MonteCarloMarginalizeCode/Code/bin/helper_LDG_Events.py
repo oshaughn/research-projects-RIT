@@ -1054,11 +1054,11 @@ elif opts.propose_initial_grid:
     #     P_B = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid_puff_lambda.xml.gz")
     #     lalsimutils.ChooseWaveformParams_array_to_xml(P_A+P_B, "proposed-grid.xml.gz")
 
-puff_factor=3
+puff_factor=2
 if opts.propose_fit_strategy and (not opts.gracedb_id is None):
     # use a puff factor that depends on mass.  Use a larger puff factor below around 10.
     if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
-        puff_factor =6  # high q, use more aggressive puff
+        puff_factor =3  # high q, use more aggressive puff
 
 
 if opts.propose_ile_convergence_options:
