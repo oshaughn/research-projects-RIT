@@ -6,6 +6,7 @@ import argparse
 import numpy as np
 from scipy import integrate
 from scipy.special import erfcinv, erf, erfcx
+import warnings
 
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 
@@ -58,7 +59,13 @@ def lnI(x0, b):
         # determine the lower limit of the integral
         gamma1 = np.sqrt(b / 2.) * (x0 - xmax - 4. / (b * xmax))
         gamma2 = np.sqrt(b / 2.) * (x0 - xmin - 4. / (b * xmax))
-        tmp = eps * xmin**4. / xmax**4. * (erfcx(gamma1) - np.exp(-(gamma2**2. - gamma1**2.)) * erfcx(gamma2))
+        # catch numerical overflow from erfcx, which happens for low b.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("error")
+            try:
+                tmp = eps * xmin**4. / xmax**4. * (erfcx(gamma1) - np.exp(-(gamma2**2. - gamma1**2.)) * erfcx(gamma2))
+            except RuntimeWarning:
+                tmp = np.inf
         if 0. < tmp < 1.:
             C = -np.log(tmp)
             dx = 2. * C / (np.sqrt(b**2. * (x0 - xmax)**2. + 2. * b * C) + b * (x0 - xmax))
