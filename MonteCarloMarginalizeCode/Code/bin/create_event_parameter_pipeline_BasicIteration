@@ -879,7 +879,7 @@ print(" ===> Iteration size ", len(cip_job_list), opts.n_iterations)
 if opts.test_args:
     test_node_list = []
     ##  Convert job : make results accessible after every iteration.  (Only performed if the tests are active, to make my life easier)
-    convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe)
+    convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     convert_job.add_condor_cmd("initialdir",opts.working_directory)
     convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).log")
     convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).err")
@@ -890,7 +890,7 @@ if opts.test_args:
     convert_job.write_sub_file()
 
 
-    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[ opts.working_directory+'/posterior_samples-$(macroiteration).dat', opts.working_directory+'/posterior_samples-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe)
+    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[ opts.working_directory+'/posterior_samples-$(macroiteration).dat', opts.working_directory+'/posterior_samples-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir'
     test_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_test")
     # Modify output argument: change logs and working directory to be subdirectory for the run

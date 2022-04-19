@@ -1067,7 +1067,7 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     return ile_job, ile_sub_name
 
 
-def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,universe="target",arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,universe="target",arg_str=None,log_dir=None, use_eos=False,ncopies=1, no_grid=False,**kwargs):
     """
     Write a submit file for launching a convergence test job
 
@@ -1107,6 +1107,11 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
