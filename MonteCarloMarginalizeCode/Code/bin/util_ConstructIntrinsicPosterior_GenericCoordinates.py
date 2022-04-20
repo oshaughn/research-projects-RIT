@@ -530,6 +530,8 @@ if opts.parameter_nofit:
         low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
+if 'chi_pavg' in coord_names:
+    low_level_coord_names += ['chi_pavg']
 error_factor = len(coord_names)
 if opts.fit_uses_reported_error:
     error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
