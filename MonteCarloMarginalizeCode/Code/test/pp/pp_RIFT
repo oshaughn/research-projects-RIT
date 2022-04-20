@@ -262,6 +262,10 @@ try:
     ile_n_eff = int(unsafe_config_get(config, ['make_workflow', 'ile_n_eff']))
 except:
     ile_n_eff = 50  # default will be 50, as in original testsa
+use_mu_coord = unsafe_config_get(config,['make_workflow','use_mu_coord'])
+if use_mu_coord:
+    print(" ====> Using SM's phase-based coordinates <====")
+
 n_events_per_worker = int(config.get('make_workflow','n_events_per_worker'))
 n_copies = int(config.get('make_workflow','n_copies'))
 n_iterations = int(config.get('make_workflow','n_iterations'))
@@ -280,8 +284,8 @@ cip_explode_jobs=False
 if 'cip_explode_jobs' in config['make_workflow']:
     cip_explode_jobs = config.get('make_workflow','cip_explode_jobs')
 
-# trial- use guess_mc_range to get a tailored mc prior, compare against the default mc-prior set by ini file and then choose each limits accordingly- vague, get clear
-#P_list=lalsimutils.xml_to_ChooseWaveformParams_array(working_dir_full+"/mdc.xml.gz")
+# Use guess_mc_range to get a tailored mc prior, 
+#compare against the default mc-prior set by ini file and then choose each limit accordingly
 P = [P_list[i] for i in range(len(P_list))]
 
 for indx in np.arange(n_events):
@@ -313,7 +317,9 @@ for indx in np.arange(n_events):
                 cmd += " --{} {} ".format(arg_renamed,val)
             
     cmd += " --fmin-template {} ".format(fmin_template)
-    cmd += " --force-mc-range [{},{}] --force-eta-range [{},{}] ".format(np.maximum(mc_min,mc_min_utils),np.minimum(mc_max,mc_max_utils),eta_min,eta_max) # commented out
+    cmd += " --force-mc-range [{},{}] --force-eta-range [{},{}] ".format(np.maximum(mc_min,mc_min_utils),np.minimum(mc_max,mc_max_utils),eta_min,eta_max) 
+    if use_mu_coord:
+        cmd += " --internal-use-aligned-phase-coordinates " 
     if use_osg:
         cmd += " --use-osg "
     if test_convergence:
@@ -400,13 +406,24 @@ for indx in np.arange(n_events):
             line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(np.maximum(mc_min,mc_min_utils),np.minimum(mc_max,mc_max_utils),eta_min,eta_max,chi_max)
             if use_matter:
                 line += " --lambda-max {} ".format(lambda_max)
-            line +=" --n-output-samples 10000 --n-eff 10000 --n-max 10000000   --downselect-parameter m2 --downselect-parameter-range [1,1000] "
+            if not(cip_explode_jobs is False):
+                n_workers = int(cip_explode_jobs)
+            else:
+                n_workers = 1
+            n_sample_target = 10000 # fixed right now
+            n_eff_cip_here = int(n_sample_target/n_workers)
+            internal_cip_cap_neff = 500 # fixed
+            if indx_instr < len(instructions_cip)-1: # on all but 
+                n_eff_cip_here = np.min([internal_cip_cap_neff, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
+            #n_sample_min_per_worker = int(n_eff_cip_here/100)+2   # for fail-unless-n-eff option
+            line +=" --n-output-samples {} --n-eff {} --n-max 10000000   --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), n_eff_cip_here) 
             if not(cip_fit_method is None):
                 line = line.replace('--fit-method gp', '--fit-method ' + cip_fit_method)
             if (cip_sampler_method=="GMM"):
                 line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
             elif (cip_sampler_method!="GMM"):
                 line += " --sampler-method "+cip_sampler_method
+            #line +=" --n-output-samples {}  --n-eff {} ".format(int(n_sample_target/n_workers), n_eff_cip_here) 
             line += "\n"
             lines.append(line)
 
@@ -441,7 +458,9 @@ for indx in np.arange(n_events):
     if add_extrinsic:
           cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 "
     if cip_explode_jobs:
-        cmd+= " --cip-explode-jobs  " + str(cip_explode_jobs)
+        cmd+= " --cip-explode-jobs  " + str(cip_explode_jobs) + " --cip-explode-jobs-dag "
+        if cip_fit_method and not(cip_fit_method == 'gp'):
+            cmd += " --cip-explode-jobs-flat " 
     if use_osg:
         print(" NOT VALIDATED/IMPLEMENTED for PP use yet")
         cmd += " --use-osg --use-singularity --cache-file local.cache --condor-nogrid-nonworker --frames-dir {}/frames_dir ".format(here)   # run on the OSG, make sure to get frames (rather than try to transfer them). --frames_dir bring in ile_pre.sh for fake data 
