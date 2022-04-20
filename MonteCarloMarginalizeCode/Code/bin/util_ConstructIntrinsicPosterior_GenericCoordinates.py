@@ -506,6 +506,8 @@ if opts.parameter_nofit:
         low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
+if 'chi_pavg' in coord_names:
+    low_level_coord_names += ['chi_pavg']
 error_factor = len(coord_names)
 if opts.fit_uses_reported_error:
     error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
@@ -637,6 +639,8 @@ def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   #
 def eccentricity_prior(x):
     return np.ones(x.shape) / ECC_MAX # uniform over the interval [0.0, ECC_MAX]
 
+def precession_prior(x):
+    return 0.5*np.ones(x.shape) # uniform prior over the interval [0.0, 2.0]
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
@@ -662,7 +666,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'cos_theta2': mcsampler.uniform_samp_cos_theta,
     'phi1':mcsampler.uniform_samp_phase,
     'phi2':mcsampler.uniform_samp_phase,
-    'eccentricity':eccentricity_prior
+    'eccentricity':eccentricity_prior,
+    'chi_pavg':precession_prior
 }
 prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_small_max,0.999*chi_small_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
    's1x':[-chi_max,chi_max],
@@ -678,6 +683,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda_plus':[0.01,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   'eccentricity':[0.0, ECC_MAX],
+  'chi_pavg':[0.0,2.0],
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
@@ -935,12 +941,12 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
     length_scale_bounds_est = []
     for indx in np.arange(len(x[0])):
         # These length scales have been tuned by expereience
-        length_scale_est.append( 2*np.std(x[:,indx])  )  # auto-select range based on sampling retained
-        length_scale_min_here= np.max([1e-3,0.2*np.std(x[:,indx]/np.sqrt(len(x)))])
+        length_scale_est.append( 2*np.nanstd(x[:,indx])  )  # auto-select range based on sampling retained
+        length_scale_min_here= np.max([1e-3,0.2*np.nanstd(x[:,indx]/np.sqrt(len(x)))])
         if indx == mc_index:
-            length_scale_min_here= 0.2*np.std(x[:,indx]/np.sqrt(len(x)))
-            print(" Setting mc range: retained point range is ", np.std(x[:,indx]), " and target min is ", length_scale_min_here)
-        length_scale_bounds_est.append( (length_scale_min_here , 5*np.std(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
+            length_scale_min_here= 0.2*np.nanstd(x[:,indx]/np.sqrt(len(x)))
+            print(" Setting mc range: retained point range is ", np.nanstd(x[:,indx]), " and target min is ", length_scale_min_here)
+        length_scale_bounds_est.append( (length_scale_min_here , 5*np.nanstd(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
 
     print(" GP: Input sample size ", len(x), len(y))
     print(" GP: Estimated length scales ")
@@ -1240,8 +1246,16 @@ for line in dat:
 
     # INPUT GRID: Evaluate binary parameters on fitting coordinates
     line_out = np.zeros(len(coord_names)+2)
+    chipavg_out = 0 #initialize
     for x in np.arange(len(coord_names)):
-        line_out[x] = P.extract_param(coord_names[x])
+        print("Now calculating for coord_names:")
+        if coord_names[x] == 'chi_pavg':
+            print(coord_names[x])
+            chipavg_out = P.extract_param(coord_names[x])
+            line_out[x] = chipavg_out
+        else:
+            print(coord_names[x])
+            line_out[x] = P.extract_param(coord_names[x])        
  #        line_out[x] = getattr(P, coord_names[x])
     line_out[-2] = line[col_lnL]
     line_out[-1] = line[col_lnL+1]  # adjoin error estimate
@@ -1257,12 +1271,18 @@ for line in dat:
     # results using sampling coordinates (low_level_coord_names) 
     line_out = np.zeros(len(low_level_coord_names))
     for x in np.arange(len(line_out)):
+        print("Now calculating for low_level_coord_names:")
         fac = 1
         if low_level_coord_names[x] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
-        line_out[x] = P.extract_param(low_level_coord_names[x])/fac
+        if low_level_coord_names[x] == 'chi_pavg':
+            print('Skipping chi_pavg')
+            line_out[x] = chipavg_out
+        else:
+            print(low_level_coord_names[x])
+            line_out[x] = P.extract_param(low_level_coord_names[x])/fac
         if low_level_coord_names[x] in ['mc']:
-            mc_index = x
+           mc_index = x
     dat_out_low_level_coord_names.append(line_out)
 
 
@@ -1363,10 +1383,7 @@ elif sum(indx_ok) < 10: # and max_lnL > 30:
 X_raw = X.copy()
 
 my_fit= None
-if not(opts.fit_load_quadratic is None):
-    print("FIT METHOD IS STORED QUADRATIC; no data used! ")
-    my_fit = fit_quadratic_stored(opts.fit_load_quadratic, opts.fit_load_quadratic_path)
-elif opts.fit_method == "quadratic":
+if opts.fit_method == "quadratic":
     print(" FIT METHOD ", opts.fit_method, " IS QUADRATIC")
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
@@ -1599,7 +1616,7 @@ if opts.sampler_method == "GMM":
 ##
 for p in low_level_coord_names:
     if not(opts.parameter_implied is None):
-       if p in opts.parameter_implied:
+       if p in opts.parameter_implied and not(p == 'chi_pavg'):
         # We do not need to sample parameters that are implied by other parameters, so we can overparameterize 
         continue
     prior_here = prior_map[p]
@@ -2176,6 +2193,8 @@ for indx_here in indx_list:
             coord_to_assign = low_level_coord_names[indx]
             if coord_to_assign == 'xi':
                 coord_to_assign= 'chieff_aligned'
+            if coord_to_assign == 'chi_pavg':
+                continue #skipping chi_pavg
             Pgrid.assign_param(coord_to_assign, line[indx]*fac)
 #            print indx_here, coord_to_assign, line[indx]
         # Test for downselect
@@ -2191,12 +2210,6 @@ for indx_here in indx_list:
         # Set some superfluous quantities, needed only for PN approximants, so the result is generated sensibly
         Pgrid.ampO =opts.amplitude_order
         Pgrid.phaseO =opts.phase_order
-        
-        # Set fixed parameters
-        if opts.fixed_parameter is not None:
-            for i, p in enumerate(opts.fixed_parameter):
-                fac = lal.MSUN_SI if p in ["mc", "mtot", "m1", "m2"] else 1.0
-                Pgrid.assign_param(p, fac * float(opts.fixed_parameter_value[i]))
 
         # Downselect.
         # for param in downselect_dict:
@@ -2484,5 +2497,6 @@ for indx in np.arange(len(extra_plot_coord_names)):
      print(" Failed to generate corner for ", extra_plot_coord_names[indx])
 
 sys.exit(0)
+
 
 
