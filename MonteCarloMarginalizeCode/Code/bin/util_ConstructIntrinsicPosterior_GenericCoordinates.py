@@ -33,6 +33,12 @@ import itertools
 
 import joblib  # http://scikit-learn.org/stable/modules/model_persistence.html
 
+# GPU acceleration: NOT YET, just do usual
+xpy_default=numpy  # just in case, to make replacement clear and to enable override
+identity_convert = lambda x: x  # trivial return itself
+cupy_success=False
+
+
 no_plots = True
 internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
 
@@ -60,7 +66,7 @@ else:
     print(" - Faiiled ModifiedScikitFit : No polynomial fits - ")
 from sklearn import linear_model
 
-from glue.ligolw import lsctables, utils, ligolw
+from ligo.lw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 import RIFT.integrators.mcsampler as mcsampler
@@ -70,6 +76,14 @@ try:
 except:
     print(" No mcsamplerEnsemble ")
     mcsampler_gmm_ok = False
+try:
+    import RIFT.integrators.mcsamplerGPU as mcsamplerGPU
+    mcsampler_gpu_ok = True
+    mcsamplerGPU.xpy_default =xpy_default  # force consistent, in case GPU present
+    mcsamplerGPU.identity_convert = identity_convert
+except:
+    print( " No mcsamplerGPU ")
+    mcsampler_gpu_ok = False
 try:
     import RIFT.interpolators.senni as senni
     senni_ok = True
@@ -218,7 +232,7 @@ parser.add_argument("--desc-lalinference",type=str,default='',help="String to ad
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
-#parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
+parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
@@ -270,14 +284,17 @@ parser.add_argument("--save-plots",default=False,action='store_true', help="Writ
 parser.add_argument("--inj-file", help="Name of injection file")
 parser.add_argument("--event-num", type=int, default=0,help="Zero index of event in inj_file")
 parser.add_argument("--report-best-point",action='store_true')
-parser.add_argument("--adapt",action='store_true')
+parser.add_argument("--force-no-adapt",action='store_true',help="Disable adaptation, both of the tempering exponent *and* the individual sampling prior(s)")
 parser.add_argument("--fit-uses-reported-error",action='store_true')
 parser.add_argument("--fit-uses-reported-error-factor",type=float,default=1,help="Factor to add to standard deviation of fit, before adding to lnL. Multiplies number fitting dimensions")
 parser.add_argument("--n-max",default=3e8,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
+parser.add_argument("--internal-bound-factor-if-n-eff-small",default=None,type=float,help="If n_eff < n_ouptut_samples, we truncate the output size based on n_eff*(factor)")
+parser.add_argument("--n-chunk",default=1e5,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
+parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=int,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
-parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper")
+parser.add_argument("--fit-method",default="quadratic",help="quadratic|polynomial|gp|gp_hyper|gp_lazy|cov|kde")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
 parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
@@ -295,7 +312,10 @@ parser.add_argument("--source-redshift",default=0,type=float,help="Source redshi
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
+parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL. ONLY VIABLE FOR GMM AT PRESENT")
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
+parser.add_argument("--internal-n-comp",default=1,type=int,help="number of components to use for GMM sampling. Default is 1, because we expect a unimodal posterior in well-adapted coordinates.  If you have crappy coordinates, use more")
+parser.add_argument("--internal-gmm-memory-chisquared-factor",default=None,type=float,help="Multiple of the number of degrees of freedom to save. 5 is a part in 10^6, 4 is 10^{-4}, and None keeps all up to lnL_offset.  Note that low-weight points can contribute notably to n_eff, and it can be dangerous to assume a simple chisquared likelihood!  Provided in case we need very long runs")
 parser.add_argument("--use-eccentricity", action="store_true")
 
 ECC_MAX = 0.25 # maximum value of eccentricity, hard-coding here for ease of editing
@@ -306,11 +326,15 @@ parser.add_argument("--fixed-parameter", action="append")
 parser.add_argument("--fixed-parameter-value", action="append")
 
 opts=  parser.parse_args()
+if not(opts.no_adapt_parameter):
+    opts.no_adapt_parameter =[] # needs to default to empty list
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
 if opts.lnL_shift_prevent_overflow:
     lnL_shift  = opts.lnL_shift_prevent_overflow
+if not(opts.force_no_adapt):
+    opts.force_no_adapt=False  # force explicit boolean false
 
 source_redshift=opts.source_redshift
 
@@ -318,7 +342,7 @@ source_redshift=opts.source_redshift
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
 if opts.using_eos!=None:
-    import EOSManager
+    import RIFT.physics.EOSManager as EOSManager
     eos_name=opts.using_eos
     if opts.verbose:
         print(" Using EOS ", eos_name, opts.eos_param, opts.eos_param_values)
@@ -506,8 +530,6 @@ if opts.parameter_nofit:
         low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
-if 'chi_pavg' in coord_names:
-    low_level_coord_names += ['chi_pavg']
 error_factor = len(coord_names)
 if opts.fit_uses_reported_error:
     error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
@@ -564,10 +586,15 @@ def delta_mc_prior(x,norm_factor=1.44):
 def m_prior(x):
     return 1/(1e3-1.)  # uniform in mass, use a square.  Should always be used as m1,m2 in pairs. Note this does NOT restrict m1>m2.
 
+
+def triangle_prior(x,R=chi_max):
+    return (np.ones(x.shape)-np.abs(x/R))/R  # triangle from -R to R centered on zero
 def xi_uniform_prior(x):
     return np.ones(x.shape)
 def s_component_uniform_prior(x,R=chi_max):  # If all three are used, a volumetric prior
     return np.ones(x.shape)/(2.*R)
+def s_component_sqrt_prior(x,R=chi_max):  # If all three are used, a volumetric prior
+    return 1./(4.*R*np.sqrt(np.abs(x)/R))  # -R,R range
 def s_component_gaussian_prior(x,R=chi_max/3.):
     """
     (proportinal to) prior on range in one-dimensional components, in a cartesian domain.
@@ -639,8 +666,10 @@ def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   #
 def eccentricity_prior(x):
     return np.ones(x.shape) / ECC_MAX # uniform over the interval [0.0, ECC_MAX]
 
-def precession_prior(x):
-    return 0.5*np.ones(x.shape) # uniform prior over the interval [0.0, 2.0]
+def unnormalized_uniform_prior(x):
+    return np.ones(x.shape)
+def unnormalized_log_prior(x):
+    return 1./x
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
@@ -667,7 +696,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'phi1':mcsampler.uniform_samp_phase,
     'phi2':mcsampler.uniform_samp_phase,
     'eccentricity':eccentricity_prior,
-    'chi_pavg':precession_prior
+    'mu1': unnormalized_log_prior,
+    'mu2': unnormalized_uniform_prior
 }
 prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_small_max,0.999*chi_small_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
    's1x':[-chi_max,chi_max],
@@ -683,7 +713,6 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda_plus':[0.01,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   'eccentricity':[0.0, ECC_MAX],
-  'chi_pavg':[0.0,2.0],
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
@@ -695,6 +724,8 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'cos_theta2':[-1,1],
   'phi1':[0,2*np.pi],
   'phi2':[0,2*np.pi],
+  'mu1':[0.0001,1e3],    # suboptimal, but something  
+  'mu2':[-300,1e3]
 }
 if not (opts.chiz_plus_range is None):
     print(" Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range)
@@ -720,7 +751,7 @@ if opts.aligned_prior == 'alignedspin-zprior':
     prior_map["s1z"] = s_component_zprior
     prior_map["s2z"] = functools.partial(s_component_zprior,R=chi_small_max)
     if  'chiz_plus' in low_level_coord_names:
-        if opts.spin_prior_chizplusminus_alternate_sampling is 'alignedspin_zprior':
+        if opts.spin_prior_chizplusminus_alternate_sampling == 'alignedspin_zprior':
             # just a  trick to make reweighting more efficient.
             prior_map['chiz_plus'] = s_component_zprior
             prior_map['chiz_minus'] = s_component_zprior
@@ -733,6 +764,17 @@ if opts.transverse_prior == 'alignedspin-zprior':
     prior_map["s1y"] = s_component_zprior
     prior_map["s2x"] = functools.partial(s_component_zprior,R=chi_small_max)
     prior_map["s2y"] = functools.partial(s_component_zprior,R=chi_small_max)
+elif opts.transverse_prior == 'sqrt-prior':
+    prior_map["s1x"] = s_component_sqrt_prior
+    prior_map["s1y"] = s_component_sqrt_prior
+    prior_map["s2x"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
+    prior_map["s2y"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
+elif opts.transverse_prior == 'taper-down':
+    prior_map["s1x"] = triangle_prior
+    prior_map["s1y"] = triangle_prior
+    prior_map["s2x"] = functools.partial(triangle_prior,R=chi_small_max)
+    prior_map["s2y"] = functools.partial(triangle_prior,R=chi_small_max)
+    
 
 if opts.aligned_prior == 'volumetric':
     prior_map["s1z"] = s_component_aligned_volumetricprior
@@ -836,19 +878,21 @@ def fit_quadratic_stored(fname_h5,loc,L_offset=200):
     return my_func
 
 
-def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False):
+def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False,hard_regularize_negative=True):
     gamma_x = None
     if not (y_err is None):
-        gamma_x =1./np.power(y_err,2)
-    the_quadratic_results = BayesianLeastSquares.fit_quadratic( x, y,gamma_x=gamma_x,verbose=verbose)#x0=None)#x0_val_here)
+        gamma_x =np.diag(1./np.power(y_err,2))
+    the_quadratic_results = BayesianLeastSquares.fit_quadratic( x, y,gamma_x=gamma_x,verbose=verbose,hard_regularize_negative=hard_regularize_negative)#x0=None)#x0_val_here)
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
 
     np.savetxt("lnL_peakval.dat",[peak_val_est])   # generally not very useful
     np.savetxt("lnL_bestpt.dat",best_val_est)  
     np.savetxt("lnL_gamma.dat",my_fisher_est,header=' '.join(coord_names))
         
-
-    bic  =-2*( -0.5*np.sum(np.power((y - fn_estimate(x)),2))/2 - 0.5* len(y)*np.log(len(x[0])) )
+    if y_err is None:
+        bic  =-2*( -0.5*np.sum(np.power((y - fn_estimate(x)),2))/2 - 0.5* len(y)*np.log(len(x[0])) )
+    else:
+        bic  =-2*( -0.5*np.sum(np.power((y - fn_estimate(x)),2)/y_err**2)/2 - 0.5* len(y)*np.log(len(x[0])) )
 
     print("  Fit: std :" , np.std( y-fn_estimate(x)))
     print("  Fit: BIC :" , bic)
@@ -900,7 +944,7 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
         print(" Fit: std: ", np.std(y - clf.predict(X_)),  "using number of features ", len(y))  # should NOT be perfect
         if not (y_errors is None):
             print(" Fit: weighted error ", np.std( (y - clf.predict(X_))/y_errors))
-        bic = -2*( -0.5*np.sum(np.power(y - clf.predict(X_),2))  - 0.5*len(y)*np.log(len(x[0])))
+        bic = -2*( -0.5*np.sum(np.power((y - clf.predict(X_))/y_errors,2))  - 0.5*len(y)*np.log(len(x[0])))
         print(" Fit: BIC:", bic)
         bic_list.append(bic)
 
@@ -910,7 +954,8 @@ def fit_polynomial(x,y,x0=None,symmetry_list=None,y_errors=None):
 
 
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as C
+from sklearn.gaussian_process.kernels import PairwiseKernel,RBF, WhiteKernel, ConstantKernel as C
+
 
 def adderr(y):
     val,err = y
@@ -941,22 +986,25 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
     length_scale_bounds_est = []
     for indx in np.arange(len(x[0])):
         # These length scales have been tuned by expereience
-        length_scale_est.append( 2*np.nanstd(x[:,indx])  )  # auto-select range based on sampling retained
-        length_scale_min_here= np.max([1e-3,0.2*np.nanstd(x[:,indx]/np.sqrt(len(x)))])
+        length_scale_est.append( 2*np.std(x[:,indx])  )  # auto-select range based on sampling retained
+        length_scale_min_here= np.max([1e-3,0.2*np.std(x[:,indx]/np.sqrt(len(x)))])
         if indx == mc_index:
-            length_scale_min_here= 0.2*np.nanstd(x[:,indx]/np.sqrt(len(x)))
-            print(" Setting mc range: retained point range is ", np.nanstd(x[:,indx]), " and target min is ", length_scale_min_here)
-        length_scale_bounds_est.append( (length_scale_min_here , 5*np.nanstd(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
+            length_scale_min_here= 0.2*np.std(x[:,indx]/np.sqrt(len(x)))
+            print(" Setting mc range: retained point range is ", np.std(x[:,indx]), " and target min is ", length_scale_min_here)
+        length_scale_bounds_est.append( (length_scale_min_here , 5*np.std(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
 
     print(" GP: Input sample size ", len(x), len(y))
     print(" GP: Estimated length scales ")
     print(length_scale_est)
     print(length_scale_bounds_est)
 
+    alpha = 1e-10 # default from sklearn docs
+    if not(y_errors is None):
+        alpha = y_errors**2  # added to diagonal of kernel, used to assign variances of measurements a priori; note also WhiteKernel also absorbs some of this
     if not (hypercube_rescale):
         # These parameters have been hand-tuned by experience to try to set to levels comparable to typical lnL Monte Carlo error
         kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*RBF(length_scale=length_scale_est, length_scale_bounds=length_scale_bounds_est)
-        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=8)
+        gp = GaussianProcessRegressor(kernel=kernel, alpha=alpha,  n_restarts_optimizer=8)
 
         gp.fit(x,y)
 
@@ -981,7 +1029,7 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
             x_scaled[indx] = (x[indx] - x_center)/length_scale_est # resize
 
         kernel = WhiteKernel(noise_level=0.1,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*RBF( len(x_center), (1e-3,1e1))
-        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=8)
+        gp = GaussianProcessRegressor(kernel=kernel, alpha=alpha,n_restarts_optimizer=8)
         
         gp.fit(x_scaled,y)
         print(" Fit: std: ", np.std(y - gp.predict(x_scaled)),  "using number of features ", len(y))  # should NOT be perfect
@@ -1006,6 +1054,66 @@ def fit_gp_pool(x,y,n_pool=10,**kwargs):
     fn_out =  lambda x: np.mean( map_funcs( gp_fit_list,x), axis=0)
     print(" Testing ", fn_out([x[0]]))
     return fn_out
+
+def fit_gp_lazy(x,y,y_errors=None,dy_cov=5):
+    """
+    fit_gp_lazy : Attempts to build a quadratic form based on the highest amplitude parts of y
+    """
+    print(" GP: Input sample size ", len(x), len(y))
+
+    ymax = np.max(y)
+    indx_1 = y>ymax-dy_cov
+    indx_2 = y>ymax-2*dy_cov
+    if (np.sum(indx_1) < 10*len(x[0])**2):  # 10*# of dimensions^2, so if dimension=3, we need 90 points, etc 
+        print(" Failure : need sufficient data within threshold to perform local covariance estimate ")
+        sys.exit(5)
+    cov1 = np.cov(x[indx_1].T)/(dy_cov**2)  # shrink based on dy
+    cov2 = np.cov(x[indx_2].T)/(4*dy_cov**2) # ditto
+    Q = np.linalg.pinv(0.5*(cov1+cov2))  # average local estimate and nonlocal estimate. Take inverse for Q matrix. 
+    Q = 0.1*Q/np.power(len(x),1./len(x[0]))   # Add scale factor to smooth over smaller distance than the overall covariance. Reduce in size based on data size in some way
+    def my_func_diff_exp(x,y,Q=Q,**kwargs):
+        gamma=1
+        if 'gamma' in kwargs:
+            gamma = kwargs['gamma']
+        if x.shape == y.shape:
+            dx = x - y 
+        else:
+            dx = x.reshape(len(x),1) -y
+        return np.exp(-gamma*np.dot(dx.T,np.dot(Q,dx)))
+    lazy_kernel= PairwiseKernel(metric=my_func_diff_exp)
+    lazy_kernel.gamma_bounds = [0.01,10]  # control length scale range change
+
+    # Do it all by hand
+#     Ktrain = my_func_diff_exp(x.T,x.T); 
+#     myinv = np.linalg.pinv(Ktrain + y_errors**2)
+#     mybase = np.dot(myinv,y)  # should be an array
+#     print(myinv.shape, mybase.shape)
+#     def my_ret(xtest,func=my_func_diff_exp):
+# #      return np.dot(func(xtest.T,x.T),mybase)  # does not have quite the right shape
+#         ret = np.ones(len(xtest))
+#         for indx in np.arange(len(ret)):   # this is dumb
+#             val = np.dot(func(xtest[indx].T,x.T),mybase)
+#             print(val)
+#             ret[indx] = val
+#     return my_ret
+
+    alpha = 1e-10 # default from sklearn docs
+    noise_level = 0.1
+    if not(y_errors is None):
+        alpha = y_errors**2  # added to diagonal of kernel, used to assign variances of measurements a priori; note also WhiteKernel also absorbs some of this
+        noise_level = np.mean(np.abs(y_errors))
+
+    kernel = WhiteKernel(noise_level=noise_level,noise_level_bounds=(1e-2,1))+C(0.5, (1e-3,1e1))*lazy_kernel
+    gp = GaussianProcessRegressor(kernel=kernel, alpha=alpha,  n_restarts_optimizer=8)
+    print(" Fit: std: ", np.std(y - gp.predict(x)),  "using number of features ", len(y))
+
+    if not (opts.fit_uncertainty_added):
+            if opts.protect_coordinate_conversions:
+                return lalsimutils.RangeProtectReduce( (lambda x: gp.predict(x) ), -np.inf)
+            return lambda x: gp.predict(x)
+    else:
+            return lambda x: adderr(gp.predict(x,return_std=True))
+
 
 def fit_nn(x,y,y_errors=None,fname_export='nn_fit',adaptive=True):
     y_packed = y[:,np.newaxis]
@@ -1104,6 +1212,100 @@ def fit_nn_rfwrapper(x,y,y_errors=None,fname_export='nn_fit'):
     print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
     return fn_return
 
+def fit_kde(x,y,y_errors=None):
+    """
+    Simple KDE -like fit:   estimate function as  lnLmax * [ w_k K(x-x_k)]  where w_k are weights based on lnL values.
+    Problem is normalization!   One way is to normalize one basically random point ... though that's an issue
+
+    NOT INTENDED FOR ACCURACY -- this will intentionally oversmooth, with worse oversmoothing farther away.
+    """
+    y_max = np.max(y) # [int(len(y)/2)]
+    y_min = np.min(y)
+    wts = y+y_min+1  # must be positive
+    x_max = x[np.argmax(y)]
+    d = len(x_max)
+#    print(x.shape,y.shape); print(x_max, y_max)
+    # wts = np.ones(x.shape)
+    # for indx in np.arange(len(x_max)):
+    #     wts[:,indx] = y
+    my_kde = scipy.stats.gaussian_kde(x.T, weights=wts,bw_method=4)   #
+#    nm = my_kde.integrate_gaussian(x_max.T, np.zeros((d,d)))
+#    print(nm)
+#    print(" KDE bandwidth {}  ".format(my_kde.factor))
+    val = my_kde(x.T)
+    my_kde_ref = np.max(val);   # change reference point, so at least max agrees
+#    print(" Location of peak ",x[np.argmax(val)])  
+#    my_kde_ref = my_kde(x_max)
+    def fn_return(z,y_max=y_max):
+        return y_max *my_kde(z.T)/my_kde_ref  # choose parameters so it attains maximum value : not safe given errors, but ...
+
+    print( " Demonstrating KDE")   # debugging
+    residuals = fn_return(x)-y
+#    print(fn_return(x),y,my_kde_ref,residuals)
+    print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
+    return fn_return
+
+def fit_cov(x,y,y_errors=None,soften_factor=1):
+    """
+    Simple quadratic fit, based on *mean and covariance of points passing threshold*.
+
+    NOT INTENDED FOR ACCURACY -- this will intentionally massively oversmooth.
+    Only use for *placement early on*
+    """
+
+    ymax = np.max(y)
+    xmean = np.mean(x, axis=0)
+#    dy2mean = np.mean( (y-ymax)**2)
+    dy2mean = 2*len(x[0]) # don't reduce covariance much based on data, so we sample the whole thing. Motivated by chisquared.
+    cov = soften_factor*np.cov(x.T)/dy2mean  # scale to unit
+    Q = np.linalg.pinv(cov)  # average local estimate and nonlocal estimate. Take inverse for Q matrix. 
+
+
+    def fn_return(z,ymax=ymax,xmean=xmean,Q=Q):
+        val = np.zeros(len(z))
+        for indx in np.arange(len(val)):
+            dx = z[indx]-xmean
+            val[indx] = ymax - 0.5* np.dot( dx.T,np.dot(Q,dx))
+        return val
+
+    print( " Demonstrating cov")   # debugging
+    residuals = fn_return(x)-y
+#    print(fn_return(x),y,my_kde_ref,residuals)
+    print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
+    return fn_return
+
+
+def fit_nearest(x,y,y_errors=None):
+    """
+    Weighted nearest-neighbor fit.  We *should* use a distance based on the covariance, but let's be simple here
+    """
+    from sklearn.neighbors import RadiusNeighborsRegressor
+
+    
+    rad_default = np.sqrt(np.trace(np.cov(x))/len(x[0]))/np.sqrt(len(x))
+    print(" Default radius coordinate ", rad_default)
+
+    nn_regressor =  RadiusNeighborsRegressor(radius=rad_default, weights='distance', algorithm='ball_tree')
+    nn_regressor.fit(x,y)
+    print(" Fit: std: ", np.std(y - nn_regressor.predict(x)),  "using number of features ", len(y))
+    print(y, nn_regressor.predict(x))
+    
+    if opts.protect_coordinate_conversions:
+        return lalsimutils.RangeProtectReduce( (lambda x: nn_regressor.predict(x) ), -np.inf)
+    def my_return(x_in,default_val=-100):
+        my_nearby = nn_regressor.radius_neighbors(x_in,rad_default)[0] # tells me if there's anything nearby
+#        print(len(my_nearby),my_nearby[0])
+        my_nearby_len = np.array([ len(z) for z in my_nearby])
+#        print(my_nearby,my_nearby_len)
+        val =nn_regressor.predict(x_in)
+        val = np.where(my_nearby_len <1, default_val, val)
+ #       print(x,val)
+        return val
+    return my_return
+    #return lambda x: nn_regressor.predict(x)
+
+
+
 if not(gpytorch_ok):
     def fit_gpytorch(x):
         sys.exit(1)
@@ -1174,6 +1376,11 @@ P_list = []
 dat_out =[]
  
 extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['mc', 'eta'], ['m1', 'm2'], ['s1z','s2z'] ] # replot
+# simplify/recast None -> [] so I cna use 'in' below
+if opts.parameter==None:
+    opts.parameter = [] # force list, so avoid 'is iterable' below
+if opts.parameter_implied==None:
+    opts.parameter_implied = []
 if 's1x' in opts.parameter:  # in practice, we always use the transverse cartesian components 
     print(" Plotting coordinates include spin magnitude and transverse spins ")
     extra_plot_coord_names += [['chi1_perp', 's1z'], ['chi2_perp','s2z'],['chi1','chi2'],['cos_theta1','cos_theta2']]
@@ -1246,16 +1453,8 @@ for line in dat:
 
     # INPUT GRID: Evaluate binary parameters on fitting coordinates
     line_out = np.zeros(len(coord_names)+2)
-    chipavg_out = 0 #initialize
     for x in np.arange(len(coord_names)):
-        print("Now calculating for coord_names:")
-        if coord_names[x] == 'chi_pavg':
-            print(coord_names[x])
-            chipavg_out = P.extract_param(coord_names[x])
-            line_out[x] = chipavg_out
-        else:
-            print(coord_names[x])
-            line_out[x] = P.extract_param(coord_names[x])        
+        line_out[x] = P.extract_param(coord_names[x])
  #        line_out[x] = getattr(P, coord_names[x])
     line_out[-2] = line[col_lnL]
     line_out[-1] = line[col_lnL+1]  # adjoin error estimate
@@ -1271,18 +1470,12 @@ for line in dat:
     # results using sampling coordinates (low_level_coord_names) 
     line_out = np.zeros(len(low_level_coord_names))
     for x in np.arange(len(line_out)):
-        print("Now calculating for low_level_coord_names:")
         fac = 1
         if low_level_coord_names[x] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
-        if low_level_coord_names[x] == 'chi_pavg':
-            print('Skipping chi_pavg')
-            line_out[x] = chipavg_out
-        else:
-            print(low_level_coord_names[x])
-            line_out[x] = P.extract_param(low_level_coord_names[x])/fac
+        line_out[x] = P.extract_param(low_level_coord_names[x])/fac
         if low_level_coord_names[x] in ['mc']:
-           mc_index = x
+            mc_index = x
     dat_out_low_level_coord_names.append(line_out)
 
 
@@ -1372,18 +1565,29 @@ if max_lnL < 10 and np.mean(Y) > -10: # second condition to allow synthetic test
     print(" Resetting to use ALL input data -- beware ! ")
     # nothing matters, we will reject it anyways
     indx_ok = np.ones(len(Y),dtype=bool)
-elif sum(indx_ok) < 10: # and max_lnL > 30:
-    # mark the top 10 elements and use them for fits
+elif sum(indx_ok) < 5*len(X[0])**2: # and max_lnL > 30:
+    n_crit_needed = np.min([5*len(X[0])**2,len(X)])
+    print("  Likely below threshold needed to fit a maximum , beware: {} {} ".format(n_crit_needed,len(X[0])))
+    # mark the top elements and use them for fits
     # this may be VERY VERY DANGEROUS if the peak is high and poorly sampled
     idx_sorted_index = np.lexsort((np.arange(len(Y)), Y))  # Sort the array of Y, recovering index values
     indx_list = np.array( [[k, Y[k]] for k in idx_sorted_index])     # pair up with the weights again
     indx_list = indx_list[::-1]  # reverse, so most significant are first
-    indx_ok = list(map(int,indx_list[:10,0]))
-    print(" Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:10])
+    indx_ok = list(map(int,indx_list[:n_crit_needed,0]))
+    print(" Revised number of points for fit: ", sum(indx_ok), indx_ok, indx_list[:n_crit_needed])
+    Y = Y[indx_ok]
+    Y_err = Y_err[indx_ok]
+    X = X[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Reset indx_ok, so it operates correctly later
+    indx_ok = np.ones(len(Y), dtype=bool)
 X_raw = X.copy()
 
 my_fit= None
-if opts.fit_method == "quadratic":
+if not(opts.fit_load_quadratic is None):
+    print("FIT METHOD IS STORED QUADRATIC; no data used! ")
+    my_fit = fit_quadratic_stored(opts.fit_load_quadratic, opts.fit_load_quadratic_path)
+elif opts.fit_method == "quadratic":
     print(" FIT METHOD ", opts.fit_method, " IS QUADRATIC")
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift
@@ -1398,7 +1602,7 @@ if opts.fit_method == "quadratic":
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     if opts.report_best_point:
-        my_fit = fit_quadratic_alt(X,Y,symmetry_list=symmetry_list,verbose=opts.verbose)
+        my_fit = fit_quadratic_alt(X,Y,y_err=Y_err,symmetry_list=symmetry_list,verbose=opts.verbose)
         pt_best_X = np.loadtxt("lnL_bestpt.dat")
         for indx in np.arange(len(coord_names)):
             fac = 1
@@ -1413,7 +1617,7 @@ if opts.fit_method == "quadratic":
         print(" Parameters from fit ", pt_best_X)
         P.print_params()
         sys.exit(0)
-    my_fit = fit_quadratic_alt(X,Y,symmetry_list=symmetry_list,verbose=opts.verbose)
+    my_fit = fit_quadratic_alt(X,Y,y_err=Y_err,symmetry_list=symmetry_list,verbose=opts.verbose)
 elif opts.fit_method == "polynomial":
     print(" FIT METHOD ", opts.fit_method, " IS POLYNOMIAL")
     X=X[indx_ok]
@@ -1498,6 +1702,33 @@ elif opts.fit_method == 'gp-torch':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gpytorch(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'gp_lazy':
+    print(" FIT METHOD ", opts.fit_method, " IS lazy GP")
+    # some data truncation IS used for the GP, but beware
+    print(" Truncating data set used for GP, to reduce memory usage needed in matrix operations")
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_gp_lazy(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'cov':
+    print(" FIT METHOD ", opts.fit_method, " IS cov (a placement-only approximation!). No errors used")
+    print(" Truncating data set used for cov: don't fit to points with likelihood less than 2")
+    indx_ok = np.logical_and(Y>np.max(Y)*0.1,indx_ok)  # don't fit to points below 10% of peak value
+    indx_ok = np.logical_and(Y>2,indx_ok)  # don't fit to points below 2 absolute scale
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    my_fit = fit_cov(X,Y)
 elif opts.fit_method == 'nn':
     print( " FIT METHOD ", opts.fit_method, " IS NN ")
     # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
@@ -1546,8 +1777,25 @@ elif opts.fit_method == 'nn_rfwrapper':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_nn_rfwrapper(X,Y,y_errors=Y_err)
-elif opts.fit_method == 'gp-sparse':
-    print( " FIT METHOD ", opts.fit_method, " IS gp-sparse ")
+elif opts.fit_method == 'kde':
+    print( " FIT METHOD ", opts.fit_method, " IS KDE ")
+    indx_ok = np.logical_and(indx_ok, Y>0)
+    # modest data truncation useful...
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_kde(X,Y)
+elif opts.fit_method == 'gp_sparse':
+    print( " FIT METHOD ", opts.fit_method, " IS gp_sparse ")
     if not internalGP_ok:
         print( " FAILED ")
         sys.exit(1)
@@ -1565,7 +1813,25 @@ elif opts.fit_method == 'gp-sparse':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gp_sparse(X,Y,y_errors=Y_err)
-
+elif opts.fit_method == 'weighted_nearest':
+    print( " FIT METHOD ", opts.fit_method, " IS weighted_nearest ")
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_nearest(X,Y,y_errors=Y_err)
+else:
+    print(" NO KNOWN FIT METHOD ")
+    sys.exit(55)
 
 
 
@@ -1607,6 +1873,16 @@ else:
 
 
 sampler = mcsampler.MCSampler()
+if opts.sampler_method == "adaptive_cartesian_gpu":
+    sampler = mcsamplerGPU.MCSampler()
+    sampler.xpy = xpy_default
+    sampler.identity_convert=identity_convert
+    mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+
+    # if opts.sampler_xpy == "numpy":
+    #   mcsampler.set_xpy_to_numpy()
+    #   sampler.xpy= numpy
+    #   sampler.identity_convert= lambda x: x
 if opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 
@@ -1616,7 +1892,7 @@ if opts.sampler_method == "GMM":
 ##
 for p in low_level_coord_names:
     if not(opts.parameter_implied is None):
-       if p in opts.parameter_implied and not(p == 'chi_pavg'):
+       if p in opts.parameter_implied:
         # We do not need to sample parameters that are implied by other parameters, so we can overparameterize 
         continue
     prior_here = prior_map[p]
@@ -1629,8 +1905,18 @@ for p in low_level_coord_names:
         range_here = [np.max([range_here[0],mc_min]), np.min([range_here[1],mc_max])]
     if p =='mtot' and opts.mtot_range:
         range_here = eval(opts.mtot_range)
+    # special cases mu1,mu2: rather than try to choose intelligently, just use training box data for limits
+    if (p=='ln_mu1' or p == 'mu1' or p=='mu2') and opts.trust_sample_parameter_box:
+        # extremely special/unusual use case, looking up from *input* data : mu1 only used as coordinate if also used for fitting
+        indx_lnmu = coord_names.index(p)
+        lnmu_max = np.max(dat_out[:,indx_lnmu])
+        lnmu_min = np.min(dat_out[:,indx_lnmu])
+        range_here = [lnmu_min,lnmu_max]
 
-    sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=True)
+    adapt_me = True
+    if p in opts.no_adapt_parameter:
+        adapt_me=False
+    sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
 
 
 # Import prior
@@ -1668,12 +1954,23 @@ if len(low_level_coord_names) ==1:
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x],dtype=internal_dtype).T) ))
             return np.exp(my_fit(convert_coords(np.c_[x])))
+    def log_likelihood_function(x):  
+        if isinstance(x,float):
+            return my_fit([x])
+        else:
+#            return np.exp(my_fit(convert_coords(np.array([x],dtype=internal_dtype).T) ))
+            return my_fit(convert_coords(np.c_[x]))
 if len(low_level_coord_names) ==2:
     def likelihood_function(x,y):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y])))
+    def log_likelihood_function(x,y):  
+        if isinstance(x,float):
+            return my_fit([x,y])
+        else:
+            return my_fit(convert_coords(np.c_[x,y]))
 if len(low_level_coord_names) ==3:
     def likelihood_function(x,y,z):  
         if isinstance(x,float):
@@ -1681,12 +1978,23 @@ if len(low_level_coord_names) ==3:
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z],dtype=internal_dtype).T)))
             return np.exp(my_fit(convert_coords(np.c_[x,y,z])))
+    def log_likelihood_function(x,y,z):  
+        if isinstance(x,float):
+            return my_fit([x,y,z])
+        else:
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z],dtype=internal_dtype).T)))
+            return my_fit(convert_coords(np.c_[x,y,z]))
 if len(low_level_coord_names) ==4:
     def likelihood_function(x,y,z,a):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a])))
+    def log_likelihood_function(x,y,z,a):  
+        if isinstance(x,float):
+            return my_fit([x,y,z,a])
+        else:
+            return my_fit(convert_coords(np.c_[x,y,z,a]))
 if len(low_level_coord_names) ==5:
     def likelihood_function(x,y,z,a,b):  
         if isinstance(x,float):
@@ -1694,6 +2002,12 @@ if len(low_level_coord_names) ==5:
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b],dtype=internal_dtype).T)))
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b])))
+    def log_likelihood_function(x,y,z,a,b):  
+        if isinstance(x,float):
+            return my_fit([x,y,z,a,b])
+        else:
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b],dtype=internal_dtype).T)))
+            return my_fit(convert_coords(np.c_[x,y,z,a,b]))
 if len(low_level_coord_names) ==6:
     def likelihood_function(x,y,z,a,b,c):  
         if isinstance(x,float):
@@ -1701,18 +2015,34 @@ if len(low_level_coord_names) ==6:
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c],dtype=internal_dtype).T)))
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c])))
+    def log_likelihood_function(x,y,z,a,b,c):  
+        if isinstance(x,float):
+            return my_fit([x,y,z,a,b,c])
+        else:
+#            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c],dtype=internal_dtype).T)))
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c]))
 if len(low_level_coord_names) ==7:
     def likelihood_function(x,y,z,a,b,c,d):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d])))
+    def log_likelihood_function(x,y,z,a,b,c,d):  
+        if isinstance(x,float):
+            return my_fit([x,y,z,a,b,c,d])
+        else:
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d]))
 if len(low_level_coord_names) ==8:
     def likelihood_function(x,y,z,a,b,c,d,e):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e])))
+    def log_likelihood_function(x,y,z,a,b,c,d,e):  
+        if isinstance(x,float):
+            return my_fit([x,y,z,a,b,c,d,e])
+        else:
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e]))
 if len(low_level_coord_names) ==9:
     def likelihood_function(x,y,z,a,b,c,d,e,f):  
         if isinstance(x,float):
@@ -1727,8 +2057,13 @@ if len(low_level_coord_names) ==10:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g])))
 
 
-n_step = 1e5
+n_step = int(opts.n_chunk)
+if opts.sampler_method == 'GMM':
+    n_step *=3  # bigger steps for GMM
+# tempering exp: most appropriate for histogram method to avoid oversampling
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
+if opts.sampler_method == 'GMM':
+    my_exp = np.min([1,4*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
 print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto")
 
@@ -1736,6 +2071,7 @@ print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.
 extra_args={}
 if opts.sampler_method == "GMM":
     n_max_blocks = ((1.0*int(opts.n_max))/n_step) 
+    n_comp = opts.internal_n_comp # default
     def parse_corr_params(my_str):
         """
         Takes a string with no spaces, and returns a tuple
@@ -1766,17 +2102,33 @@ if opts.sampler_method == "GMM":
     else:
         param_indexes = range(len(low_level_coord_names))
         gmm_dict  = {(k,):None for k in param_indexes} # no correlations
-    extra_args = {'n_comp':3,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - opts.lnL_offset)),'gmm_dict':gmm_dict}  # made up for now, should adjust
-    
+    if opts.internal_gmm_memory_chisquared_factor:
+        lnL_offset_saving = len(low_level_coord_names)*opts.internal_gmm_memory_chisquared_factor  # based on chisquared distribution, we should not be keeping more than this for output.  This is PURELY FOR MEMORY MANAGEMENT
+    else:
+        lnL_offset_saving = opts.lnL_offset
+    extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - lnL_offset_saving)),'gmm_dict':gmm_dict,'max_err':50}  # made up for now, should adjust
+extra_args.update({
+    "n_adapt": 100, # Number of chunks to allow adaption over
+    "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1D histograms with, 
+    "force_no_adapt":opts.force_no_adapt,
+    "tripwire_fraction":0.05
+})
+tempering_adapt=True
+if opts.force_no_adapt:   
+    tempering_adapt=False
 # Result shifted by lnL_shift
-res, var, neff, dict_return = sampler.integrate(likelihood_function, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
+fn_passed = likelihood_function
+if opts.sampler_method=="GMM" and opts.internal_use_lnL:
+    fn_passed = log_likelihood_function   # helps regularize large values
+    extra_args.update({"use_lnL":True,"return_lnI":True})
+res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
-    if neff < opts.fail_unless_n_eff:
+    if neff < opts.fail_unless_n_eff   and not(opts.not_worker):     # if we need the output to continue:
         print(" FAILURE: n_eff too small")
         sys.exit(1)
-if neff < opts.n_eff:   
+if neff < opts.n_eff:
     print(" ==> neff (={}) is low <==".format(neff))
     if opts.contingency_unevolved_neff == 'quadpuff'  and neff < np.min([500,opts.n_eff]): # we can usually get by with about 500 points
         # Add errors
@@ -1847,7 +2199,10 @@ samples = sampler._rvs
 print(samples.keys())
 n_params = len(coord_names)
 dat_mass = np.zeros((len(samples[low_level_coord_names[0]]),n_params+3))
-dat_logL = np.log(samples["integrand"])
+if not(opts.internal_use_lnL):
+    dat_logL = np.log(samples["integrand"])
+else:
+    dat_logL = samples["integrand"]
 lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
 print(" Max lnL ", np.max(dat_logL))
 if opts.lnL_protect_overflow:
@@ -2155,21 +2510,22 @@ print(" ---- Subset for posterior samples (and further corner work) --- ")
 
 # pick random numbers
 p_threshold_size = np.min([5*opts.n_output_samples,len(weights)])
-p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=p_threshold_size)#opts.n_output_samples)
+#p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=p_threshold_size)#opts.n_output_samples)
 if opts.verbose:
-    print(" output size: selected thresholds N=", len(p_thresholds))
+    print(" output size: selected thresholds N=", p_threshold_size)
 # find sample indexes associated with the random numbers
 #    - FIXME: first truncate the bad ones
-# idx_sorted_index = numpy.lexsort((numpy.arange(len(weights)), weights))  # Sort the array of weights, recovering index values
-# indx_list = numpy.array( [[k, weights[k]] for k in idx_sorted_index])     # pair up with the weights again
-# cum_weights = np.cumsum(indx_list[:,1)
-# cum_weights = cum_weights/cum_weights[-1]
-# indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probabilit
-cum_sum  = np.cumsum(weights)
-cum_sum = cum_sum/cum_sum[-1]
-indx_list = list(map(lambda x : np.sum(cum_sum < x),  p_thresholds))  # this can lead to duplicates
+#cum_sum  = np.cumsum(weights)
+#cum_sum = cum_sum/cum_sum[-1]
+#indx_list = list(map(lambda x : np.sum(cum_sum < x),  p_thresholds))  # this can lead to duplicates
+indx_list = np.random.choice(np.arange(len(weights)),p_threshold_size,p=np.array(weights/np.sum(weights),dtype=float),replace=False)
 if opts.verbose:
     print(" output size: selected random indices N=", len(indx_list))
+if opts.internal_bound_factor_if_n_eff_small and neff <opts.n_output_samples  and opts.internal_bound_factor_if_n_eff_small* neff < opts.n_output_samples:
+    my_size_out = int(neff*opts.internal_bound_factor_if_n_eff_small)+1  # make sure at least one sample
+    indx_list = np.random.choice(indx_list, my_size_out, replace=False)
+if opts.verbose:
+    print(" output size: truncating based on n_eff to N=", len(indx_list))
 lnL_list = []
 P_list =[]
 P = lalsimutils.ChooseWaveformParams()
@@ -2193,13 +2549,13 @@ for indx_here in indx_list:
             coord_to_assign = low_level_coord_names[indx]
             if coord_to_assign == 'xi':
                 coord_to_assign= 'chieff_aligned'
-            if coord_to_assign == 'chi_pavg':
-                continue #skipping chi_pavg
             Pgrid.assign_param(coord_to_assign, line[indx]*fac)
 #            print indx_here, coord_to_assign, line[indx]
         # Test for downselect
         for p in downselect_dict.keys():
             val = Pgrid.extract_param(p) 
+            if np.isnan(val):  # this can happen for some odd coordinate systems like mu1, mu2 if we are out of range
+                include_item = False
             if p in ['mc','m1','m2','mtot']:
                 val = val/lal.MSUN_SI
             if val < downselect_dict[p][0] or val > downselect_dict[p][1]:
@@ -2210,6 +2566,12 @@ for indx_here in indx_list:
         # Set some superfluous quantities, needed only for PN approximants, so the result is generated sensibly
         Pgrid.ampO =opts.amplitude_order
         Pgrid.phaseO =opts.phase_order
+        
+        # Set fixed parameters
+        if opts.fixed_parameter is not None:
+            for i, p in enumerate(opts.fixed_parameter):
+                fac = lal.MSUN_SI if p in ["mc", "mtot", "m1", "m2"] else 1.0
+                Pgrid.assign_param(p, fac * float(opts.fixed_parameter_value[i]))
 
         # Downselect.
         # for param in downselect_dict:
@@ -2219,11 +2581,17 @@ for indx_here in indx_list:
         if include_item:
          if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
             P_list.append(Pgrid)
-            lnL_list.append(np.log(samples["integrand"][indx_here]))
+            if not(opts.internal_use_lnL):
+                lnL_list.append(np.log(samples["integrand"][indx_here]))
+            else:
+                lnL_list.append(samples["integrand"][indx_here])
          else:
             Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
             P_list.append(Pgrid)
-            lnL_list.append(np.log(samples["integrand"][indx_here]))
+            if not(opts.internal_use_lnL):
+                lnL_list.append(np.log(samples["integrand"][indx_here]))
+            else:
+                lnL_list.append(samples["integrand"][indx_here])
         else:
             True
 
@@ -2497,6 +2865,4 @@ for indx in np.arange(len(extra_plot_coord_names)):
      print(" Failed to generate corner for ", extra_plot_coord_names[indx])
 
 sys.exit(0)
-
-
 
