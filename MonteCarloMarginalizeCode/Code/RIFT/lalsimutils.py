@@ -932,9 +932,9 @@ class ChooseWaveformParams:
             Sp = np.max([np.linalg.norm( A1*S1p), np.linalg.norm(A2*S2p)])
             return Sp/(A1*m1**2)  # divide by term for *larger* BH
         if p == 'chi_pavg':
-            if (self.s1x == 0 and self.s1y == 0 and self.s2x == 0 and self.s2y == 0):
-                chipavg = 0
-            elif (self.s1x == 0 and self.s1y == 0 and self.s1z == 0) or (self.s2x == 0 and self.s2y == 0 and self.s2z == 0):
+            if (abs(self.s1x) < 1e-4 and abs(self.s1y) < 1e-4 and abs(self.s2x) < 1e-4 and abs(self.s2y) < 1e-4):
+                chipavg = 0.0
+            elif (abs(self.s1x) < 1e-4 and abs(self.s1y) < 1e-4 and abs(self.s1z) < 1e-4) or (abs(self.s2x) < 1e-4 and abs(self.s2y) < 1e-4 and abs(self.s2z) < 1e-4):
                 chipavg = self.extract_param('chi_p')
             else:
                 try:
@@ -945,8 +945,12 @@ class ChooseWaveformParams:
                     c_SI = 2.99e8 #SI units [m s^-1]
                     SM = 1.98847e30 #Solar Mass in [kg]
                     conv = SM*G_SI/c_SI**3 #converts [SM] to [s kg^-1]
-                    m1 = conv*self.extract_param('m1') #mass of object 1
-                    m2 = conv*self.extract_param('m2') #mass of object 2
+                    if self.extract_param('m1') > 1e29:
+                        m1 = conv*self.extract_param('m1')/SM
+                        m2 = conv*self.extract_param('m2')/SM
+                    else:
+                        m1 = conv*self.extract_param('m1')
+                        m2 = conv*self.extract_param('m2') 
                     q = m2/m1 #mass ratio
                     thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame() #inheriting values from system
                     deltaphi = phi12
@@ -1031,8 +1035,8 @@ class ChooseWaveformParams:
                         return numerator/denominator
                     chipavg = chip_averaged(q,chi1,chi2,theta1,theta2,deltaphi,fref=fref)
                 except ZeroDivisionError:
-                        chipavg = self.extract_param('chi_p')                
-                return chipavg
+                        chipavg = self.extract_param('chi_p')
+            return chipavg
         if p == 'LambdaTilde':
             Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
             return Lt
@@ -2845,8 +2849,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
             except Exception as e:
                 raise NameError(" Nyquist frequency error for v4P/v4PHM, check srate")
         hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
-            P.s1x, P.s1y, P.s1z, \
-            P.s2x, P.s2y, P.s2z, \
+        P.s1x, P.s1y, P.s1z, \
+        P.s2x, P.s2y, P.s2z, \
             P.fmin, P.fref, P.dist, extra_params, \
              Lmax, P.approx)
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
@@ -4200,19 +4204,152 @@ def DataRollTime(ht,DeltaT):  # ONLY FOR TIME DOMAIN. ACTS IN PLACE
 
 def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,source_redshift=0):
     """
-    A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
+    A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q).  Note that if ChooseWaveformParam structuers are built ,the loops can be quite slow
+    Special cases:
+      - coordinates in x_out already in x_in are copied over directly
+      - xi==chi_eff, chiMinus, mu1,mu2 : transformed directly from mc, delta_mc, s1z,s2z coordinates, using fast vectorized transformations.
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
+    # Check for trivial identity transformations and do those by direct copy, then remove those from the list of output coord names
+    coord_names_reduced = coord_names.copy() 
+    for p in low_level_coord_names:
+        if p in coord_names:
+            indx_p_out = coord_names.index(p)
+            indx_p_in = low_level_coord_names.index(p)
+            coord_names_reduced.remove(p)
+            x_out[:,indx_p_out] = x_in[:,indx_p_in]
+
+    # Check for common coordinates we need to transform: xi, chiMinus as the most common, from cartesian
+    if ('xi' in coord_names_reduced) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names) and ('mc' in low_level_coord_names):
+        indx_p_out = coord_names.index('xi')
+        p = 'xi'
+        indx_mc = low_level_coord_names.index('mc')
+        indx_s1z = low_level_coord_names.index('s1z')
+        indx_s2z = low_level_coord_names.index('s2z')
+        eta_vals = np.zeros(len(x_in))  
+        m1_vals =np.zeros(len(x_in))  
+        m2_vals =np.zeros(len(x_in))  
+        if ('delta_mc' in low_level_coord_names):
+            indx_delta = low_level_coord_names.index('delta_mc')
+            eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+            coord_names_reduced.remove(p)
+        elif ('eta' in low_level_coord_names):
+            indx_eta = low_level_coord_names.index('eta')
+            eta_vals = 0.25*(1- x_in[:,indx_eta]**2)
+            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+            coord_names_reduced.remove(p)
+    if ('chiMinus' in coord_names_reduced) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names) and ('mc' in low_level_coord_names):
+        indx_p_out = coord_names.index('chiMinus')
+        p = 'chiMinus'
+        indx_mc = low_level_coord_names.index('mc')
+        indx_s1z = low_level_coord_names.index('s1z')
+        indx_s2z = low_level_coord_names.index('s2z')
+        eta_vals = np.zeros(len(x_in))  
+        m1_vals =np.zeros(len(x_in))  
+        m2_vals =np.zeros(len(x_in))  
+        if ('delta_mc' in low_level_coord_names):
+            indx_delta = low_level_coord_names.index('delta_mc')
+            eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+            coord_names_reduced.remove(p)
+        elif ('eta' in low_level_coord_names):
+            indx_eta = low_level_coord_names.index('eta')
+            eta_vals = 0.25*(1- x_in[:,indx_eta]**2)
+            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+            coord_names_reduced.remove(p)
+
+    if ('mu1' in coord_names_reduced) and ('mu2' in coord_names_reduced) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names):
+        indx_pout_mu1 = coord_names.index('mu1')
+        indx_pout_mu2 = coord_names.index('mu2')
+        indx_mc = low_level_coord_names.index('mc')
+        indx_delta = low_level_coord_names.index('delta_mc')
+        indx_s1z = low_level_coord_names.index('s1z')
+        indx_s2z = low_level_coord_names.index('s2z')
+        # delta == (m1-m2)/(m1+m2) == (1-q)/(1+q), so q ==(1-delta)/(1+delta)
+        qvals = (1- x_in[:,indx_delta])/(1+x_in[:,indx_delta])
+        mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(x_in[:,indx_mc], qvals, x_in[:,indx_s1z], x_in[:,indx_s2z])
+        x_out[:,indx_pout_mu1] = mu1
+        x_out[:,indx_pout_mu2] = mu2
+        coord_names_reduced.remove('mu1')
+        coord_names_reduced.remove('mu2')
+
+    # Spin spherical coordinate names
+    if ('xi' in coord_names_reduced) and ('chi1' in low_level_coord_names) and ('cos_theta1' in low_level_coord_names) and ('phi1' in low_level_coord_names) and ('chi2' in low_level_coord_names) and ('cos_theta2' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
+        indx_pout_xi = coord_names.index('xi')
+        indx_mc = low_level_coord_names.index('mc')
+        indx_delta = low_level_coord_names.index('delta_mc')
+        indx_chi1 = low_level_coord_names.index('chi1')
+        indx_chi2 = low_level_coord_names.index('chi2')
+        indx_ct1 = low_level_coord_names.index('cos_theta1')
+        indx_ct2 = low_level_coord_names.index('cos_theta2')
+
+        s1z= x_in[:,indx_chi1]*x_in[:,indx_ct1]
+        s2z= x_in[:,indx_chi2]*x_in[:,indx_ct1]
+
+        m1_vals =np.zeros(len(x_in))  
+        m2_vals =np.zeros(len(x_in))  
+        eta_vals = np.zeros(len(x_in))  
+        eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+        m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+        x_out[:,indx_pout_xi] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+        coord_names_reduced.remove('xi')
+        
+        # also build chiMinus, s1x,s1y, ... , if present : usual use case of doing all of these in spherical coordinates
+        if 'chiMinus' in coord_names_reduced:
+            indx_pout_chiminus = coord_names.index('chiMinus')
+            x_out[:,indx_pout_chiminus] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+        if ('s1x' in coord_names_reduced) and ('s1y' in coord_names_reduced):
+            indx_pout_s1x = coord_names.index('s1x')
+            indx_pout_s1y = coord_names.index('s1y')
+
+            indx_phi1=low_level_coord_names.index('phi1')
+            cosphi1 = np.cos(x_in[:,indx_phi1])
+            sinphi1 = np.sin(x_in[:,indx_phi1])
+            sintheta1 = np.sqrt(1-x_in[:,indx_ct1]**2)
+
+            x_out[:,indx_pout_s1x] = x_in[:,indx_chi1]*sintheta1*cosphi1
+            x_out[:,indx_pout_s1y] = x_in[:,indx_chi1]*sintheta1*sinphi1
+            coord_names_reduced.remove('s1x')
+            coord_names_reduced.remove('s1y')
+        if ('s2x' in coord_names_reduced) and ('s2y' in coord_names_reduced):
+            indx_pout_s2x = coord_names.index('s2x')
+            indx_pout_s2y = coord_names.index('s2y')
+
+            indx_phi2=low_level_coord_names.index('phi2')
+            cosphi2 = np.cos(x_in[:,indx_phi2])
+            sinphi2 = np.sin(x_in[:,indx_phi2])
+            sintheta2 = np.sqrt(1-x_in[:,indx_ct2]**2)
+
+            x_out[:,indx_pout_s2x] = x_in[:,indx_chi2]*sintheta2*cosphi2
+            x_out[:,indx_pout_s2y] = x_in[:,indx_chi2]*sintheta2*sinphi2
+            coord_names_reduced.remove('s2x')
+            coord_names_reduced.remove('s2y')
+            
+
+
+
+    # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
+    if len(coord_names_reduced)<1:
+        return x_out
+    
     P = ChooseWaveformParams()
     # note NO MASS CONVERSION here, because the fit is in solar mass units!
     for indx_out  in np.arange(len(x_in)):
         for indx in np.arange(len(low_level_coord_names)):
-            P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
+            if low_level_coord_names[indx] != 'chi_pavg':
+                P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])            
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
         P.m1 = P.m1*(1+source_redshift)
         P.m2 = P.m2*(1+source_redshift)
-        for indx in np.arange(len(coord_names)):
-            x_out[indx_out,indx] = P.extract_param(coord_names[indx])
+        for indx in np.arange(len(coord_names_reduced)):
+            p = coord_names_reduced[indx]
+            indx_p_out= coord_names.index(p)
+            x_out[indx_out,indx_p_out] = P.extract_param(p)
         if enforce_kerr and (P.extract_param('chi1') > 1 or P.extract_param('chi2') >1):  # insure Kerr bound satisfied
             x_out[indx_out] = -np.inf*np.ones( len(coord_names) ) # return negative infinity for all coordinates, if Kerr bound violated
     return x_out
