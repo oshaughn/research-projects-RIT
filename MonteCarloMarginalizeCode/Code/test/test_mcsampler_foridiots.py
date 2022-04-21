@@ -111,15 +111,20 @@ print("Integral of 1 over this range, using a normalized prior, must be 1 ", [sa
 
 
 
+# PROBLEM
+#   - mcsamplerGPU weird normalization factor, ends up getting a magic 'sigma' factor somehow?
+samplerPrior.reset_sampling('x')
 sig = 0.1
-n_eff_stop=100
+fac=1
+n_eff_stop=5000
 print(" -- Performing integral of non-normalized gaussian, stopping after neff = {} points -- ".format(n_eff_stop))
-res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=n_eff_stop,verbose=False)
-print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", np.sqrt(2*np.pi)*sig)
+res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: fac*np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=n_eff_stop,verbose=True)
+print(" integral answer is ", res,  " with expected error ", np.sqrt(var), ";  compare to ", fac* np.sqrt(2*np.pi)*sig)
 print(" note neff is ", neff, "; compare neff^(-1/2) = ", 1/np.sqrt(neff), " to relative predicted and actual errors: ", np.sqrt(var)/res, ", ",  (res - np.sqrt(2*np.pi)*sig)/res)
 
 
-sig = 0.1
+samplerPrior.reset_sampling('x')
+#sig = 0.1
 tempering_exp=0.2
 print(" -- repeat test, but with tempering_exp active -- ")
 res, var,  neff, dict_return = samplerPrior.integrate(np.vectorize(lambda x: np.exp(-x**2/(2*sig**2))), 'x', nmax=5*1e4, full_output=True,neff=n_eff_stop,gmm_dict=gmm_dict,tempering_exp=tempering_exp)

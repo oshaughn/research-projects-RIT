@@ -1,41 +1,35 @@
+image: debian:latest
+
 stages:
-  - build
-  - test
+  - system tests
+  - unit tests # TODO: write some
 
-  
-
-
-#language: python
-
-#python:
-#  - '3.6'
-#  - '3.7'
-#  - '3.8'
-
-before_install:
- stage: build
- script:
+before_script:
   # setup
   - apt-get update --assume-yes && apt-get upgrade --assume-yes && apt-get install --assume-yes git python3-pip
+  # Create alias for /usr/bin/python3 -> /usr/bin/python
+  - ln -s /usr/bin/python3 /usr/bin/python
   # upgrade pip
-  - pip install --quiet --upgrade pip
+  - python -m pip install --quiet --upgrade pip
   # install requirements
-  - pip install -r requirements.txt
+  - python -m pip install -r requirements.txt
   # install test-only requirements
-  - pip install pytest 
+  - python -m pip install coverage pytest
   # install this package (need editable for coverage)
-  - pip install --editable .
+  - python -m pip install --editable .
 
-script:
- stage: test
- script: 
-  # test --help for all executables
-  - . .travis/test-all-bin.sh
-  # test import statement for all declared packages
-  - python .travis/test-all-mod.py
-  -  . .travis/test-posterior.sh
-  -  . .travis/test-run.sh
+help_check:
+  stage: system tests
+  script:
+    - . .travis/test-all-bin.sh
 
+import_check:
+  stage: system tests
+  script:
+    - python .travis/test-all-mod.py
 
-cache:
-  pip: true
+test_run:
+  stage: system tests
+  script:
+    - . .travis/test-posterior.sh
+    - . .travis/test-run.sh

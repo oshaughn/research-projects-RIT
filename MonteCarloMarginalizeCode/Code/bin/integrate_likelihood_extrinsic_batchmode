@@ -18,6 +18,7 @@ try:
   import cupy
   xpy_default=cupy
   identity_convert = cupy.asnumpy
+  identity_convert_togpu = cupy.asarray
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
   if not('RIFT_LOWLATENCY' in os.environ):
     print(cupy.show_config())  # print provenance/debugging information
@@ -36,6 +37,7 @@ except:
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
+  identity_convert_togpu = lambda x: x
   cupy_success=False
 
 import lal
@@ -46,6 +48,7 @@ import glue.lal
 import RIFT.lalsimutils as lalsimutils
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 import RIFT.integrators.mcsampler as mcsampler
+import RIFT.misc.sky_rotations as sky_rotations
 try:
     import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
     mcsampler_gmm_ok = True
@@ -222,6 +225,7 @@ integration_params.add_option("--d-max", default=10000,type=float,help="Maximum 
 integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
+integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
 integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
@@ -570,11 +574,14 @@ param_limits = { "psi": (0, 2*numpy.pi),
 #
 params = {}
 sampler = mcsampler.MCSampler()
+xpy_asarray_already = functools.partial(xpy_default.asarray,dtype=np.float64)
 if opts.sampler_method == "adaptive_cartesian_gpu":
     sampler = mcsamplerGPU.MCSampler()
     sampler.xpy = xpy_default
     sampler.identity_convert=identity_convert
     mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+
+    xpy_asarray_already = lambda x: x  # do nothing because we are already on the board for GPU-generated 
 
     if opts.sampler_xpy == "numpy":
       mcsampler.set_xpy_to_numpy()
@@ -664,6 +671,17 @@ if not opts.distance_marginalization:
                         prior_pdf = dist_prior_pdf,
                         adaptive_sampling = adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance))
 
+# 
+# Rotate sky coordinates
+#
+if opts.internal_sky_network_coordinates:
+  ifo_list = list(psd_dict)
+  if len(ifo_list) <2:
+    opts.internal_sky_network_coordinates = False # stop using this code
+  else:
+    sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
+    frm = identity_convert_togpu(sky_rotations.frm)
+    my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default) 
 
 #
 # Intrinsic parameters
@@ -1010,19 +1028,25 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 psi, distance):
 #                global nEvals
                 tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-                P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+                P.phi = xpy_asarray_already(right_ascension)  # cast to float
                 if opts.declination_cosine_sampler:
-                  P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
+                  P.theta = numpy.pi/2 - xpy_default.arccos(xpy_asarray_already(declination))
                 else:
-                  P.theta = xpy_default.asarray(declination,dtype=np.float64)
+                  P.theta = xpy_asarray_already(declination)
                 P.tref = float(fiducial_epoch)
-                P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
+                P.phiref = xpy_asarray_already(phi_orb)
                 if opts.inclination_cosine_sampler:
-                  P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
+                  P.incl = xpy_default.arccos(xpy_asarray_already(inclination))
                 else:
-                  P.incl = xpy_default.asarray(inclination, dtype=np.float64)
-                P.psi = xpy_default.asarray(psi, dtype=np.float64)
-                P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+                  P.incl = xpy_asarray_alraedy(inclination)
+                P.psi = xpy_asarray_already(psi)
+                P.dist = xpy_asarray_already(distance* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
+
+                # rotate sky if needed
+                if opts.internal_sky_network_coordinates:
+                  P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
+                  P.theta = np.pi/2 - P.theta
+                  P.phi = xpy_default.mod(P.phi, 2*np.pi)
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
@@ -1049,8 +1073,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 x0_expmax = x0.copy()
                 x0_expmax[x0 < xmin] = xmin
                 x0_expmax[x0 > xmax] = xmax
-#                return (b / 2) * (x0_expmax**2. - (x0_expmax - x0)**2.)
-                return 0.5*b * x0 * (2.*x0_expmax - x0)
+                return 0.5*b * x0_expmax * (2.*x0 - x0_expmax)
 
               def b_to_t(b):
                 # TODO: this function is duplicate with what is in util_InitMargTable

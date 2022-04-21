@@ -260,7 +260,7 @@ class MCSampler(object):
         self.histogram_cdf[param] = histogram_cdf
 
 
-    def compute_hist(self, x_samples, param):
+    def compute_hist(self, x_samples, param,weights=None,floor_level=0):
         # Rescale the samples to [0, 1]
         y_samples = (
             (x_samples - self.x_min[param]) / self.x_max_minus_min[param]
@@ -269,12 +269,19 @@ class MCSampler(object):
         histogram_values = vectorized_general_tools.histogram(
             y_samples, self.n_bins[param],
             xpy=self.xpy,
+            weights=weights
         )
+        # Smooth the histogram
+#        kernel_size =3
+#        histogram_values = self.xpy.convolve( histogram_values, self.xpy.ones(kernel_size)/kernel_size,mode='same')
+        # Mix with a uniform sampling
+        histogram_values =    histogram_values*(1-floor_level)+floor_level*self.xpy.ones(len(histogram_values))/len(histogram_values)
+
         # Evaluate the CDF by taking a cumulative sum of the histogram.
         n_bins = len(self.histogram_cdf[param]) 
-        self.xpy.cumsum(histogram_values[:n_bins-1], out=self.histogram_cdf[param][1:])
-        self.histogram_cdf[param] *= self.dx[param]
+        self.xpy.cumsum(histogram_values, out=self.histogram_cdf[param][1:])
         self.histogram_cdf[param][0] = 0.0
+        #print(param, 'cdf', self.histogram_cdf[param])
 
         # Renormalize histogram.
         histogram_values /= self.x_max_minus_min[param]
@@ -780,6 +787,16 @@ class MCSampler(object):
                     return f(arg, p)
                 return inner
 
+            if not(save_intg):
+                print("Direct access ")
+                weights_alt = int_vals**tempering_exp
+            else:
+                #print(fval, self._rvs["integrand"][-n_history:])
+                weights_alt =((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp )
+            weights_alt = self.xpy.maximum(weights_alt,10)
+            weights_alt = weights_alt/(weights_alt.sum())
+            weights_alt = floor_integrated_probability*xpy_default.ones(len(weights_alt))/len(weights_alt) + (1-floor_integrated_probability)*weights_alt
+
             for itr, p in enumerate(self.params_ordered):
                 # # FIXME: The second part of this condition should be made more
                 # # specific to pinned parameters
@@ -787,7 +804,11 @@ class MCSampler(object):
                     continue
 
                 points = self._rvs[p][-n_history:]
-                self.compute_hist(points, p)
+                self.compute_hist(points, p,weights=weights_alt,floor_level=floor_integrated_probability)
+            #    if p == 'declination':
+            #          vals = identity_convert(self.histogram_values[p])
+            #          print(vals)
+            #          print(np.mean(vals),np.std(vals))
                 self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
                 self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
 
