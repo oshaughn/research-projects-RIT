@@ -400,7 +400,7 @@ fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more di
 if opts.sim_xml:
     print( "====Loading injection XML:", opts.sim_xml, opts.event, " =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
-    if len(P_list) > opts.event  and opts.soft_fail_event_range:
+    if len(P_list) < opts.event  and opts.soft_fail_event_range:
         print( " Event out of range; soft exit")
         sys.exit(0)
     P = P_list[opts.event]  # Load in the physical parameters of the injection.  
