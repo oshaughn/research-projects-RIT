@@ -590,7 +590,9 @@ if opts.use_ini:
         os.system(cmd_cat)
         cmd += " --cache local.cache --fake-data  "
 if opts.fake_data_cache:
-    cmd += " --cache {} --fake-data  --manual-ifo-list [{}] ".format(opts.fake_data_cache,event_dict['IFOs'])
+    cmd += " --cache {} --fake-data  "
+    if len(event_dict["IFOs"]) >0 :
+        cmd += " --manual-ifo-list {} ".format(opts.fake_data_cache,event_dict['IFOs'])
 print( cmd)
 os.system(cmd)
 #sys.exit(0)
