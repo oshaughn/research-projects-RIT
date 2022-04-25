@@ -78,26 +78,30 @@ outdoc.appendChild(ligolw.LIGO_LW())
 # add sngl_inspiral table to output XML document
 outdoc.childNodes[0].appendChild(sngl_table)
 
-# Create one row
-sngl = _empty_row(lsctables.SnglInspiral)
-# add column values
-# note NOT all columns can be popoulated: the key thing is the event time
-sngl.ifos = ','.join(opts.ifo)
-sngl.end_time = int(P.tref)
-sngl.end_time_ns = int(1e9*(P.tref-int(P.tref)))
-sngl.mass1 = P.m1/lal.MSUN_SI
-sngl.mass2 = P.m2/lal.MSUN_SI
-sngl.mtotal = sngl.mass1 + sngl.mass2
-sngl.mchirp = lalsimutils.mchirp(sngl.mass1,sngl.mass2)
-sngl.eta = lalsimutils.symRatio(sngl.mass1,sngl.mass2)
-sngl.coa_phase = 0.
-sngl.spin1z = P.s1z
-sngl.spin2z = P.s2z
-sngl.eff_distance = P.dist/(1e6*lal.PC_SI)
-sngl.snr = 20.  # made up, needed for some algorithms to work
+if not(opts.ifo):
+    opts.ifo = ["H1","L1"]  # default
 
-# add to table
-sngl_table.append(sngl)
+# Create one row
+for indx in range(len(opts.ifo)):
+    sngl = _empty_row(lsctables.SnglInspiral)
+    # add column values
+    # note NOT all columns can be popoulated: the key thing is the event time
+    sngl.ifo = opts.ifo[indx]
+    sngl.end_time = int(P.tref)
+    sngl.end_time_ns = int(1e9*(P.tref-int(P.tref)))
+    sngl.mass1 = P.m1/lal.MSUN_SI
+    sngl.mass2 = P.m2/lal.MSUN_SI
+    sngl.mtotal = sngl.mass1 + sngl.mass2
+    sngl.mchirp = lalsimutils.mchirp(sngl.mass1,sngl.mass2)
+    sngl.eta = lalsimutils.symRatio(sngl.mass1,sngl.mass2)
+    sngl.coa_phase = 0.
+    sngl.spin1z = P.s1z
+    sngl.spin2z = P.s2z
+    sngl.eff_distance = P.dist/(1e6*lal.PC_SI)
+    sngl.snr = 20.  # made up, needed for some algorithms to work
+
+    # add to table
+    sngl_table.append(sngl)
 
 # write the output XML file
 output_file='coinc.xml'
