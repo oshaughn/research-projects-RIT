@@ -17,6 +17,7 @@ import lal
 parser = argparse.ArgumentParser()
 parser.add_argument("--sim-xml",help="input file")
 parser.add_argument("--event",type=int,default=0,help="input file")
+parser.add_argument("--ifo", action='sture_true',help="input file")
 parser.add_argument("--output",default=None,type=str)
 opts= parser.parse_args()
 
@@ -81,6 +82,7 @@ outdoc.childNodes[0].appendChild(sngl_table)
 sngl = _empty_row(lsctables.SnglInspiral)
 # add column values
 # note NOT all columns can be popoulated: the key thing is the event time
+sngl.ifos = ','.join(opts.ifo)
 sngl.end_time = int(P.tref)
 sngl.end_time_ns = int(1e9*(P.tref-int(P.tref)))
 sngl.mass1 = P.m1/lal.MSUN_SI
