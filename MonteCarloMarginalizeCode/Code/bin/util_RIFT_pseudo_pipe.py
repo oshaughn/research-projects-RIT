@@ -163,6 +163,7 @@ parser.add_argument("--cip-internal-use-eta-in-sampler",action='store_true', hel
 parser.add_argument("--ile-jobs-per-worker",type=int,default=None,help="Default will be 20 per worker usually for moderate-speed approximants, and more for very fast configurations")
 parser.add_argument("--ile-no-gpu",action='store_true')
 parser.add_argument("--ile-force-gpu",action='store_true')
+parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
@@ -588,6 +589,8 @@ if opts.use_ini:
         cmd_cat = 'cat ' + ' '.join(fake_cache_fnames) + ' > local.cache'
         os.system(cmd_cat)
         cmd += " --cache local.cache --fake-data "
+if opts.fake_data_cache:
+    cmd += " --cache {} --fake-data ".format(opts.fake_data_cache)
 print( cmd)
 os.system(cmd)
 #sys.exit(0)
