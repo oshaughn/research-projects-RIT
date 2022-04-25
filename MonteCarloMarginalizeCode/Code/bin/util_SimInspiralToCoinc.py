@@ -17,7 +17,7 @@ import lal
 parser = argparse.ArgumentParser()
 parser.add_argument("--sim-xml",help="input file")
 parser.add_argument("--event",type=int,default=0,help="input file")
-parser.add_argument("--ifo", action='sture_true',help="input file")
+parser.add_argument("--ifo", action='store_true',help="input file")
 parser.add_argument("--output",default=None,type=str)
 opts= parser.parse_args()
 
