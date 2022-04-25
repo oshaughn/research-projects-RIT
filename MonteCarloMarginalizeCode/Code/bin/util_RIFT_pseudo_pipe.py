@@ -588,9 +588,9 @@ if opts.use_ini:
         fake_cache_fnames = [fake_cache_dict[x] for x in fake_cache_dict.keys()]
         cmd_cat = 'cat ' + ' '.join(fake_cache_fnames) + ' > local.cache'
         os.system(cmd_cat)
-        cmd += " --cache local.cache --fake-data --manual-ifo-list [{}] ".format(event_dict['IFOs'])
+        cmd += " --cache local.cache --fake-data  "
 if opts.fake_data_cache:
-    cmd += " --cache {} --fake-data ".format(opts.fake_data_cache)
+    cmd += " --cache {} --fake-data  --manual-ifo-list [{}] ".format(opts.fake_data_cache,event_dict['IFOs'])
 print( cmd)
 os.system(cmd)
 #sys.exit(0)
