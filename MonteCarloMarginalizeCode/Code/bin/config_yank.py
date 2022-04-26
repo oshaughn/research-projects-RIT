@@ -25,6 +25,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("rundir")
 parser.add_argument("--ile-name",default="ILE.sub")
 parser.add_argument("--cip-name",default="CIP*.sub")
+parser.add_argument("--puff-name",default="PUFF.sub")
 opts = parser.parse_args()
 
 
@@ -32,8 +33,10 @@ opts = parser.parse_args()
 #  (would be better to parse argument strings, but oh well)
 cmd1 = "grep arguments {}/{} |  tr '\"' ' ' | sed 's/--/\\n/g' > tmp_file_ile.args".format(opts.rundir,opts.ile_name)
 cmd2 = "grep arguments {}/{} |  tr '\"' ' ' | sed 's/--/\\n/g' > tmp_file_cip.args".format(opts.rundir,opts.cip_name)
+cmd3 = "grep arguments {}/{} |  tr '\"' ' ' | sed 's/--/\\n/g' > tmp_file_puff.args".format(opts.rundir,opts.puff_name)
 os.system(cmd1)
 os.system(cmd2)
+os.system(cmd3)
 
 # convert arguments into dictionary
 args_ile = {}
@@ -52,11 +55,20 @@ with open("tmp_file_cip.args",'r') as f:
         key_list.pop(0)
         args_cip[key]=' '.join(key_list)
 
+args_puff={}
+with open("tmp_file_puff.args",'r') as f:
+    for line in f:
+        key_list = line.split()
+        key=key_list[0]
+        key_list.pop(0)
+        args_puff[key]=' '.join(key_list)
+
 
 # dump out arguments desired
 
 keys_ile = ['fmin-template', 'channel-name', 'fmin-ifo' ,'d-max', 'approx', 'event-time']
 keys_cip = ['mc-range', 'eta-range','fit-method','sampler-method','lnL-offset']  # latter two are very helpful for some diagnostics
+keys_puff = ['enforce-duration-bound', 'puff-factor', 'force-away']
 for name in keys_ile:
     if name in args_ile:
         print(name, args_ile[name])
@@ -64,3 +76,7 @@ for name in keys_ile:
 for name in keys_cip:
     if name in args_cip:
         print(name, args_cip[name])
+
+for name in keys_puff:
+    if name in args_puff:
+        print(name, args_puff[name])
