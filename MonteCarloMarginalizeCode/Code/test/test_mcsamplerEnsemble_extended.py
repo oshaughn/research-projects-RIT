@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 
 from RIFT.integrators import mcsampler, mcsamplerEnsemble, mcsamplerGPU
 
+verbose=False
+
 tempering_exp =0.01
 
 ### test parameters
@@ -54,14 +56,17 @@ samplerAC = mcsamplerGPU.MCSampler()
 
 ### add parameters
 for p in params:
-    sampler.add_parameter(p, np.vectorize(lambda x:1), 
-            prior_pdf=np.vectorize(lambda x:1),
+    sampler.add_parameter(p, np.vectorize(lambda x:1/(rlim-llim)), 
+            prior_pdf=np.vectorize(lambda x:1/(rlim-llim)),
             left_limit=llim, right_limit=rlim,
             adaptive_sampling=True)
-    samplerEnsemble.add_parameter(p, left_limit=llim, right_limit=rlim,adaptive_sampling=True)
+    samplerEnsemble.add_parameter(p, 
+                                  pdf=np.vectorize(lambda x:1/(rlim-llim)),
+                                  prior_pdf=np.vectorize(lambda x:1/(rlim-llim)),
+                                  left_limit=llim, right_limit=rlim,adaptive_sampling=True)
     # for AC sampler, make sure pdf and prior pdfs are *normalized* *initially*
-    samplerAC.add_parameter(p, pdf=np.vectorize(lambda x:1/(rlim-llim)**3),
-            prior_pdf=np.vectorize(lambda x:1/(rlim-llim)**3),
+    samplerAC.add_parameter(p, pdf=np.vectorize(lambda x:1/(rlim-llim)),
+            prior_pdf=np.vectorize(lambda x:1/(rlim-llim)),
             left_limit=llim, right_limit=rlim,adaptive_sampling=True)
 
 # number of Gaussian components to use in GMM
@@ -69,10 +74,10 @@ n_comp = 1
 
 ### integrate
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
-        no_protect_names=True, nmax=20000, save_intg=True,verbose=True)
+        no_protect_names=True, nmax=20000, save_intg=True,verbose=verbose)
 print(" --- finished default --")
 integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(f, *params, 
-        no_protect_names=True, nmax=20000, save_intg=True,verbose=True)
+        no_protect_names=True, nmax=20000, save_intg=True,verbose=verbose)
 print(" --- finished AC --")
 use_lnL = False
 return_lnI=False
@@ -81,12 +86,12 @@ if use_lnL:
 else:
     infunc = f
 integral_2, var_2, eff_samp_2, _ = samplerEnsemble.integrate(infunc, *params, 
-        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=False,tempering_exp=tempering_exp,use_lnL=use_lnL,return_lnI=return_lnI)
+        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=verbose,verbose=verbose,tempering_exp=tempering_exp,use_lnL=use_lnL,return_lnI=return_lnI)
 if return_lnI and use_lnL:
     integral_2 = np.exp(integral_2)
 print(" --- finished GMM --")
-print(integral_1,integral_1b,integral_2)
-print(" AC/default ", width**3* integral_1b/integral_1, np.sqrt(var_1)/integral_1)  # off by width**3
+print(np.array([integral_1,integral_1b,integral_2])*width**3)  # remove prior factor, should get result of normal over domain
+print(" AC/default ",  integral_1b/integral_1, np.sqrt(var_1)/integral_1)  # off by width**3
 print(" GMM/default ",integral_2/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_2)/integral_2)
 print("mu",mu)
 ### CDFs
