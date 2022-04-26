@@ -66,7 +66,7 @@ with open("tmp_file_puff.args",'r') as f:
 
 # dump out arguments desired
 
-keys_ile = ['fmin-template', 'channel-name', 'fmin-ifo' ,'d-max', 'approx', 'event-time','distance-marginalization-lookup-table','internal-sky-network-coordinates','n-eff','srate''fmax','reference-freq']
+keys_ile = ['fmin-template', 'channel-name', 'fmin-ifo' ,'d-max', 'approx', 'event-time','distance-marginalization-lookup-table','internal-sky-network-coordinates','n-eff','srate','fmax','reference-freq']
 keys_cip = ['mc-range', 'eta-range','fit-method','sampler-method','lnL-offset']  # latter two are very helpful for some diagnostics
 keys_puff = ['enforce-duration-bound', 'puff-factor', 'force-away']
 for name in keys_ile:
