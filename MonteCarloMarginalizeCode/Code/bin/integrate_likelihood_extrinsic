@@ -171,6 +171,7 @@ optp.add_option("-s", "--data-start-time", type=float, default=None, help="GPS s
 optp.add_option("-e", "--data-end-time", type=float, default=None, help="GPS end time of data segment. If given, must also give --data-start-time. If not given, sane start and end time will automatically be chosen.")
 optp.add_option("--data-integration-window-half",default=75*1e-3,type=float,help="Only change this window size if you are an expert. The window for time integration is -/+ this quantity around the event time")
 optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
+optp.add_option("--srate",default=16384,type=int,help="Sampling rate. Change ONLY IF YOU ARE ABSOLUTELY SURE YOU KNOW WHAT YOU ARE DOING.")
 optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
 optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Timescale of inverse spectrum truncation in seconds (Default is 8 - give 0 for no truncation)")
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
@@ -261,7 +262,10 @@ if opts.gpu and xpy_default is numpy:
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 
-
+deltaT = None
+fSample= opts.srate # change sampling rate
+if not(fSample is None):
+  deltaT =1./fSample
 
 intrinsic_param_names = opts.parameter
 valid_intrinsic_param_names = ['q']
@@ -496,7 +500,7 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
     data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
             inst+":"+chan, start=start_time, stop=end_time,
-            window_shape=opts.window_shape,verbose=opts.verbose)
+            window_shape=opts.window_shape,verbose=opts.verbose,deltaT=deltaT)
     if opts.verbose:
         print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
             data_dict[inst].data.length))
@@ -750,6 +754,11 @@ sampler.add_parameter("phi_orb",
 # inclination - angle of system angular momentum with line of sight
 # sampler: cos(incl) uniform in [-1, 1)
 #
+
+adapt_extra_extrinsic=False
+if opts.sampler_method == "adaptive_cartesian_gpu":  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
+  adapt_extra_extrinsic=True
+
 if not opts.inclination_cosine_sampler:
  incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
  incl_sampler_cdf_inv = mcsampler.cos_samp_cdf_inv_vector
@@ -758,7 +767,7 @@ if not opts.inclination_cosine_sampler:
     cdf_inv = incl_sampler_cdf_inv, 
     left_limit = param_limits["inclination"][0], 
     right_limit = param_limits["inclination"][1],
-    prior_pdf = mcsampler.uniform_samp_theta)
+    prior_pdf = mcsampler.uniform_samp_theta) # do NOT adapt if we are using a prior that goes to zero at the edges
 else:
  incl_sampler =  mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0)
  incl_sampler_cdf_inv = lambda x: x*2.0-1.#functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1) 
@@ -767,7 +776,8 @@ else:
     cdf_inv = incl_sampler_cdf_inv, 
     left_limit = -1, 
     right_limit = 1,
-    prior_pdf = incl_sampler)
+    prior_pdf = incl_sampler,
+    adaptive_sampling=adapt_extra_extrinsic)
 
 #
 # Distance - luminosity distance to source in parsecs
