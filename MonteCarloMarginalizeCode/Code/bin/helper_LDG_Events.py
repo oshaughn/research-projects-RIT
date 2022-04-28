@@ -181,6 +181,7 @@ parser.add_argument("--assume-volumetric-spin",action='store_true',help="If pres
 parser.add_argument("--assume-highq",action='store_true',help="If present, the code will adopt a strategy that drops spin2. Also the precessing strategy will allow perpendicular spin to play a role early on (rather than as a subdominant parameter later)")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
+parser.add_argument("--internal-propose-ile-convergence-freezeadapt",action='store_true',help="If present, uses the --no-adapt-after-first --no-adapt-distance options (at one point default)")
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
@@ -1070,7 +1071,10 @@ if opts.propose_ile_convergence_options:
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs
     # Note that number of events to analyze is controlled by a different part of the workflow !
-    helper_ile_args += " --vectorized --gpu  --no-adapt-after-first --no-adapt-distance --srate {} ".format(srate)
+    helper_ile_args += " --vectorized --gpu   --srate {} ".format(srate)
+    if opts.internal_propose_ile_convergence_freezeadapt:
+        helper_ile_args += "  --no-adapt-after-first --no-adapt-distance  "
+                    
 
     prefactor = 0.1 # typical value. 0.3 fine for low amplitude, 0.1 for GMM
     if snr_fac > 1.5:  # this is a pretty loud signal, so we need to tune the adaptive exponent too!
