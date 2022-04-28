@@ -66,17 +66,17 @@ with open("tmp_file_puff.args",'r') as f:
 
 # dump out arguments desired
 
-keys_ile = ['fmin-template', 'channel-name', 'fmin-ifo' ,'d-max', 'approx', 'l-max', 'event-time','distance-marginalization-lookup-table','internal-sky-network-coordinates','n-eff','srate','fmax','reference-freq','no-adapt-distance','no-adapt-after-first']
+keys_ile = ['fmin-template', 'channel-name', 'fmin-ifo' ,'d-max', 'approx', 'l-max', 'event-time','distance-marginalization-lookup-table','internal-sky-network-coordinates','n-eff','sampler-method', 'srate','fmax','reference-freq','no-adapt-distance','no-adapt-after-first']
 keys_cip = ['mc-range', 'eta-range','fit-method','sampler-method','lnL-offset']  # latter two are very helpful for some diagnostics
 keys_puff = ['enforce-duration-bound', 'puff-factor', 'force-away']
 for name in keys_ile:
     if name in args_ile:
-        print(name, args_ile[name])
+        print("ILE ", name, args_ile[name])
 
 for name in keys_cip:
     if name in args_cip:
-        print(name, args_cip[name])
+        print("CIP ",name, args_cip[name])
 
 for name in keys_puff:
     if name in args_puff:
-        print(name, args_puff[name])
+        print('PUFF ",name, args_puff[name])
