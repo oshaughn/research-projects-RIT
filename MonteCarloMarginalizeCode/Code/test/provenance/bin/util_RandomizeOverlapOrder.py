@@ -21,7 +21,7 @@ optp.add_option("--output-file",default='merged_output',type=str,help="Merged ou
 opts, args = optp.parse_args()
 
 print(" Inputs: ", ' '.join(args))
-print(" Output": opts.output_file)
+print(" Output: ", opts.output_file)
 
 import os
 os.system(" touch {} ".format(opts.output_file))
