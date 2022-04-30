@@ -877,7 +877,7 @@ else:
         left_limit = param_limits["right_ascension"][0],
         right_limit =  param_limits["right_ascension"][1],
         prior_pdf = mcsampler.uniform_samp_phase,
-        adaptive_sampling = (not opts.no_adapt) and (not opts.opts.internal_sky_network_coordinates)) # TOO DANGEROUS to double-adapt in sky, ends up overconverging too easily. Just leave the whole sky ring in place if we want to do this, it's usually there and we don't lose that much.  If we have full localization, we should just remove the sky network coordinates argument!
+        adaptive_sampling = (not opts.no_adapt) and (not opts.internal_sky_network_coordinates)) # TOO DANGEROUS to double-adapt in sky, ends up overconverging too easily. Just leave the whole sky ring in place if we want to do this, it's usually there and we don't lose that much.  If we have full localization, we should just remove the sky network coordinates argument!
 
     #
     # declination - angle in radians from the north pole piercing the celestial
