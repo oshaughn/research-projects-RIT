@@ -1302,6 +1302,8 @@ if opts.last_iteration_extrinsic:
     # Check if 'it' is defined : it will not always be, if done later
     if not ('it' in globals()):
         it = opts.n_iterations  # last iteration
+    elif it < opts.n_iterations and 'Z' in cip_args_prefixes:
+        it += 1   # deal with an offset/fencepost issue that can happen when using subdags for some reason
     print(" Extrinsic information being pulled from iteration {} ".format(it))
 
     # Create nodes for followup tasks
