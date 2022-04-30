@@ -163,7 +163,7 @@ if not(opts.force_no_adapt):
 
 print(" Arguments: ")
 print(" Input: ",opts.fname)
-print(" Output: ",opts.fname_output_samples)
+print(" Output: ",opts.fname_output_samples+".xml.gz")
 
 import os
 os.system("touch "+opts.fname_output_samples + ".xml.gz")
