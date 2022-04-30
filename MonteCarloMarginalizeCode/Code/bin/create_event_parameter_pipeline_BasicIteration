@@ -1216,7 +1216,7 @@ for it in np.arange(it_start,opts.n_iterations):
     dag.add_node(fit_node) 
     parent_fit_node = fit_node
 
-    if not(opts.cip_explode_jobs is None):
+    if not(opts.cip_explode_jobs is None) and not(isinstance(cip_job,str)): # don't explode if we just made a subdag!
         print(" Exploding workers out ")
         # Create job to consolidate worker outputs
         join_node =pipeline.CondorDAGNode(join_cip_job)
@@ -1302,6 +1302,7 @@ if opts.last_iteration_extrinsic:
     # Check if 'it' is defined : it will not always be, if done later
     if not ('it' in globals()):
         it = opts.n_iterations  # last iteration
+    print(" Extrinsic information being pulled from iteration {} ".format(it))
 
     # Create nodes for followup tasks
     cat_node = pipeline.CondorDAGNode(cat_job)
