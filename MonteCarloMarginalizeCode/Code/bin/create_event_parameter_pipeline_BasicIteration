@@ -1122,6 +1122,8 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += " --cache-file {} ".format(opts.cache_file)
         if opts.use_osg:
             cmd += " --use-osg "
+            if opts.use_cvmfs_frames:
+                cmd += " --use-cvmfs-frames "
             if opts.use_osg_simple_requirements:
                 cmd +=  " --use-osg-simple-requirements "
             if opts.condor_local_nonworker:
