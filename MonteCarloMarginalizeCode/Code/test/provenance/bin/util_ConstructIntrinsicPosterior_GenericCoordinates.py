@@ -165,3 +165,4 @@ print(" Arguments: ")
 print(" Input: ",opts.fname)
 print(" Output: ",opts.fname_output_samples)
 
+os.system("touch "+opts.fname_output_samples + ".xml.gz")
