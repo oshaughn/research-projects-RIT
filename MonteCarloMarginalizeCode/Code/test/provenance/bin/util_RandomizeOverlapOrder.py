@@ -23,3 +23,6 @@ opts, args = optp.parse_args()
 print(" Inputs: ", ' '.join(args))
 print(" Output": opts.output_file)
 
+import os
+os.system(" touch {} ".format(opts.output_file))
+
