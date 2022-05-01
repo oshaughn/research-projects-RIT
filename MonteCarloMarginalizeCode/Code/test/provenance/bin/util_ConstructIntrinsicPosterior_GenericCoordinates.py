@@ -161,7 +161,7 @@ if opts.lnL_shift_prevent_overflow:
 if not(opts.force_no_adapt):
     opts.force_no_adapt=False  # force explicit boolean false
 
-print(" Arguments: ")
+print(" Arguments: ",' '.join(sys.argv[1:]))
 print(" Input: ",opts.fname)
 print(" Output: ",opts.fname_output_samples+".xml.gz")
 
