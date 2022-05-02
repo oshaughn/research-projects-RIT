@@ -576,6 +576,7 @@ params = {}
 sampler = mcsampler.MCSampler()
 xpy_asarray_already = functools.partial(xpy_default.asarray,dtype=np.float64)
 if opts.sampler_method == "adaptive_cartesian_gpu":
+    print(" ILE: {}".format(opts.sampler_method))
     sampler = mcsamplerGPU.MCSampler()
     sampler.xpy = xpy_default
     sampler.identity_convert=identity_convert
@@ -587,9 +588,12 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
       mcsampler.set_xpy_to_numpy()
       sampler.xpy= numpy
       sampler.identity_convert= lambda x: x
-if opts.sampler_method == "GMM":
+elif opts.sampler_method == "GMM":
+    print(" ILE: {}".format(opts.sampler_method))
     sampler = mcsamplerEnsemble.MCSampler()
-
+else:
+    print(" ILE: default sampler")
+    print(" ILE: {}".format(opts.sampler_method))
 
 #
 # Psi -- polarization angle
