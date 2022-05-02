@@ -167,3 +167,7 @@ print(" Output: ",opts.fname_output_samples+".xml.gz")
 
 import os
 os.system("touch "+opts.fname_output_samples + ".xml.gz")
+
+print(" ==  Input contents (at execute time) == ")
+os.system("cat {} ".opts.fname)
+
