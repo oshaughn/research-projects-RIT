@@ -169,5 +169,5 @@ import os
 os.system("touch "+opts.fname_output_samples + ".xml.gz")
 
 print(" ==  Input contents (at execute time) == ")
-os.system("cat {} ".opts.fname)
+os.system("cat {} ".format(opts.fname))
 
