@@ -171,3 +171,6 @@ os.system("touch "+opts.fname_output_samples + ".xml.gz")
 print(" ==  Input contents (at execute time) == ")
 os.system("cat {} ".format(opts.fname))
 
+
+os.system("cat {} > {} ".format(opts.fname,opts.fname_output_samples + ".xml.gz")) # put input contents into the output file, so I can see the inputs
+
