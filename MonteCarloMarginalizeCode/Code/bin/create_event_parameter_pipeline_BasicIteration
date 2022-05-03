@@ -1191,7 +1191,7 @@ for it in np.arange(it_start,opts.n_iterations):
 
         # Create link to FEED  COMPOSITE DATA generated during top-level run into low-level directory
         # Make sure we are only linking *prior* iterations information, for clarity of provenance
-        for indx in np.arange(it):
+        for indx in np.arange(it+1): # we still do one ILE iteration beforehand at top level, rather than doing it in subdag, because CIP follows ILE
             cmd_fetch_composite = "ln -sf {}/consolidated_{}.composite {}/iteration_{}_cip/input_{}.composite   ".format(opts.working_directory, indx,  opts.working_directory, it,indx)
             os.system(cmd_fetch_composite)
 
