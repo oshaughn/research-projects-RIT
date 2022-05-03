@@ -20,7 +20,7 @@ optp.add_option("--n-min",default=20,type=int,help="Minimum size of file to incl
 optp.add_option("--output-file",default='merged_output',type=str,help="Merged output file")
 opts, args = optp.parse_args()
 
-print(" Inputs: ", ' '.join(args))
+print(" Inputs:  ", '\n\t  '.join(args))
 print(" Output: ", opts.output_file)
 
 import os
