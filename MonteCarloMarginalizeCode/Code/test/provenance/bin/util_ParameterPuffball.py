@@ -55,6 +55,7 @@ print(" Inputs: ", opts.inj_file)
 print(" Outputs: ", opts.inj_file_out)
 
 # Export
+import os
 os.system(" touch "+opts.inj_file_out + ".gz")
 
     
