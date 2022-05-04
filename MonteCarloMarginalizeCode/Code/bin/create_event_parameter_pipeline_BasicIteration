@@ -642,11 +642,11 @@ if  (opts.last_iteration_extrinsic):
         # batched convert shell script
         with open("batch_convert.sh",'w') as f:
             f.write("""#! /bin/bash
-{} {}/iteration_$1_ile/EXTR_out-$2.xml_*_.xml.gz
-""".format(dag_utils.which('util_BatchConvertResampleILEOutput.py'),opts.working_directory))
+{} {}/iteration_$1_ile/EXTR_out-$2.xml_*_.xml.gz {}
+""".format(dag_utils.which('util_BatchConvertResampleILEOutput.py'),opts.working_directory,convert_args_extr))
         os.system("chmod a+x batch_convert.sh")
         # Create job submit file
-        batchConvertExtr_job, batchConvertExtr_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/batch_convert.sh",tag='convert_extr',log_dir=None,arg_str=convert_args_extr,file_input="$(macroiteration) $(macroevent)",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).downsampled_dat.dat", out_dir=opts.working_directory+"/iteration_$(macroiteration)_ile/",universe=local_worker_universe,no_grid=no_worker_grid)
+        batchConvertExtr_job, batchConvertExtr_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/batch_convert.sh",tag='convert_extr',log_dir=None,arg_str='',file_input="$(macroiteration) $(macroevent)",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).downsampled_dat.dat", out_dir=opts.working_directory+"/iteration_$(macroiteration)_ile/",universe=local_worker_universe,no_grid=no_worker_grid)
         batchConvertExtr_job.add_condor_cmd("initialdir",opts.working_directory)
         batchConvertExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/batchconvert-$(macroevent).log")
         batchConvertExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/batchconvert-$(macroevent).err")
