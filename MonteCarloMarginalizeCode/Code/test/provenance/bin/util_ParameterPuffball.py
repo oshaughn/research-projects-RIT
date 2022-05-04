@@ -56,7 +56,7 @@ print(" Outputs: ", opts.inj_file_out)
 
 # Export
 import os
-os.system(" touch "+opts.inj_file_out + ".gz")
+os.system(" touch "+opts.inj_file_out + ".xml.gz")
 
     
 
