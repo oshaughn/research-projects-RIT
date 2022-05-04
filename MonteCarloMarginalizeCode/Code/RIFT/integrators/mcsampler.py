@@ -654,7 +654,7 @@ class MCSampler(object):
                 if not temper_log:
                     weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp_running
                 else:
-                    weights = numpy.max([1e-5,numpy.log(self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])])**tempering_exp_running
+                    weights = numpy.maximum(1e-5,numpy.log(self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:]) )**tempering_exp_running
 
                 if tempering_adapt:
                     # have the adaptive exponent converge to 2/ln(w_max), ln (w)*alpha <= 2. This helps dynamic range
