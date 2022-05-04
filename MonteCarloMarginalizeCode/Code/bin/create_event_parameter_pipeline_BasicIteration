@@ -192,6 +192,7 @@ parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball.py")
 parser.add_argument("--puff-args",default=None,help="util_ParameterPuffball arguments.  If not specified, puffball will not be performed  ")
 parser.add_argument("--puff-cadence",default=None,type=int,help="Every n iterations (not including 0), the puffball code will be applied.  Puffball points will be done *in addition* to the usual results from the DAG.  (The puffball is based on perturbing points from that iteration, and this will roughly double that iteration in ILE job size).  Proposed value 2 (i.e., puff overlap-grid-2, ...-4, ...-6.  If not specified, puffball will not be performed ")
 parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
+parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
 parser.add_argument("--last-iteration-extrinsic-nsamples",default=3000,type=int,help="Construct this number of extrinsic samples")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
@@ -1031,7 +1032,8 @@ for it in np.arange(it_start,opts.n_iterations):
     indx_max = int((1.0*n_jobs_this_time)/n_group)
     if indx_max*n_jobs_this_time < n_group:
         indx_max+=1
-    for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
+    if not(it==it_start and opts.first_iteration_jumpstart):   # if on first iteration ,don't do this for jumpstart
+      for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
         # Add task per ILE operation
         ile_node = pipeline.CondorDAGNode(ile_job)
 #        ile_node.set_priority(JOB_PRIORITIES["ILE"])
@@ -1047,7 +1049,7 @@ for it in np.arange(it_start,opts.n_iterations):
         dag.add_node(ile_node)
 
     if puff_args and puff_cadence:
-     if it>0 and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
+     if it>it_start and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
         print(" ILE jobs for puffball on iteration ", it)
         for event in np.arange(indx_max):
             ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
@@ -1060,6 +1062,7 @@ for it in np.arange(it_start,opts.n_iterations):
             dag.add_node(ile_node)
 
     if fetch_args:
+      if not(it==it_start and opts.first_iteration_jumpstart):   # if on first iteration ,don't do this for jumpstart 
         print(" Fetching active for iteration ", it)  # must fetch before we can do the job
         fetch_node = pipeline.CondorDAGNode(fetch_job)
         fetch_node.set_retry(opts.ile_retries)
@@ -1101,7 +1104,7 @@ for it in np.arange(it_start,opts.n_iterations):
         with open(fname_subdag_cip_args,'w') as f:
             f.write(cip_args_here)
         # Create dag inside directory, as usual,  pointing to existing run (note grid size issue problem)
-        cmd = "create_event_parameter_pipeline_BasicIteration --use-full-submit-paths "
+        cmd = "create_event_parameter_pipeline_BasicIteration --use-full-submit-paths --first-iteration-jumpstart "  # we don't use overlap-grid-0.xml.gz !
         # note we will use subdags, and do this actively.  The 0th iteration needs a SPECIFIC grid though!
         cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.xml.gz".format(it),opts.ile_exe, opts.ile_args)
         cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)
