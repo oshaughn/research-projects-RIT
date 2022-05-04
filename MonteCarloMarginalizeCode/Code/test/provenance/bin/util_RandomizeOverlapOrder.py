@@ -25,4 +25,4 @@ print(" Output: ", opts.output_file)
 
 import os
 #os.system(" touch {} ".format(opts.output_file))
-os.system(' echo {}  > {}', ' '.format(' '.join(args), opts.output_file))
+os.system(' echo {}  > {}'.format(' '.join(args), opts.output_file))
