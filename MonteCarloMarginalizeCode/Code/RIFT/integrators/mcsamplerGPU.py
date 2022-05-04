@@ -575,7 +575,7 @@ class MCSampler(object):
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
         n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 0
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
-        temper_log = kwargs["tempering_log"] if "temper_log" in kwargs else False
+        temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
         if not tempering_adapt:
             tempering_exp_running=tempering_exp
@@ -792,10 +792,17 @@ class MCSampler(object):
                 weights_alt = int_vals**tempering_exp
             else:
                 #print(fval, self._rvs["integrand"][-n_history:])
-                weights_alt =((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp )
-            weights_alt = self.xpy.maximum(weights_alt,10)
+                if temper_log:
+                  weights_alt =self.xpy.log((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:]))
+                  weights_alt = self.xpy.maximum(weights_alt, 1e-5)  # prevent negative weights
+                else:
+                  weights_alt =((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp )
+                  weights_alt = self.xpy.maximum(weights_alt,10)   # preventing too little dynamic range
             weights_alt = weights_alt/(weights_alt.sum())
-            weights_alt = floor_integrated_probability*xpy_default.ones(len(weights_alt))/len(weights_alt) + (1-floor_integrated_probability)*weights_alt
+            # Type convert as needed: if weights are float128, convert to float64; otherwise we hit a typing error later with bincount
+            if weights_alt.dtype == numpy.float128:
+              weights_alt = weights_alt.astype(numpy.float64,copy=False)
+#            weights_alt = floor_integrated_probability*xpy_default.ones(len(weights_alt))/len(weights_alt) + (1-floor_integrated_probability)*weights_alt
 
             for itr, p in enumerate(self.params_ordered):
                 # # FIXME: The second part of this condition should be made more
