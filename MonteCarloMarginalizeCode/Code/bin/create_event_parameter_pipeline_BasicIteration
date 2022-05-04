@@ -1090,10 +1090,12 @@ for it in np.arange(it_start,opts.n_iterations):
     # Create fit node, which depends on consolidate node
     cip_job = cip_job_list[it]
 #    print(it, cip_job,creating_subdag_arg_list)
+    last_cip_subdag = False
     if isinstance(cip_job,list):
         cip_worker_job = cip_job[1]
         cip_job=cip_job[0]
     elif isinstance(cip_job, str):
+        last_cip_subdag = True
         print(" ==> attempting indefinite convergence subdag : {} <== ".format(it))
         # Subdag procedure, with indefinite convergence being requested
         # Write modified CIP arg string to file!
@@ -1220,7 +1222,7 @@ for it in np.arange(it_start,opts.n_iterations):
     dag.add_node(fit_node) 
     parent_fit_node = fit_node
 
-    if not(opts.cip_explode_jobs is None) and not(isinstance(cip_job,str)): # don't explode if we just made a subdag!
+    if not(opts.cip_explode_jobs is None) and not(last_cip_subdag): # don't explode if we just made a subdag!
         print(" Exploding workers out ")
         # Create job to consolidate worker outputs
         join_node =pipeline.CondorDAGNode(join_cip_job)
