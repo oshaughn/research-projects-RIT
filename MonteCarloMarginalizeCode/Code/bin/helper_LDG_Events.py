@@ -978,8 +978,19 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
 
 
 elif opts.propose_initial_grid:
+    # retarget if we are using force_eta_range: for things like GW190814, put more grid at high q
+    # try to avoid sampling too much close by
+    if  (mc_center < 8 and P.extract_param('q') < 0.3):
+        q_grid_max = np.mean( [P.extract_param('q'),0.7])   # a guess, trying to exclude a significant chunk of space
+        delta_grid_min = (1-q_grid_max)/(1+q_grid_max)
+        qref = P.extract_param('q')*0.5
+        delta_grid_max = (1-qref)/(1+qref)
+    else:
+        delta_grid_min = delta_min_tight
+        delta_grid_max = delta_max_tight  # based on eta=0.1, terrible !
+
     # add basic mass parameters
-    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap  --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_min_tight) +"," + str(delta_max_tight) + "]'  "
+    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap  --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_grid_min) +"," + str(delta_grid_max) + "]'  "
     # Add standard downselects : do not have m1, m2 be less than 1
     if not(opts.force_mc_range is None):
         # force downselect based on this range
