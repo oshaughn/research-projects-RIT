@@ -226,6 +226,7 @@ integration_params.add_option("--d-min", default=1,type=float,help="Minimum dist
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
 integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
+integration_params.add_option("--internal-sky-network-coordinates-raw",action='store_true',help="If specified, does not attempt to organize IFO network sensibly, uses them AS PROVIDED IN ORDER.")
 integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
@@ -680,6 +681,13 @@ if not opts.distance_marginalization:
 #
 if opts.internal_sky_network_coordinates:
   ifo_list = list(psd_dict)
+  if not(opts.internal_sky_network_coordinates_raw):
+    # remove V and K : the sky ring is almost always only HL
+    if 'K1' in ifo_list:
+      ifo_list.remove('K1')
+    if 'V1' in info_list:
+      ifo_list.remove('V1')
+  # problem: ordering of psd_dict is rarely rational; almost always we want an HL network, rarely V
   if len(ifo_list) <2:
     opts.internal_sky_network_coordinates = False # stop using this code
   else:
