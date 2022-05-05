@@ -1340,6 +1340,7 @@ if opts.last_iteration_extrinsic:
 
     # Create nodes for followup tasks
     cat_node = pipeline.CondorDAGNode(cat_job)
+    cat_node.add_macro("macroiteration", it)  # needed to identify log file location
 
     # Perform final ILE run on all points, saving samples
     # Need to perform number of events CONSISTENT WITH TARGET SAMPLE SIZE
@@ -1385,7 +1386,6 @@ if opts.last_iteration_extrinsic:
             # Make cat job 
             cat_node.add_parent(resample_node)
             cat_node.set_retry(opts.ile_retries)  # this can fail too
-            cat_node.add_macro("macroiteration", it)  # needed to identify log file location
 
             # Add nodes
             dag.add_node(convert_node)
