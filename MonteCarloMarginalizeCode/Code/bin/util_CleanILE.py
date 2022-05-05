@@ -39,7 +39,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         continue
     if os.stat(fname).st_size==0:  # skip files of zero length
         continue
-    sys.stderr.write(str(fname))
+    sys.stderr.write(str(fname)+"\n")
 #    data = np.loadtxt(fname)  # this will FAIL if we have a heterogeneous data source!  BE CAREFUL
     data = np.genfromtxt(fname,invalid_raise=False)  #  Protect against inhomogeneous data
     if len(data.shape) ==1:
