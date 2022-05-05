@@ -45,7 +45,10 @@ with open("tmp_file_ile.args",'r') as f:
         key_list = line.split()
         key=key_list[0]
         key_list.pop(0)
-        args_ile[key]=' '.join(key_list)
+        if not(key in args_ile):
+            args_ile[key]=' '.join(key_list)
+        else:
+            args_ile[key]+= '\t'+' '.join(key_list)
 
 args_cip={}
 with open("tmp_file_cip.args",'r') as f:
