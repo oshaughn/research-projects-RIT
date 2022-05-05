@@ -1048,7 +1048,8 @@ for it in np.arange(it_start,opts.n_iterations):
     unify_node.add_macro("macroiteration",it)
     unify_node.add_parent(con_node)
     unify_node.set_retry(opts.general_retries)
-    unify_node_list.append(unify_node)
+    if not(it ==0) and not(opts.first_iteration_jumpstart):  # don't require first composite to be nonempty if we are running a jumpstart!
+        unify_node_list.append(unify_node)
     
     # Create one node per job
     n_jobs_this_time = opts.n_samples_per_job
