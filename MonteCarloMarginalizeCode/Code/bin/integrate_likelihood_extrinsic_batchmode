@@ -685,7 +685,7 @@ if opts.internal_sky_network_coordinates:
     # remove V and K : the sky ring is almost always only HL
     if 'K1' in ifo_list:
       ifo_list.remove('K1')
-    if 'V1' in info_list:
+    if 'V1' in ifo_list:
       ifo_list.remove('V1')
   # problem: ordering of psd_dict is rarely rational; almost always we want an HL network, rarely V
   if len(ifo_list) <2:
