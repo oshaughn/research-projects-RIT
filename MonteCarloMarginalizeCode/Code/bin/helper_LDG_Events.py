@@ -182,6 +182,7 @@ parser.add_argument("--assume-highq",action='store_true',help="If present, the c
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
 parser.add_argument("--internal-propose-ile-convergence-freezeadapt",action='store_true',help="If present, uses the --no-adapt-after-first --no-adapt-distance options (at one point default)")
+parser.add_argument("--internal-propose-ile-adapt-log",action='store_true',help="If present, uses the --adapt-log argument. Useful for very loud signals. Note only lnL information is used for adapting, not prior, so samples will be *uniform* in prior range if lnL is low")
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
@@ -1106,10 +1107,13 @@ if opts.propose_ile_convergence_options:
                     
 
     prefactor = 0.1 # typical value. 0.3 fine for low amplitude, 0.1 for GMM
-    if snr_fac > 1.5:  # this is a pretty loud signal, so we need to tune the adaptive exponent too!
-        helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
+    if (opts.internal_propose_ile_adapt_log):
+        helper_ile_args += " --adapt-log "
     else:
-        helper_ile_args += " --adapt-weight-exponent  {} ".format(prefactor)  
+        if snr_fac > 1.5:  # this is a pretty loud signal, so we need to tune the adaptive exponent too!
+            helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
+        else:
+            helper_ile_args += " --adapt-weight-exponent  {} ".format(prefactor)  
 
 if opts.internal_use_gracedb_bayestar:
     helper_ile_args += " --skymap-file {}/bayestar.fits ".format(opts.working_directory)
