@@ -31,5 +31,6 @@ import_check:
 test_run:
   stage: system tests
   script:
+    - . .travis/test-integrate.sh
     - . .travis/test-posterior.sh
     - . .travis/test-run.sh
