@@ -1065,7 +1065,7 @@ elif opts.propose_initial_grid:
 
         mass_string_init_new = " --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_grid_min) +"," + str(delta_grid_max) + "]'  "
         cmd = cmd.replace(mass_string_init, mass_string_init_new)
-        cmd = cmd.replace("fname proposed-grid",  "proposed-grid-extra")
+        cmd = cmd.replace("fname proposed-grid",  "fname proposed-grid-extra")
         print(" Executing supplementary grid command for high q ", cmd)
         os.system(cmd)
         cmd_add = "ligolw_add proposed-grid.xml.gz proposed-grid-extra.xml.gz --output tmp.xml.gz"
