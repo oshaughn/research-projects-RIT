@@ -779,7 +779,7 @@ elif opts.propose_initial_grid and eta_val < 0.1: # this will override the previ
 
 chieff_center = P.extract_param('xi')
 chieff_min = np.max([chieff_center -0.3/snr_fac,-1])
-chieff_max = np.min([chieff_center +0.3/snr_fac,1])
+chieff_max = np.min([chieff_center +0.4/snr_fac,1])  # bias high, given natural q ellipsoids
 if chieff_min >0 and use_gracedb_event:
     chieff_min = -0.1   # make sure to cover spin zero, most BBH have zero spin and missing zero is usually an accident of the search recovered params
 
@@ -978,19 +978,10 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
 
 
 elif opts.propose_initial_grid:
-    # retarget if we are using force_eta_range: for things like GW190814, put more grid at high q
-    # try to avoid sampling too much close by
-    if  (mc_center < 8 and P.extract_param('q') < 0.3):
-        q_grid_max = np.mean( [P.extract_param('q'),0.7])   # a guess, trying to exclude a significant chunk of space
-        delta_grid_min = (1-q_grid_max)/(1+q_grid_max)
-        qref = P.extract_param('q')*0.5
-        delta_grid_max = (1-qref)/(1+qref)
-    else:
-        delta_grid_min = delta_min_tight
-        delta_grid_max = delta_max_tight  # based on eta=0.1, terrible !
-
     # add basic mass parameters
-    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap  --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_grid_min) +"," + str(delta_grid_max) + "]'  "
+    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap "
+    mass_string_init = " --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_grid_min) +"," + str(delta_grid_max) + "]'  "
+    cmd+= mass_string_init
     # Add standard downselects : do not have m1, m2 be less than 1
     if not(opts.force_mc_range is None):
         # force downselect based on this range
@@ -1059,6 +1050,26 @@ elif opts.propose_initial_grid:
     cmd += " --grid-cartesian-npts  " + str(int(grid_size))
     print(" Executing grid command ", cmd)
     os.system(cmd)
+
+    # retarget if we are using force_eta_range: for things like GW190814, put more grid at high q
+    # try to avoid sampling too much close by
+    if  (mc_center < 8 and P.extract_param('q') < 0.3):
+        # create a SECOND grid and join to first, to flesh out high q specifically
+        q_grid_max = np.mean( [P.extract_param('q'),0.7])   # a guess, trying to exclude a significant chunk of space
+        delta_grid_min = (1-q_grid_max)/(1+q_grid_max)
+        qref = P.extract_param('q')*0.5
+        delta_grid_max = (1-qref)/(1+qref)
+
+        mass_string_init_new = " --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_grid_min) +"," + str(delta_grid_max) + "]'  "
+        cmd = cmd.replace(mass_string_init, mass_string_init_new)
+        cmd = cmd.replace("fname proposed-grid",  "proposed-grid-extra")
+        print(" Executing supplementary grid command for high q ", cmd)
+        os.system(cmd)
+        cmd_add = "ligolw_add proposed-grid.xml.gz proposed-grid-extra.xml.gz --output tmp.xml.gz"
+        os.system(cmd_add)
+        os.system("mv tmp.xml.gz proposed-grid.xml.gz")
+
+
 
     # if opts.assume_matter:
     #     # Now perform a puffball in lambda1 and lambda2
