@@ -793,8 +793,9 @@ class MCSampler(object):
             else:
                 #print(fval, self._rvs["integrand"][-n_history:])
                 if temper_log:
-                  weights_alt =self.xpy.power(self.xpy.log((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])), tempering_exp)
-                  weights_alt = self.xpy.nan_to_num(weights_alt,copy=False,posinf=1e3) # remove infinity, which oddly can occur?
+#                  weights_alt =self.xpy.power(self.xpy.log((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])), tempering_exp)
+                  weights_alt =self.xpy.log(self._rvs["integrand"][-n_history:])
+#                  weights_alt = self.xpy.nan_to_num(weights_alt,copy=False,posinf=1e3) # remove infinity, which oddly can occur?
                   weights_alt = self.xpy.maximum(weights_alt, 1e-5)  # prevent negative weights
                 else:
                   weights_alt =((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp )
