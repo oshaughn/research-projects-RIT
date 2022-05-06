@@ -262,6 +262,7 @@ class MCSampler(object):
 
         max_err = kwargs["max_err"] if "max_err" in kwargs else 10  # default
 
+        verbose = kwargs["verbose"] if "verbose" in kwargs else False  # default
         super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
         dict_return_q = kwargs["dict_return"] if "dict_return" in kwargs else False  # default.  Method for passing back rich data structures for debugging
 
@@ -317,7 +318,7 @@ class MCSampler(object):
             print(" ==> input assumed as lnL ")
         if return_lnI:
             print(" ==> internal calculations and return values are lnI ")
-        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI)
+        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,verbose=verbose,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI)
 
         # get results
 
