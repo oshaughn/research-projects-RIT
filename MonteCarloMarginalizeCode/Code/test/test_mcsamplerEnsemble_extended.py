@@ -10,7 +10,15 @@ import matplotlib.pyplot as plt
 
 from RIFT.integrators import mcsampler, mcsamplerEnsemble, mcsamplerGPU
 
-verbose=False
+import optparse
+parser = optparse.OptionParser()
+parser.add_option("--n-max",type=int,default=40000)
+parser.add_option("--save-plot",action='store_true')
+parser.add_option("--as-test",action='store_true')
+parser.add_option("--verbose",action='store_true')
+opts, args = parser.parse_args()
+
+verbose=opts.verbose
 
 tempering_exp =0.01
 
@@ -22,10 +30,10 @@ width = 10.0
 ndim = 3                                                        
 # mean of the Gaussian, allowed to occupy middle half of each dimension
 mu = np.random.uniform(-1 * width / 4.0, width / 4.0, ndim)    
-# number of iterations for mcsamplerEnsemble
-n_iters = 40                                                    
 # max number of samples for mcsampler
-nmax = 40000                                                    
+nmax = opts.n_max                                         
+# number of iterations for mcsamplerEnsemble
+n_iters = int(nmax/1000)
 
 llim = -1 * width / 2
 rlim = width / 2
@@ -74,10 +82,10 @@ n_comp = 1
 
 ### integrate
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
-        no_protect_names=True, nmax=20000, save_intg=True,verbose=verbose)
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose)
 print(" --- finished default --")
 integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(f, *params, 
-        no_protect_names=True, nmax=20000, save_intg=True,verbose=verbose)
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose)
 print(" --- finished AC --")
 use_lnL = False
 return_lnI=False
@@ -95,6 +103,19 @@ print(" AC/default ",  integral_1b/integral_1, np.sqrt(var_1)/integral_1)  # off
 print(" GMM/default ",integral_2/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_2)/integral_2)
 print("mu",mu)
 ### CDFs
+
+sigma_fail =4
+if opts.as_test:
+    if np.log(np.abs(integral_1b/integral_1)) > 4*np.sqrt(var_1)/integral_1:
+        print(" FAIL ")
+        exit(1)
+    if np.log(np.abs(integral_2/integral_1)) > 4*np.sqrt(var_1)/integral_1:
+        print(" FAIL ")
+        exit(1)
+        
+
+if not(opts.save_plot):
+    exit(0)
 
 ### get our posterior samples as a single array
 arr_1 = np.empty((len(sampler._rvs["0"]), ndim))
@@ -159,3 +180,6 @@ fname = "cdf.pdf"
 print("Saving CDF figure as " + fname + "...")
 
 plt.savefig(fname)
+
+
+# TEST OUTPUT
