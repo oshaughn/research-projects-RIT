@@ -71,15 +71,28 @@ if opts.export_extra_spins:
 # Add LI-style export
 if opts.convention == 'LI':
   import RIFT.lalsimutils as lalsimutils
-  print("# m1 m2 a1x a1y a1z a2x a2y a2z mc eta  ra dec time phiorb incl psi  distance Npts lnL p ps neff  mtotal q chi_eff chi_p",end=' ')
-  if opts.export_extra_spins:
+  if (opts.export_extra_spins) or (opts.export_tides) or (opts.export_cosmology) or (opts.export_weights) or (opts.export_eccentricity):
+      print("# m1 m2 a1x a1y a1z a2x a2y a2z mc eta  ra dec time phiorb incl psi  distance Npts lnL p ps neff  mtotal q chi_eff chi_p",end=' ')
+  else:
+      print("# m1 m2 a1x a1y a1z a2x a2y a2z mc eta  ra dec time phiorb incl psi  distance Npts lnL p ps neff  mtotal q chi_eff chi_p")
+  if opts.export_extra_spins and (opts.export_tides or opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
       print( 'theta_jn phi_jl tilt1 tilt2 costilt1 costilt2 phi12 a1 a2 psiJ',end=' ')
-  if opts.export_tides:
+  elif opts.export_extra_spins and not (opts.export_tides or opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
+      print( 'theta_jn phi_jl tilt1 tilt2 costilt1 costilt2 phi12 a1 a2 psiJ')
+  if opts.export_tides and (opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
       print( "lambda1 lambda2 lam_tilde",end=' ')
-  if opts.export_cosmology:
+  elif opts.export_tides and not (opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
+      print( "lambda1 lambda2 lam_tilde")
+  if opts.export_cosmology and (opts.export_weights or opts.export_eccentricity):
       print( " m1_source m2_source mc_source mtotal_source redshift ",end=' ')
-  if opts.export_weights:
-      print( " weights ", )
+  elif opts.export_cosmology and not (opts.export_weights or opts.export_eccentricity):
+      print( " m1_source m2_source mc_source mtotal_source redshift ")
+  if opts.export_weights and opts.export_eccentricity:
+      print( " weights ",end=' ')
+  elif opts.export_weights and not opts.export_eccentricity:
+      print( " weights ")
+  if opts.export_eccentricity:
+      print( "eccentricity ",)
   print('')
   for fname in args:
     points = lsctables.SimInspiralTable.get_table(utils.load_filename(fname,contenthandler=ligolw.LIGOLWContentHandler), lsctables.SimInspiralTable.tableName)
@@ -88,6 +101,9 @@ if opts.convention == 'LI':
     p = [row.alpha2 for row in points]
     ps = [row.alpha3 for row in points]
     Nmax = np.max([int(row.simulation_id) for row in points])+1    # Nmax. Assumes NOT mixed samples.
+
+    if opts.export_eccentricity:
+        ecc = [row.alpha4 for row in points]
 
     wt = np.exp(like)*p/ps
     neff_here = np.sum(wt)/np.max(wt)  # neff for this file.  Assumes NOT mixed samples: dangerous
@@ -119,37 +135,69 @@ if opts.convention == 'LI':
         mc_here = mc(pt.mass1,pt.mass2)
         eta_here = eta(pt.mass1,pt.mass2)
         mtot_here = pt.mass1 + pt.mass2
-        
-        print( pt.mass1, pt.mass2, pt.spin1x, pt.spin1y, pt.spin1z, pt.spin2x, pt.spin2y, pt.spin2z, mc_here, eta_here, \
-            pt.longitude, \
-            pt.latitude, \
-            pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, \
-            pt.coa_phase,  \
-            pt.inclination, \
-            pt.polarization, \
-            pt.distance, \
-            Nmax, like[indx], p[indx],ps[indx], neff_here, \
-            mtot_here, pt.mass2/pt.mass1, \
-            chieff_here,  \
-            chip_here,end=' ')
-        if opts.export_extra_spins:
+        if (opts.export_extra_spins) or (opts.export_tides) or (opts.export_cosmology) or (opts.export_weights) or (opts.export_eccentricity):
+            print( pt.mass1, pt.mass2, pt.spin1x, pt.spin1y, pt.spin1z, pt.spin2x, pt.spin2y, pt.spin2z, mc_here, eta_here, \
+                   pt.longitude, \
+                   pt.latitude, \
+                   pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, \
+                   pt.coa_phase,  \
+                   pt.inclination, \
+                   pt.polarization, \
+                   pt.distance, \
+                   Nmax, like[indx], p[indx],ps[indx], neff_here, \
+                   mtot_here, pt.mass2/pt.mass1, \
+                   chieff_here,  \
+                   chip_here,end=' ')
+        else:
+            print( pt.mass1, pt.mass2, pt.spin1x, pt.spin1y, pt.spin1z, pt.spin2x, pt.spin2y, pt.spin2z, mc_here, eta_here, \
+                   pt.longitude, \
+                   pt.latitude, \
+                   pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, \
+                   pt.coa_phase,  \
+                   pt.inclination, \
+                   pt.polarization, \
+                   pt.distance, \
+                   Nmax, like[indx], p[indx],ps[indx], neff_here, \
+                   mtot_here, pt.mass2/pt.mass1, \
+                   chieff_here,  \
+                   chip_here)
+
+        if opts.export_extra_spins and (opts.export_tides or opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
             P.incl = pt.inclination  # need inclination to calculate theta_jn
             P.phiref=pt.coa_phase  # need coa_phase to calculate theta_jn ... this determines viewing angle
             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = P.extract_system_frame()
             print( thetaJN, phiJL, theta1, theta2, np.cos(theta1), np.cos(theta2), phi12, chi1, chi2, psiJ,end=' ')
-        if opts.export_tides:
+        elif opts.export_extra_spins and not (opts.export_tides or opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
+            P.incl = pt.inclination  # need inclination to calculate theta_jn
+            P.phiref=pt.coa_phase  # need coa_phase to calculate theta_jn ... this determines viewing angle
+            thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = P.extract_system_frame()
+            print( thetaJN, phiJL, theta1, theta2, np.cos(theta1), np.cos(theta2), phi12, chi1, chi2, psiJ)
+        if opts.export_tides and (opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
             P.lambda1 = pt.alpha5
             P.lambda2 = pt.alpha6
             lam_tilde = P.extract_param("LambdaTilde")
             print( pt.alpha5, pt.alpha6, lam_tilde,end=' ')
-        if opts.export_cosmology:
+        elif opts.export_tides and not (opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
+            P.lambda1 = pt.alpha5
+            P.lambda2 = pt.alpha6
+            lam_tilde = P.extract_param("LambdaTilde")
+            print( pt.alpha5, pt.alpha6, lam_tilde)
+        if opts.export_cosmology and (opts.export_weights or opts.export_eccentricity):
 #            z = astropy.cosmology( default_cosmology.luminosity_distance, pt.distance *u.Mpc)
             z =astropy.cosmology.z_at_value(cosmo.luminosity_distance, pt.distance*u.Mpc)
             m1_source = pt.mass1/(1+z)
             m2_source = pt.mass2/(1+z)
             print( m1_source, m2_source, mc_here/(1+z), mtot_here/(1+z), z, end=' ')
-        if opts.export_weights:
+        elif opts.export_cosmology and not (opts.export_weights or opts.export_eccentricity):
+#            z = astropy.cosmology( default_cosmology.luminosity_distance, pt.distance *u.Mpc)
+            z =astropy.cosmology.z_at_value(cosmo.luminosity_distance, pt.distance*u.Mpc)
+            m1_source = pt.mass1/(1+z)
+            m2_source = pt.mass2/(1+z)
+            print( m1_source, m2_source, mc_here/(1+z), mtot_here/(1+z), z)
+        if opts.export_weights and opts.export_eccentricity:
             print(wt[indx],end=' ')
+        elif opts.export_weights and not opts.export_eccentricity:
+            print(wt[indx])
         if opts.export_eccentricity:
             print(ecc[indx])
         print('')
@@ -158,16 +206,26 @@ if opts.convention == 'LI':
     sys.exit(0)
 
 #
-
-print( "# m1 m2 a1x a1y a1z a2x a2y a2z mc eta indx  Npts ra dec tref phiorb incl psi  dist p ps lnL mtotal q ",end=' ')
-if opts.export_extra_spins:
+if (opts.export_extra_spins) or (opts.export_tides) or (opts.export_cosmology) or (opts.export_weights) or (opts.export_eccentricity):
+    print( "# m1 m2 a1x a1y a1z a2x a2y a2z mc eta indx  Npts ra dec tref phiorb incl psi  dist p ps lnL mtotal q ",end=' ')
+else:
+    print( "# m1 m2 a1x a1y a1z a2x a2y a2z mc eta indx  Npts ra dec tref phiorb incl psi  dist p ps lnL mtotal q ")
+if opts.export_extra_spins and (opts.export_tides or opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
     print( 'thetaJN phi_jl tilt1 tilt2 phi12 a1 a2 psiJ',end=' ')
-if opts.export_tides:
+elif opts.export_extra_spins and not (opts.export_tides or opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
+    print( 'thetaJN phi_jl tilt1 tilt2 phi12 a1 a2 psiJ')
+if opts.export_tides and (opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
     print( "lambda1 lambda2",end=' ')
-if opts.export_cosmology:
+elif opts.export_tides and not (opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
+    print( "lambda1 lambda2")
+if opts.export_cosmology and (opts.export_weights or opts.export_eccentricity):
     print( " m1_source m2_source redshift ",end=' ')
-if opts.export_weights:
+elif opts.export_cosmology and not (opts.export_weights or opts.export_eccentricity):
+    print( " m1_source m2_source redshift ")
+if opts.export_weights and opts.export_eccentricity:
     print( " weights ",end=' ')
+elif opts.export_weights and not opts.export_eccentricity:
+    print( " weights ")
 if opts.export_eccentricity:
   print( " eccentricity ",)
 print('')
@@ -216,18 +274,32 @@ for fname in args:
         if not(hasattr(pt,'spin1x')):  # no spins were provided. That means zero spin. Initialize to avoid an error
             pt.spin1x = pt.spin1y=pt.spin1z = 0
             pt.spin2x = pt.spin2y=pt.spin2z = 0
-        print( pt.mass1, pt.mass2, pt.spin1x, pt.spin1y, pt.spin1z, pt.spin2x, pt.spin2y, pt.spin2z, mc(pt.mass1,pt.mass2), eta(pt.mass1,pt.mass2), \
-            sim_id[indx], \
-            Nmax, \
-            pt.longitude, \
-            pt.latitude, \
-            pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, \
-            pt.coa_phase,  \
-            pt.inclination, \
-            pt.polarization, \
-            pt.distance, \
-            p[indx],ps[indx],like[indx], pt.mass1+pt.mass2, pt.mass2/pt.mass1,end=' ')
-        if opts.export_extra_spins:
+        if (opts.export_extra_spins) or (opts.export_tides) or (opts.export_cosmology) or (opts.export_weights) or (opts.export_eccentricity):
+            print( pt.mass1, pt.mass2, pt.spin1x, pt.spin1y, pt.spin1z, pt.spin2x, pt.spin2y, pt.spin2z, mc(pt.mass1,pt.mass2), eta(pt.mass1,pt.mass2), \
+                   sim_id[indx], \
+                   Nmax, \
+                   pt.longitude, \
+                   pt.latitude, \
+                   pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, \
+                   pt.coa_phase,  \
+                   pt.inclination, \
+                   pt.polarization, \
+                   pt.distance, \
+                   p[indx],ps[indx],like[indx], pt.mass1+pt.mass2, pt.mass2/pt.mass1,end=' ')
+        else:
+            print( pt.mass1, pt.mass2, pt.spin1x, pt.spin1y, pt.spin1z, pt.spin2x, pt.spin2y, pt.spin2z, mc(pt.mass1,pt.mass2), eta(pt.mass1,pt.mass2), \
+                   sim_id[indx], \
+                   Nmax, \
+                   pt.longitude, \
+                   pt.latitude, \
+                   pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, \
+                   pt.coa_phase,  \
+                   pt.inclination, \
+                   pt.polarization, \
+                   pt.distance, \
+                   p[indx],ps[indx],like[indx], pt.mass1+pt.mass2, pt.mass2/pt.mass1)
+
+        if opts.export_extra_spins and (opts.export_tides or opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
             P = lalsimutils.ChooseWaveformParams(m1=pt.mass1,m2=pt.mass2, s1x=pt.spin1x, s1y=pt.spin1y, s1z=pt.spin1z, s2x=pt.spin2x, s2y=pt.spin2y,s2z=pt.spin2z)
             P.fmin=opts.fref
             try:
@@ -236,16 +308,35 @@ for fname in args:
                 True
             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = P.extract_system_frame()
             print( thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ,end=' ')
-        if opts.export_tides:
+        elif opts.export_extra_spins and not (opts.export_tides or opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
+            P = lalsimutils.ChooseWaveformParams(m1=pt.mass1,m2=pt.mass2, s1x=pt.spin1x, s1y=pt.spin1y, s1z=pt.spin1z, s2x=pt.spin2x, s2y=pt.spin2y,s2z=pt.spin2z)
+            P.fmin=opts.fref
+            try:
+                P.fmin = pt.f_lower  # should use this first
+            except:
+                True
+            thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = P.extract_system_frame()
+            print( thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ)
+        if opts.export_tides and (opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
             print(pt.alpha5, pt.alpha6,end=' ')
-        if opts.export_cosmology:
+        elif opts.export_tides and not (opts.export_cosmology or opts.export_weights or opts.export_eccentricity):
+            print(pt.alpha5, pt.alpha6)
+        if opts.export_cosmology and (opts.export_weights or opts.export_eccentricity):
 #            z = astropy.cosmology( default_cosmology.luminosity_distance, pt.distance *u.Mpc)
             z =cosmo_func(pt.distance)#astropy.cosmology.z_at_value(cosmo.luminosity_distance, pt.distance*u.Mpc)
             m1_source = pt.mass1/(1+z)
             m2_source = pt.mass2/(1+z)
             print( m1_source, m2_source, z,end=' ')
-        if opts.export_weights:
+        elif opts.export_cosmology and not (opts.export_weights or opts.export_eccentricity):
+#            z = astropy.cosmology( default_cosmology.luminosity_distance, pt.distance *u.Mpc)
+            z =cosmo_func(pt.distance)#astropy.cosmology.z_at_value(cosmo.luminosity_distance, pt.distance*u.Mpc)
+            m1_source = pt.mass1/(1+z)
+            m2_source = pt.mass2/(1+z)
+            print( m1_source, m2_source, z)
+        if opts.export_weights and opts.export_eccentricity:
             print(wt[indx],end=' ')
+        if opts.export_weights and not opts.export_eccentricity:
+            print(wt[indx])
         if opts.export_eccentricity:
             print("", ecc[indx],)
         print('')

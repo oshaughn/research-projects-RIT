@@ -40,7 +40,8 @@ def safe_int(mystr):
         return None
 sci_ver = list(map(safe_int, scipy.version.version.split('.')))  # scipy version number as int list.
 
-from ligo.lw import lsctables, utils, ligolw #, table, ,ilwd # check all are needed
+from ligo.lw import lsctables, utils, ligolw, table
+from ligo.lw.utils import ilwd # check all are needed
 from glue.lal import Cache
 
 import lal
@@ -1686,6 +1687,8 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
         row= P.create_sim_inspiral()
         row.process_id = indx # ilwd.ilwdchar("process:process_id:{0}".format(indx))
         row.simulation_id = indx # ilwd.ilwdchar("sim_inspiral:simulation_id:{0}".format(indx))
+#        row.process_id = ilwd.ilwdchar("process:process_id:{0}".format(indx))
+#        row.simulation_id = ilwd.ilwdchar("sim_inspiral:simulation_id:{0}".format(indx))
         indx+=1
         sim_table.append(row)
     if rosDebugMessagesContainer[0]:
@@ -2942,13 +2945,13 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         M1=P.m1/lal.MSUN_SI
         M2=P.m2/lal.MSUN_SI
         nu=M1*M2/((M1+M2)**2)
-        if P.eccentricity == 0.0:
+        if (P.eccentricity == 0.0):
             print("Using ResumS master; not eccentric")
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
-                'Lambda1'            : P.lambda1,
-                'Lambda2'            : P.lambda2,
+                'LambdaAl2'            : P.lambda1,
+                'LambdaBl2'            : P.lambda2,
                 'chi1x'              : P.s1x,
                 'chi1y'              : P.s1y,
                 'chi1z'              : P.s1z,
@@ -2956,11 +2959,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                 'chi2y'              : P.s2y,
                 'chi2z'              : P.s2z,
                 'domain'             : 0,
-                'arg_out'            : 1,
+                'arg_out'            : "yes",
                 'use_mode_lm'        : k,
 #                'output_lm'          : k,
                 'srate_interp'       : 1./P.deltaT,
-                'df'                 : P.deltaF,
+#                'df'                 : P.deltaF,
                 'use_geometric_units': "no",
                 'initial_frequency'  : P.fmin,
                 'interp_uniform_grid': "yes",
@@ -2982,7 +2985,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                 'use_mode_lm'        : k,
                 'output_lm'          : k,
                 'srate_interp'       : 1./P.deltaT,
-                'use_gceometric_units': 0,
+                'use_geometric_units': 0,
                 'initial_frequency'  : P.fmin,
                 'df'                 : P.deltaF,
                 'interp_uniform_grid': 1,
@@ -2995,7 +2998,10 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         # Run the WF generator
         print("Starting EOBRun_module")
         print(pars)
-        t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
+        if (P.eccentricity == 0.0):
+            t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
+        else:
+            t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
         print("EOBRun_module done")
         k_list_orig = hlmtmp.keys()
         hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
@@ -3011,10 +3017,13 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
             hlm[mode].data.data = (hlmtmp2[mode][0] * np.exp(-1j*(mode[1]*(np.pi/2.)+hlmtmp2[mode][1])))
             if not (P.deltaF is None):
                 TDlen = int(1./P.deltaF * 1./P.deltaT)
+                print("TDlen: ", TDlen, "data length: ", hlm[mode].data.length)
                 if TDlen < hlm[mode].data.length:
-                    print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
-                    sys.exit()
-                hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
+#                    print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
+#                    sys.exit()
+                    hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
+                elif TDlen >= hlm[mode].data.length:
+                    hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
             mode_conj = (mode[0],-mode[1])
             if not mode_conj in hlm:
                 hC = hlm[mode]

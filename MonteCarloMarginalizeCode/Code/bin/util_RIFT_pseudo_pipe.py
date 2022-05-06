@@ -129,6 +129,8 @@ parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
 parser.add_argument("--use-rundir",default=None,type=str,help="Intended to reproduce lalinference_pipe functionality. Must be absolute path.")
 parser.add_argument("--use-online-psd-file",default=None,type=str,help="Provides specific online PSD file, so no downloads are needed")
+parser.add_argument("--use-existing-psd-file",default=None,type=str,help="Provides already generated PSD file, so no downloads are needed")
+parser.add_argument("--use-existing-psd-file-path",default=None,type=str,help="Provides path to already generated PSD file, so no downloads are needed")
 parser.add_argument("--use-coinc",default=None,type=str,help="Intended to reproduce lalinference_pipe functionality")
 parser.add_argument("--manual-ifo-list",default=None,type=str,help="Overrides IFO list normally retrieve by event ID.  Use with care (e.g., glitch studies) or for events specified with --event-time.")
 parser.add_argument("--online",action='store_true')
@@ -148,6 +150,7 @@ parser.add_argument("--no-matter",action='store_true', help="Force analysis with
 parser.add_argument("--assume-nospin",action='store_true', help="Force analysis with zero spin")
 parser.add_argument("--assume-precessing",action='store_true', help="Force analysis *with* transverse spins")
 parser.add_argument("--assume-nonprecessing",action='store_true', help="Force analysis *without* transverse spins")
+parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
@@ -160,6 +163,11 @@ parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank use
 parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
 parser.add_argument("--add-extrinsic",action='store_true')
+parser.add_argument("--n-extrinsic-samples",default=20000,type=int,help="Number of samples for extrinsic step")
+parser.add_argument("--neff-extrinsic",default=100,type=int,help="Neff for extrinsic step")
+parser.add_argument("--nmax-extrinsic",default=8000000,type=int,help="Nmax for extrinsic step")
+parser.add_argument("--npts-it",default=1000,type=int,help="Number of ile jobs per iteration")
+parser.add_argument("--n-iterations",default=None,type=int,help="Number of iteration")
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
 parser.add_argument("--data-LI-seglen",default=None,type=int,help="If specified, passed to the helper. Uses data selection appropriate to LI. Must specify the specific LI seglen used.")
@@ -174,6 +182,8 @@ parser.add_argument("--ile-no-gpu",action='store_true')
 parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
+parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
+parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-eta-range",default=None,type=str,help="Pass this argumen through to the helper to set the eta range")
 parser.add_argument("--force-hint-snr",default=None,type=str,help="Pass this argumen through to the helper to control source amplitude effects")
@@ -191,7 +201,7 @@ parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If n
 parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this argument to CIP. GP plot for each iteration will be saved. Useful for followup investigations or reweighting. Warning: lots of disk space (1G or so per iteration)")
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-quadratic-first",action='store_true')
-parser.add_argument("--n-output-samples",type=int,default=8000,help="Number of output samples generated in the final iteration")
+parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the final iteration")
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
@@ -320,13 +330,15 @@ if opts.choose_data_LI_seglen:
 
 
 is_analysis_precessing =False
+is_analysis_eccentric =False
 if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or ('SpinTaylor' in opts.approx) or ('IMRPhenomTP' in opts.approx or ('IMRPhenomXP' in opts.approx)):
         is_analysis_precessing=True
 if opts.assume_precessing:
         is_analysis_precessing = True
 if opts.assume_nonprecessing:
         is_analysis_precessing = False
-
+if opts.assume_eccentric:
+        is_analysis_eccentric = True
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
 if opts.online:
@@ -341,6 +353,8 @@ if opts.data_LI_seglen:
     dirname_run += "_LIseglen"+str(opts.data_LI_seglen)
 if opts.assume_matter:
     dirname_run += "_with_matter"
+if opts.assume_eccentric:
+    dirname_run += "_with_eccentricity"
 if opts.no_matter:
     dirname_run += "_no_matter"
 if opts.assume_highq:
@@ -444,6 +458,8 @@ else:
   if is_analysis_precessing:
         cmd += " --assume-precessing-spin "
         npts_it = 1500
+if is_analysis_eccentric:
+    cmd += " --assume-eccentric "
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
@@ -463,12 +479,14 @@ if not(opts.force_mc_range is None):
     cmd+= " --force-mc-range {} ".format(opts.force_mc_range)
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range {} ".format(opts.force_eta_range)
-if not(opts.gracedb_id is None) and (opts.use_ini is None):
+if not(opts.gracedb_id is None):
+#if not(opts.gracedb_id is None) and (opts.use_ini is None):
     cmd +="  --gracedb-id " + gwid 
     if  opts.use_legacy_gracedb:
         cmd+= " --use-legacy-gracedb "
-elif  not(opts.event_time is None):
+if not(opts.event_time is None):
     cmd += " --event-time " + format_gps_time(opts.event_time)
+    print(format_gps_time(opts.event_time))
 if opts.online:
         cmd += " --online "
 if opts.playground_data:
@@ -510,6 +528,14 @@ if opts.use_online_psd_file:
     # Create command line arguments for those IFOs, so helper can correctly pass then downward
     for ifo in ifo_list:
         cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
+if opts.use_existing_psd_file:
+    # Get IFO list from ini file
+    config = ConfigParser.ConfigParser()
+    config.read(opts.use_ini)
+    ifo_list = eval(config.get('analysis','ifos'))
+    path=opts.use_existing_psd_file_path
+    for ifo in ifo_list:
+        os.symlink(path+'/'+ifo+opts.use_existing_psd_file,path+'/'+dirname_run+'/'+ifo+'-psd.xml.gz')
 if "SNR" in event_dict:
     cmd += " --hint-snr {} ".format(event_dict["SNR"])
 if not(opts.force_hint_snr is None):
@@ -520,7 +546,8 @@ if (opts.internal_marginalize_distance):
     cmd += " --internal-marginalize-distance "
 if not(opts.internal_distance_max is None):
     cmd += ' --internal-distance-max {} '.format(opts.internal_distance_max)
-
+if opts.add_extrinsic:
+     cmd += " --last-iteration-extrinsic "
 
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
 if opts.use_ini:
@@ -662,6 +689,14 @@ for indx in np.arange(len(instructions_cip)):
         # IMPLEMENT THIS
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
+    if opts.assume_eccentric:
+        line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+        if not(opts.force_ecc_max is None):
+            ecc_max = opts.force_ecc_max
+            line += " --ecc-max {}  ".format(ecc_max)
+        if not(opts.force_ecc_min is None):
+            ecc_min = opts.force_ecc_min
+            line += " --ecc-min {}  ".format(ecc_min)
     line += "\n"
     lines.append(line)
 
@@ -718,6 +753,8 @@ if opts.assume_matter:
 if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3
+if opts.assume_eccentric:
+    puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range '[0,0.9]' "
 with open("args_puff.txt",'w') as f:
         puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
         if False: #opts.cip_fit_method == 'rf':
@@ -753,14 +790,18 @@ if not (opts.manual_initial_grid is None):
     shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
 
 # Build DAG
-cip_mem  = 30000
+cip_mem  = 50000
 n_jobs_per_worker=opts.ile_jobs_per_worker
+if opts.npts_it:
+    npts_it=opts.npts_it
+if opts.n_iterations:
+    n_iterations=opts.n_iterations
 if opts.cip_fit_method == 'rf' or opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # much lower memory requirement
     cip_mem = 4000
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args args_ile.txt --convert-args helper_convert_args.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 2" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries) + " --neff-extrinsic " + str(opts.neff_extrinsic) + " --nmax-extrinsic " + str(opts.nmax_extrinsic)
 if not(opts.ile_runtime_max_minutes is None):
     cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
@@ -823,7 +864,8 @@ if opts.external_fetch_native_from:
 if not(opts.ile_no_gpu):
     cmd +=" --request-gpu-ILE "
 if opts.add_extrinsic:
-    cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples)
+    print("Number of extrinsic samples: ", opts.n_extrinsic_samples)
+    cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_extrinsic_samples)
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
    if not(opts.cip_fit_method is None) and not(opts.cip_fit_method == 'gp'):
@@ -848,6 +890,8 @@ if opts.use_osg_simple_requirements:
 if opts.archive_pesummary_label:
 #    cmd += " --plot-exe `which summarypages` --plot-args  args_plot.txt "
     cmd += " --plot-exe summarypages --plot-args  args_plot.txt "
+if opts.assume_eccentric:
+    cmd += " --use-eccentricity "
 print(cmd)
 os.system(cmd)
 

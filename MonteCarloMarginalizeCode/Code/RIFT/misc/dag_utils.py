@@ -373,7 +373,7 @@ def write_1dpos_plot_sub(tag='1d_post_plot', exe=None, log_dir=None, output_dir=
 
 
 
-def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,arg_vals=None, no_grid=False,**kwargs):
+def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,request_disk=False,arg_vals=None, no_grid=False,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -411,7 +411,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     ile_job.add_opt("fname", input_net)
     ile_job.add_opt("fname-output-samples", out_dir+"/"+output)
     ile_job.add_opt("fname-output-integral", out_dir+"/"+output)
-
+    
     #
     # Macro based options.
     #     - select EOS from list (done via macro)
@@ -421,6 +421,8 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     if use_eos:
         ile_job.add_var_opt("using-eos")
 
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk))
 
     #
     # Logging options
@@ -492,7 +494,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     return ile_job, ile_sub_name
 
 
-def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,**kwargs):
+def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,request_disk=False,arg_vals=None, no_grid=False,**kwargs):
     """
     Perform puffball calculation 
     Inputs:
@@ -525,6 +527,8 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
         ile_job.add_opt("inj-file", input_net)   # using this double-duty for FETCH, other use cases
     if not(output is None):
         ile_job.add_opt("inj-file-out", output)
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk))
 
 
     #
@@ -847,7 +851,7 @@ echo Starting ...
 
 
 
-def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, **kwargs):
+def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,request_disk=False,ncopies=1,no_grid=False, **kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -871,7 +875,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     # Add manual options for input, output
     ile_job.add_arg(base) # what directory to load
     ile_job.add_arg(target) # where to put the output (label), in CWD
-
+    ile_job.add_arg(arg_str)
     #
     # NO OPTIONS
     #
@@ -880,6 +884,8 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 #    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk))
 
     #
     # Logging options
@@ -941,7 +947,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 
 
 
-def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, **kwargs):
+def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,request_disk=False,ncopies=1,no_grid=False, **kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -978,6 +984,8 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
 
     # Add manual options for input, output
 #    ile_job.add_arg('*.composite') # what to do
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk))
 
     #
     # Logging options
@@ -1008,7 +1016,7 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
 
     return ile_job, ile_sub_name
 
-def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, no_grid=False,**kwargs):
+def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, no_grid=False,request_disk=False,**kwargs):
     """
     Write a submit file for launching a 'convert' job
        convert_output_format_ile2inference
@@ -1039,7 +1047,8 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
     ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
     ile_job.set_stdout_file(file_output)
-
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk))
     ile_job.add_condor_cmd('getenv', 'True')
     # To change interactively:
     #   condor_qedit
@@ -1062,7 +1071,7 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     return ile_job, ile_sub_name
 
 
-def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,universe="target",arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,universe="target",arg_str=None,request_disk=False,log_dir=None, use_eos=False,ncopies=1, **kwargs):
     """
     Write a submit file for launching a convergence test job
 
@@ -1087,6 +1096,8 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
     for name in samples_files:
 #        ile_job.add_opt("samples",name)  # do not add in usual fashion, because otherwise the key's value is overwritten
         ile_job.add_opt("samples " + name,'')  
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk))
 
     # Logging options
     #
@@ -1113,7 +1124,7 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
 
 
 
-def write_plot_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+def write_plot_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1,request_disk=False, **kwargs):
     """
     Write a submit file for launching a final plot.  Note the user can in principle specify several samples (e.g., several iterations, if we want to diagnose them)
 
@@ -1135,6 +1146,8 @@ def write_plot_sub(tag='converge', exe=None,samples_files=None, base=None,target
     for name in samples_files:
 #        ile_job.add_opt("samples",name)  # do not add in usual fashion, because otherwise the key's value is overwritten
         ile_job.add_opt("posterior-file " + name,'')  
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk))
 
     # Logging options
     #
@@ -1160,7 +1173,7 @@ def write_plot_sub(tag='converge', exe=None,samples_files=None, base=None,target
 
 
 
-def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1,request_disk=False, **kwargs):
     """
     Write a submit file for launching a grid initialization job.
     Note this routine MUST create whatever files are needed by the ILE iteration
@@ -1178,6 +1191,8 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
     arg_str = arg_str.lstrip('-')
     ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk))
 
     # Logging options
     #
@@ -1543,7 +1558,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
     return ile_job, ile_sub_name
 
 
-def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, no_grid=False,**kwargs):
+def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,request_disk=False,ncopies=1, no_grid=False,**kwargs):
     """
     Write a submit file for launching a 'resample' job
        util_ResampleILEOutputWithExtrinsic.py
@@ -1567,6 +1582,8 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
 #        ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
     ile_job.add_opt('fname',file_input)
     ile_job.add_opt('fname-out',file_output)
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk))
     
     #
     # Logging options
@@ -1600,7 +1617,7 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
 
 
 
-def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, no_grid=False,**kwargs):
+def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_output=None,universe="vanilla",arg_str='',log_dir=None,request_disk=False, use_eos=False,ncopies=1, no_grid=False,**kwargs):
     """
     Write a submit file for launching a 'resample' job
        util_ResampleILEOutputWithExtrinsic.py
@@ -1632,6 +1649,8 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
 
 
 #    ile_job.add_arg(" . -name '" + file_prefix + "*" +file_postfix+"' -exec cat {} \; ")
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk))
     
     #
     # Logging options
@@ -1690,7 +1709,7 @@ def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,t
     return ile_job, ile_sub_name
 
 
-def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pattern=None,target_dir=None,output_base=None,log_dir=None,n_explode=1, gzip="/usr/bin/gzip", old_add=False, **kwargs):
+def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pattern=None,target_dir=None,output_base=None,log_dir=None,request_disk=False,n_explode=1, gzip="/usr/bin/gzip", old_add=False, **kwargs):
     """
     Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.
     """
@@ -1738,6 +1757,8 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
     if n_explode > 1:
         ile_job.add_arg("--output="+fname_out)
 
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk))
 
     #
     # Logging options
@@ -1777,7 +1798,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 
 
 
-def write_subdagILE_sub(tag='subdag_ile', exe=None, universe='vanilla', submit_file=None,input_pattern=None,target_dir=None,output_suffix=None,log_dir=None,sim_xml=None, **kwargs):
+def write_subdagILE_sub(tag='subdag_ile', exe=None, universe='vanilla', submit_file=None,input_pattern=None,target_dir=None,output_suffix=None,request_disk=False,log_dir=None,sim_xml=None, **kwargs):
 
     """
     Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.
@@ -1797,6 +1818,8 @@ def write_subdagILE_sub(tag='subdag_ile', exe=None, universe='vanilla', submit_f
     ile_job.add_arg("--sim-xml "+sim_xml)
 
     working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk))
 
     #
     # Logging options

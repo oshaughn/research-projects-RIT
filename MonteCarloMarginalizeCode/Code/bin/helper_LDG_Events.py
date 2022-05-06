@@ -110,7 +110,7 @@ def ldg_make_cache(retrieve=False):
     if not retrieve:
         os.system("find frames -name '*.gwf' | lalapps_path2cache > local.cache")
     else:
-        os.system("cat *_local.cache > local.cache")
+        os.system("awk '{print $0}' *_local.cache > local.cache")
     return True
 
 def ldg_make_psd(ifo, channel_name,psd_start_time,psd_end_time,srate=4096,use_gwpy=False, force_regenerate=False,working_directory="."):
@@ -171,6 +171,7 @@ parser.add_argument("--psd-file", action="append", help="instrument=psd-file, e.
 parser.add_argument("--assume-fiducial-psd-files", action="store_true", help="Will populate the arguments --psd-file IFO=IFO-psd.xml.gz for all IFOs being used, based on data availability.   Intended for user to specify PSD files later, or for DAG to build BW PSDs. ")
 parser.add_argument("--use-online-psd",action='store_true',help='Use PSD from gracedb, if available')
 parser.add_argument("--assume-matter",action='store_true',help="If present, the code will add options necessary to manage tidal arguments. The proposed fit strategy and initial grid will allow for matter")
+parser.add_argument("--assume-eccentric",action='store_true',help="If present, the code will add options necessary to manage eccentric arguments. The proposed fit strategy and initial grid will allow for eccentricity")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-volumetric-spin",action='store_true',help="If present, the code will assume a volumetric spin prior in its last iterations. If *not* present, the code will adopt a uniform magnitude spin prior in its last iterations. If not present, generally more iterations are taken.")
@@ -662,8 +663,11 @@ if not (opts.fake_data):
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
 if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
+    print(real_data,opts.gracedb_id,opts.gracedb_id is None,not(opts.gracedb_id is None))
     real_data = real_data or  opts.check_ifo_availability
+    print(real_data)
     real_data = real_data or opts.force_data_lookup
+    print(real_data)
     ldg_make_cache(retrieve=real_data) # we are using the ifo_local.cache files
     opts.cache = "local.cache" # standard filename populated
 
@@ -908,7 +912,8 @@ elif opts.data_LI_seglen:
     data_end_time = event_dict["tref"]+2
     data_start_time = event_dict["tref"] +2 - seglen
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0  --window-shape " + str(window_shape)
-
+if opts.assume_eccentric:
+    helper_ile_args += " --save-eccentricity "
 if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 10.):
     cmd  = "util_AnalyticFisherGrid.py  --inj-file-out  proposed-grid  "
     # Add standard downselects : do not have m1, m2 be less than 1
@@ -1038,8 +1043,8 @@ if opts.propose_ile_convergence_options:
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs
     # Note that number of events to analyze is controlled by a different part of the workflow !
-    helper_ile_args += " --vectorized --gpu  --no-adapt-after-first --no-adapt-distance --srate {} ".format(srate)
-
+#    helper_ile_args += " --vectorized --gpu  --no-adapt-after-first --no-adapt-distance --srate {} ".format(srate)
+    helper_ile_args += " --vectorized --no-adapt-after-first --no-adapt-distance --srate {} ".format(srate)
     prefactor = 0.1 # typical value. 0.3 fine for low amplitude, 0.1 for GMM
     if snr_fac > 1.5:  # this is a pretty loud signal, so we need to tune the adaptive exponent too!
         helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
@@ -1080,7 +1085,10 @@ if opts.propose_fit_strategy:
         qmin_puff = 0.05 # 20:1
     if opts.assume_well_placed:
         n_it_early = 1
-    helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
+    if opts.last_iteration_extrinsic:
+        helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common, "1 " + helper_cip_arg_list_common ]
+    else:
+        helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "4 " +  helper_cip_arg_list_common ]
     
     # Impose a cutoff on the range of parameter used, IF the fit is a gp fit
     if 'gp' in fit_method:
@@ -1213,7 +1221,8 @@ if opts.propose_fit_strategy:
 #        for indx in np.arange(len(helper_cip_arg_list))[1:]:
 #            helper_cip_arg_list[indx] += " --lnL-offset 20 "  # enforce lnL cutoff past the first iteration. Focuses fit on high-likelihood points as in O1/O2
 
-
+#if opts.last_iteration_extrinsic:
+#    helper_cip_arg_list[-1] +=  " --n-eff  "
 with open("helper_cip_args.txt",'w') as f:
     f.write(helper_cip_args)
 
@@ -1245,6 +1254,9 @@ with open("helper_test_args.txt",'w+') as f:
 if opts.assume_matter:
     with open("helper_convert_args.txt",'w+') as f:
         f.write(" --export-tides ")
+if opts.assume_eccentric:
+    with open("helper_convert_args.txt",'w+') as f:
+        f.write(" --export-eccentricity ")
 else:
     with open("helper_convert_args.txt",'w+') as f:
         f.write(" --fref {} ".format(opts.fmin_template))   # needed to insure correct precession angles derived from internal conversion
