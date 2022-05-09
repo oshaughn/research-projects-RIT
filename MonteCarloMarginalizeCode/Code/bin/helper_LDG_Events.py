@@ -1383,8 +1383,11 @@ if opts.propose_fit_strategy:
 if opts.propose_fit_strategy:
     helper_puff_args += " --downselect-parameter eta --downselect-parameter-range ["+str(eta_min) +","+str(eta_max)+"]"
     helper_puff_args += " --puff-factor " + str(puff_factor)
+    force_away_val=0.05
+    if mc_center < 3:
+        force_away_val = 0.01
     if not(opts.internal_use_amr):
-        helper_puff_args += " --force-away " + str(0.05)  # prevent duplicate points. Don't do this for AMR, since they are already quite sparse
+        helper_puff_args += " --force-away " + str(force_away_val)  # prevent duplicate points. Don't do this for AMR, since they are already quite sparse
     with open("helper_puff_args.txt",'w') as f:
         f.write(helper_puff_args)
 
