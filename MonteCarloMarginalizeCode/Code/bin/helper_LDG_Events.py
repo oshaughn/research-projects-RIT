@@ -1056,6 +1056,19 @@ elif opts.propose_initial_grid:
     print(" Executing grid command ", cmd)
     os.system(cmd)
 
+    # special grids for rf, which tend to flop around unless they have broad-spectrum training data. If loud, use sparse wider grid in chieff *at low mass* (eg NSBH, BNS)
+    if fit_method=='rf' and (mc_center < 4) and not(opts.assume_nospin):
+       # create a second grid for rf low mass, because the chieff range can sometimes be quite narrow if the SNR is loud
+        chieff_str_new = " --random-parameter chieff_aligned  --random-parameter-range  [-0.5,0.5] "
+        cmd_alt = cmd.replace(chieff_str, chieff_str_new)
+        cmd_alt = cmd_alt.replace(" --grid-cartesian-npts  " + str(int(grid_size)), " --grid-cartesian-npts  " + str(int(grid_size/3))) # small perturbation
+        cmd_alt = cmd_alt.replace("fname proposed-grid",  "fname proposed-grid-extra")
+        print(" Executing supplementary grid command for rf, to stabilize spin fits ", cmd_alt)
+        os.system(cmd_alt)
+        cmd_add = "ligolw_add proposed-grid.xml.gz proposed-grid-extra.xml.gz --output tmp.xml.gz"
+        os.system(cmd_add)
+        os.system("mv tmp.xml.gz proposed-grid.xml.gz")
+
     # retarget if we are using force_eta_range: for things like GW190814, put more grid at high q
     # try to avoid sampling too much close by
     if  (mc_center < 8 and P.extract_param('q') < 0.5):
