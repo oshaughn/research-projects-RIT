@@ -1010,7 +1010,8 @@ elif opts.propose_initial_grid:
                 chieff_range = chi_range  # force to be smaller
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
-        cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
+        chieff_str= " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
+        cmd += chieff_str
         # if opts.internal_use_aligned_phase_coordinates:
         #     grid_size=2000
         # else:
@@ -1057,7 +1058,7 @@ elif opts.propose_initial_grid:
 
     # retarget if we are using force_eta_range: for things like GW190814, put more grid at high q
     # try to avoid sampling too much close by
-    if  (mc_center < 8 and P.extract_param('q') < 0.3):
+    if  (mc_center < 8 and P.extract_param('q') < 0.5):
         # create a SECOND grid and join to first, to flesh out high q specifically
         q_grid_max = np.mean( [P.extract_param('q'),0.7])   # a guess, trying to exclude a significant chunk of space
         delta_grid_min = (1-q_grid_max)/(1+q_grid_max)
@@ -1066,6 +1067,9 @@ elif opts.propose_initial_grid:
 
         mass_string_init_new = " --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_grid_min) +"," + str(delta_grid_max) + "]'  "
         cmd = cmd.replace(mass_string_init, mass_string_init_new)
+        chieff_str_new = " --random-parameter chieff_aligned  --random-parameter-range '[-0.5,0.5]' "
+        cmd.replace(chieff_str, chieff_str_new)
+
         cmd = cmd.replace("fname proposed-grid",  "fname proposed-grid-extra")
         print(" Executing supplementary grid command for high q ", cmd)
         os.system(cmd)
