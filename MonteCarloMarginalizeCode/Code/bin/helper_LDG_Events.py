@@ -732,7 +732,7 @@ mc_max_tight, mc_max =np.exp( ln_mc_error_pseudo_fisher)*mc_center   # conservat
 #   Start out with a grid out to eta = 0.1 ( *tight, passed to the grid code)
 #   Do more than this with puffball and other tools
 #   Use other tools to set CIP limits
-eta_max = 0.249999
+eta_max = 0.24999999
 eta_val =P.extract_param('eta')
 tune_grid = False
 eta_max_tight = eta_max
@@ -744,7 +744,7 @@ if not(opts.force_eta_range is None):
     tmp = opts.force_eta_range 
     eta_range_parsed = list(map(float,tmp.replace('[','').replace(']','').split(',')))
     delta_min_tight = np.sqrt(1 - 4*eta_range_parsed[1]) + 1e-4
-if not(opts.force_eta_range is None) and mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
+if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
     import scipy.optimize
     # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
     def crit_m2(delta):
@@ -755,7 +755,7 @@ if not(opts.force_eta_range is None) and mc_center < 2.6 and opts.propose_initia
     eta_min = 0.25*(1-delta_max*delta_max)
 # Need logic for BH-NS scale objects to be reasonable
 #   Typical problem for following up these triggers: segment length grows unreasonably long
-elif not(opts.force_eta_range is None) and  mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid:  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
+elif  mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid:  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
    import scipy.optimize
    # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
    def crit_m2(delta):
