@@ -187,6 +187,7 @@ parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--n-output-samples",type=int,default=8000,help="Number of output samples generated in the final iteration")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
+parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
 parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-freezeadapt",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-adapt-log",action='store_true',help="Passthrough to ILE ")
@@ -717,6 +718,8 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('--fit-method gp ', '--fit-method ' + opts.cip_fit_method)  # should not be called, see --force-fit-method argument to helper
     if not (opts.cip_sampler_method is None):
         line += " --sampler-method "+opts.cip_sampler_method
+    if opts.internal_cip_temper_log:
+        line += " --internal-temper-log "
     line += prior_args_lookup[opts.spin_magnitude_prior]
     if opts.cip_internal_use_eta_in_sampler:
         line = line.replace('parameter delta_mc','parameter eta')
