@@ -233,6 +233,7 @@ class MCSampler(object):
 
         proc_count: size of multiprocessing pool. set to None to not use multiprocessing
         tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
+        temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
 
         max_err : Maximum number of errors allowed for GMM sampler
         '''
