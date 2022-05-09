@@ -963,7 +963,7 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
         if opts.propose_fit_strategy:
             # If we don't have a fit plan, use the NS spin maximum as the default
             if (P.extract_param('mc')/lal.MSUN_SI < 2.6):   # assume a maximum NS mass of 3 Msun
-                chi_max = 0.05   # propose a maximum NS spin
+                chi_max = 0.1   # propose a maximum NS spin
                 chi_range = str([-chi_max,chi_max]).replace(' ','')
                 chieff_range = chi_range  # force to be smaller
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
@@ -1005,7 +1005,7 @@ elif opts.propose_initial_grid:
         if opts.propose_fit_strategy:
             # If we don't have a fit plan, use the NS spin maximum as the default
             if (P.extract_param('mc')/lal.MSUN_SI < 2.6):   # assume a maximum NS mass of 3 Msun
-                chi_max = 0.05   # propose a maximum NS spin
+                chi_max = 0.1   # propose a maximum NS spin
                 chi_range = str([-chi_max,chi_max]).replace(' ','')
                 chieff_range = chi_range  # force to be smaller
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
