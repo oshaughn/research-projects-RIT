@@ -66,6 +66,6 @@ from ligo.lw import utils
 fname_out = opts.ifo+opts.prefix_out+"_fromascii_psd.xml.gz"
 if opts.conventional_postfix:
     fname_out = opts.ifo+"-psd.xml.gz"
-utils.write_filename(xmldoc, fname_out, gz=True)
+utils.write_filename(xmldoc, fname_out, compress='auto')
 
 np.savetxt(opts.ifo+opts.prefix_out+"_fmax.dat",[np.max(dat[:,0]) - 2]) # add a 2Hz buffer 
