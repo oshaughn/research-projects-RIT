@@ -740,6 +740,12 @@ for indx in np.arange(len(instructions_cip)):
         addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
         if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
             addme = addme.replace(',s1z,s2z', ',chi1,cos_theta1')
+        # For high-q triggers, don't waste time correlating s2z
+        if 'm2' in event_dict:
+            if event_dict['m2']/event_dict['m1']< 0.4:
+                addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+            if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
+                addme = addme.replace(',s1z' ',chi1,cos_theta1')
         line += addme
 
     # on last iteration, usually don't want to use correlated sampling if precessing, need to change coordinates
