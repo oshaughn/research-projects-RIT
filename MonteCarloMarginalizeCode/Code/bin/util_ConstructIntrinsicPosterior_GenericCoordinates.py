@@ -319,8 +319,6 @@ parser.add_argument("--internal-n-comp",default=1,type=int,help="number of compo
 parser.add_argument("--internal-gmm-memory-chisquared-factor",default=None,type=float,help="Multiple of the number of degrees of freedom to save. 5 is a part in 10^6, 4 is 10^{-4}, and None keeps all up to lnL_offset.  Note that low-weight points can contribute notably to n_eff, and it can be dangerous to assume a simple chisquared likelihood!  Provided in case we need very long runs")
 parser.add_argument("--use-eccentricity", action="store_true")
 
-ECC_MAX = 0.25 # maximum value of eccentricity, hard-coding here for ease of editing
-
 # FIXME hacky options added by me (Liz) to try to get my capstone project to work.
 # I needed a way to fix the component masses and nothing else seemed to work.
 parser.add_argument("--fixed-parameter", action="append")
@@ -329,6 +327,8 @@ parser.add_argument("--fixed-parameter-value", action="append")
 opts=  parser.parse_args()
 if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
+ECC_MAX = opts.ecc_max
+ECC_MIN = opts.ecc_min
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
