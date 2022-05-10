@@ -6,11 +6,11 @@
 
 import sys
 import math
-import bisect
+#import bisect
 from collections import defaultdict
 
 import numpy
-import numpy as np
+np=numpy #import numpy as np
 from scipy import integrate, interpolate
 import itertools
 import functools
@@ -27,6 +27,19 @@ try:
   cupy_pi = cupy.array(np.pi)
 
   from RIFT.interpolators.interp_gpu import interp
+
+#  from logging import info as log
+#  import inspect
+#  def verbose_cupy_asarray(*args, **kwargs):
+#     print("Transferring data to VRAM", *args, **kwargs)
+#     return cupy.asarray(*args, **kwargs)
+#  def verbose_cupy_asnumpy(*args, **kwargs):
+#     curframe = inspect.currentframe()
+#     calframe = inspect.getouterframes(curframe, 2)
+#     log("Transferring data to RAM",calframe[1][3]) #,args[0].__name__) #, *args, **kwargs)
+#     return cupy.ndarray.asnumpy(*args, **kwargs)
+#  cupy.asarray = verbose_cupy_asarray  
+#  cupy.ndarray.asnumpy = verbose_cupy_asnumpy
 
 except:
   print(' no cupy (mcsamplerGPU)')
@@ -48,18 +61,20 @@ if 'PROFILE' not in os.environ:
    def profile(fn):
         return fn
 
-try:
+if not( 'RIFT_LOWLATENCY'  in os.environ):
+    # Dont support selected external packages in low latency
+ try:
     import healpy
-except:
+ except:
     print(" - No healpy - ")
 
-from ..integrators.statutils import  cumvar
+from ..integrators.statutils import  cumvar, update,finalize
 
 from multiprocessing import Pool
 
 from RIFT.likelihood import vectorized_general_tools
 
-__author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
+__author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>, Dan Wysocki, R. O'Shaughnessy"
 
 rosDebugMessages = True
 
@@ -183,11 +198,14 @@ class MCSampler(object):
                 self.rlim[params] = right_limit
         self.pdf[params] = pdf
         # FIXME: This only works automagically for the 1d case currently
-        self.cdf_inv[params] = cdf_inv or self.cdf_inverse(params)
+        if cdf_inv:
+          self.cdf_inv[params] = cdf_inv
+        else:
+          self.cdf_inv[params] =  self.cdf_inverse(params)
         self.pdf_initial[params] = pdf
         self.cdf_inv_initial[params] = self.cdf_inv[params]
         if not isinstance(params, tuple):
-            self.cdf[params] =  self.cdf_function(params)
+#            self.cdf[params] =  self.cdf_function(params)
             if prior_pdf is None:
                 self.prior_pdf[params] = lambda x:1
             else:
@@ -242,7 +260,7 @@ class MCSampler(object):
         self.histogram_cdf[param] = histogram_cdf
 
 
-    def compute_hist(self, x_samples, param):
+    def compute_hist(self, x_samples, param,weights=None,floor_level=0):
         # Rescale the samples to [0, 1]
         y_samples = (
             (x_samples - self.x_min[param]) / self.x_max_minus_min[param]
@@ -251,12 +269,19 @@ class MCSampler(object):
         histogram_values = vectorized_general_tools.histogram(
             y_samples, self.n_bins[param],
             xpy=self.xpy,
+            weights=weights
         )
+        # Smooth the histogram
+#        kernel_size =3
+#        histogram_values = self.xpy.convolve( histogram_values, self.xpy.ones(kernel_size)/kernel_size,mode='same')
+        # Mix with a uniform sampling
+        histogram_values =    histogram_values*(1-floor_level)+floor_level*self.xpy.ones(len(histogram_values))/len(histogram_values)
+
         # Evaluate the CDF by taking a cumulative sum of the histogram.
         n_bins = len(self.histogram_cdf[param]) 
-        self.xpy.cumsum(histogram_values[:n_bins-1], out=self.histogram_cdf[param][1:])
-        self.histogram_cdf[param] *= self.dx[param]
+        self.xpy.cumsum(histogram_values, out=self.histogram_cdf[param][1:])
         self.histogram_cdf[param][0] = 0.0
+        #print(param, 'cdf', self.histogram_cdf[param])
 
         # Renormalize histogram.
         histogram_values /= self.x_max_minus_min[param]
@@ -298,7 +323,10 @@ class MCSampler(object):
     def cdf_function(self, param):
         """
         Numerically determine the  CDF from a given sampling PDF. If the PDF itself is not normalized, the class will keep an internal record of the normalization and adjust the PDF values as necessary. Returns a function object which is the interpolated CDF.
+        NOT USED IN THIS ROUTINE, SHOULD NOT BE CALLED
         """
+        print(" Do not call this routine! ")
+        raise Exception(" mcsamplerGPU: cdf_function not to be used ")
         # Solve P'(x) == p(x), with P[lower_boun] == 0
         def dP_cdf(p, x):
             if x > self.rlim[param] or x < self.llim[param]:
@@ -381,8 +409,9 @@ class MCSampler(object):
             # joint PDF and joint prior at those samples.
             rv[i] = param_samples
             joint_p_s *= self.pdf[param](param_samples)
+            #val= self.pdf[param](param_samples); print(type(val),param,xpy_default)
             joint_p_prior *= self.prior_pdf[param](param_samples)
-
+            #val=self.prior_pdf[param](param_samples); print(type(val),param)
 
         #
         # Cache the samples we chose
@@ -546,7 +575,7 @@ class MCSampler(object):
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
         n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 0
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
-        temper_log = kwargs["tempering_log"] if "temper_log" in kwargs else False
+        temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
         if not tempering_adapt:
             tempering_exp_running=tempering_exp
@@ -583,6 +612,8 @@ class MCSampler(object):
         maxlnL = -float("Inf")
         eff_samp = 0
         mean, var = None, numpy.float128(0)    # to prevent infinite variance due to overflow
+        if cupy_ok:
+          var = xpy_default.float64(0)   # cupy doesn't have float128
 
         if bShowEvaluationLog:
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
@@ -604,7 +635,8 @@ class MCSampler(object):
             # Prevent zeroes in the sampling prior
             #
             # FIXME: If we get too many of these, we should bail
-            if any(joint_p_s <= 0):
+            if not(cupy_ok):  # don't do this if using cupy! 
+              if any(joint_p_s <= 0):
                 for p in self.params_ordered:
                     self._rvs[p] = identity_convert_togpu(numpy.resize(identity_convert(self._rvs[p]), len(self._rvs[p])-n))
                     self.cdf_inv = self.cdf_inv_initial
@@ -635,14 +667,17 @@ class MCSampler(object):
             else:
                 fval = func(**unpacked) # Chris' original plan: note this insures the function arguments are tied to the parameters, using a dictionary. 
 
-            fval = identity_convert_togpu(fval)  # send to GPU, if not already there
+            if cupy_ok:
+              if not(isinstance(fval,cupy.ndarray)):
+                fval = identity_convert_togpu(fval)  # send to GPU, if not already there
 
             #
             # Check if there is any practical contribution to the integral
             #
             # FIXME: While not technically a fatal error, this will kill the 
             # adaptive sampling
-            if fval.sum() == 0:
+            if not(cupy_ok): # only do this check if not on GPU
+              if fval.sum() == 0:
                 for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
                 print("No contribution to integral, skipping.", file=sys.stderr)
@@ -691,14 +726,23 @@ class MCSampler(object):
             #    maxval.append( v if v > maxval[-1] and v != 0 else maxval[-1] )
 
             # running variance
-            var = cumvar(identity_convert(int_val), mean, var, int(self.ntotal))[-1]
+#            var = cumvar(identity_convert(int_val), mean, var, int(self.ntotal))[-1]
+            if var is None:
+              var=0
+            if mean is None:
+              mean=identity_convert_togpu(0.0)
+            current_aggregate = [int(self.ntotal),mean, (self.ntotal-1)*var]
+            current_aggregate = update(current_aggregate, int_val,xpy=xpy_default)
+            outvals = finalize(current_aggregate)
+#            print(var, outvals[-1])
+            var = outvals[-1]
+
             # running integral
             int_val1 += identity_convert(int_val.sum())
             # running number of evaluations
             self.ntotal += n
             # FIXME: Likely redundant with int_val1
-            mean = int_val1/self.ntotal
-            #maxval = maxval[-1]
+            mean = identity_convert_togpu(xpy_default.float64(int_val1/self.ntotal))
 
             eff_samp = int_val1/maxval
 
@@ -709,7 +753,8 @@ class MCSampler(object):
                 raise NanOrInf("maxlnL = inf")
 
             if bShowEvaluationLog:
-                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/self.ntotal)), numpy.log(int_val1/self.ntotal)-maxlnL, numpy.sqrt(var*self.ntotal)/int_val1)
+                var_print = identity_convert(var)
+                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/self.ntotal)), numpy.log(int_val1/self.ntotal)-maxlnL, numpy.sqrt(var_print*self.ntotal)/int_val1)
 
             if (not convergence_tests) and self.ntotal >= nmax and neff != float("inf"):
                 print("WARNING: User requested maximum number of samples reached... bailing.", file=sys.stderr)
@@ -742,6 +787,25 @@ class MCSampler(object):
                     return f(arg, p)
                 return inner
 
+            if not(save_intg):
+                print("Direct access ")
+                weights_alt = int_vals**tempering_exp
+            else:
+                #print(fval, self._rvs["integrand"][-n_history:])
+                if temper_log:
+#                  weights_alt =self.xpy.power(self.xpy.log((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])), tempering_exp)
+                  weights_alt =self.xpy.log(self._rvs["integrand"][-n_history:])
+#                  weights_alt = self.xpy.nan_to_num(weights_alt,copy=False,posinf=1e3) # remove infinity, which oddly can occur?
+                  weights_alt = self.xpy.maximum(weights_alt, 1e-5)  # prevent negative weights
+                else:
+                  weights_alt =((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp )
+                  weights_alt = self.xpy.maximum(weights_alt,10)   # preventing too little dynamic range
+            weights_alt = weights_alt/(weights_alt.sum())
+            # Type convert as needed: if weights are float128, convert to float64; otherwise we hit a typing error later with bincount
+            if weights_alt.dtype == numpy.float128:
+              weights_alt = weights_alt.astype(numpy.float64,copy=False)
+#            weights_alt = floor_integrated_probability*xpy_default.ones(len(weights_alt))/len(weights_alt) + (1-floor_integrated_probability)*weights_alt
+
             for itr, p in enumerate(self.params_ordered):
                 # # FIXME: The second part of this condition should be made more
                 # # specific to pinned parameters
@@ -749,7 +813,11 @@ class MCSampler(object):
                     continue
 
                 points = self._rvs[p][-n_history:]
-                self.compute_hist(points, p)
+                self.compute_hist(points, p,weights=weights_alt,floor_level=floor_integrated_probability)
+            #    if p == 'declination':
+            #          vals = identity_convert(self.histogram_values[p])
+            #          print(vals)
+            #          print(np.mean(vals),np.std(vals))
                 self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
                 self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
 
@@ -794,7 +862,13 @@ class MCSampler(object):
         if convergence_tests is not None:
             dict_return["convergence_test_results"] = last_convergence_test
 
-        return int_val1/self.ntotal, var/self.ntotal, eff_samp, dict_return
+        # perform type conversion of all stored variables
+        if cupy_ok:
+          for name in self._rvs:
+            if isinstance(self._rvs[name],xpy_default.ndarray):
+              self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
+
+        return int_val1/self.ntotal, identity_convert(var)/self.ntotal, eff_samp, dict_return
 
 ### UTILITIES: Predefined distributions
 #  Be careful: vectorization is not always implemented consistently in new versions of numpy
@@ -823,12 +897,13 @@ def uniform_samp_vector(a,b,x,xpy=xpy_default):
       Implement uniform sampling as multiplication by a constant.
       Much faster and lighter weight. We never use the cutoffs anyways, because the limits are hardcoded elsewhere.
    """
-   return 1./(b-a)  # requires the variable in range.  Needed because there is no cupy implementation of np.heavyside
+   return xpy.ones(len(x))/(b-a)  # requires the variable in range.  Needed because there is no cupy implementation of np.heavyside
 # if cupy_ok:
 #    uniform_samp_vector = uniform_samp_vector_lazy  
 
 def ret_uniform_samp_vector_alt(a,b):
-    return lambda x: 1./(b-a)
+    return lambda x: xpy_default.ones(len(x))/(b-a)
+#    return lambda x: 1./(b-a)
 
 
 def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=xpy_default):

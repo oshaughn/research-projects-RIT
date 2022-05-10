@@ -66,3 +66,47 @@ def int_var(samples):
     mean = numpy.mean(samples)
     sq_mean = numpy.mean(samples**2)
     return (sq_mean-mean**2)/(len(samples)-1)
+
+
+# Alternative implementation that uses a state variable, rather than recomputing every step (as the algorithm above does!)
+# https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm
+# https://stackoverflow.com/questions/56402955/whats-the-formula-for-welfords-algorithm-for-variance-std-with-batch-updates
+# https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+# CONFIRM CORRECTNESS for batched update : we want the 'parallel algorithm' noted there
+
+# What we really want is to make two aggregates, and merge them by the 'parallel variance' expression:
+#   - have existing result
+#   - compute for new set
+#   - update aggregate
+
+def update(existingAggregate, newValues,xpy=numpy):
+    if isinstance(newValues, (int, float, complex)):
+        # Handle single digits.
+        newValues = [newValues]
+    (nA, xAmean, M2A) = existingAggregate
+    nB = len(newValues)
+    xBmean = xpy.mean(newValues)
+    M2B = xpy.sum((newValues - xBmean)**2)   # classical problem of overflow ... sum of squares of these quantities, usually integrands, and large.
+    
+    delta = xBmean - xAmean
+    mean = xAmean + delta* nB/(nA+nB)
+    M2AB = M2A + M2B + delta**2 * (nA*nB)/(nA+nB)
+    return (nA+nB, mean, M2AB)
+
+#     count += len(newValues) 
+#     # newvalues - oldMean
+#     delta = np.subtract(newValues, [mean] * len(newValues))
+#     mean += np.sum(delta / count)
+#     # newvalues - newMeant
+#     delta2 = np.subtract(newValues, [mean] * len(newValues))
+#     M2 += np.sum(delta * delta2)
+
+#     return (count, mean, M2)
+
+def finalize(existingAggregate):
+     (count, mean, M2) = existingAggregate
+     (mean, variance, sampleVariance) = (mean, M2/count, M2/(count - 1)) 
+     if count < 2:
+         return float('nan')
+     else:
+         return (mean,  sampleVariance)

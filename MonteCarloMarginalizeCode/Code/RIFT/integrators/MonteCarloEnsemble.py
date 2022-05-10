@@ -61,7 +61,7 @@ class integrator:
     '''
 
     def __init__(self, d, bounds, gmm_dict, n_comp, n=None, prior=None,
-                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_epsilon=None,tempering_exp=1):
+                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_epsilon=None,tempering_exp=1,temper_log=False):
         # if 'return_lnI' is active, 'integral' holds the *logarithm* of the integral.
         # user-specified parameters
         self.d = d
@@ -107,6 +107,7 @@ class integrator:
         self.cumulative_p = np.empty(0)
         self.cumulative_p_s = np.empty(0)
         self.tempering_exp=tempering_exp
+        self.temper_log=temper_log
         if L_cutoff is None:
             self.L_cutoff = -1
         else:
@@ -156,6 +157,8 @@ class integrator:
         else:
             lnL = np.log(value_array+regularize_log_scale) # note we can get negative infinity here
         log_weights = self.tempering_exp*lnL + np.log(self.prior_array) - sampling_prior_array
+        if self.temper_log:
+            log_weights =np.log(np.maximum(lnL,1e-5))   # simplest to do it this way
         for dim_group in self.gmm_dict: # iterate over grouped dimensions
             # create a matrix of the left and right limits for this set of dimensions
             new_bounds = np.empty((len(dim_group), 2))

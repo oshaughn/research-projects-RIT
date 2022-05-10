@@ -225,6 +225,8 @@ def extract_combination_from_LI(samples_LI, p):
         m2v = samples_LI["m2"]
         return lalsimutils.symRatio(m1v,m2v)
 
+    if p == 'phi1':
+        return np.angle(samples_LI['a1x']+1j*samples_LI['a1y'])
     if p == 'chi_pavg':
         samples = np.array([samples_LI["m1"], samples_LI["m2"], samples_LI["a1x"], samples_LI["a1y"], samples_LI["a1z"], samples_LI["a2x"], samples_LI["a2y"], samples_LI["a2z"]]).T
         with Pool(12) as pool:   

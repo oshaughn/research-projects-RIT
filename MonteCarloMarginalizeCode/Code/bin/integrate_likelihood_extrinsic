@@ -17,11 +17,18 @@ try:
   import cupy
   xpy_default=cupy
   identity_convert = cupy.asnumpy
+  identity_convert_togpu = cupy.asarray
+  junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
+
+  print(cupy.show_config())  # print provenance/debugging information
+  cupy_success=True
 except:
   print(' no cupy')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
+  identity_convert_togpu = lambda x:x
+  cupy_success=False
 
 
 
@@ -34,7 +41,19 @@ import glue.lal
 import RIFT.lalsimutils as lalsimutils
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 import RIFT.integrators.mcsampler as mcsampler
-import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
+import RIFT.misc.sky_rotations as sky_rotations
+try:
+    import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
+    mcsampler_gmm_ok = True
+except:
+    print(" No mcsamplerEnsemble ")
+    mcsampler_gmm_ok = False
+try:
+    import RIFT.integrators.mcsamplerGPU as mcsamplerGPU
+    mcsampler_gpu_ok = True
+except:
+    print( " No mcsamplerGPU ")
+    mcsampler_gpu_ok = False
 
 import RIFT.likelihood.priors_utils as priors_utils
 import RIFT.misc.xmlutils as xmlutils
@@ -152,6 +171,7 @@ optp.add_option("-s", "--data-start-time", type=float, default=None, help="GPS s
 optp.add_option("-e", "--data-end-time", type=float, default=None, help="GPS end time of data segment. If given, must also give --data-start-time. If not given, sane start and end time will automatically be chosen.")
 optp.add_option("--data-integration-window-half",default=75*1e-3,type=float,help="Only change this window size if you are an expert. The window for time integration is -/+ this quantity around the event time")
 optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
+optp.add_option("--srate",default=16384,type=int,help="Sampling rate. Change ONLY IF YOU ARE ABSOLUTELY SURE YOU KNOW WHAT YOU ARE DOING.")
 optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
 optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Timescale of inverse spectrum truncation in seconds (Default is 8 - give 0 for no truncation)")
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
@@ -191,6 +211,8 @@ integration_params.add_option("--d-max", default=10000,type=float,help="Maximum 
 integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
+integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
+integration_params.add_option("--internal-sky-network-coordinates-raw",action='store_true',help="If specified, does not attempt to organize IFO network sensibly, uses them AS PROVIDED IN ORDER.")
 integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
@@ -241,7 +263,10 @@ if opts.gpu and xpy_default is numpy:
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 
-
+deltaT = None
+fSample= opts.srate # change sampling rate
+if not(fSample is None):
+  deltaT =1./fSample
 
 intrinsic_param_names = opts.parameter
 valid_intrinsic_param_names = ['q']
@@ -381,7 +406,7 @@ fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more di
 if opts.sim_xml:
     print( "====Loading injection XML:", opts.sim_xml, opts.event, " =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
-    if len(P_list) > opts.event  and opts.soft_fail_event_range:
+    if len(P_list) < opts.event  and opts.soft_fail_event_range:
         print( " Event out of range; soft exit")
         sys.exit(0)
     P = P_list[opts.event]  # Load in the physical parameters of the injection.  
@@ -476,7 +501,7 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
     data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
             inst+":"+chan, start=start_time, stop=end_time,
-            window_shape=opts.window_shape,verbose=opts.verbose)
+            window_shape=opts.window_shape,verbose=opts.verbose,deltaT=deltaT)
     if opts.verbose:
         print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
             data_dict[inst].data.length))
@@ -679,6 +704,19 @@ param_limits = { "psi": (0, 2*numpy.pi),
 #
 params = {}
 sampler = mcsampler.MCSampler()
+xpy_asarray_already = functools.partial(xpy_default.asarray,dtype=np.float64)
+if opts.sampler_method == "adaptive_cartesian_gpu":
+    sampler = mcsamplerGPU.MCSampler()
+    sampler.xpy = xpy_default
+    sampler.identity_convert=identity_convert
+    mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+
+    xpy_asarray_already = lambda x: x  # do nothing because we are already on the board for GPU-generated 
+
+    if opts.sampler_xpy == "numpy":
+      mcsampler.set_xpy_to_numpy()
+      sampler.xpy= numpy
+      sampler.identity_convert= lambda x: x
 if opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 
@@ -717,6 +755,11 @@ sampler.add_parameter("phi_orb",
 # inclination - angle of system angular momentum with line of sight
 # sampler: cos(incl) uniform in [-1, 1)
 #
+
+adapt_extra_extrinsic=False
+if opts.sampler_method == "adaptive_cartesian_gpu":  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
+  adapt_extra_extrinsic=True
+
 if not opts.inclination_cosine_sampler:
  incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
  incl_sampler_cdf_inv = mcsampler.cos_samp_cdf_inv_vector
@@ -725,7 +768,7 @@ if not opts.inclination_cosine_sampler:
     cdf_inv = incl_sampler_cdf_inv, 
     left_limit = param_limits["inclination"][0], 
     right_limit = param_limits["inclination"][1],
-    prior_pdf = mcsampler.uniform_samp_theta)
+    prior_pdf = mcsampler.uniform_samp_theta) # do NOT adapt if we are using a prior that goes to zero at the edges
 else:
  incl_sampler =  mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0)
  incl_sampler_cdf_inv = lambda x: x*2.0-1.#functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1) 
@@ -734,7 +777,8 @@ else:
     cdf_inv = incl_sampler_cdf_inv, 
     left_limit = -1, 
     right_limit = 1,
-    prior_pdf = incl_sampler)
+    prior_pdf = incl_sampler,
+    adaptive_sampling=adapt_extra_extrinsic)
 
 #
 # Distance - luminosity distance to source in parsecs
@@ -757,6 +801,27 @@ if not opts.distance_marginalization:
         right_limit = param_limits["distance"][1],
         prior_pdf = dist_prior_pdf,
         adaptive_sampling = not (opts.no_adapt or opts.no_adapt_distance))
+
+
+# 
+# Rotate sky coordinates
+#
+if opts.internal_sky_network_coordinates:
+  ifo_list = list(psd_dict)
+  if not(opts.internal_sky_network_coordinates_raw):
+    # remove V and K : the sky ring is almost always only HL
+    if 'K1' in ifo_list:
+      ifo_list.remove('K1')
+    if 'V1' in ifo_list:
+      ifo_list.remove('V1')
+  # problem: ordering of psd_dict is rarely rational; almost always we want an HL network, rarely V
+  if len(ifo_list) <2:
+    opts.internal_sky_network_coordinates = False # stop using this code
+  else:
+    sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
+    frm = identity_convert_togpu(sky_rotations.frm)
+    my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default) 
+  
 
 
 #
@@ -820,7 +885,7 @@ else:
         left_limit = param_limits["right_ascension"][0],
         right_limit =  param_limits["right_ascension"][1],
         prior_pdf = mcsampler.uniform_samp_phase,
-        adaptive_sampling = not opts.no_adapt)
+        adaptive_sampling = (not opts.no_adapt) and (not opts.internal_sky_network_coordinates)) # TOO DANGEROUS to double-adapt in sky, ends up overconverging too easily. Just leave the whole sky ring in place if we want to do this, it's usually there and we don't lose that much.  If we have full localization, we should just remove the sky network coordinates argument!
 
     #
     # declination - angle in radians from the north pole piercing the celestial
@@ -915,6 +980,8 @@ pinned_params.update({
     "igrand_fairdraw_samples": opts.fairdraw_extrinsic_output,
     "igrand_fairdraw_samples_max": opts.n_eff
 })
+if opts.sampler_method == "adaptive_cartesian_gpu":
+  pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
 if opts.sampler_method == "GMM":
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
@@ -1092,19 +1159,25 @@ else: # Sum over time for every point in other extrinsic params
             def likelihood_function(right_ascension, declination, phi_orb, inclination, psi, distance):
                 global nEvals
                 tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-                P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+                P.phi = xpy_asarray_already(right_ascension)  # cast to float
                 if opts.declination_cosine_sampler:
-                    P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
+                    P.theta = numpy.pi/2 - xpy_default.arccos(xpy_asarray_already(declination))
                 else:
-                    P.theta = xpy_default.asarray(declination,dtype=np.float64)
+                    P.theta = xpy_asarray_already(declination)
                 P.tref = float(fiducial_epoch)
-                P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
+                P.phiref = xpy_asarray_already(phi_orb)
                 if opts.inclination_cosine_sampler:
-                    P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
+                    P.incl = xpy_default.arccos(xpy_asarray_already(inclination))
                 else:
-                     P.incl = xpy_default.asarray(inclination, dtype=np.float64)
-                P.psi = xpy_default.asarray(psi, dtype=np.float64)
-                P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+                     P.incl = xpy_asarray_already(inclination)
+                P.psi = xpy_asarray_already(psi)
+                P.dist = xpy_asarray_already(distance* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
+
+                # rotate sky if needed
+                if opts.internal_sky_network_coordinates:
+                  P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
+                  P.theta = np.pi/2 - P.theta
+                  P.phi = xpy_default.mod(P.phi, 2*np.pi)
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
@@ -1167,19 +1240,25 @@ else: # Sum over time for every point in other extrinsic params
             def likelihood_function(right_ascension, declination, phi_orb, inclination, psi):
                 global nEvals
                 tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-                P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+                P.phi = xpy_asarray_already(right_ascension)  # cast to float
                 if opts.declination_cosine_sampler:
-                    P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
+                    P.theta = numpy.pi/2 - xpy_default.arccos(xpy_asarray_already(declination))
                 else:
-                    P.theta = xpy_default.asarray(declination,dtype=np.float64)
+                    P.theta = xpy_asarray_already(declination)
                 P.tref = float(fiducial_epoch)
-                P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
+                P.phiref = xpy_asarray_already(phi_orb)
                 if opts.inclination_cosine_sampler:
-                    P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
+                    P.incl = xpy_default.arccos(xpy_asarray_already(inclination))
                 else:
-                     P.incl = xpy_default.asarray(inclination, dtype=np.float64)
-                P.psi = xpy_default.asarray(psi, dtype=np.float64)
-                P.dist = xpy_default.asarray(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+                     P.incl = xpy_asarray_already(inclination)
+                P.psi = xpy_asarray_already(psi)
+                P.dist = xpy_asarray_already(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC) # luminosity distance
+
+                # rotate sky if needed
+                if opts.internal_sky_network_coordinates:
+                  P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
+                  P.theta = np.pi/2 - P.theta
+                  P.phi = xpy_default.mod(P.phi, 2*np.pi)
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)

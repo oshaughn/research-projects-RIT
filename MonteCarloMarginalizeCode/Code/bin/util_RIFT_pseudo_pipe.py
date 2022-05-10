@@ -106,26 +106,6 @@ def unsafe_parse_arg_string(my_argstr,match):
             return x
     return None
         
-def guess_mc_range(event_dict):
-    Mchirp_event = lalsimutils.mchirp( event_dict["m1"],event_dict["m2"])
-    # from helper code: choose some mc range that's plausible, not a delta function at trigger mass
-    fmin_fiducial = 20
-    v_PN_param = (np.pi* Mchirp_event*fmin_fiducial*lalsimutils.MsunInSec)**(1./3.)  # 'v' parameter
-    snr_fac = 1 # not using that information
-    v_PN_param = v_PN_param
-    v_PN_param_max = 0.2
-    fac_search_correct = 1.5   # if this is too large we can get duration effects / seglen limit problems when mimicking LI
-    ln_mc_error_pseudo_fisher = 1.5*np.array(fac_search_correct)*0.3*(v_PN_param/v_PN_param_max)**(7.)/snr_fac 
-    if ln_mc_error_pseudo_fisher  >1:
-        ln_mc_error_pseudo_fisher =0.8   # stabilize
-    mc_max = np.exp( ln_mc_error_pseudo_fisher) * Mchirp_event
-    mc_min = np.exp( -ln_mc_error_pseudo_fisher) * Mchirp_event
-
-    if opts.force_mc_range:
-        mc_min,mc_max = list(map(float, opts.force_mc_range.replace('[','').replace(']','').split(',')))
-
-    return mc_min,mc_max
-
 
 
 parser = argparse.ArgumentParser()
@@ -170,6 +150,7 @@ parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_tr
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
 parser.add_argument("--internal-propose-converge-last-stage",action='store_true',help="Pass through to helper")
 parser.add_argument("--add-extrinsic",action='store_true')
+parser.add_argument("--batch-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
 parser.add_argument("--data-LI-seglen",default=None,type=int,help="If specified, passed to the helper. Uses data selection appropriate to LI. Must specify the specific LI seglen used.")
@@ -183,6 +164,7 @@ parser.add_argument("--cip-internal-use-eta-in-sampler",action='store_true', hel
 parser.add_argument("--ile-jobs-per-worker",type=int,default=None,help="Default will be 20 per worker usually for moderate-speed approximants, and more for very fast configurations")
 parser.add_argument("--ile-no-gpu",action='store_true')
 parser.add_argument("--ile-force-gpu",action='store_true')
+parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
@@ -205,6 +187,10 @@ parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--n-output-samples",type=int,default=8000,help="Number of output samples generated in the final iteration")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
+parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
+parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true',help="Passthrough to ILE ")
+parser.add_argument("--internal-ile-freezeadapt",action='store_true',help="Passthrough to ILE ")
+parser.add_argument("--internal-ile-adapt-log",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
@@ -595,6 +581,10 @@ if not(opts.internal_distance_max is None):
     cmd += ' --internal-distance-max {} '.format(opts.internal_distance_max)
 if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic "
+if opts.internal_ile_freezeadapt:
+    cmd += " --internal-propose-ile-convergence-freezeadapt "  # old-style O3: adaptation frozen after first point, no distance adapt (!)
+if opts.internal_ile_adapt_log:
+    cmd += " --internal-propose-ile-adapt-log "  # old-style O3: adaptation frozen after first point, no distance adapt (!)
 
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
 if opts.use_ini:
@@ -606,7 +596,12 @@ if opts.use_ini:
         fake_cache_fnames = [fake_cache_dict[x] for x in fake_cache_dict.keys()]
         cmd_cat = 'cat ' + ' '.join(fake_cache_fnames) + ' > local.cache'
         os.system(cmd_cat)
-        cmd += " --cache local.cache --fake-data "
+        cmd += " --cache local.cache --fake-data  "
+if opts.fake_data_cache:
+    cmd += " --cache {} --fake-data  ".format(opts.fake_data_cache)
+    if len(event_dict["IFOs"]) >0 :
+        short_list = " {} ".format(event_dict['IFOs'])        
+        cmd += " --manual-ifo-list {} ".format(short_list.replace(' ',''))
 print( cmd)
 os.system(cmd)
 #sys.exit(0)
@@ -641,7 +636,7 @@ except:
 instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
 line = ' '.join(instructions_ile)
 line += " --l-max " + str(opts.l_max) 
-if (opts.use_ini is None):
+if (opts.use_ini is None) and not('--d-max' in line):
     line += " --d-max " + str(dmax_guess)
 if opts.ile_force_gpu:
     line +=" --force-gpu-only "
@@ -667,6 +662,8 @@ if not(opts.manual_extra_ile_args is None):
     line += opts.manual_extra_ile_args
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
+if opts.internal_ile_sky_network_coordinates:
+    line += " --internal-sky-network-coordinates "
 with open('args_ile.txt','w') as f:
         f.write(line)
 
@@ -721,6 +718,8 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('--fit-method gp ', '--fit-method ' + opts.cip_fit_method)  # should not be called, see --force-fit-method argument to helper
     if not (opts.cip_sampler_method is None):
         line += " --sampler-method "+opts.cip_sampler_method
+    if opts.internal_cip_temper_log:
+        line += " --internal-temper-log "
     line += prior_args_lookup[opts.spin_magnitude_prior]
     if opts.cip_internal_use_eta_in_sampler:
         line = line.replace('parameter delta_mc','parameter eta')
@@ -744,6 +743,12 @@ for indx in np.arange(len(instructions_cip)):
         addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
         if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
             addme = addme.replace(',s1z,s2z', ',chi1,cos_theta1')
+        # For high-q triggers, don't waste time correlating s2z
+        if 'm2' in event_dict:
+            if event_dict['m2']/event_dict['m1']< 0.4:
+                addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+            if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
+                addme = addme.replace(',s1z' ',chi1,cos_theta1')
         line += addme
 
     # on last iteration, usually don't want to use correlated sampling if precessing, need to change coordinates
@@ -921,7 +926,7 @@ points-per-side=8
         shutil.copyfile("intrinsic_grid_iteration_0.xml.gz", "proposed-grid.xml.gz")  # Actually put the grid in the right place
     else:
         # don't use bank files, instead use manually-prescribed mc, eta, spin range. SHOULD FIX TO BE TIGHTER
-        mc_min,mc_max = guess_mc_range(event_dict)
+        mc_min,mc_max = guess_mc_range(event_dict,force_mc_range=opts.force_mc_range)
         amr_coord_dist  = "mchirp_eta"
         if opts.internal_use_aligned_phase_coordinates:
             amr_coord_dist = "mu1_mu2_q_s2z"
@@ -948,6 +953,8 @@ if not(opts.ile_no_gpu):
     cmd +=" --request-gpu-ILE "
 if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples)
+if opts.batch_extrinsic:
+    cmd += " --last-iteration-extrinsic-batched-convert "
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
    if opts.cip_fit_method and not(opts.cip_fit_method == 'gp'):

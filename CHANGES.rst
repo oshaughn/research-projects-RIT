@@ -34,7 +34,7 @@ Since last release
       results, so next iteration isn't dominated by one worker; **architecture change** to use transverse spins earlier
       in fit, with suitable prior for sampling, and generally be more efficient for precessing systems; dag checks if composite files are nonempty;
       partial untested import from Vinaya of using Soichiro mu1,mu2 coordinates for util_AMRGrid; 
-      **tentative change in 200a505dbad6c3d6911e5043aabfe2880c991545** of xmax in dmarg, pending review; 
+      **tentative change in 200a505dbad6c3d6911e5043aabfe2880c991545** of xmax in dmarg, pending review [wrong]; 
       pp_RIFT updates including testing d_marg; GMM sampler fix overflow protection, can now analyze high-lnL sources;
       allow last iteration explode size to be larger than others; fix bug with convert_output_format_ile2inference
       introduced by change in upstream astropy; more glue.ligo_lw -> ligo.lw and many changes;  more on 
@@ -43,6 +43,20 @@ Since last release
 
     - pseudo_pipe/helper updates to use ini files/coinc-embedded PSD appropriate to low-latency; lalsimutils update psd
       parser; util_InitMargTable undo tentative change noted in rc12; pp_RIFT more flexible ini file parsing (rc13) 
+
+    - rotated sky coordinates in ILE/ILE_batchmode (not comprehensive, use different adaptation); mcsamplerGPU bugfixes; ILE/ILE_batchmode changes
+      to avoid GPU reallocations; bugfixes for join_grids in dag_utils, cepp_basic subdag system and +flock_local for OSG; reduce imports
+      and superfluous setup for low latency; only generate hlm(t) once in factored_likelihood; better running variance
+      estimate, that GPU-izes; lalsimutils PSD init vectorized; initMargTable save metadata; ongoing increments to
+      amrlib/util_AMRGrid; pseudo_pipe 'last-iteration-extrinsic' and 'batched-extrinsic';
+      test/provenance to validate information flow; CEPP_basic miscellaneous minor fenceposting
+      (--first-iteration-jumpstart); test/ has integrator tests updated (rosenbrock, Ensemble_extended); tools to let
+      pseudo_pipe take fake data (and generate coincs); pp plot updates from AY; dmarg fix (soichiro)
+      temper-log in all integrators; enhanced initial grids for low mass sources and rf; initial grid wider chieff
+      range for low mass pseudo-pipe recommend GMM
+      correlate mc,delta,s1z at high q; force-away smaller for low-mass events; integrator CI test (rc14)
+      
+      
 
 
 0.0.15.5

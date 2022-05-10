@@ -201,7 +201,7 @@ for indx in np.arange(n_events):
     # Loop over instruments, write files
     for ifo in ifos:
         if 'NRHybSur' in approx_str:
-            cmd = "util_ROMWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str)
+            cmd = "util_ROMWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
         else:
             cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {}  --stop {}  --instrument {} --approx {}".format(indx, t_start,t_stop,ifo, approx_str)
         print(cmd)
@@ -262,6 +262,10 @@ try:
     ile_n_eff = int(unsafe_config_get(config, ['make_workflow', 'ile_n_eff']))
 except:
     ile_n_eff = 50  # default will be 50, as in original testsa
+use_mu_coord = unsafe_config_get(config,['make_workflow','use_mu_coord'])
+if use_mu_coord:
+    print(" ====> Using SM's phase-based coordinates <====")
+
 n_events_per_worker = int(config.get('make_workflow','n_events_per_worker'))
 n_copies = int(config.get('make_workflow','n_copies'))
 n_iterations = int(config.get('make_workflow','n_iterations'))
@@ -273,13 +277,16 @@ cip_fit_method = config.get('make_workflow','cip_fit_method')
 cip_sampler_method = config.get('make_workflow','cip_sampler_method')
 add_extrinsic=False
 use_osg=opts.use_osg #False
-if not(use_osg) and ('use_osg' in config['helper-args']):
+if not(use_osg) and 'helper-args' in config:
+  if ('use_osg' in config['helper-args']):
     use_osg = unsafe_config_get('helper-args','use_osg')
 cip_explode_jobs=False
 if 'cip_explode_jobs' in config['make_workflow']:
     cip_explode_jobs = config.get('make_workflow','cip_explode_jobs')
 
-
+# Use guess_mc_range to get a tailored mc prior, 
+#compare against the default mc-prior set by ini file and then choose each limit accordingly
+P = [P_list[i] for i in range(len(P_list))]
 
 for indx in np.arange(n_events):
     print(" ::: Event {} ::: ".format(indx))
@@ -292,6 +299,7 @@ for indx in np.arange(n_events):
         print(cmd)
         os.system(cmd)
     here = os.getcwd()
+    mc_min_utils, mc_max_utils = lalsimutils.guess_mc_range_mdc(P_list[indx],force_mc_range=None) # this chooses the right mc-prior
     cmd = "helper_LDG_Events.py --sim-xml {}/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache --working-directory {}  ".format(working_dir_full,indx,P_list[indx].tref,here,dir_target)
     cmd += " --ile-n-eff {} ".format(ile_n_eff)
     cmd += " --fmin {} ".format(fmin_template)  # used for placement, we will be undoing some of these effects later with a 'replace'
@@ -309,7 +317,9 @@ for indx in np.arange(n_events):
                 cmd += " --{} {} ".format(arg_renamed,val)
             
     cmd += " --fmin-template {} ".format(fmin_template)
-    cmd += " --force-mc-range [{},{}] --force-eta-range [{},{}] ".format(mc_min, mc_max,eta_min,eta_max)
+    cmd += " --force-mc-range [{},{}] --force-eta-range [{},{}] ".format(np.maximum(mc_min,mc_min_utils),np.minimum(mc_max,mc_max_utils),eta_min,eta_max) 
+    if use_mu_coord:
+        cmd += " --internal-use-aligned-phase-coordinates " 
     if use_osg:
         cmd += " --use-osg "
     if test_convergence:
@@ -345,6 +355,9 @@ for indx in np.arange(n_events):
         line = ' '.join(instructions_ile)
         if not (use_gpu):
             line+= " --vectorized "  # make sure to use vectorized code
+            line = line.replace("--gpu","")  # make SURE this option is not set
+        if (use_gpu):
+            line+= " --vectorized --force-gpu-only "
             line = line.replace("--gpu","")  # make SURE this option is not set
         if fix_sky_location:
             line = line.replace("--declination-cosine-sampler", "")   # fix, so known sky location is interpreted correctly
@@ -390,14 +403,27 @@ for indx in np.arange(n_events):
             n_iterations += int(instructions_cip[indx_instr][0])
             line = ' ' .join(instructions_cip[indx_instr])
             # Add CIP range
-            line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(mc_min, mc_max,eta_min,eta_max,chi_max)
+            line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(np.maximum(mc_min,mc_min_utils),np.minimum(mc_max,mc_max_utils),eta_min,eta_max,chi_max)
             if use_matter:
                 line += " --lambda-max {} ".format(lambda_max)
-            line +=" --n-output-samples 10000 --n-eff 10000 --n-max 10000000   --downselect-parameter m2 --downselect-parameter-range [1,1000] "
+            if not(cip_explode_jobs is False):
+                n_workers = int(cip_explode_jobs)
+            else:
+                n_workers = 1
+            n_sample_target = 10000 # fixed right now
+            n_eff_cip_here = int(n_sample_target/n_workers)
+            internal_cip_cap_neff = 500 # fixed
+            if indx_instr < len(instructions_cip)-1: # on all but 
+                n_eff_cip_here = np.min([internal_cip_cap_neff, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
+            #n_sample_min_per_worker = int(n_eff_cip_here/100)+2   # for fail-unless-n-eff option
+            line +=" --n-output-samples {} --n-eff {} --n-max 10000000   --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), n_eff_cip_here) 
             if not(cip_fit_method is None):
                 line = line.replace('--fit-method gp', '--fit-method ' + cip_fit_method)
-            if not (cip_sampler_method is None):
+            if (cip_sampler_method=="GMM"):
+                line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
+            elif (cip_sampler_method!="GMM"):
                 line += " --sampler-method "+cip_sampler_method
+            #line +=" --n-output-samples {}  --n-eff {} ".format(int(n_sample_target/n_workers), n_eff_cip_here) 
             line += "\n"
             lines.append(line)
 
@@ -432,7 +458,9 @@ for indx in np.arange(n_events):
     if add_extrinsic:
           cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 "
     if cip_explode_jobs:
-        cmd+= " --cip-explode-jobs  " + str(cip_explode_jobs)
+        cmd+= " --cip-explode-jobs  " + str(cip_explode_jobs) + " --cip-explode-jobs-dag "
+        if cip_fit_method and not(cip_fit_method == 'gp'):
+            cmd += " --cip-explode-jobs-flat " 
     if use_osg:
         print(" NOT VALIDATED/IMPLEMENTED for PP use yet")
         cmd += " --use-osg --use-singularity --cache-file local.cache --condor-nogrid-nonworker --frames-dir {}/frames_dir ".format(here)   # run on the OSG, make sure to get frames (rather than try to transfer them). --frames_dir bring in ile_pre.sh for fake data 

@@ -154,6 +154,7 @@ def parse_ile_args_for_bw(my_arg_str):
     integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
     integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
     integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
+    integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
     integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
     integration_params.add_option("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
     integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
@@ -191,8 +192,11 @@ parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball.py")
 parser.add_argument("--puff-args",default=None,help="util_ParameterPuffball arguments.  If not specified, puffball will not be performed  ")
 parser.add_argument("--puff-cadence",default=None,type=int,help="Every n iterations (not including 0), the puffball code will be applied.  Puffball points will be done *in addition* to the usual results from the DAG.  (The puffball is based on perturbing points from that iteration, and this will roughly double that iteration in ILE job size).  Proposed value 2 (i.e., puff overlap-grid-2, ...-4, ...-6.  If not specified, puffball will not be performed ")
 parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
+parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
 parser.add_argument("--last-iteration-extrinsic-nsamples",default=3000,type=int,help="Construct this number of extrinsic samples")
+parser.add_argument("--last-iteration-extrinsic-samples-per-ile",default=5,type=int,help="Draw this many samples from each ILE job")
+parser.add_argument("--last-iteration-extrinsic-batched-convert",action='store_true',help="Used batched converter for output of extrinsic samples")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
@@ -276,6 +280,7 @@ if not (opts.cip_args is None):
     print("CIP", cip_args)
 
 cip_args_lines = None
+cip_args_prefixes = []  # so it works correctly even in flat mode
 if not (opts.cip_args_list is None):
     with open(opts.cip_args_list) as f:
         cip_args_lines = f.readlines()
@@ -612,13 +617,13 @@ if not (fetch_args is None):
 
 
 if  (opts.last_iteration_extrinsic):
-    n_points_per_ILE = 5
+    n_points_per_ILE = opts.last_iteration_extrinsic_samples_per_ile
     # ILE job with modified output format
     #  - note we *double* the memory request, because we need space to save samples
-    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(2*n_points_per_ILE)  # modify convergence criteria so output of reasonable size
+    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(np.min([2*n_points_per_ILE,4]))  # modify convergence criteria so output of reasonable size
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
-    ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE,use_cvmfs_frames=opts.use_cvmfs_frames)
+    ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE,use_cvmfs_frames=opts.use_cvmfs_frames,request_disk=request_disk)
     ileExtr_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
     ileExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).log")
     ileExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).err")
@@ -629,30 +634,53 @@ if  (opts.last_iteration_extrinsic):
     ileExtr_job.write_sub_file()
     
     # Convert task
-    convert_args_extr =  " --convention LI  --export-cosmology --use-interpolated-cosmology " 
-    if not (convert_args is None):
-        convert_args_extr += convert_args
-    convertExtr_job, convertExtr_job_name = dag_utils.write_convert_sub(tag='convert_extr',log_dir=None,arg_str=convert_args_extr,file_input=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.xml.gz",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.dat", out_dir=opts.working_directory+"/iteration_$(macroiteration)_ile/",universe=local_worker_universe,no_grid=no_worker_grid)
-    convertExtr_job.add_condor_cmd("initialdir",opts.working_directory)
-    convertExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/convert-$(macroevent)-$(macroindx).log")
-    convertExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/convert-$(macroevent)-$(macroindx).err")
-    convertExtr_job.add_condor_cmd('request_disk',opts.general_request_disk)
-    if opts.use_full_submit_paths:
-        fname = opts.working_directory+"/"+convertExtr_job.get_sub_file()
-        convertExtr_job.set_sub_file(fname)
-    convertExtr_job.write_sub_file()
+    if opts.last_iteration_extrinsic_batched_convert:
+        # Batched conversion: one job for a great many items
+        convert_args_extr =  " --convention LI  --export-cosmology --use-interpolated-cosmology " 
+        if not (convert_args is None):
+            convert_args_extr += convert_args
+        # batched convert shell script
+        with open("batch_convert.sh",'w') as f:
+            f.write("""#! /bin/bash
+{} {}/iteration_$1_ile/EXTR_out-$2.xml_*_.xml.gz {}
+""".format(dag_utils.which('util_BatchConvertResampleILEOutput.py'),opts.working_directory,convert_args_extr))
+        os.system("chmod a+x batch_convert.sh")
+        # Create job submit file
+        batchConvertExtr_job, batchConvertExtr_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/batch_convert.sh",tag='convert_extr',log_dir=None,arg_str='',file_input="$(macroiteration) $(macroevent)",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).downsampled_dat.dat", out_dir=opts.working_directory+"/iteration_$(macroiteration)_ile/",universe=local_worker_universe,no_grid=no_worker_grid)
+        batchConvertExtr_job.add_condor_cmd("initialdir",opts.working_directory)
+        batchConvertExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/batchconvert-$(macroevent).log")
+        batchConvertExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/batchconvert-$(macroevent).err")
+        batchConvertExtr_job.add_condor_cmd('request_disk',opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory+"/"+batchConvertExtr_job.get_sub_file()
+            batchConvertExtr_job.set_sub_file(fname)
+        batchConvertExtr_job.write_sub_file()
+    else:
+        # Old style convert
+        convert_args_extr =  " --convention LI  --export-cosmology --use-interpolated-cosmology " 
+        if not (convert_args is None):
+            convert_args_extr += convert_args
+        convertExtr_job, convertExtr_job_name = dag_utils.write_convert_sub(tag='convert_extr',log_dir=None,arg_str=convert_args_extr,file_input=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.xml.gz",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.dat", out_dir=opts.working_directory+"/iteration_$(macroiteration)_ile/",universe=local_worker_universe,no_grid=no_worker_grid)
+        convertExtr_job.add_condor_cmd("initialdir",opts.working_directory)
+        convertExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/convert-$(macroevent)-$(macroindx).log")
+        convertExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/convert-$(macroevent)-$(macroindx).err")
+        convertExtr_job.add_condor_cmd('request_disk',opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory+"/"+convertExtr_job.get_sub_file()
+            convertExtr_job.set_sub_file(fname)
+        convertExtr_job.write_sub_file()
 
-    # Resample task 
-    resample_args = ' --n-output-samples  ' + str(n_points_per_ILE)  # pick 5 random points from each ILE run
-    resample_job, resample_job_name = dag_utils.write_resample_sub('resample',log_dir=None,arg_str=resample_args,file_input=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.dat",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.downsampled_dat",universe=local_worker_universe,no_grid=no_worker_grid)
-    resample_job.add_condor_cmd("initialdir",opts.working_directory)
-    resample_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).log")
-    resample_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).err")
-    resample_job.add_condor_cmd('request_disk',opts.general_request_disk)
-    if opts.use_full_submit_paths:
-        fname = opts.working_directory+"/"+resample_job.get_sub_file()
-        resample_job.set_sub_file(fname)
-    resample_job.write_sub_file()
+        # Resample task 
+        resample_args = ' --n-output-samples  ' + str(n_points_per_ILE)  # pick 5 random points from each ILE run
+        resample_job, resample_job_name = dag_utils.write_resample_sub('resample',log_dir=None,arg_str=resample_args,file_input=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.dat",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).xml_$(macroindx)_.downsampled_dat",universe=local_worker_universe,no_grid=no_worker_grid)
+        resample_job.add_condor_cmd("initialdir",opts.working_directory)
+        resample_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).log")
+        resample_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/resample-$(macroevent)-$(macroindx).err")
+        resample_job.add_condor_cmd('request_disk',opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory+"/"+resample_job.get_sub_file()
+            resample_job.set_sub_file(fname)
+        resample_job.write_sub_file()
 
     # Combination task at end -- probably should be a general utility
     cat_job, cat_job_name = dag_utils.write_cat_sub(file_prefix='EXTR', file_postfix='.downsampled_dat.dat',file_output='extrinsic_posterior_samples.dat',universe=local_worker_universe,no_grid=no_worker_grid)
@@ -684,7 +712,7 @@ con_job.write_sub_file()
 
 ##   Unify job
 #   - update 'all.net' to include all previous events
-unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str='', base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe)
+unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str='', base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe,no_grid=no_worker_grid)
 unify_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).log")
 unify_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).err")
@@ -878,7 +906,7 @@ print(" ===> Iteration size ", len(cip_job_list), opts.n_iterations)
 if opts.test_args:
     test_node_list = []
     ##  Convert job : make results accessible after every iteration.  (Only performed if the tests are active, to make my life easier)
-    convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe)
+    convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     convert_job.add_condor_cmd("initialdir",opts.working_directory)
     convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).log")
     convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).err")
@@ -889,7 +917,7 @@ if opts.test_args:
     convert_job.write_sub_file()
 
 
-    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[ opts.working_directory+'/posterior_samples-$(macroiteration).dat', opts.working_directory+'/posterior_samples-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe)
+    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[ opts.working_directory+'/posterior_samples-$(macroiteration).dat', opts.working_directory+'/posterior_samples-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir'
     test_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_test")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1020,7 +1048,8 @@ for it in np.arange(it_start,opts.n_iterations):
     unify_node.add_macro("macroiteration",it)
     unify_node.add_parent(con_node)
     unify_node.set_retry(opts.general_retries)
-    unify_node_list.append(unify_node)
+    if not(it ==0) and not(opts.first_iteration_jumpstart):  # don't require first composite to be nonempty if we are running a jumpstart!
+        unify_node_list.append(unify_node)
     
     # Create one node per job
     n_jobs_this_time = opts.n_samples_per_job
@@ -1029,7 +1058,8 @@ for it in np.arange(it_start,opts.n_iterations):
     indx_max = int((1.0*n_jobs_this_time)/n_group)
     if indx_max*n_jobs_this_time < n_group:
         indx_max+=1
-    for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
+    if not(it==it_start and opts.first_iteration_jumpstart):   # if on first iteration ,don't do this for jumpstart
+      for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
         # Add task per ILE operation
         ile_node = pipeline.CondorDAGNode(ile_job)
 #        ile_node.set_priority(JOB_PRIORITIES["ILE"])
@@ -1045,7 +1075,7 @@ for it in np.arange(it_start,opts.n_iterations):
         dag.add_node(ile_node)
 
     if puff_args and puff_cadence:
-     if it>0 and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
+     if it>it_start and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
         print(" ILE jobs for puffball on iteration ", it)
         for event in np.arange(indx_max):
             ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
@@ -1058,6 +1088,7 @@ for it in np.arange(it_start,opts.n_iterations):
             dag.add_node(ile_node)
 
     if fetch_args:
+      if not(it==it_start and opts.first_iteration_jumpstart):   # if on first iteration ,don't do this for jumpstart 
         print(" Fetching active for iteration ", it)  # must fetch before we can do the job
         fetch_node = pipeline.CondorDAGNode(fetch_job)
         fetch_node.set_retry(opts.ile_retries)
@@ -1085,10 +1116,12 @@ for it in np.arange(it_start,opts.n_iterations):
     # Create fit node, which depends on consolidate node
     cip_job = cip_job_list[it]
 #    print(it, cip_job,creating_subdag_arg_list)
+    last_cip_subdag = False
     if isinstance(cip_job,list):
         cip_worker_job = cip_job[1]
         cip_job=cip_job[0]
     elif isinstance(cip_job, str):
+        last_cip_subdag = True
         print(" ==> attempting indefinite convergence subdag : {} <== ".format(it))
         # Subdag procedure, with indefinite convergence being requested
         # Write modified CIP arg string to file!
@@ -1099,7 +1132,7 @@ for it in np.arange(it_start,opts.n_iterations):
         with open(fname_subdag_cip_args,'w') as f:
             f.write(cip_args_here)
         # Create dag inside directory, as usual,  pointing to existing run (note grid size issue problem)
-        cmd = "create_event_parameter_pipeline_BasicIteration --use-full-submit-paths "
+        cmd = "create_event_parameter_pipeline_BasicIteration --use-full-submit-paths --first-iteration-jumpstart "  # we don't use overlap-grid-0.xml.gz !
         # note we will use subdags, and do this actively.  The 0th iteration needs a SPECIFIC grid though!
         cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.xml.gz".format(it),opts.ile_exe, opts.ile_args)
         cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)
@@ -1115,12 +1148,26 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += " --ile-retries {} ".format(opts.ile_retries)
         if opts.general_retries:
             cmd += " --general-retries {} ".format(opts.general_retries)
+        if opts.use_singularity:
+            cmd += " --use-singularity "
+        if opts.cache_file:
+            cmd += " --cache-file {} ".format(opts.cache_file)
         if opts.use_osg:
             cmd += " --use-osg "
+            if opts.use_cvmfs_frames:
+                cmd += " --use-cvmfs-frames "
+            if opts.use_osg_simple_requirements:
+                cmd +=  " --use-osg-simple-requirements "
+            if opts.condor_local_nonworker:
+                cmd += " --condor-local-nonworker "
+            if opts.condor_nogrid_nonworker:
+                cmd += " --condor-nogrid-nonworker "
+            if opts.transfer_file_list:
+                cmd += " --transfer-file-list {} ".format(opts.transfer_file_list)
         if opts.test_args:
             import re
             test_args_optin = "X " + test_args  # copy not reference
-            test_args_optin = test_args_optin.replace(' --always-succeed', '')  # tests must operate
+            test_args_optin = re.sub('--always-succeed', '', test_args_optin)  # tests must operate
             # remove iteration threshold, so they ALWAYS operate
             test_args_optin = re.sub('--iteration-threshold [1-9] ', '', test_args_optin)
         else:
@@ -1175,7 +1222,7 @@ for it in np.arange(it_start,opts.n_iterations):
 
         # Create link to FEED  COMPOSITE DATA generated during top-level run into low-level directory
         # Make sure we are only linking *prior* iterations information, for clarity of provenance
-        for indx in np.arange(it):
+        for indx in np.arange(it+1): # we still do one ILE iteration beforehand at top level, rather than doing it in subdag, because CIP follows ILE
             cmd_fetch_composite = "ln -sf {}/consolidated_{}.composite {}/iteration_{}_cip/input_{}.composite   ".format(opts.working_directory, indx,  opts.working_directory, it,indx)
             os.system(cmd_fetch_composite)
 
@@ -1201,7 +1248,7 @@ for it in np.arange(it_start,opts.n_iterations):
     dag.add_node(fit_node) 
     parent_fit_node = fit_node
 
-    if not(opts.cip_explode_jobs is None):
+    if not(opts.cip_explode_jobs is None) and not(last_cip_subdag): # don't explode if we just made a subdag!
         print(" Exploding workers out ")
         # Create job to consolidate worker outputs
         join_node =pipeline.CondorDAGNode(join_cip_job)
@@ -1287,9 +1334,13 @@ if opts.last_iteration_extrinsic:
     # Check if 'it' is defined : it will not always be, if done later
     if not ('it' in globals()):
         it = opts.n_iterations  # last iteration
+    elif it < opts.n_iterations and 'Z' in cip_args_prefixes:
+        it += 1   # deal with an offset/fencepost issue that can happen when using subdags for some reason
+    print(" Extrinsic information being pulled from iteration {} ".format(it))
 
     # Create nodes for followup tasks
     cat_node = pipeline.CondorDAGNode(cat_job)
+    cat_node.add_macro("macroiteration", it)  # needed to identify log file location
 
     # Perform final ILE run on all points, saving samples
     # Need to perform number of events CONSISTENT WITH TARGET SAMPLE SIZE
@@ -1308,7 +1359,16 @@ if opts.last_iteration_extrinsic:
         dag.add_node(ile_node)
 
         # Add convert and resample task *for each output file*
-        for indx in np.arange(n_group):
+        if opts.last_iteration_extrinsic_batched_convert:
+            convert_node = pipeline.CondorDAGNode(batchConvertExtr_job)
+            convert_node.add_macro("macroevent", event*n_group)
+            convert_node.add_macro("macroiteration", it)
+            convert_node.set_retry(opts.ile_retries)  # this can fail too
+            convert_node.add_parent(ile_node)
+            dag.add_node(convert_node)
+            cat_node.add_parent(convert_node)
+        else:
+          for indx in np.arange(n_group):
             convert_node = pipeline.CondorDAGNode(convertExtr_job)
             convert_node.add_macro("macroevent", event*n_group)
             convert_node.add_macro("macroiteration", it)
@@ -1326,7 +1386,6 @@ if opts.last_iteration_extrinsic:
             # Make cat job 
             cat_node.add_parent(resample_node)
             cat_node.set_retry(opts.ile_retries)  # this can fail too
-            cat_node.add_macro("macroiteration", it)  # needed to identify log file location
 
             # Add nodes
             dag.add_node(convert_node)

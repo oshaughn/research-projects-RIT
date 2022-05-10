@@ -1022,6 +1022,11 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     if universe=='local':
         requirements.append("IS_GLIDEIN=?=undefined")
 
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
+
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
@@ -1062,7 +1067,7 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     return ile_job, ile_sub_name
 
 
-def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,universe="target",arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
+def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,universe="target",arg_str=None,log_dir=None, use_eos=False,ncopies=1, no_grid=False,**kwargs):
     """
     Write a submit file for launching a convergence test job
 
@@ -1102,6 +1107,11 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -1690,7 +1700,7 @@ def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,t
     return ile_job, ile_sub_name
 
 
-def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pattern=None,target_dir=None,output_base=None,log_dir=None,n_explode=1, gzip="/usr/bin/gzip", old_add=False, old_style_add=False, **kwargs):
+def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pattern=None,target_dir=None,output_base=None,log_dir=None,n_explode=1, gzip="/usr/bin/gzip", old_add=False, old_style_add=False,no_grid=False, **kwargs):
     """
     Write script to merge CIP 'overlap-grid-(iteration)-*.xml.gz  results.  Issue is that
     """
@@ -1701,7 +1711,6 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
     exe = exe or which(default_add)  
     if not(exe):
         exe = "ligolw_add"   # go back to fallback if there is a weird disaster -- eg we are using an old-style install before this was updated
-
 
     working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
 
@@ -1724,6 +1733,11 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
         exe = target_dir + "/join_grids.sh"
 
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)

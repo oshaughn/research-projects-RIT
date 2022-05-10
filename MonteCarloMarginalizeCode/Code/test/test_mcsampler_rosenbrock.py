@@ -8,54 +8,29 @@ from scipy.stats import multivariate_normal
 from scipy.stats import truncnorm
 import matplotlib.pyplot as plt
 
+from scipy.special import erf
+
 from RIFT.integrators import mcsampler, mcsamplerEnsemble, mcsamplerGPU
 
-import optparse
-parser = optparse.OptionParser()
-parser.add_option("--n-max",type=int,default=40000)
-parser.add_option("--save-plot",action='store_true')
-parser.add_option("--as-test",action='store_true')
-parser.add_option("--verbose",action='store_true')
-opts, args = parser.parse_args()
-
-verbose=opts.verbose
-
 tempering_exp =0.01
+# max number of samples for mcsampler
+nmax = 1000000  
+n_iters = nmax/1000
+
+#
+
+Z_rosenbrock = -5.804
 
 ### test parameters
 
-# width of domain of integration, same for all dimensions
-width = 10.0                                                    
-# number of dimensions
-ndim = 3                                                        
-# mean of the Gaussian, allowed to occupy middle half of each dimension
-mu = np.random.uniform(-1 * width / 4.0, width / 4.0, ndim)    
-# max number of samples for mcsampler
-nmax = opts.n_max                                         
-# number of iterations for mcsamplerEnsemble
-n_iters = int(nmax/1000)
-
-llim = -1 * width / 2
-rlim = width / 2
-
-### generate list of named parameters
-params = [str(i) for i in range(ndim)]
-
-### generate the covariance matrix
-cov = np.identity(ndim)
-cov[ndim - 1][ndim - 1] = 0.05 # make it narrower in one dimension
-
-### add some covariance (to test handling of strongly-correlated likelihoods)
-cov[0][ndim - 1] = -0.1
-cov[ndim - 1][0] = -0.1
-
-### define integrand as a weighted sum of Gaussians
-def f(x1, x2, x3):
-    x = np.array([x1, x2, x3]).T
-    return multivariate_normal.pdf(x, mu, cov)
-def ln_f(x1, x2, x3):
-    x = np.array([x1, x2, x3]).T
-    return np.log(multivariate_normal.pdf(x, mu, cov)+1e-100)
+### define integrand 
+### some typecasting needed
+def f(x1, x2):
+    minus_lnL = np.array(np.power((1.-x1), 2) + 100.* np.power((x2-x1**2),2),dtype=float)
+    return np.exp( - (minus_lnL))
+def ln_f(x1, x2, x3): 
+    minus_lnL = np.array(np.power((1.-x1), 2) + 100.* np.power((x2-x1**2),2),dtype=float)
+    return - minus_lnL
 
 ### initialize samplers
 sampler = mcsampler.MCSampler()
@@ -63,9 +38,12 @@ samplerEnsemble = mcsamplerEnsemble.MCSampler()
 samplerAC = mcsamplerGPU.MCSampler()
 
 ### add parameters
+llim=-5
+rlim=5
+params = ['x1','x2']
 for p in params:
-    sampler.add_parameter(p, np.vectorize(lambda x:1/(rlim-llim)), 
-            prior_pdf=np.vectorize(lambda x:1/(rlim-llim)),
+    sampler.add_parameter(p, np.vectorize(lambda x:1), 
+            prior_pdf=np.vectorize(lambda x:1./(rlim-llim)),
             left_limit=llim, right_limit=rlim,
             adaptive_sampling=True)
     samplerEnsemble.add_parameter(p, 
@@ -82,11 +60,14 @@ n_comp = 1
 
 ### integrate
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
-        no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose)
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=False)
+print(np.log(integral_1), Z_rosenbrock)
 print(" --- finished default --")
 integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(f, *params, 
-        no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose)
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=False)
+print(np.log(integral_1b), Z_rosenbrock)
 print(" --- finished AC --")
+print(" NEED TO ADD OPTION TO TEST CORRELATED SAMPLING ")
 use_lnL = False
 return_lnI=False
 if use_lnL:
@@ -94,51 +75,35 @@ if use_lnL:
 else:
     infunc = f
 integral_2, var_2, eff_samp_2, _ = samplerEnsemble.integrate(infunc, *params, 
-        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=verbose,verbose=verbose,tempering_exp=tempering_exp,use_lnL=use_lnL,return_lnI=return_lnI)
+        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=False,verbose=False,tempering_exp=tempering_exp,use_lnL=use_lnL,return_lnI=return_lnI)
 if return_lnI and use_lnL:
     integral_2 = np.exp(integral_2)
 print(" --- finished GMM --")
-print(np.array([integral_1,integral_1b,integral_2])*width**3)  # remove prior factor, should get result of normal over domain
-print(" AC/default ",  integral_1b/integral_1, np.sqrt(var_1)/integral_1)  # off by width**3
+print(integral_1,integral_1b,integral_2,np.exp(Z_rosenbrock))
+print(np.array([integral_1,integral_1b,integral_2])/np.exp(Z_rosenbrock))
+print(" AC/default ", integral_1b/integral_1, np.sqrt(var_1)/integral_1)  # off by width**3
 print(" GMM/default ",integral_2/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_2)/integral_2)
-print("mu",mu)
 ### CDFs
 
-sigma_fail =4
-if opts.as_test:
-    if np.log(np.abs(integral_1b/integral_1)) > 4*np.sqrt(var_1)/integral_1:
-        print(" FAIL ")
-        exit(1)
-    if np.log(np.abs(integral_2/integral_1)) > 4*np.sqrt(var_1)/integral_1:
-        print(" FAIL ")
-        exit(1)
-        
-
-if not(opts.save_plot):
-    exit(0)
-
 ### get our posterior samples as a single array
-arr_1 = np.empty((len(sampler._rvs["0"]), ndim))
-arr_1b = np.empty((len(samplerAC._rvs["0"]), ndim))
-arr_2 = np.empty((len(samplerEnsemble._rvs["0"]), ndim))
+ndim=2
+arr_1 = np.empty((len(sampler._rvs["x1"]), ndim))
+arr_1b = np.empty((len(samplerAC._rvs["x1"]), ndim))
+arr_2 = np.empty((len(samplerEnsemble._rvs["x1"]), ndim))
 for i in range(ndim):
-    arr_1[:,i] = sampler._rvs[str(i)].flatten()
-    arr_1b[:,i] = samplerAC._rvs[str(i)].flatten()
-    arr_2[:,i] = samplerEnsemble._rvs[str(i)].flatten()
+    arr_1[:,i] = sampler._rvs["x"+str(i+1)].flatten()
+    arr_1b[:,i] = samplerAC._rvs["x"+str(i+1)].flatten()
+    arr_2[:,i] = samplerEnsemble._rvs["x"+str(i+1)].flatten()
 
 colors = ["black", "red", "blue", "green", "orange"]
 
 plt.figure(figsize=(10, 8))
 
 for i in range(ndim):
-    s = np.sqrt(cov[i][i])
     ### get sorted samples (for the current dimension)
     x_1 = arr_1[:,i][np.argsort(arr_1[:,i])]
     x_1b = arr_1b[:,i][np.argsort(arr_1b[:,i])]
     x_2 = arr_2[:,i][np.argsort(arr_2[:,i])]
-    ### plot true cdf
-    plt.plot(x_1, truncnorm.cdf(x_1, llim, rlim, mu[i], s), label="True CDF",
-            color=colors[i], linewidth=0.5)
     # NOTE: old mcsampler stores L, mcsamplerEnsemble stores lnL
     L = sampler._rvs["integrand"]
     p = sampler._rvs["joint_prior"]
@@ -173,13 +138,26 @@ for i in range(ndim):
     plt.plot(x_1b, y_1b, ".", label="Recovered CDF, mcsamplerAC",
             color=colors[i], linewidth=1)
 
-#plt.legend()
+
+# Semianalytic plot
+def fn_marginal_x(x):
+    return 1/(10) * np.sqrt(np.pi)/2000 * (erf( 10*(5-x**2)) + erf(10*(5+x**2))) * np.exp( - (1-x)**2)
+def dP_cdf(p,x):
+    return fn_marginal_x(x)
+
+from scipy import integrate, interpolate
+
+x_i = np.linspace(-5,5,1000)
+cdf = integrate.odeint(dP_cdf, [0], x_i, hmax=0.01*(10)).T[0]
+cdf/=cdf[-1]
+plt.plot(x_i,cdf,label="true")
+
+
+
+plt.legend()
 
 fname = "cdf.pdf"
 
 print("Saving CDF figure as " + fname + "...")
 
 plt.savefig(fname)
-
-
-# TEST OUTPUT

@@ -2,30 +2,31 @@
 
 import sys
 import math
-import bisect
+#import bisect
 from collections import defaultdict
 
 import numpy
 from scipy import integrate, interpolate
+from ..integrators.statutils import cumvar, welford, update, finalize
 import itertools
 import functools
 
-try:
-    import healpy
-except:
-    print(" - No healpy - ")
-
-from ..integrators.statutils import cumvar, welford
-
-from multiprocessing import Pool
 
 import os
 if not( 'RIFT_LOWLATENCY'  in os.environ):
-  # Dont support external packages in low latency
+    # Dont support selected external packages in low latency
+ try:
+    import healpy
+ except:
+    print(" - No healpy - ")
  try:
     import vegas
  except:
     print(" - No vegas - ")
+
+
+from multiprocessing import Pool
+
 
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
@@ -416,7 +417,7 @@ class MCSampler(object):
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
         n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 0
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
-        temper_log = kwargs["tempering_log"] if "temper_log" in kwargs else False
+        temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
         if not tempering_adapt:
             tempering_exp_running=tempering_exp
@@ -580,8 +581,17 @@ class MCSampler(object):
 
             # running variance
 #            var = cumvar(int_val, mean, var, int(self.ntotal))[-1]
-            var = welford(int_val, mean, var, int(self.ntotal))
-            # running integral
+#            var = welford(int_val, mean, var, int(self.ntotal))
+            if var is None:
+                var=0
+            if mean is None:
+                mean=0
+            current_aggregate = [int(self.ntotal),mean, (self.ntotal-1)*var]
+            current_aggregate = update(current_aggregate, int_val)
+            outvals = finalize(current_aggregate)
+#            print(var, outvals[-1])
+            var = outvals[-1]
+            # running integral (note also in current_aggregate)
             int_val1 += int_val.sum()
             # running number of evaluations
             self.ntotal += n
@@ -644,7 +654,7 @@ class MCSampler(object):
                 if not temper_log:
                     weights = (self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp_running
                 else:
-                    weights = numpy.max([1e-5,numpy.log(self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])])**tempering_exp_running
+                    weights = numpy.maximum(1e-5,numpy.log(self._rvs["integrand"][-n_history:] )) #**tempering_exp_running
 
                 if tempering_adapt:
                     # have the adaptive exponent converge to 2/ln(w_max), ln (w)*alpha <= 2. This helps dynamic range

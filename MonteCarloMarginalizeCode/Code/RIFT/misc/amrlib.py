@@ -658,7 +658,7 @@ def apply_transform(pts, intr_prms, mass_transform=None, spin_transform=None):
         intr_prms_extended[m1_idx] = "mass1"
         intr_prms_extended[m2_idx] = "mass2"
         eta_vals = 0.25*(1-pts[:,m2_idx]**2)
-        pts_extended[:,m1_idx], pts_extended[:,m2_idx] = transform_mceta_m1m2(pts[:,m1_idx], pts[:,m2_idx])
+        pts_extended[:,m1_idx], pts_extended[:,m2_idx] = transform_mceta_m1m2(pts[:,m1_idx], eta_vals)
         
     else:
         raise("apply_transform: Cannot perform requested transformation")

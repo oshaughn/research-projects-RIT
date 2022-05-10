@@ -233,6 +233,7 @@ class MCSampler(object):
 
         proc_count: size of multiprocessing pool. set to None to not use multiprocessing
         tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
+        temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
 
         max_err : Maximum number of errors allowed for GMM sampler
         '''
@@ -258,10 +259,11 @@ class MCSampler(object):
         gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
         L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 1.0
-        tempering_exp = kwargs["adapt_weight_exponent"] if "adapt_weight_exponent" in kwargs else 1.0
+#        tempering_exp = kwargs["adapt_weight_exponent"] if "adapt_weight_exponent" in kwargs else 1.0
 
         max_err = kwargs["max_err"] if "max_err" in kwargs else 10  # default
 
+        verbose = kwargs["verbose"] if "verbose" in kwargs else False  # default
         super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
         dict_return_q = kwargs["dict_return"] if "dict_return" in kwargs else False  # default.  Method for passing back rich data structures for debugging
 
@@ -317,7 +319,7 @@ class MCSampler(object):
             print(" ==> input assumed as lnL ")
         if return_lnI:
             print(" ==> internal calculations and return values are lnI ")
-        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI)
+        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,verbose=verbose,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI)
 
         # get results
 

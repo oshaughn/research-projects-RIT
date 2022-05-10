@@ -181,6 +181,8 @@ parser.add_argument("--assume-volumetric-spin",action='store_true',help="If pres
 parser.add_argument("--assume-highq",action='store_true',help="If present, the code will adopt a strategy that drops spin2. Also the precessing strategy will allow perpendicular spin to play a role early on (rather than as a subdominant parameter later)")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
+parser.add_argument("--internal-propose-ile-convergence-freezeadapt",action='store_true',help="If present, uses the --no-adapt-after-first --no-adapt-distance options (at one point default)")
+parser.add_argument("--internal-propose-ile-adapt-log",action='store_true',help="If present, uses the --adapt-log argument. Useful for very loud signals. Note only lnL information is used for adapting, not prior, so samples will be *uniform* in prior range if lnL is low")
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
@@ -730,7 +732,7 @@ mc_max_tight, mc_max =np.exp( ln_mc_error_pseudo_fisher)*mc_center   # conservat
 #   Start out with a grid out to eta = 0.1 ( *tight, passed to the grid code)
 #   Do more than this with puffball and other tools
 #   Use other tools to set CIP limits
-eta_max = 0.249999
+eta_max = 0.24999999
 eta_val =P.extract_param('eta')
 tune_grid = False
 eta_max_tight = eta_max
@@ -742,7 +744,7 @@ if not(opts.force_eta_range is None):
     tmp = opts.force_eta_range 
     eta_range_parsed = list(map(float,tmp.replace('[','').replace(']','').split(',')))
     delta_min_tight = np.sqrt(1 - 4*eta_range_parsed[1]) + 1e-4
-if not(opts.force_eta_range is None) and mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
+if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
     import scipy.optimize
     # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
     def crit_m2(delta):
@@ -753,7 +755,7 @@ if not(opts.force_eta_range is None) and mc_center < 2.6 and opts.propose_initia
     eta_min = 0.25*(1-delta_max*delta_max)
 # Need logic for BH-NS scale objects to be reasonable
 #   Typical problem for following up these triggers: segment length grows unreasonably long
-elif not(opts.force_eta_range is None) and  mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid:  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
+elif  mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid:  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
    import scipy.optimize
    # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
    def crit_m2(delta):
@@ -778,7 +780,7 @@ elif opts.propose_initial_grid and eta_val < 0.1: # this will override the previ
 
 chieff_center = P.extract_param('xi')
 chieff_min = np.max([chieff_center -0.3/snr_fac,-1])
-chieff_max = np.min([chieff_center +0.3/snr_fac,1])
+chieff_max = np.min([chieff_center +0.4/snr_fac,1])  # bias high, given natural q ellipsoids
 if chieff_min >0 and use_gracedb_event:
     chieff_min = -0.1   # make sure to cover spin zero, most BBH have zero spin and missing zero is usually an accident of the search recovered params
 
@@ -866,7 +868,7 @@ if use_ini:
     else:
         mc_Msun = P.extract_param('mc')/lal.MSUN_SI
         dmax_guess =(1./snr_fac)* 2.5*2.26*typical_bns_range_Mpc[opts.observing_run]* (mc_Msun/1.2)**(5./6.)
-        internal_dmax = np.min([dmax_guess,10000]) # place ceiling
+        dmax = np.min([dmax_guess,10000]) # place ceiling
     if internal_dmax is None: # overrride ini file if already set.  Note this will override the lowlatency propose approx
         internal_dmax = dmax
     
@@ -885,8 +887,8 @@ if opts.lowlatency_propose_approximant:
     dmax_guess = np.min([dmax_guess,10000]) # place ceiling
     if internal_dmax is None:
         internal_dmax = dmax_guess
-    if opts.use_ini is None:
-        helper_ile_args +=  " --d-max " + str(int(internal_dmax))  # note also used below
+    # if opts.use_ini is None:
+    #     helper_ile_args +=  " --d-max " + str(int(internal_dmax))  # note also used below
 
     if (opts.data_LI_seglen is None) and  (opts.data_start_time is None) and not(use_ini):
         # Also choose --data-start-time, --data-end-time and disable inverse spectrum truncation (use tukey)
@@ -911,10 +913,14 @@ if not(internal_dmax is None):
         # Generate marginalization file (should probably be in DAG? But we may also want to override it with internal file)
         cmd_here = " util_InitMargTable --d-max {} ".format(internal_dmax)
         os.system(cmd_here)
-        helper_ile_args += " --distance-marginalization  --distance-marginalization-lookup-table {}/distance_marginalization_lookup.npz ".format(opts.working_directory)
+        prefix_file = "{}/".format(opts.working_directory)
+        if opts.use_osg:
+            prefix_file =''
+            transfer_files += [ opts.working_directory+"/distance_marginalization_lookup.npz" ]
+        helper_ile_args += " --distance-marginalization  --distance-marginalization-lookup-table {}distance_marginalization_lookup.npz ".format(prefix_file)
     elif opts.internal_marginalize_distance_file:
         helper_ile_args += " --distance-marginalization "
-        if opts.use_osg:
+        if not(opts.use_osg):
             helper_ile_args += " --distance-marginalization-lookup-table {} ".format(opts.internal_marginalize_distance_file)
         else:
             transfer_files += [ opts.internal_marginalize_distance_file ]
@@ -957,7 +963,7 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
         if opts.propose_fit_strategy:
             # If we don't have a fit plan, use the NS spin maximum as the default
             if (P.extract_param('mc')/lal.MSUN_SI < 2.6):   # assume a maximum NS mass of 3 Msun
-                chi_max = 0.05   # propose a maximum NS spin
+                chi_max = 0.1   # propose a maximum NS spin
                 chi_range = str([-chi_max,chi_max]).replace(' ','')
                 chieff_range = chi_range  # force to be smaller
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
@@ -973,8 +979,13 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
 
 
 elif opts.propose_initial_grid:
+    delta_grid_min = delta_min_tight
+    delta_grid_max = delta_max_tight 
+
     # add basic mass parameters
-    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap  --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_min_tight) +"," + str(delta_max_tight) + "]'  "
+    cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap "
+    mass_string_init = " --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_grid_min) +"," + str(delta_grid_max) + "]'  "
+    cmd+= mass_string_init
     # Add standard downselects : do not have m1, m2 be less than 1
     if not(opts.force_mc_range is None):
         # force downselect based on this range
@@ -994,12 +1005,13 @@ elif opts.propose_initial_grid:
         if opts.propose_fit_strategy:
             # If we don't have a fit plan, use the NS spin maximum as the default
             if (P.extract_param('mc')/lal.MSUN_SI < 2.6):   # assume a maximum NS mass of 3 Msun
-                chi_max = 0.05   # propose a maximum NS spin
+                chi_max = 0.1   # propose a maximum NS spin
                 chi_range = str([-chi_max,chi_max]).replace(' ','')
                 chieff_range = chi_range  # force to be smaller
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
-        cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
+        chieff_str= " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
+        cmd += chieff_str
         # if opts.internal_use_aligned_phase_coordinates:
         #     grid_size=2000
         # else:
@@ -1044,6 +1056,42 @@ elif opts.propose_initial_grid:
     print(" Executing grid command ", cmd)
     os.system(cmd)
 
+    # special grids for rf, which tend to flop around unless they have broad-spectrum training data. If loud, use sparse wider grid in chieff *at low mass* (eg NSBH, BNS)
+    if fit_method=='rf' and (mc_center < 4) and not(opts.assume_nospin):
+       # create a second grid for rf low mass, because the chieff range can sometimes be quite narrow if the SNR is loud
+        chieff_str_new = " --random-parameter chieff_aligned  --random-parameter-range  [-0.5,0.5] "
+        cmd_alt = cmd.replace(chieff_str, chieff_str_new)
+        cmd_alt = cmd_alt.replace(" --grid-cartesian-npts  " + str(int(grid_size)), " --grid-cartesian-npts  " + str(int(grid_size/3))) # small perturbation
+        cmd_alt = cmd_alt.replace("fname proposed-grid",  "fname proposed-grid-extra")
+        print(" Executing supplementary grid command for rf, to stabilize spin fits ", cmd_alt)
+        os.system(cmd_alt)
+        cmd_add = "ligolw_add proposed-grid.xml.gz proposed-grid-extra.xml.gz --output tmp.xml.gz"
+        os.system(cmd_add)
+        os.system("mv tmp.xml.gz proposed-grid.xml.gz")
+
+    # retarget if we are using force_eta_range: for things like GW190814, put more grid at high q
+    # try to avoid sampling too much close by
+    if  (mc_center < 8 and P.extract_param('q') < 0.5):
+        # create a SECOND grid and join to first, to flesh out high q specifically
+        q_grid_max = np.mean( [P.extract_param('q'),0.7])   # a guess, trying to exclude a significant chunk of space
+        delta_grid_min = (1-q_grid_max)/(1+q_grid_max)
+        qref = P.extract_param('q')*0.5
+        delta_grid_max = (1-qref)/(1+qref)
+
+        mass_string_init_new = " --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_grid_min) +"," + str(delta_grid_max) + "]'  "
+        cmd = cmd.replace(mass_string_init, mass_string_init_new)
+        chieff_str_new = " --random-parameter chieff_aligned  --random-parameter-range '[-0.5,0.5]' "
+        cmd.replace(chieff_str, chieff_str_new)
+
+        cmd = cmd.replace("fname proposed-grid",  "fname proposed-grid-extra")
+        print(" Executing supplementary grid command for high q ", cmd)
+        os.system(cmd)
+        cmd_add = "ligolw_add proposed-grid.xml.gz proposed-grid-extra.xml.gz --output tmp.xml.gz"
+        os.system(cmd_add)
+        os.system("mv tmp.xml.gz proposed-grid.xml.gz")
+
+
+
     # if opts.assume_matter:
     #     # Now perform a puffball in lambda1 and lambda2
     #     cmd_puff = " util_ParameterPuffball.py --parameter LambdaTilde  --inj-file proposed-grid.xml.gz --inj-file-out proposed-grid_puff_lambda --downselect-parameter lambda1 --downselect-parameter-range [0.1,5000] --downselect-parameter lambda2 --downselect-parameter-range [0.1,5000]"
@@ -1054,7 +1102,7 @@ elif opts.propose_initial_grid:
     #     P_B = lalsimutils.xml_to_ChooseWaveformParams_array("proposed-grid_puff_lambda.xml.gz")
     #     lalsimutils.ChooseWaveformParams_array_to_xml(P_A+P_B, "proposed-grid.xml.gz")
 
-puff_factor=3
+puff_factor=2
 if opts.propose_fit_strategy and (not opts.gracedb_id is None):
     # use a puff factor that depends on mass.  Use a larger puff factor below around 10.
     if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
@@ -1070,13 +1118,19 @@ if opts.propose_ile_convergence_options:
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs
     # Note that number of events to analyze is controlled by a different part of the workflow !
-    helper_ile_args += " --vectorized --gpu  --no-adapt-after-first --no-adapt-distance --srate {} ".format(srate)
+    helper_ile_args += " --vectorized --gpu   --srate {} ".format(srate)
+    if opts.internal_propose_ile_convergence_freezeadapt:
+        helper_ile_args += "  --no-adapt-after-first --no-adapt-distance  "
+                    
 
     prefactor = 0.1 # typical value. 0.3 fine for low amplitude, 0.1 for GMM
-    if snr_fac > 1.5:  # this is a pretty loud signal, so we need to tune the adaptive exponent too!
-        helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
+    if (opts.internal_propose_ile_adapt_log):
+        helper_ile_args += " --adapt-log "
     else:
-        helper_ile_args += " --adapt-weight-exponent  {} ".format(prefactor)  
+        if snr_fac > 1.5:  # this is a pretty loud signal, so we need to tune the adaptive exponent too!
+            helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
+        else:
+            helper_ile_args += " --adapt-weight-exponent  {} ".format(prefactor)  
 
 if opts.internal_use_gracedb_bayestar:
     helper_ile_args += " --skymap-file {}/bayestar.fits ".format(opts.working_directory)
@@ -1346,8 +1400,11 @@ if opts.propose_fit_strategy:
 if opts.propose_fit_strategy:
     helper_puff_args += " --downselect-parameter eta --downselect-parameter-range ["+str(eta_min) +","+str(eta_max)+"]"
     helper_puff_args += " --puff-factor " + str(puff_factor)
+    force_away_val=0.05
+    if mc_center < 3:
+        force_away_val = 0.01
     if not(opts.internal_use_amr):
-        helper_puff_args += " --force-away " + str(0.05)  # prevent duplicate points. Don't do this for AMR, since they are already quite sparse
+        helper_puff_args += " --force-away " + str(force_away_val)  # prevent duplicate points. Don't do this for AMR, since they are already quite sparse
     with open("helper_puff_args.txt",'w') as f:
         f.write(helper_puff_args)
 
