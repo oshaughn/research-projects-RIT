@@ -302,8 +302,6 @@ parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adapti
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
 parser.add_argument("--use-eccentricity", action="store_true")
 
-ECC_MAX = opts.ecc_max
-ECC_MIN = opts.ecc_min
 
 # FIXME hacky options added by me (Liz) to try to get my capstone project to work.
 # I needed a way to fix the component masses and nothing else seemed to work.
@@ -311,6 +309,8 @@ parser.add_argument("--fixed-parameter", action="append")
 parser.add_argument("--fixed-parameter-value", action="append")
 
 opts=  parser.parse_args()
+ECC_MAX = opts.ecc_max
+ECC_MIN = opts.ecc_min
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
