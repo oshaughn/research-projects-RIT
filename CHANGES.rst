@@ -52,6 +52,9 @@ Since last release
       test/provenance to validate information flow; CEPP_basic miscellaneous minor fenceposting
       (--first-iteration-jumpstart); test/ has integrator tests updated (rosenbrock, Ensemble_extended); tools to let
       pseudo_pipe take fake data (and generate coincs); pp plot updates from AY; dmarg fix (soichiro)
+      temper-log in all integrators; enhanced initial grids for low mass sources and rf; initial grid wider chieff
+      range for low mass pseudo-pipe recommend GMM
+      correlate mc,delta,s1z at high q; force-away smaller for low-mass events; integrator CI test (rc14)
       
       
 
