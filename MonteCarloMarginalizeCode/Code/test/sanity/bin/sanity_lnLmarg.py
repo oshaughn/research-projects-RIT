@@ -6,6 +6,7 @@
 #       * Warning if lots of high-errorr points (esp at top
 #       * Plot distribution of lnL, probbly warn if long tail but peak lnL is high
 #   - probably provide option to run as a convergence test!
+#   - WARNING; 'composite' includes the PUFFBALL points, and so it's not a fair test!
 
 
 import RIFT.lalsimutils as lalsimutils
