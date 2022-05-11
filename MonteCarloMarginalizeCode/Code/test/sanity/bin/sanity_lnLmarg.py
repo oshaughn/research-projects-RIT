@@ -22,7 +22,7 @@ import argparse
 
 try:
     import matplotlib
-    print(" Matplotlib backend ", matplotlib.get_backend())
+#    print(" Matplotlib backend ", matplotlib.get_backend())
     if matplotlib.get_backend() == 'agg':
         fig_extension = '.png'
         bNoInteractivePlots=True
@@ -59,6 +59,7 @@ plt.rcParams.update(rc_params)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--run-directory",help="run directory (preferred method).  Will auto-identify file")
+parser.add_argument("--test",action='store_true')
 parser.add_argument("--assume-dof",default=None,type=int,help="Number of DOF to assume for chisquared comparison")
 parser.add_argument("--composite-file",help="Specific composite file to use (single), assumes fair draw")
 parser.add_argument("--flag-tides-in-composite",action='store_true',help='Required, if you want to parse files with tidal parameters')
@@ -93,7 +94,8 @@ if opts.composite_file:
     fname = opts.composite_file
     print(" Loading ... ", fname)
     samples = np.loadtxt(fname,dtype=composite_dtype)  # Names are not always available
-    if opts.sigma_cut >0:
+    # DO NOT CUT if we are testing!
+    if not(opts.test) and opts.sigma_cut >0:
         npts = len(samples["m1"])
         # strip NAN
         sigma_vals = samples["sigmaOverL"]
@@ -162,11 +164,33 @@ if opts.composite_file:
 #    continue
 
 
+lnLmax = np.max(samples["lnL"])
+
+###
+### WARNINGS
+###
+
+if opts.test:
+    # Test 0: Lots of high variance points within top 10%
+    npts = len(samples['lnL'])
+    npts_test = int(0.1*npts)+1
+    vals = np.array(samples["lnL"])
+    lnL_crit = vals[-npts_test]
+    indx_top = samples["lnL"]>lnL_crit
+    indx_top_bad = np.logical_and(samples["lnL"] > lnL_crit, samples["sigmaOverL"] > opts.sigma_cut) # cannot pass if we remove!
+    if np.sum(indx_top_bad)/ np.sum(indx_top) >  0.01:
+        print(" WARNING: High error points are more than 1% of the final sample; consider increasing n_eff or n_max for ILE ")
+
+
+###
+### PLOTS
+###
+
+# Generally we do NOT want to make these if we are in test mode, since we want to reject points
 
 # Step 1: lnL cdf
 #   - overlay expected DOF
 vals = np.array(samples["lnL"])
-lnLmax = np.max(vals)
 n_dof =2
 if np.any(np.abs(samples["a1z"])>0):
     n_dof +=2
