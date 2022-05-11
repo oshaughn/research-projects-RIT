@@ -13,6 +13,7 @@ import RIFT.misc.bounded_kde as bounded_kde
 from  RIFT.misc.samples_utils import  add_field
 
 import scipy.stats
+import glob
 
 import lal
 import numpy as np
