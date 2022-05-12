@@ -32,14 +32,15 @@ plot_up_to() {
 plot_up_to_after() {
  it_subdag=$1
  n_it_max=$2
+ size_end=`expr ${n_it_max} - ${it_subdag}`
  n_it_max_before=`expr ${n_it_max}   `  # include last ILE step before subdag
   USECOUNTER=${it_subdag}
  n_post_top=`ls posterior_samples*.dat | wc -l`
  if [ ${n_post_top} \> ${it_subdag} ]; then
-   echo ===== FILES POST SUBDAG DETECTED : ${n_post_top} ${it_subdag}
+   echo ===== FILES POST SUBDAG DETECTED : ${n_post_top} ${it_subdag} ${size_end}
  fnames_before=`ls posterior_samples*.dat | sort -n | head -n ${it_subdag}`
  fnames_subdag=`ls iteration_${it_subdag}_cip/posterior_samples*.dag | sort -n `
- fnames_here=`ls posterior_samples*.dat | sort -n | head -n ${n_it_max} |  tail -n +${it_subdag}`
+ fnames_here=`ls posterior_samples*.dat | sort -n | head -n ${n_it_max} |  tail -n ${size_end}`
   echo Filenames after subdag: ${n_it_max} : ${fnames_here}
   rm -rf comp_so_far;
  for id in `seq 0 ${n_it_max_before}`; do cat consolidated_${id}.composite >> comp_so_far; done
