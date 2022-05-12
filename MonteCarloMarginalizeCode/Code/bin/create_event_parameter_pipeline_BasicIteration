@@ -1174,7 +1174,7 @@ for it in np.arange(it_start,opts.n_iterations):
             test_args_optin = "X  --parameter m1 --method lame "
         if opts.puff_args and opts.puff_cadence:
             # always puff in the final stage, it can be dangerous not to
-            cmd += " --puff-args {} --puff-cadence {} ".format(opts.puff_args, opts.puff_cadence)
+            cmd += " --puff-exe {} --puff-args {} --puff-cadence {} --puff-max-it 10  ".format(opts.puff_exe, opts.puff_args, opts.puff_cadence)
         fname_subdag_test_args = opts.working_directory+"/iteration_{}_cip/args_test.txt".format(it)
         with open(fname_subdag_test_args,'w') as f:
             f.write(test_args_optin)
