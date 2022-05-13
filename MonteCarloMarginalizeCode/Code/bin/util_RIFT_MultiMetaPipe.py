@@ -29,9 +29,31 @@ except:
     print(" - no htcondor - ")
     exit(0)
 
+from htcondor import dags
+
+def pseudo_job(arg_line):
+    mysub = htcondor.Submit(executable='util_RIFT_pseudo_pipe.py',arguments=arg_line)
+    return mysub
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--workflow",help="input file, pseudo-dag specification. ")
 opts= parser.parse_args()
 
 
+dag = dags.DAG()
+
+# read lines
+with open(opts.workflow,'r') as f:
+    for line in f:
+        line = f.readline()
+        if line[0] == "#":
+            continue
+        word0 = line.split(None,1)[0]
+        # fork on options
+        if word0 == 'common_args':
+            print(" Common arguments : ", line.split(None,1)[1:])
+        elif word0 == 'parent':
+            print(" Parent/child specification : ", line.split(None,1)[1:])
+        # otherwise defining job task
+        
