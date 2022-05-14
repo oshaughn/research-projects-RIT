@@ -21,7 +21,10 @@ built from the SWIG wrappings of LAL and LALSimulation.
 import sys
 import copy
 import types
-import EOBRun_module
+try:
+    import EOBRun_module
+except:
+    print(" - no EOBRun (TEOBResumS) - ")
 from six.moves import range
 
 import numpy as np
