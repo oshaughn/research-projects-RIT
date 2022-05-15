@@ -20,6 +20,8 @@
 # parent A child B
 # parent B child C
 # parent B child D
+# flow C child D
+# flow D chid C
 
 # we can even have a synchronous_child option, for children that we know are slower, so they can start at the same time and not wait
 
@@ -28,6 +30,9 @@
 # note that a dag to build the jobs is SILLY -- it makes more sense to inline them.
 # the more important part about assembling the workflow this way is that it allows us to specify RIFT DEPENDENCIES to pass composite and other information between nodes
 
+# UNFINISHED
+#   - 'flow' relationships are bi-directional, BUT
+#  - right now pseudo_pipe only implements ONE fetch, not a list of them!  Need to update the fetch capability
 
 import argparse
 import numpy as np
@@ -88,6 +93,13 @@ with open(opts.workflow,'r') as f:
             a_node = my_nodes[a][1]
             b_node = my_nodes[b][1]
             b_node.add_parent(a_node)
+            # fetch option
+            if opts.fetch_all_grids:
+                b_job = my_nodes[b][0]
+                b_job._CondorJob__arguments += [ " --external-fetch-native-from {}/{} ".format(base_dir,a) ] 
+        elif word0 == 'flow':
+            print(" flow parent/child specification : ", rest0)
+            a,relation,b = rest0.split()
             # fetch option
             if opts.fetch_all_grids:
                 b_job = my_nodes[b][0]
