@@ -8,6 +8,8 @@
 #  https://git.ligo.org/lscsoft/glue/-/blob/master/glue/pipeline.py
 #   https://htcondor.readthedocs.io/en/latest/apis/python-bindings/tutorials/DAG-Creation-And-Submission.html
 
+# EXAMPLE
+#   python util_RIFT_MultiMetaPipe.py --workflow dummy_metafile.meta
 
 # dummy_metafile.meta
 # common_args arg1 arg2
@@ -77,19 +79,34 @@ with open(opts.workflow,'r') as f:
         if word0 == 'common_args':
             print(" Common arguments : ", rest0)
             common_args+= rest0
+            continue
         elif word0 == 'parent':
             print(" Parent/child specification : ", rest0)
             a,relation,b = rest0.split()
             a_node = my_nodes[a][1]
             b_node = my_nodes[b][1]
             b_node.add_parent(a_node)
+            continue
         # otherwise defining job task
         this_job = pipeline.CondorDAGJob(universe='vanilla',executable=exe)
         this_job._CondorJob__arguments = [common_args+ rest0 ]
+
+        # boilerplate
         this_job.set_sub_file("workflow-{}.sub".format(word0))
         this_job.set_log_file("workflow-{}.log".format(word0))
         this_job.set_stderr_file("workflow-{}.err".format(word0))
         this_job.set_stdout_file("workflow-{}.out".format(word0))
+
+        # standard needed things
+        this_job.add_condor_cmd('getenv', 'True')
+        this_job.add_condor_cmd("request_memory",'2048')
+        this_job.add_condor_cmd('request_disk',"50M")
+        try:
+            this_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+            this_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+        except:
+            print(" No accounting information available")
+
         this_job.write_sub_file()
 
         this_node = pipeline.CondorDAGNode(this_job)
@@ -97,6 +114,5 @@ with open(opts.workflow,'r') as f:
         dag.add_node(this_node)
         
 
-print(dag)
 dag.set_dag_file("workflow")
 dag.write_concrete_dag()
