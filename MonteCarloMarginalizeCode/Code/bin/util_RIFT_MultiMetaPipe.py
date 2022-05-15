@@ -52,10 +52,12 @@ import RIFT.misc.dag_utils as dag_utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--workflow",help="input file, pseudo-dag specification. ")
+parser.add_argument("--fetch-all-grids",action='store_true',help="always fetch latest grid files from parents.  Note this forces run directory creation")
 opts= parser.parse_args()
 
 
 exe = dag_utils.which('util_RIFT_pseudo_pipe.py')
+base_dir = os.getcwd()
 
 #dag = dags.DAG()
 dag = pipeline.CondorDAG(log=os.getcwd())
@@ -86,16 +88,28 @@ with open(opts.workflow,'r') as f:
             a_node = my_nodes[a][1]
             b_node = my_nodes[b][1]
             b_node.add_parent(a_node)
+            # fetch option
+            if opts.fetch_all_grids:
+                b_job = my_nodes[b][0]
+                b_job._CondorJob__arguments += [ " --external-fetch-native-from {}/{} ".format(base_dir,a) ] 
+
+
             continue
         # otherwise defining job task
         this_job = pipeline.CondorDAGJob(universe='vanilla',executable=exe)
-        this_job._CondorJob__arguments = [common_args+ rest0 ]
+        other_args = []
+        job_dir = base_dir
+        if opts.fetch_all_grids:
+            other_args = [" --use-rundir {}/{} ".format(base_dir, word0)]  # need fixed run location so we can find jobs later!
+            job_dir = "{}/{}".format(base_dir, word0)
+        this_job._CondorJob__arguments = [common_args+ rest0 ]+other_args
 
         # boilerplate
-        this_job.set_sub_file("workflow-{}.sub".format(word0))
-        this_job.set_log_file("workflow-{}.log".format(word0))
-        this_job.set_stderr_file("workflow-{}.err".format(word0))
-        this_job.set_stdout_file("workflow-{}.out".format(word0))
+        # note this is not the JOB directory, because we have not made those yet!
+        this_job.set_sub_file("{}/workflow-{}.sub".format(base_dir,word0))
+        this_job.set_log_file("{}/workflow-{}.log".format(base_dir,word0))
+        this_job.set_stderr_file("{}/workflow-{}.err".format(base_dir,word0))
+        this_job.set_stdout_file("{}/workflow-{}.out".format(base_dir,word0))
 
         # standard needed things
         this_job.add_condor_cmd('getenv', 'True')
@@ -107,11 +121,14 @@ with open(opts.workflow,'r') as f:
         except:
             print(" No accounting information available")
 
-        this_job.write_sub_file()
 
         this_node = pipeline.CondorDAGNode(this_job)
         my_nodes[word0] = [this_job, this_node]
         dag.add_node(this_node)
+
+for name in my_nodes:
+    this_job, this_node = my_nodes[name]
+    this_job.write_sub_file()
         
 
 dag.set_dag_file("workflow")
