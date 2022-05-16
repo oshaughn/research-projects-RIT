@@ -146,3 +146,6 @@ for name in my_nodes:
 
 dag.set_dag_file("workflow")
 dag.write_concrete_dag()
+
+# much more useful to have a script to run directly -- dag is generally too slow to launch jobs due to condor queuing
+dag.write_script()
