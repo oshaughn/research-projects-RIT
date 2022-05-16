@@ -3018,8 +3018,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
-                'LambdaA12'          : P.lambda1,
-                'LambdaB12'          : P.lambda2,
+                'LambdaAl2'          : P.lambda1,
+                'LambdaBl2'          : P.lambda2,
                 'chi1x'              : P.s1x,
                 'chi1y'              : P.s1y,
                 'chi1z'              : P.s1z,
