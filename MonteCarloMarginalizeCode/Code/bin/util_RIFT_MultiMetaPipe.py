@@ -85,7 +85,7 @@ with open(opts.workflow,'r') as f:
         # fork on options
         if word0 == 'common_args':
             print(" Common arguments : ", rest0)
-            common_args+= rest0
+            common_args+= rest0 + " "
             continue
         elif word0 == 'parent':
             print(" Parent/child specification : ", rest0)
