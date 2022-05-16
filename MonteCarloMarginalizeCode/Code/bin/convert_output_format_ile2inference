@@ -80,7 +80,10 @@ if opts.convention == 'LI':
       print( " m1_source m2_source mc_source mtotal_source redshift ",end=' ')
   if opts.export_weights:
       print( " weights ", )
-  print('')
+  if opts.export_eccentricity:
+      print( "eccentricity ",)
+  else:
+      print('')
   for fname in args:
     points = lsctables.SimInspiralTable.get_table(utils.load_filename(fname,contenthandler=ligolw.LIGOLWContentHandler), lsctables.SimInspiralTable.tableName)
 
@@ -89,6 +92,9 @@ if opts.convention == 'LI':
     ps = [row.alpha3 for row in points]
     Nmax = np.max([int(row.simulation_id) for row in points])+1    # Nmax. Assumes NOT mixed samples.
 
+    if opts.export_eccentricity:
+        ecc = [row.alpha4 for row in points]
+    
     wt = np.exp(like)*p/ps
     neff_here = np.sum(wt)/np.max(wt)  # neff for this file.  Assumes NOT mixed samples: dangerous
 
@@ -153,7 +159,8 @@ if opts.convention == 'LI':
             print(wt[indx],end=' ')
         if opts.export_eccentricity:
             print(ecc[indx])
-        print('')
+        else:
+            print('')
 
 
     sys.exit(0)
@@ -170,8 +177,9 @@ if opts.export_cosmology:
 if opts.export_weights:
     print( " weights ",end=' ')
 if opts.export_eccentricity:
-  print( " eccentricity ",)
-print('')
+    print( "eccentricity ",)
+else:
+    print('')
 for fname in args:
  if ".hdf5" in fname:
      # Load manually, to avoid problems with lnL, p, ps 
@@ -248,6 +256,7 @@ for fname in args:
         if opts.export_weights:
             print(wt[indx],end=' ')
         if opts.export_eccentricity:
-            print("", ecc[indx],)
-        print('')
+            print(ecc[indx],)
+        else:
+            print('')
 #    print pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, ind like[indx]
