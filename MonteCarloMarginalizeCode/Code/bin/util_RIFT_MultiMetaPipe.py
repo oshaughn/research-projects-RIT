@@ -97,6 +97,7 @@ with open(opts.workflow,'r') as f:
             if opts.fetch_all_grids:
                 b_job = my_nodes[b][0]
                 b_job._CondorJob__arguments += [ " --external-fetch-native-from {}/{} ".format(base_dir,a) ] 
+            continue
         elif word0 == 'flow':
             print(" flow parent/child specification : ", rest0)
             a,relation,b = rest0.split()
