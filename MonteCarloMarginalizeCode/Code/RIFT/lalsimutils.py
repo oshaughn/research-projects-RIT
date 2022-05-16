@@ -3018,8 +3018,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
-                'Lambda1'            : P.lambda1,
-                'Lambda2'            : P.lambda2,
+                'LambdaA12'          : P.lambda1,
+                'LambdaB12'          : P.lambda2,
                 'chi1x'              : P.s1x,
                 'chi1y'              : P.s1y,
                 'chi1z'              : P.s1z,
@@ -3027,11 +3027,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                 'chi2y'              : P.s2y,
                 'chi2z'              : P.s2z,
                 'domain'             : 0,
-                'arg_out'            : 1,
+                'arg_out'            : "yes",
                 'use_mode_lm'        : k,
 #                'output_lm'          : k,
                 'srate_interp'       : 1./P.deltaT,
-                'df'                 : P.deltaF,
+#                'df'                 : P.deltaF,
                 'use_geometric_units': "no",
                 'initial_frequency'  : P.fmin,
                 'interp_uniform_grid': "yes",
@@ -3053,7 +3053,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                 'use_mode_lm'        : k,
                 'output_lm'          : k,
                 'srate_interp'       : 1./P.deltaT,
-                'use_gceometric_units': 0,
+                'use_geometric_units': 0,
                 'initial_frequency'  : P.fmin,
                 'df'                 : P.deltaF,
                 'interp_uniform_grid': 1,
@@ -3082,10 +3082,13 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
             hlm[mode].data.data = (hlmtmp2[mode][0] * np.exp(-1j*(mode[1]*(np.pi/2.)+hlmtmp2[mode][1])))
             if not (P.deltaF is None):
                 TDlen = int(1./P.deltaF * 1./P.deltaT)
+                print("TDlen: ", TDlen, "data length: ", hlm[mode].data.length)
                 if TDlen < hlm[mode].data.length:
-                    print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
-                    sys.exit()
-                hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
+#                    print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
+#                    sys.exit()
+                    hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
+                elif TDlen >= hlm[mode].data.length:
+                    hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
             mode_conj = (mode[0],-mode[1])
             if not mode_conj in hlm:
                 hC = hlm[mode]
