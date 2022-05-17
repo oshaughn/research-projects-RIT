@@ -24,7 +24,7 @@ import types
 try:
     import EOBRun_module
 except:
-    print(" - no EOBRun (TEOBResumS) - ")
+    continue; # print(" - no EOBRun (TEOBResumS) - ")
 from six.moves import range
 
 import numpy as np
