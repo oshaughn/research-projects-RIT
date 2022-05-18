@@ -383,7 +383,7 @@ if opts.assume_precessing:
         is_analysis_precessing = True
 if opts.assume_nonprecessing:
         is_analysis_precessing = False
-if opts.assume_ecentric:
+if opts.assume_eccentric:
         is_analysis_eccentric = True
 
 
