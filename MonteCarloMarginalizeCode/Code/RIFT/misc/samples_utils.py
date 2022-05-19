@@ -1,6 +1,6 @@
 
 import numpy as np
-
+import RIFT.lalsimutils as lalsimutils
 
 def extract_combination_from_LI(samples_LI, p):
     """
@@ -91,3 +91,53 @@ def add_field(a, descr):
 
 
 
+
+
+def standard_expand_samples(samples):
+    """
+    Do some things which add a bunch of standard fields to the samples, if I don't have them.  
+    Used in plot_posterior_corner.py for example
+    """
+    if not 'mtotal' in samples.dtype.names and 'mc' in samples.dtype.names:  # raw LI samples use 
+        q_here = samples['q']
+        eta_here = q_here/(1+q_here)
+        mc_here = samples['mc']
+        mtot_here = mc_here / np.power(eta_here, 3./5.)
+        m1_here = mtot_here/(1+q_here)
+        samples = add_field(samples, [('mtotal', float)]); samples['mtotal'] = mtot_here
+        samples = add_field(samples, [('eta', float)]); samples['eta'] = eta_here
+        samples = add_field(samples, [('m1', float)]); samples['m1'] = m1_here
+        samples = add_field(samples, [('m2', float)]); samples['m2'] = mtot_here * q_here/(1+q_here)
+        
+    if "theta1" in samples.dtype.names:
+        a1x_dat = samples["a1"]*np.sin(samples["theta1"])*np.cos(samples["phi1"])
+        a1y_dat = samples["a1"]*np.sin(samples["theta1"])*np.sin(samples["phi1"])
+        chi1_perp = samples["a1"]*np.sin(samples["theta1"])
+
+        a2x_dat = samples["a2"]*np.sin(samples["theta2"])*np.cos(samples["phi2"])
+        a2y_dat = samples["a2"]*np.sin(samples["theta2"])*np.sin(samples["phi2"])
+        chi2_perp = samples["a2"]*np.sin(samples["theta2"])
+
+                                      
+        samples = add_field(samples, [('a1x', float)]);  samples['a1x'] = a1x_dat
+        samples = add_field(samples, [('a1y', float)]); samples['a1y'] = a1y_dat
+        samples = add_field(samples, [('a2x', float)]);  samples['a2x'] = a2x_dat
+        samples = add_field(samples, [('a2y', float)]);  samples['a2y'] = a2y_dat
+        samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
+        samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
+        if not 'chi_eff' in samples.dtype.names:
+            samples = add_field(samples, [('chi_eff',float)]); samples['chi_eff'] = (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["m1"]+samples["m2"])
+ 
+    elif 'a1x' in samples.dtype.names:
+        chi1_perp = np.sqrt(samples['a1x']**2 + samples['a1y']**2)
+        chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
+        samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
+        samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
+
+    if 'lambda1' in samples.dtype.names and not ('lambdat' in samples.dtype.names):
+        Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
+        samples = add_field(samples, [('lambdat', float)]); samples['lambdat'] = Lt
+        samples = add_field(samples, [('dlambdat', float)]); samples['dlambdat'] = dLt
+
+
+    return samples
