@@ -56,6 +56,7 @@ Since last release
       range for low mass pseudo-pipe recommend GMM
       correlate mc,delta,s1z at high q; force-away smaller for low-mass events; integrator CI test (rc14)
       
+   - TEOBResumS/TEOBResumSE (eccentricity); MultiMetaPipe; PUFF active in subdag; refactor plot_posterior_corner/samples_utils;
       
 
 
