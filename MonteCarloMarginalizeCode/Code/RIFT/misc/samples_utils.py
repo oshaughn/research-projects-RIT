@@ -55,6 +55,41 @@ def extract_combination_from_LI(samples_LI, p):
     if p == 'product(sin_beta,cos_phiJL)':
         return np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.cos(  samples_LI['phi_jl'])
 
+    if p == 'mc':
+        m1v= samples_LI["m1"]
+        m2v = samples_LI["m2"]
+        return lalsimutils.mchirp(m1v,m2v)
+    if p == 'eta':
+        m1v= samples_LI["m1"]
+        m2v = samples_LI["m2"]
+        return lalsimutils.symRatio(m1v,m2v)
+
+    if p == 'phi1':
+        return np.angle(samples_LI['a1x']+1j*samples_LI['a1y'])
+    if p == 'chi_pavg':
+        samples = np.array([samples_LI["m1"], samples_LI["m2"], samples_LI["a1x"], samples_LI["a1y"], samples_LI["a1z"], samples_LI["a2x"], samples_LI["a2y"], samples_LI["a2z"]]).T
+        with Pool(12) as pool:   
+            chipavg = np.array(pool.map(fchipavg, samples))          
+        return chipavg
+
+    if p == 'chi_p':
+        samples = np.array([samples_LI["m1"], samples_LI["m2"], samples_LI["a1x"], samples_LI["a1y"], samples_LI["a1z"], samples_LI["a2x"], samples_LI["a2y"], samples_LI["a2z"]]).T
+        with Pool(12) as pool:   
+            chip = np.array(pool.map(fchip, samples))          
+        return chip
+
+    # Backup : access lambdat if not present
+    if (p == 'lambdat' or p=='dlambdat') and 'lambda1' in samples.dtype.names:
+        Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
+        if p=='lambdat':
+            return Lt
+        if p=='dlambdat':
+            return dLt
+
+    if p == "q"  and 'm1' in samples.dtype.names:
+        return samples["m2"]/samples["m1"]
+
+
     print(" No access for parameter ", p)
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
 
@@ -141,3 +176,38 @@ def standard_expand_samples(samples):
 
 
     return samples
+
+
+######### MUlTIPROCESSING FUNCTIONS ############
+from multiprocessing import Pool 
+
+def fchipavg(sample):
+            P=lalsimutils.ChooseWaveformParams()
+            P.m1 = sample[0]
+            P.m2 = sample[1]
+            P.s1x = sample[2]
+            P.s1y = sample[3]
+            P.s1z = sample[4]
+            P.s2x = sample[5]
+            P.s2y = sample[6]
+            P.s2z = sample[7]
+            if (P.s1x == 0 and P.s1y == 0 and P.s2x == 0 and P.s2y == 0):
+                chipavg = 0
+            elif (P.s1x == 0 and P.s1y == 0 and P.s1z == 0) or (P.s2x == 0 and P.s2y == 0 and P.s2z == 0):
+                chipavg = P.extract_param('chi_p')
+            else:
+                chipavg = P.extract_param('chi_pavg')
+            return chipavg     
+
+def fchip(sample):
+            P=lalsimutils.ChooseWaveformParams()
+            P.m1 = sample[0]
+            P.m2 = sample[1]
+            P.s1x = sample[2]
+            P.s1y = sample[3]
+            P.s1z = sample[4]
+            P.s2x = sample[5]
+            P.s2y = sample[6]
+            P.s2z = sample[7]
+            chip = P.extract_param('chi_p')
+            return chip  
