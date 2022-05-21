@@ -1156,6 +1156,8 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += " --use-singularity "
         if opts.cache_file:
             cmd += " --cache-file {} ".format(opts.cache_file)
+        if opts.frames_dir:
+            cmd += " --frames-dir {} ".format(opts.frames_dir)
         if opts.use_osg:
             cmd += " --use-osg "
             if opts.use_cvmfs_frames:
