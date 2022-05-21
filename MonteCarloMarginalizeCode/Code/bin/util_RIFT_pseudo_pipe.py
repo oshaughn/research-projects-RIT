@@ -559,7 +559,8 @@ elif opts.use_cov_early:
     cmd += " --use-cov-early "
 if opts.use_osg:
     cmd += " --use-osg "
-    cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful
+    if not(opts.use_osg_file_transfer):
+        cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful
 if opts.use_ini:
     cmd += " --use-ini " + opts.use_ini
     cmd += " --sim-xml {}/target_params.xml.gz --event 0 ".format(base_dir + "/"+ dirname_run)  # full path to target_params.xml.gz
