@@ -992,7 +992,7 @@ if opts.use_osg:
         cmd += " --use-cvmfs-frames "
     else:  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
         os.system("util_ForOSG_MakeLocalFramesDir.sh local.cache")
-        os.system("echo frames_dir >> helper_transfer_files.txt")
+        os.system("echo ../frames_dir >> helper_transfer_files.txt")
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
 if opts.condor_local_nonworker:
     cmd += " --condor-local-nonworker "
