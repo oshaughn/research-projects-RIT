@@ -1,6 +1,32 @@
 
 import numpy as np
 import RIFT.lalsimutils as lalsimutils
+remap_ILE_2_LI = {
+ "s1z":"a1z", "s2z":"a2z", 
+ "s1x":"a1x", "s1y":"a1y",
+ "s2x":"a2x", "s2y":"a2y",
+ "chi1_perp":"chi1_perp",
+ "chi2_perp":"chi2_perp",
+ "chi1":'a1',
+ "chi2":'a2',
+ "cos_phiJL": 'cos_phiJL',
+ "sin_phiJL": 'sin_phiJL',
+ "cos_theta1":'costilt1',
+ "cos_theta2":'costilt2',
+ "theta1":"tilt1",
+ "theta2":"tilt2",
+  "xi":"chi_eff", 
+  "chiMinus":"chi_minus", 
+  "delta":"delta", 
+  "delta_mc":"delta", 
+ "mtot":'mtotal', "mc":"mc", "eta":"eta","m1":"m1","m2":"m2",
+  "cos_beta":"cosbeta",
+  "beta":"beta",
+  "LambdaTilde":"lambdat",
+  "DeltaLambdaTilde": "dlambdat",
+  "thetaJN":"theta_jn"}
+remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot', "distance":"dist", 'ra':'phi', 'dec':'theta',"phiorb":"phiref"}
+
 
 def extract_combination_from_LI(samples_LI, p):
     """
