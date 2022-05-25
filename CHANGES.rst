@@ -57,7 +57,7 @@ Since last release
       correlate mc,delta,s1z at high q; force-away smaller for low-mass events; integrator CI test (rc14)
       
    - TEOBResumS/TEOBResumSE (eccentricity); MultiMetaPipe; PUFF active in subdag; refactor plot_posterior_corner/samples_utils;
-      
+     ILE_batchmode reset sampling if hit certain errors; OSG file transfer mode revitalize (rc15)
 
 
 0.0.15.5
