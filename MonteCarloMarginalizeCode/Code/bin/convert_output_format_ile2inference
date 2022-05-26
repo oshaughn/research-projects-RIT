@@ -93,7 +93,8 @@ if opts.convention == 'LI':
       print( " weights ")
   if opts.export_eccentricity:
       print( "eccentricity ",)
-  print('')
+  else:
+      print('')
   for fname in args:
     points = lsctables.SimInspiralTable.get_table(utils.load_filename(fname,contenthandler=ligolw.LIGOLWContentHandler), lsctables.SimInspiralTable.tableName)
 
@@ -200,7 +201,8 @@ if opts.convention == 'LI':
             print(wt[indx])
         if opts.export_eccentricity:
             print(ecc[indx])
-        print('')
+        else:
+            print('')
 
 
     sys.exit(0)
@@ -227,8 +229,9 @@ if opts.export_weights and opts.export_eccentricity:
 elif opts.export_weights and not opts.export_eccentricity:
     print( " weights ")
 if opts.export_eccentricity:
-  print( " eccentricity ",)
-print('')
+    print( " eccentricity ",)
+else:
+    print('')
 for fname in args:
  if ".hdf5" in fname:
      # Load manually, to avoid problems with lnL, p, ps 
@@ -339,5 +342,6 @@ for fname in args:
             print(wt[indx])
         if opts.export_eccentricity:
             print("", ecc[indx],)
-        print('')
+        else:
+            print('')
 #    print pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, ind like[indx]
