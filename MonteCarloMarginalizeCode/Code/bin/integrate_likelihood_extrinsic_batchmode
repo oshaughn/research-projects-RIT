@@ -1222,7 +1222,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             dict_out['distance'] = pinned_params["distance"]
       xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=dict_return["convergence_test_results"]["normal_integral"], **dict_out)
       fname_output_xml = opts.output_file +"_"+str(indx_event)+"_" + ".xml.gz"
-      utils.write_filename(xmldoc, fname_output_xml, gz=True)
+      utils.write_filename(xmldoc, fname_output_xml, compress="gz")
 
     if opts.maximize_only and opts.output_file:
       # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)

@@ -1035,7 +1035,7 @@ if opts.propose_fit_strategy and (not opts.gracedb_id is None):
 
 
 if opts.propose_ile_convergence_options:
-    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler   --n-max 4000000 --n-eff {} ".format(opts.ile_n_eff)
+    helper_ile_args += " --time-marginalization  --inclination-cosine-sampler   --n-max 5000000 --n-eff {} ".format(opts.ile_n_eff)
     if not(opts.internal_use_gracedb_bayestar):
         helper_ile_args += " --declination-cosine-sampler  "  # skymap coordinates all fixed
     else:

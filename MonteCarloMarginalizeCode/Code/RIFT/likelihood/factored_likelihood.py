@@ -63,12 +63,12 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 if not( 'RIFT_LOWLATENCY'  in os.environ):
   # Dont support external packages in low latency
- try:
-        import NRWaveformCatalogManager3 as nrwf
-        useNR =True
-        print(" factored_likelihood.py : NRWaveformCatalogManager3 available ")
- except ImportError:
-        useNR=False
+# try:
+#        import NRWaveformCatalogManager3 as nrwf
+#        useNR =True
+#        print(" factored_likelihood.py : NRWaveformCatalogManager3 available ")
+# except ImportError:
+#        useNR=False
 
  try:
         import RIFT.physics.ROMWaveformManager as romwf

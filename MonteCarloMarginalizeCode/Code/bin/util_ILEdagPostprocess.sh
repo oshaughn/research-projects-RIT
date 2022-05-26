@@ -21,11 +21,11 @@ find ${DIR_PROCESS} -name 'CME*.dat' -exec cat {} \; > ${RND}_tmp.dat
 
 # clean them (=join duplicate lines)
 echo " Consolidating multiple instances of the monte carlo  .... "
-if [ $3 == '--eccentricity' ]
+if [ ${ECC} == '--eccentricity' ]
 then
-    util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k11 > $BASE_OUT.composite
+    util_CleanILE.py ${RND}_tmp.dat ${ECC} | sort -rg -k11 > $BASE_OUT.composite
 else
-    util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k10 > $BASE_OUT.composite
+    util_CleanILE.py ${RND}_tmp.dat | sort -rg -k10 > $BASE_OUT.composite
 fi
 
 # Manifest
