@@ -56,5 +56,6 @@ setuptools.setup(
 # Would be preferable to be *global* path, not relative to install. Depends on if doing user install or not
 # This pathname puts it in the same place as the other files, in site-packages/
    data_files=[('RIFT/likelihood',my_extra_source)],
+   setup_requires=['setuptools','pip'],
    install_requires=REQUIREMENTS["install"]
 )

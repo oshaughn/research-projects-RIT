@@ -1,5 +1,5 @@
-setuptools 
-pip 
+#setuptools 
+#pip 
 #cupy  
 numpy
 h5py 
