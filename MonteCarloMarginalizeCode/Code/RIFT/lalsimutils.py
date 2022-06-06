@@ -877,7 +877,7 @@ class ChooseWaveformParams:
         if p == 'q_mu':   # trivial, more important what is treated as constant
             return self.m2/self.m1  
         if p == 'chi2z_mu':
-            return P.s2z
+            return self.s2z
         if p == 'lambda_plus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
             return (self.lambda1+self.lambda2)/2.
