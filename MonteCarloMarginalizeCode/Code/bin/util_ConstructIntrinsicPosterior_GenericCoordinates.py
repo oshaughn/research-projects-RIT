@@ -526,6 +526,8 @@ coord_names = opts.parameter # Used  in fit
 if coord_names is None:
     coord_names = []
 low_level_coord_names = coord_names # Used for Monte Carlo
+if 'chi_pavg' in coord_names:
+    low_level_coord_names += ['chi_pavg']
 if opts.parameter_implied:
     coord_names = coord_names+opts.parameter_implied
 if opts.parameter_nofit:
@@ -668,6 +670,9 @@ def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   #
 
 def eccentricity_prior(x):
     return np.ones(x.shape) / (ECC_MAX-ECC_MIN) # uniform over the interval [0.0, ECC_MAX]
+ 
+def precession_prior(x):
+    return 0.5*np.ones(x.shape) # uniform prior over the interval [0.0, 2.0]
 
 def unnormalized_uniform_prior(x):
     return np.ones(x.shape)
@@ -699,6 +704,7 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'phi1':mcsampler.uniform_samp_phase,
     'phi2':mcsampler.uniform_samp_phase,
     'eccentricity':eccentricity_prior,
+    'chi_pavg':precession_prior,
     'mu1': unnormalized_log_prior,
     'mu2': unnormalized_uniform_prior
 }
@@ -716,6 +722,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda_plus':[0.01,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   'eccentricity':[ECC_MIN, ECC_MAX],
+  'chi_pavg':[0.0,2.0],
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
@@ -989,12 +996,12 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
     length_scale_bounds_est = []
     for indx in np.arange(len(x[0])):
         # These length scales have been tuned by expereience
-        length_scale_est.append( 2*np.std(x[:,indx])  )  # auto-select range based on sampling retained
-        length_scale_min_here= np.max([1e-3,0.2*np.std(x[:,indx]/np.sqrt(len(x)))])
+        length_scale_est.append( 2*np.nanstd(x[:,indx])  )  # auto-select range based on sampling retained
+        length_scale_min_here= np.max([1e-3,0.2*np.nanstd(x[:,indx]/np.sqrt(len(x)))])
         if indx == mc_index:
-            length_scale_min_here= 0.2*np.std(x[:,indx]/np.sqrt(len(x)))
-            print(" Setting mc range: retained point range is ", np.std(x[:,indx]), " and target min is ", length_scale_min_here)
-        length_scale_bounds_est.append( (length_scale_min_here , 5*np.std(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
+            length_scale_min_here= 0.2*np.nanstd(x[:,indx]/np.sqrt(len(x)))
+            print(" Setting mc range: retained point range is ", np.nanstd(x[:,indx]), " and target min is ", length_scale_min_here)
+        length_scale_bounds_est.append( (length_scale_min_here , 5*np.nanstd(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
 
     print(" GP: Input sample size ", len(x), len(y))
     print(" GP: Estimated length scales ")
@@ -1456,8 +1463,13 @@ for line in dat:
 
     # INPUT GRID: Evaluate binary parameters on fitting coordinates
     line_out = np.zeros(len(coord_names)+2)
-    for x in np.arange(len(coord_names)):
-        line_out[x] = P.extract_param(coord_names[x])
+    chi_pavg_out = 0 #initialize
+    for x in np.arange(len(coord_names)):	
+        if coord_names[x] == 'chi_pavg':	
+            chi_pavg_out = P.extract_param('chi_pavg')	
+            line_out[x] = chi_pavg_out	
+        else:	
+            line_out[x] = P.extract_param(coord_names[x])
  #        line_out[x] = getattr(P, coord_names[x])
     line_out[-2] = line[col_lnL]
     line_out[-1] = line[col_lnL+1]  # adjoin error estimate
@@ -1476,7 +1488,10 @@ for line in dat:
         fac = 1
         if low_level_coord_names[x] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
-        line_out[x] = P.extract_param(low_level_coord_names[x])/fac
+        if low_level_coord_names[x] == 'chi_pavg':	
+            line_out[x] = chi_pavg_out	
+        else:	
+            line_out[x] = P.extract_param(low_level_coord_names[x])/fac
         if low_level_coord_names[x] in ['mc']:
             mc_index = x
     dat_out_low_level_coord_names.append(line_out)
@@ -1895,9 +1910,9 @@ if opts.sampler_method == "GMM":
 ##
 for p in low_level_coord_names:
     if not(opts.parameter_implied is None):
-       if p in opts.parameter_implied:
+       if p in opts.parameter_implied and not(p == 'chi_pavg'):
         # We do not need to sample parameters that are implied by other parameters, so we can overparameterize 
-        continue
+            continue
     prior_here = prior_map[p]
     range_here = prior_range_map[p]
 
@@ -2554,6 +2569,8 @@ for indx_here in indx_list:
             coord_to_assign = low_level_coord_names[indx]
             if coord_to_assign == 'xi':
                 coord_to_assign= 'chieff_aligned'
+            if coord_to_assign == 'chi_pavg':
+                continue #skipping chi_pavg
             Pgrid.assign_param(coord_to_assign, line[indx]*fac)
 #            print indx_here, coord_to_assign, line[indx]
         # Test for downselect
