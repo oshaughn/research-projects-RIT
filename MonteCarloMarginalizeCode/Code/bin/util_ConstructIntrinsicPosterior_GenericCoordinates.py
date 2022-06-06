@@ -2067,12 +2067,22 @@ if len(low_level_coord_names) ==9:
             return np.exp(my_fit([x,y,z,a,b,c,d,e,f]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f])))
+    def log_likelihood_function(x,y,z,a,b,c,d,e,f):  	
+        if isinstance(x,float):	
+            return my_fit([x,y,z,a,b,c,d,e,f])	
+        else:	
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f]))
 if len(low_level_coord_names) ==10:
     def likelihood_function(x,y,z,a,b,c,d,e,f,g):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e,f,g]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g])))
+    def log_likelihood_function(x,y,z,a,b,c,d,e,f,g):  	
+        if isinstance(x,float):	
+            return my_fit([x,y,z,a,b,c,d,e,f,g])	
+        else:	
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g]))
 
 
 n_step = int(opts.n_chunk)
