@@ -228,6 +228,7 @@ integration_params.add_option("--inclination-cosine-sampler",action='store_true'
 integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
 integration_params.add_option("--internal-sky-network-coordinates-raw",action='store_true',help="If specified, does not attempt to organize IFO network sensibly, uses them AS PROVIDED IN ORDER.")
 integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
+integration_params.add_option("--internal-use-lnL",action='store_true',help="likelihood returns lnL, and integrator integrates lnL")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
 optp.add_option_group(integration_params)
@@ -869,6 +870,10 @@ pinned_params.update({
 })
 if opts.sampler_method == "adaptive_cartesian_gpu":
   pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
+return_lnL=False
+if opts.sampler_method=="GMM" and opts.internal_use_lnL:
+  return_lnL=True
+  pinned_params.update({"use_lnL":True,"return_lnI":True})
 if opts.sampler_method == "GMM":
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
@@ -967,7 +972,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 lnL[i] = factored_likelihood.FactoredLogLikelihood(
                         P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
                 i+=1
-
+            if return_lnL:
+              return lnL - manual_avoid_overflow_logarithm
             return numpy.exp(lnL - manual_avoid_overflow_logarithm)
 
     else: # Sum over time for every point in other extrinsic params
@@ -1001,7 +1007,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, rholms_intp, rholms, cross_terms, cross_terms_V,                   
                         opts.l_max,interpolate=opts.interpolate_time)
                 i+=1
-
+            if return_lnL:
+              return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL -manual_avoid_overflow_logarithm)
 
      elif opts.vectorized: # use array-based multiplications, fewer for loops
@@ -1038,6 +1045,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
+            if return_lnL:
+              return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL-manual_avoid_overflow_logarithm)
         else: # vectorized and gpu either available or being forced to use xpy code path
             print( " Using CUDA GPU likelihood, if cupy available ")
@@ -1069,6 +1078,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
 #                nEvals +=len(right_ascension)
+                if return_lnL:
+                  return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
             else:
               print( " Using direct distance marginalization  ")
@@ -1144,6 +1155,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
 #                nEvals +=len(right_ascension)
+                if return_lnL:
+                  return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
      else: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
@@ -1186,6 +1199,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #            t_end =lal.GPSTimeNow() 
 #            print " Cost per evaluation ", (t_end - t_start)/len(q)
 #            print " Max lnL for this iteration ", numpy.max(lnL)
+            if return_lnL:
+              return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL - manual_avoid_overflow_logarithm)
 
     if opts.sampler_method == "adaptive_cartesian_gpu":
