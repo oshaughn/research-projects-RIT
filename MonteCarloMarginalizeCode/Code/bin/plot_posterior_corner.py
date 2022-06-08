@@ -236,6 +236,12 @@ def extract_combination_from_LI(samples_LI, p):
         with Pool(12) as pool:   
             chip = np.array(pool.map(fchip, samples))          
         return chip
+    if p == 'shu':
+        samples = np.array([samples_LI["m1"], samples_LI["m2"], samples_LI["a1x"], samples_LI["a1y"], samples_LI["a1z"], samples_LI["a2x"], samples_LI["a2y"], samples_LI["a2z"]\
+]).T
+        with Pool(12) as pool:
+            shu = np.array(pool.map(fshu, samples))
+        return shu
 
     # Backup : access lambdat if not present
     if (p == 'lambdat' or p=='dlambdat') and 'lambda1' in samples.dtype.names:
@@ -270,6 +276,19 @@ def fchipavg(sample):
             else:
                 chipavg = P.extract_param('chi_pavg')
             return chipavg     
+
+def fshu(sample):
+            P=lalsimutils.ChooseWaveformParams()
+            P.m1 = sample[0]
+            P.m2 = sample[1]
+            P.s1x = sample[2]
+            P.s1y = sample[3]
+            P.s1z = sample[4]
+            P.s2x = sample[5]
+            P.s2y = sample[6]
+            P.s2z = sample[7]
+            shu = P.extract_param('shu')
+            return shu
 
 def fchip(sample):
             P=lalsimutils.ChooseWaveformParams()
