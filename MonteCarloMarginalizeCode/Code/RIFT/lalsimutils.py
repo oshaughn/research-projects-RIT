@@ -877,7 +877,7 @@ class ChooseWaveformParams:
         if p == 'q_mu':   # trivial, more important what is treated as constant
             return self.m2/self.m1  
         if p == 'chi2z_mu':
-            return P.s2z
+            return self.s2z
         if p == 'lambda_plus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
             return (self.lambda1+self.lambda2)/2.
@@ -1061,98 +1061,111 @@ class ChooseWaveformParams:
             Sp = np.max([np.linalg.norm( A1*S1p), np.linalg.norm(A2*S2p)])
             return Sp/(A1*m1**2)  # divide by term for *larger* BH
         if p == 'chi_pavg':
-            # implementation of the averaged precession parameter from https://arxiv.org/pdf/2011.11948.pdf
-            # CH 21
-            ##########################################
-            G_SI = 6.67e-11 #SI units [m^3 kg^-1 s^-2]
-            c_SI = 2.99e8 #SI units [m s^-1]
-            SM = 1.98847e30 #Solar Mass in [kg]
-            conv = SM*G_SI/c_SI**3 #converts [SM] to [s kg^-1]
-            m1 = conv*self.extract_param('m1') #mass of object 1
-            m2 = conv*self.extract_param('m2') #mass of object 2
-            q = m2/m1 #mass ratio
-            thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame() #inheriting values from system
-            deltaphi = phi12
-            #implementation
-            if self.fref == 0:
-                fref = 20 #default fixed frequency value
+            if (abs(self.s1x) < 1e-4 and abs(self.s1y) < 1e-4 and abs(self.s2x) < 1e-4 and abs(self.s2y) < 1e-4):
+                chipavg = 0.0
+            elif (abs(self.s1x) < 1e-4 and abs(self.s1y) < 1e-4 and abs(self.s1z) < 1e-4) or (abs(self.s2x) < 1e-4 and abs(self.s2y) < 1e-4 and abs(self.s2z) < 1e-4):
+                chipavg = self.extract_param('chi_p')
             else:
-                fref = self.fref #user spec
-            def ftor_PN(f, q, chi1, chi2, theta1, theta2, deltaphi):
-                '''Convert GW frequency to PN orbital separation conversion'''
-                om = np.pi * f 
-                M_sec = m1 + m2
-                mom = M_sec * om                
-                eta = m1*m2
-                ct1 = np.cos(theta1)
-                ct2 = np.cos(theta2)
-                ct12 = np.sin(theta1) * np.sin(theta2) * np.cos(deltaphi) + ct1 * ct2
-                # Eq. 4.13, Kidder 1995. gr-qc/9506022
-                r = (mom)**(-2./3.)*(1. \
-                                - (1./3.)*(3.-eta)*mom**(2./3.)  \
-                                - (1./3.)* ( chi1*ct1*(2.*m1**2.+3.*eta) + chi2*ct2*(2.*m2**2.+3.*eta))*mom \
-                                + ( eta*(19./4. + eta/9.) -eta*chi1*chi2/2. * (ct12 - 3.*ct1*ct2 ))*mom**(4./3.)\
-                                )
-                return r
-            def omegatilde(q):
-                '''Ratio between the spin frequency, leading order term. Eq (13)'''
-                return q*(4*q+3)/(4+3*q)
-            def chip_terms(q,chi1,chi2,theta1,theta2):
-                '''Two chip terms'''
-                term1 = chi1*np.sin(theta1)
-                term2 = omegatilde(q) * chi2*np.sin(theta2)
-                return term1,term2
-            def chip_generalized(q,chi1,chi2,theta1,theta2,deltaphi):
-                '''Generalized definition of chip. Eq (15)'''
-                term1, term2 = chip_terms(q,chi1,chi2,theta1,theta2)
-                return (term1**2 + term2**2 + 2*term1*term2*np.cos(deltaphi))**0.5
-            @np.vectorize
-            def chip_averaged(q,chi1,chi2,theta1,theta2,deltaphi,r=None,fref=None):
-                '''Averaged definition of chip. Eq (15) and Appendix A'''
-                # Convert frequency to separation, if necessary
-                if r is None and fref is None: raise ValueError
-                elif r is not None and fref is not None: raise ValueError
-                if r is None:
-                    # Eq A1
-                    r = ftor_PN(fref, q, chi1, chi2, theta1, theta2, deltaphi)
-                #Compute constants of motion
-                L = (r**0.5)*q/(1+q)**2
-                S1 = chi1/(1.+q)**2
-                S2 = (q**2)*chi2/(1.+q)**2
-                # Eq 5
-                chieff = (chi1*np.cos(theta1)+q*chi2*np.cos(theta2))/(1+q)
-                # Eq A2
-                J = (L**2 + S1**2 + S2**2 + 2*L*(S1*np.cos(theta1) + S2*np.cos(theta2)) + 2*S1*S2*(np.sin(theta1)*np.sin(theta2)*np.cos(deltaphi) + np.cos(theta1)*np.cos(theta2)))**0.5
-                # Solve dSdt=0. Details in arXiv:1506.03492
-                Sminus,Splus=precession.Sb_limits(chieff,J,q,S1,S2,r)
-                def integrand_numerator(S):
-                    '''chip(S)/dSdt(S)'''
-                    #Eq A3
-                    theta1ofS = np.arccos( (1/(2*(1-q)*S1)) * ( (J**2-L**2-S**2)/L - 2*q*chieff/(1+q) ) )
-                    #Eq A4
-                    theta2ofS = np.arccos( (q/(2*(1-q)*S2)) * ( -(J**2-L**2-S**2)/L + 2*chieff/(1+q) ) )
-                    # Eq A5
-                    deltaphiofS = np.arccos( ( S**2-S1**2-S2**2 - 2*S1*S2*np.cos(theta1ofS)*np.cos(theta2ofS) ) / (2*S1*S2*np.sin(theta1ofS)*np.sin(theta2ofS)) )
-                    # Eq A6 (prefactor cancels out)
-                    dSdtofS = np.sin(theta1ofS)*np.sin(theta2ofS)*np.sin(deltaphiofS)/S
-                    # Eq (15)
-                    chipofS = chip_generalized(q,chi1,chi2,theta1ofS,theta2ofS,deltaphiofS)
-                    return chipofS/dSdtofS
-                numerator = scipy.integrate.quad(integrand_numerator, Sminus, Splus)[0]
-                def integrand_denominator(S):
-                    '''1/dSdt(S)'''
-                    #Eq A3
-                    theta1ofS = np.arccos( (1/(2*(1-q)*S1)) * ( (J**2-L**2-S**2)/L - 2*q*chieff/(1+q) ) )
-                    #Eq A4
-                    theta2ofS = np.arccos( (q/(2*(1-q)*S2)) * ( -(J**2-L**2-S**2)/L + 2*chieff/(1+q) ) )
-                    # Eq A5
-                    deltaphiofS = np.arccos( ( S**2-S1**2-S2**2 - 2*S1*S2*np.cos(theta1ofS)*np.cos(theta2ofS) ) / (2*S1*S2*np.sin(theta1ofS)*np.sin(theta2ofS)) )
-                    # Eq A6 (prefactor cancels out)
-                    dSdtofS = np.sin(theta1ofS)*np.sin(theta2ofS)*np.sin(deltaphiofS)/S
-                    return 1/dSdtofS
-                denominator = scipy.integrate.quad(integrand_denominator, Sminus, Splus)[0]
-                return numerator/denominator
-            return chip_averaged(q,chi1,chi2,theta1,theta2,deltaphi,fref=fref)    
+                try:
+                    # implementation of the averaged precession parameter from https://arxiv.org/pdf/2011.11948.pdf
+                    # CH 21
+                    ##########################################
+                    G_SI = 6.67e-11 #SI units [m^3 kg^-1 s^-2]
+                    c_SI = 2.99e8 #SI units [m s^-1]
+                    SM = 1.98847e30 #Solar Mass in [kg]
+                    conv = SM*G_SI/c_SI**3 #converts [SM] to [s kg^-1]
+                    if self.extract_param('m1') > 1e29:
+                        m1 = conv*self.extract_param('m1')/SM 
+                        m2 = conv*self.extract_param('m2')/SM
+                    else:
+                        m1 = conv*self.extract_param('m1')
+                        m2 = conv*self.extract_param('m2')
+                    q = m2/m1 #mass ratio
+                    thetaJN,phiJL,theta1,theta2,phi12,chi1,chi2,psiJ = self.extract_system_frame() #inheriting values from system
+                    deltaphi = phi12
+                    #implementation
+                    if self.fref == 0:
+                        fref = 20 #default fixed frequency value
+                    else:
+                        fref = self.fref #user spec
+                    def ftor_PN(f, q, chi1, chi2, theta1, theta2, deltaphi):
+                        '''Convert GW frequency to PN orbital separation conversion'''
+                        om = np.pi * f 
+                        M_sec = m1 + m2
+                        mom = M_sec * om                
+                        eta = m1*m2
+                        ct1 = np.cos(theta1)
+                        ct2 = np.cos(theta2)
+                        ct12 = np.sin(theta1) * np.sin(theta2) * np.cos(deltaphi) + ct1 * ct2
+                        # Eq. 4.13, Kidder 1995. gr-qc/9506022
+                        r = (mom)**(-2./3.)*(1. \
+                                        - (1./3.)*(3.-eta)*mom**(2./3.)  \
+                                        - (1./3.)* ( chi1*ct1*(2.*m1**2.+3.*eta) + chi2*ct2*(2.*m2**2.+3.*eta))*mom \
+                                        + ( eta*(19./4. + eta/9.) -eta*chi1*chi2/2. * (ct12 - 3.*ct1*ct2 ))*mom**(4./3.)\
+                                        )
+                        return r
+                    def omegatilde(q):
+                        '''Ratio between the spin frequency, leading order term. Eq (13)'''
+                        return q*(4*q+3)/(4+3*q)
+                    def chip_terms(q,chi1,chi2,theta1,theta2):
+                        '''Two chip terms'''
+                        term1 = chi1*np.sin(theta1)
+                        term2 = omegatilde(q) * chi2*np.sin(theta2)
+                        return term1,term2
+                    def chip_generalized(q,chi1,chi2,theta1,theta2,deltaphi):
+                        '''Generalized definition of chip. Eq (15)'''
+                        term1, term2 = chip_terms(q,chi1,chi2,theta1,theta2)
+                        return (term1**2 + term2**2 + 2*term1*term2*np.cos(deltaphi))**0.5
+                    @np.vectorize
+                    def chip_averaged(q,chi1,chi2,theta1,theta2,deltaphi,r=None,fref=None):
+                        '''Averaged definition of chip. Eq (15) and Appendix A'''
+                        # Convert frequency to separation, if necessary
+                        if r is None and fref is None: raise ValueError
+                        elif r is not None and fref is not None: raise ValueError
+                        if r is None:
+                            # Eq A1
+                            r = ftor_PN(fref, q, chi1, chi2, theta1, theta2, deltaphi)
+                        #Compute constants of motion
+                        L = (r**0.5)*q/(1+q)**2
+                        S1 = chi1/(1.+q)**2
+                        S2 = (q**2)*chi2/(1.+q)**2
+                        # Eq 5
+                        chieff = (chi1*np.cos(theta1)+q*chi2*np.cos(theta2))/(1+q)
+                        # Eq A2
+                        J = (L**2 + S1**2 + S2**2 + 2*L*(S1*np.cos(theta1) + S2*np.cos(theta2)) + 2*S1*S2*(np.sin(theta1)*np.sin(theta2)*np.cos(deltaphi) + np.cos(theta1)*np.cos(theta2)))**0.5
+                        # Solve dSdt=0. Details in arXiv:1506.03492
+                        Sminus,Splus=precession.Sb_limits(chieff,J,q,S1,S2,r)
+                        def integrand_numerator(S):
+                            '''chip(S)/dSdt(S)'''
+                            #Eq A3
+                            theta1ofS = np.arccos( (1/(2*(1-q)*S1)) * ( (J**2-L**2-S**2)/L - 2*q*chieff/(1+q) ) )
+                            #Eq A4
+                            theta2ofS = np.arccos( (q/(2*(1-q)*S2)) * ( -(J**2-L**2-S**2)/L + 2*chieff/(1+q) ) )
+                            # Eq A5
+                            deltaphiofS = np.arccos( ( S**2-S1**2-S2**2 - 2*S1*S2*np.cos(theta1ofS)*np.cos(theta2ofS) ) / (2*S1*S2*np.sin(theta1ofS)*np.sin(theta2ofS)) )
+                            # Eq A6 (prefactor cancels out)
+                            dSdtofS = np.sin(theta1ofS)*np.sin(theta2ofS)*np.sin(deltaphiofS)/S
+                            # Eq (15)
+                            chipofS = chip_generalized(q,chi1,chi2,theta1ofS,theta2ofS,deltaphiofS)
+                            return chipofS/dSdtofS
+                        numerator = scipy.integrate.quad(integrand_numerator, Sminus, Splus)[0]
+                        def integrand_denominator(S):
+                            '''1/dSdt(S)'''
+                            #Eq A3
+                            theta1ofS = np.arccos( (1/(2*(1-q)*S1)) * ( (J**2-L**2-S**2)/L - 2*q*chieff/(1+q) ) )
+                            #Eq A4
+                            theta2ofS = np.arccos( (q/(2*(1-q)*S2)) * ( -(J**2-L**2-S**2)/L + 2*chieff/(1+q) ) )
+                            # Eq A5
+                            deltaphiofS = np.arccos( ( S**2-S1**2-S2**2 - 2*S1*S2*np.cos(theta1ofS)*np.cos(theta2ofS) ) / (2*S1*S2*np.sin(theta1ofS)*np.sin(theta2ofS)) )
+                            # Eq A6 (prefactor cancels out)
+                            dSdtofS = np.sin(theta1ofS)*np.sin(theta2ofS)*np.sin(deltaphiofS)/S
+                            return 1/dSdtofS
+                        denominator = scipy.integrate.quad(integrand_denominator, Sminus, Splus)[0]
+                        return numerator/denominator
+                    chipavg = chip_averaged(q,chi1,chi2,theta1,theta2,deltaphi,fref=fref)
+                except ZeroDivisionError:
+                    chipavg = self.extract_param('chi_p')
+            return chipavg    
         if p == 'LambdaTilde':
             Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
             return Lt
@@ -4495,7 +4508,8 @@ def DataRollTime(ht,DeltaT):  # ONLY FOR TIME DOMAIN. ACTS IN PLACE
     return DataRollBins(ht, nL)            
 
 
-def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,source_redshift=0):
+def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],
+				 =['m1','m2'],enforce_kerr=False,source_redshift=0):
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q).  Note that if ChooseWaveformParam structuers are built ,the loops can be quite slow
 
@@ -4697,7 +4711,8 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
     # note NO MASS CONVERSION here, because the fit is in solar mass units!
     for indx_out  in np.arange(len(x_in)):
         for indx in np.arange(len(low_level_coord_names)):
-            P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
+		if low_level_coord_names[indx] != 'chi_pavg':
+			P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])            
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
         P.m1 = P.m1*(1+source_redshift)
         P.m2 = P.m2*(1+source_redshift)
