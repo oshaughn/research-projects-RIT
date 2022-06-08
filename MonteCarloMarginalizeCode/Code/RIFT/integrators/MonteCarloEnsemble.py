@@ -60,13 +60,14 @@ class integrator:
         Whether or not lnL or L will be returned by the integrand
     '''
 
-    def __init__(self, d, bounds, gmm_dict, n_comp, n=None, prior=None,
+    def __init__(self, d, bounds, gmm_dict, gmm_adapt=None,n_comp, n=None, prior=None,
                 user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_epsilon=None,tempering_exp=1,temper_log=False):
         # if 'return_lnI' is active, 'integral' holds the *logarithm* of the integral.
         # user-specified parameters
         self.d = d
         self.bounds = bounds
         self.gmm_dict = gmm_dict
+        self.gmm_adapt = gmm_adapt
         self.gmm_epsilon= gmm_epsilon
         self.n_comp = n_comp
         self.user_func=user_func
@@ -160,6 +161,10 @@ class integrator:
         if self.temper_log:
             log_weights =np.log(np.maximum(lnL,1e-5))   # simplest to do it this way
         for dim_group in self.gmm_dict: # iterate over grouped dimensions
+            if self.gmm_adapt:
+                if (dim_group in self.gmm_adapt):
+                    if not(self.gmm_adapt[dim_group]):   # disabling adaptation requires user *specifically request* not to use that dimension set; all other choices lead to adaptation
+                        continue
             # create a matrix of the left and right limits for this set of dimensions
             new_bounds = np.empty((len(dim_group), 2))
             new_bounds = self.bounds[dim_group]

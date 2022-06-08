@@ -312,7 +312,7 @@ class MCSampler(object):
         # do the integral
 
         integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=n, prior=self.calc_pdf,
-                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp) # reflect=reflect,
+                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_adapt=gmm_adapt,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp) # reflect=reflect,
         if not direct_eval:
             func = self.evaluate
         if use_lnL:
