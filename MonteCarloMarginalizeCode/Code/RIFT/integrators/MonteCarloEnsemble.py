@@ -60,8 +60,8 @@ class integrator:
         Whether or not lnL or L will be returned by the integrand
     '''
 
-    def __init__(self, d, bounds, gmm_dict, gmm_adapt=None,n_comp, n=None, prior=None,
-                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_epsilon=None,tempering_exp=1,temper_log=False):
+    def __init__(self, d, bounds, gmm_dict, n_comp, n=None, prior=None,
+                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_adapt=None,gmm_epsilon=None,tempering_exp=1,temper_log=False):
         # if 'return_lnI' is active, 'integral' holds the *logarithm* of the integral.
         # user-specified parameters
         self.d = d
