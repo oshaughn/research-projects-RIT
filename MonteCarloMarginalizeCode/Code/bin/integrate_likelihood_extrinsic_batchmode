@@ -189,7 +189,7 @@ optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tu
 optp.add_option("--psd-window-shape", type=float, default=0, help="Shape of Tukey window that *was* applied to the PSD being passed. If nonzero, we will rescale the PSD by the ratio of window shape results")
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 #optp.add_option("--n-fairdraw-extrinsic-samples",default=None,type=int,help="Extracts a concrete number of fair draw extrinsic samples, bounded above by n_eff")
-optp.add_option("--resample-time-marginalization",acton='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
+optp.add_option("--resample-time-marginalization",action='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
@@ -273,8 +273,18 @@ optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
 
+if opts.resample_time_marginalization:
+  import scipy.special
 if opts.resample_time_marginalization and not(opts.fairdraw_extrinsic_output):
   raise Exception(" Resampled time output requires --fairdraw-extrinsic-output ")
+
+# Fairdraw is NOT YET IMPLEMENTED for these other integrators!
+if opts.fairdraw_extrinsic_output:
+  if opts.sampler_method == 'adaptive_cartesian_gpu':
+    raise Exception(" Fairdraw not available  for this sampler")
+  if opts.sampler_method == 'GMM':
+    raise Exception(" Fairdraw not available  for this sampler")
+
 
 if opts.distance_marginalization:
   lookup_table = np.load(opts.distance_marginalization_lookup_table)
@@ -916,35 +926,46 @@ if opts.sampler_method == "GMM":
     if opts.distance_marginalization:
       unpinned_params.remove('distance')
 
-def resample_samples(my_samples): # uses LOTS of global variables, don't pass them all
+def resample_samples(my_samples,
+                     lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None): # uses LOTS of global variables, don't pass them all
   # will look a LOT like the likelihood function definitions, unfortunately
   if not opts.vectorized:
     raise Exception( ' resample_samples currently only for vectorized ')
   if opts.distance_marginalization:
     raise Exception( ' resample_samples currently only final extrinsic samples; you should NOT have distance marginalization on ')
 
+  n_samples = len(my_samples['longitude'])
+  print(" Time resampling size : {} ".format(n_samples))
 
+
+  # if we are using GPU-based generation this is ok; if itis mcsampler, we will have a lot of 'object' casts to fix, arg
+  
   tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-  P.phi =  identity_convert_togpu(my_samples['longitude'])  # cast to float
-  P.theta =  numpy.pi/2 - xpy_default.arccos(identity_convert_togpu(my_smaples['declination']))
-  P.tref = float(tref)
+  P.phi =  identity_convert_togpu(my_samples['right_ascension'])  # cast to float
+  P.theta =  numpy.pi/2 - identity_convert_togpu(my_samples['declination'])
+  P.tref = float(fiducial_epoch)
   P.phiref = xpy_asarray_already(my_samples['coa_phase'])
-  P.incl = xpy_asarray_alraedy(my_samples['inclination'])
+  P.incl = xpy_asarray_already(my_samples['inclination'])
   P.psi = xpy_asarray_already(my_samples['psi'])
   P.dist = identity_convert_togpu(my_samples['distance']* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
+  if not(cupy_success):
+    # convert objects
+    for name in ['phi','theta', 'phiref','incl', 'psi','dist']:
+      setattr(P,name, getattr(P,name).astype(float) )
 
-  
   lnLt = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True)
 
   lnLt = identity_convert(lnLt) # back to CPU.  Note we have removed offsets 
-  print(lnLt.shape, tvals.shape)
+  lnLt_norm = scipy.special.logsumexp(lnLt,axis=-1)
+#  print(lnLt.shape, lnLt_norm.shape,tvals.shape)
   # Loop over and resample in time, picking index according to weights
-  t_out = np.zeros(len(tvals))
-  for indx in lnLt:
-    t_out[indx] = np.random.choice(tvals, weights=np.exp(lnLt[indx]))
+  t_out = np.zeros(n_samples)
+  for indx in np.arange(n_samples):
+    t_out[indx] = np.random.choice(tvals, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
+#    print(' Resampled time offset {} '.format(t_out[indx])) #, lnLt[indx]-lnLt_norm[indx])
     
-  my_samples['tref'] = t_out + tref # add sample time jitter from reweighting to samples
+  my_samples['t_ref'] = fiducial_epoch+t_out # add sample time jitter from reweighting to samples
   
   
   return my_samples
@@ -1304,9 +1325,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       xmldoc = ligolw.Document()
       xmldoc.appendChild(ligolw.LIGO_LW())
       process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
-      if not opts.time_marginalization:
+      if not(opts.resample_time_marginalization): 
+        if not opts.time_marginalization:
             samples["t_ref"] += float(fiducial_epoch)
-      else:
+        else:
             samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(samples["psi"]))
       samples["polarization"] = samples["psi"]
       samples["coa_phase"] = samples["phi_orb"]
@@ -1329,7 +1351,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["alpha4"] =numpy.ones(samples["psi"].shape)*P.eccentricity
 
       if opts.resample_time_marginalization:
-        samples = resample_samples(samples)
+        samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict)
+#        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
       dict_out={"mass1": m1, "mass2": m2, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": numpy.sqrt(var)/res, "ttotal": sampler.ntotal}
@@ -1451,7 +1474,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 lnL_sofar = -np.inf
 no_adapt_sky = False
 for indx in numpy.arange(len(P_list)):
- try:
+ if True: #try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.no_adapt_after_first and (not no_adapt_sky):
@@ -1463,7 +1486,7 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
- except Exception as exception_failure:
+ else: #except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
   if opts.internal_make_empty_file_on_error:
