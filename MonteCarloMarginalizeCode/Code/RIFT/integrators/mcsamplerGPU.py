@@ -570,6 +570,8 @@ class MCSampler(object):
 
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
+        bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
 #        bUseMultiprocessing = kwargs['use_multiprocessing'] if 'use_multiprocessing' in kwargs else False
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
@@ -930,6 +932,8 @@ class MCSampler(object):
 
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
+        bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
 #        bUseMultiprocessing = kwargs['use_multiprocessing'] if 'use_multiprocessing' in kwargs else False
         nProcesses = kwargs['nprocesses'] if 'nprocesses' in kwargs else 2
@@ -1193,6 +1197,21 @@ class MCSampler(object):
                     self._rvs[key] = self._rvs[key][:,indx_list]
                 else:
                     self._rvs[key] = self._rvs[key][indx_list]
+
+        # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
+        if bFairdraw and not(n_extr is None):
+           n_extr = int(numpy.min([n_extr,1.5*eff_samp,1.5*neff]))
+           print(" Fairdraw size : ", n_extr)
+           wt = self.xpy.array(self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]/self.xpy.max(self._rvs["integrand"]),dtype=float)
+           wt *= 1.0/self.xpy.sum(wt)
+           if n_extr < len(self._rvs["integrand"]):
+               indx_list = self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
+               # FIXME: See previous FIXME
+               for key in list(self._rvs.keys()):
+                   if isinstance(key, tuple):
+                       self._rvs[key] = identity_convert(self._rvs[key][:,indx_list])
+                   else:
+                       self._rvs[key] = identity_convert(self._rvs[key][indx_list])
 
         # Create extra dictionary to return things
         dict_return ={}
