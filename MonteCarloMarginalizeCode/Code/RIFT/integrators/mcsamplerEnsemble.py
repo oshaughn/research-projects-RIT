@@ -312,7 +312,7 @@ class MCSampler(object):
         # do the integral
 
         integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=n, prior=self.calc_pdf,
-                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp) # reflect=reflect,
+                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_adapt=gmm_adapt,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp) # reflect=reflect,
         if not direct_eval:
             func = self.evaluate
         if use_lnL:
@@ -618,3 +618,17 @@ def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativ
     print(" Ln(evidence) sub-integral values, as used in tests  : ", igrandValues)
     return valTest> pcutNormalTest and igrandSigma < sigmaCutRelativeErrorThreshold   # Test on left returns a small value if implausible. Hence pcut ->0 becomes increasingly difficult (and requires statistical accidents). Test on right requires relative error in integral also to be small when pcut is small.   FIXME: Give these variables two different names
     
+
+
+from . import gaussian_mixture_model as GMM
+def create_wide_single_component_prior(bounds, epsilon=None):
+    """
+    create_wide_single_component_prior(bounds) : returns a gmm dictionary which is very wide
+    """
+    model = GMM.gmm(1, bounds, epsilon=epsilon)
+    widths = np.array([ bounds[k][1] - bounds[k][0] for k in np.arange(len(bounds))])  
+    model.means = [np.array([np.mean(bounds[k]) for k in np.arange(len(bounds))]) ]  # single component
+    model.covariances = [np.diag( widths**2)]
+    model.weights = [1]
+    model.adapt = [False]
+    model.d = len(bounds)
