@@ -205,6 +205,7 @@ parser.add_argument("--general-request-disk",default="4M",type=str,help="Request
 parser.add_argument("--ile-n-events-to-analyze",default=1,type=int,help="If >1, you are using ILE_batchmode.  Structures the DAG correctly to account for batch cadence")
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
+parser.add_argument("--use-eccentricity",default=False,action='store_true')
 parser.add_argument("--test-exe",default=None,help="filename of test code or equivalent executable.  Must have a --test-output <fname> argument.  Used for convergence testing or other termination. NOT ACTIVE; see 'convergence_test_samples.py' for example")
 parser.add_argument("--plot-exe",default=None,help="filename of plot code or equivalent executable.  Will default to `which plot_posterior_corner.py`.  Default is to plot last set of samples")
 parser.add_argument("--gridinit-exe",default=None,help="filename of initial grid creation or equivalent executable.  Will default to `which util_ManualOverlapGrid.py`.  Must create overlap-grid-0.xml.gz")
@@ -697,7 +698,10 @@ if  (opts.last_iteration_extrinsic):
 
 ##   Consolidate job(s)
 #   - consolidate output of single previous job
-con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str='',base=opts.working_directory+"/iteration_$(macroiteration)_ile", target=opts.working_directory+'/consolidated_$(macroiteration)',universe=local_worker_universe,no_grid=no_worker_grid)
+if not opts.use_eccentricity:
+    con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str='',base=opts.working_directory+"/iteration_$(macroiteration)_ile", target=opts.working_directory+'/consolidated_$(macroiteration)',universe=local_worker_universe,no_grid=no_worker_grid)
+else:
+    con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str="--eccentricity",base=opts.working_directory+"/iteration_$(macroiteration)_ile", target=opts.working_directory+'/consolidated_$(macroiteration)',universe=local_worker_universe,no_grid=no_worker_grid)
 # Modify: set 'initialdir' : should run in top-level direcory
 #con_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_con")
 # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1152,6 +1156,8 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += " --use-singularity "
         if opts.cache_file:
             cmd += " --cache-file {} ".format(opts.cache_file)
+        if opts.frames_dir:
+            cmd += " --frames-dir {} ".format(opts.frames_dir)
         if opts.use_osg:
             cmd += " --use-osg "
             if opts.use_cvmfs_frames:
@@ -1174,7 +1180,7 @@ for it in np.arange(it_start,opts.n_iterations):
             test_args_optin = "X  --parameter m1 --method lame "
         if opts.puff_args and opts.puff_cadence:
             # always puff in the final stage, it can be dangerous not to
-            cmd += " --puff-args {} --puff-cadence {} ".format(opts.puff_args, opts.puff_cadence)
+            cmd += " --puff-exe {} --puff-args {} --puff-cadence {} --puff-max-it 10  ".format(opts.puff_exe, opts.puff_args, opts.puff_cadence)
         fname_subdag_test_args = opts.working_directory+"/iteration_{}_cip/args_test.txt".format(it)
         with open(fname_subdag_test_args,'w') as f:
             f.write(test_args_optin)

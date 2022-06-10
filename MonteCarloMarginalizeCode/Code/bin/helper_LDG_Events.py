@@ -175,6 +175,7 @@ parser.add_argument("--psd-file", action="append", help="instrument=psd-file, e.
 parser.add_argument("--assume-fiducial-psd-files", action="store_true", help="Will populate the arguments --psd-file IFO=IFO-psd.xml.gz for all IFOs being used, based on data availability.   Intended for user to specify PSD files later, or for DAG to build BW PSDs. ")
 parser.add_argument("--use-online-psd",action='store_true',help='Use PSD from gracedb, if available')
 parser.add_argument("--assume-matter",action='store_true',help="If present, the code will add options necessary to manage tidal arguments. The proposed fit strategy and initial grid will allow for matter")
+parser.add_argument("--assume-eccentric",action='store_true',help="If present, the code will add options necessary to manage eccentric arguments. The proposed fit strategy and initial grid will allow for eccentricity")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-volumetric-spin",action='store_true',help="If present, the code will assume a volumetric spin prior in its last iterations. If *not* present, the code will adopt a uniform magnitude spin prior in its last iterations. If not present, generally more iterations are taken.")
@@ -943,7 +944,8 @@ elif opts.data_LI_seglen:
     data_end_time = event_dict["tref"]+2
     data_start_time = event_dict["tref"] +2 - seglen
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0  --window-shape " + str(window_shape)
-
+if opts.assume_eccentric:
+    helper_ile_args += " --save-eccentricity "
 if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 10.):
     cmd  = "util_AnalyticFisherGrid.py  --inj-file-out  proposed-grid  "
     # Add standard downselects : do not have m1, m2 be less than 1
@@ -1388,7 +1390,9 @@ if opts.assume_matter:
 else:
     with open("helper_convert_args.txt",'w+') as f:
         f.write(" --fref {} ".format(opts.fmin_template))   # needed to insure correct precession angles derived from internal conversion
-
+if opts.assume_eccentric:
+    with open("helper_convert_args.txt",'w+') as f:
+        f.write(" --export-eccentricity ")
 
 if opts.propose_fit_strategy:
     with open("helper_puff_max_it.txt",'w') as f:

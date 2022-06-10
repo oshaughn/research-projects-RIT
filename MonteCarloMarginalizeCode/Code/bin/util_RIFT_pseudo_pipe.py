@@ -134,6 +134,7 @@ parser.add_argument("--assume-nospin",action='store_true', help="Force analysis 
 parser.add_argument("--assume-precessing",action='store_true', help="Force analysis *with* transverse spins")
 parser.add_argument("--assume-nonprecessing",action='store_true', help="Force analysis *without* transverse spins")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
+parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
@@ -167,6 +168,8 @@ parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
+parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
+parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-eta-range",default=None,type=str,help="Pass this argumen through to the helper to set the eta range")
 parser.add_argument("--force-hint-snr",default=None,type=str,help="Pass this argumen through to the helper to control source amplitude effects")
@@ -185,7 +188,7 @@ parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number of jobs to use in last stage.  Hopefully in future auto-set")
 parser.add_argument("--cip-quadratic-first",action='store_true')
-parser.add_argument("--n-output-samples",type=int,default=8000,help="Number of output samples generated in the final iteration")
+parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the final iteration")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
 parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true',help="Passthrough to ILE ")
@@ -373,12 +376,15 @@ if opts.choose_data_LI_seglen:
 
 
 is_analysis_precessing =False
+is_analysis_eccentric =False
 if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or ('SpinTaylor' in opts.approx) or ('IMRPhenomTP' in opts.approx or ('IMRPhenomXP' in opts.approx)):
         is_analysis_precessing=True
 if opts.assume_precessing:
         is_analysis_precessing = True
 if opts.assume_nonprecessing:
         is_analysis_precessing = False
+if opts.assume_eccentric:
+        is_analysis_eccentric = True
 
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
@@ -394,6 +400,8 @@ if opts.data_LI_seglen:
     dirname_run += "_LIseglen"+str(opts.data_LI_seglen)
 if opts.assume_matter:
     dirname_run += "_with_matter"
+if opts.assume_eccentric:
+    dirname_run += "_with_eccentricity"
 if opts.no_matter:
     dirname_run += "_no_matter"
 if opts.assume_highq:
@@ -500,6 +508,8 @@ else:
   if is_analysis_precessing:
         cmd += " --assume-precessing-spin "
         npts_it = 1500
+if is_analysis_eccentric:
+    cmd += " --assume-eccentric "
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
@@ -549,7 +559,8 @@ elif opts.use_cov_early:
     cmd += " --use-cov-early "
 if opts.use_osg:
     cmd += " --use-osg "
-    cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful
+    if not(opts.use_osg_file_transfer):
+        cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful
 if opts.use_ini:
     cmd += " --use-ini " + opts.use_ini
     cmd += " --sim-xml {}/target_params.xml.gz --event 0 ".format(base_dir + "/"+ dirname_run)  # full path to target_params.xml.gz
@@ -771,6 +782,14 @@ for indx in np.arange(len(instructions_cip)):
         # IMPLEMENT THIS
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
+    if opts.assume_eccentric:
+        line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+        if not(opts.force_ecc_max is None):
+            ecc_max = opts.force_ecc_max
+            line += " --ecc-max {}  ".format(ecc_max)
+        if not(opts.force_ecc_min is None):
+            ecc_min = opts.force_ecc_min
+            line += " --ecc-min {}  ".format(ecc_min)
     line += "\n"
     lines.append(line)
 
@@ -829,6 +848,8 @@ puff_params = ' '.join(instructions_puff)
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
+if opts.assume_eccentric:
+        puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range '[0,0.9]' "
 if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3
@@ -885,6 +906,8 @@ if not(opts.ile_runtime_max_minutes is None):
     cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
+if opts.assume_eccentric:
+    cmd += " --use-eccentricity "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
     cmd += " --cip-exe `which util_AMRGrid.py ` "
@@ -926,7 +949,7 @@ points-per-side=8
         shutil.copyfile("intrinsic_grid_iteration_0.xml.gz", "proposed-grid.xml.gz")  # Actually put the grid in the right place
     else:
         # don't use bank files, instead use manually-prescribed mc, eta, spin range. SHOULD FIX TO BE TIGHTER
-        mc_min,mc_max = guess_mc_range(event_dict,force_mc_range=opts.force_mc_range)
+        mc_min,mc_max = lalsimutils.guess_mc_range(event_dict,force_mc_range=opts.force_mc_range)
         amr_coord_dist  = "mchirp_eta"
         if opts.internal_use_aligned_phase_coordinates:
             amr_coord_dist = "mu1_mu2_q_s2z"
@@ -970,7 +993,8 @@ if opts.use_osg:
         cmd += " --use-cvmfs-frames "
     else:  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
         os.system("util_ForOSG_MakeLocalFramesDir.sh local.cache")
-        os.system("echo frames_dir >> helper_transfer_files.txt")
+#        os.system("echo ../frames_dir >> helper_transfer_files.txt")
+        cmd += " --frames-dir `pwd`/frames_dir "
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
 if opts.condor_local_nonworker:
     cmd += " --condor-local-nonworker "

@@ -2,28 +2,45 @@
 
 CMD_LINE=$@
 
+PLOT=plot_posterior_corner.py
+#PLOT=echo
+
+
+# Print preliminary assessments
+N_MAIN=`ls posterior_samples*.dat | wc -l`
+N_SUBDAG=`ls iter*cip/posterior_samples*.dat | wc -l`
+N_TOT=`expr ${N_MAIN} + ${N_SUBDAG}`
+IT_SUBDAG=` ls iter*cip/ILE.sub | tr '/' ' ' | awk '{print $1}' | tr '_' ' ' | awk '{print $2}'`
+echo " Plots expected: total, main, subdag = ${N_TOT} ${N_MAIN} ${N_SUBDAG} "
+echo " Subdag iteration : ${IT_SUBDAG} "
+
+
+
 plot_up_to() {
  n_it_max=$1
  n_it_max_before=`expr ${n_it_max}  - 1 `
  USECOUNTER=0
  fnames_here=`ls posterior_samples*.dat | sort -n | head -n ${n_it_max}`
  echo Filenames ${n_it_max} : ${fnames_here}
+ echo Composite files 0 ... ${n_it_max_before}
  rm -rf comp_so_far; 
  for id in `seq 0 ${n_it_max_before}`; do cat consolidated_${id}.composite >> comp_so_far; done
  (for name in ${fnames_here}; do echo --posterior-file ${name} --posterior-label ${USECOUNTER}  ; USECOUNTER=`expr ${USECOUNTER} + 1`;  done) | tr '\n' ' ' > myfile.txt
  echo ${CMD_LINE}  `cat myfile.txt` > myargs.txt
- #plot_posterior_corner.py `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
- #mv corner*.png  anim_${n_it_max}.png
 }
 
 plot_up_to_after() {
  it_subdag=$1
  n_it_max=$2
- n_it_max_before=`expr ${n_it_max}  - 1 `
+ size_end=`expr ${n_it_max} - ${it_subdag}`
+ n_it_max_before=`expr ${n_it_max}   `  # include last ILE step before subdag
   USECOUNTER=${it_subdag}
+ n_post_top=`ls posterior_samples*.dat | wc -l`
+ if [ ${n_post_top} \> ${it_subdag} ]; then
+   echo ===== FILES POST SUBDAG DETECTED : ${n_post_top} ${it_subdag} ${size_end}
  fnames_before=`ls posterior_samples*.dat | sort -n | head -n ${it_subdag}`
  fnames_subdag=`ls iteration_${it_subdag}_cip/posterior_samples*.dag | sort -n `
- fnames_here=`ls posterior_samples*.dat | sort -n | head -n ${n_it_max} |  tail -n +${it_subdag}`
+ fnames_here=`ls posterior_samples*.dat | sort -n | head -n ${n_it_max} |  tail -n ${size_end}`
   echo Filenames after subdag: ${n_it_max} : ${fnames_here}
   rm -rf comp_so_far;
  for id in `seq 0 ${n_it_max_before}`; do cat consolidated_${id}.composite >> comp_so_far; done
@@ -32,13 +49,14 @@ plot_up_to_after() {
 # (for name in ${fnames_subdag}; do echo --posterior-file ${name} --posterior-label Z${USECOUNTER}  ; USECOUNTER=`expr ${USECOUNTER} + 1`;  done) | tr '\n' ' ' > myfile2.txt
  (for name in ${fnames_here}; do echo --posterior-file ${name} --posterior-label F${USECOUNTER}  ; USECOUNTER=`expr ${USECOUNTER} + 1`;  done) | tr '\n' ' ' > myfile3.txt
   echo `cat myfile1.txt myfile2.txt myfile3.txt` >>myargs.txt
+ fi
 }
 
 plot_subdag_up_to(){
  it_subdag=$1
  n_it_max=$2
   USECOUNTER=${it_subdag}
- n_it_max_before=`expr ${it_subdag}  - 1 `
+ n_it_max_before=`expr ${it_subdag}   `
  n_it_max_before_subdag=`expr ${n_it_max} - 1`
 # fnames_old=`ls posterior_samples*.dat | sort -n | head -n ${n_it_max}`
  fnames_here=`ls iteration_${it_subdag}_cip/posterior_samples*.dat | sort -n | head -n ${n_it_max}`
@@ -53,73 +71,54 @@ plot_subdag_up_to(){
 }
 
 
-N_MAX=`ls posterior_samples*.dat | wc -l`
-if [ -e  iteration_4_cip/all.net  ]; then
-  N_MAX=4
-elif [ -e iteration_3_cip/all.net ]; then
- N_MAX=3
-elif [ -e  iteration_2_cip/all.net  ]; then
- N_MAX=2
-fi
+N_MAX=${IT_SUBDAG} # `ls posterior_samples*.dat | wc -l`
 
-N_MAX_ALL=`ls posterior_samples*.dat | wc -l`
-
+N_MAX_ALL=${N_TOT}
+echo " ==== INITIAL STAGE "
 for i in `seq 1 ${N_MAX}`
 do
   plot_up_to $i
-  plot_posterior_corner.py `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
+  ${PLOT} `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
  mv corner*.png  anim_${i}.png
 done
 IT_PLOT=${N_MAX}
 
-# Plot intermediate steps
-if [ -e iteration_4_cip/all.net ]; then
-  echo subdag ready
- IT_PLOT=${N_MAX}
-  N_SUB_MAX=`ls iter*cip/posterior_samples*.dat | wc -l`
- for j in `seq 1 ${N_SUB_MAX}`
- do
-  IT_PLOT=`expr ${IT_PLOT} + 1 `
-  plot_up_to ${N_MAX}
-  plot_subdag_up_to 4 $j
-  plot_posterior_corner.py `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
-  mv corner*.png anim_${IT_PLOT}.png
- done
-elif [ -e iteration_3_cip/all.net ]; then 
-  echo subdag ready
- IT_PLOT=${N_MAX}
-  N_SUB_MAX=`ls iter*cip/posterior_samples*.dat | wc -l`
- for j in `seq 1 ${N_SUB_MAX}`
- do
-  IT_PLOT=`expr ${IT_PLOT} + 1 `
-  plot_up_to ${N_MAX}
-  plot_subdag_up_to 3 $j
-  plot_posterior_corner.py `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
-  mv corner*.png anim_${IT_PLOT}.png
- done
-elif [ -e iteration_2_cip/all.net ]; then
-  echo subdag ready
- IT_PLOT=${N_MAX}
-  N_SUB_MAX=`ls iter*cip/posterior_samples*.dat | wc -l`
- for j in `seq 1 ${N_SUB_MAX}`
- do
-  IT_PLOT=`expr ${IT_PLOT} + 1 `
-  plot_up_to ${N_MAX}
-  plot_subdag_up_to 2 $j
-  plot_posterior_corner.py `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
-  mv corner*.png anim_${IT_PLOT}.png
- done
+if [ ${N_SUBDAG} == 0 ]; then
+  exit 0
 fi
+echo " == POST INITIAL STAGE: " ${IT_PLOT} plots made
+
+for j in `seq 1 ${N_SUBDAG}`
+do
+  IT_PLOT=`expr ${IT_PLOT} + 1 `
+  plot_up_to ${N_MAX}
+  plot_subdag_up_to ${IT_SUBDAG} $j
+  ${PLOT} `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
+  mv corner*.png anim_${IT_PLOT}.png
+done
+
+
+# Test if main files exist after subdag
+if [ ${N_MAIN} -gt ${IT_SUBDAG} ]; then
+  echo " More plots after subdag : ${N_MAIN} ${IT_SUBDAG} "
+else
+  echo " No more plots after subdag ... "
+  exit 0
+fi
+
+echo " == POST SUBDAG STAGE "
+
 
 
 # Now plot post-subdag stages
-for j in `seq ${N_MAX} ${N_MAX_MAX}`
+IT_SUBDAG_P1=`expr ${IT_SUBDAG} + 1`
+echo === FINAL PLOT STAGE ${IT_SUBDAG_P1} ${N_MAIN}
+for j in `seq ${IT_SUBDAG_P1} ${N_MAIN}`
 do
-  N_SUB_MAX=`ls iter*cip/posterior_samples*.dat | wc -l`
   IT_PLOT=`expr ${IT_PLOT} + 1 `
-  plot_up_to ${N_MAX}
-  plot_subdag_up_to ${N_MAX}  ${N_SUB_MAX}
-  plot_up_to_after  ${N_MAX} $j
-  plot_posterior_corner.py `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
+  plot_up_to ${IT_SUBDAG}
+  plot_subdag_up_to ${IT_SUBDAG}  ${N_SUBDAG}
+  plot_up_to_after  ${IT_SUBDAG} $j
+  ${PLOT} `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
   mv corner*.png anim_${IT_PLOT}.png
 done
