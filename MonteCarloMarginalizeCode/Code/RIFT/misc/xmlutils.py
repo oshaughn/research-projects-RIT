@@ -15,7 +15,7 @@ def assign_id(row, i):
 
 def assign_time(row, t):
     setattr(row, "geocent_end_time",( int(t)))
-    setattr(row, "geocent_end_time_ns",( int(t-int(t))*1e9) )
+    setattr(row, "geocent_end_time_ns",int( (t-int(t))*1e9 ) )
 
 CMAP = { "right_ascension": "longitude",
     "longitude":"longitude",

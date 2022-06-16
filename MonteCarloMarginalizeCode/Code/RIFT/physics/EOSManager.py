@@ -61,6 +61,14 @@ class EOSConcrete:
 
         return dimensionless_lam
 
+    def estimate_baryon_mass_from_mg(self,m):
+        """
+        Estimate m_b = m_g + m_g^2/(R_{1.4}/km) based on https://arxiv.org/pdf/1905.03784.pdf Eq. (6)
+        """
+        r1p4 =lalsim.SimNeutronStarRadius(1.4*lal.MSUN_SI, self.eos_fam)/1e3
+        return m + (1./r1p4)*m*(m/lal.MSUN_SI)
+        
+
 
     def pressure_density_on_grid_alternate(self,logrho_grid,enforce_causal=False):
         """ 
