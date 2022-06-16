@@ -593,8 +593,6 @@ if not(opts.internal_distance_max is None):
     cmd += ' --internal-distance-max {} '.format(opts.internal_distance_max)
 if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic "
-    if opts.add_extrinsic_time_resampling:
-        cmd+= " --last-iteration-extrinsic-time-resampling "
 if opts.internal_ile_freezeadapt:
     cmd += " --internal-propose-ile-convergence-freezeadapt "  # old-style O3: adaptation frozen after first point, no distance adapt (!)
 if opts.internal_ile_adapt_log:
@@ -979,6 +977,8 @@ if not(opts.ile_no_gpu):
     cmd +=" --request-gpu-ILE "
 if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples)
+    if opts.add_extrinsic_time_resampling:
+        cmd+= " --last-iteration-extrinsic-time-resampling "
 if opts.batch_extrinsic:
     cmd += " --last-iteration-extrinsic-batched-convert "
 if opts.cip_explode_jobs:
