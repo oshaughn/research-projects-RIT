@@ -197,6 +197,7 @@ parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Confi
 parser.add_argument("--last-iteration-extrinsic-nsamples",default=3000,type=int,help="Construct this number of extrinsic samples")
 parser.add_argument("--last-iteration-extrinsic-samples-per-ile",default=5,type=int,help="Draw this many samples from each ILE job")
 parser.add_argument("--last-iteration-extrinsic-batched-convert",action='store_true',help="Used batched converter for output of extrinsic samples")
+parser.add_argument("--last-iteration-extrinsic-time-resampling",action='store_true',help="Last iterations use time resampling (+ the fairdraw is done inside ILE itself), so different code path for final stages")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
@@ -624,6 +625,8 @@ if  (opts.last_iteration_extrinsic):
     ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(np.min([2*n_points_per_ILE,4]))  # modify convergence criteria so output of reasonable size
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
+    if opts.last_iteration_extrinsic_time_resampling:
+        ile_args_extr += " --resample-time-marginalization --fairdraw-extrinsic-output "
     ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE,use_cvmfs_frames=opts.use_cvmfs_frames,request_disk=request_disk)
     ileExtr_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
     ileExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).log")
@@ -634,8 +637,30 @@ if  (opts.last_iteration_extrinsic):
         ileExtr_job.set_sub_file(fname)
     ileExtr_job.write_sub_file()
     
-    # Convert task
-    if opts.last_iteration_extrinsic_batched_convert:
+    # Convert task 
+    if opts.last_iteration_extrinsic_time_resampling:
+        # very simple: ligo_lw add on all final output, then a single convert
+        convert_args_extr =  " --convention LI  --export-cosmology --use-interpolated-cosmology " 
+        if not (convert_args is None):
+            convert_args_extr += convert_args
+        # batched convert shell script
+        with open("allinone_convert.sh",'w') as f:
+            f.write("""#! /bin/bash
+{} {}/iteration_$1_ile/EXTR_out-$2.xml_*_.xml.gz --output-file {}/tmp_converted.xml.gz
+{} {} {}/tmp_converted.xml.gz > {}/extrinsic_posterior_samples.dat
+""".format(dag_utils.which('ligolw_add'),opts.working_directory,opts.working_directory,dag_utils.which('convert_output_format_ile2inference'),convert_args_extr,opts.working_directory,opts.working_directory))
+        os.system("chmod a+x allinone_convert.sh")
+        # Create job submit file
+        batchConvertExtr_job, batchConvertExtr_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/batch_convert.sh",tag='convert_extr',log_dir=None,arg_str='',file_input="$(macroiteration) $(macroevent)",file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
+        batchConvertExtr_job.add_condor_cmd("initialdir",opts.working_directory)
+        batchConvertExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/batchconvert-$(macroevent).log")
+        batchConvertExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/batchconvert-$(macroevent).err")
+        batchConvertExtr_job.add_condor_cmd('request_disk',opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory+"/"+batchConvertExtr_job.get_sub_file()
+            batchConvertExtr_job.set_sub_file(fname)
+        batchConvertExtr_job.write_sub_file()
+    elif opts.last_iteration_extrinsic_batched_convert:
         # Batched conversion: one job for a great many items
         convert_args_extr =  " --convention LI  --export-cosmology --use-interpolated-cosmology " 
         if not (convert_args is None):
