@@ -29,6 +29,16 @@ from . import MonotonicSpline as ms
 C_CGS=2.997925*10**10 # Argh, Monica!
 DENSITY_CGS_IN_MSQUARED=7.42591549e-25  # g/cm^3 m^2 //GRUnits. Multiply by this to convert from CGS -> 1/m^2 units (_geom)
 
+
+def make_compactness_from_lambda_approximate(lambda_vals):
+    """
+    make_compactness_from_lambda_approximate
+    Eq (B1) from https://arxiv.org/pdf/1812.04803.pdf, based on Maselli et al 2013, Yagi and Yunes 2017
+    """
+
+    return 0.371 -0.0391*np.log(lambda_vals) + 0.001056*np.log(lambda_vals)**2
+
+
 ###
 ### SERVICE 0: General EOS structure
 ###
@@ -67,8 +77,6 @@ class EOSConcrete:
         """
         r1p4 =lalsim.SimNeutronStarRadius(1.4*lal.MSUN_SI, self.eos_fam)/1e3
         return m + (1./r1p4)*m*(m/lal.MSUN_SI)
-        
-
 
     def pressure_density_on_grid_alternate(self,logrho_grid,enforce_causal=False):
         """ 
