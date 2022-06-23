@@ -1161,7 +1161,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 if opts.inclination_cosine_sampler:
                   P.incl = xpy_default.arccos(xpy_asarray_already(inclination))
                 else:
-                  P.incl = xpy_asarray_alraedy(inclination)
+                  P.incl = xpy_asarray_already(inclination)
                 P.psi = xpy_asarray_already(psi)
                 P.dist = xpy_asarray_already(distance* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
 
