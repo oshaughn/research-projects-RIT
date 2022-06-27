@@ -1165,7 +1165,7 @@ class ChooseWaveformParams:
                     chipavg = chip_averaged(q,chi1,chi2,theta1,theta2,deltaphi,fref=fref)
                 except ZeroDivisionError:
                     chipavg = self.extract_param('chi_p')
-            return chipavg    
+            return chipavg
         if p == 'LambdaTilde':
             Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
             return Lt
@@ -4508,8 +4508,7 @@ def DataRollTime(ht,DeltaT):  # ONLY FOR TIME DOMAIN. ACTS IN PLACE
     return DataRollBins(ht, nL)            
 
 
-def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],
-				 =['m1','m2'],enforce_kerr=False,source_redshift=0):
+def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,source_redshift=0):
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q).  Note that if ChooseWaveformParam structuers are built ,the loops can be quite slow
 
@@ -4711,8 +4710,8 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],
     # note NO MASS CONVERSION here, because the fit is in solar mass units!
     for indx_out  in np.arange(len(x_in)):
         for indx in np.arange(len(low_level_coord_names)):
-		if low_level_coord_names[indx] != 'chi_pavg':
-			P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])            
+            if low_level_coord_names[indx] != 'chi_pavg':
+                P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])            
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
         P.m1 = P.m1*(1+source_redshift)
         P.m2 = P.m2*(1+source_redshift)
