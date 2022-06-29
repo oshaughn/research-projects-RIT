@@ -270,6 +270,18 @@ MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
 def modes_to_k(modes):
     return [int(x[0]*(x[0]-1)/2 + x[1]-2) for x in modes]
 
+def extract_modes(modes):
+    keys = []
+    for x in modes:
+        if x[1] > 0:
+            keys.append(str(int(x[0]*(x[0]-1)/2 + x[1]-2)))
+        if x[1] < 0:
+            tmp = abs(x[1])
+            keys.append('-'+str(int(x[0]*(x[0]-1)/2 + tmp-2)))
+        if x[1] ==0:
+            keys.append(str(x[0])+'0')
+    return keys
+
 # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_l_a_l_sim_inspiral_8c_source.html#l02910
 def lsu_StringFromPNOrder(order):
     if (order == lsu_PNORDER_NEWTONIAN):
@@ -3008,9 +3020,80 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         hlmlen = len(hptmp)
         hlm = {}
         hlmtmp2 = {}
-        for count,mode in enumerate(modes_used):
-            hlmtmp2[mode]=np.array(hlmtmp[str(count)])
-        for mode in modes_used:
+        if P.s1x !=0.0 or P.s2x != 0.0 or P.s1y != 0.0 or P.s2y != 0.0:
+            modes_used_new = []
+            for k in hlmtmp.keys():
+                print(k)
+                if k=="0":
+                    modes_used_new.append((2,1))
+                    hlmtmp2[(2,1)]=np.array(hlmtmp[k])
+                if k=="-0":
+                    modes_used_new.append((2,-1))
+                    hlmtmp2[(2,-1)]=np.array(hlmtmp[k])
+                if k=="20":
+                    modes_used_new.append((2,0))
+                    hlmtmp2[(2,0)]=np.array(hlmtmp[k])
+                if k=="1":
+                    modes_used_new.append((2,2))
+                    hlmtmp2[(2,2)]=np.array(hlmtmp[k])
+                if k=="-1":
+                    modes_used_new.append((2,-2))
+                    hlmtmp2[(2,-2)]=np.array(hlmtmp[k])
+                if k=="2":
+                    modes_used_new.append((3,1))
+                    hlmtmp2[(3,1)]=np.array(hlmtmp[k])
+                if k=="-2":
+                    modes_used_new.append((3,-1))
+                    hlmtmp2[(3,-1)]=np.array(hlmtmp[k])
+                if k=="3":
+                    modes_used_new.append((3,2))
+                    hlmtmp2[(3,2)]=np.array(hlmtmp[k])
+                if k=="-3":
+                    modes_used_new.append((3,-2))
+                    hlmtmp2[(3,-2)]=np.array(hlmtmp[k])
+                if k=="4":
+                    modes_used_new.append((3,3))
+                    hlmtmp2[(3,3)]=np.array(hlmtmp[k])
+                if k=="-4":
+                    modes_used_new.append((3,-3))
+                    hlmtmp2[(3,-3)]=np.array(hlmtmp[k])
+                if k=="30":
+                    modes_used_new.append((3,0))
+                    hlmtmp2[(3,0)]=np.array(hlmtmp[k])
+                if k=="5":
+                    modes_used_new.append((4,1))
+                    hlmtmp2[(4,1)]=np.array(hlmtmp[k])
+                if k=="-5":
+                    modes_used_new.append((4,-1))
+                    hlmtmp2[(4,-1)]=np.array(hlmtmp[k])
+                if k=="6":
+                    modes_used_new.append((4,2))
+                    hlmtmp2[(4,2)]=np.array(hlmtmp[k])
+                if k=="-6":
+                    modes_used_new.append((4,-2))
+                    hlmtmp2[(4,-2)]=np.array(hlmtmp[k])
+                if k=="7":
+                    modes_used_new.append((4,3))
+                    hlmtmp2[(4,3)]=np.array(hlmtmp[k])
+                if k=="-7":
+                    modes_used_new.append((4,-3))
+                    hlmtmp2[(4,-3)]=np.array(hlmtmp[k])
+                if k=="8":
+                    modes_used_new.append((4,4))
+                    hlmtmp2[(4,4)]=np.array(hlmtmp[k])
+                if k=="-8":
+                    modes_used_new.append((4,-4))
+                    hlmtmp2[(4,-4)]=np.array(hlmtmp[k])
+                if k=="40":
+                    modes_used_new.append((4,0))
+                    hlmtmp2[(4,0)]=np.array(hlmtmp[k])
+            modes_used=modes_used_new
+#        for k in hlmtmp.keys():
+#            print(hlmtmp)
+#            print(count,mode,hlmtmp[k])
+#            hlmtmp2[mode]=np.array(hlmtmp[k])
+        print(hlmtmp,hlmtmp2)
+        for mode in modes_used_new:
             hlmtmp2[mode][0]*=(m_total_s/distance_s)*nu
             hlm[mode] = lal.CreateCOMPLEX16TimeSeries("Complex hlm(t)", hpepoch, 0,
                                                       P.deltaT, lsu_DimensionlessUnit, hlmlen)
@@ -3024,13 +3107,16 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
                 elif TDlen >= hlm[mode].data.length:
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
-            mode_conj = (mode[0],-mode[1])
-            if not mode_conj in hlm:
-                hC = hlm[mode]
-                hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0,
-                                                    hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
-                hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
-                hlm[mode_conj] = hC2
+            if P.s1x == 0.0 or P.s2x == 0.0 or P.s1y == 0.0 or P.s2y == 0.0:
+                print("conjuring modes")
+                mode_conj = (mode[0],-mode[1])
+                if not mode_conj in hlm:
+                    hC = hlm[mode]
+                    hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0,
+                                                        hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
+                    hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
+                    hlm[mode_conj] = hC2
+#        print(hlm,hlm.keys())
         return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
         extra_params = P.to_lal_dict()
