@@ -4602,14 +4602,14 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],
         indx_ct2 = low_level_coord_names.index('cos_theta2')
 
         s1z= x_in[:,indx_chi1]*x_in[:,indx_ct1]
-        s2z= x_in[:,indx_chi2]*x_in[:,indx_ct1]
+        s2z= x_in[:,indx_chi2]*x_in[:,indx_ct2]
 
         m1_vals =np.zeros(len(x_in))  
         m2_vals =np.zeros(len(x_in))  
         eta_vals = np.zeros(len(x_in))  
         eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
         m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
-        x_out[:,indx_pout_xi] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+        x_out[:,indx_pout_xi] = (m1_vals*x_in[:,s1z] + m2_vals*x_in[:,s2z])/(m1_vals+m2_vals)
         coord_names_reduced.remove('xi')
 
         # also build mu1, mu2, ... if present!
