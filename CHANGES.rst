@@ -1,3 +1,11 @@
+0.0.15.7
+-----------
+Since last release
+   - bugfix lalsimutils vectorized coordinate transform (sph coordinate cos_theta_2 use); implement geocenter-time
+     posterior option at last stage, along with edits needed to implement (e.g., fairdraw output option for extrinsic
+     stage);  bugfix xml event time export; chi_pavg implement updates; EOSManager minor edits; GMM in ILE finer
+     control over adaptation variables; overflow protection GMM+ILE now user-accessible; address typing issues in
+     mcsampler (returning object type) for selected arguments
 
 0.0.15.6
 -----------
