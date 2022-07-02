@@ -1008,7 +1008,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     P = P_list[indx_event]
     # if pin-distance-to-sim, change the distance prior accordingly
     if opts.pin_distance_to_sim:
-      pinned_params['distance']=P.dist/1.e6 * lal.PC_SI
+      pinned_params['distance']=P.dist/(1.e6 * lal.PC_SI)
 
     # Precompute
     t_window = 0.15
