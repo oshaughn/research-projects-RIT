@@ -537,6 +537,8 @@ if opts.parameter_nofit:
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
 error_factor = len(coord_names)
+if error_factor ==0 :
+    raise Exception(" Coordinate list for fit empty; exiting ")
 if opts.fit_uses_reported_error:
     error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
 # TeX dictionary
