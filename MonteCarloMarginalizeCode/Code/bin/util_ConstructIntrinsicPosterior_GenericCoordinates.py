@@ -2072,7 +2072,7 @@ if len(low_level_coord_names) ==9:
         if isinstance(x,float):
             return my_fit([x,y,z,a,b,c,d,e,f])
         else:
-            return my_fit([convert_coords(np.c_[x,y,z,a,v,c,d,e,f]))
+            return my_fit(convert_coords(np.c_[x,y,z,a,v,c,d,e,f]))
 if len(low_level_coord_names) ==10:
     def likelihood_function(x,y,z,a,b,c,d,e,f,g):  
         if isinstance(x,float):
