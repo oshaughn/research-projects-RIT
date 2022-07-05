@@ -3020,10 +3020,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         hlmlen = len(hptmp)
         hlm = {}
         hlmtmp2 = {}
-        if P.s1x !=0.0 or P.s2x != 0.0 or P.s1y != 0.0 or P.s2y != 0.0:
+        if True:
+#        if P.s1x !=0.0 or P.s2x != 0.0 or P.s1y != 0.0 or P.s2y != 0.0:
+#            print("Assigning precessing modes")
             modes_used_new = []
             for k in hlmtmp.keys():
-                print(k)
                 if k=="0":
                     modes_used_new.append((2,1))
                     hlmtmp2[(2,1)]=np.array(hlmtmp[k])
@@ -3088,12 +3089,12 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                     modes_used_new.append((4,0))
                     hlmtmp2[(4,0)]=np.array(hlmtmp[k])
             modes_used=modes_used_new
+            print(modes_used,hlmtmp,hlmtmp2)
 #        for k in hlmtmp.keys():
 #            print(hlmtmp)
 #            print(count,mode,hlmtmp[k])
 #            hlmtmp2[mode]=np.array(hlmtmp[k])
-        print(hlmtmp,hlmtmp2)
-        for mode in modes_used_new:
+        for mode in modes_used:
             hlmtmp2[mode][0]*=(m_total_s/distance_s)*nu
             hlm[mode] = lal.CreateCOMPLEX16TimeSeries("Complex hlm(t)", hpepoch, 0,
                                                       P.deltaT, lsu_DimensionlessUnit, hlmlen)
@@ -3107,7 +3108,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
                 elif TDlen >= hlm[mode].data.length:
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
-            if P.s1x == 0.0 or P.s2x == 0.0 or P.s1y == 0.0 or P.s2y == 0.0:
+            if P.s1x == 0.0 and P.s2x == 0.0 and P.s1y == 0.0 and P.s2y == 0.0:
                 print("conjuring modes")
                 mode_conj = (mode[0],-mode[1])
                 if not mode_conj in hlm:
