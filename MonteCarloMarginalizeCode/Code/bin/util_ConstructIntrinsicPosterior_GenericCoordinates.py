@@ -1355,6 +1355,8 @@ mc_index = -1 # index of mchirp in parameter index. To help with nonstandard GP
 mc_cut_range = [-np.inf, np.inf] 
 if opts.mc_range:
     mc_cut_range = eval(opts.mc_range)  # throw out samples outside this range.
+    mc_min = mc_cut_range[0]
+    mc_max = mc_cut_range[1]
     if opts.source_redshift>0:
         mc_cut_range =np.array(mc_cut_range)*(1+opts.source_redshift)  # prevent stupidity in grid selection
 print(" Stripping samples outside of ", mc_cut_range, " in mc")
@@ -1434,11 +1436,12 @@ for line in dat:
 
 
     # Update mc range
-    mc_here = lalsimutils.mchirp(line[1],line[2])
-    if mc_here < mc_min:
-        mc_min = mc_here
-    if mc_here > mc_max:
-        mc_max = mc_here
+    if not (opts.mc_range):
+        mc_here = lalsimutils.mchirp(line[1],line[2])
+        if mc_here < mc_min:
+            mc_min = mc_here
+        if mc_here > mc_max:
+            mc_max = mc_here
 
     # Mirror!
     if opts.mirror_points:
