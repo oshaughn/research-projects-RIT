@@ -1,14 +1,15 @@
 0.0.15.7
 -----------
 Since last release
-   - bugfix lalsimutils vectorized coordinate transform (sph coordinate cos_theta_2 use); implement geocenter-time
+   - bugfix lalsimutils vectorized coordinate transform (sph coordinate cos_theta_2 use), add test in 'tests' for
+     conversion; fix CIP issue where mc prior range could be changed by input grid despite --mc-range;  implement geocenter-time
      posterior option at last stage, along with edits needed to implement (e.g., fairdraw output option for extrinsic
      stage);  bugfix xml event time export; chi_pavg implement updates; EOSManager minor edits; GMM in ILE finer
      control over adaptation variables; overflow protection GMM+ILE now user-accessible; address typing issues in
-     mcsampler (returning object type) for selected arguments
+     mcsampler (returning object type) for selected arguments; bugfix syntax errors introduced in some mergers; 
 
 0.0.15.6
------------
+-----------x
 Since last release
    - pseudo and helper (--use-legacy-gracedb at top level); lalsimutils overlaps using psi4 input; pseudo (gwsurrogate
      logic/reference location fixes)  (rc1)
