@@ -31,11 +31,10 @@ except:
     print(" - No multiprocessing - ")
 
 try:
-	import NRWaveformCatalogManager3 as nrwf
-	hasNR =True
+    import NRWaveformCatalogManager3 as nrwf
+    hasNR =True
 except:
-	hasNR=False
-
+    hasNR=False
 
 ###
 ### Load options
@@ -130,7 +129,7 @@ if  opts.fit:
       n_required =np.max([4,np.min([10, 0.1*len(full_spoke[key])])])
       indx_crit =int(np.max([n_required-1,np.argmin( np.abs(full_spoke[key][:,1]-10))]))
       if opts.verbose:
-	print(" Spoke needs ", key, indx_crit+1)
+          print(" Spoke needs ", key, indx_crit+1)
       reduced_spoke = full_spoke[key][-indx_crit:]
       mMin = np.min(reduced_spoke[:,0])
       mMax = np.max(reduced_spoke[:,0])
@@ -162,7 +161,7 @@ if  opts.fit:
           orig_m2 = best_matches_masses[key][1]
           best_matches_masses[key]=(mBestGuess* orig_m1/orig_mtot, mBestGuess* orig_m2/orig_mtot)
         else:
-	  print(" Replacement rejected as out of range ", key, " reject ", lnLmaxHere, "->", lnLBestGuess, " : you probably need to rerun this spoke")
+          print(" Replacement rejected as out of range ", key, " reject ", lnLmaxHere, "->", lnLBestGuess, " : you probably need to rerun this spoke")
       if z[2]<0 and not ( mBestGuess> mMin and mBestGuess < mMax):
           print(" PLACEMENT FAILURE: ", key, mBestGuess, " outside of ", [mMin,mMax])
       
