@@ -942,11 +942,11 @@ def resample_samples(my_samples,
   
   tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
   P.phi =  identity_convert_togpu(my_samples['right_ascension'])  # cast to float
-  P.theta =  numpy.pi/2 - identity_convert_togpu(my_samples['declination'])
+  P.theta =   identity_convert_togpu(numpy.pi/2 -my_samples['declination'])
   P.tref = float(fiducial_epoch)
-  P.phiref = xpy_asarray_already(my_samples['coa_phase'])
-  P.incl = xpy_asarray_already(my_samples['inclination'])
-  P.psi = xpy_asarray_already(my_samples['psi'])
+  P.phiref = identity_convert_togpu(my_samples['coa_phase'])
+  P.incl = identity_convert_togpu(my_samples['inclination'])
+  P.psi = identity_convert_togpu(my_samples['psi'])
   P.dist = identity_convert_togpu(my_samples['distance']* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
   if not(cupy_success):
     # convert objects
@@ -958,6 +958,7 @@ def resample_samples(my_samples,
 
   lnLt = identity_convert(lnLt) # back to CPU.  Note we have removed offsets 
   lnLt_norm = scipy.special.logsumexp(lnLt,axis=-1)
+  tvals = identity_convert(tvals) # back to CPU
 #  print(lnLt.shape, lnLt_norm.shape,tvals.shape)
   # Loop over and resample in time, picking index according to weights
   t_out = np.zeros(n_samples)
