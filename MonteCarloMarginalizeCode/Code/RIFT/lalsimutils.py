@@ -1165,7 +1165,7 @@ class ChooseWaveformParams:
                     chipavg = chip_averaged(q,chi1,chi2,theta1,theta2,deltaphi,fref=fref)
                 except ZeroDivisionError:
                     chipavg = self.extract_param('chi_p')
-            return chipavg    
+            return chipavg
         if p == 'LambdaTilde':
             Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
             return Lt
@@ -4508,8 +4508,7 @@ def DataRollTime(ht,DeltaT):  # ONLY FOR TIME DOMAIN. ACTS IN PLACE
     return DataRollBins(ht, nL)            
 
 
-def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],
-				 =['m1','m2'],enforce_kerr=False,source_redshift=0):
+def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,source_redshift=0):
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q).  Note that if ChooseWaveformParam structuers are built ,the loops can be quite slow
 
@@ -4609,7 +4608,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],
         eta_vals = np.zeros(len(x_in))  
         eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
         m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
-        x_out[:,indx_pout_xi] = (m1_vals*x_in[:,s1z] + m2_vals*x_in[:,s2z])/(m1_vals+m2_vals)
+        x_out[:,indx_pout_xi] = (m1_vals*s1z + m2_vals*s2z)/(m1_vals+m2_vals)
         coord_names_reduced.remove('xi')
 
         # also build mu1, mu2, ... if present!
@@ -4629,7 +4628,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],
         # also build chiMinus, s1x,s1y, ... , if present : usual use case of doing all of these in spherical coordinates
         if 'chiMinus' in coord_names_reduced:
             indx_pout_chiminus = coord_names.index('chiMinus')
-            x_out[:,indx_pout_chiminus] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+            x_out[:,indx_pout_chiminus] = (m1_vals*s1z - m2_vals*s2z)/(m1_vals+m2_vals)
         if ('s1x' in coord_names_reduced) and ('s1y' in coord_names_reduced):
             indx_pout_s1x = coord_names.index('s1x')
             indx_pout_s1y = coord_names.index('s1y')
@@ -4711,8 +4710,8 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],
     # note NO MASS CONVERSION here, because the fit is in solar mass units!
     for indx_out  in np.arange(len(x_in)):
         for indx in np.arange(len(low_level_coord_names)):
-		if low_level_coord_names[indx] != 'chi_pavg':
-			P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])            
+            if low_level_coord_names[indx] != 'chi_pavg':
+                P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])            
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
         P.m1 = P.m1*(1+source_redshift)
         P.m2 = P.m2*(1+source_redshift)
