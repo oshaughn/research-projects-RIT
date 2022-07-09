@@ -244,6 +244,8 @@ intrinsic_params = OptionGroup(optp, "Intrinsic Parameters", "Intrinsic paramete
 intrinsic_params.add_option("--pin-distance-to-sim",action='store_true', help="Pin *distance* value to sim entry. Used to enable source frame reconstruction with NR.")
 intrinsic_params.add_option("--mass1", type=float, help="Value of first component mass, in solar masses. Required if not providing coinc tables.")
 intrinsic_params.add_option("--mass2", type=float, help="Value of second component mass, in solar masses. Required if not providing coinc tables.")
+intrinsic_params.add_option("--spin1z", type=float, help="Value of first component spin (aligned with angular momentum), dimensionless.")
+intrinsic_params.add_option("--spin2z", type=float, help="Value of second  component spin (aligned with angular momentum), dimensionless.")
 intrinsic_params.add_option("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given.")
 intrinsic_params.add_option("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
 optp.add_option_group(intrinsic_params)
@@ -440,12 +442,41 @@ if opts.sim_xml:
 
     P = P_list[0]  # Load in the physical parameters of the injection.  
 else:
-    # Some debugging information
-    print(" --sim-xml required ",opts.sim_xml)
-    print(" ... common parsing error accident might be inserting -- into your command line without an associated argument")
-    print(opts)
-    print(sys.argv[1:])
-    sys.exit(1)
+ if opts.mass1 is not None and opts.mass2 is not None:
+    m1, m2 = opts.mass1, opts.mass2
+ else:
+    raise RuntimeError('Missing --mass1 or --mass2')
+ s1z=s2z=0.
+ if opts.spin1z is not None:
+    s1z = opts.spin1z
+ if opts.spin2z is not None:
+    s2z = opts.spin2z
+
+
+ lambda1, lambda2 = 0, 0
+ if opts.eff_lambda is not None:
+        lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1, m2, opts.eff_lambda, opts.deff_lambda or 0)
+ P = lalsimutils.ChooseWaveformParams(
+        approx = lalsimutils.lalsim.GetApproximantFromString(opts.approximant),
+    fmin = template_min_freq,
+    radec = False,   # do NOT propagate the epoch later
+    incl = 0.0,       # only works for aligned spins. Be careful.
+    phiref = 0.0,
+    theta = 0.0,
+    phi = 0.0,
+    psi = 0.0,
+    m1 = m1 * lal.MSUN_SI,
+    m2 = m2 * lal.MSUN_SI,
+    lambda1 = lambda1,
+    lambda2 = lambda2,
+    s1z = s1z,
+    s2z = s2z,
+    ampO = opts.amp_order,
+    fref = opts.reference_freq,
+    tref = fiducial_epoch,
+    dist = factored_likelihood.distMpcRef * 1.e6 * lal.PC_SI
+    )
+ P_list= [P]
 
 # User requested bounds for data segment
 if not (opts.data_start_time == None) and  not (opts.data_end_time == None):
@@ -1131,7 +1162,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 if opts.inclination_cosine_sampler:
                   P.incl = xpy_default.arccos(xpy_asarray_already(inclination))
                 else:
-                  P.incl = xpy_asarray_alraedy(inclination)
+                  P.incl = xpy_asarray_already(inclination)
                 P.psi = xpy_asarray_already(psi)
                 P.dist = xpy_asarray_already(distance* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
 
