@@ -1384,6 +1384,8 @@ if opts.last_iteration_extrinsic:
     if opts.last_iteration_extrinsic_time_resampling:
         convert_node = pipeline.CondorDAGNode(batchConvertExtr_job)
         convert_node.set_retry(opts.ile_retries)  # this can fail too
+        convert_node.add_macro("macroiteration",it)  # needed so we find the correct data to read
+
 
     for event in np.arange(n_jobs_extrinsic):
         # Add task per ILE operation
