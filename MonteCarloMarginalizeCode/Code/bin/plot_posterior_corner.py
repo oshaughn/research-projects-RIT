@@ -7,7 +7,9 @@
 #
 # EXAMPLE
 #    python plot_posterior_corner.py --posterior-file downloads/TidalP4.dat --parameter lambda1 --parameter lambda2 --parameter mc
-#   python plot_posterior_corner.py --parameter mc --parameter eta --posterior-file G298048/production_C00_cleaned_TaylorT4/posterior-samples.dat  --parameter lambdat
+#    python plot_posterior_corner.py --parameter mc --parameter eta --posterior-file G298048/production_C00_cleaned_TaylorT4/posterior-samples.dat  --parameter lambdat
+#    plot_posterior_corner.py --posterior-file ejecta.dat --parameter mej_dyn --parameter mej_wind --parameter-log-scale mej_dyn --parameter-log-scale mej_wind --change-parameter-label "mej_dyn=m_{\rm ej,d}"  --change-parameter-label "mej_wind=m_{\rm ej,w}"
+
 #
 # USAGE
 #    - hardcoded list of colors, used in order, for multiple plots
@@ -85,9 +87,12 @@ def render_coord(x,logscale=False):
         my_label = ' '.join(exprs)
         return '$'+my_label+'$'
     else:
+        if logscale:
+            return "log10 "+str(x)
         return x
 
 def render_coordinates(coord_names,logparams=[]):
+    print("log params ",logparams)
     return list(map(lambda x: render_coord(x,logscale=(x in logparams)), coord_names))
 
 
@@ -258,6 +263,9 @@ if opts.change_parameter_label:
   for name, new_str in map( lambda c: c.split("="),opts.change_parameter_label):
       if name in lalsimutils.tex_dictionary:
           lalsimutils.tex_dictionary[name] = "$"+new_str+"$"
+      else:
+          print(" Assigning new variable string",name,new_str)
+          lalsimutils.tex_dictionary[name] = "$"+new_str+"$"  # should be able to ASSIGN NEW NAMES, not restrict
 
 special_param_ranges = {
   'q':[0,1],
