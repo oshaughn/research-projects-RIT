@@ -1062,8 +1062,12 @@ sampler = mcsampler.MCSampler()
 ## Loop over param names
 ##
 for p in coord_names:
-    prior_here = prior_map[p]
-    range_here = prior_range_map[p]
+    if p in prior_map:
+        prior_here = prior_map[p]
+        range_here = prior_range_map[p]
+    else:
+        prior_here = lambda x: np.ones(x.shape)
+        range_here = [-1,1]
 
     ## Special case: mc : provide ability to override range
     if p == 'mc' and opts.mc_range:
@@ -1080,9 +1084,7 @@ for p in coord_names:
         lnmu_min = np.min(dat_out[:,indx_lnmu])
         range_here = [lnmu_min,lnmu_max]
 
-    adapt_me = True
-    if p in opts.no_adapt_parameter:
-        adapt_me=False
+    adapt_me = False
     sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
 
 
@@ -1109,767 +1111,82 @@ for indx in np.arange(len(coord_names)):
 prior_weights*= 1./np.sum(prior_weights)    
 
 # Fairdraw remainder of samples
-npts_out = int(1e2)
+npts_out = np.min([int(1e-2 * len(dat_samples)), 5000 ])
 indx_choose = np.random.choice(len(prior_weights), size=npts_out,p=prior_weights)
-
-print(dat_samples[indx_choose])
+dat_samples = dat_samples[indx_choose]
+print(" Fairdraw sample size ", npts_out)
+print(dat_samples)
 
 
 ###
 ### Vector convert coordinates to the minimal needed
 ###
 
-# Aligned case
+# Aligned case (default)
+if not('s1x' in coord_names) and not('chi1' in coord_names):
+    low_level_coord_names = ['m1','m2','s1z', 's2z']
+    X_new = lalsimutils.convert_waveform_coordinates(dat_samples, low_level_coord_names,coord_names)
 
+    # remove time-wasting tests we don't need
+    del downselect_dict['s1x']
+    del downselect_dict['s2x']
+    del downselect_dict['s1y']
+    del downselect_dict['s2y']
+    del downselect_dict['chi1']
+    del downselect_dict['chi2']
 
 # Precessing case
 
 
-sys.exit(0)
-
-# Test n_eff threshold
-if not (opts.fail_unless_n_eff is None):
-    if neff < opts.fail_unless_n_eff   and not(opts.not_worker):     # if we need the output to continue:
-        print(" FAILURE: n_eff too small")
-        sys.exit(1)
-if neff < opts.n_eff:
-    print(" ==> neff (={}) is low <==".format(neff))
-    if opts.contingency_unevolved_neff == 'quadpuff'  and neff < np.min([500,opts.n_eff]): # we can usually get by with about 500 points
-        # Add errors
-        # Note we only want to add errors to RETAINED points
-        print(" Contingency: quadpuff: take covariance of points, draw from it again, add to existing points as offsets (i.e. a puffball) ")
-        n_output_size = np.min([len(P_list_in),opts.n_output_samples])
-        print(" Preparing to write ", n_output_size , " samples ")
-
-        my_cov = np.cov(X.T)  # covariance of data points
-        rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X[0])), cov=my_cov,allow_singular=True)  # they are just complaining about dynamic range
-        delta_X = rv.rvs(size=len(X))
-        X_new = X+delta_X
-        P_out_list = []
-        # Loop over points 
-        # Jitter using the parameters we use to fit with
-        for indx_P in np.arange(np.min([len(P_list_in),len(X)])):   # make sure no past-limits errors
-            include_item=True
-            P = P_list_in[indx_P]
-            for indx in np.arange(len(coord_names)):
-                param  = coord_names[indx]
-                fac = 1
-                if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
-                    fac = lal.MSUN_SI
-                P.assign_param(param, (X_new[indx_P,indx]*fac))
-            for p in downselect_dict.keys():
-                val = P.extract_param(p) 
-                if p in ['mc','m1','m2','mtot']:
-                    val = val/lal.MSUN_SI
-                if val < downselect_dict[p][0] or val > downselect_dict[p][1]:
-                    include_item = False
-            if include_item:
-                P_out_list.append(P)
-
-        # Save output
-        lalsimutils.ChooseWaveformParams_array_to_xml(P_out_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
-        sys.exit(0)
-
-
-
-# Save result -- needed for odds ratios, etc.
-#   Warning: integral_result.dat uses *original* prior, before any reweighting
-np.savetxt(opts.fname_output_integral+".dat", [np.log(res)+lnL_shift])
-eos_extra = []
-annotation_header = "lnL sigmaL neff "
-if opts.using_eos:
-    eos_extra = [opts.using_eos]
-    annotation_header += 'eos_name '
-    if opts.eos_param == 'spectral':
-        # Should also 
-        my_eos_params = my_eos.spec_params
-        eos_extra += list(map( lambda x: str(my_eos_params[x]), ["gamma1", "gamma2", "gamma3", "gamma4", "p0", "epsilon0", "xmax"]))
-#        eos_extra += opts.eos_param
-        annotation_header += "gamma1 gamma2 gamma3 gamma4 p0 epsilon0 xmax"
-with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
-    str_out =list( map(str,[np.log(res), np.sqrt(var)/res, neff]))
-    file_out.write("# " + annotation_header + "\n")
-    file_out.write(' '.join( str_out + eos_extra + ["\n"]))
-#np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
-
-if neff < len(low_level_coord_names):
-    print(" PLOTS WILL FAIL ")
-    print(" Not enough independent Monte Carlo points to generate useful contours")
-
-
-
-
-samples = sampler._rvs
-print(samples.keys())
-n_params = len(coord_names)
-dat_mass = np.zeros((len(samples[low_level_coord_names[0]]),n_params+3))
-if not(opts.internal_use_lnL):
-    dat_logL = np.log(samples["integrand"])
-else:
-    dat_logL = samples["integrand"]
-lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
-print(" Max lnL ", np.max(dat_logL))
-if opts.lnL_protect_overflow:
-    lnL_shift = lnLmax - 100.
-
-# Throw away stupid points that don't impact the posterior
-indx_ok = np.logical_and(dat_logL > lnLmax-opts.lnL_offset ,samples["joint_s_prior"]>0)
-for p in low_level_coord_names:
-    samples[p] = samples[p][indx_ok]
-dat_logL  = dat_logL[indx_ok]
-samples["joint_prior"] =samples["joint_prior"][indx_ok]
-samples["joint_s_prior"] =samples["joint_s_prior"][indx_ok]
-
 
 
 ###
-### 1d posteriors of the coordinates used for sampling  [EQUALLY WEIGHTED, BIASED because physics cuts aren't applied]
+### Export
 ###
 
-p = samples["joint_prior"]
-ps =samples["joint_s_prior"]
-lnL = dat_logL
-lnLmax = np.max(lnL)
-weights = np.exp(lnL-lnLmax)*p/ps
-
-
-# If we are using pseudo uniform spin magnitude, reweight
-#     ONLY done if we use s1x, s1y, s1z, s2x, s2y, s2z
-# volumetric prior scales as a1^2 a2^2 da1 da2; we need to undo it
-if opts.pseudo_uniform_magnitude_prior and 's1x' in samples.keys() and 's1z' in samples.keys():
-    prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s1x','s1y','s1z'] ],axis=0)
-    val = np.array(samples["s1z"]**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype)
-    chi1 = np.sqrt(val)  # weird typecasting problem
-    weights *= 3.*chi_max*chi_max/(chi1*chi1*prior_weight)   # prior_weight accounts for the density, in cartesian coordinates
-    weights[ chi1>chi_max] =0
-    if 's2z' in samples.keys():
-        prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s2x','s2y','s2z'] ],axis=0)
-        val = np.array(samples["s2z"]**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype)
-        chi2= np.sqrt(val)
-        weights[ chi2>chi_small_max] =0
-        weights *= 3.*chi_small_max*chi_small_max/(chi2*chi2*prior_weight)
-elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys() and not opts.pseudo_uniform_magnitude_prior_alternate_sampling:
-    # Uniform sampling: simple volumetric reweight
-    s1z  = samples['chiz_plus'] + samples['chiz_minus']
-    s2z  = samples['chiz_plus'] - samples['chiz_minus']
-    val1 = np.array(s1z**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype); chi1 = np.sqrt(val1)
-    val2 = np.array(s2z**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype); chi2= np.sqrt(val2)
-    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_small_max)
-    weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
-    weights[indx_ok] *= 9.*(chi_max**2 * chi_small_max**2)/(chi1*chi1*chi2*chi2)[indx_ok]
-elif opts.pseudo_uniform_magnitude_prior and  'chiz_plus' in samples.keys() and not opts.pseudo_uniform_magnitude_prior_alternate_sampling:
-    s1z  = samples['chiz_plus'] + samples['chiz_minus']
-    s2z  = samples['chiz_plus'] - samples['chiz_minus']
-    val1 = np.array(s1z**2+samples["s1y"]**2 + samples["s1x"]**2,dtype=internal_dtype); chi1 = np.sqrt(val1)
-    val2 = np.array(s2z**2+samples["s2y"]**2 + samples["s2x"]**2,dtype=internal_dtype); chi2= np.sqrt(val2)
-    indx_ok = np.logical_and(chi1<=chi_max , chi2<=chi_small_max)
-    weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
-    prior_weight = np.prod([prior_map[x](samples[x]) for x in ['s1x','s1y', 's2x', 's2y','chiz_plus','chiz_minus'] ],axis=0)
-    weights[indx_ok] *= 9.*(chi_max**2  * chi_small_max**2)/(chi1*chi1*chi2*chi2)[indx_ok]/prior_weight[indx_ok]  # undo chizplus, chizminus prior
-    
-
-# If we are using alignedspin-zprior AND chiz+, chiz-, then we need to reweight .. that prior cannot be evaluated internally
-# Prevent alignedspin-zprior from being used when transverse spins are present ... no sense!
-# Note we need to downslelect early in this case
-if opts.aligned_prior =="alignedspin-zprior" and 'chiz_plus' in samples.keys()  and (not 's1x' in samples.keys()):
-    prior_weight = np.prod([prior_map[x](samples[x]) for x in ['chiz_plus','chiz_minus'] ],axis=0)
-    s1z  = samples['chiz_plus'] + samples['chiz_minus']
-    s2z  =samples['chiz_plus'] - samples['chiz_minus']
-    indx_ok = np.logical_and(np.abs(s1z)<=chi_max , np.abs(s2z)<=chi_max)
-    weights[ np.logical_not(indx_ok)] = 0  # Zero out failing samples. Has effect of fixing prior range!
-    weights[indx_ok] *= s_component_zprior( s1z[indx_ok])*s_component_zprior(s2z[indx_ok])/(prior_weight[indx_ok])  # correct for uniform
-
-if opts.pseudo_gaussian_mass_prior:
-    # mass normalization (assuming mc, eta limits are bounds - as is invariably the case)
-    mass_area = 0.5*(mc_max**2 - mc_min**2)*(unscaled_eta_prior_cdf(eta_range[0]) - unscaled_eta_prior_cdf(eta_range[1]))
-    # Extract m1 and m2, i solar mass units
-    m1 = np.zeros(len(weights))
-    m2 = np.zeros(len(weights))
-    for indx in np.arange(len(weights)):
-        P=lalsimutils.ChooseWaveformParams()
-        for indx_name in np.arange(len(low_level_coord_names)):
-            p = low_level_coord_names[indx_name]
-            # Do not bother to scale by solar masses, only to undo it later
-            P.assign_param(p, samples[p][indx])
-        m1[indx] = P.extract_param('m1')
-        m2[indx] = P.extract_param('m2')
-    # For speed, do this transformation to mass coordinates by hand rather than the usual loop
-    # m1=None
-    # m2=None
-    # if 'm1' in samples.keys():  # will never happen
-    #     m1 = samples['m1']
-    #     m2 = samples['m2']
-    # elif 'mc' in samples.keys():  #almost always true
-    #     mc = samples['mc']
-    #     eta = None
-    #     if 'eta' in samples.keys():
-    #         eta = samples['eta']
-    #     elif 'delta_mc' in samples.keys():
-    #         eta = np.array(0.25*(1-samples['delta_mc']**2)) # see definition
-    #     else:
-    #         print " Failed transformation "
-    #         sys.exit(0)
-    #     print type(mc), type(eta)
-    #     m1 = lalsimutils.mass1(mc,eta)
-    #     m2 = lalsimutils.mass2(mc,eta)
-    # else:
-    #     print " Failed transformation"
-    #     sys.exit(0)
-    # Reormalize mass region. Note normalizatoin issue introduced: no boundaries in mass region used to rescale.
-    weights *= mass_area*gaussian_mass_prior( m1, opts.pseudo_gaussian_mass_prior_mean,opts.pseudo_gaussian_mass_prior_std)*gaussian_mass_prior( m2, opts.pseudo_gaussian_mass_prior_mean,opts.pseudo_gaussian_mass_prior_std)
-
-
-# Integral result v2: using modified prior. 
-# Note also downselects NOT applied: no range cuts, unless applied as part of aligned_prior, etc.  
-#   - use for Bayes factors with GREAT CARE for this reason; should correct for with indx_ok
-log_res_reweighted = lnLmax + np.log(np.mean(weights))
-sigma_reweighted= np.std(weights,dtype=np.float128)/np.mean(weights)
-neff_reweighted = np.sum(weights)/np.max(weights)
-np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [log_res_reweighted])  # should agree with the usual result, if no prior changes
-with open(opts.fname_output_integral+"_withpriorchange+annotation.dat", 'w') as file_out:
-    str_out = list(map(str,[log_res_reweighted, sigma_reweighted, neff]))
-    file_out.write("# " + annotation_header + "\n")
-    file_out.write(' '.join( str_out + eos_extra + ["\n"]))
-#np.savetxt(opts.fname_output_integral+"_withpriorchange+annotation.dat", np.array([[log_res_reweighted,sigma_reweighted, neff]]),header=eos_extra)
-
-# Load in reference parameters
-Pref = lalsimutils.ChooseWaveformParams()
-if  opts.inj_file is not None:
-    Pref = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)[opts.event_num]
-else:
-    Pref.m1 = Pref_default.m1
-    Pref.m2 = Pref_default.m2
-Pref.fref = opts.fref  # not encoded in the XML!
-Pref.print_params()
-
-if not no_plots:
- for indx in np.arange(len(low_level_coord_names)):
-   try:
-    dat_out = []; dat_out_LI=[]
-    p = low_level_coord_names[indx]
-    print(" -- 1d cumulative "+ str(indx)+ ":"+ low_level_coord_names[indx]+" ----")
-    dat_here = samples[low_level_coord_names[indx]]
-    range_x = [np.min(dat_here), np.max(dat_here)]
-    if opts.fname_lalinference:
-        dat_LI =  extract_combination_from_LI( samples_LI, low_level_coord_names[indx])
-        if not(dat_LI is None):
-            range_x[0] = np.min([range_x[0], np.min(dat_LI)])
-            range_x[1] = np.max([range_x[1], np.max(dat_LI)])
-    for x in np.linspace(range_x[0],range_x[1],200):
-         dat_out.append([x, np.sum( weights[ dat_here< x])/np.sum(weights)])
-         # if opts.fname_lalinference:
-         #     tmp = extract_combination_from_LI(p)
-         #     if not (tmp == None) :
-         #        dat_out_LI.append([x, 1.0*sum( tmp<x)/len(tmp) ]) 
-         if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()): 
-             dat_out_LI.append([x, (1.0*np.sum( samples_LI[ remap_ILE_2_LI[p] ]< x))/len(samples_LI) ])
-    
-    np.savetxt(p+"_cdf_nocut_beware.dat", np.array(dat_out))
-    dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
-    plt.plot(dat_out[:,0],dat_out[:,1],label="rapid_pe:"+opts.desc_ILE,color='b')
-    if opts.fname_lalinference: # and  (p in remap_ILE_2_LI.keys()):
-        plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label="LI:"+opts.desc_lalinference,color='r')
-   
-    # Add vertical line
-    here_val = Pref.extract_param(p)
-    fac = 1
-    if p in ['mc','m1','m2','mtot']:
-        fac = lal.MSUN_SI
-    here_val = here_val/fac
-    print(" Vertical line ", p, " ", here_val)
-    plt.axvline(here_val,color='k',linestyle='dashed')
-
-    x_name = render_coord(p)
-    plt.xlabel(x_name); plt.legend()
-    y_name  = x_name.replace('$','')
-    y_name = "$P(<"+y_name + ")$"
-    plt.ylabel(y_name)
-    plt.title("CDF: "+x_name)
-    plt.savefig(p+"_cdf_nocut_beware.png"); plt.clf()
-   except:
-      plt.clf()  # clear plot, just in case
-      print(" No 1d plot for variable")
-
-
-###
-### Corner 1 [BIASED, does not account for sanity cuts on physical variables]
-###
-
-# Labels for corner plots
-if not no_plots:
-    black_line = mlines.Line2D([], [], color='black', label='rapid_pe:'+opts.desc_ILE)
-    red_line =mlines.Line2D([], [], color='red', label='LI:'+opts.desc_lalinference)
-    green_line =mlines.Line2D([], [], color='green', label='rapid_pe (evaluation points)' )
-    blue_line =mlines.Line2D([], [], color='blue', label='rapid_pe (evaluation points, good fit)' )
-    line_handles = [black_line,green_line,blue_line]
-#corner_legend_location=(0., 1.0, 1., .7)
-    corner_legend_location=(0.7, 1.0)
-    corner_legend_prop = {'size':6}
-# https://stackoverflow.com/questions/7125009/how-to-change-legend-size-with-matplotlib-pyplot
-#params = {'legend.fontsize': 20, 'legend.linewidth': 2}
-#plt.rcParams.update(params)
-    if opts.fname_lalinference:
-        line_handles = [black_line,red_line,green_line,blue_line]
-
-
-print(" ---- Corner 1: Sampling coordinates (NO CONSTRAINTS APPLIED HERE: BIASED) ---- ")
-dat_mass = np.zeros( (len(lnL),len(low_level_coord_names)),dtype=np.float64)
-dat_mass_LI = []
-if opts.fname_lalinference:
-    dat_mass_LI = np.zeros( (len(samples_LI), len(low_level_coord_names)), dtype=np.float64)
-if not no_plots:
-  for indx in np.arange(len(low_level_coord_names)):
-    dat_mass[:,indx] = samples[low_level_coord_names[indx]]
-    if opts.fname_lalinference and low_level_coord_names[indx] in remap_ILE_2_LI.keys() :
-#        tmp = extract_combination_from_LI[samples_LI, low_level_coord_names[indx]]
-#        if not (tmp==None):
-#            dat_mass_LI[:,indx]
-     if remap_ILE_2_LI[low_level_coord_names[indx]] in samples_LI.dtype.names:
-        dat_mass_LI[:,indx] = samples_LI[ remap_ILE_2_LI[low_level_coord_names[indx]] ]
-    if opts.fname_lalinference and low_level_coord_names[indx] in ["lambda1", "lambda2"]:
-        print(" populating ", low_level_coord_names[indx], " via _extract ")
-        dat_mass_LI[:,indx] = extract_combination_from_LI(samples_LI, low_level_coord_names[indx])  # requires special extraction technique, since it needs to be converted
-
-truth_here = []
-for indx in np.arange(len(low_level_coord_names)):
-    fac = 1
-    if low_level_coord_names[indx] in ['mc','m1','m2','mtot']:
-        fac = lal.MSUN_SI
-    truth_here.append(Pref.extract_param(low_level_coord_names[indx])/fac)
-
-
-CIs = [0.95,0.9, 0.68]
-quantiles_1d = [0.05,0.95]
-range_here = []
-if not no_plots:
-  for p in low_level_coord_names:
-#    print p, prior_range_map[p]
-    range_here.append(prior_range_map[p])
-    if (range_here[-1][1] < np.mean(samples[p])+2*np.std(samples[p])  ):
-         range_here[-1][1] = np.mean(samples[p])+2*np.std(samples[p])
-    if (range_here[-1][0] > np.mean(samples[p])-2*np.std(samples[p])  ):
-         range_here[-1][0] = np.mean(samples[p])-2*np.std(samples[p])
-    # Don't let lower limit get too extreme
-    if (range_here[-1][0] < np.mean(samples[p])-3*np.std(samples[p])  ):
-         range_here[-1][0] = np.mean(samples[p])-3*np.std(samples[p])
-    # Don't let upper limit get too extreme
-    if (range_here[-1][1] > np.mean(samples[p])+5*np.std(samples[p])  ):
-         range_here[-1][1] = np.mean(samples[p])+5*np.std(samples[p])
-    if range_here[-1][0] < prior_range_map[p][0]:
-        range_here[-1][0] = prior_range_map[p][0]
-    if range_here[-1][1] > prior_range_map[p][1]:
-        range_here[-1][1] = prior_range_map[p][1]
-    if opts.fname_lalinference:
-        # If LI samples are shown, make sure their full posterior range is plotted.
-      try:
-        print(p)
-        p_LI  = remap_ILE_2_LI[p]
-        if range_here[-1][0] > np.min(samples_LI[p_LI]):
-            range_here[-1][0] = np.min(samples_LI[p_LI])
-        if range_here[-1][1] < np.max(samples_LI[p_LI]):
-            range_here[-1][1] = np.max(samples_LI[p_LI])
-      except:
-          print(" Parameter failure with LI, trying extract_combination_... ")
-          tmp = extract_combination_from_LI(samples_LI, p)
-          if range_here[-1][0] > np.min(tmp):
-            range_here[-1][0] = np.min(tmp)
-          if range_here[-1][1] < np.max(tmp):
-            range_here[-1][1] = np.max(tmp)
-    print(p, range_here[-1])  # print out range to be used in plots.
-
-if not no_plots:
-    labels_tex = list(map(lambda x: tex_dictionary[x], low_level_coord_names))
-    fig_base = corner.corner(dat_mass[:,:len(low_level_coord_names)], weights=(weights/np.sum(weights)).astype(np.float64),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,truths=truth_here,range=range_here)
-    my_cmap_values = 'g' # default color
-    if True:
-    #try:
-# Plot simulation points (X array): MAY NOT BE POSSIBLE if dimensionality is inconsistent
-        cm = plt.cm.get_cmap('RdYlBu_r')
-        y_span = Y.max() - Y.min()
-        y_min = Y.min()
-    #    print y_span, y_min
-        my_cmap_values = map(tuple,cm( (Y-y_min)/y_span) )
-        my_cmap_values ='g'
-
-        fig_base = corner.corner(dat_out_low_level_coord_names,weights=np.ones(len(X))/len(X), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':my_cmap_values},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
-
-        # TRUNCATED data set used here
-        indx_ok = Y > Y.max() - scipy.stats.chi2.isf(0.1,len(low_level_coord_names))/2  # approximate threshold for significant points,from inverse cdf 90%
-        n_ok = np.sum(indx_ok)
-        fig_base  = corner.corner(dat_out_low_level_coord_names[indx_ok],weights=np.ones(n_ok)*1.0/n_ok, plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':'b'},hist_kwargs={'color':'b', 'linestyle':'dashed'},range=range_here)
-
-    #except:
-    else:
-        print(" Some ridiculous range error with the corner plots, again")
-
-    if opts.fname_lalinference:
-      try:
-        corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs) #,range=range_here)
-      except:
-          print(" Failed !")
-    plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
-    plt.savefig("posterior_corner_nocut_beware.png"); plt.clf()
-
-print(" ---- Subset for posterior samples (and further corner work) --- ")
-
-# pick random numbers
-p_threshold_size = np.min([5*opts.n_output_samples,len(weights)])
-#p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=p_threshold_size)#opts.n_output_samples)
-if opts.verbose:
-    print(" output size: selected thresholds N=", p_threshold_size)
-# find sample indexes associated with the random numbers
-#    - FIXME: first truncate the bad ones
-#cum_sum  = np.cumsum(weights)
-#cum_sum = cum_sum/cum_sum[-1]
-#indx_list = list(map(lambda x : np.sum(cum_sum < x),  p_thresholds))  # this can lead to duplicates
-indx_list = np.random.choice(np.arange(len(weights)),p_threshold_size,p=np.array(weights/np.sum(weights),dtype=float),replace=False)
-if opts.verbose:
-    print(" output size: selected random indices N=", len(indx_list))
-if opts.internal_bound_factor_if_n_eff_small and neff <opts.n_output_samples  and opts.internal_bound_factor_if_n_eff_small* neff < opts.n_output_samples:
-    my_size_out = int(neff*opts.internal_bound_factor_if_n_eff_small)+1  # make sure at least one sample
-    indx_list = np.random.choice(indx_list, my_size_out, replace=False)
-if opts.verbose:
-    print(" output size: truncating based on n_eff to N=", len(indx_list))
-lnL_list = []
-P_list =[]
-P = lalsimutils.ChooseWaveformParams()
-P.approx = lalsim.GetApproximantFromString(opts.approx_output)
-#P.approx = lalsim.SEOBNRv2  # DEFAULT
-P.fmin = opts.fmin # DEFAULT
-P.fref = opts.fref
-for indx_here in indx_list:
-        line = [samples[p][indx_here] for p in low_level_coord_names]
-        Pgrid = P.manual_copy()
-        Pgrid.fref = opts.fref  # Just to make SURE
-        include_item =True
-        # Set attributes that are being changed as necessary, leaving all others fixed
-        for indx in np.arange(len(low_level_coord_names)):
-            # Skip crazy configurations (e.g., violate Kerr bound)
-            # if parameter involes a mass parameter, scale it to sensible units
-            fac = 1
-            if low_level_coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
-                fac = lal.MSUN_SI
-            # do assignment of parameters anyways, as we will skip it momentarily
-            coord_to_assign = low_level_coord_names[indx]
-            if coord_to_assign == 'xi':
-                coord_to_assign= 'chieff_aligned'
-            if coord_to_assign == 'chi_pavg':
-                continue # skipping chi_pavg
-            Pgrid.assign_param(coord_to_assign, line[indx]*fac)
-#            print indx_here, coord_to_assign, line[indx]
-        # Test for downselect
-        for p in downselect_dict.keys():
-            val = Pgrid.extract_param(p) 
-            if np.isnan(val):  # this can happen for some odd coordinate systems like mu1, mu2 if we are out of range
-                include_item = False
-            if p in ['mc','m1','m2','mtot']:
-                val = val/lal.MSUN_SI
-            if val < downselect_dict[p][0] or val > downselect_dict[p][1]:
-                    include_item = False
-                    if opts.verbose:
-                        print(" Sample: Skipping " , line, ' due to ', p, val, downselect_dict[p])
-
-        # Set some superfluous quantities, needed only for PN approximants, so the result is generated sensibly
-        Pgrid.ampO =opts.amplitude_order
-        Pgrid.phaseO =opts.phase_order
-        
-        # Set fixed parameters
-        if opts.fixed_parameter is not None:
-            for i, p in enumerate(opts.fixed_parameter):
-                fac = lal.MSUN_SI if p in ["mc", "mtot", "m1", "m2"] else 1.0
-                Pgrid.assign_param(p, fac * float(opts.fixed_parameter_value[i]))
-
-        # Downselect.
-        # for param in downselect_dict:
-        #     if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
-        #         print " Skipping " , line
-        #         include_item =False
-        if include_item:
-         if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
-            P_list.append(Pgrid)
-            if not(opts.internal_use_lnL):
-                lnL_list.append(np.log(samples["integrand"][indx_here]))
-            else:
-                lnL_list.append(samples["integrand"][indx_here])
-         else:
-            Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
-            P_list.append(Pgrid)
-            if not(opts.internal_use_lnL):
-                lnL_list.append(np.log(samples["integrand"][indx_here]))
-            else:
-                lnL_list.append(samples["integrand"][indx_here])
-        else:
-            True
-
-
-
- ###
- ### Export data
- ###
-n_output_size = np.min([len(P_list),opts.n_output_samples])
-lalsimutils.ChooseWaveformParams_array_to_xml(P_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
-lnL_list = np.array(lnL_list,dtype=internal_dtype)
-np.savetxt(opts.fname_output_samples+"_lnL.dat", lnL_list)
-
-
-if not opts.no_plots:
-    Yvals_copy = lnL_list.copy()
-    Yvals_copy = Yvals_copy[Yvals_copy.argsort()[::-1]]
-    pvals = np.arange(len(Yvals_copy))*1.0/len(Yvals_copy)
-    plt.plot(Yvals_copy, pvals)
-    plt.xlabel(r"$\ln{\cal L}$")
-    plt.ylabel(r"$\hat{P}(<\ln{\cal L})$")
-    plt.savefig("lnL_cumulative_distribution_posterior_estimate.png"); plt.clf()
-
-
-
-###
-### Identify, save best point
-###
-
-P_best = P_list[ np.argmax(lnL_list)  ]
-lalsimutils.ChooseWaveformParams_array_to_xml([P_best], "best_point_by_lnL")
-lnL_best = lnL_list[np.argmax(lnL_list)]
-np.savetxt("best_point_by_lnL_value.dat", np.array([lnL_best]));
-
-
-###
-### STOP IF NO MORE PLOTS
-###
-if no_plots:
-    sys.exit(0)
-
-###
-### Extract data from samples, in array form. INCLUDES any cuts (e.g., kerr limit)
-###
-dat_mass_post = np.zeros( (len(P_list),len(coord_names)),dtype=np.float64)
-for indx_line  in np.arange(len(P_list)):
-    for indx in np.arange(len(coord_names)):
-        fac=1
-        if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
-                fac = lal.MSUN_SI
-        dat_mass_post[indx_line,indx] = P_list[indx_line].extract_param(coord_names[indx])/fac
-
-
-dat_extra_post = []
-for x in np.arange(len(extra_plot_coord_names)):
-    coord_names_here = extra_plot_coord_names[x]
-    feature_here = np.zeros( (len(P_list),len(coord_names_here)),dtype=np.float64)
-    for indx_line  in np.arange(len(P_list)):
-        for indx in np.arange(len(coord_names_here)):
-            fac=1
-            if coord_names_here[indx] in ['mc', 'mtot', 'm1', 'm2']:
-                fac = lal.MSUN_SI
-            feature_here[indx_line,indx] = P_list[indx_line].extract_param(coord_names_here[indx])/fac
-    dat_extra_post.append(feature_here)
-
-
-
-range_here=[]
-for indx in np.arange(len(coord_names)):    
-    range_here.append( [np.min(dat_mass_post[:, indx]),np.max(dat_mass_post[:, indx])])
-    # Manually reset some ranges to be more useful for plotting
-    if coord_names[indx] in ['xi', 'chi_eff']:
-        range_here[-1] = [-1,1]
-    if coord_names[indx] in ['eta']:
-        range_here[-1] = [0,0.25]
-        if opts.eta_range:
-            range_here[-1] = eval(opts.eta_range)
-    if coord_names[indx] in ['q']:
-        range_here[-1] = [0,1]
-    if coord_names[indx] in ['s1z', 's2z']:
-        range_here[-1] = [-1,1]
-    if coord_names[indx] in ['chi1_perp', 'chi2_perp']:
-        range_here[-1] = [0,1]
-    print(coord_names[indx], range_here[-1])
-
-if opts.fname_lalinference:
-    dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names)), dtype=np.float64)
-    for indx in np.arange(len(coord_names)):
-        if coord_names[indx] in remap_ILE_2_LI.keys():
-            tmp = extract_combination_from_LI(samples_LI, coord_names[indx])
-            if not (tmp is None):
-                dat_mass_LI[:,indx] = tmp
-        if coord_names[indx] in ["lambda1", "lambda2"]:
-            print(" populating ", coord_names[indx], " via _extract ")
-            dat_mass_LI[:,indx] = extract_combination_from_LI(samples_LI, coord_names[indx])  # requires special extraction technique, since it needs to be converted
-
-        if range_here[indx][0] > np.min(dat_mass_LI[:,indx]):
-            range_here[indx][0] = np.min(dat_mass_LI[:,indx])
-        if range_here[indx][1] < np.max(dat_mass_LI[:,indx]):
-            range_here[indx][1] = np.max(dat_mass_LI[:,indx])
-
-print(" ---- 1d cumulative on fitting coordinates (NOT biased: FROM SAMPLES, including downselect) --- ")
-for indx in np.arange(len(coord_names)):
-    p = coord_names[indx]
-    dat_out = []; dat_out_LI=[]
-    print(" -- 1d cumulative "+ str(indx)+ ":"+ coord_names[indx]+" ----")
-    dat_here = dat_mass_post[:,indx]
-    wt_here = np.ones(len(dat_here))
-    range_x = [np.min(dat_here), np.max(dat_here)]
-    if opts.fname_lalinference:
-        dat_LI = extract_combination_from_LI(samples_LI,p)
-        if not(dat_LI is None):
-            range_x[0] = np.min([range_x[0], np.min(dat_LI)])
-            range_x[1] = np.max([range_x[1], np.max(dat_LI)])
-
-    for x in np.linspace(range_x[0],range_x[1],200):
-         dat_out.append([x, np.sum(  wt_here[dat_here< x] )/len(dat_here)])    # NO WEIGHTS for these resampled points
-#         dat_out.append([x, np.sum( weights[ dat_here< x])/np.sum(weights)])
-         if opts.fname_lalinference and not (dat_LI is None) :
-                dat_out_LI.append([x, 1.0*sum( dat_LI<x)/len(dat_LI) ]) 
-#         if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) :
-#             dat_out_LI.append([x, (1.0*np.sum( samples_LI[ remap_ILE_2_LI[p] ]< x))/len(samples_LI) ])
-    np.savetxt(p+"_alt_cdf.dat", np.array(dat_out))
-    dat_out = np.array(dat_out); dat_out_LI=np.array(dat_out_LI)
-    plt.plot(dat_out[:,0],dat_out[:,1],label="rapid_pe:"+opts.desc_ILE,color='b')
-    if opts.fname_lalinference and (p in remap_ILE_2_LI.keys()) and not (dat_out_LI is None):
-        dat_out_LI = np.array(dat_out_LI)
-        try:
-            plt.plot(dat_out_LI[:,0],dat_out_LI[:,1],label="LI:"+opts.desc_lalinference,color='r')
-        except:
-            print("  - plot failure - ")
-    # Add vertical line
-    here_val = Pref.extract_param(p)
-    fac = 1
-    if p in ['mc','m1','m2','mtot']:
-        fac = lal.MSUN_SI
-    here_val = here_val/fac
-    print(" Vertical line ", p, " ", here_val)
-    plt.axvline(here_val,color='k',linestyle='dashed')
-
-
-    x_name = render_coord(p)
-    plt.xlabel(x_name); plt.legend()
-    y_name  = x_name.replace('$','')
-    y_name = "$P(<"+y_name + ")$"
-    plt.ylabel(y_name)
-    plt.savefig(p+"_alt_cdf.png"); plt.clf()
-
-
-print(" ---- Corner 2: Fitting coordinates (+ original sample point overlay) ---- ")
-
-###
-### Corner plot.  Also overlay sample points
-###
-
-truth_here = []
-for indx in np.arange(len(coord_names)):
-    fac = 1
-    if coord_names[indx] in ['mc','m1','m2','mtot']:
-        fac = lal.MSUN_SI
-    truth_here.append(Pref.extract_param(coord_names[indx])/fac)
-
-
-try:
-#if True:
- labels_tex = render_coordinates(coord_names)#map(lambda x: tex_dictionary[x], coord_names)
- fig_base = corner.corner(dat_mass_post[:,:len(coord_names)], weights=np.ones(len(dat_mass_post))*1.0/len(dat_mass_post),labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs, range=range_here,truths=truth_here)
-
- if opts.fname_lalinference:
-    fig_base=corner.corner( dat_mass_LI,color='r',labels=labels_tex,weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI),fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
-
- # BEFORE truncation, note, to highlight region explored. ONLY for this plot
- fig_base = corner.corner(X_orig, weights=np.ones(len(X_orig))/len(X_orig),plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
- # A subset of the truncated data set
- indx_ok = Y > Y.max() - scipy.stats.chi2.isf(0.1,len(low_level_coord_names))/2  # approximate threshold for significant points,from inverse cdf 90%
- n_ok = np.sum(indx_ok)
- fig_base  = corner.corner(X[indx_ok],weights=np.ones(n_ok)*1.0/n_ok, plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':'r'},hist_kwargs={'color':'b', 'linestyle':'dashed'},range=range_here)
-
-
- plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
- plt.savefig("posterior_corner_fit_coords.png"); plt.clf()
-
-except:
-#else:
-    print(" No corner 2")
-
-
-###
-### Corner plot 3
-###
-print(" ---- Corner 3: Bonus corner plots ---- ")
-for indx in np.arange(len(extra_plot_coord_names)):
- if True:
-# try:
-    fig_base =None
-    coord_names_here = extra_plot_coord_names[indx]
-    str_name = '_'.join(coord_names_here)
-    print(" Generating corner for ", str_name)
-    dat_here = dat_extra_post[indx]
-    dat_points_here  = dat_out_extra[indx]
-    labels_tex = render_coordinates(coord_names_here)#map(lambda x: tex_dictionary[x], coord_names_here)
-    range_here=[]
-    dat_mass_LI = None
-
-    can_render_LI = opts.fname_lalinference and  ( set(coord_names_here) < (set(samples_LI.dtype.names) | set(remap_ILE_2_LI.keys()) | set(['lambda1','lambda2','LambdaTilde','DeltaLambdaTilde'])) )
-
-    if  can_render_LI:
-        print("   - LI parameters available for ", coord_names_here)
-        dat_mass_LI = np.zeros( (len(samples_LI), len(coord_names_here)), dtype=np.float64)
-        for x in np.arange(len(coord_names_here)):
-            print("    ... extracting ", coord_names_here[x])
-            tmp = extract_combination_from_LI(samples_LI, coord_names_here[x])
-            if not (tmp is None):
-                dat_mass_LI[:,x] = tmp
-#                print "   .....   ", tmp[:3]
-            else:
-                print("   ... warning, extraction failed for ", coord_names_here[x])
-    for z in np.arange(len(coord_names_here)):    
-        range_here.append( [np.min(dat_points_here[:, z]),np.max(dat_points_here[:, z])])
-        if not (opts.plots_do_not_force_large_range):
-         # Manually reset some ranges to be more useful for plotting
-         if coord_names_here[z] in ['xi', 'chi_eff']:
-            range_here[-1] = [-1,1]             # can be horrible if we are very informative
-         if coord_names_here[z] in ['eta']:
-            range_here[-1] = [0,0.25]         # can be horrible if we are very informative
-         if coord_names_here[z] in ['q']:
-            range_here[-1] = [0,1]
-         if coord_names_here[z] in ['s1z', 's2z']:
-            range_here[-1] = [-1,1]
-         if coord_names_here[z] in ['chi1_perp', 'chi2_perp']:
-            range_here[-1] = [0,1]
-        if opts.fname_lalinference and  ( set(coord_names_here) < set(remap_ILE_2_LI.keys())):
-                range_here[-1][0] =  np.min( [np.min( dat_mass_LI[:,z]), range_here[-1][0]  ])
-                range_here[-1][1] =  np.max( [np.max( dat_mass_LI[:,z]), range_here[-1][1]  ])
-        if coord_names_here[z] in prior_range_map.keys():
-            range_here[-1][1] = np.min( [range_here[-1][1], prior_range_map[coord_names_here[z]][1]])  # override the limits, if I have a prior.
-
-        print('   - Range ', coord_names_here[z], range_here[-1])
-      
-    truth_here = []
-    for z in np.arange(len(coord_names_here)):
-        fac=1
-        if coord_names_here[z] in ['mc','m1','m2','mtot']:
+print(" Preparing for export " )
+
+# First apply cuts on parameters IN THE PARAM LIST. 
+# These cuts are vectorized and MUCH faster
+pnames = list(low_level_coord_names)
+print(downselect_dict)
+for indx in np.arange(len(pnames)):
+    param = pnames[indx]
+    if param in downselect_dict:
+        indx_ok = np.logical_and(X_new[:,indx] > downselect_dict[param][0], X_new[:,indx] < downselect_dict[param][1])
+        X_new = X_new[indx_ok]
+        del downselect_dict[param]
+        print(" Downselecting : {} {}".format(p, len(X_new)))
+print(" First cut reduction net : {} ".format(len(X_new)))
+
+
+# Now assemble the final list of exported quantities.  Any leftover cuts not already applied can be performed here.
+P_out_list = []
+# Loop over points 
+for indx_P in np.arange(len(X_new)):   # make sure no past-limits errors
+    P=lalsimutils.ChooseWaveformParams()
+    for indx in np.arange(len(low_level_coord_names)):
+        param  = low_level_coord_names[indx]
+        fac = 1
+        if low_level_coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
             fac = lal.MSUN_SI
-        truth_here.append(Pref.extract_param(coord_names_here[z])/fac)
+        P.assign_param(param, (X_new[indx_P,indx]*fac))
+    
+    include_item=True
+    for p in downselect_dict.keys():
+        val = P.extract_param(p) 
+        if p in ['mc','m1','m2','mtot']:
+            val = val/lal.MSUN_SI
+        if val < downselect_dict[p][0] or val > downselect_dict[p][1]:
+            include_item = False
+    if include_item:
+        P_out_list.append(P)
 
-    print(" Truth here for ", coord_names_here, truth_here)
-
-    print(" Generating figure for ", extra_plot_coord_names[indx], " using ", len(dat_here), " from the posterior and ",  len(dat_points_here) , len(Y_orig), " from the original data set ")
-    fig_base = corner.corner(dat_here, weights=np.ones(len(dat_here))*1.0/len(dat_here), labels=labels_tex, quantiles=quantiles_1d,plot_datapoints=False,plot_density=False,no_fill_contours=True,fill_contours=False,levels=CIs,range=range_here,truths=truth_here)
-                
-    if can_render_LI:
-        corner.corner( dat_mass_LI, weights=np.ones(len(dat_mass_LI))*1.0/len(dat_mass_LI), color='r',labels=labels_tex,fig=fig_base,quantiles=quantiles_1d,no_fill_contours=True,plot_datapoints=False,plot_density=False,fill_contours=False,levels=CIs,range=range_here)
-
-
-    print(" Rendering past samples for ",  extra_plot_coord_names[indx], " based on ", len(dat_points_here))
-    fig_base = corner.corner(dat_points_here,weights=np.ones(len(dat_points_here))*1.0/len(dat_points_here), plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'color':'g'},hist_kwargs={'color':'g', 'linestyle':'dashed'},range=range_here)
-    # Render points available. Note we use the ORIGINAL data set, and truncate it
-    indx_ok = Y_orig > Y_orig.max() - scipy.stats.chi2.isf(0.1,len(low_level_coord_names))/2  # approximate threshold for significant points,from inverse cdf 90%
-    n_ok = np.sum(indx_ok)
-    print(" Adding points for figure ", n_ok, extra_plot_coord_names[indx], " drawn from original  ")
-    fig_base  = corner.corner(dat_points_here[indx_ok],weights=np.ones(n_ok)*1.0/n_ok, plot_datapoints=True,plot_density=False,plot_contours=False,quantiles=None,fig=fig_base, data_kwargs={'c':'b'},hist_kwargs={'color':'b', 'linestyle':'dashed'},range=range_here)
+print(" Exporting {} samples ".format(len(P_out_list) ) )
+# Save output
+lalsimutils.ChooseWaveformParams_array_to_xml(P_out_list,fname=opts.fname_output_samples,fref=P.fref)
 
 
-    plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
-    print(" Writing coord ", str_name)
-    plt.savefig("posterior_corner_extra_coords_"+str_name+".png"); plt.clf()
 
-# except:
- else:
-     print(" Failed to generate corner for ", extra_plot_coord_names[indx])
-
-sys.exit(0)
 
 

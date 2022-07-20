@@ -4590,6 +4590,30 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         coord_names_reduced.remove('mu1')
         coord_names_reduced.remove('mu2')
 
+    # mc,eta,xi -> m1,m2,s1z,s2z
+    #   Note this requires ASSUMPTIONS about s2z.  Default will be s2z=s1z HERE, since degenerate
+    if ('mc' in low_level_coord_names) and  ('eta' in low_level_coord_names) and ('xi' in low_level_coord_names or 'chieff_aligned' in low_level_coord_names) and ('m1' in coord_names_reduced) and ('s1z' in coord_names_reduced):
+        indx_pout_m1 = coord_names.index('m1')
+        indx_pout_m2 = coord_names.index('m2')
+        indx_pout_s1z = coord_names.index('s1z')
+        indx_pout_s2z = coord_names.index('s2z')
+        indx_mc = low_level_coord_names.index('mc')
+        indx_eta = low_level_coord_names.index('eta')
+        if 'xi' in low_level_coord_names:
+           indx_xi = low_level_coord_names.index('xi')
+        else:
+           indx_xi = low_level_coord_names.index('chieff_aligned')
+        m1_vals, m2_vals = m1m2(x_in[:,indx_mc], x_in[:,indx_eta])
+        # ASSUME s1z=s2z, so s1z==s2z==xi
+        x_out[:,indx_pout_m1] = m1_vals
+        x_out[:,indx_pout_m2] = m2_vals
+        x_out[:,indx_pout_s1z] = x_in[:,indx_xi]
+        x_out[:,indx_pout_s2z] = x_in[:,indx_xi]
+        coord_names_reduced.remove('m1')
+        coord_names_reduced.remove('m2')
+        coord_names_reduced.remove('s1z')
+        coord_names_reduced.remove('s2z')
+
     # Spin spherical coordinate names
     if ('xi' in coord_names_reduced) and ('chi1' in low_level_coord_names) and ('cos_theta1' in low_level_coord_names) and ('phi1' in low_level_coord_names) and ('chi2' in low_level_coord_names) and ('cos_theta2' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
         indx_pout_xi = coord_names.index('xi')
