@@ -503,8 +503,9 @@ if opts.lambda_plus_max:
     lambda_plus_max  = opts.lambda_max
 downselect_dict['chi1'] = [0,chi_max]
 downselect_dict['chi2'] = [0,chi_small_max]
-downselect_dict['lambda1'] = [0,lambda_max]
-downselect_dict['lambda2'] = [0,lambda_small_max]
+if opts.input_tides and ('lambda1' in opts.parameter or 'LambdaTilde' in opts.parameter):
+    downselect_dict['lambda1'] = [0,lambda_max]
+    downselect_dict['lambda2'] = [0,lambda_small_max]
 for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
     downselect_dict[param] = [-chi_max,chi_max]
 # Enforce definition of eta
@@ -851,18 +852,9 @@ print(" Original data size = ", len(dat), dat.shape)
 P_list = []
 dat_out =[]
  
-extra_plot_coord_names = [ ['mtot', 'q', 'xi'], ['mc', 'eta'], ['m1', 'm2'], ['s1z','s2z'] ] # replot
 # simplify/recast None -> [] so I cna use 'in' below
 if opts.parameter==None:
     opts.parameter = [] # force list, so avoid 'is iterable' below
-if opts.parameter_implied==None:
-    opts.parameter_implied = []
-if 's1x' in opts.parameter:  # in practice, we always use the transverse cartesian components 
-    print(" Plotting coordinates include spin magnitude and transverse spins ")
-    extra_plot_coord_names += [['chi1_perp', 's1z'], ['chi2_perp','s2z'],['chi1','chi2'],['cos_theta1','cos_theta2']]
-if 'lambda1' in opts.parameter or 'LambdaTilde' in opts.parameter or (not( opts.parameter_implied is None) and  ( 'LambdaTilde' in opts.parameter_implied)):
-    print(" Plotting coordinates include tides")
-    extra_plot_coord_names += [['mc', 'eta', 'LambdaTilde'],['lambda1', 'lambda2'], ['LambdaTilde', 'DeltaLambdaTilde'], ['m1','lambda1'], ['m2','lambda2']]
 
 
 symmetry_list =lalsimutils.symmetry_sign_exchange(coord_names)  # identify symmetry due to exchange
@@ -1118,6 +1110,20 @@ print(" Fairdraw sample size ", npts_out)
 print(dat_samples)
 
 
+# First apply cuts on parameters in the param list (raw) 
+# These cuts are vectorized and MUCH faster
+pnames = list(coord_names)
+print(downselect_dict)
+for indx in np.arange(len(pnames)):
+    param = pnames[indx]
+    if param in downselect_dict:
+        indx_ok = np.logical_and(dat_samples[:,indx] > downselect_dict[param][0], dat_samples[:,indx] < downselect_dict[param][1])
+        dat_samples = dat_samples[indx_ok]
+        del downselect_dict[param]
+        print(" Downselecting : {} {}".format(param, len(dat_samples)))
+print(" First cut reduction net : {} ".format(len(dat_samples)))
+
+
 ###
 ### Vector convert coordinates to the minimal needed
 ###
@@ -1146,7 +1152,7 @@ if not('s1x' in coord_names) and not('chi1' in coord_names):
 
 print(" Preparing for export " )
 
-# First apply cuts on parameters IN THE PARAM LIST. 
+# First apply cuts on parameters in the 'standard' coord list
 # These cuts are vectorized and MUCH faster
 pnames = list(low_level_coord_names)
 print(downselect_dict)
@@ -1156,8 +1162,8 @@ for indx in np.arange(len(pnames)):
         indx_ok = np.logical_and(X_new[:,indx] > downselect_dict[param][0], X_new[:,indx] < downselect_dict[param][1])
         X_new = X_new[indx_ok]
         del downselect_dict[param]
-        print(" Downselecting : {} {}".format(p, len(X_new)))
-print(" First cut reduction net : {} ".format(len(X_new)))
+        print(" Downselecting : {} {}".format(param, len(X_new)))
+print(" Second cut reduction net : {} ".format(len(X_new)))
 
 
 # Now assemble the final list of exported quantities.  Any leftover cuts not already applied can be performed here.
