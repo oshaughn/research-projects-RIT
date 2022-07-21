@@ -1107,7 +1107,7 @@ npts_out = np.min([int(1e-2 * len(dat_samples)), 5000 ])
 indx_choose = np.random.choice(len(prior_weights), size=npts_out,p=prior_weights)
 dat_samples = dat_samples[indx_choose]
 print(" Fairdraw sample size ", npts_out)
-print(dat_samples)
+#print(dat_samples)
 
 
 # First apply cuts on parameters in the param list (raw) 
@@ -1131,7 +1131,9 @@ print(" First cut reduction net : {} ".format(len(dat_samples)))
 # Aligned case (default)
 if not('s1x' in coord_names) and not('chi1' in coord_names):
     low_level_coord_names = ['m1','m2','s1z', 's2z']
-    X_new = lalsimutils.convert_waveform_coordinates(dat_samples, low_level_coord_names,coord_names)
+    # yes, the naming here is kind of funky, we are trying to reconstruct 'standard' names from usually derived quantities
+    X_new = lalsimutils.convert_waveform_coordinates(dat_samples, coord_names=low_level_coord_names,low_level_coord_names=coord_names)
+#    print(X_new)
 
     # remove time-wasting tests we don't need
     del downselect_dict['s1x']
