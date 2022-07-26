@@ -274,6 +274,7 @@ puff_cadence = int(config.get('make_workflow','puff_cadence'))
 psd_dict = unsafe_config_get(config,["make_psd",'fiducial_psds'])
 
 ile_sampler_method = config.get('make_workflow','ile_sampler_method')
+ile_freeze_adapt = unsafe_config_get(config,['make_workflow','ile_freeze_adapt'])
 internal_ile_sky_network_coordinates = unsafe_config_get(config,['make_workflow','internal_ile_sky_network_coordinates'])
 cip_fit_method = config.get('make_workflow','cip_fit_method')
 cip_sampler_method = config.get('make_workflow','cip_sampler_method')
@@ -388,6 +389,8 @@ for indx in np.arange(n_events):
             sys.exit(1)
         if not(ile_sampler_method is None):
             line += " --sampler-method {} ".format(ile_sampler_method)
+        if ile_freeze_adapt:
+            line += " --no-adapt-after-first --no-adapt-distance " 
         if internal_ile_sky_network_coordinates:
             line += " --internal-sky-network-coordinates "
         if use_distance_marginalization:
