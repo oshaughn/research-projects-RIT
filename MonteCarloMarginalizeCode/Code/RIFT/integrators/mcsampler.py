@@ -366,6 +366,8 @@ class MCSampler(object):
         #
         # Pin values
         #
+        n_horrible = 0
+        n_horrible_max = 5
         tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
         temppdfnormdict = defaultdict(lambda: 1.0)
         for p, val in list(kwargs.items()):
@@ -523,6 +525,9 @@ class MCSampler(object):
                 for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
                 print("No contribution to integral, skipping.", file=sys.stderr)
+                n_horrible+=1
+                if n_horrible >= n_horrible_max:
+                    raise Exception("mcsampler: Too many iterations with no contribution to integral, hard fail")
                 continue
 
             if save_intg and not force_no_adapt:
