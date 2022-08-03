@@ -31,6 +31,8 @@ import lal
 import functools
 import itertools
 
+from RIFT.misc.samples_utils import add_field 
+
 import joblib  # http://scikit-learn.org/stable/modules/model_persistence.html
 
 # GPU acceleration: NOT YET, just do usual
@@ -182,36 +184,36 @@ def extract_combination_from_LI(samples_LI, p):
     print(" No access for parameter ", p)
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
 
-def add_field(a, descr):
-    """Return a new array that is like "a", but has additional fields.
+# def add_field(a, descr):
+#     """Return a new array that is like "a", but has additional fields.
 
-    Arguments:
-      a     -- a structured numpy array
-      descr -- a numpy type description of the new fields
+#     Arguments:
+#       a     -- a structured numpy array
+#       descr -- a numpy type description of the new fields
 
-    The contents of "a" are copied over to the appropriate fields in
-    the new array, whereas the new fields are uninitialized.  The
-    arguments are not modified.
+#     The contents of "a" are copied over to the appropriate fields in
+#     the new array, whereas the new fields are uninitialized.  The
+#     arguments are not modified.
 
-    >>> sa = numpy.array([(1, 'Foo'), (2, 'Bar')], \
-                         dtype=[('id', int), ('name', 'S3')])
-    >>> sa.dtype.descr == numpy.dtype([('id', int), ('name', 'S3')])
-    True
-    >>> sb = add_field(sa, [('score', float)])
-    >>> sb.dtype.descr == numpy.dtype([('id', int), ('name', 'S3'), \
-                                       ('score', float)])
-    True
-    >>> numpy.all(sa['id'] == sb['id'])
-    True
-    >>> numpy.all(sa['name'] == sb['name'])
-    True
-    """
-    if a.dtype.fields is None:
-        raise ValueError("`A' must be a structured numpy array")
-    b = numpy.empty(a.shape, dtype=a.dtype.descr + descr)
-    for name in a.dtype.names:
-        b[name] = a[name]
-    return b
+#     >>> sa = numpy.array([(1, 'Foo'), (2, 'Bar')], \
+#                          dtype=[('id', int), ('name', 'S3')])
+#     >>> sa.dtype.descr == numpy.dtype([('id', int), ('name', 'S3')])
+#     True
+#     >>> sb = add_field(sa, [('score', float)])
+#     >>> sb.dtype.descr == numpy.dtype([('id', int), ('name', 'S3'), \
+#                                        ('score', float)])
+#     True
+#     >>> numpy.all(sa['id'] == sb['id'])
+#     True
+#     >>> numpy.all(sa['name'] == sb['name'])
+#     True
+#     """
+#     if a.dtype.fields is None:
+#         raise ValueError("`A' must be a structured numpy array")
+#     b = numpy.empty(a.shape, dtype=a.dtype.descr + descr)
+#     for name in a.dtype.names:
+#         b[name] = a[name]
+#     return b
 
 
 parser = argparse.ArgumentParser()
@@ -1577,11 +1579,12 @@ if opts.tabular_eos_file:
     m_ref = mc_ref*np.power(2, 1./5.)   # assume equal mass
     my_eos_sequence = EOSManager.EOSSequenceLandry(fname="LCEHL_EOS_posterior_samples_PSR+GW+NICER.h5",load_ns=True,oned_order_name='Lambda', oned_order_mass=m_ref)
 
-    # Define prior
+    # Define prior, NOT NORMALIZED
     prior_map['ordering'] =lambda x: np.ones(x.shape)
 
     # Add the ordering values for all the imported points
     #  - on *import*, we've imported the index quantities; instead,  evaluate the ordering statistic for all of these
+    #  - note the saved values use the FIDUCIAL ORDERING, so must be used with GREAT CARE to preserve order!
     order_vals = np.zeros(len(dat_out))
     for indx in np.arange(len(order_vals)):
         order_vals = my_eos_sequence.lambda_of_m_index(m_ref, int(dat_out[indx,-1]))  # last field is index value
@@ -2406,6 +2409,7 @@ else:
 Pref.fref = opts.fref  # not encoded in the XML!
 Pref.print_params()
 
+
 if not no_plots:
  for indx in np.arange(len(low_level_coord_names)):
    try:
@@ -2576,6 +2580,7 @@ if not no_plots:
 
 print(" ---- Subset for posterior samples (and further corner work) --- ")
 
+
 # pick random numbers
 p_threshold_size = np.min([5*opts.n_output_samples,len(weights)])
 #p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=p_threshold_size)#opts.n_output_samples)
@@ -2622,6 +2627,15 @@ for indx_here in indx_list:
             Pgrid.assign_param(coord_to_assign, line[indx]*fac)
 #            print indx_here, coord_to_assign, line[indx]
         # Test for downselect
+        # Perform tabular EOS calculations: compute reference index, lambda1, lambda2
+        if opts.tabular_eos:
+            # save the index of the SORTED SIMULATION (because that's how I'll be accessing it!)
+            eos_indx_here = my_eos_sequence.lookup_closest(samples['ordering'][indx_here])
+            Pgrid.eos_table_index = eos_indx_here
+            # Compute lambda1, lambda2 for output for this EOS, using ASSUMED source redshift (not currently with consistent/flexible distances)
+            Pgrid.lambda1 = my_eos_sequence.lambda_of_m_indx(P.m1/lal.MSUN_SI/(1+source_redshift), eos_indx_here)
+            Pgrid.lambda2 = my_eos_sequence.lambda_of_m_indx(P.m2/lal.MSUN_SI/(1+source_redshift), eos_indx_here)
+
         for p in downselect_dict.keys():
             val = Pgrid.extract_param(p) 
             if np.isnan(val):  # this can happen for some odd coordinate systems like mu1, mu2 if we are out of range
