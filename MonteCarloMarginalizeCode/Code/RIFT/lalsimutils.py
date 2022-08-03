@@ -421,6 +421,7 @@ class ChooseWaveformParams:
         self.fmax=fmax
         self.taper = taper
         self.snr = None  # Only used for compatibility with AMR grid rapid_pe, should not usually be setting or using this
+        self.eos_table_index = None  # only used for compatibility with tabular EOS formalisms, note user MUST always provide lambda1, lambda2 correctly for waveform generators!  
 
         # force this waveform's PN order to be 3 to avoid crashes
         if self.approx == lalsim.EccentricTD:
@@ -1582,6 +1583,11 @@ class ChooseWaveformParams:
         self.lambda2 = row.alpha6
         self.eccentricity=row.alpha4
         self.snr = row.alpha3   # lnL info
+        # WARNING: alpha1, alpha2 used by ILE for weights!
+        self.eos_table_index = row.alpha4
+        if not(row.alpha4):
+            self.eos_table_index = None
+    
 
     def create_sim_inspiral(self):
         """
@@ -1626,7 +1632,10 @@ class ChooseWaveformParams:
         # NONSTANDARD
         row.alpha5 = self.lambda1
         row.alpha6 = self.lambda2
+        # CONFLICTING USE : eccentricity and EOS table index can't be specified simultaneously right now
         row.alpha4 = self.eccentricity
+        if self.eos_table_index:
+            row.alpha4 = self.eos_table_index
         if self.snr:
             row.alpha3 = self.snr
         # Debug: 
