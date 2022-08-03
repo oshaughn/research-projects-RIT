@@ -740,9 +740,12 @@ class EOSSequenceLandry:
     """
     Class characterizing a sequence of specific EOS solutions, using the Landry format.
     Assumes user provides (a) EOS realization, (b) precomputed results from TOV solve; and (c) discrete ID
+
+    PENDING
+       - mMax access
     """
 
-    def __init__(self,name=None,fname=None,load_eos=False,load_ns=False):
+    def __init__(self,name=None,fname=None,load_eos=False,load_ns=False,oned_order_name=None,oned_order_mass=None,verbose=False):
         import h5py
         self.name=name
         self.fname=fname
@@ -750,10 +753,14 @@ class EOSSequenceLandry:
         self.eos_names = None
         self.eos_tables = None
         self.eos_ns_tov = None
+        self.oned_order_name = None
+        self.oned_order_mass=oned_order_mass
+        self.oned_order_values=None
+        self.verbose=verbose
         with h5py.File(self.fname, 'r') as f:
             names = list(f['ns'].keys())
             self.eos_ids = list(f['id'])
-            self.eos_names = names
+            self.eos_names = np.array(names,dtype=str)
             # The following loads a LOT into memory, as a dictionary
             if load_ns:
                 print(" EOSSequenceLandry: Loading TOV results for {}".format(fname))
@@ -761,11 +768,40 @@ class EOSSequenceLandry:
                 self.eos_ns_tov = {}
                 for name in names:
                     self.eos_ns_tov[name] = np.array(f['ns'][name])
-                print(" EOSSequenceLandry: Completed TOV i/o {}".format(fname))
+                if verbose:
+                    print(" EOSSequenceLandry: Completed TOV i/o {}".format(fname))
+                create_order = False
+                if oned_order_name == 'R' or oned_order_name=='r':
+                    create_order=True
+                    self.oned_order_name='R'  # key value in fields
+                if oned_order_name == 'Lambda' or oned_order_name=='lambdda':
+                    create_order=True
+                    self.oned_order_name='Lambda'  # key value in fields
+                if not(self.oned_order_mass):
+                    # Can't order if we don't have a reference mass
+                    create_order=False
+                if create_order:
+                    vals = np.zeros(len(self.eos_names))
+                    if self.oned_order_name =='Lambda':
+                        for indx in np.arange(len(self.eos_names)):
+                            vals[indx] =self.lambda_of_m_indx(self.oned_order_mass,indx)
+                    if self.oned_order_name =='R':
+                        for indx in np.arange(len(self.eos_names)):
+                            vals[indx] =self.R_of_m_indx(self.oned_order_mass,indx)
+
+                    # resort 'names' field with new ordering
+                    indx_sorted = np.argsort(vals)
+                    if verbose: 
+                        print(indx_sorted)
+                    self.eos_names = self.eos_names[indx_sorted]  
+
             if load_eos:
                 self.eos_tables = f['eos']
         return None
 
+    def m_max_of_indx(self,indx):
+        name = self.eos_names[indx]
+        return np.max(self.eos_ns_tov[name]['M'])
 
     def lambda_of_m_indx(self,m_Msun,indx):
         """
@@ -776,7 +812,8 @@ class EOSSequenceLandry:
         if self.eos_ns_tov is None:
             raise Exception(" Did not load TOV results ")
         name = self.eos_names[indx]
-        print(" Loading from {}".format(name))
+        if self.verbose:
+            print(" Loading from {}".format(name))
         dat = np.array(self.eos_ns_tov[name])
         # Sort masses
         indx_sort = np.argsort(dat["M"])
@@ -786,5 +823,31 @@ class EOSSequenceLandry:
         valM = dat["M"][indx_sort]
         return np.exp(np.interp(m_Msun, valM, valLambda))
 
+    def R_of_m_indx(self,m_Msun,indx):
+        """
+        R(m) evaluated for a *single* m_Msun value (almost always), for a specific indexed EOS
+        
+        Generally we assume the value is UNIQUE and associated with a single stable phase; should FIX?
+        """
+        if self.eos_ns_tov is None:
+            raise Exception(" Did not load TOV results ")
+        name = self.eos_names[indx]
+        if self.verbose:
+            print(" Loading from {}".format(name))
+        dat = np.array(self.eos_ns_tov[name])
+        # Sort masses
+        indx_sort = np.argsort(dat["M"])
+        # Interpolate versus m, ASSUME single-valued / no phase transition ! 
+        # Interpolate versus *log lambda*, so it is smoother and more stable
+        valR = np.log(dat["R"][indx_sort])
+        valM = dat["M"][indx_sort]
+        return np.exp(np.interp(m_Msun, valM, valR))
+
     def mmax_of_indx(self,indx):
-        raise Exception("Need to implement")
+        if self.eos_ns_tov is None:
+            raise Exception(" Did not load TOV results ")
+        name = self.eos_names[indx]
+        if self.verbose:
+            print(" Loading from {}".format(name))
+        
+        return np.max(self.eos_ns_tov[name]['M'])
