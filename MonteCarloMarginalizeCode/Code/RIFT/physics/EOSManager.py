@@ -794,6 +794,7 @@ class EOSSequenceLandry:
                     if verbose: 
                         print(indx_sorted)
                     self.eos_names = self.eos_names[indx_sorted]  
+                    self.oned_order_values = vals[indx_sorted]
 
             if load_eos:
                 self.eos_tables = f['eos']
@@ -851,3 +852,15 @@ class EOSSequenceLandry:
             print(" Loading from {}".format(name))
         
         return np.max(self.eos_ns_tov[name]['M'])
+
+    def lookup_closest(self,order_val):
+        """
+        Given a proposed ordering statistic value, provides the *index* of the closest value.  Assumes *scalar* input
+        Should be using the fact that this is ordered ... but we are not
+        """
+        if self.eos_ns_tov is None:
+            raise Exception(" Did not load TOV results ")
+        if self.oned_order_values is None:
+            raise Exception(" Did not generate ordering statistic ")
+        
+        return np.argmin( np.abs(order_val - self.oned_order_values))
