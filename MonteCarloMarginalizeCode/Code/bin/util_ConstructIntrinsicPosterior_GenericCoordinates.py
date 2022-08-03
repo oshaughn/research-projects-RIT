@@ -217,6 +217,7 @@ def add_field(a, descr):
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
+parser.add_argument("--input-eos-index",action='store_true',help="Use input format with eos index fields included (forbit eccentricity!)")
 parser.add_argument("--input-distance",action='store_true',help="Use input format with distance fields (but not tidal fields?) enabled.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
@@ -305,6 +306,9 @@ parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP f
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 parser.add_argument("--no-plots",action='store_true')
+parser.add_argument("--tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
+parser.add_argument("--tabular-eos-file-format",type=str,default=None,help="Format of tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
+parser.add_argument("--tabular-eos-order-statistic",type=str,default=None,help="Order statistic to use.  Options will include R1p4, LambdaTildeQ1, and ...}")
 parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not) ")
 parser.add_argument("--no-use-lal-eos",action='store_true',help="Do not use LAL EOS interface. Used for spectral EOS. Do not use this.")
 parser.add_argument("--no-matter1", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
@@ -1372,6 +1376,12 @@ col_lnL = 9
 if opts.input_tides:
     print(" Tides input")
     col_lnL +=2
+    if opts.input_eos_index:
+        print(" EOS Tides input")
+        col_lnL +=2
+        coord_names += ['eos_indx']  # temporary, will overwrite this, just use initially to simplify i/o
+        low_level_coord_names += ['ordering'] 
+
 elif opts.use_eccentricity:
     print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
     col_lnL += 1
@@ -1557,6 +1567,28 @@ for p in ['mc', 'm1', 'm2', 'mtot']:
             dat_out_extra[x][:,indx] /= lal.MSUN_SI
             
 
+# EOS from tabular data: need to do after everything loaded! Need to know reference masses, etc
+if opts.tabular_eos_file:
+    # Find reference mass in msun: pick a TYPICAL chirp mass in grid, as all should be close enough for our purposes! 
+    # note this is NOT DETERMINISTIC and will depend on our grid input/what survives, but for BNS should be fine
+    mc_ref = Pref_default.extract_param('mc')
+    if mc_ref > 1e10:
+        mc_ref = mc_ref/lal.MSUN_SI
+    m_ref = mc_ref*np.power(2, 1./5.)   # assume equal mass
+    my_eos_sequence = EOSManager.EOSSequenceLandry(fname="LCEHL_EOS_posterior_samples_PSR+GW+NICER.h5",load_ns=True,oned_order_name='Lambda', oned_order_mass=m_ref)
+
+    # Define prior
+    prior_map['ordering'] =lambda x: np.ones(x.shape)
+
+    # Add the ordering values for all the imported points
+    #  - on *import*, we've imported the index quantities; instead,  evaluate the ordering statistic for all of these
+    order_vals = np.zeros(len(dat_out))
+    for indx in np.arange(len(order_vals)):
+        order_vals = my_eos_sequence.lambda_of_m_index(m_ref, int(dat_out[indx,-1]))  # last field is index value
+    # overwrite into the ordering statistic field
+    dat_out[:,-1] = order_vals
+    # overwrite the coordinate name for the last field, so conversion is trivial/identity
+    coord_names[-1] = 'ordering'
 
 # Repack data
 X =dat_out[:,0:len(coord_names)]
