@@ -720,3 +720,71 @@ def LookupCrustEpsilonAtPressure(p_ref,eosname_lalsuite="SLY4"):
     lal_dat_log = np.log10(lal_dat)   # note first sample is zero,and causes problems nominally with this interpolation
     eps_out = np.power(10.,np.interp(np.log10(p_ref),  lal_dat_log[:,0], lal_dat_log[:,1]))
     return eps_out
+
+
+
+###
+###  EOSSequence : For large sets of EOS we must access simultaneously (100 Mb plus), pretabulated
+# 
+#   These will be a different data structure, where we don't necessariliy provide all the EOSConcrete structures, 
+#   Example: https://zenodo.org/record/6502467#.YulOeaRE1Pw 
+###
+
+
+
+###
+### SERVICE 0: General EOS structure
+###
+
+class EOSSequenceLandry:
+    """
+    Class characterizing a sequence of specific EOS solutions, using the Landry format.
+    Assumes user provides (a) EOS realization, (b) precomputed results from TOV solve; and (c) discrete ID
+    """
+
+    def __init__(self,name=None,fname=None,load_eos=False,load_ns=False):
+        import h5py
+        self.name=name
+        self.fname=fname
+        self.eos_ids = None
+        self.eos_names = None
+        self.eos_tables = None
+        self.eos_ns_tov = None
+        with h5py.File(self.fname, 'r') as f:
+            names = list(f['ns'].keys())
+            self.eos_ids = list(f['id'])
+            self.eos_names = names
+            # The following loads a LOT into memory, as a dictionary
+            if load_ns:
+                print(" EOSSequenceLandry: Loading TOV results for {}".format(fname))
+                # Convert to dictionary, so not closed.  Note this sucks up a lot of i/o time, and ideally we don't close the file
+                self.eos_ns_tov = {}
+                for name in names:
+                    self.eos_ns_tov[name] = np.array(f['ns'][name])
+                print(" EOSSequenceLandry: Completed TOV i/o {}".format(fname))
+            if load_eos:
+                self.eos_tables = f['eos']
+        return None
+
+
+    def lambda_of_m_indx(self,m_Msun,indx):
+        """
+        lambda(m) evaluated for a *single* m_Msun value (almost always), for a specific indexed EOS
+        
+        Generally we assume the value is UNIQUE and associated with a single stable phase
+        """
+        if self.eos_ns_tov is None:
+            raise Exception(" Did not load TOV results ")
+        name = self.eos_names[indx]
+        print(" Loading from {}".format(name))
+        dat = np.array(self.eos_ns_tov[name])
+        # Sort masses
+        indx_sort = np.argsort(dat["M"])
+        # Interpolate versus m, ASSUME single-valued / no phase transition ! 
+        # Interpolate versus *log lambda*, so it is smoother and more stable
+        valLambda = np.log(dat["Lambda"][indx_sort])
+        valM = dat["M"][indx_sort]
+        return np.exp(np.interp(m_Msun, valM, valLambda))
+
+    def mmax_of_indx(self,indx):
+        raise Exception("Need to implement")
