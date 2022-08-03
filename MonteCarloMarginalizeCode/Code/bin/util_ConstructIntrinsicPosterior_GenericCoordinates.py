@@ -219,7 +219,7 @@ def extract_combination_from_LI(samples_LI, p):
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
-parser.add_argument("--input-eos-index",action='store_true',help="Use input format with eos index fields included (forbit eccentricity!)")
+parser.add_argument("--input-eos-index",action='store_true',help="Use input format with eos index fields included")
 parser.add_argument("--input-distance",action='store_true',help="Use input format with distance fields (but not tidal fields?) enabled.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
@@ -235,7 +235,7 @@ parser.add_argument("--desc-lalinference",type=str,default='',help="String to ad
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
-parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
+parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrainxed, and the a prior sampler is well-chosen.")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
@@ -348,6 +348,11 @@ if not(opts.force_no_adapt):
 
 source_redshift=opts.source_redshift
 
+#  require eos index input and 
+if  opts.input_eos_index and not(opts.tabular_eos_file):
+    raise Exception(" Fail: must input EOS input when processing it ")
+if  not(opts.input_eos_index) and (opts.tabular_eos_file):
+    raise Exception(" Fail: must process EOS input to be able to use it ")
 
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
@@ -1380,9 +1385,13 @@ if opts.input_tides:
     col_lnL +=2
     if opts.input_eos_index:
         print(" EOS Tides input")
-        col_lnL +=2
-        coord_names += ['eos_indx']  # temporary, will overwrite this, just use initially to simplify i/o
+        col_lnL +=1
+        coord_names += ['eos_table_index']  # temporary, will overwrite this, just use initially to simplify i/o
+        coord_names = list(coord_names)   # force reallocation, since at times we have duplicate sets
         low_level_coord_names += ['ordering'] 
+        low_level_coord_names.remove('eos_table_index')
+        print(" Revised fit coord names (for lookup) : ", coord_names) # 'eos_table_index' will be overwritten here
+        print(" Revised sampling coord names  : ", low_level_coord_names)
 
 elif opts.use_eccentricity:
     print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
@@ -1417,8 +1426,10 @@ dat_out_extra = []
 for item in extra_plot_coord_names:
     dat_out_extra.append([])
 
-
-symmetry_list =lalsimutils.symmetry_sign_exchange(coord_names)  # identify symmetry due to exchange
+if not(opts.tabular_eos_file):
+    symmetry_list =lalsimutils.symmetry_sign_exchange(coord_names)  # identify symmetry due to exchange
+else:
+    symmetry_list=None
 mc_min = 1e10
 mc_max = -1
 
@@ -1444,7 +1455,7 @@ for line in dat:
       continue
   if line[col_lnL+1] > opts.sigma_cut:
 #      if opts.verbose:
-#          print " Skipping ", line
+#          print(" Skipping as large error ", line)
       continue
   if not (opts.lnL_cut is None):
     if line[col_lnL] < opts.lnL_cut:
@@ -1469,6 +1480,8 @@ for line in dat:
     if opts.input_tides:
         P.lambda1 = line[9]
         P.lambda2 = line[10]
+    if opts.input_eos_index:
+        P.eos_table_index = line[11]
     if opts.use_eccentricity:
         P.eccentricity = line[9]
     if opts.input_distance:
@@ -1485,6 +1498,8 @@ for line in dat:
         if coord_names[x] == 'chi_pavg':
             chi_pavg_out = P.extract_param('chi_pavg')
             line_out[x] = chi_pavg_out
+        elif coord_names[x] =='ordering':
+            continue
         else:
             line_out[x] = P.extract_param(coord_names[x])
  #        line_out[x] = getattr(P, coord_names[x])
@@ -1503,6 +1518,8 @@ for line in dat:
     line_out = np.zeros(len(low_level_coord_names))
     for x in np.arange(len(line_out)):
         fac = 1
+        if low_level_coord_names[x] in ['ordering']:
+            continue
         if low_level_coord_names[x] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
         if low_level_coord_names[x] == 'chi_pavg':
@@ -1571,23 +1588,25 @@ for p in ['mc', 'm1', 'm2', 'mtot']:
 
 # EOS from tabular data: need to do after everything loaded! Need to know reference masses, etc
 if opts.tabular_eos_file:
+    import RIFT.physics.EOSManager as EOSManager
     # Find reference mass in msun: pick a TYPICAL chirp mass in grid, as all should be close enough for our purposes! 
     # note this is NOT DETERMINISTIC and will depend on our grid input/what survives, but for BNS should be fine
     mc_ref = Pref_default.extract_param('mc')
     if mc_ref > 1e10:
         mc_ref = mc_ref/lal.MSUN_SI
     m_ref = mc_ref*np.power(2, 1./5.)   # assume equal mass
-    my_eos_sequence = EOSManager.EOSSequenceLandry(fname="LCEHL_EOS_posterior_samples_PSR+GW+NICER.h5",load_ns=True,oned_order_name='Lambda', oned_order_mass=m_ref)
+    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file,load_ns=True,oned_order_name='Lambda', oned_order_mass=m_ref)
 
     # Define prior, NOT NORMALIZED
     prior_map['ordering'] =lambda x: np.ones(x.shape)
+    prior_range_map['ordering']  = [np.min(my_eos_sequence.oned_order_values),np.max(my_eos_sequence.oned_order_values)]
 
     # Add the ordering values for all the imported points
     #  - on *import*, we've imported the index quantities; instead,  evaluate the ordering statistic for all of these
     #  - note the saved values use the FIDUCIAL ORDERING, so must be used with GREAT CARE to preserve order!
     order_vals = np.zeros(len(dat_out))
     for indx in np.arange(len(order_vals)):
-        order_vals = my_eos_sequence.lambda_of_m_index(m_ref, int(dat_out[indx,-1]))  # last field is index value
+        order_vals = my_eos_sequence.lambda_of_m_indx(m_ref, int(dat_out[indx,-1]))  # last field is index value
     # overwrite into the ordering statistic field
     dat_out[:,-1] = order_vals
     # overwrite the coordinate name for the last field, so conversion is trivial/identity
