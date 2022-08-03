@@ -750,7 +750,7 @@ class EOSSequenceLandry:
        - mMax access
     """
 
-    def __init__(self,name=None,fname=None,load_eos=False,load_ns=False,oned_order_name=None,oned_order_mass=None,verbose=False):
+    def __init__(self,name=None,fname=None,load_eos=False,load_ns=False,oned_order_name=None,oned_order_mass=None,no_sort=True,verbose=False):
         import h5py
         self.name=name
         self.fname=fname
@@ -798,12 +798,16 @@ class EOSSequenceLandry:
                             vals[indx] =self.R_of_m_indx(self.oned_order_mass,indx)
 
                     # resort 'names' field with new ordering
-                    indx_sorted = np.argsort(vals)
-                    if verbose: 
-                        print(indx_sorted)
-                    self.eos_names = self.eos_names[indx_sorted]  
-                    self.oned_order_values = vals[indx_sorted]
-                    self.oned_order_indx_original =  self.oned_order_indx_original[indx_sorted]
+                    # is it actually important to do the sorting?  NO, code should work with original lexographic order, since we only use nearest neighbors!
+                    if no_sort:
+                        self.oned_order_values = vals
+                    else:
+                        indx_sorted = np.argsort(vals)
+                        if verbose: 
+                            print(indx_sorted)
+                        self.eos_names = self.eos_names[indx_sorted]  
+                        self.oned_order_values = vals[indx_sorted]
+                        self.oned_order_indx_original =  self.oned_order_indx_original[indx_sorted]
 
             if load_eos:
                 self.eos_tables = f['eos']
