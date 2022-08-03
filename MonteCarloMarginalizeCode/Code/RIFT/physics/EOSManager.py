@@ -770,7 +770,8 @@ class EOSSequenceLandry:
             self.eos_names = np.array(names,dtype=str)
             # The following loads a LOT into memory, as a dictionary
             if load_ns:
-                print(" EOSSequenceLandry: Loading TOV results for {}".format(fname))
+                if verbose:
+                    print(" EOSSequenceLandry: Loading TOV results for {}".format(fname))
                 # Convert to dictionary, so not closed.  Note this sucks up a lot of i/o time, and ideally we don't close the file
                 self.eos_ns_tov = {}
                 for name in names:
