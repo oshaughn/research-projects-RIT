@@ -2522,6 +2522,8 @@ for indx in np.arange(len(low_level_coord_names)):
     fac = 1
     if low_level_coord_names[indx] in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
+    if low_level_coord_names[indx] == 'ordering':
+        continue
     truth_here.append(Pref.extract_param(low_level_coord_names[indx])/fac)
 
 
@@ -2643,11 +2645,13 @@ for indx_here in indx_list:
                 coord_to_assign= 'chieff_aligned'
             if coord_to_assign == 'chi_pavg':
                 continue # skipping chi_pavg
+            if coord_to_assign == 'ordering':
+                continue
             Pgrid.assign_param(coord_to_assign, line[indx]*fac)
 #            print indx_here, coord_to_assign, line[indx]
         # Test for downselect
         # Perform tabular EOS calculations: compute reference index, lambda1, lambda2
-        if opts.tabular_eos:
+        if opts.tabular_eos_file:
             # save the index of the SORTED SIMULATION (because that's how I'll be accessing it!)
             eos_indx_here = my_eos_sequence.lookup_closest(samples['ordering'][indx_here])
             Pgrid.eos_table_index = eos_indx_here
