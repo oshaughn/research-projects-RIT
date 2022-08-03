@@ -21,6 +21,11 @@ from scipy.integrate import quad
 import scipy.interpolate as interp
 import scipy
 
+try:
+    from natsort import natsorted
+except:
+    print(" - no natsorted - ")
+
 #import gwemlightcurves.table as gw_eos_table
 
 from . import MonotonicSpline as ms
@@ -750,15 +755,17 @@ class EOSSequenceLandry:
         self.name=name
         self.fname=fname
         self.eos_ids = None
-        self.eos_names = None
+        self.eos_names = None   # note this array can be SORTED, use the oned_order_indx_original for original order
         self.eos_tables = None
         self.eos_ns_tov = None
         self.oned_order_name = None
         self.oned_order_mass=oned_order_mass
         self.oned_order_values=None
+        self.oned_order_indx_original = None
         self.verbose=verbose
         with h5py.File(self.fname, 'r') as f:
             names = list(f['ns'].keys())
+            names = natsorted(names)  # sort them sanely
             self.eos_ids = list(f['id'])
             self.eos_names = np.array(names,dtype=str)
             # The following loads a LOT into memory, as a dictionary
@@ -781,6 +788,7 @@ class EOSSequenceLandry:
                     # Can't order if we don't have a reference mass
                     create_order=False
                 if create_order:
+                    self.oned_order_indx_original = np.arange(len(self.eos_names))
                     vals = np.zeros(len(self.eos_names))
                     if self.oned_order_name =='Lambda':
                         for indx in np.arange(len(self.eos_names)):
@@ -795,6 +803,7 @@ class EOSSequenceLandry:
                         print(indx_sorted)
                     self.eos_names = self.eos_names[indx_sorted]  
                     self.oned_order_values = vals[indx_sorted]
+                    self.oned_order_indx_original =  self.oned_order_indx_original[indx_sorted]
 
             if load_eos:
                 self.eos_tables = f['eos']
