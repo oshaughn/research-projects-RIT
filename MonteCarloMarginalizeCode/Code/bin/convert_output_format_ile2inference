@@ -35,6 +35,7 @@ optp = OptionParser()
 optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
 optp.add_option("--export-extra-spins",action='store_true',help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
 optp.add_option("--export-tides",action='store_true',help="Include tidal parameters")
+optp.add_option("--export-eos",action='store_true',help="Include EOS index parameter")
 optp.add_option("--export-cosmology",action='store_true',help="Include source frame masses and redshift")
 optp.add_option("--export-weights",action='store_true',help="Include a field 'weights' equal to L p/ps")
 optp.add_option("--export-eccentricity", action="store_true", help="Include eccentricity")
@@ -67,7 +68,6 @@ if opts.export_extra_spins:
     import RIFT.lalsimutils as lalsimutils
 
 
-
 # Add LI-style export
 if opts.convention == 'LI':
   import RIFT.lalsimutils as lalsimutils
@@ -76,6 +76,8 @@ if opts.convention == 'LI':
       print( 'theta_jn phi_jl tilt1 tilt2 costilt1 costilt2 phi12 a1 a2 psiJ',end=' ')
   if opts.export_tides:
       print( "lambda1 lambda2 lam_tilde",end=' ')
+  if opts.export_eos:
+      print( "eos_indx",end=' ')
   if opts.export_cosmology:
       print( " m1_source m2_source mc_source mtotal_source redshift ",end=' ')
   if opts.export_weights:
@@ -116,6 +118,7 @@ if opts.convention == 'LI':
         P.s2y = pt.spin2y
         P.s2z = pt.spin2z
         P.fmin=opts.fref
+        P.eos_table_index = pt.alpha
         try:
             P.fmin = pt.f_lower  # should use this first
         except:
@@ -148,6 +151,9 @@ if opts.convention == 'LI':
             P.lambda2 = pt.alpha6
             lam_tilde = P.extract_param("LambdaTilde")
             print( pt.alpha5, pt.alpha6, lam_tilde,end=' ')
+        if opts.export_eos:
+            eos_indx = P.eos_table_index
+            print(eos_indx, end=' ')
         if opts.export_cosmology:
 #            z = astropy.cosmology( default_cosmology.luminosity_distance, pt.distance *u.Mpc)
             #z =astropy.cosmology.z_at_value(cosmo.luminosity_distance, pt.distance*u.Mpc)
@@ -172,6 +178,8 @@ if opts.export_extra_spins:
     print( 'thetaJN phi_jl tilt1 tilt2 phi12 a1 a2 psiJ',end=' ')
 if opts.export_tides:
     print( "lambda1 lambda2",end=' ')
+if opts.export_eos:
+      print( "eos_indx",end=' ')
 if opts.export_cosmology:
     print( " m1_source m2_source redshift ",end=' ')
 if opts.export_weights:
@@ -182,6 +190,8 @@ else:
     print('')
 for fname in args:
  if ".hdf5" in fname:
+     if opts.export_eos_index:
+         raise Exception(" Not implemented for hdf5 export")
      # Load manually, to avoid problems with lnL, p, ps 
      f = h5py.File(fname, 'r')
      arr = f["waveform_parameters"]
@@ -247,6 +257,8 @@ for fname in args:
             print( thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ,end=' ')
         if opts.export_tides:
             print(pt.alpha5, pt.alpha6,end=' ')
+        if opts.export_eos:
+            print(pt.alpha, end=' ')
         if opts.export_cosmology:
 #            z = astropy.cosmology( default_cosmology.luminosity_distance, pt.distance *u.Mpc)
             z =cosmo_func(pt.distance)#astropy.cosmology.z_at_value(cosmo.luminosity_distance, pt.distance*u.Mpc)
