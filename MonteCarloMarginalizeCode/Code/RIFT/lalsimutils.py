@@ -1584,8 +1584,8 @@ class ChooseWaveformParams:
         self.eccentricity=row.alpha4
         self.snr = row.alpha3   # lnL info
         # WARNING: alpha1, alpha2 used by ILE for weights!
-        self.eos_table_index = row.alpha4
-        if not(row.alpha4):
+        self.eos_table_index = row.alpha
+        if not(row.alpha):
             self.eos_table_index = None
     
 
@@ -1632,10 +1632,9 @@ class ChooseWaveformParams:
         # NONSTANDARD
         row.alpha5 = self.lambda1
         row.alpha6 = self.lambda2
-        # CONFLICTING USE : eccentricity and EOS table index can't be specified simultaneously right now
         row.alpha4 = self.eccentricity
         if self.eos_table_index:
-            row.alpha4 = self.eos_table_index
+            row.alpha = self.eos_table_index
         if self.snr:
             row.alpha3 = self.snr
         # Debug: 
