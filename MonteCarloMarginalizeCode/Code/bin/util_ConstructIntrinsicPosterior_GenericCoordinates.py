@@ -2656,8 +2656,8 @@ for indx_here in indx_list:
             eos_indx_here = my_eos_sequence.lookup_closest(samples['ordering'][indx_here])
             Pgrid.eos_table_index = eos_indx_here
             # Compute lambda1, lambda2 for output for this EOS, using ASSUMED source redshift (not currently with consistent/flexible distances)
-            Pgrid.lambda1 = my_eos_sequence.lambda_of_m_indx(P.m1/lal.MSUN_SI/(1+source_redshift), eos_indx_here)
-            Pgrid.lambda2 = my_eos_sequence.lambda_of_m_indx(P.m2/lal.MSUN_SI/(1+source_redshift), eos_indx_here)
+            Pgrid.lambda1 = my_eos_sequence.lambda_of_m_indx(Pgrid.m1/lal.MSUN_SI/(1+source_redshift), eos_indx_here)
+            Pgrid.lambda2 = my_eos_sequence.lambda_of_m_indx(Pgrid.m2/lal.MSUN_SI/(1+source_redshift), eos_indx_here)
 
         for p in downselect_dict.keys():
             val = Pgrid.extract_param(p) 
