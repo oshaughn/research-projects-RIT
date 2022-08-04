@@ -221,6 +221,7 @@ parser.add_argument("--truth-event",type=int, default=0,help="file containing th
 parser.add_argument("--composite-file",action='append',help="filename of *.dat file [standard ILE intermediate]")
 parser.add_argument("--use-all-composite-but-grayscale",action='store_true',help="Composite")
 parser.add_argument("--flag-tides-in-composite",action='store_true',help='Required, if you want to parse files with tidal parameters')
+parser.add_argument("--flag-eos-index-in-composite",action='store_true',help='Required, if you want to parse files with EOS index in composite (and tides)')
 parser.add_argument("--posterior-label",action='append',help="label for posterior file")
 parser.add_argument("--posterior-color",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
 parser.add_argument("--posterior-linestyle",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
@@ -445,8 +446,12 @@ composite_list = []
 composite_full_list = []
 field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lnL", "sigmaOverL", "ntot", "neff")
 if opts.flag_tides_in_composite:
-    print(" Reading composite file, assuming tide-based format ")
-    field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
+    if opts.flag_eos_index_in_composite:
+        print(" Reading composite file, assumingtide/eos-index-based format ")
+        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "eos_table_index","lnL", "sigmaOverL", "ntot", "neff")
+    else:
+        print(" Reading composite file, assuming tide-based format ")
+        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
 if opts.eccentricity:
     print(" Reading composite file, assuming eccentricity-based format ")
     field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","eccentricity", "lnL", "sigmaOverL", "ntot", "neff")
