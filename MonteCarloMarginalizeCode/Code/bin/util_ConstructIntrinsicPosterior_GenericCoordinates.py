@@ -537,7 +537,7 @@ test_converged={}
 coord_names = opts.parameter # Used  in fit
 if coord_names is None:
     coord_names = []
-low_level_coord_names = coord_names # Used for Monte Carlo
+low_level_coord_names = list(coord_names) # Used for Monte Carlo.  Use 'list' to force re-create/copy
 if 'chi_pavg' in coord_names:
     low_level_coord_names += ['chi_pavg']
 if opts.parameter_implied:
@@ -1386,11 +1386,10 @@ if opts.input_tides:
     if opts.input_eos_index:
         print(" EOS Tides input")
         col_lnL +=1
-        if 'eos_table_index' in low_level_coord_names:
+        if opts.tabular_eos_file: 
             coord_names += ['eos_table_index']  # temporary, will overwrite this, just use initially to simplify i/o
             coord_names = list(coord_names)   # force reallocation, since at times we have duplicate sets
             low_level_coord_names += ['ordering'] 
-            low_level_coord_names.remove('eos_table_index')
         print(" Revised fit coord names (for lookup) : ", coord_names) # 'eos_table_index' will be overwritten here
         print(" Revised sampling coord names  : ", low_level_coord_names)
 
@@ -1969,6 +1968,7 @@ if opts.sampler_method == "GMM":
 ##
 ## Loop over param names
 ##
+print(" Preparing sampling ", low_level_coord_names)
 for p in low_level_coord_names:
     if not(opts.parameter_implied is None):
        if p in opts.parameter_implied and not(p == 'chi_pavg'):
