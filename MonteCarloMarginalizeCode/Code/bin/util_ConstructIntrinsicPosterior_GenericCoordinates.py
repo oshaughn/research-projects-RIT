@@ -350,7 +350,7 @@ source_redshift=opts.source_redshift
 
 #  require eos index input and 
 if  opts.input_eos_index and not(opts.tabular_eos_file):
-    raise Exception(" Fail: must input EOS input when processing it ")
+    print(" warning: input EOS index, but not using it; presumably you are doing a model-free test ")
 if  not(opts.input_eos_index) and (opts.tabular_eos_file):
     raise Exception(" Fail: must process EOS input to be able to use it ")
 
@@ -1386,10 +1386,11 @@ if opts.input_tides:
     if opts.input_eos_index:
         print(" EOS Tides input")
         col_lnL +=1
-        coord_names += ['eos_table_index']  # temporary, will overwrite this, just use initially to simplify i/o
-        coord_names = list(coord_names)   # force reallocation, since at times we have duplicate sets
-        low_level_coord_names += ['ordering'] 
-        low_level_coord_names.remove('eos_table_index')
+        if 'eos_table_index' in low_level_coord_names:
+            coord_names += ['eos_table_index']  # temporary, will overwrite this, just use initially to simplify i/o
+            coord_names = list(coord_names)   # force reallocation, since at times we have duplicate sets
+            low_level_coord_names += ['ordering'] 
+            low_level_coord_names.remove('eos_table_index')
         print(" Revised fit coord names (for lookup) : ", coord_names) # 'eos_table_index' will be overwritten here
         print(" Revised sampling coord names  : ", low_level_coord_names)
 
