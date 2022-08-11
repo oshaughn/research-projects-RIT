@@ -7,6 +7,9 @@ Since last release
      stage);  bugfix xml event time export; chi_pavg implement updates; EOSManager minor edits; GMM in ILE finer
      control over adaptation variables; overflow protection GMM+ILE now user-accessible; address typing issues in
      mcsampler (returning object type) for selected arguments; bugfix syntax errors introduced in some mergers; 
+     CIP/EOSManager methods for quick inference with tabulated sequence of EOSs (EOSSequenceLandry; etc);
+     mcsampler avoid infinite loop for 'no contribution to integral,skipping'; CIP_gauss defined (gaussian fit +
+     resampling based on gaussian); scitokens-ready ILE  (rc1)
 
 0.0.15.6
 -----------x
