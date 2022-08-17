@@ -17,6 +17,8 @@
 import numpy as np
 import argparse
 import scipy.stats
+from scipy.spatial.distance import jensenshannon
+from scipy.stats import gaussian_kde
 import numpy.linalg as la
 import sys
 
@@ -91,6 +93,40 @@ def test_KL1d(dat1_1d,dat2_1d,range1=None, range2=None):
 
 
 
+def calculate_js(samplesA, samplesB, ntests=100, xsteps=100):
+    """
+    JS (1d) from https://git.ligo.org/pe/O4/bilby_o4_review/-/blob/main/GW150914/run_comparison.py
+
+    Notes:  (a) does 100 tests with random resampling, (b) uses KDE (!) as density estimate, (c) truncates range to smaller of all samples present, does not allow for large range differences
+    """
+    js_array = np.zeros(ntests)
+    for j in range(ntests):
+        nsamples = min([len(samplesA), len(samplesB)])
+        A = np.random.choice(samplesA, size=nsamples, replace=False)
+        B = np.random.choice(samplesB, size=nsamples, replace=False)
+        xmin = np.min([np.min(A), np.min(B)])
+        xmax = np.max([np.max(A), np.max(B)])
+        x = np.linspace(xmin, xmax, xsteps)
+        A_pdf = gaussian_kde(A)(x)
+        B_pdf = gaussian_kde(B)(x)
+
+        js_array[j] = np.nan_to_num(np.power(jensenshannon(A_pdf, B_pdf), 2))
+
+    return np.median(js_array)
+
+def test_js_additive(dat1,dat2):
+    """
+    For all fields in sample, calculate 1d js
+
+    js test from
+    https://git.ligo.org/pe/O4/bilby_o4_review/-/blob/main/GW150914/run_comparison.py
+    """
+
+    n_dim = len(dat1[0])
+    js_net = 0
+    for indx in np.arange(n_dim):
+        js_net += calculate_js(dat1[:,indx],dat2[:,indx])
+    return js_net
 
 # Procedure
 
@@ -128,6 +164,8 @@ elif opts.method == 'KS_1d':
     val_test = test_ks1d(dat1[:,0],dat2[:,0])
 elif opts.method == 'KL_1d':
     val_test = test_KL1d(dat1[:,0],dat2[:,0])
+elif opts.method == 'JS':
+    val_test = test_js_additive(dat1,dat2)
 else:
     print(" No known method ", opts.method)
 print(val_test)
