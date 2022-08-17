@@ -22,6 +22,13 @@ import RIFT.lalsimutils as lalsimutils
 import lal
 import lalsimulation as lalsim
 
+# Backward compatibility
+from RIFT.misc.dag_utils import which
+lalapps_path2cache = which('lal_path2cache')
+if lalapps_path2cache == None:
+    lalapps_path2cache = = which('lalapps_path2cache')
+
+
 def unsafe_config_get(config,args,verbose=False):
     """
     unsafe_config_get(config, args):
@@ -209,7 +216,7 @@ for indx in np.arange(n_events):
             os.system(cmd)
 
     if not opts.test:
-        cmd = "/bin/find .  -name '*.gwf' | lalapps_path2cache > signals.cache"
+        cmd = "/bin/find .  -name '*.gwf' | {} > signals.cache".format(lalapps_path2cache)
         os.system(cmd)
 
     # Evaluate zero-noise SNR
