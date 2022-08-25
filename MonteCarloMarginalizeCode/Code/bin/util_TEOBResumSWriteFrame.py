@@ -85,8 +85,9 @@ if T_est < opts.seglen:
     print(" Buffer length too short, automating retuning forced ")
 
 
-# Generate signal.   NEEDS TO BE EDITED HERE
-hoft = lalsimutils.hoft(P)   # include translation of source, but NOT interpolation onto regular time grid
+# Generate signal, which can only be generated from hlmoft right now
+hlms = lalsimutils.hlmoft(P)
+hoft = lalsimutils.hoft_from_hlm(hlms,P)  
 
 
 # zero pad to be opts.seglen long, if necessary

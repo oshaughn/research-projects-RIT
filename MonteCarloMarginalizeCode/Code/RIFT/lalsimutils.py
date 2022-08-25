@@ -3476,6 +3476,32 @@ def std_and_conj_hlmoff(P, Lmax=2):
             hlms_conj_F[mode] = DataFourier(hlms[mode])
     return hlmsF, hlms_conj_F
 
+def hoft_from_hlm(hlmsT,P,Lmax):
+    """
+    hoft_from_hlm(hlm,P,Lmax):  return hoft like output given hlmoft input.
+    Important if hoft is not accessible (e.g., not provided by lalsuite)
+    """
+    h22 = hlms[(2,2)]
+
+    # Create complex strain object
+    hT = lal.CreateCOMPLEX16TimeSeries("hT", h22.epoch, h22.f0,
+            h22.deltaT, h22.sampleUnits, h22.data.length)
+    hT.data.data*=0  # fill with zeros
+
+    # create for loop over elements of the series to add it
+    for mode in hlms:
+        hlm = hlms[mode]
+        hT.data.data += hlm.data.data * lal.SpinWeightedSphericalHarmonic(P.iota,P.phiref,-2,mode[0],mode[1])
+
+    # now create real valued output based on detectors
+    fp = Fplus(P.theta, P.phi, P.psi)
+    fc = Fcross(P.theta, P.phi, P.psi)
+
+    h_real = lal.CreateREAL8TimeSeries("hT", h22.epoch, h22.f0,
+            h22.deltaT, h22.sampleUnits, h22.data.length)
+    h_real.data.data =  np.real(hT.data.data)*fp + np.imag(hT.data.data)*fc
+
+    return h_real
 
 def SphHarmTimeSeries_to_dict(hlms, Lmax):
     """
