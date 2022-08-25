@@ -29,7 +29,7 @@ import configparser as ConfigParser
 from RIFT.misc.dag_utils import which
 lalapps_path2cache = which('lal_path2cache')
 if lalapps_path2cache == None:
-    lalapps_path2cache = = which('lalapps_path2cache')
+    lalapps_path2cache =  which('lalapps_path2cache')
 
 
 
