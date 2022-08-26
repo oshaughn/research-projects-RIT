@@ -480,6 +480,11 @@ class MCSampler(object):
             if (self.ntotal > nmax*tripwire_fraction) and (eff_samp < 1+tripwire_epsilon):
                 print(" Tripwire: n_eff too low ")
                 raise Exception("Tripwire on n_eff")
+
+            if n_horrible >= n_horrible_max:
+                raise Exception("mcsampler: Too many iterations with no "
+                                "contribution to integral, hard fail")
+
             # Draw our sample points
             args_draw ={}
             if force_no_adapt or save_no_samples:  # don't save permanent sample history if not needed
@@ -506,9 +511,7 @@ class MCSampler(object):
                 for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
                 print("Zero prior value detected, skipping.", file=sys.stderr)
-                n_horrible+=1
-                if n_horrible >= n_horrible_max:
-                   raise Exception("mcsampler: Too many iteratios with no contribution to integral, hard fail")
+                n_horrible += 1
                 continue
 
             #
@@ -533,12 +536,13 @@ class MCSampler(object):
             #
             # Check if there is any practical contribution to the integral
             #
-            # FIXME: While not technically a fatal error, this will kill the 
+            # FIXME: While not technically a fatal error, this will kill the
             # adaptive sampling
             if fval.sum() == 0:
                 for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
                 print("No contribution to integral, skipping.", file=sys.stderr)
+                n_horrible += 1
                 continue
 
             if save_intg and not force_no_adapt:
