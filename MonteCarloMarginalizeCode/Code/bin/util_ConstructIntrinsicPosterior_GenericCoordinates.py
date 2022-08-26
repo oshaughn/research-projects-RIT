@@ -556,7 +556,8 @@ if opts.fit_uses_reported_error:
 tex_dictionary = lalsimutils.tex_dictionary
 print(" Coordinate names for fit :, ", coord_names)
 print(" Rendering coordinate names : ",  render_coordinates(coord_names))  # map(lambda x: tex_dictionary[x], coord_names)
-print(" Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names))
+if opts.fit_method =="polynomial" or opts.fit_method == 'quadratic':
+    print(" Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names))
 print(" Coordinate names for Monte Carlo :, ", low_level_coord_names)
 print(" Rendering coordinate names : ", list(map(lambda x: tex_dictionary[x], low_level_coord_names)))
 
@@ -1426,10 +1427,10 @@ dat_out_extra = []
 for item in extra_plot_coord_names:
     dat_out_extra.append([])
 
+symmetry_list=None
 if not(opts.tabular_eos_file):
-    symmetry_list =lalsimutils.symmetry_sign_exchange(coord_names)  # identify symmetry due to exchange
-else:
-    symmetry_list=None
+    if opts.fit_method == 'quadratic' or opts.fit_method == 'polynomial':
+        symmetry_list =lalsimutils.symmetry_sign_exchange(coord_names)  # identify symmetry due to exchange
 mc_min = 1e10
 mc_max = -1
 
