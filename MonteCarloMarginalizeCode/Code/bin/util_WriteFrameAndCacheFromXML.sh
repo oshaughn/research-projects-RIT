@@ -105,7 +105,7 @@ make_cache L ${BASE} ${START} ${STOP} ${INJ_XML} ${EVENT} $DUR
 make_cache V ${BASE} ${START} ${STOP} ${INJ_XML} ${EVENT} $DUR
 
 LALAPPS_PATH2CACHE=`which lal_path2cache`
-if [ -z "${LALAPPS_PATH2CACHE" ]; then
+if [ -z "${LALAPPS_PATH2CACHE}" ]; then
   LALAPPS_PATH2CACHE=lalapps_path2cache
 fi
 
