@@ -715,18 +715,19 @@ echo Starting ...
     if not(request_disk is False):
         ile_job.add_condor_cmd('request_disk', str(request_disk)) 
     nGPUs =0
+    requirements = []
     if request_gpu:
         nGPUs=1
         ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
-    if use_singularity:
+        requirements.append("CUDAGlobalMemoryMb >= 2048")
+#   if use_singularity:
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
             ile_job.add_condor_cmd('request_CPUs', str(1))
             ile_job.add_condor_cmd('transfer_executable', 'False')
             ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
             ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
-            requirements = []
             requirements.append("HAS_SINGULARITY=?=TRUE")
-#            if not(use_simple_osg_requirements):
+               if not(use_simple_osg_requirements):
 #                requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
             #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
 
@@ -744,7 +745,6 @@ echo Starting ...
                 os.system("cp ${X509_USER_PROXY} "  + fname_proxy)
             #            ile_job.add_condor_cmd('x509userproxy',os.environ['X509_USER_PROXY'])
                 ile_job.add_condor_cmd('x509userproxy',fname_proxy)
-
 
     if use_osg:
            if not(use_simple_osg_requirements):
