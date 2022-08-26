@@ -648,7 +648,7 @@ class MCSampler(object):
               if not(isinstance(fval,cupy.ndarray)):
                 lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
 
-            log_weights = tempering_exp*lnL + self.xpy.log(joint_p_prior) - np.log(joint_p_s)
+            log_weights = tempering_exp*lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
 
             # append to cumulative values (assume all can be added)
 
