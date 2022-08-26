@@ -727,7 +727,7 @@ echo Starting ...
             ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
             ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
             requirements.append("HAS_SINGULARITY=?=TRUE")
-               if not(use_simple_osg_requirements):
+#               if not(use_simple_osg_requirements):
 #                requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
             #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
 
