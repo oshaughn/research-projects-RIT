@@ -3065,8 +3065,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
-                'Lambda1'            : P.lambda1,
-                'Lambda2'            : P.lambda2,
+                'LambdaAl2'            : P.lambda1,
+                'LambdaBl2'            : P.lambda2,
                 'chi1'               : P.s1z,
                 'chi2'               : P.s2z,
                 'domain'             : 0,
@@ -3087,7 +3087,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         # Run the WF generator
         print("Starting EOBRun_module")
         print(pars)
-        t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
+        t, hptmp, hctmp, hlmtmp = EOBRun_module.EOBRunPy(pars)
         print("EOBRun_module done")
         k_list_orig = hlmtmp.keys()
         hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
@@ -3476,7 +3476,7 @@ def std_and_conj_hlmoff(P, Lmax=2):
             hlms_conj_F[mode] = DataFourier(hlms[mode])
     return hlmsF, hlms_conj_F
 
-def hoft_from_hlm(hlmsT,P,Lmax):
+def hoft_from_hlm(hlmsT,P):
     """
     hoft_from_hlm(hlm,P,Lmax):  return hoft like output given hlmoft input.
     Important if hoft is not accessible (e.g., not provided by lalsuite)
