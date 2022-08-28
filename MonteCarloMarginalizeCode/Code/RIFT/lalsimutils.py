@@ -3491,15 +3491,31 @@ def hoft_from_hlm(hlmsT,P):
     # create for loop over elements of the series to add it
     for mode in hlms:
         hlm = hlms[mode]
-        hT.data.data += hlm.data.data * lal.SpinWeightedSphericalHarmonic(P.iota,P.phiref,-2,mode[0],mode[1])
+        hT.data.data += hlm.data.data * lal.SpinWeightedSphericalHarmonic(P.incl,P.phiref,-2,mode[0],mode[1])
 
-    # now create real valued output based on detectors
-    fp = Fplus(P.theta, P.phi, P.psi)
-    fc = Fcross(P.theta, P.phi, P.psi)
+    # now create real valued output based on detectors   
+    if P.radec==False:
+        fp = Fplus(P.theta, P.phi, P.psi)
+        fc = Fcross(P.theta, P.phi, P.psi)
+        fp = Fplus(P.theta, P.phi, P.psi)
+        fc = Fcross(P.theta, P.phi, P.psi)
 
-    h_real = lal.CreateREAL8TimeSeries("hT", h22.epoch, h22.f0,
+        h_real = lal.CreateREAL8TimeSeries("hT", h22.epoch, h22.f0,
+                                           h22.deltaT, h22.sampleUnits, h22.data.length)
+        h_real.data.data =  np.real(hT.data.data)*fp + np.imag(hT.data.data)*fc
+    else:
+        hp = lal.CreateREAL8TimeSeries("hT", h22.epoch, h22.f0,
             h22.deltaT, h22.sampleUnits, h22.data.length)
-    h_real.data.data =  np.real(hT.data.data)*fp + np.imag(hT.data.data)*fc
+        hc = lal.CreateREAL8TimeSeries("hT", h22.epoch, h22.f0,
+            h22.deltaT, h22.sampleUnits, h22.data.length)
+        hp.data.data = np.real(hT.data.data)
+        hc.data.data = np.imag(hT.data.data)
+        hp.epoch = hp.epoch + P.tref
+        hc.epoch = hc.epoch + P.tref
+        h_real = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
+                P.phi, P.theta, P.psi, 
+                lalsim.DetectorPrefixToLALDetector(str(P.detector)))
+
 
     return h_real
 
