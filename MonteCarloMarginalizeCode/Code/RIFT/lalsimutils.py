@@ -2655,7 +2655,7 @@ def hoft(P, Fp=None, Fc=None):
             hc = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
                                            P.deltaT, lsu_DimensionlessUnit, hplen)
             hp.data.data = hptmp
-        else:
+    else:
             hp, hc = lalsim.SimInspiralTD( \
                                            P.m1, P.m2, \
                                            P.s1x, P.s1y, P.s1z, \
