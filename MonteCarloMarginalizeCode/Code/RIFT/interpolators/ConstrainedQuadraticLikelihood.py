@@ -38,15 +38,9 @@ def quad_residuals(x,y,lnL_offset,mu,icov):
 def fit_grid(
              sample,
              values,
-             limits,
-             seed=0,
-             p_labels=None,
-             nwalk=100,
-             nstep=100,
-             carryover=0.03,
-             sig_factor=3.,
              extra_guess_mu=None,
-             extra_guess_cov=None
+             extra_guess_cov=None,
+             **kwargs
             ):
     ''' Fit multivariate normal object to samples with values.  Note the fit assumes the data is PERFECTLY quadratic,
        and ENFORCES a nonnegative-definite parameterization, so make sure you curate the data to make that possible
