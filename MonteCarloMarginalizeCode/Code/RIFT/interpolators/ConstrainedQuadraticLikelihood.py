@@ -27,12 +27,12 @@ def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False,ha
     return best_val_est, cov
 
 
-def quad_residuals(x,y,lnL_offset,mu,icov):
+def quad_residuals(x,yvals,lnL_offset,mu,icov):
 #    print(lnL_offset, mu, icov)
     yvals_expected = np.zeros(len(yvals))
     for indx in np.arange(len(yvals)):
         yvals_expected[indx] = lnL_offset - 0.5* np.dot((x[indx]-mu), np.dot(icov,x[indx]-mu))
-    return np.sum((y - yvals_expected)**2)  # least square residual, quadratic fit
+    return np.sum((yvals - yvals_expected)**2)  # least square residual, quadratic fit
 
 
 def fit_grid(
@@ -68,7 +68,7 @@ def fit_grid(
     # Seed parameters
     #   lnL, mu, std, cov   following Vera
     if extra_guess_mu is None:
-        extra_guess_mu, extra_guess_cov = fit_quadratic_alt(xvals,yvals)
+        extra_guess_mu, extra_guess_cov = fit_quadratic_alt(sample,values)
 
     X_alt = np.array(list([np.max(values)])+list(params_of_mu_cov(extra_guess_mu,extra_guess_cov)[0]))
 #    print(X_alt)
