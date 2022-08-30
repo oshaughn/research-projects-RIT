@@ -14,6 +14,7 @@
 
 
 import RIFT.interpolators.BayesianLeastSquares as BayesianLeastSquares
+import RIFT.interpolators.ConstrainedQuadraticLikelihood as ConstrainedQuadraticLikelihood
 
 import argparse
 import sys
@@ -820,6 +821,10 @@ def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False,ha
     return best_val_est, cov
 
 
+def fit_quadratic_nonneg(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False):
+    lnLmax, mu_est, cov_est = ConstrainedQuadraticLikelihood.fit_grid( x, y,verbose=verbose)#x0=None)#x0_val_here)
+
+    return mu_est, cov_est
 
 
 
@@ -1032,6 +1037,19 @@ elif opts.fit_method == "quadratic":
         X=X[indx]
         Y_err=Y_err[indx]
     my_mean, my_cov = fit_quadratic_alt(X,Y,y_err=Y_err,symmetry_list=symmetry_list,verbose=opts.verbose)
+elif opts.fit_method == "quadratic_nonneg":
+    print(" FIT METHOD ", opts.fit_method, " IS QUADRATIC nonnegative")
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+    my_mean, my_cov = fit_quadratic_nonneg(X,Y,y_err=Y_err,symmetry_list=symmetry_list,verbose=opts.verbose)
 else:
     print(" NO KNOWN FIT METHOD ")
     sys.exit(55)
