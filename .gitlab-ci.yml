@@ -5,7 +5,8 @@ variables:
   RIFT_IMAGE: $CI_REGISTRY_IMAGE/rift
 
 
-image: debian:latest
+default:
+  image: debian:latest
 
 stages:
   - system tests
@@ -44,7 +45,7 @@ test_run:
     - . .travis/test-run.sh
 
 build:test:
-  image: debian:latest
+  image: docker:latest
   stage: docker image
   script:  
    -  docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
