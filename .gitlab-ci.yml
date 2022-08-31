@@ -44,7 +44,7 @@ test_run:
     - . .travis/test-run.sh
 
 build:test:
-  image: docker:latest
+  image: debian:latest
   stage: docker image
   script:  
    -  docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
