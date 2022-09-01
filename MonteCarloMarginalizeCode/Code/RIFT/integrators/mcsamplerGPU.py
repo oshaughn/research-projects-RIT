@@ -279,7 +279,7 @@ class MCSampler(object):
 
         # Evaluate the CDF by taking a cumulative sum of the histogram.
         n_bins = len(self.histogram_cdf[param]) 
-        self.xpy.cumsum(histogram_values, out=self.histogram_cdf[param][1:])
+        self.xpy.cumsum(histogram_values[:n_bins], out=self.histogram_cdf[param][1:])  # redundant cast, since length also enforced at a lower level to be correct
         self.histogram_cdf[param][0] = 0.0
         #print(param, 'cdf', self.histogram_cdf[param])
 
