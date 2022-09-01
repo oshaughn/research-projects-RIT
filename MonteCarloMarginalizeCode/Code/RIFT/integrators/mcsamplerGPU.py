@@ -916,7 +916,7 @@ class MCSampler(object):
             print("  Note: cannot adapt, no history ")
 
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
-        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000
+        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000*n
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
         temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
@@ -1120,8 +1120,8 @@ class MCSampler(object):
             # The total number of adaptive steps is reached
             #
             # FIXME: We need a better stopping condition here
-            if self.ntotal > n_adapt*n:
-                print(self.ntotal, n_adapt)
+            if self.ntotal > n_adapt:
+#                print(self.ntotal, n_adapt)
                 print(" ... skipping adaptation in late iterations .. ")
                 continue
 

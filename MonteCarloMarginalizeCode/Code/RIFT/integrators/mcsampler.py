@@ -416,7 +416,7 @@ class MCSampler(object):
         #
         # Adaptive sampling parameters
         #
-        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else None
+        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else n
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
         n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 0
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
@@ -640,10 +640,11 @@ class MCSampler(object):
             #
             # FIXME: We need a better stopping condition here
             if self.ntotal > n_adapt:
-                continue
+               print(" ... skipping adaptation in late iterations .. ")
+               continue
 
             if force_no_adapt:
-                continue
+               continue
 
             # FIXME: Hardcoding
             #mixing_floor = 10**(-numpy.sqrt(ntotal))
