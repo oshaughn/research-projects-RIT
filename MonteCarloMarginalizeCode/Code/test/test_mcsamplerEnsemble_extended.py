@@ -17,6 +17,7 @@ parser.add_option("--save-plot",action='store_true')
 parser.add_option("--as-test",action='store_true')
 parser.add_option("--no-adapt",action='store_true')
 parser.add_option("--floor-level",default=0.0,type=float)
+parser.add_option("--n-chunk",default=10000,type=int)
 parser.add_option("--verbose",action='store_true')
 opts, args = parser.parse_args()
 
@@ -35,7 +36,7 @@ mu = np.random.uniform(-1 * width / 4.0, width / 4.0, ndim)
 # max number of samples for mcsampler
 nmax = opts.n_max                                         
 # number of iterations for mcsamplerEnsemble
-n_iters = int(nmax/1000)
+n_iters = int(nmax/opts.n_chunk)
 
 llim = -1 * width / 2
 rlim = width / 2
@@ -85,7 +86,7 @@ for p in params:
 n_comp = 1
 
 ### integrate
-extra_args = {"floor_level":opts.floor_level,"tempering_exp" :tempering_exp}
+extra_args = {"n": opts.n_chunk,"n_adapt":100, "floor_level":opts.floor_level,"tempering_exp" :tempering_exp}
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
         no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose,**extra_args)
 print(" --- finished default --")
