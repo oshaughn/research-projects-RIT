@@ -261,7 +261,9 @@ singularity_image = None
 if opts.use_singularity:
     print(" === USING SINGULARITY === ")
     singularity_image = os.environ["SINGULARITY_RIFT_IMAGE"]  # must be present to use singularity
-    os.environ['LALAPPS_PATH2CACHE'] = "singularity exec {singularity_image} lalapps_path2cache".format(singularity_image=singularity_image)
+    # SINGULARITY IMAGES ARE ON CVMFS, SO WE CAN AVOID THE SINGULARITY EXEC CALL
+    # hardcoding a fiducial copy of lalapps_path2cache; beware about the executable name change
+    os.environ['LALAPPS_PATH2CACHE'] = "/cvmfs/oasis.opensciencegrid.org/ligo/sw/conda/envs/igwn-py39/bin/lalapps_path2cache" #"singularity exec {singularity_image} lalapps_path2cache".format(singularity_image=singularity_image)
     print(singularity_image)
 
 if (opts.cip_args is None) and (opts.cip_args_list is None):
