@@ -81,11 +81,12 @@ for p in params:
 n_comp = 1
 
 ### integrate
+extra_args = {"floor_level":0.1,"tempering_exp" :tempering_exp}
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
-        no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose)
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose,**extra_args)
 print(" --- finished default --")
 integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(f, *params, 
-        no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose)
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose,**extra_args)
 print(" --- finished AC --")
 use_lnL = False
 return_lnI=False
@@ -94,7 +95,7 @@ if use_lnL:
 else:
     infunc = f
 integral_2, var_2, eff_samp_2, _ = samplerEnsemble.integrate(infunc, *params, 
-        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=verbose,verbose=verbose,tempering_exp=tempering_exp,use_lnL=use_lnL,return_lnI=return_lnI)
+        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=verbose,verbose=verbose,use_lnL=use_lnL,return_lnI=return_lnI,**extra_args)
 if return_lnI and use_lnL:
     integral_2 = np.exp(integral_2)
 print(" --- finished GMM --")
