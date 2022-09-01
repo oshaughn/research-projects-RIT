@@ -19,7 +19,7 @@ def histogram(samples, n_bins, xpy=numpy,weights=None):
         indices, minlength=n_bins,
         weights=wts
     )
-    return histogram_counts
+    return histogram_counts[:n_bins]  # force target length, we should never have points in top bin if it occurs : scaled to [0,1)
 
 
 
