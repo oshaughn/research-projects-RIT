@@ -15,12 +15,14 @@ parser = optparse.OptionParser()
 parser.add_option("--n-max",type=int,default=40000)
 parser.add_option("--save-plot",action='store_true')
 parser.add_option("--as-test",action='store_true')
+parser.add_option("--no-adapt",action='store_true')
+parser.add_option("--floor-level",default=0.0,type=float)
 parser.add_option("--verbose",action='store_true')
 opts, args = parser.parse_args()
 
 verbose=opts.verbose
 
-tempering_exp =0.01
+tempering_exp =0.1
 
 ### test parameters
 
@@ -50,12 +52,14 @@ cov[0][ndim - 1] = -0.1
 cov[ndim - 1][0] = -0.1
 
 ### define integrand as a weighted sum of Gaussians
+scale_factor = 100
+
 def f(x1, x2, x3):
     x = np.array([x1, x2, x3]).T
-    return multivariate_normal.pdf(x, mu, cov)
+    return scale_factor*multivariate_normal.pdf(x, mu, cov)
 def ln_f(x1, x2, x3):
     x = np.array([x1, x2, x3]).T
-    return np.log(multivariate_normal.pdf(x, mu, cov)+1e-100)
+    return np.log(scale_factor*multivariate_normal.pdf(x, mu, cov)+1e-100)
 
 ### initialize samplers
 sampler = mcsampler.MCSampler()
@@ -67,21 +71,21 @@ for p in params:
     sampler.add_parameter(p, np.vectorize(lambda x:1/(rlim-llim)), 
             prior_pdf=np.vectorize(lambda x:1/(rlim-llim)),
             left_limit=llim, right_limit=rlim,
-            adaptive_sampling=True)
+            adaptive_sampling=not opts.no_adapt)
     samplerEnsemble.add_parameter(p, 
                                   pdf=np.vectorize(lambda x:1/(rlim-llim)),
                                   prior_pdf=np.vectorize(lambda x:1/(rlim-llim)),
-                                  left_limit=llim, right_limit=rlim,adaptive_sampling=True)
+                                  left_limit=llim, right_limit=rlim,adaptive_sampling=not opts.no_adapt)
     # for AC sampler, make sure pdf and prior pdfs are *normalized* *initially*
     samplerAC.add_parameter(p, pdf=np.vectorize(lambda x:1/(rlim-llim)),
             prior_pdf=np.vectorize(lambda x:1/(rlim-llim)),
-            left_limit=llim, right_limit=rlim,adaptive_sampling=True)
+            left_limit=llim, right_limit=rlim,adaptive_sampling=not opts.no_adapt)
 
 # number of Gaussian components to use in GMM
 n_comp = 1
 
 ### integrate
-extra_args = {"floor_level":0.1,"tempering_exp" :tempering_exp}
+extra_args = {"floor_level":opts.floor_level,"tempering_exp" :tempering_exp}
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
         no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose,**extra_args)
 print(" --- finished default --")
