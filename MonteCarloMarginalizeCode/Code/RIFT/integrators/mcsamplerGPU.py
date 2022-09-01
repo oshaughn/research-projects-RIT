@@ -283,8 +283,8 @@ class MCSampler(object):
         self.histogram_cdf[param][0] = 0.0
         #print(param, 'cdf', self.histogram_cdf[param])
 
-        # Renormalize histogram.
-        histogram_values /= self.x_max_minus_min[param]
+        # Renormalize histogram (count per unit delta x, assumed constant)
+        histogram_values /= self.x_max_minus_min[param] /self.n_bins[param]
 
         # Store histogram values.
         self.histogram_values[param] = histogram_values
@@ -911,7 +911,10 @@ class MCSampler(object):
         #
         # Adaptive sampling parameters
         #
-        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else 2
+        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else 2*n
+        if n_history<=0:
+            print("  Note: cannot adapt, no history ")
+
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
         n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
