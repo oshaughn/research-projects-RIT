@@ -26,10 +26,10 @@ try:
     # Check memory allocation
     mem_info = cupy.cuda.Device().mem_info  # memory available in bytes
     n_mb_total = mem_info[1]/1024./1024.
-    n_mb_used = mem_info[0]/1024/1024.
-    print(  " cupy memory [total, available] {} {} Mb".format(n_mb_total,n_mb_total-n_mb_used))
+    n_mb_free = mem_info[0]/1024/1024.
+    print(  " cupy memory [total, available] {} {} Mb".format(n_mb_total,n_mb_free))
     # Add failure mode test if memory insufficient!
-    if n_mb_total - n_mb_used < 3000:
+    if n_mb_free < 3000:
       print( "  - low cupy memory - ")
   cupy_success=True
 except:
