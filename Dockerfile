@@ -47,7 +47,7 @@ ENV CUPY_CACHE_IN_MEMORY=1
 
 # RIFT
 #RUN pip3 --no-cache-dir install git+https://github.com/oshaughn/research-projects-RIT.git@d14110cdb41fef1adb461932600c3c11a82e4db6
-RUN pip3 --no-cache-dir install RIFT==0.0.15.4rc9
+RUN pip3 --no-cache-dir install RIFT==0.0.15.7rc1
 
 # Directories we may want to bind
 RUN mkdir -p /ceph /cvmfs /hdfs /hadoop /etc/condor /test
