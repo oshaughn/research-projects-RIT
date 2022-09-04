@@ -749,8 +749,8 @@ echo Starting ...
                 ile_job.add_condor_cmd('x509userproxy',fname_proxy)
 
     if use_osg:
-           if not(use_simple_osg_requirements):
-               requirements.append("IS_GLIDEIN=?=TRUE")
+#           if not(use_simple_osg_requirements):
+#               requirements.append("IS_GLIDEIN=?=TRUE")
            # avoid black-holing jobs to specific machines that consistently fail. Uses history attribute for ad
            ile_job.add_condor_cmd('periodic_release','(HoldReasonCode == 45) && (HoldReasonSubCode == 0)')
            ile_job.add_condor_cmd('job_machine_attrs','Machine')
@@ -800,8 +800,8 @@ echo Starting ...
 
 #    if use_osg:
 #        ile_job.add_condor_cmd("+OpenScienceGrid",'True')
-    if use_cvmfs_frames:
-        transfer_files += ["../local.cache"]
+#    if use_cvmfs_frames:
+#        transfer_files += ["../local.cache"]
     # To change interactively:
     #   condor_qedit
     # for example: 
