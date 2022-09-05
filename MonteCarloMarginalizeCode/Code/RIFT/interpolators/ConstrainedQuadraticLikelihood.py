@@ -34,6 +34,7 @@ def quad_residuals(x,yvals,lnL_offset,mu,icov):
         yvals_expected[indx] = lnL_offset - 0.5* np.dot((x[indx]-mu), np.dot(icov,x[indx]-mu))
     return np.sum((yvals - yvals_expected)**2)  # least square residual, quadratic fit
 
+# From https://stackoverflow.com/questions/14758283/is-there-a-numpy-scipy-dot-product-calculating-only-the-diagonal-entries-of-the
 def quad_residuals_vector(x,yvals,lnL_offset,mu,icov):
     yvals_expected = np.zeros(len(yvals)) + lnL_offset
     dx = x - mu[:,np.newaxis].T
