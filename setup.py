@@ -34,7 +34,7 @@ my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/RIFT/likelihood/cud
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.15.6rc14", # do not build on OSX machine, side effects
+    version="0.0.15.7rc1", # do not build on OSX machine, side effects
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_python3_restructure_package (which will become master shortly)!",
@@ -56,5 +56,6 @@ setuptools.setup(
 # Would be preferable to be *global* path, not relative to install. Depends on if doing user install or not
 # This pathname puts it in the same place as the other files, in site-packages/
    data_files=[('RIFT/likelihood',my_extra_source)],
+   setup_requires=['setuptools','pip'],
    install_requires=REQUIREMENTS["install"]
 )

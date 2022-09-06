@@ -26,10 +26,10 @@ try:
     # Check memory allocation
     mem_info = cupy.cuda.Device().mem_info  # memory available in bytes
     n_mb_total = mem_info[1]/1024./1024.
-    n_mb_used = mem_info[0]/1024/1024.
-    print(  " cupy memory [total, available] {} {} Mb".format(n_mb_total,n_mb_total-n_mb_used))
+    n_mb_free = mem_info[0]/1024/1024.
+    print(  " cupy memory [total, available] {} {} Mb".format(n_mb_total,n_mb_free))
     # Add failure mode test if memory insufficient!
-    if n_mb_total - n_mb_used < 3000:
+    if n_mb_free < 3000:
       print( "  - low cupy memory - ")
   cupy_success=True
 except:
@@ -117,6 +117,8 @@ except:
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
+
+
 #
 # Pinnable parameters -- for command line processing
 #
@@ -186,6 +188,8 @@ optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Tim
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
 optp.add_option("--psd-window-shape", type=float, default=0, help="Shape of Tukey window that *was* applied to the PSD being passed. If nonzero, we will rescale the PSD by the ratio of window shape results")
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
+#optp.add_option("--n-fairdraw-extrinsic-samples",default=None,type=int,help="Extracts a concrete number of fair draw extrinsic samples, bounded above by n_eff")
+optp.add_option("--resample-time-marginalization",action='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
@@ -228,6 +232,7 @@ integration_params.add_option("--inclination-cosine-sampler",action='store_true'
 integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
 integration_params.add_option("--internal-sky-network-coordinates-raw",action='store_true',help="If specified, does not attempt to organize IFO network sensibly, uses them AS PROVIDED IN ORDER.")
 integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
+integration_params.add_option("--internal-use-lnL",action='store_true',help="likelihood returns lnL, and integrator integrates lnL")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
 optp.add_option_group(integration_params)
@@ -239,6 +244,8 @@ intrinsic_params = OptionGroup(optp, "Intrinsic Parameters", "Intrinsic paramete
 intrinsic_params.add_option("--pin-distance-to-sim",action='store_true', help="Pin *distance* value to sim entry. Used to enable source frame reconstruction with NR.")
 intrinsic_params.add_option("--mass1", type=float, help="Value of first component mass, in solar masses. Required if not providing coinc tables.")
 intrinsic_params.add_option("--mass2", type=float, help="Value of second component mass, in solar masses. Required if not providing coinc tables.")
+intrinsic_params.add_option("--spin1z", type=float, help="Value of first component spin (aligned with angular momentum), dimensionless.")
+intrinsic_params.add_option("--spin2z", type=float, help="Value of second  component spin (aligned with angular momentum), dimensionless.")
 intrinsic_params.add_option("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given.")
 intrinsic_params.add_option("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
 optp.add_option_group(intrinsic_params)
@@ -267,6 +274,19 @@ for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
 optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
+
+if opts.resample_time_marginalization:
+  import scipy.special
+if opts.resample_time_marginalization and not(opts.fairdraw_extrinsic_output):
+  raise Exception(" Resampled time output requires --fairdraw-extrinsic-output ")
+
+# Fairdraw is NOT YET IMPLEMENTED for these other integrators!
+if opts.fairdraw_extrinsic_output:
+#  if opts.sampler_method == 'adaptive_cartesian_gpu':
+#    raise Exception(" Fairdraw not available  for this sampler")
+  if opts.sampler_method == 'GMM':
+    raise Exception(" Fairdraw not available  for this sampler")
+
 
 if opts.distance_marginalization:
   lookup_table = np.load(opts.distance_marginalization_lookup_table)
@@ -422,12 +442,41 @@ if opts.sim_xml:
 
     P = P_list[0]  # Load in the physical parameters of the injection.  
 else:
-    # Some debugging information
-    print(" --sim-xml required ",opts.sim_xml)
-    print(" ... common parsing error accident might be inserting -- into your command line without an associated argument")
-    print(opts)
-    print(sys.argv[1:])
-    sys.exit(1)
+ if opts.mass1 is not None and opts.mass2 is not None:
+    m1, m2 = opts.mass1, opts.mass2
+ else:
+    raise RuntimeError('Missing --mass1 or --mass2')
+ s1z=s2z=0.
+ if opts.spin1z is not None:
+    s1z = opts.spin1z
+ if opts.spin2z is not None:
+    s2z = opts.spin2z
+
+
+ lambda1, lambda2 = 0, 0
+ if opts.eff_lambda is not None:
+        lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1, m2, opts.eff_lambda, opts.deff_lambda or 0)
+ P = lalsimutils.ChooseWaveformParams(
+        approx = lalsimutils.lalsim.GetApproximantFromString(opts.approximant),
+    fmin = template_min_freq,
+    radec = False,   # do NOT propagate the epoch later
+    incl = 0.0,       # only works for aligned spins. Be careful.
+    phiref = 0.0,
+    theta = 0.0,
+    phi = 0.0,
+    psi = 0.0,
+    m1 = m1 * lal.MSUN_SI,
+    m2 = m2 * lal.MSUN_SI,
+    lambda1 = lambda1,
+    lambda2 = lambda2,
+    s1z = s1z,
+    s2z = s2z,
+    ampO = opts.amp_order,
+    fref = opts.reference_freq,
+    tref = fiducial_epoch,
+    dist = factored_likelihood.distMpcRef * 1.e6 * lal.PC_SI
+    )
+ P_list= [P]
 
 # User requested bounds for data segment
 if not (opts.data_start_time == None) and  not (opts.data_end_time == None):
@@ -869,6 +918,10 @@ pinned_params.update({
 })
 if opts.sampler_method == "adaptive_cartesian_gpu":
   pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
+return_lnL=False
+if opts.sampler_method=="GMM" and opts.internal_use_lnL:
+  return_lnL=True
+  pinned_params.update({"use_lnL":True,"return_lnI":True})
 if opts.sampler_method == "GMM":
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
@@ -878,14 +931,16 @@ if opts.sampler_method == "GMM":
     #    (psi) (orb_phase)   # only do 1d adaptivity there, 
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,(0,1):None} 
 #    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,(0,1):4} 
-    gmm_dict = {(2,3):None,(4,5):None,(0,1):None} 
+    default_phipsi = mcsamplerEnsemble.create_wide_single_component_prior( [ [0,2*np.pi], [0,2*np.pi]])
+    gmm_dict = {(2,3):None,(4,5):None,(0,1):default_phipsi} 
+    gmm_adapt = {(2,3): True, (4,5): True, (0,1): False}
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,tuple([0]):None,tuple([1]):None} 
     n_sky = 4
 #    if len(psd_dict.keys()) > 2:
 #        n_sky=2  # presumably we have localized better, avoid failure modes
 #    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,tuple([0]):n_sky,tuple([1]):n_sky} 
     comp_dict = {(2,3):n_sky,(4,5):2,(0,1):4} 
-    extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict}  # made up for now, should adjust
+    extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict, 'gmm_adapt':gmm_adapt}  # made up for now, should adjust
     if opts.distance_marginalization:
       gmm_dict = {(2,3):None,tuple([4]):None,(0,1):None} 
       comp_dict = {(2,3):n_sky,tuple([4]):1,(0,1):4} 
@@ -902,12 +957,59 @@ if opts.sampler_method == "GMM":
     if opts.distance_marginalization:
       unpinned_params.remove('distance')
 
+def resample_samples(my_samples,
+                     lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None): # uses LOTS of global variables, don't pass them all
+  # will look a LOT like the likelihood function definitions, unfortunately
+  if not opts.vectorized:
+    raise Exception( ' resample_samples currently only for vectorized ')
+  if opts.distance_marginalization:
+    raise Exception( ' resample_samples currently only final extrinsic samples; you should NOT have distance marginalization on ')
+
+  n_samples = len(my_samples['longitude'])
+  print(" Time resampling size : {} ".format(n_samples))
+
+
+  # if we are using GPU-based generation this is ok; if itis mcsampler, we will have a lot of 'object' casts to fix, arg
+  
+  tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+  P.phi =  identity_convert_togpu(my_samples['right_ascension'])  # cast to float
+  P.theta =   identity_convert_togpu(numpy.pi/2 -my_samples['declination'])
+  P.tref = float(fiducial_epoch)
+  P.phiref = identity_convert_togpu(my_samples['coa_phase'])
+  P.incl = identity_convert_togpu(my_samples['inclination'])
+  P.psi = identity_convert_togpu(my_samples['psi'])
+  P.dist = identity_convert_togpu(my_samples['distance']* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
+  if not(cupy_success):
+    # convert objects
+    for name in ['phi','theta', 'phiref','incl', 'psi','dist']:
+      setattr(P,name, getattr(P,name).astype(float) )
+
+  lnLt = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True)
+
+  lnLt = identity_convert(lnLt) # back to CPU.  Note we have removed offsets 
+  lnLt_norm = scipy.special.logsumexp(lnLt,axis=-1)
+  tvals = identity_convert(tvals) # back to CPU
+#  print(lnLt.shape, lnLt_norm.shape,tvals.shape)
+  # Loop over and resample in time, picking index according to weights
+  t_out = np.zeros(n_samples)
+  for indx in np.arange(n_samples):
+    t_out[indx] = np.random.choice(tvals, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
+#    print(' Resampled time offset {} '.format(t_out[indx])) #, lnLt[indx]-lnLt_norm[indx])
+    
+  my_samples['t_ref'] = fiducial_epoch+t_out # add sample time jitter from reweighting to samples
+  
+  
+  return my_samples
+
+  
+
 def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
     nEvals=0
     P = P_list[indx_event]
     # if pin-distance-to-sim, change the distance prior accordingly
     if opts.pin_distance_to_sim:
-      pinned_params['distance']=P.dist/1.e6 * lal.PC_SI
+      pinned_params['distance']=P.dist/(1.e6 * lal.PC_SI)
 
     # Precompute
     t_window = 0.15
@@ -967,7 +1069,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 lnL[i] = factored_likelihood.FactoredLogLikelihood(
                         P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
                 i+=1
-
+            if return_lnL:
+              return lnL - manual_avoid_overflow_logarithm
             return numpy.exp(lnL - manual_avoid_overflow_logarithm)
 
     else: # Sum over time for every point in other extrinsic params
@@ -1001,7 +1104,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, rholms_intp, rholms, cross_terms, cross_terms_V,                   
                         opts.l_max,interpolate=opts.interpolate_time)
                 i+=1
-
+            if return_lnL:
+              return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL -manual_avoid_overflow_logarithm)
 
      elif opts.vectorized: # use array-based multiplications, fewer for loops
@@ -1038,6 +1142,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
+            if return_lnL:
+              return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL-manual_avoid_overflow_logarithm)
         else: # vectorized and gpu either available or being forced to use xpy code path
             print( " Using CUDA GPU likelihood, if cupy available ")
@@ -1056,7 +1162,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 if opts.inclination_cosine_sampler:
                   P.incl = xpy_default.arccos(xpy_asarray_already(inclination))
                 else:
-                  P.incl = xpy_asarray_alraedy(inclination)
+                  P.incl = xpy_asarray_already(inclination)
                 P.psi = xpy_asarray_already(psi)
                 P.dist = xpy_asarray_already(distance* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
 
@@ -1069,6 +1175,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
 #                nEvals +=len(right_ascension)
+                if return_lnL:
+                  return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
             else:
               print( " Using direct distance marginalization  ")
@@ -1144,6 +1252,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
 #                nEvals +=len(right_ascension)
+                if return_lnL:
+                  return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
      else: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
@@ -1186,6 +1296,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #            t_end =lal.GPSTimeNow() 
 #            print " Cost per evaluation ", (t_end - t_start)/len(q)
 #            print " Max lnL for this iteration ", numpy.max(lnL)
+            if return_lnL:
+              return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL - manual_avoid_overflow_logarithm)
 
     if opts.sampler_method == "adaptive_cartesian_gpu":
@@ -1245,9 +1357,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       xmldoc = ligolw.Document()
       xmldoc.appendChild(ligolw.LIGO_LW())
       process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
-      if not opts.time_marginalization:
+      if not(opts.resample_time_marginalization): 
+        if not opts.time_marginalization:
             samples["t_ref"] += float(fiducial_epoch)
-      else:
+        else:
             samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(samples["psi"]))
       samples["polarization"] = samples["psi"]
       samples["coa_phase"] = samples["phi_orb"]
@@ -1268,6 +1381,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["spin2y"] =numpy.ones(samples["psi"].shape)*P.s2y
             samples["spin2z"] =numpy.ones(samples["psi"].shape)*P.s2z
             samples["alpha4"] =numpy.ones(samples["psi"].shape)*P.eccentricity
+
+      if opts.resample_time_marginalization:
+        samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict)
+#        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
       dict_out={"mass1": m1, "mass2": m2, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": numpy.sqrt(var)/res, "ttotal": sampler.ntotal}
@@ -1389,7 +1506,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 lnL_sofar = -np.inf
 no_adapt_sky = False
 for indx in numpy.arange(len(P_list)):
- try:
+ if True: #try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.no_adapt_after_first and (not no_adapt_sky):
@@ -1401,7 +1518,7 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
- except Exception as exception_failure:
+ else: #except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
   if opts.internal_make_empty_file_on_error:
@@ -1414,6 +1531,12 @@ for indx in numpy.arange(len(P_list)):
 #      sys.exit(1) 
   if "CUDA" in str(exception_failure): # Hard fail if a cuda error with a catchable error code
     sys.exit(62)
+  str_err = " {} ".format(exception_failure)
+  if 'Zero prior failure' in str_err:
+    # reset all variables sampling, so we don't contaminate subsequent versions
+    for name in sampler.params:
+      sampler.reset_sampling(param)
+
   #a sketch of how I would do custom failure modes, but for sake of speed I'm just setting the above right now
   #for i,failure_mode in enumerate(opts.custom_fails):
   #  if failure_mode in str(exception_failure):

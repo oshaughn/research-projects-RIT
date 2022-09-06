@@ -21,6 +21,11 @@ from scipy.integrate import quad
 import scipy.interpolate as interp
 import scipy
 
+try:
+    from natsort import natsorted
+except:
+    print(" - no natsorted - ")
+
 #import gwemlightcurves.table as gw_eos_table
 
 from . import MonotonicSpline as ms
@@ -28,6 +33,18 @@ from . import MonotonicSpline as ms
 
 C_CGS=2.997925*10**10 # Argh, Monica!
 DENSITY_CGS_IN_MSQUARED=7.42591549e-25  # g/cm^3 m^2 //GRUnits. Multiply by this to convert from CGS -> 1/m^2 units (_geom)
+
+
+def make_compactness_from_lambda_approximate(lambda_vals):
+    """
+    make_compactness_from_lambda_approximate
+    Eq (B1) from https://arxiv.org/pdf/1812.04803.pdf, based on Maselli et al 2013, Yagi and Yunes 2017
+
+    Note this will yield *extreme* compactnesses for poorly-constrained GW observations, as the 'lambda' inferred will be wildly large/prior-dominated
+    """
+
+    return 0.371 -0.0391*np.log(lambda_vals) + 0.001056*np.log(lambda_vals)**2
+
 
 ###
 ### SERVICE 0: General EOS structure
@@ -61,6 +78,12 @@ class EOSConcrete:
 
         return dimensionless_lam
 
+    def estimate_baryon_mass_from_mg(self,m):
+        """
+        Estimate m_b = m_g + m_g^2/(R_{1.4}/km) based on https://arxiv.org/pdf/1905.03784.pdf Eq. (6)
+        """
+        r1p4 =lalsim.SimNeutronStarRadius(1.4*lal.MSUN_SI, self.eos_fam)/1e3
+        return m + (1./r1p4)*m*(m/lal.MSUN_SI)
 
     def pressure_density_on_grid_alternate(self,logrho_grid,enforce_causal=False):
         """ 
@@ -702,3 +725,156 @@ def LookupCrustEpsilonAtPressure(p_ref,eosname_lalsuite="SLY4"):
     lal_dat_log = np.log10(lal_dat)   # note first sample is zero,and causes problems nominally with this interpolation
     eps_out = np.power(10.,np.interp(np.log10(p_ref),  lal_dat_log[:,0], lal_dat_log[:,1]))
     return eps_out
+
+
+
+###
+###  EOSSequence : For large sets of EOS we must access simultaneously (100 Mb plus), pretabulated
+# 
+#   These will be a different data structure, where we don't necessariliy provide all the EOSConcrete structures, 
+#   Example: https://zenodo.org/record/6502467#.YulOeaRE1Pw 
+###
+
+
+
+###
+### SERVICE 0: General EOS structure
+###
+
+class EOSSequenceLandry:
+    """
+    Class characterizing a sequence of specific EOS solutions, using the Landry format.
+    Assumes user provides (a) EOS realization, (b) precomputed results from TOV solve; and (c) discrete ID
+
+    PENDING
+       - mMax access
+    """
+
+    def __init__(self,name=None,fname=None,load_eos=False,load_ns=False,oned_order_name=None,oned_order_mass=None,no_sort=True,verbose=False):
+        import h5py
+        self.name=name
+        self.fname=fname
+        self.eos_ids = None
+        self.eos_names = None   # note this array can be SORTED, use the oned_order_indx_original for original order
+        self.eos_tables = None
+        self.eos_ns_tov = None
+        self.oned_order_name = None
+        self.oned_order_mass=oned_order_mass
+        self.oned_order_values=None
+        self.oned_order_indx_original = None
+        self.verbose=verbose
+        with h5py.File(self.fname, 'r') as f:
+            names = list(f['ns'].keys())
+            names = natsorted(names)  # sort them sanely
+            self.eos_ids = list(f['id'])
+            self.eos_names = np.array(names,dtype=str)
+            # The following loads a LOT into memory, as a dictionary
+            if load_ns:
+                if verbose:
+                    print(" EOSSequenceLandry: Loading TOV results for {}".format(fname))
+                # Convert to dictionary, so not closed.  Note this sucks up a lot of i/o time, and ideally we don't close the file
+                self.eos_ns_tov = {}
+                for name in names:
+                    self.eos_ns_tov[name] = np.array(f['ns'][name])
+                if verbose:
+                    print(" EOSSequenceLandry: Completed TOV i/o {}".format(fname))
+                create_order = False
+                if oned_order_name == 'R' or oned_order_name=='r':
+                    create_order=True
+                    self.oned_order_name='R'  # key value in fields
+                if oned_order_name == 'Lambda' or oned_order_name=='lambdda':
+                    create_order=True
+                    self.oned_order_name='Lambda'  # key value in fields
+                if not(self.oned_order_mass):
+                    # Can't order if we don't have a reference mass
+                    create_order=False
+                if create_order:
+                    self.oned_order_indx_original = np.arange(len(self.eos_names))
+                    vals = np.zeros(len(self.eos_names))
+                    if self.oned_order_name =='Lambda':
+                        for indx in np.arange(len(self.eos_names)):
+                            vals[indx] =self.lambda_of_m_indx(self.oned_order_mass,indx)
+                    if self.oned_order_name =='R':
+                        for indx in np.arange(len(self.eos_names)):
+                            vals[indx] =self.R_of_m_indx(self.oned_order_mass,indx)
+
+                    # resort 'names' field with new ordering
+                    # is it actually important to do the sorting?  NO, code should work with original lexographic order, since we only use nearest neighbors!
+                    if no_sort:
+                        self.oned_order_values = vals
+                    else:
+                        indx_sorted = np.argsort(vals)
+                        if verbose: 
+                            print(indx_sorted)
+                        self.eos_names = self.eos_names[indx_sorted]  
+                        self.oned_order_values = vals[indx_sorted]
+                        self.oned_order_indx_original =  self.oned_order_indx_original[indx_sorted]
+
+            if load_eos:
+                self.eos_tables = f['eos']
+        return None
+
+    def m_max_of_indx(self,indx):
+        name = self.eos_names[indx]
+        return np.max(self.eos_ns_tov[name]['M'])
+
+    def lambda_of_m_indx(self,m_Msun,indx):
+        """
+        lambda(m) evaluated for a *single* m_Msun value (almost always), for a specific indexed EOS
+        
+        Generally we assume the value is UNIQUE and associated with a single stable phase
+        """
+        if self.eos_ns_tov is None:
+            raise Exception(" Did not load TOV results ")
+        name = self.eos_names[indx]
+        if self.verbose:
+            print(" Loading from {}".format(name))
+        dat = np.array(self.eos_ns_tov[name])
+        # Sort masses
+        indx_sort = np.argsort(dat["M"])
+        # Interpolate versus m, ASSUME single-valued / no phase transition ! 
+        # Interpolate versus *log lambda*, so it is smoother and more stable
+        valLambda = np.log(dat["Lambda"][indx_sort])
+        valM = dat["M"][indx_sort]
+        return np.exp(np.interp(m_Msun, valM, valLambda))
+
+    def R_of_m_indx(self,m_Msun,indx):
+        """
+        R(m) evaluated for a *single* m_Msun value (almost always), for a specific indexed EOS
+        
+        Generally we assume the value is UNIQUE and associated with a single stable phase; should FIX?
+        """
+        if self.eos_ns_tov is None:
+            raise Exception(" Did not load TOV results ")
+        name = self.eos_names[indx]
+        if self.verbose:
+            print(" Loading from {}".format(name))
+        dat = np.array(self.eos_ns_tov[name])
+        # Sort masses
+        indx_sort = np.argsort(dat["M"])
+        # Interpolate versus m, ASSUME single-valued / no phase transition ! 
+        # Interpolate versus *log lambda*, so it is smoother and more stable
+        valR = np.log(dat["R"][indx_sort])
+        valM = dat["M"][indx_sort]
+        return np.exp(np.interp(m_Msun, valM, valR))
+
+    def mmax_of_indx(self,indx):
+        if self.eos_ns_tov is None:
+            raise Exception(" Did not load TOV results ")
+        name = self.eos_names[indx]
+        if self.verbose:
+            print(" Loading from {}".format(name))
+        
+        return np.max(self.eos_ns_tov[name]['M'])
+
+    def lookup_closest(self,order_val):
+        """
+        Given a proposed ordering statistic value, provides the *index* of the closest value.  Assumes *scalar* input
+        Should be using the fact that this is ordered ... but we are not
+        """
+        if self.eos_ns_tov is None:
+            raise Exception(" Did not load TOV results ")
+        if self.oned_order_values is None:
+            raise Exception(" Did not generate ordering statistic ")
+        
+        return np.argmin( np.abs(order_val - self.oned_order_values))

@@ -104,4 +104,9 @@ make_cache H ${BASE} ${START} ${STOP} ${INJ_XML} ${EVENT} $DUR
 make_cache L ${BASE} ${START} ${STOP} ${INJ_XML} ${EVENT} $DUR
 make_cache V ${BASE} ${START} ${STOP} ${INJ_XML} ${EVENT} $DUR
 
-find ${BASE}_mdc -name '*.gwf'  | lalapps_path2cache  > ${BASE}.cache
+LALAPPS_PATH2CACHE=`which lal_path2cache`
+if [ -z "${LALAPPS_PATH2CACHE}" ]; then
+  LALAPPS_PATH2CACHE=lalapps_path2cache
+fi
+
+find ${BASE}_mdc -name '*.gwf'  | ${LALAPPS_PATH2CACHE}  > ${BASE}.cache

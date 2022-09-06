@@ -1,8 +1,17 @@
-image: debian:latest
+variables:
+  BRANCH: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+  COMMIT: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+  TAG: $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG
+  RIFT_IMAGE: $CI_REGISTRY_IMAGE/rift
+
+
+default:
+  image: debian:latest
 
 stages:
   - system tests
   - unit tests # TODO: write some
+  - docker image
 
 before_script:
   # setup
@@ -34,3 +43,12 @@ test_run:
     - . .travis/test-integrate.sh
     - . .travis/test-posterior.sh
     - . .travis/test-run.sh
+
+build:test:
+  image: docker:latest
+  stage: docker image
+  script:  
+   -  docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
+    - suffix=$(echo $CI_COMMIT_BRANCH | cut -d "-" -f 2)
+    - docker build --rm --no-cache -t $RIFT_IMAGE:$suffix --file Dockerfile .
+    - docker push $RIFT_IMAGE:$suffix

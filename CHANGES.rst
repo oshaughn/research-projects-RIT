@@ -1,6 +1,18 @@
+0.0.15.7
+-----------
+Since last release
+   - bugfix lalsimutils vectorized coordinate transform (sph coordinate cos_theta_2 use), add test in 'tests' for
+     conversion; fix CIP issue where mc prior range could be changed by input grid despite --mc-range;  implement geocenter-time
+     posterior option at last stage, along with edits needed to implement (e.g., fairdraw output option for extrinsic
+     stage);  bugfix xml event time export; chi_pavg implement updates; EOSManager minor edits; GMM in ILE finer
+     control over adaptation variables; overflow protection GMM+ILE now user-accessible; address typing issues in
+     mcsampler (returning object type) for selected arguments; bugfix syntax errors introduced in some mergers; 
+     CIP/EOSManager methods for quick inference with tabulated sequence of EOSs (EOSSequenceLandry; etc);
+     mcsampler avoid infinite loop for 'no contribution to integral,skipping'; CIP_gauss defined (gaussian fit +
+     resampling based on gaussian); scitokens-ready ILE  (rc1)
 
 0.0.15.6
------------
+-----------x
 Since last release
    - pseudo and helper (--use-legacy-gracedb at top level); lalsimutils overlaps using psi4 input; pseudo (gwsurrogate
      logic/reference location fixes)  (rc1)
@@ -56,7 +68,10 @@ Since last release
       range for low mass pseudo-pipe recommend GMM
       correlate mc,delta,s1z at high q; force-away smaller for low-mass events; integrator CI test (rc14)
       
-      
+   - TEOBResumS/TEOBResumSE (eccentricity); MultiMetaPipe; PUFF active in subdag; refactor plot_posterior_corner/samples_utils;
+     ILE_batchmode reset sampling if hit certain errors; OSG file transfer mode revitalize (rc15)
+
+  Release is rc15
 
 
 0.0.15.5

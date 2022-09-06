@@ -31,6 +31,8 @@ import lal
 import functools
 import itertools
 
+from RIFT.misc.samples_utils import add_field 
+
 import joblib  # http://scikit-learn.org/stable/modules/model_persistence.html
 
 # GPU acceleration: NOT YET, just do usual
@@ -182,41 +184,42 @@ def extract_combination_from_LI(samples_LI, p):
     print(" No access for parameter ", p)
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
 
-def add_field(a, descr):
-    """Return a new array that is like "a", but has additional fields.
+# def add_field(a, descr):
+#     """Return a new array that is like "a", but has additional fields.
 
-    Arguments:
-      a     -- a structured numpy array
-      descr -- a numpy type description of the new fields
+#     Arguments:
+#       a     -- a structured numpy array
+#       descr -- a numpy type description of the new fields
 
-    The contents of "a" are copied over to the appropriate fields in
-    the new array, whereas the new fields are uninitialized.  The
-    arguments are not modified.
+#     The contents of "a" are copied over to the appropriate fields in
+#     the new array, whereas the new fields are uninitialized.  The
+#     arguments are not modified.
 
-    >>> sa = numpy.array([(1, 'Foo'), (2, 'Bar')], \
-                         dtype=[('id', int), ('name', 'S3')])
-    >>> sa.dtype.descr == numpy.dtype([('id', int), ('name', 'S3')])
-    True
-    >>> sb = add_field(sa, [('score', float)])
-    >>> sb.dtype.descr == numpy.dtype([('id', int), ('name', 'S3'), \
-                                       ('score', float)])
-    True
-    >>> numpy.all(sa['id'] == sb['id'])
-    True
-    >>> numpy.all(sa['name'] == sb['name'])
-    True
-    """
-    if a.dtype.fields is None:
-        raise ValueError("`A' must be a structured numpy array")
-    b = numpy.empty(a.shape, dtype=a.dtype.descr + descr)
-    for name in a.dtype.names:
-        b[name] = a[name]
-    return b
+#     >>> sa = numpy.array([(1, 'Foo'), (2, 'Bar')], \
+#                          dtype=[('id', int), ('name', 'S3')])
+#     >>> sa.dtype.descr == numpy.dtype([('id', int), ('name', 'S3')])
+#     True
+#     >>> sb = add_field(sa, [('score', float)])
+#     >>> sb.dtype.descr == numpy.dtype([('id', int), ('name', 'S3'), \
+#                                        ('score', float)])
+#     True
+#     >>> numpy.all(sa['id'] == sb['id'])
+#     True
+#     >>> numpy.all(sa['name'] == sb['name'])
+#     True
+#     """
+#     if a.dtype.fields is None:
+#         raise ValueError("`A' must be a structured numpy array")
+#     b = numpy.empty(a.shape, dtype=a.dtype.descr + descr)
+#     for name in a.dtype.names:
+#         b[name] = a[name]
+#     return b
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
+parser.add_argument("--input-eos-index",action='store_true',help="Use input format with eos index fields included")
 parser.add_argument("--input-distance",action='store_true',help="Use input format with distance fields (but not tidal fields?) enabled.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
@@ -232,7 +235,7 @@ parser.add_argument("--desc-lalinference",type=str,default='',help="String to ad
 parser.add_argument("--desc-ILE",type=str,default='',help="String to adjoin to legends for ILE")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
-parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
+parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrainxed, and the a prior sampler is well-chosen.")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
@@ -305,6 +308,9 @@ parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP f
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 parser.add_argument("--no-plots",action='store_true')
+parser.add_argument("--tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
+parser.add_argument("--tabular-eos-file-format",type=str,default=None,help="Format of tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
+parser.add_argument("--tabular-eos-order-statistic",type=str,default=None,help="Order statistic to use.  Options will include R1p4, LambdaTildeQ1, and ...}")
 parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not) ")
 parser.add_argument("--no-use-lal-eos",action='store_true',help="Do not use LAL EOS interface. Used for spectral EOS. Do not use this.")
 parser.add_argument("--no-matter1", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
@@ -320,6 +326,7 @@ parser.add_argument("--internal-correlate-parameters",default=None,type=str,help
 parser.add_argument("--internal-n-comp",default=1,type=int,help="number of components to use for GMM sampling. Default is 1, because we expect a unimodal posterior in well-adapted coordinates.  If you have crappy coordinates, use more")
 parser.add_argument("--internal-gmm-memory-chisquared-factor",default=None,type=float,help="Multiple of the number of degrees of freedom to save. 5 is a part in 10^6, 4 is 10^{-4}, and None keeps all up to lnL_offset.  Note that low-weight points can contribute notably to n_eff, and it can be dangerous to assume a simple chisquared likelihood!  Provided in case we need very long runs")
 parser.add_argument("--use-eccentricity", action="store_true")
+parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction of nmax of iterations after which n_eff needs to be greater than 1+epsilon for a small number epsilon")
 
 # FIXME hacky options added by me (Liz) to try to get my capstone project to work.
 # I needed a way to fix the component masses and nothing else seemed to work.
@@ -341,6 +348,11 @@ if not(opts.force_no_adapt):
 
 source_redshift=opts.source_redshift
 
+#  require eos index input and 
+if  opts.input_eos_index and not(opts.tabular_eos_file):
+    print(" warning: input EOS index, but not using it; presumably you are doing a model-free test ")
+if  not(opts.input_eos_index) and (opts.tabular_eos_file):
+    raise Exception(" Fail: must process EOS input to be able to use it ")
 
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
@@ -525,7 +537,9 @@ test_converged={}
 coord_names = opts.parameter # Used  in fit
 if coord_names is None:
     coord_names = []
-low_level_coord_names = coord_names # Used for Monte Carlo
+low_level_coord_names = list(coord_names) # Used for Monte Carlo.  Use 'list' to force re-create/copy
+if 'chi_pavg' in coord_names:
+    low_level_coord_names += ['chi_pavg']
 if opts.parameter_implied:
     coord_names = coord_names+opts.parameter_implied
 if opts.parameter_nofit:
@@ -534,13 +548,16 @@ if opts.parameter_nofit:
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
 error_factor = len(coord_names)
+if error_factor ==0 :
+    raise Exception(" Coordinate list for fit empty; exiting ")
 if opts.fit_uses_reported_error:
     error_factor=len(coord_names)*opts.fit_uses_reported_error_factor
 # TeX dictionary
 tex_dictionary = lalsimutils.tex_dictionary
 print(" Coordinate names for fit :, ", coord_names)
 print(" Rendering coordinate names : ",  render_coordinates(coord_names))  # map(lambda x: tex_dictionary[x], coord_names)
-print(" Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names))
+if opts.fit_method =="polynomial" or opts.fit_method == 'quadratic':
+    print(" Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names))
 print(" Coordinate names for Monte Carlo :, ", low_level_coord_names)
 print(" Rendering coordinate names : ", list(map(lambda x: tex_dictionary[x], low_level_coord_names)))
 
@@ -669,6 +686,9 @@ def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   #
 def eccentricity_prior(x):
     return np.ones(x.shape) / (ECC_MAX-ECC_MIN) # uniform over the interval [0.0, ECC_MAX]
 
+def precession_prior(x):
+    return 0.5*np.ones(x.shape) # uniform over the interval [0.0, 2.0]
+
 def unnormalized_uniform_prior(x):
     return np.ones(x.shape)
 def unnormalized_log_prior(x):
@@ -699,6 +719,7 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'phi1':mcsampler.uniform_samp_phase,
     'phi2':mcsampler.uniform_samp_phase,
     'eccentricity':eccentricity_prior,
+    'chi_pavg':precession_prior,
     'mu1': unnormalized_log_prior,
     'mu2': unnormalized_uniform_prior
 }
@@ -716,6 +737,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda_plus':[0.01,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   'eccentricity':[ECC_MIN, ECC_MAX],
+  'chi_pavg':[0.0,2.0],  
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
@@ -989,12 +1011,12 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
     length_scale_bounds_est = []
     for indx in np.arange(len(x[0])):
         # These length scales have been tuned by expereience
-        length_scale_est.append( 2*np.std(x[:,indx])  )  # auto-select range based on sampling retained
-        length_scale_min_here= np.max([1e-3,0.2*np.std(x[:,indx]/np.sqrt(len(x)))])
+        length_scale_est.append( 2*np.nanstd(x[:,indx])  )  # auto-select range based on sampling retained
+        length_scale_min_here= np.max([1e-3,0.2*np.nanstd(x[:,indx]/np.sqrt(len(x)))])
         if indx == mc_index:
-            length_scale_min_here= 0.2*np.std(x[:,indx]/np.sqrt(len(x)))
-            print(" Setting mc range: retained point range is ", np.std(x[:,indx]), " and target min is ", length_scale_min_here)
-        length_scale_bounds_est.append( (length_scale_min_here , 5*np.std(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
+            length_scale_min_here= 0.2*np.nanstd(x[:,indx]/np.sqrt(len(x)))
+            print(" Setting mc range: retained point range is ", np.nanstd(x[:,indx]), " and target min is ", length_scale_min_here)
+        length_scale_bounds_est.append( (length_scale_min_here , 5*np.nanstd(x[:,indx])   ) )  # auto-select range based on sampling *RETAINED* (i.e., passing cut).  Note that for the coordinates I usually use, it would be nonsensical to make the range in coordinate too small, as can occasionally happens
 
     print(" GP: Input sample size ", len(x), len(y))
     print(" GP: Estimated length scales ")
@@ -1362,6 +1384,16 @@ col_lnL = 9
 if opts.input_tides:
     print(" Tides input")
     col_lnL +=2
+    if opts.input_eos_index:
+        print(" EOS Tides input")
+        col_lnL +=1
+        if opts.tabular_eos_file: 
+            coord_names += ['eos_table_index']  # temporary, will overwrite this, just use initially to simplify i/o
+            coord_names = list(coord_names)   # force reallocation, since at times we have duplicate sets
+            low_level_coord_names += ['ordering'] 
+        print(" Revised fit coord names (for lookup) : ", coord_names) # 'eos_table_index' will be overwritten here
+        print(" Revised sampling coord names  : ", low_level_coord_names)
+
 elif opts.use_eccentricity:
     print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
     col_lnL += 1
@@ -1395,8 +1427,10 @@ dat_out_extra = []
 for item in extra_plot_coord_names:
     dat_out_extra.append([])
 
-
-symmetry_list =lalsimutils.symmetry_sign_exchange(coord_names)  # identify symmetry due to exchange
+symmetry_list=None
+if not(opts.tabular_eos_file):
+    if opts.fit_method == 'quadratic' or opts.fit_method == 'polynomial':
+        symmetry_list =lalsimutils.symmetry_sign_exchange(coord_names)  # identify symmetry due to exchange
 mc_min = 1e10
 mc_max = -1
 
@@ -1404,6 +1438,8 @@ mc_index = -1 # index of mchirp in parameter index. To help with nonstandard GP
 mc_cut_range = [-np.inf, np.inf] 
 if opts.mc_range:
     mc_cut_range = eval(opts.mc_range)  # throw out samples outside this range.
+    mc_min = mc_cut_range[0]
+    mc_max = mc_cut_range[1]
     if opts.source_redshift>0:
         mc_cut_range =np.array(mc_cut_range)*(1+opts.source_redshift)  # prevent stupidity in grid selection
 print(" Stripping samples outside of ", mc_cut_range, " in mc")
@@ -1420,7 +1456,7 @@ for line in dat:
       continue
   if line[col_lnL+1] > opts.sigma_cut:
 #      if opts.verbose:
-#          print " Skipping ", line
+#          print(" Skipping as large error ", line)
       continue
   if not (opts.lnL_cut is None):
     if line[col_lnL] < opts.lnL_cut:
@@ -1445,6 +1481,8 @@ for line in dat:
     if opts.input_tides:
         P.lambda1 = line[9]
         P.lambda2 = line[10]
+    if opts.input_eos_index:
+        P.eos_table_index = line[11]
     if opts.use_eccentricity:
         P.eccentricity = line[9]
     if opts.input_distance:
@@ -1456,8 +1494,15 @@ for line in dat:
 
     # INPUT GRID: Evaluate binary parameters on fitting coordinates
     line_out = np.zeros(len(coord_names)+2)
+    chi_pavg_out = 0 #initialize
     for x in np.arange(len(coord_names)):
-        line_out[x] = P.extract_param(coord_names[x])
+        if coord_names[x] == 'chi_pavg':
+            chi_pavg_out = P.extract_param('chi_pavg')
+            line_out[x] = chi_pavg_out
+        elif coord_names[x] =='ordering':
+            continue
+        else:
+            line_out[x] = P.extract_param(coord_names[x])
  #        line_out[x] = getattr(P, coord_names[x])
     line_out[-2] = line[col_lnL]
     line_out[-1] = line[col_lnL+1]  # adjoin error estimate
@@ -1474,20 +1519,26 @@ for line in dat:
     line_out = np.zeros(len(low_level_coord_names))
     for x in np.arange(len(line_out)):
         fac = 1
+        if low_level_coord_names[x] in ['ordering']:
+            continue
         if low_level_coord_names[x] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
-        line_out[x] = P.extract_param(low_level_coord_names[x])/fac
+        if low_level_coord_names[x] == 'chi_pavg':
+            line_out[x] = chi_pavg_out
+        else:
+            line_out[x] = P.extract_param(low_level_coord_names[x])/fac
         if low_level_coord_names[x] in ['mc']:
             mc_index = x
     dat_out_low_level_coord_names.append(line_out)
 
 
     # Update mc range
-    mc_here = lalsimutils.mchirp(line[1],line[2])
-    if mc_here < mc_min:
-        mc_min = mc_here
-    if mc_here > mc_max:
-        mc_max = mc_here
+    if not(opts.mc_range):
+        mc_here = lalsimutils.mchirp(line[1],line[2])
+        if mc_here < mc_min:
+            mc_min = mc_here
+        if mc_here > mc_max:
+            mc_max = mc_here
 
     # Mirror!
     if opts.mirror_points:
@@ -1536,6 +1587,31 @@ for p in ['mc', 'm1', 'm2', 'mtot']:
             dat_out_extra[x][:,indx] /= lal.MSUN_SI
             
 
+# EOS from tabular data: need to do after everything loaded! Need to know reference masses, etc
+if opts.tabular_eos_file:
+    import RIFT.physics.EOSManager as EOSManager
+    # Find reference mass in msun: pick a TYPICAL chirp mass in grid, as all should be close enough for our purposes! 
+    # note this is NOT DETERMINISTIC and will depend on our grid input/what survives, but for BNS should be fine
+    mc_ref = Pref_default.extract_param('mc')
+    if mc_ref > 1e10:
+        mc_ref = mc_ref/lal.MSUN_SI
+    m_ref = mc_ref*np.power(2, 1./5.)   # assume equal mass
+    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file,load_ns=True,oned_order_name='Lambda', oned_order_mass=m_ref)
+
+    # Define prior, NOT NORMALIZED
+    prior_map['ordering'] =lambda x: np.ones(x.shape)
+    prior_range_map['ordering']  = [np.min(my_eos_sequence.oned_order_values),np.max(my_eos_sequence.oned_order_values)]
+
+    # Add the ordering values for all the imported points
+    #  - on *import*, we've imported the index quantities; instead,  evaluate the ordering statistic for all of these
+    #  - note the saved values use the FIDUCIAL ORDERING, so must be used with GREAT CARE to preserve order!
+    order_vals = np.zeros(len(dat_out))
+    for indx in np.arange(len(order_vals)):
+        order_vals = my_eos_sequence.lambda_of_m_indx(m_ref, int(dat_out[indx,-1]))  # last field is index value
+    # overwrite into the ordering statistic field
+    dat_out[:,-1] = order_vals
+    # overwrite the coordinate name for the last field, so conversion is trivial/identity
+    coord_names[-1] = 'ordering'
 
 # Repack data
 X =dat_out[:,0:len(coord_names)]
@@ -1893,11 +1969,12 @@ if opts.sampler_method == "GMM":
 ##
 ## Loop over param names
 ##
+print(" Preparing sampling ", low_level_coord_names)
 for p in low_level_coord_names:
     if not(opts.parameter_implied is None):
-       if p in opts.parameter_implied:
-        # We do not need to sample parameters that are implied by other parameters, so we can overparameterize 
-        continue
+       if p in opts.parameter_implied and not(p == 'chi_pavg'):
+           # We do not need to sample parameters that are implied by other parameters, so we can overparameterize 
+           continue
     prior_here = prior_map[p]
     range_here = prior_range_map[p]
 
@@ -2052,12 +2129,22 @@ if len(low_level_coord_names) ==9:
             return np.exp(my_fit([x,y,z,a,b,c,d,e,f]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f])))
+    def log_likelihood_function(x,y,z,a,b,c,d,e,f):
+        if isinstance(x,float):
+            return my_fit([x,y,z,a,b,c,d,e,f])
+        else:
+            return my_fit(convert_coords(np.c_[x,y,z,a,v,c,d,e,f]))
 if len(low_level_coord_names) ==10:
     def likelihood_function(x,y,z,a,b,c,d,e,f,g):  
         if isinstance(x,float):
             return np.exp(my_fit([x,y,z,a,b,c,d,e,f,g]))
         else:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g])))
+    def log_likelihood_function(x,y,z,a,b,c,d,e,f,g):
+        if isinstance(x,float):
+            return my_fit([x,y,z,a,b,c,d,e,f,g])
+        else:
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g]))
 
 
 n_step = int(opts.n_chunk)
@@ -2114,7 +2201,7 @@ extra_args.update({
     "n_adapt": 100, # Number of chunks to allow adaption over
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1D histograms with, 
     "force_no_adapt":opts.force_no_adapt,
-    "tripwire_fraction":0.05
+    "tripwire_fraction":opts.tripwire_fraction
 })
 tempering_adapt=True
 if opts.force_no_adapt:   
@@ -2343,6 +2430,7 @@ else:
 Pref.fref = opts.fref  # not encoded in the XML!
 Pref.print_params()
 
+
 if not no_plots:
  for indx in np.arange(len(low_level_coord_names)):
    try:
@@ -2436,6 +2524,8 @@ for indx in np.arange(len(low_level_coord_names)):
     fac = 1
     if low_level_coord_names[indx] in ['mc','m1','m2','mtot']:
         fac = lal.MSUN_SI
+    if low_level_coord_names[indx] == 'ordering':
+        continue
     truth_here.append(Pref.extract_param(low_level_coord_names[indx])/fac)
 
 
@@ -2513,6 +2603,7 @@ if not no_plots:
 
 print(" ---- Subset for posterior samples (and further corner work) --- ")
 
+
 # pick random numbers
 p_threshold_size = np.min([5*opts.n_output_samples,len(weights)])
 #p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=p_threshold_size)#opts.n_output_samples)
@@ -2554,9 +2645,22 @@ for indx_here in indx_list:
             coord_to_assign = low_level_coord_names[indx]
             if coord_to_assign == 'xi':
                 coord_to_assign= 'chieff_aligned'
+            if coord_to_assign == 'chi_pavg':
+                continue # skipping chi_pavg
+            if coord_to_assign == 'ordering':
+                continue
             Pgrid.assign_param(coord_to_assign, line[indx]*fac)
 #            print indx_here, coord_to_assign, line[indx]
         # Test for downselect
+        # Perform tabular EOS calculations: compute reference index, lambda1, lambda2
+        if opts.tabular_eos_file:
+            # save the index of the SORTED SIMULATION (because that's how I'll be accessing it!)
+            eos_indx_here = my_eos_sequence.lookup_closest(samples['ordering'][indx_here])
+            Pgrid.eos_table_index = eos_indx_here
+            # Compute lambda1, lambda2 for output for this EOS, using ASSUMED source redshift (not currently with consistent/flexible distances)
+            Pgrid.lambda1 = my_eos_sequence.lambda_of_m_indx(Pgrid.m1/lal.MSUN_SI/(1+source_redshift), eos_indx_here)
+            Pgrid.lambda2 = my_eos_sequence.lambda_of_m_indx(Pgrid.m2/lal.MSUN_SI/(1+source_redshift), eos_indx_here)
+
         for p in downselect_dict.keys():
             val = Pgrid.extract_param(p) 
             if np.isnan(val):  # this can happen for some odd coordinate systems like mu1, mu2 if we are out of range

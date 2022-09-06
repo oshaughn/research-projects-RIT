@@ -25,6 +25,13 @@ from glue.lal import CacheEntry
 
 import configparser as ConfigParser
 
+# Backward compatibility
+from RIFT.misc.dag_utils import which
+lalapps_path2cache = which('lal_path2cache')
+if lalapps_path2cache == None:
+    lalapps_path2cache =  which('lalapps_path2cache')
+
+
 
 def is_int_power_of_2(a_in):
     a =int(a_in)
@@ -112,7 +119,7 @@ def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_d
 
 def ldg_make_cache(retrieve=False):
     if not retrieve:
-        os.system("find frames -name '*.gwf' | lalapps_path2cache > local.cache")
+        os.system("find frames -name '*.gwf' | {} > local.cache".format(lalapps_path2cache))
     else:
         os.system("cat *_local.cache > local.cache")
     return True

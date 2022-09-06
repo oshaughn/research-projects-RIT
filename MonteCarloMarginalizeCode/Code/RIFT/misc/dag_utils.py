@@ -471,8 +471,10 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
-    ile_job.add_condor_cmd("stream_error",'True')
-    ile_job.add_condor_cmd("stream_output",'True')
+    # Stream log info: always stream CIP error, it is a critical bottleneck
+    if True: # not ('RIFT_NOSTREAM_LOG' in os.environ):
+        ile_job.add_condor_cmd("stream_error",'True')
+        ile_job.add_condor_cmd("stream_output",'True')
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -715,36 +717,40 @@ echo Starting ...
     if not(request_disk is False):
         ile_job.add_condor_cmd('request_disk', str(request_disk)) 
     nGPUs =0
+    requirements = []
     if request_gpu:
         nGPUs=1
         ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
+        requirements.append("CUDAGlobalMemoryMb >= 2048")
     if use_singularity:
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
-            ile_job.add_condor_cmd('request_CPUs', str(1))
-            ile_job.add_condor_cmd('transfer_executable', 'False')
-            ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
-            ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
-            requirements = []
-            requirements.append("HAS_SINGULARITY=?=TRUE")
-#            if not(use_simple_osg_requirements):
+        ile_job.add_condor_cmd('request_CPUs', str(1))
+        ile_job.add_condor_cmd('transfer_executable', 'False')
+        ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
+        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        requirements.append("HAS_SINGULARITY=?=TRUE")
+#               if not(use_simple_osg_requirements):
 #                requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
             #ile_job.add_condor_cmd("requirements", ' (IS_GLIDEIN=?=True) && (HAS_LIGO_FRAMES=?=True) && (HAS_SINGULARITY=?=TRUE) && (HAS_CVMFS_LIGO_CONTAINERS=?=TRUE)')
 
     if use_cvmfs_frames:
         requirements.append("HAS_LIGO_FRAMES=?=TRUE")
-        ile_job.add_condor_cmd('use_x509userproxy','True')
-        if 'X509_USER_PROXY' in list(os.environ.keys()):
-            print(" Storing copy of X509 user proxy -- beware expiration! ")
-            cwd = os.getcwd()
-            fname_proxy = cwd +"/my_proxy"  # this can get overwritten, that's fine - just renews, feature not bug
-            os.system("cp ${X509_USER_PROXY} "  + fname_proxy)
-#            ile_job.add_condor_cmd('x509userproxy',os.environ['X509_USER_PROXY'])
-            ile_job.add_condor_cmd('x509userproxy',fname_proxy)
-
+        if 'LIGO_OATH_SCOPE' in os.environ:
+            ile_job.add_condor_cmd('use_oauth_services','ligo')
+            ile_job.add_condor_cmd('ligo_oauth_permissions',os.environ['LIGO_OATH_SCOPE'])
+        else:
+            ile_job.add_condor_cmd('use_x509userproxy','True')
+            if 'X509_USER_PROXY' in list(os.environ.keys()):
+                print(" Storing copy of X509 user proxy -- beware expiration! ")
+                cwd = os.getcwd()
+                fname_proxy = cwd +"/my_proxy"  # this can get overwritten, that's fine - just renews, feature not bug
+                os.system("cp ${X509_USER_PROXY} "  + fname_proxy)
+            #            ile_job.add_condor_cmd('x509userproxy',os.environ['X509_USER_PROXY'])
+                ile_job.add_condor_cmd('x509userproxy',fname_proxy)
 
     if use_osg:
-           if not(use_simple_osg_requirements):
-               requirements.append("IS_GLIDEIN=?=TRUE")
+#           if not(use_simple_osg_requirements):
+#               requirements.append("IS_GLIDEIN=?=TRUE")
            # avoid black-holing jobs to specific machines that consistently fail. Uses history attribute for ad
            ile_job.add_condor_cmd('periodic_release','(HoldReasonCode == 45) && (HoldReasonSubCode == 0)')
            ile_job.add_condor_cmd('job_machine_attrs','Machine')
@@ -764,8 +770,9 @@ echo Starting ...
            ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
 
            # Stream log info
-           ile_job.add_condor_cmd("stream_error",'True')
-           ile_job.add_condor_cmd("stream_output",'True')
+           if not ('RIFT_NOSTREAM_LOG' in os.environ):
+               ile_job.add_condor_cmd("stream_error",'True')
+               ile_job.add_condor_cmd("stream_output",'True')
 
     # Create prescript command to set up local.cache, only if frames are needed
     # if we have CVMFS frames, we should be copying local.cache over directly, with it already populated !
@@ -793,8 +800,8 @@ echo Starting ...
 
 #    if use_osg:
 #        ile_job.add_condor_cmd("+OpenScienceGrid",'True')
-    if use_cvmfs_frames:
-        transfer_files += ["../local.cache"]
+#    if use_cvmfs_frames:
+#        transfer_files += ["../local.cache"]
     # To change interactively:
     #   condor_qedit
     # for example: 
