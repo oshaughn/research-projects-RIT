@@ -948,7 +948,7 @@ points-per-side=8
         shutil.copyfile("intrinsic_grid_iteration_0.xml.gz", "proposed-grid.xml.gz")  # Actually put the grid in the right place
     else:
         # don't use bank files, instead use manually-prescribed mc, eta, spin range. SHOULD FIX TO BE TIGHTER
-        mc_min,mc_max = guess_mc_range(event_dict,force_mc_range=opts.force_mc_range)
+        mc_min,mc_max = lalsimutils.guess_mc_range(event_dict,force_mc_range=opts.force_mc_range)
         amr_coord_dist  = "mchirp_eta"
         if opts.internal_use_aligned_phase_coordinates:
             amr_coord_dist = "mu1_mu2_q_s2z"
