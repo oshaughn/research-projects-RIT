@@ -85,7 +85,7 @@ with open(opts.workflow,'r') as f:
         # fork on options
         if word0 == 'common_args':
             print(" Common arguments : ", rest0)
-            common_args+= rest0
+            common_args+= rest0 + " "
             continue
         elif word0 == 'parent':
             print(" Parent/child specification : ", rest0)
@@ -97,6 +97,7 @@ with open(opts.workflow,'r') as f:
             if opts.fetch_all_grids:
                 b_job = my_nodes[b][0]
                 b_job._CondorJob__arguments += [ " --external-fetch-native-from {}/{} ".format(base_dir,a) ] 
+            continue
         elif word0 == 'flow':
             print(" flow parent/child specification : ", rest0)
             a,relation,b = rest0.split()
@@ -145,3 +146,6 @@ for name in my_nodes:
 
 dag.set_dag_file("workflow")
 dag.write_concrete_dag()
+
+# much more useful to have a script to run directly -- dag is generally too slow to launch jobs due to condor queuing
+dag.write_script()
