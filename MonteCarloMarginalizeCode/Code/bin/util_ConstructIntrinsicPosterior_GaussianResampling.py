@@ -1196,6 +1196,8 @@ for indx_P in np.arange(len(X_new)):   # make sure no past-limits errors
         fac = 1
         if low_level_coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
             fac = lal.MSUN_SI
+            if X_new[indx_P,indx]>1e10:  # correct for mu1,mu2 in coords
+                fac=1
         P.assign_param(param, (X_new[indx_P,indx]*fac))
     
     include_item=True
