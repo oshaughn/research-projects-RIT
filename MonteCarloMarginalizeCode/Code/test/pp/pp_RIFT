@@ -26,7 +26,7 @@ import lalsimulation as lalsim
 from RIFT.misc.dag_utils import which
 lalapps_path2cache = which('lal_path2cache')
 if lalapps_path2cache == None:
-    lalapps_path2cache = = which('lalapps_path2cache')
+    lalapps_path2cache =  which('lalapps_path2cache')
 
 
 def unsafe_config_get(config,args,verbose=False):
@@ -47,9 +47,34 @@ def add_frames(channel,input_frame, noise_frame,combined_frame):
         os.system(cmd)
 
 
+def dmax_seglen_ladder(mc):
+    """
+    dmax, seglen ladder motivated by G2201558 but with nonoverlapping mass bins.  Not sure how we are suppose do seglen < 4, so I am making that the shortest length
+    De facto enables a conditional distance prior, based on the chirp mass.
+    Not clear that a single PP run with this weird conditional distance prior is what is intended.
+    """
+    if mc>50 and mc<100:
+        return [3500,4]
+    elif mc>20 and mc<=50:
+        return [2500,4]
+    elif mc>12.3 and mc<=20:
+        return [1500,4]
+    elif mc>7.9 and mc <=12.3:
+        return [1000,8]
+    elif mc > 5.2 and mc<=7.9:
+        return [800,16]
+    elif mc > 3.4 and mc<=5.2:
+        return [400,32]
+    elif mc > 2.2 and mc<=3.4:
+        return [400,64]
+    elif mc>1.4 and mc<=2.2:
+        return [300,128]
+    elif mc < 1.4:
+        return [150,256]
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
+parser.add_argument("--internal-distance-ladder",action='store_true',help="Modify injection distance ladder as in G2201558 ")
 parser.add_argument("--use-osg",action='store_true',help="Attempt OSG operation. Command-line level option, not at ini level to make portable results")
 parser.add_argument("--test",default=False,action='store_true',help="Used to test the pipeline : prints out commands, generates workflows as much as possible without high-cost steps")
 opts =  parser.parse_args()
@@ -176,6 +201,11 @@ else:
         continue
     if eta_val < eta_range[0] or eta_val > eta_range[1]:
         continue
+
+    # rescale distance of injection based on mc
+    dmax_scale, seglen_scale = dmax_seglen_ladder(mc_val)
+    P.dmax *=  dmax_scale/d_max   # direct scale
+    P.deltaF = 1./seglen_scale  
 
 
     P_list.append(P)
@@ -308,6 +338,7 @@ for indx in np.arange(n_events):
     here = os.getcwd()
     mc_min_utils, mc_max_utils = lalsimutils.guess_mc_range_mdc(P_list[indx],force_mc_range=None) # this chooses the right mc-prior
     cmd = "helper_LDG_Events.py --sim-xml {}/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache --working-directory {}  ".format(working_dir_full,indx,P_list[indx].tref,here,dir_target)
+
     cmd += " --ile-n-eff {} ".format(ile_n_eff)
     cmd += " --fmin {} ".format(fmin_template)  # used for placement, we will be undoing some of these effects later with a 'replace'
     cmd += " --fmax {} ".format(fmax)
@@ -372,10 +403,15 @@ for indx in np.arange(n_events):
         for ifo in ifos:
             line =line.replace("--fmin-ifo {}={} ".format(ifo, fmin_template),"--fmin-ifo {}={} ".format(ifo, flow_dict[ifo]))
         line += " --l-max " + str(l_max) 
-        line += " --d-max " + str(d_max)
-        line += " --d-min " + str(d_min)
-        t_start_analysis = fiducial_event_time - (seglen_analysis-2)
+        if not opts.internal_distance_ladder:
+            line += " --d-max " + str(d_max)
+            t_start_analysis = fiducial_event_time - (seglen_analysis-2)
+        else:
+            dmax_scale, seglen_scale = dmax_seglen_ladder(P_list[indx].extract_param('mc')/lal.MSUN_SI)
+            line += " --d-max " + str(dmax_scale)    
+            t_start_analysis = fiducial_event_time - (seglen_scale-2)
         t_end_analysis = fiducial_event_time +2
+        line += " --d-min " + str(d_min)
         line += " --inv-spec-trunc-time 0 --data-start-time {} --data-end-time {} --window-shape {}".format(t_start_analysis, t_end_analysis, 0.4/seglen_analysis)
     
         if not 'NR' in approx_recover_str:
