@@ -203,9 +203,10 @@ else:
         continue
 
     # rescale distance of injection based on mc
-    dmax_scale, seglen_scale = dmax_seglen_ladder(mc_val)
-    P.dmax *=  dmax_scale/d_max   # direct scale
-    P.deltaF = 1./seglen_scale  
+    if opts.internal_distance_ladder:
+        dmax_scale, seglen_scale = dmax_seglen_ladder(mc_val)
+        P.dist *=  dmax_scale/d_max   # direct scale
+        P.deltaF = 1./seglen_scale  
 
 
     P_list.append(P)
