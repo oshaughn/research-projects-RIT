@@ -10,6 +10,10 @@ Since last release
      CIP/EOSManager methods for quick inference with tabulated sequence of EOSs (EOSSequenceLandry; etc);
      mcsampler avoid infinite loop for 'no contribution to integral,skipping'; CIP_gauss defined (gaussian fit +
      resampling based on gaussian); scitokens-ready ILE  (rc1)
+   - dockerfile prototype in this repo; CQL vectorized; OSG updates (local.cache duplication); fix cupy memory warning;
+     add CUDA memory limit to avoid landing on overstrained GPU hosts; convergence_test_samples has JS test used elsewhere;
+     bugfix mcsamplerGPU adaptive (intermittent array size error); mcsampler default/gpu standardize n_history;
+     integrator test update; lalapps_path2cache->lal_path2cache change; TEOBResumS integration as external package
 
 0.0.15.6
 -----------x
