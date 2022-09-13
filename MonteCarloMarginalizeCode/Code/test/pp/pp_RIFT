@@ -47,35 +47,36 @@ def add_frames(channel,input_frame, noise_frame,combined_frame):
         os.system(cmd)
 
 
-def dmax_seglen_ladder(mc):
-    """
-    dmax, seglen ladder motivated by G2201558 but with nonoverlapping mass bins.  Not sure how we are suppose do seglen < 4, so I am making that the shortest length
-    De facto enables a conditional distance prior, based on the chirp mass.
-    Not clear that a single PP run with this weird conditional distance prior is what is intended.
-    """
-    if mc>50 and mc<100:
-        return [3500,4]
-    elif mc>20 and mc<=50:
-        return [2500,4]
-    elif mc>12.3 and mc<=20:
-        return [1500,4]
-    elif mc>7.9 and mc <=12.3:
-        return [1000,8]
-    elif mc > 5.2 and mc<=7.9:
-        return [800,16]
-    elif mc > 3.4 and mc<=5.2:
-        return [400,32]
-    elif mc > 2.2 and mc<=3.4:
-        return [400,64]
-    elif mc>1.4 and mc<=2.2:
-        return [300,128]
-    elif mc < 1.4:
-        return [150,256]
+# def dmax_seglen_ladder(mc):
+#     """
+#     dmax, seglen ladder motivated by G2201558 but with nonoverlapping mass bins.  Not sure how we are suppose do seglen < 4, so I am making that the shortest length
+#     De facto enables a conditional distance prior, based on the chirp mass.
+#     Not clear that a single PP run with this weird conditional distance prior is what is intended.
+#     """
+#     if mc>50 and mc<100:
+#         return [3500,4]
+#     elif mc>20 and mc<=50:
+#         return [2500,4]
+#     elif mc>12.3 and mc<=20:
+#         return [1500,4]
+#     elif mc>7.9 and mc <=12.3:
+#         return [1000,8]
+#     elif mc > 5.2 and mc<=7.9:
+#         return [800,16]
+#     elif mc > 3.4 and mc<=5.2:
+#         return [400,32]
+#     elif mc > 2.2 and mc<=3.4:
+#         return [400,64]
+#     elif mc>1.4 and mc<=2.2:
+#         return [300,128]
+#     elif mc < 1.4:
+#         return [150,256]
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
-parser.add_argument("--internal-distance-ladder",action='store_true',help="Modify injection distance ladder as in G2201558 ")
+#parser.add_argument("--internal-distance-ladder",action='store_true',help="Modify injection distance ladder as in G2201558 ")
 parser.add_argument("--use-osg",action='store_true',help="Attempt OSG operation. Command-line level option, not at ini level to make portable results")
+parser.add_argument("--add-extrinsic",action='store_true',help="Add extrinsic posterior.  Corresponds to --add-extrinsic --add-extrinsic-time-resampling --batch-extrinsic for pipeline")
 parser.add_argument("--test",default=False,action='store_true',help="Used to test the pipeline : prints out commands, generates workflows as much as possible without high-cost steps")
 opts =  parser.parse_args()
 
@@ -203,10 +204,10 @@ else:
         continue
 
     # rescale distance of injection based on mc
-    if opts.internal_distance_ladder:
-        dmax_scale, seglen_scale = dmax_seglen_ladder(mc_val)
-        P.dist *=  dmax_scale/d_max   # direct scale
-        P.deltaF = 1./seglen_scale  
+    # if opts.internal_distance_ladder:
+    #     dmax_scale, seglen_scale = dmax_seglen_ladder(mc_val)
+    #     P.dist *=  dmax_scale/d_max   # direct scale
+    #     P.deltaF = 1./seglen_scale  
 
 
     P_list.append(P)
@@ -313,7 +314,7 @@ psd_dict = unsafe_config_get(config,["make_psd",'fiducial_psds'])
 
 cip_fit_method = config.get('make_workflow','cip_fit_method')
 cip_sampler_method = config.get('make_workflow','cip_sampler_method')
-add_extrinsic=False
+add_extrinsic=opts.add_extrinsic
 use_osg=opts.use_osg #False
 if not(use_osg) and 'helper-args' in config:
   if ('use_osg' in config['helper-args']):
@@ -500,7 +501,7 @@ for indx in np.arange(n_events):
       cmd += " --request-gpu-ILE "
 
     if add_extrinsic:
-          cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 "
+          cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 --last-iteration-extrinsic-batched-convert --last-iteration-extrinsic-time-resampling "
     if cip_explode_jobs:
         cmd+= " --cip-explode-jobs  " + str(cip_explode_jobs) + " --cip-explode-jobs-dag "
         if cip_fit_method and not(cip_fit_method == 'gp'):
