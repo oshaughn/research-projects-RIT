@@ -416,6 +416,10 @@ for indx in np.arange(n_events):
         line += " --d-min " + str(d_min)
         line += " --inv-spec-trunc-time 0 --data-start-time {} --data-end-time {} --window-shape {}".format(t_start_analysis, t_end_analysis, 0.4/seglen_analysis)
     
+        if 'ile_sampler_method' in config['make_workflow']:
+            ile_sampler = unsafe_config_get(config,['make_workflow','ile_sampler_method'])
+            line += " --sampler-method {} ".format(ile_sampler)
+
         if not 'NR' in approx_recover_str:
             line += " --approx " + approx_recover_str
         elif "NRHybSur3dq8Tidal" in approx_recover_str:       # added NRHybSur3dq8Tidal to the list
