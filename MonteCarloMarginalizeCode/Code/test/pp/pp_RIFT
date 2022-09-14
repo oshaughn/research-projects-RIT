@@ -417,7 +417,7 @@ for indx in np.arange(n_events):
         line += " --inv-spec-trunc-time 0 --data-start-time {} --data-end-time {} --window-shape {}".format(t_start_analysis, t_end_analysis, 0.4/seglen_analysis)
     
         if 'ile_sampler_method' in config['make_workflow']:
-            ile_sampler = unsafe_config_get(config,['make_workflow','ile_sampler_method'])
+            ile_sampler = config.get('make_workflow','ile_sampler_method')
             line += " --sampler-method {} ".format(ile_sampler)
 
         if not 'NR' in approx_recover_str:
