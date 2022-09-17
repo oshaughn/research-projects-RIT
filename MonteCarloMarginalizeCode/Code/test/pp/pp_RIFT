@@ -443,7 +443,7 @@ for indx in np.arange(n_events):
             else: 
                 line += " ./distance_marginalization_lookup.npz "
                 # add to transfer file list
-                os.system('echo  {}/distance_marginalization_lookup.npz >> helper_transfer_files.txt '.format(base_dir))
+                os.system('echo  {}/distance_marginalization_lookup.npz >> helper_transfer_files.txt '.format(working_dir_full))
         with open('args_ile.txt','w') as f:
             f.write(line)
 
