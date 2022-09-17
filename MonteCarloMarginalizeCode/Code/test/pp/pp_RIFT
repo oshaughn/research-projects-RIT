@@ -318,7 +318,7 @@ add_extrinsic=opts.add_extrinsic
 use_osg=opts.use_osg #False
 if not(use_osg) and 'helper_args' in config:
   if ('use_osg' in config['helper_args']):
-    use_osg = unsafe_config_get('helper_args','use_osg')
+    use_osg = unsafe_config_get(config,['helper_args','use_osg'])  # this should almost always evaluate to true
 cip_explode_jobs=False
 if 'cip_explode_jobs' in config['make_workflow']:
     cip_explode_jobs = config.get('make_workflow','cip_explode_jobs')
