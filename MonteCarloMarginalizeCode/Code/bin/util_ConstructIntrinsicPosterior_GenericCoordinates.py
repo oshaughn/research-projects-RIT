@@ -555,11 +555,13 @@ if opts.fit_uses_reported_error:
 # TeX dictionary
 tex_dictionary = lalsimutils.tex_dictionary
 print(" Coordinate names for fit :, ", coord_names)
-print(" Rendering coordinate names : ",  render_coordinates(coord_names))  # map(lambda x: tex_dictionary[x], coord_names)
+if not(opts.no_plots):
+    print(" Rendering coordinate names : ",  render_coordinates(coord_names))  # map(lambda x: tex_dictionary[x], coord_names)
 if opts.fit_method =="polynomial" or opts.fit_method == 'quadratic':
     print(" Symmetry for these fitting coordinates :", lalsimutils.symmetry_sign_exchange(coord_names))
 print(" Coordinate names for Monte Carlo :, ", low_level_coord_names)
-print(" Rendering coordinate names : ", list(map(lambda x: tex_dictionary[x], low_level_coord_names)))
+if not(opts.no_plots):
+    print(" Rendering coordinate names : ", list(map(lambda x: tex_dictionary[x], low_level_coord_names)))
 
 
 ###
@@ -694,6 +696,11 @@ def unnormalized_uniform_prior(x):
 def unnormalized_log_prior(x):
     return 1./x
 
+def normalized_Rbar_prior(x):
+    return 2*x
+def normalized_zbar_prior(z):
+    return 4.*(1.-z**2)/3.
+
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
     's2x':functools.partial(s_component_uniform_prior, R=chi_small_max),
@@ -718,6 +725,12 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'cos_theta2': mcsampler.uniform_samp_cos_theta,
     'phi1':mcsampler.uniform_samp_phase,
     'phi2':mcsampler.uniform_samp_phase,
+    # Pseudo-cylindrical : note this is a VOLUMETRIC prior
+    'chi1_perp_bar':normalized_Rbar_prior,
+    'chi2_perp_bar':normalized_Rbar_prior,
+    's1z_bar':normalized_zbar_prior,
+    's2z_bar':normalized_zbar_prior,
+    # Other priors
     'eccentricity':eccentricity_prior,
     'chi_pavg':precession_prior,
     'mu1': unnormalized_log_prior,
@@ -749,6 +762,10 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'cos_theta2':[-1,1],
   'phi1':[0,2*np.pi],
   'phi2':[0,2*np.pi],
+  'chi1_perp_bar':[0,1],
+  'chi2_perp_bar':[0,1],
+  's1z_bar':[-1,1],
+  's2z_bar':[-1,1],
   'mu1':[0.0001,1e3],    # suboptimal, but something  
   'mu2':[-300,1e3]
 }
