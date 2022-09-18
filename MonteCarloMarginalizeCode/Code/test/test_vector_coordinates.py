@@ -100,3 +100,21 @@ x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_l
 print(x2)
 
 print("Polar test 1", np.max(np.abs(x1 - x2)))
+
+
+# Cylinder pseudo-polar
+coord_names=['mc','delta_mc','xi','chiMinus','s1x','s1y', 's2x', 's2y']
+low_level_coord_names=['m1','m2','chi1_perp_bar','s1z_bar', 'phi1','chi2_perp_bar', 's2z_bar', 'phi2'] # assume this is the underlying
+
+for indx in np.arange(npts):
+    P = P_list[indx]
+    for indx_name  in np.arange(len(coord_names)):
+        x1[indx,indx_name]  = P.extract_param( coord_names[indx_name])
+    for indx_name2 in np.arange(len(low_level_coord_names)):
+        y2[indx,indx_name2]  = P.extract_param( low_level_coord_names[indx_name2])
+
+x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_level_coord_names=low_level_coord_names)
+print(x2)
+
+print("Cylinder test 1", np.max(np.abs(x1 - x2)))
+
