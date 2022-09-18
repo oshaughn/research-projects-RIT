@@ -247,7 +247,8 @@ parser.add_argument("--no-downselect",action='store_true',help='Prevent using do
 parser.add_argument("--no-downselect-grid",action='store_true',help='Prevent using downselection on input points. Applied only to mc range' )
 parser.add_argument("--downselect-enforce-kerr",action='store_true',help="Provides limits that enforce the kerr limit. Also imposed in coordinate transformations.")
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'. Only influences s1z, s2z")
-parser.add_argument("--transverse-prior", default="uniform",help="Options are 'volumetric' (default) and 'alignedspin-zprior'. Only influences s1x,s1y,s2x,s2y")
+parser.add_argument("--transverse-prior", default="uniform",help="Options are  (default), 'uniform_mag', 'taper_down',  'sqrt-prior', and 'alignedspin-zprior'. Only influences s1x,s1y,s2x,s2y,Rbar.  Usually NOT intended for final work, just to make sampling nicer.")
+parser.add_argument("--prior-in-integrand-correction",default=None,help="Implmement integrand = Lp/ps for p_s the default coordinate sampling prior, to allow using priors not naturally associated with coordinates.  Intended for spin only at present. Options are 'uniform_over_volumetric' (convert from volumetric sampling to uniform) and 'volumetric_over_uniform'.  Intent is to enable uniform-spin-magnitude sampling in other coordinate systems, etc. ")
 parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
 parser.add_argument("--import-prior-dictionary-file",default=None,type=str,help="File with dictionary stored_param_dict = 'name':func and stored_param_ranges = 'name':[left,right].  Use to overwrite priors with user-specified function")
 parser.add_argument("--output-prior-dictionary-file",default=None,type=str,help="File with dictionary 'name':func. ")
@@ -792,6 +793,8 @@ if opts.aligned_prior == 'alignedspin-zprior':
     # prior on s1z constructed to produce the standard distribution
     prior_map["s1z"] = s_component_zprior
     prior_map["s2z"] = functools.partial(s_component_zprior,R=chi_small_max)
+    prior_map["s1z_bar"] = s_component_zprior
+    prior_map["s2z_bar"] = functools.partial(s_component_zprior,R=chi_small_max)
     if  'chiz_plus' in low_level_coord_names:
         if opts.spin_prior_chizplusminus_alternate_sampling == 'alignedspin_zprior':
             # just a  trick to make reweighting more efficient.
@@ -801,7 +804,11 @@ if opts.aligned_prior == 'alignedspin-zprior':
             prior_map['chiz_plus'] = s_component_gaussian_prior
             prior_map['chiz_minus'] = s_component_gaussian_prior
 
-if opts.transverse_prior == 'alignedspin-zprior':
+if opts.transverse_prior == 'uniform-mag':
+    # allow for better transverse spin prior, 
+    prior_map['chi1_perp_bar'] = unnormalized_uniform_prior
+    prior_map['chi2_perp_bar'] = unnormalized_uniform_prior
+elif opts.transverse_prior == 'alignedspin-zprior':
     prior_map["s1x"] = s_component_zprior
     prior_map["s1y"] = s_component_zprior
     prior_map["s2x"] = functools.partial(s_component_zprior,R=chi_small_max)
@@ -811,11 +818,15 @@ elif opts.transverse_prior == 'sqrt-prior':
     prior_map["s1y"] = s_component_sqrt_prior
     prior_map["s2x"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
     prior_map["s2y"] = functools.partial(s_component_sqrt_prior,R=chi_small_max)
+    prior_map['chi1_perp_bar'] = s_component_sqrt_prior
+    prior_map['chi2_perp_bar'] = s_component_sqrt_prior
 elif opts.transverse_prior == 'taper-down':
     prior_map["s1x"] = triangle_prior
     prior_map["s1y"] = triangle_prior
     prior_map["s2x"] = functools.partial(triangle_prior,R=chi_small_max)
     prior_map["s2y"] = functools.partial(triangle_prior,R=chi_small_max)
+    prior_map['chi1_perp_bar'] = triangle_prior
+    prior_map['chi2_perp_bar'] = triangle_prior
     
 
 if opts.aligned_prior == 'volumetric':
@@ -2044,124 +2055,155 @@ if not(opts.output_prior_dictionary_file is None):
 
 
 likelihood_function = None
+# prior p/ps rescaling, to enable prior inside integrand
+# These are functions of the INTEGRATION VARIABLES, not the fit variables
+def my_log_prior_scale(X):
+    return np.zeros(len(X))
+def my_prior_scale(X):
+    return np.ones(len(X))
+
 if len(low_level_coord_names) ==1:
     def likelihood_function(x):  
         if isinstance(x,float):
-            return np.exp(my_fit([x]))
+            return np.exp(my_fit([x]))*my_prior_scale([x])
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x],dtype=internal_dtype).T) ))
-            return np.exp(my_fit(convert_coords(np.c_[x])))
+            return np.exp(my_fit(convert_coords(np.c_[x])))*my_prior_scale(np.c_[x])
     def log_likelihood_function(x):  
         if isinstance(x,float):
-            return my_fit([x])
+            return my_fit([x])+ my_log_prior_scale([x])
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x],dtype=internal_dtype).T) ))
-            return my_fit(convert_coords(np.c_[x]))
+            return my_fit(convert_coords(np.c_[x])) + my_log_prior_scale(np.c_[x])
 if len(low_level_coord_names) ==2:
     def likelihood_function(x,y):  
         if isinstance(x,float):
-            return np.exp(my_fit([x,y]))
+            return np.exp(my_fit([x,y]))*my_prior_scale([x,y])
         else:
-            return np.exp(my_fit(convert_coords(np.c_[x,y])))
+            return np.exp(my_fit(convert_coords(np.c_[x,y])))*my_prior_scale(np.c_[x,y])
     def log_likelihood_function(x,y):  
         if isinstance(x,float):
-            return my_fit([x,y])
+            return my_fit([x,y])+ my_log_prior_scale(np.c_[x,y])
         else:
-            return my_fit(convert_coords(np.c_[x,y]))
+            return my_fit(convert_coords(np.c_[x,y]))+ my_log_prior_scale(np.c_[x,y])
 if len(low_level_coord_names) ==3:
     def likelihood_function(x,y,z):  
         if isinstance(x,float):
-            return np.exp(my_fit([x,y,z]))
+            return np.exp(my_fit([x,y,z]))*my_prior_scale([x,y,z])
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z],dtype=internal_dtype).T)))
-            return np.exp(my_fit(convert_coords(np.c_[x,y,z])))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z])))* my_prior_scale(np.c_[x,y,z])
     def log_likelihood_function(x,y,z):  
         if isinstance(x,float):
-            return my_fit([x,y,z])
+            return my_fit([x,y,z]) + my_log_prior_scale(np.c_[x,y,z])
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z],dtype=internal_dtype).T)))
-            return my_fit(convert_coords(np.c_[x,y,z]))
+            return my_fit(convert_coords(np.c_[x,y,z]))+my_log_prior_scale(np.c_[x,y,z])
 if len(low_level_coord_names) ==4:
     def likelihood_function(x,y,z,a):  
         if isinstance(x,float):
-            return np.exp(my_fit([x,y,z,a]))
+            return np.exp(my_fit([x,y,z,a]))*my_prior_scale([x,y,z,a])
         else:
-            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a])))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a])))*my_prior_scale(np.c_[x,y,z,a])
     def log_likelihood_function(x,y,z,a):  
         if isinstance(x,float):
-            return my_fit([x,y,z,a])
+            return my_fit([x,y,z,a])+ +my_log_prior_scale([x,y,z,a])
         else:
-            return my_fit(convert_coords(np.c_[x,y,z,a]))
+            return my_fit(convert_coords(np.c_[x,y,z,a]))+ my_log_prior_scale(np.c_[x,y,z,a])
 if len(low_level_coord_names) ==5:
     def likelihood_function(x,y,z,a,b):  
         if isinstance(x,float):
-            return np.exp(my_fit([x,y,z,a,b]))
+            return np.exp(my_fit([x,y,z,a,b]))*my_prior_scale([x,y,z,a,b])
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b],dtype=internal_dtype).T)))
-            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b])))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b])))*my_prior_scale(np.c_[x,y,z,a,b])
     def log_likelihood_function(x,y,z,a,b):  
         if isinstance(x,float):
-            return my_fit([x,y,z,a,b])
+            return my_fit([x,y,z,a,b])+ my_log_prior_scale([x,y,z,a,b])
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b],dtype=internal_dtype).T)))
-            return my_fit(convert_coords(np.c_[x,y,z,a,b]))
+            return my_fit(convert_coords(np.c_[x,y,z,a,b]))+ my_log_prior_scale(np.c_[x,y,z,a,b])
 if len(low_level_coord_names) ==6:
     def likelihood_function(x,y,z,a,b,c):  
         if isinstance(x,float):
-            return np.exp(my_fit([x,y,z,a,b,c]))
+            return np.exp(my_fit([x,y,z,a,b,c]))*my_prior_scale([x,y,z,a,b,c])
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c],dtype=internal_dtype).T)))
-            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c])))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c])))*my_prior_scale(np.c_[x,y,z,a,b,c])
     def log_likelihood_function(x,y,z,a,b,c):  
         if isinstance(x,float):
-            return my_fit([x,y,z,a,b,c])
+            return my_fit([x,y,z,a,b,c])+ my_log_prior_scale([x,y,z,a,b,c])
         else:
 #            return np.exp(my_fit(convert_coords(np.array([x,y,z,a,b,c],dtype=internal_dtype).T)))
-            return my_fit(convert_coords(np.c_[x,y,z,a,b,c]))
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c]))+ my_log_prior_scale(np.c_[x,y,z,a,b,c])
 if len(low_level_coord_names) ==7:
     def likelihood_function(x,y,z,a,b,c,d):  
         if isinstance(x,float):
-            return np.exp(my_fit([x,y,z,a,b,c,d]))
+            return np.exp(my_fit([x,y,z,a,b,c,d]))*my_prior_scale([x,y,z,a,b,c,d])
         else:
-            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d])))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d])))*my_prior_scale(np.c_[x,y,z,a,b,c,d])
     def log_likelihood_function(x,y,z,a,b,c,d):  
         if isinstance(x,float):
-            return my_fit([x,y,z,a,b,c,d])
+            return my_fit([x,y,z,a,b,c,d])+ my_log_prior_scale([x,y,z,a,b,c,d])
         else:
-            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d]))
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d]))+ my_log_prior_scale(np.c_[x,y,z,a,b,c,d])
 if len(low_level_coord_names) ==8:
     def likelihood_function(x,y,z,a,b,c,d,e):  
         if isinstance(x,float):
-            return np.exp(my_fit([x,y,z,a,b,c,d,e]))
+            return np.exp(my_fit([x,y,z,a,b,c,d,e]))*my_prior_scale([x,y,z,a,b,c,d,e])
         else:
-            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e])))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e])))*my_prior_scale(np.c_[x,y,z,a,b,c,d,e])
     def log_likelihood_function(x,y,z,a,b,c,d,e):  
         if isinstance(x,float):
-            return my_fit([x,y,z,a,b,c,d,e])
+            return my_fit([x,y,z,a,b,c,d,e])+ my_log_prior_scale([x,y,z,a,b,c,d,e])
         else:
-            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e]))
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e]))+ my_log_prior_scale(np.c_[x,y,z,a,b,c,d,e])
 if len(low_level_coord_names) ==9:
     def likelihood_function(x,y,z,a,b,c,d,e,f):  
         if isinstance(x,float):
-            return np.exp(my_fit([x,y,z,a,b,c,d,e,f]))
+            return np.exp(my_fit([x,y,z,a,b,c,d,e,f]))*my_prior_scale([x,y,z,a,b,c,d,e,f])
         else:
-            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f])))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f]))) *my_prior_scale(np.c_[x,y,z,a,b,c,d,e,f])
     def log_likelihood_function(x,y,z,a,b,c,d,e,f):
         if isinstance(x,float):
-            return my_fit([x,y,z,a,b,c,d,e,f])
+            return my_fit([x,y,z,a,b,c,d,e,f]) + my_log_prior_scale([x,y,z,a,b,c,d,e,f])
         else:
-            return my_fit(convert_coords(np.c_[x,y,z,a,v,c,d,e,f]))
+            return my_fit(convert_coords(np.c_[x,y,z,a,v,c,d,e,f]))+ my_log_prior_scale(np.c_[x,y,z,a,b,c,d,e,f])
 if len(low_level_coord_names) ==10:
     def likelihood_function(x,y,z,a,b,c,d,e,f,g):  
         if isinstance(x,float):
-            return np.exp(my_fit([x,y,z,a,b,c,d,e,f,g]))
+            return np.exp(my_fit([x,y,z,a,b,c,d,e,f,g]))*my_prior_scale([x,y,z,a,b,c,d,e,f,g])
         else:
-            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g])))
+            return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g])))*my_prior_scale(np.c_[x,y,z,a,b,c,d,e,f,g])
     def log_likelihood_function(x,y,z,a,b,c,d,e,f,g):
         if isinstance(x,float):
-            return my_fit([x,y,z,a,b,c,d,e,f,g])
+            return my_fit([x,y,z,a,b,c,d,e,f,g])+ my_log_prior_scale([x,y,z,a,b,c,d,e,f,g])
         else:
-            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g]))
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g]))+ my_log_prior_scale(np.c_[x,y,z,a,b,c,d,e,f,g])
+
+###
+### Prior reweight functions
+###
+if opts.prior_in_integrand_correction == 'uniform_over_volumetric':
+    print("  MODIFY INTEGRAND : Add factor to implement sample reweighting to be uniform in spin magnitude, ASSUMING default prior is volumetric ")
+    # Assume *both* spins are present
+    # Assume coordinate conversion is POSSIBLE given the information we've been provided
+    # Volmetric prior =  (r^2 dr)_1 (r^2 dr)_2
+    # Uniform prior
+    coord_names_needed = ['chi1','chi2']
+    def prior_fac(X):
+        vec = lalsimutils.convert_waveform_coordinates(X,coord_names=coord_names_needed,low_level_coord_names=low_level_coord_names)
+        return 1./(3*vec[:,0]**2 *3* vec[:,1]**2)  # assuming normalized to 1
+    my_prior_scale = prior_fac
+    my_log_prior_scale = lambda x, f=prior_fac: np.log(f(x))
+elif opts.prior_in_integrand_correction == 'volumetric_over_uniform':
+    print("  MODIFY INTEGRAND : Add factor to implement sample reweighting to be volumetric, ASSUMING default prior is uniform in magnitude ")
+    coord_names_needed = ['chi1','chi2']
+    def prior_fac(X):
+        vec = lalsimutils.convert_waveform_coordinates(X,coord_names=coord_names_needed,low_level_coord_names=low_level_coord_names)
+        return (3*vec[:,0]**2 *3* vec[:,1]**2)  # assuming normalized to 1
+    my_prior_scale = prior_fac
+    my_log_prior_scale = lambda x, f=prior_fac: np.log(f(x))
 
 
 n_step = int(opts.n_chunk)
