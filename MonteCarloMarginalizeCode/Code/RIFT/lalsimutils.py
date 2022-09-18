@@ -300,7 +300,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index']
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -530,6 +530,24 @@ class ChooseWaveformParams:
             self.s1z = (czp+czm)
             self.s2z = (czp-czm)
             return self
+        if p == 's1z_bar':
+            self.s1z = val
+            return self
+        if p == 's2z_bar':
+            self.s2z = val
+            return self
+        if p == 'chi1_perp_bar':
+#            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
+            phi1 = np.arctan2(self.s1x,self.s1y)
+            chi1_perp_new = chi1_perp_bar/np.sqrt(1-self.s1z**2)
+            s1x = chi_perp_new*np.cos(phi1)
+            s1y = chi_perp_new*np.sin(phi1)
+        if p == 'chi2_perp_bar':
+#            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
+            phi2 = np.arctan2(self.s2x,self.s2y)
+            chi2_perp_new = chi2_perp_bar/np.sqrt(1-self.s2z**2)
+            s2x = chi_perp_new*np.cos(phi2)
+            s2y = chi_perp_new*np.sin(phi2)
         if p == 'lambda_plus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
             # Fixes chiz_minus by construction
@@ -812,6 +830,10 @@ class ChooseWaveformParams:
             else:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             return np.sqrt( np.dot(chi1Vec,chi1Vec) -  np.dot(Lhat, chi1Vec)**2 )  # L frame !
+        if p == 'chi1_perp_bar':
+            # not supporting old L convention
+            chi1_perp = np.sqrt( self.s1x**2 + self.s1y**2)
+            return  chi1_perp/np.sqrt(1-self.s1z**2)
         if p == 'chi2_perp':
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             if spin_convention == "L":
@@ -819,6 +841,14 @@ class ChooseWaveformParams:
             else:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             return np.sqrt( np.dot(chi2Vec,chi2Vec) -  np.dot(Lhat, chi2Vec)**2 )  # L frame !
+        if p == 'chi2_perp_bar':
+            # not supporting old L convention
+            chi2_perp = np.sqrt( self.s2x**2 + self.s2y**2)
+            return  chi2_perp/np.sqrt(1-self.s2z**2)
+        if p == 's1z_bar':
+            return self.s1z
+        if p == 's2z_bar':
+            return self.s2z
 
         if p == 'xi' or p == 'chieff_aligned':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
