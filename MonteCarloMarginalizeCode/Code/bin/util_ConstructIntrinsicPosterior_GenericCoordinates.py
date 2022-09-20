@@ -247,8 +247,8 @@ parser.add_argument("--no-downselect",action='store_true',help='Prevent using do
 parser.add_argument("--no-downselect-grid",action='store_true',help='Prevent using downselection on input points. Applied only to mc range' )
 parser.add_argument("--downselect-enforce-kerr",action='store_true',help="Provides limits that enforce the kerr limit. Also imposed in coordinate transformations.")
 parser.add_argument("--aligned-prior", default="uniform",help="Options are 'uniform', 'volumetric', and 'alignedspin-zprior'. Only influences s1z, s2z")
-parser.add_argument("--transverse-prior", default="uniform",help="Options are  (default), 'uniform_mag', 'taper_down',  'sqrt-prior', and 'alignedspin-zprior'. Only influences s1x,s1y,s2x,s2y,Rbar.  Usually NOT intended for final work, just to make sampling nicer.")
-parser.add_argument("--prior-in-integrand-correction",default=None,help="Implmement integrand = Lp/ps for p_s the default coordinate sampling prior, to allow using priors not naturally associated with coordinates.  Intended for spin only at present. Options are 'uniform_over_volumetric' (convert from volumetric sampling to uniform) and 'volumetric_over_uniform'.  Intent is to enable uniform-spin-magnitude sampling in other coordinate systems, etc. ")
+parser.add_argument("--transverse-prior", default="uniform",help="Options are  (default), 'uniform-mag', 'taper-down',  'sqrt-prior',  'alignedspin-zprior', and 'Rbar-singular'. Only influences s1x,s1y,s2x,s2y,Rbar.  Usually NOT intended for final work, except for Rbar-singular.")
+parser.add_argument("--prior-in-integrand-correction",default=None,help="Implmement integrand = Lp/ps for p_s the default coordinate sampling prior, to allow using priors not naturally associated with coordinates.  Intended for spin only at present. Options are 'uniform_over_rbar_singular' (convert rbar singular prior to uniform magnitude), 'uniform_over_volumetric' (convert from volumetric sampling to uniform) and 'volumetric_over_uniform'.  Intent is to enable uniform-spin-magnitude sampling in other coordinate systems, etc.  Note you MUST use the --transverse-prior Rbar_singular to use the uniform_over_rbar_singular prior ")
 parser.add_argument("--spin-prior-chizplusminus-alternate-sampling",default='alignedspin_zprior',help="Use gaussian sampling when using chizplus, chizminus, to make reweighting more efficient.")
 parser.add_argument("--import-prior-dictionary-file",default=None,type=str,help="File with dictionary stored_param_dict = 'name':func and stored_param_ranges = 'name':[left,right].  Use to overwrite priors with user-specified function")
 parser.add_argument("--output-prior-dictionary-file",default=None,type=str,help="File with dictionary 'name':func. ")
@@ -699,6 +699,9 @@ def unnormalized_log_prior(x):
 
 def normalized_Rbar_prior(x):
     return 2*x
+p_Rbar = lalsimutils.p_R
+def normalized_Rbar_singular_prior(x):
+    return np.power(x, p_Rbar-1.)*p_Rbar
 def normalized_zbar_prior(z):
     return 4.*(1.-z**2)/3.
 
@@ -728,7 +731,9 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'phi2':mcsampler.uniform_samp_phase,
     # Pseudo-cylindrical : note this is a VOLUMETRIC prior
     'chi1_perp_bar':normalized_Rbar_prior,
+    'chi1_perp_u':unnormalized_uniform_prior,
     'chi2_perp_bar':normalized_Rbar_prior,
+    'chi2_perp_u':unnormalized_uniform_prior,
     's1z_bar':normalized_zbar_prior,
     's2z_bar':normalized_zbar_prior,
     # Other priors
@@ -765,6 +770,8 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'phi2':[0,2*np.pi],
   'chi1_perp_bar':[0,1],
   'chi2_perp_bar':[0,1],
+  'chi1_perp_u':[0,1],
+  'chi2_perp_u':[0,1],
   's1z_bar':[-1,1],
   's2z_bar':[-1,1],
   'mu1':[0.0001,1e3],    # suboptimal, but something  
@@ -808,6 +815,9 @@ if opts.transverse_prior == 'uniform-mag':
     # allow for better transverse spin prior, 
     prior_map['chi1_perp_bar'] = unnormalized_uniform_prior
     prior_map['chi2_perp_bar'] = unnormalized_uniform_prior
+elif opts.transverse_prior == "Rbar-singular":
+    prior_map["chi1_perp_bar"] = normalized_Rbar_singular_prior
+    prior_map["chi2_perp_bar"] = normalized_Rbar_singular_prior
 elif opts.transverse_prior == 'alignedspin-zprior':
     prior_map["s1x"] = s_component_zprior
     prior_map["s1y"] = s_component_zprior
@@ -827,7 +837,8 @@ elif opts.transverse_prior == 'taper-down':
     prior_map["s2y"] = functools.partial(triangle_prior,R=chi_small_max)
     prior_map['chi1_perp_bar'] = triangle_prior
     prior_map['chi2_perp_bar'] = triangle_prior
-    
+else:
+    print(" UNKOWN OPTION  for --transverse-prior ", opts.transverse_prior)
 
 if opts.aligned_prior == 'volumetric':
     prior_map["s1z"] = s_component_aligned_volumetricprior
@@ -2058,8 +2069,10 @@ likelihood_function = None
 # prior p/ps rescaling, to enable prior inside integrand
 # These are functions of the INTEGRATION VARIABLES, not the fit variables
 def my_log_prior_scale(X):
+    print(" Calling old prior")
     return np.zeros(len(X))
 def my_prior_scale(X):
+    print(" Calling old prior")
     return np.ones(len(X))
 
 if len(low_level_coord_names) ==1:
@@ -2184,7 +2197,22 @@ if len(low_level_coord_names) ==10:
 ###
 ### Prior reweight functions
 ###
-if opts.prior_in_integrand_correction == 'uniform_over_volumetric':
+if opts.prior_in_integrand_correction == 'uniform_over_rbar_singular': # and opts.transverse_prior == 'Rbar-singular':
+    print("  MODIFY INTEGRAND : Add factor to implement sample reweighting to be uniform in spin magnitude, in Rbar,zbar coordinates ")
+    if 'chi2_perp_bar' in low_level_coord_names:
+        coord_names_needed = ['chi1','chi2','chi1_perp_bar', 'chi2_perp_bar']
+        def prior_fac(X):
+            vec = lalsimutils.convert_waveform_coordinates(X,coord_names=coord_names_needed,low_level_coord_names=low_level_coord_names)
+            return (np.power(vec[:,2]*vec[:,3],1+(1-p_Rbar)))/(3*vec[:,0]**2 *3* vec[:,1]**2)  / p_Rbar**2
+    elif 'chi2_perp_u' in low_level_coord_names:
+        coord_names_needed = ['chi1','chi2','chi1_perp_u', 'chi2_perp_u']
+        def prior_fac(X):
+            vec = lalsimutils.convert_waveform_coordinates(X,coord_names=coord_names_needed,low_level_coord_names=low_level_coord_names)
+            return np.power(vec[:,2]*vec[:,3],2/p_Rbar -1)/(3*vec[:,0]**2 *3* vec[:,1]**2)  / p_Rbar**2
+    my_prior_scale = prior_fac
+    my_log_prior_scale = lambda x, f=prior_fac: np.log(f(x))
+    
+elif opts.prior_in_integrand_correction == 'uniform_over_volumetric':
     print("  MODIFY INTEGRAND : Add factor to implement sample reweighting to be uniform in spin magnitude, ASSUMING default prior is volumetric ")
     # Assume *both* spins are present
     # Assume coordinate conversion is POSSIBLE given the information we've been provided
