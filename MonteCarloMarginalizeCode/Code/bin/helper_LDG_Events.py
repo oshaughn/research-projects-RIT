@@ -214,6 +214,7 @@ parser.add_argument("--internal-marginalize-distance-file",help="Filename for ma
 parser.add_argument("--internal-distance-max",type=float,default=None,help='If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances')
 parser.add_argument("--internal-use-amr",action='store_true',help='If present,the code will set up to use AMR.  Currently not much implemented here, and most of the heavy lifting is elsewhere')
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
+parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
 parser.add_argument("--use-cov-early",action='store_true',help="If provided, use cov fit in the early iterations'")
@@ -1256,8 +1257,11 @@ if opts.propose_fit_strategy:
                     helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus  ' 
                 else:
                     helper_cip_arg_list[2] += '   --parameter-implied chiMinus  ' 
-                if not(opts.assume_volumetric_spin):
+                if not(opts.assume_volumetric_spin) and not(opts.internal_use_rescaled_transverse_spin_coordinates):
                     helper_cip_arg_list[2] +=  '  --use-precessing  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit cos_theta1 --parameter-nofit cos_theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
+                elif opts.internal_use_rescaled_transverse_spin_coordinates:
+                    helper_cip_arg_list[2] +=  '  --use-precessing    --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
+                    helper_cip_arg_list[2] +=  "   --prior-in-integrand-correction  'uniform_over_rbar_singular' --parameter-nofit s1z_bar --parameter-nofit s2z_bar --parameter-nofit chi1_perp_u --parameter-nofit chi2_perp_u --parameter-nofit phi1 --parameter-nofit  phi2 "
                 else:
                     # if we are doing a FLAT structure, we are volumeric or not
                     helper_cip_args += '  --parameter-nofit s1z --parameter-nofit s2z  '
