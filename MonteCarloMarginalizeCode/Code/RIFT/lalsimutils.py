@@ -4678,6 +4678,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
             coord_names_reduced.remove(p)
 
+    # mu1,mu2 if cartesian
     if ('mu1' in coord_names_reduced) and ('mu2' in coord_names_reduced) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names):
         indx_pout_mu1 = coord_names.index('mu1')
         indx_pout_mu2 = coord_names.index('mu2')
@@ -4723,8 +4724,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         coord_names_reduced.remove('s2z')
 
     # Spin spherical coordinate names
-    if ('xi' in coord_names_reduced) and ('chi1' in low_level_coord_names) and ('cos_theta1' in low_level_coord_names) and ('phi1' in low_level_coord_names) and ('chi2' in low_level_coord_names) and ('cos_theta2' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
-        indx_pout_xi = coord_names.index('xi')
+    if ('chi1' in low_level_coord_names) and ('cos_theta1' in low_level_coord_names) and ('phi1' in low_level_coord_names) and ('chi2' in low_level_coord_names) and ('cos_theta2' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
         indx_mc = low_level_coord_names.index('mc')
         indx_delta = low_level_coord_names.index('delta_mc')
         indx_chi1 = low_level_coord_names.index('chi1')
@@ -4740,8 +4740,10 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         eta_vals = np.zeros(len(x_in))  
         eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
         m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
-        x_out[:,indx_pout_xi] = (m1_vals*s1z + m2_vals*s2z)/(m1_vals+m2_vals)
-        coord_names_reduced.remove('xi')
+        if ('xi' in coord_names_reduced):
+            indx_pout_xi = coord_names.index('xi')
+            x_out[:,indx_pout_xi] = (m1_vals*s1z + m2_vals*s2z)/(m1_vals+m2_vals)
+            coord_names_reduced.remove('xi')
 
         # also build mu1, mu2, ... if present!
         if ('mu1' in coord_names_reduced) and ('mu2' in coord_names_reduced) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
@@ -4761,6 +4763,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         if 'chiMinus' in coord_names_reduced:
             indx_pout_chiminus = coord_names.index('chiMinus')
             x_out[:,indx_pout_chiminus] = (m1_vals*s1z - m2_vals*s2z)/(m1_vals+m2_vals)
+            coord_names_reduced.remove('chiMinus')
         if ('s1x' in coord_names_reduced) and ('s1y' in coord_names_reduced):
             indx_pout_s1x = coord_names.index('s1x')
             indx_pout_s1y = coord_names.index('s1y')
