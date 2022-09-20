@@ -59,7 +59,7 @@ First off, clone the repository
 
    .. code-block:: console
 
-      $ git clone https://git.ligo.org/lscsoft/bilby.git
+      $ git clone https://git.ligo.org/lscsoft/RIFT.git
 
 Once you have cloned the repository, you need to install the software. How you
 do this will depend on the python installation you intend to use. Below are

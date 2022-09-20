@@ -34,7 +34,8 @@ release = '"2022, Richard O\'Shaughnessy et al"'
 master_doc = "index"
 
 extensions = ["sphinx.ext.autodoc",
-              "sphinx_rtd_theme"
+              "sphinx_rtd_theme",
+              "sphinx_tabs.tabs"
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -62,7 +63,7 @@ html_theme_options = {
     # Toc options
     "collapse_navigation": True,
     "sticky_navigation": True,
-    "navigation_depth": 4,
+    "navigation_depth": 10,
     "includehidden": True,
     "titles_only": False,
 }

@@ -3,10 +3,9 @@ RIFT pipeline examples: the ini file
 ============
 
 The ini file provides a way to provide fine-grained control of the many inputs a RIFT analysis can use.
-The ini file format corresponds to the `lalinference ini format
-<https://github.com/lscsoft/lalsuite-archive/blob/master/lalapps/src/inspiral/posterior/lalinference_pipe_example.ini>_.
+The ini file format corresponds to the `lalinference ini format <https://github.com/lscsoft/lalsuite-archive/blob/master/lalapps/src/inspiral/posterior/lalinference_pipe_example.ini>`__
 with a single named section of options, corresponding to arguments of the pipeline.  As a concrete example, the
-following ini file block will select a specific approximant and fitting method
+following ini file block will select a specific approximant and fitting method:
 
 
 .. code-block:: console
@@ -31,6 +30,7 @@ Using an ini file for fake data
 ----------------------------------
 
 .. code-block:: console
+		
   [lalinference]
   fake-cache =   ....  # insert example
 
