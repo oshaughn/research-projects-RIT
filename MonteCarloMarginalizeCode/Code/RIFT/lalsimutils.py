@@ -4789,12 +4789,10 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             coord_names_reduced.remove('s2y')
             
     # Spin pseudo-cylindrical coordinate names, standard framing
-    if ('xi' in coord_names_reduced) and ('chi1_perp_bar' in low_level_coord_names) and ('s1z_bar' in low_level_coord_names) and ('phi1' in low_level_coord_names) and ('chi2_perp_bar' in low_level_coord_names) and ('s1z_bar' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
+    if ('xi' in coord_names_reduced)  and ('s1z_bar' in low_level_coord_names) and ('phi1' in low_level_coord_names)  and ('s1z_bar' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
         indx_pout_xi = coord_names.index('xi')
         indx_mc = low_level_coord_names.index('mc')
         indx_delta = low_level_coord_names.index('delta_mc')
-        indx_chi1_perp_bar = low_level_coord_names.index('chi1_perp_bar')
-        indx_chi2_perp_bar = low_level_coord_names.index('chi2_perp_bar')
         indx_s1z = low_level_coord_names.index('s1z_bar')
         indx_s2z = low_level_coord_names.index('s2z_bar')
 
@@ -4826,6 +4824,8 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         if 'chiMinus' in coord_names_reduced:
             indx_pout_chiminus = coord_names.index('chiMinus')
             x_out[:,indx_pout_chiminus] = (m1_vals*s1z - m2_vals*s2z)/(m1_vals+m2_vals)
+
+
         if ('s1x' in coord_names_reduced) and ('s1y' in coord_names_reduced):
             indx_pout_s1x = coord_names.index('s1x')
             indx_pout_s1y = coord_names.index('s1y')
@@ -4833,14 +4833,19 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             indx_phi1=low_level_coord_names.index('phi1')
             cosphi1 = np.cos(x_in[:,indx_phi1])
             sinphi1 = np.sin(x_in[:,indx_phi1])
-            chi1_perp_bar = x_in[:,indx_chi1_perp_bar]
-            chi1_perp = chi1_perp_bar * np.sqrt(1.-s1z**2)  # R = Rbar * sqrt(1-z^2)
-#            sintheta1 = chi1_perp/np.sqrt(s1z**2 + chi1_perp**2)
 
+            if ('chi1_perp_bar' in low_level_coord_names):
+                indx_chi1_perp_bar = low_level_coord_names.index('chi1_perp_bar')
+                chi1_perp_bar = x_in[:,indx_chi1_perp_bar]
+            elif 'chi1_perp_u' in low_level_coord_names:
+                indx_chi1_perp_u = low_level_coord_names.index('chi1_perp_u')
+                chi1_perp_bar = np.power(x_in[:,indx_chi1_perp_u], 4.)
+            chi1_perp = chi1_perp_bar * np.sqrt(1.-s1z**2)  # R = Rbar * sqrt(1-z^2)
             x_out[:,indx_pout_s1x] = chi1_perp*cosphi1
             x_out[:,indx_pout_s1y] = chi1_perp*sinphi1
             coord_names_reduced.remove('s1x')
             coord_names_reduced.remove('s1y')
+
         if ('s2x' in coord_names_reduced) and ('s2y' in coord_names_reduced):
             indx_pout_s2x = coord_names.index('s2x')
             indx_pout_s2y = coord_names.index('s2y')
@@ -4848,7 +4853,13 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             indx_phi2=low_level_coord_names.index('phi2')
             cosphi2 = np.cos(x_in[:,indx_phi2])
             sinphi2 = np.sin(x_in[:,indx_phi2])
-            chi2_perp_bar = x_in[:,indx_chi2_perp_bar]
+
+            if ('chi2_perp_bar' in low_level_coord_names):
+                indx_chi2_perp_bar = low_level_coord_names.index('chi2_perp_bar')
+                chi2_perp_bar = x_in[:,indx_chi2_perp_bar]
+            elif 'chi2_perp_u' in low_level_coord_names:
+                indx_chi2_perp_u = low_level_coord_names.index('chi2_perp_u')
+                chi2_perp_bar = np.power(x_in[:,indx_chi2_perp_u], 4.)
             chi2_perp = chi2_perp_bar * np.sqrt(1.-s2z**2)
 #            sintheta2 = chi2_perp/np.sqrt(s2z**2+chi2_perp**2)
 
