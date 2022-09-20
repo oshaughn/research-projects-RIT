@@ -2069,10 +2069,8 @@ likelihood_function = None
 # prior p/ps rescaling, to enable prior inside integrand
 # These are functions of the INTEGRATION VARIABLES, not the fit variables
 def my_log_prior_scale(X):
-    print(" Calling old prior")
     return np.zeros(len(X))
 def my_prior_scale(X):
-    print(" Calling old prior")
     return np.ones(len(X))
 
 if len(low_level_coord_names) ==1:
