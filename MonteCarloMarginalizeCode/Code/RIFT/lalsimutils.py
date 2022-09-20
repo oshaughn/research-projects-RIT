@@ -300,7 +300,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index']
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -365,6 +365,8 @@ tex_dictionary  = {
   'mu2':r'$\mu_2$',
 }
 
+# Exponent used to define the u coordinate scaling
+p_R = 0.25
 
 class ChooseWaveformParams:
     """
@@ -543,10 +545,26 @@ class ChooseWaveformParams:
             self.s1x = chi1_perp_new*np.cos(phi1)
             self.s1y = chi1_perp_new*np.sin(phi1)
             return self
+        if p == 'chi1_perp_u':
+#            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
+            Rb = np.power(val, 1./p_R)
+            phi1 = np.arctan2(self.s1y, self.s1x)
+            chi1_perp_new = Rb*np.sqrt(1-self.s1z**2)  # R=Rbar*(1-z^2)^0.5 
+            self.s1x = chi1_perp_new*np.cos(phi1)
+            self.s1y = chi1_perp_new*np.sin(phi1)
+            return self
         if p == 'chi2_perp_bar':
 #            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
             phi2 = np.arctan2(self.s2y, self.s2x)
             chi2_perp_new = val*np.sqrt(1-self.s2z**2)  # R=Rbar*(1-z^2)^0.5 
+            self.s2x = chi2_perp_new*np.cos(phi2)
+            self.s2y = chi2_perp_new*np.sin(phi2)
+            return self
+        if p == 'chi2_perp_u':
+#            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
+            phi2 = np.arctan2(self.s2y, self.s2x)
+            Rb = np.power(val, 1./p_R)
+            chi2_perp_new = Rb*np.sqrt(1-self.s2z**2)  # R=Rbar*(1-z^2)^0.5 
             self.s2x = chi2_perp_new*np.cos(phi2)
             self.s2y = chi2_perp_new*np.sin(phi2)
             return self
@@ -836,6 +854,10 @@ class ChooseWaveformParams:
             # not supporting old L convention
             chi1_perp = np.sqrt( self.s1x**2 + self.s1y**2)
             return  chi1_perp/np.sqrt(1-self.s1z**2)   # R = Rbar*sqrt(1-z**2)
+        if p == 'chi1_perp_u':
+            # not supporting old L convention
+            chi1_perp = np.sqrt( self.s1x**2 + self.s1y**2)
+            return  np.power(chi1_perp/np.sqrt(1-self.s1z**2), p_R)
         if p == 'chi2_perp':
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             if spin_convention == "L":
@@ -847,6 +869,10 @@ class ChooseWaveformParams:
             # not supporting old non-L convention
             chi2_perp = np.sqrt( self.s2x**2 + self.s2y**2)
             return  chi2_perp/np.sqrt(1-self.s2z**2)
+        if p == 'chi2_perp_u':
+            # not supporting old non-L convention
+            chi2_perp = np.sqrt( self.s2x**2 + self.s2y**2)
+            return  np.power(chi2_perp/np.sqrt(1-self.s2z**2), p_R)
         if p == 's1z_bar':
             return self.s1z
         if p == 's2z_bar':
@@ -4762,7 +4788,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             coord_names_reduced.remove('s2x')
             coord_names_reduced.remove('s2y')
             
-    # Spin pseudo-cylindrical coordinate names
+    # Spin pseudo-cylindrical coordinate names, standard framing
     if ('xi' in coord_names_reduced) and ('chi1_perp_bar' in low_level_coord_names) and ('s1z_bar' in low_level_coord_names) and ('phi1' in low_level_coord_names) and ('chi2_perp_bar' in low_level_coord_names) and ('s1z_bar' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
         indx_pout_xi = coord_names.index('xi')
         indx_mc = low_level_coord_names.index('mc')
