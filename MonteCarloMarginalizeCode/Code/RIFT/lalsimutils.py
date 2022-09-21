@@ -4693,11 +4693,23 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         indx_s1z = low_level_coord_names.index('s1z')
         indx_s2z = low_level_coord_names.index('s2z')
         # delta == (m1-m2)/(m1+m2) == (1-q)/(1+q), so q ==(1-delta)/(1+delta)
-        mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(x_in[:,indx_mc], qvals, x_in[:,indx_s1z], x_in[:,indx_s2z])
+        fac =1
+        if x_in[:,indx_mc][0]>1e10:
+            fac = lal.MSUN_SI
+        mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(x_in[:,indx_mc]/fac, qvals, x_in[:,indx_s1z], x_in[:,indx_s2z])
         x_out[:,indx_pout_mu1] = mu1
         x_out[:,indx_pout_mu2] = mu2
         coord_names_reduced.remove('mu1')
         coord_names_reduced.remove('mu2')
+
+        # overwrite q, if present
+        if 'q' in coord_names_reduced:
+            indx_pout_q = coord_names.index('q')
+            print(qvals)
+            x_out[:,indx_pout_q] = qvals
+            coord_names_reduced.remove('q')
+
+        
 
     # mc,eta,xi -> m1,m2,s1z,s2z
     #   Note this requires ASSUMPTIONS about s2z.  Default will be s2z=s1z HERE, since degenerate
