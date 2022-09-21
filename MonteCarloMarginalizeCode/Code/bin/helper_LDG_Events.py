@@ -1245,13 +1245,13 @@ if opts.propose_fit_strategy:
                 if not(opts.internal_use_aligned_phase_coordinates):
                     helper_cip_arg_list[0] +=  '  --parameter-implied xi   ' 
                     helper_cip_arg_list[1] +=  '  --parameter-implied xi   ' 
-                helper_cip_arg_list[0] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior taper-down '
-            
-                # helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
-                # helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior alignedspin-zprior '
-                
-                helper_cip_arg_list[1] +=   ' --parameter-implied chi_p --use-precessing  --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y   --transverse-prior taper-down '
-
+                if not(opts.internal_use_rescaled_transverse_spin_coordinates):
+                    helper_cip_arg_list[0] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior taper-down '
+                    helper_cip_arg_list[1] +=   ' --parameter-implied chi_p --use-precessing  --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y   --transverse-prior taper-down '
+                else:
+                    helper_cip_arg_list[0] +=  " --use-precessing  --parameter-nofit s1z_bar --parameter-nofit s2z_bar --parameter-nofit chi1_perp_u --parameter-nofit chi2_perp_u --parameter-nofit phi1 --parameter-nofit  phi2 --no-adapt parameter phi1 --no-adapt parameter phi2 --no-adapt-parameter chi1_perp_u --no-adapt-parameter chi2_perp_u "
+                    helper_cip_arg_list[1] +=  "  --use-precessing  --parameter-nofit s1z_bar --parameter-nofit s2z_bar --parameter-nofit chi1_perp_u --parameter-nofit chi2_perp_u --parameter-nofit phi1 --parameter-nofit  phi2 --no-adapt parameter phi1 --no-adapt parameter phi2 --no-adapt-parameter chi1_perp_u --no-adapt-parameter chi2_perp_u "
+                    helper_cip_arg_list[1] +=   ' --parameter-implied chi_p  '
                 
                 if not(opts.internal_use_aligned_phase_coordinates):
                     helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus  ' 
