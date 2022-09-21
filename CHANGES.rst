@@ -13,10 +13,13 @@ Since last release
    - dockerfile prototype in this repo; CQL vectorized; OSG updates (local.cache duplication); fix cupy memory warning;
      add CUDA memory limit to avoid landing on overstrained GPU hosts; convergence_test_samples has JS test used elsewhere;
      bugfix mcsamplerGPU adaptive (intermittent array size error); mcsampler default/gpu standardize n_history;
-     integrator test update; lalapps_path2cache->lal_path2cache change; TEOBResumS integration as external package
+     integrator test update; lalapps_path2cache->lal_path2cache change; TEOBResumS integration as external package;
+     new pseudo-cylindrical coordinates; new CIP option to put change-of-coordinates prior reweighting inside adaptive
+     integrand, so it is done live instread of at-end reweighting;  fix some fallthroughs in lalsimutils to 'slow' non-vectorized code; update
+     vectorized tranform test to cover standard use cases and put into CI; pp_RIFT updates; start sphinx documentation
 
 0.0.15.6
------------x
+-----------
 Since last release
    - pseudo and helper (--use-legacy-gracedb at top level); lalsimutils overlaps using psi4 input; pseudo (gwsurrogate
      logic/reference location fixes)  (rc1)
