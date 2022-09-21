@@ -498,7 +498,7 @@ if opts.internal_use_amr:
 if opts.internal_use_aligned_phase_coordinates:
     cmd += " --internal-use-aligned-phase-coordinates "
 if opts.internal_use_rescaled_transverse_spin_coordinates:
-    cmd += " --internal-use-aligned-phase-coordinates "
+    cmd += " --internal-use-rescaled-transverse-spin-coordinates "
 if not(opts.internal_use_amr) and not(opts.manual_initial_grid):
     cmd+= " --propose-initial-grid "
 if opts.force_initial_grid_size:
@@ -756,12 +756,17 @@ for indx in np.arange(len(instructions_cip)):
         line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
     elif opts.internal_correlate_default and ('s1z' in line):
         addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
+        if 's1z_bar' in line:
+            addme = addme.replace('s1z,', 's1z_bar')
+            addme = addme.replace('s2z,', 's2z_bar')
         if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
             addme = addme.replace(',s1z,s2z', ',chi1,cos_theta1')
         # For high-q triggers, don't waste time correlating s2z
         if 'm2' in event_dict:
             if event_dict['m2']/event_dict['m1']< 0.4:
                 addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+                if 's1z_bar' in line:
+                    addme = addme.replace('s1z,', 's1z_bar')
             if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
                 addme = addme.replace(',s1z' ',chi1,cos_theta1')
         line += addme
