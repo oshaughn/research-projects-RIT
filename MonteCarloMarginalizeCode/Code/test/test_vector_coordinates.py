@@ -28,7 +28,7 @@ npts = len(P_list)
 
 # Cartesian test 1
 coord_names=['mc','delta_mc','xi','chiMinus']
-low_level_coord_names=['m1','m2','s1z','s2z'] # assume this is the underlying
+low_level_coord_names=['mc','delta_mc','s1z','s2z'] # assume this is the underlying.  This setup is very common
 
 x1 = np.zeros((npts,len(coord_names)))
 x2 = np.zeros((npts,len(coord_names)))
@@ -51,7 +51,7 @@ if opts.as_test and err > 1e-9:
 
 # Cartesian test 2: delta_mc
 coord_names=['mc','delta_mc','xi','chiMinus']
-low_level_coord_names=['m1','m2','s1z','s2z'] # assume this is the underlying
+low_level_coord_names=['mc','delta_mc','s1z','s2z'] # assume this is the underlying
 
 x1 = np.zeros((npts,len(coord_names)))
 x2 = np.zeros((npts,len(coord_names)))
@@ -75,8 +75,8 @@ if opts.as_test and err > 1e-9:
 
 
 # Cartesian test 3
-coord_names=['mu1','mu2','q','chiMinus']
-low_level_coord_names=['m1','m2','s1z','s2z'] # assume this is the underlying
+coord_names=['mu1','mu2','delta_mc','chiMinus']
+low_level_coord_names=['mc','delta_mc','s1z','s2z'] # assume this is the underlying
 
 x1 = np.zeros((npts,len(coord_names)))
 x2 = np.zeros((npts,len(coord_names)))
@@ -100,7 +100,7 @@ if opts.as_test and err > 1e-9:
 
 # Polar test
 coord_names=['mc','delta_mc','xi','chiMinus','s1x','s1y', 's2x', 's2y']
-low_level_coord_names=['m1','m2','chi1','cos_theta1', 'phi1','chi2', 'cos_theta2', 'phi2'] # assume this is the underlying
+low_level_coord_names=['mc','delta_mc','chi1','cos_theta1', 'phi1','chi2', 'cos_theta2', 'phi2'] # assume this is the underlying
 
 
 x1 = np.zeros((npts,len(coord_names)))
