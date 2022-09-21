@@ -7,7 +7,15 @@
 import numpy as np
 import RIFT.lalsimutils as lalsimutils
 
-npts=3
+import optparse
+parser = optparse.OptionParser()
+parser.add_option("--npts",type=int,default=3)
+parser.add_option("--as-test",action='store_true')
+parser.add_option("--verbose",action='store_true')
+opts, args = parser.parse_args()
+
+
+npts=opts.npts
 
 # Generate symthetic injections
 P_list =[]
@@ -37,6 +45,9 @@ x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_l
 print(x2)
 
 print("Cartesian aligned test 2", np.max(np.abs(x1 - x2)))
+err = np.max(np.abs(x1 - x2))
+if opts.as_test and err > 1e-9:
+    raise ValueError(" Large deviation seen ")
 
 # Cartesian test 2: delta_mc
 coord_names=['mc','delta_mc','xi','chiMinus']
@@ -56,7 +67,11 @@ for indx in np.arange(npts):
 x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_level_coord_names=low_level_coord_names)
 print(x2)
 
+err = np.max(np.abs(x1 - x2))
 print("Cartesian aligned test 2", np.max(np.abs(x1 - x2)))
+err = np.max(np.abs(x1 - x2))
+if opts.as_test and err > 1e-9:
+    raise ValueError(" Large deviation seen ")
 
 
 # Cartesian test 3
@@ -78,6 +93,9 @@ x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_l
 print(x2)
 
 print("Cartesian aligned test 3", np.max(np.abs(x1 - x2)))
+err = np.max(np.abs(x1 - x2))
+if opts.as_test and err > 1e-9:
+    raise ValueError(" Large deviation seen ")
 
 
 # Polar test
@@ -100,6 +118,9 @@ x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_l
 print(x2)
 
 print("Polar test 1", np.max(np.abs(x1 - x2)))
+err = np.max(np.abs(x1 - x2))
+if opts.as_test and err > 1e-9:
+    raise ValueError(" Large deviation seen ")
 
 
 # Cylinder pseudo-polar
@@ -117,6 +138,9 @@ x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_l
 print(x2)
 
 print("Cylinder test 1", np.max(np.abs(x1 - x2)))
+err = np.max(np.abs(x1 - x2))
+if opts.as_test and err > 1e-9:
+    raise ValueError(" Large deviation seen ")
 
 
 coord_names=['mc','delta_mc','xi','chiMinus','s1x','s1y', 's2x', 's2y']
@@ -133,4 +157,6 @@ x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_l
 print(x2)
 
 print("Cylinder test 2", np.max(np.abs(x1 - x2)))
-
+err = np.max(np.abs(x1 - x2))
+if opts.as_test and err > 1e-9:
+    raise ValueError(" Large deviation seen ")
