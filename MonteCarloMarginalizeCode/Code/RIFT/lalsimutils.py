@@ -4932,9 +4932,13 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         elif ('eta' in low_level_coord_names):
             indx_eta = low_level_coord_names.index('eta')
             eta_vals = x_in[:,indx_eta]
+            if 'delta_mc' in coord_names_reduced:
+                indx_pout_delta = coord_names.index('delta_mc')
+                delta_vals = np.sqrt(1.-4*eta_vals)
+                x_out[:,indx_pout_delta] = delta_vals
+                coord_names_reduced.remove('delta_mc')
         m1_vals =np.zeros(len(x_in))  
         m2_vals =np.zeros(len(x_in))  
-        eta_vals = np.zeros(len(x_in))  
         m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
 
         q_vals =   m2_vals/m1_vals
@@ -4944,17 +4948,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         A2S2p =  np.c_[A2*m2_vals**2 *s2x,  A2*m2_vals**2 *s2y]
         Sp =np.maximum(np.linalg.norm( A1S1p,axis=-1), np.linalg.norm(A2S2p,axis=-1))
         x_out[:,indx_pout_chip] = Sp/(A1*m1_vals**2)
-            # mtot = self.extract_param('mtot')
-            # m1 = self.extract_param('m1')
-            # m2 = self.extract_param('m2')
-            # chi1 = np.array([self.s1x, self.s1y, self.s1z])
-            # chi2 = np.array([self.s2x, self.s2y, self.s2z])
-            # q = m2/m1  # note convention
-            # A1 = (2+ 3.*q/2); A2 = (2+3./(2*q))
-            # S1p = (m1**2 * chi1)[:2]
-            # S2p = (m2**2 * chi2)[:2]
-            # Sp = np.max([np.linalg.norm( A1*S1p), np.linalg.norm(A2*S2p)])
-            # return Sp/(A1*m1**2)  # divide by term for *larger* BH
+        coord_names_reduced.remove('chi_p')
         
 
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
