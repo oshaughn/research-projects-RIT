@@ -148,8 +148,12 @@ if opts.as_test and err > 1e-9:
 
 
 # Cylinder pseudo-polar
-coord_names=['mc','delta_mc','xi','chiMinus','s1x','s1y', 's2x', 's2y']
+coord_names=['mc','delta_mc','xi','chiMinus','s1x','s1y', 's2x', 's2y', 'chi_p']
 low_level_coord_names=['mc','delta_mc','chi1_perp_bar','s1z_bar', 'phi1','chi2_perp_bar', 's2z_bar', 'phi2'] # assume this is the underlying
+
+x1 = np.zeros((npts,len(coord_names)))
+x2 = np.zeros((npts,len(coord_names)))
+y2 = np.zeros((npts,len(low_level_coord_names)))
 
 for indx in np.arange(npts):
     P = P_list[indx]
@@ -167,8 +171,12 @@ if opts.as_test and err > 1e-9:
     raise ValueError(" Large deviation seen ")
 
 
-coord_names=['mc','delta_mc','xi','chiMinus','s1x','s1y', 's2x', 's2y']
+coord_names=['mc','delta_mc','xi','chiMinus','chi_p','s1x','s1y', 's2x', 's2y']
 low_level_coord_names=['mc','delta_mc','chi1_perp_u','s1z_bar', 'phi1','chi2_perp_u', 's2z_bar', 'phi2'] # assume this is the underlying
+
+x1 = np.zeros((npts,len(coord_names)))
+x2 = np.zeros((npts,len(coord_names)))
+y2 = np.zeros((npts,len(low_level_coord_names)))
 
 for indx in np.arange(npts):
     P = P_list[indx]

@@ -4911,6 +4911,33 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             x_out[:,indx_pout_s2y] = chi2_perp*sinphi2
             coord_names_reduced.remove('s2x')
             coord_names_reduced.remove('s2y')
+        if 'chi_p' in coord_names_reduced:
+            indx_pout_chip = coord_names.index('chi_p')
+            q_vals =   m2_vals/m1_vals
+            A1 = (2+3.*q_vals/2)
+            A2 = (2+3./(2*q_vals))
+
+            if ('chi1_perp_bar' in low_level_coord_names):
+                indx_chi1_perp_bar = low_level_coord_names.index('chi1_perp_bar')
+                chi1_perp_bar = x_in[:,indx_chi1_perp_bar]
+            elif 'chi1_perp_u' in low_level_coord_names:
+                indx_chi1_perp_u = low_level_coord_names.index('chi1_perp_u')
+                chi1_perp_bar = np.power(x_in[:,indx_chi1_perp_u], 4.)
+
+            if ('chi2_perp_bar' in low_level_coord_names):
+                indx_chi2_perp_bar = low_level_coord_names.index('chi2_perp_bar')
+                chi2_perp_bar = x_in[:,indx_chi2_perp_bar]
+            elif 'chi2_perp_u' in low_level_coord_names:
+                indx_chi2_perp_u = low_level_coord_names.index('chi2_perp_u')
+                chi2_perp_bar = np.power(x_in[:,indx_chi2_perp_u], 4.)
+
+
+            A1S1p_scalar = A1*(m1_vals**2) *chi1_perp_bar*np.sqrt(1-s1z**2)
+            A2S2p_scalar = A2*(m2_vals**2)*chi2_perp_bar*np.sqrt(1-s2z**2)
+            Sp = np.maximum(A1S1p_scalar, A2S2p_scalar)
+            x_out[:,indx_pout_chip] = Sp/(A1*m1_vals**2)
+            coord_names_reduced.remove('chi_p')
+
 
 
     if ('chi_p' in coord_names_reduced) and ('s1x' in low_level_coord_names  and 's1y' in low_level_coord_names) and ('mc' in low_level_coord_names):
