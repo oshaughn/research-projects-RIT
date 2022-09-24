@@ -40,7 +40,7 @@ setuptools.setup(
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_python3_restructure_package (which will become master shortly)!",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://git.ligo.org/richard-oshaughnessy/research-projects-RIT",
+    url="https://git.ligo.org/rapidpe-rift/rift",
     package_dir = {'':'MonteCarloMarginalizeCode/Code'},
 #    py_modules =set(my_library_prefixes),
     packages=setuptools.find_packages('MonteCarloMarginalizeCode/Code'),
