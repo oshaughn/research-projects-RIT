@@ -16,7 +16,7 @@ Since last release
      integrator test update; lalapps_path2cache->lal_path2cache change; TEOBResumS integration as external package;
      new pseudo-cylindrical coordinates; new CIP option to put change-of-coordinates prior reweighting inside adaptive
      integrand, so it is done live instread of at-end reweighting;  fix some fallthroughs in lalsimutils to 'slow' non-vectorized code; update
-     vectorized tranform test to cover standard use cases and put into CI; pp_RIFT updates; start sphinx documentation
+     vectorized tranform test to cover standard use cases and put into CI; pp_RIFT updates; start sphinx documentation (rc2)
 
 0.0.15.6
 -----------
