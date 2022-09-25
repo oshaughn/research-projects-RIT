@@ -215,7 +215,7 @@ opts=  parser.parse_args()
 
 # Default prior for aligned analysis should be z prior !
 if opts.assume_nonprecessing or opts.approx == "IMRPhenomD":
-    prior_args_lookup["default"] = prior_args_lokup["zprior_aligned"]
+    prior_args_lookup["default"] = prior_args_lookup["zprior_aligned"]
 
 if opts.use_osg:
     opts.condor_nogrid_nonworker = True
