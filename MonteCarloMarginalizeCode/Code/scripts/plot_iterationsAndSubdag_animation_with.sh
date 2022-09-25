@@ -77,9 +77,16 @@ N_MAX_ALL=${N_TOT}
 echo " ==== INITIAL STAGE "
 for i in `seq 1 ${N_MAX}`
 do
+  if [ -e posterior_samples-${i}.dat ]; then
   plot_up_to $i
-  ${PLOT} `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
- mv corner*.png  anim_${i}.png
+  if [ ! -f "anim_${i}.png" ]; then 
+    ${PLOT} `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
+    mv corner*.png  anim_${i}.png
+  else
+    echo  anim_${i}.png  EXISTS in `pwd`
+    echo  Existing animation slides: `ls anim*.png`
+  fi
+  fi
 done
 IT_PLOT=${N_MAX}
 
@@ -93,8 +100,10 @@ do
   IT_PLOT=`expr ${IT_PLOT} + 1 `
   plot_up_to ${N_MAX}
   plot_subdag_up_to ${IT_SUBDAG} $j
+  if [ ! -f  "anim_${IT_PLOT}.png" ]; then
   ${PLOT} `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
   mv corner*.png anim_${IT_PLOT}.png
+  fi
 done
 
 
@@ -119,6 +128,8 @@ do
   plot_up_to ${IT_SUBDAG}
   plot_subdag_up_to ${IT_SUBDAG}  ${N_SUBDAG}
   plot_up_to_after  ${IT_SUBDAG} $j
-  ${PLOT} `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
-  mv corner*.png anim_${IT_PLOT}.png
+  if [ ! -e "anim_${IT_PLOT}.png" ]; then 
+    ${PLOT} `cat myargs.txt` --composite-file comp_so_far --lnL-cut 15 --quantiles None --ci-list [0.9]
+    mv corner*.png anim_${IT_PLOT}.png
+  fi
 done
