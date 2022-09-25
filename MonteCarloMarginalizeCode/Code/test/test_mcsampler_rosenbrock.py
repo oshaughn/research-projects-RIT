@@ -156,7 +156,7 @@ plt.plot(x_i,cdf,label="true")
 
 plt.legend()
 
-fname = "cdf.pdf"
+fname = "cdf_rosenbrock.png"
 
 print("Saving CDF figure as " + fname + "...")
 
