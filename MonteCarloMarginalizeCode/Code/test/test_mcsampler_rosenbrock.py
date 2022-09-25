@@ -15,8 +15,11 @@ from RIFT.integrators import mcsampler, mcsamplerEnsemble, mcsamplerGPU
 tempering_exp =0.01
 # max number of samples for mcsampler
 nmax = 1000000  
-n_iters = nmax/1000
+n_block=10000
+n_iters = nmax/n_block
 
+save_fairdraws=True
+save_fairdraw_prefix="fairdraw_rosenbrock"
 #
 
 Z_rosenbrock = -5.804
@@ -99,17 +102,16 @@ colors = ["black", "red", "blue", "green", "orange"]
 
 plt.figure(figsize=(10, 8))
 
-for i in range(ndim):
-    ### get sorted samples (for the current dimension)
-    x_1 = arr_1[:,i][np.argsort(arr_1[:,i])]
-    x_1b = arr_1b[:,i][np.argsort(arr_1b[:,i])]
-    x_2 = arr_2[:,i][np.argsort(arr_2[:,i])]
+if True:
     # NOTE: old mcsampler stores L, mcsamplerEnsemble stores lnL
     L = sampler._rvs["integrand"]
     p = sampler._rvs["joint_prior"]
     ps = sampler._rvs["joint_s_prior"]
     ### compute weights of samples
     weights_1 = (L * p / ps)[np.argsort(arr_1[:,i])]
+    n_ess_1 = np.sum(weights_1)**2/np.sum(weights_1**2)
+    print("default {} n_eff, n_ess ".format(i), eff_samp_1,n_ess_1)
+
     L = samplerEnsemble._rvs["integrand"]
     if return_lnI:
         L = np.exp(L - np.max(L))
@@ -117,12 +119,46 @@ for i in range(ndim):
     ps = samplerEnsemble._rvs["joint_s_prior"]
     ### compute weights of samples
     weights_2 = (L * p / ps)[np.argsort(arr_2[:,i])]
+    n_ess_2 = np.sum(weights_2)**2/np.sum(weights_2**2)
+    print("AC {} n_eff, n_ess ".format(i), eff_samp_2,n_ess_2)
+
 
     L = samplerAC._rvs["integrand"]
     p = samplerAC._rvs["joint_prior"]
     ps = samplerAC._rvs["joint_s_prior"]
     ### compute weights of samples
     weights_1b = (L * p / ps)[np.argsort(arr_1b[:,i])]
+    n_ess_1b = np.sum(weights_1b)**2/np.sum(weights_1b**2)
+    print("GMM {} n_eff, n_ess ".format(i), eff_samp_1b,n_ess_1b)
+
+if save_fairdraws:
+    npts_out_1 = int(n_ess_1)
+    p = np.array(weights_1/np.sum(weights_1),dtype=np.float64)
+    indx_save_1 = np.random.choice(np.arange(len(p)), size=npts_out_1, p=p)
+    np.savetxt(save_fairdraw_prefix+"_1.dat", arr_1[indx_save_1],header=" x1 x2")
+
+    npts_out_2 = int(n_ess_2)
+    p = np.array(weights_2/np.sum(weights_2),dtype=np.float64)
+    indx_save_2 = np.random.choice(np.arange(len(p)), size=npts_out_2, p=p)
+    np.savetxt(save_fairdraw_prefix+"_2.dat", arr_2[indx_save_2],header=" x1 x2")
+
+    npts_out_1b = int(n_ess_1b)
+    p = np.array(weights_1b/np.sum(weights_1b),dtype=np.float64)
+    indx_save_1b = np.random.choice(np.arange(len(p)), size=npts_out_1b, p=p)
+    np.savetxt(save_fairdraw_prefix+"_1b.dat", arr_1b[indx_save_1b],header=" x1 x2")
+
+
+##
+## HOW TO MAKE JS TEST
+# for param in x1 x2 ; do ls fairdraw_*.dat | ../scripts/tool_pairs.py --prefix="convergence_test_samples.py --method JS --parameter ${param}" > tmpfile;./tmpfile > jsvals_${param}.dat; done
+
+
+for i in range(ndim):
+    ### get sorted samples (for the current dimension)
+    x_1 = arr_1[:,i][np.argsort(arr_1[:,i])]
+    x_1b = arr_1b[:,i][np.argsort(arr_1b[:,i])]
+    x_2 = arr_2[:,i][np.argsort(arr_2[:,i])]
+
 
     y_1 = np.cumsum(weights_1)
     y_1 /= y_1[-1] # normalize
