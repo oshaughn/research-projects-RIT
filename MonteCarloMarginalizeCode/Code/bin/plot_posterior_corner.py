@@ -64,7 +64,7 @@ rc_params = {'backend': 'ps',
              'font.family': 'Times New Roman'}#,
              #'font.sans-serif': ['Bitstream Vera Sans']}#,
 plt.rcParams.update(rc_params)
-
+plt.rc('axes',unicode_minus=False)
 
 print(" WARNINGS : BoundedKDE class can oversmooth.  Need to edit options for using this class! ")
 
