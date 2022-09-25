@@ -229,6 +229,7 @@ integration_params.add_option("--d-max", default=10000,type=float,help="Maximum 
 integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
+integration_params.add_option("--internal-rotate-phase", action='store_true',help="If specified, the integration sampler uses phase_p ==phi+psi and phase_m == phi-psi as sampling coordinates, both ranging from 0 to 4 pi.  The prior is twice as large.")
 integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
 integration_params.add_option("--internal-sky-network-coordinates-raw",action='store_true',help="If specified, does not attempt to organize IFO network sensibly, uses them AS PROVIDED IN ORDER.")
 integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
@@ -618,6 +619,9 @@ param_limits = { "psi": (0, 2*numpy.pi),
     "t_ref": (-t_ref_wind, t_ref_wind),
     "inclination": (0, numpy.pi)
 }
+if opts.internal_rotate_phase:
+  param_limits['psi'] = (0, 4*numpy.pi)
+  param_limits['phi_orb'] = (0, 4*numpy.pi)
 
 #
 # Parameter integral sampling strategy
@@ -658,7 +662,8 @@ sampler.add_parameter("psi",
     cdf_inv = psi_sampler_cdf_inv, 
     left_limit = param_limits["psi"][0], 
     right_limit = param_limits["psi"][1],
-    prior_pdf = mcsampler.uniform_samp_psi)
+    prior_pdf = mcsampler.uniform_samp_psi,
+    adaptive_sampling=opts.internal_rotate_phase)
 
 #
 # Phi - orbital phase
@@ -673,7 +678,9 @@ sampler.add_parameter("phi_orb",
     cdf_inv = phi_sampler_cdf_inv,
     left_limit = param_limits["phi_orb"][0], 
     right_limit = param_limits["phi_orb"][1],
-    prior_pdf = mcsampler.uniform_samp_phase)
+    prior_pdf = mcsampler.uniform_samp_phase,
+    adaptive_sampling=opts.internal_rotate_phase)
+
 
 #
 # inclination - angle of system angular momentum with line of sight
@@ -1139,6 +1146,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   P.theta = np.pi/2 - P.theta
                   P.phi = xpy_default.mod(P.phi, 2*np.pi)
 
+            # rotate phase if needed
+            # make copies of arrays
+            #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
+            if opts.internal_rotate_phase:
+              phi_orb_true = (P.phiref + P.psi)/2.
+              psi_true = (P.phiref - P.psi)/2.
+              P.psi= psi_true
+              P.phi = phi_orb_true
+
             lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
@@ -1171,6 +1187,16 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
                   P.theta = np.pi/2 - P.theta
                   P.phi = xpy_default.mod(P.phi, 2*np.pi)
+
+                # rotate phase if needed
+                # make copies of arrays
+                #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
+                if opts.internal_rotate_phase:
+                  phi_orb_true = (P.phiref + P.psi)/2.
+                  psi_true = (P.phiref - P.psi)/2.
+                  P.psi= psi_true
+                  P.phi = phi_orb_true
+
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
@@ -1248,6 +1274,21 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                      P.incl = xpy_default.asarray(inclination, dtype=np.float64)
                 P.psi = xpy_default.asarray(psi, dtype=np.float64)
                 P.dist = xpy_default.asarray(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+
+                # rotate sky if needed
+                if opts.internal_sky_network_coordinates:
+                  P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
+                  P.theta = np.pi/2 - P.theta
+                  P.phi = xpy_default.mod(P.phi, 2*np.pi)
+
+                # rotate phase if needed
+                # make copies of arrays
+                #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
+                if opts.internal_rotate_phase:
+                  phi_orb_true = (P.phiref + P.psi)/2.
+                  psi_true = (P.phiref - P.psi)/2.
+                  P.psi= psi_true
+                  P.phi = phi_orb_true
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
