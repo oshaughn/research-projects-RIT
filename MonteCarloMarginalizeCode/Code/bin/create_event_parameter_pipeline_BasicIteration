@@ -233,6 +233,7 @@ parser.add_argument("--cache-file",default=None,help="If you are using real data
 parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.")
 parser.add_argument('--n-copies',default=2,type=int,help="Number of duplicates of each ILE job, for redundant Monte Carlo")
 parser.add_argument('--n-iterations',default=3,type=int,help="Number of iterations to perform")
+parser.add_argument('--n-iterations-subdag-max',default=10,type=int,help="Number of iterations to perform in subdag, maximum ")
 parser.add_argument("--start-iteration",default=0,type=int,help="starting iteration. If >0, does not copy over --input-grid. DOES rewrite sub files.  This allows you to change the arguments provided (e.g., use more iterations or settings at late times). Note this overwrites the .sub files ")
 parser.add_argument('--n-samples-per-job',default=2000,type=int,help="Number of samples generated each iteration; also, number of ILE jobs run each iteration. Should increase with dimension of problem")
 parser.add_argument('--neff-threshold',default=800,type=int,help="Number of samples generated each iteration")
@@ -1160,7 +1161,7 @@ for it in np.arange(it_start,opts.n_iterations):
         # Write modified CIP arg string to file!
         #   - problem, need to know which CIP arg list to use.  Assume list exists
         subdag_args_now = creating_subdag_arg_list[0]; creating_subdag_arg_list = creating_subdag_arg_list[1:]
-        cip_args_here = '10 ' + subdag_args_now
+        cip_args_here = '{} '.format(opts.n_iterations_subdag_max) + subdag_args_now
         fname_subdag_cip_args = "iteration_{}_cip/args_cip.txt".format(it)
         with open(fname_subdag_cip_args,'w') as f:
             f.write(cip_args_here)
