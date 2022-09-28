@@ -651,7 +651,7 @@ if  (opts.last_iteration_extrinsic):
         # batched convert shell script
         with open("allinone_convert.sh",'w') as f:
             f.write("""#! /bin/bash
-{} {}/iteration_$1_ile/EXTR_out-*.xml_*_.xml.gz --output-file {}/tmp_converted.xml.gz
+{} {}/iteration_$1_ile/EXTR_out-*.xml_*_.xml.gz --output {}/tmp_converted.xml.gz
 {} {} {}/tmp_converted.xml.gz > {}/extrinsic_posterior_samples.dat
 """.format(dag_utils.which('ligolw_add'),opts.working_directory,opts.working_directory,dag_utils.which('convert_output_format_ile2inference'),convert_args_extr,opts.working_directory,opts.working_directory))
         os.system("chmod a+x allinone_convert.sh")
