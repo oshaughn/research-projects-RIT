@@ -398,7 +398,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         if 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
             singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
         exe=singularity_base_exe_path + path_split[-1]
-        if path_split[-1] = 'true':  # special universal path for /bin/true, don't override it!
+        if path_split[-1] == 'true':  # special universal path for /bin/true, don't override it!
             exe = "/usr/bin/true"
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
