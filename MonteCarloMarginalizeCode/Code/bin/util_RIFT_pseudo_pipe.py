@@ -214,12 +214,6 @@ parser.add_argument("--archive-pesummary-event-label",default="this_event",help=
 opts=  parser.parse_args()
 
 
-# Default prior for aligned analysis should be z prior !
-if opts.assume_nonprecessing or opts.approx == "IMRPhenomD":
-    prior_args_lookup["default"] = prior_args_lookup["zprior_aligned"]
-
-if opts.use_osg:
-    opts.condor_nogrid_nonworker = True
 
 if (opts.use_ini):
     # Attempt to lazy-parse all command line arguments from ini file
@@ -251,6 +245,15 @@ if (opts.use_ini):
                 else:
                     config_dict[item_renamed] = True
         print(config_dict)
+
+# Default prior for aligned analysis should be z prior !
+if opts.assume_nonprecessing or opts.approx == "IMRPhenomD":
+    prior_args_lookup["default"] = prior_args_lookup["zprior_aligned"]
+
+if opts.use_osg:
+    opts.condor_nogrid_nonworker = True  # note we ALSO have to check this if we set use_osg in the ini file! Moved statement so flagged
+
+
 
 if not(opts.ile_jobs_per_worker):
     opts.ile_jobs_per_worker=20
