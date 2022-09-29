@@ -1197,6 +1197,8 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += " --frames-dir {} ".format(opts.frames_dir)
         if opts.use_osg:
             cmd += " --use-osg "
+            if opts.use_osg_cip:
+                cmd += " --use-osg-cip "
             if opts.use_cvmfs_frames:
                 cmd += " --use-cvmfs-frames "
             if opts.use_osg_simple_requirements:
