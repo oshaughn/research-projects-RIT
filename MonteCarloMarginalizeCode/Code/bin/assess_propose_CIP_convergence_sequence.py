@@ -166,6 +166,6 @@ for indx in np.arange(n_workers_proposed):
     cip_node.set_retry(opts.general_retries)
     dag.add_node(cip_node)
 
-dag_name="convergence_cip_{}_subdag.dag".format(opts.iteration_number)
+dag_name="convergence_cip_{}_subdag".format(opts.iteration_number)
 dag.set_dag_file(dag_name)
 dag.write_concrete_dag()
