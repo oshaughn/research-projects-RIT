@@ -4634,6 +4634,12 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             coord_names_reduced.remove(p)
             x_out[:,indx_p_out] = x_in[:,indx_p_in]
 
+    if 'delta_mc' in coord_names_reduced and 'eta' in low_level_coord_names:
+        indx_p_out = coord_names.index('delta_mc')
+        indx_eta = low_level_coord_names.index('eta')
+        x_out[:,indx_p_out] = np.sqrt(1-4*x_in[:,indx_eta])
+        coord_names_reduced.remove('delta_mc')
+
     # Check for common coordinates we need to transform: xi, chiMinus as the most common, from cartesian
     if ('xi' in coord_names_reduced) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names) and ('mc' in low_level_coord_names):
         indx_p_out = coord_names.index('xi')
@@ -4647,15 +4653,13 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         if ('delta_mc' in low_level_coord_names):
             indx_delta = low_level_coord_names.index('delta_mc')
             eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
-            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
-            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
-            coord_names_reduced.remove(p)
         elif ('eta' in low_level_coord_names):
             indx_eta = low_level_coord_names.index('eta')
             eta_vals = x_in[:,indx_eta]
             m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
-            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
-            coord_names_reduced.remove(p)
+        m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+        x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+        coord_names_reduced.remove('xi')
     if ('chiMinus' in coord_names_reduced) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names) and ('mc' in low_level_coord_names):
         indx_p_out = coord_names.index('chiMinus')
         p = 'chiMinus'
@@ -4668,15 +4672,12 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         if ('delta_mc' in low_level_coord_names):
             indx_delta = low_level_coord_names.index('delta_mc')
             eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
-            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
-            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
-            coord_names_reduced.remove(p)
         elif ('eta' in low_level_coord_names):
             indx_eta = low_level_coord_names.index('eta')
-            eta_vals = 0.25*(1- x_in[:,indx_eta]**2)
-            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
-            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
-            coord_names_reduced.remove(p)
+            eta_vals = x_in[:,indx_eta]
+        m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+        x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+        coord_names_reduced.remove(p)
 
     # mu1,mu2 if cartesian
     if ('mu1' in coord_names_reduced) and ('mu2' in coord_names_reduced) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names):

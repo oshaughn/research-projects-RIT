@@ -26,6 +26,30 @@ for indx in np.arange(npts):
 npts = len(P_list)
 
 
+# Cartesian test 0
+coord_names=['mc','delta_mc', 'xi', 'chiMinus']
+low_level_coord_names=['mc','eta','s1z','s2z'] # assume this is the underlying.  This setup is very common
+
+x1 = np.zeros((npts,len(coord_names)))
+x2 = np.zeros((npts,len(coord_names)))
+y2 = np.zeros((npts,len(low_level_coord_names)))
+
+for indx in np.arange(npts):
+    P = P_list[indx]
+    for indx_name  in np.arange(len(coord_names)):
+        x1[indx,indx_name]  = P.extract_param( coord_names[indx_name])
+    for indx_name2 in np.arange(len(low_level_coord_names)):
+        y2[indx,indx_name2]  = P.extract_param( low_level_coord_names[indx_name2])
+
+x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_level_coord_names=low_level_coord_names)
+print(x2)
+
+print("Cartesian aligned test 0", np.max(np.abs(x1 - x2)))
+err = np.max(np.abs(x1 - x2))
+if opts.as_test and err > 1e-9:
+    raise ValueError(" Large deviation seen ")
+
+
 # Cartesian test 1
 coord_names=['mc','delta_mc','xi','chiMinus']
 low_level_coord_names=['mc','delta_mc','s1z','s2z'] # assume this is the underlying.  This setup is very common
