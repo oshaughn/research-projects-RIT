@@ -17,6 +17,10 @@ Since last release
      new pseudo-cylindrical coordinates; new CIP option to put change-of-coordinates prior reweighting inside adaptive
      integrand, so it is done live instread of at-end reweighting;  fix some fallthroughs in lalsimutils to 'slow' non-vectorized code; update
      vectorized tranform test to cover standard use cases and put into CI; pp_RIFT updates; start sphinx documentation (rc2)
+   - CIP running on OSG as option (--use-cip-osg); lalsimutils.convert_waveform_coordinates fix non-production transform
+     and update tests; minor bugfixes (formatting ligolw_add arguments; dmarg+sky rotation wasn't coded). **Change default fit to rf**.  cosmo prior
+     gpu-ized and exposed for use. Rosenbrock test cleanup for paper.
+
 
 0.0.15.6
 -----------
