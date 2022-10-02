@@ -1040,6 +1040,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         manual_avoid_overflow_logarithm = 0
     elif opts.auto_logarithm_offset:
       print(" PROBLEM: guess_snr not being returned, but auto-tuning requested ")
+      # reset to default.  Should not be needed, but weird python scoping error
+      manual_avoid_overflow_logarithm = manual_avoid_overflow_logarithm_default 
+    else:
+      # reset to default.  Should not be needed, but weird python scoping error
+      manual_avoid_overflow_logarithm = manual_avoid_overflow_logarithm_default 
 
     if opts.vectorized:
         lookupNKDict = {}
