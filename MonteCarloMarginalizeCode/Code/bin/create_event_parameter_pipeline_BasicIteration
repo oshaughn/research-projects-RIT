@@ -255,7 +255,9 @@ if opts.condor_nogrid_nonworker:
 
 working_dir_inside_local = working_dir_inside = opts.working_directory
 working_dir_inside_cip = working_dir_inside_local
-out_dir_inside_cip = working_dir_inside_local+"/iteration_$(macroiteration)_cip/"
+out_dir_inside_cip = working_dir_inside_local
+if opts.cip_explode_jobs:
+    out_dir_inside_cip+= "/iteration_$(macroiteration)_cip/"
 os.chdir(opts.working_directory)
 # working_dir_inside_local is for jobs on local nodes
 if opts.use_singularity or opts.use_osg:
@@ -768,17 +770,17 @@ unify_job.write_sub_file()
 
 ##   Fit job: default case
 cip_args_base = cip_args
-out_dir_base = opts.working_directory
+#out_dir_base = opts.working_directory
 cip_exe = opts.cip_exe
 cip_no_grid = no_worker_grid
 if opts.use_osg_cip:
     cip_no_grid = False
 if (opts.cip_explode_jobs):
     if not opts.cip_explode_jobs_flat:
-        cip_args_base += " --fit-save-gp " + opts.working_directory + "/iteration_$(macroiteration)_cip/my_fit"
+        cip_args_base += " --fit-save-gp " + out_dir_inside_cip + "/my_fit"
     else:
         cip_exe = "/bin/true"
-    out_dir_base += "/iteration_$(macroiteration)_cip/"
+#    out_dir_base += "/iteration_$(macroiteration)_cip/"
 cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,input_net=working_dir_inside_cip+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=out_dir_inside_cip,exe=cip_exe,universe=local_worker_universe,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg_cip,transfer_files=['../all.net'])
 # Modify: set 'initialdir'
 cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
@@ -874,16 +876,16 @@ else:
     # we have different cip jobs for different iteration numbers
     cip_job_list = []
     for indx in np.arange(len(cip_args_lines)):
-        out_dir_base = opts.working_directory
+#        out_dir_base = opts.working_directory
         cip_args_extra = ""
         cip_args_truncate=''
         cip_exe = opts.cip_exe
         if opts.cip_explode_jobs:
             if not opts.cip_explode_jobs_flat:
-                cip_args_extra += " --fit-save-gp " + opts.working_directory + "/iteration_$(macroiteration)_cip/my_fit"
+                cip_args_extra += " --fit-save-gp " + out_dir_inside_cip+"/my_fit"
             else:
                 cip_exe = "/bin/true"
-            out_dir_base += "/iteration_$(macroiteration)_cip/"
+#            out_dir_base += "/iteration_$(macroiteration)_cip/"
             # set n_eff for primary job to be small. ONLY used for the primary non-worker job
             cip_args_truncate = " --n-eff 5 --n-max 10000 --n-output-samples 1 "  # cap n_eff, number of iterations, and *output samples* for non-worker jobs, to avoid contamination
         # Write the appropriate CIP jobs. [note only one CIP per iteration, so unique
