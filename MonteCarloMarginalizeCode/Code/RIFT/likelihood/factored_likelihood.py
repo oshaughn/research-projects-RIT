@@ -421,10 +421,25 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         else:
           rholms_intp[det] = None
 
+    guess_snr=None
+    if True: 
+      # estimate peak snr based on rholms.  
+      #   - Note U's are scaled to fiducial distance, only rho estimate data response
+      rho_max = 0
+      
+      for ifo in rholms:
+        rho_max_ifo = 0
+        for mode in rholms[ifo]:
+          rho_max_ifo= np.max([rho_max,np.max(np.abs(rholms[ifo][mode].data.data))])
+        rho_max+= rho_max_ifo**2  # add peak SNR from each in quadrature
+      rho_max = np.sqrt(rho_max)/30  # factor of 30 is guesstimate, keep in mind there are sky location terms, coherence, etc
+      print("SNR guess (internal, from det response) ", rho_max)
+      guess_snr= rho_max
+
     if not ROM_use_basis:
-            return rholms_intp, crossTerms, crossTermsV,  rholms, None
+            return rholms_intp, crossTerms, crossTermsV,  rholms, guess_snr, None
     else:
-            return rholms_intp, crossTerms, crossTermsV,  rholms, acatHere   # labels are misleading for use_rom_basis
+            return rholms_intp, crossTerms, crossTermsV,  rholms, guess_snr,  acatHere    # labels are misleading for use_rom_basis
 
 def ReconstructPrecomputedLikelihoodTermsROM(P,acat_rom,rho_intp_rom,crossTerms_rom, crossTermsV_rom, rho_rom,verbose=True):
         """
