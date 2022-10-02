@@ -11,8 +11,8 @@ default:
 stages:
   - system tests
   - unit tests # TODO: write some
-  - docker image
   - docs
+  - docker image
 
 before_script:
   # setup
