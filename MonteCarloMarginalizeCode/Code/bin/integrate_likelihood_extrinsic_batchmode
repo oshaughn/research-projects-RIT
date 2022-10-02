@@ -233,6 +233,7 @@ integration_params.add_option("--internal-rotate-phase", action='store_true',hel
 integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
 integration_params.add_option("--internal-sky-network-coordinates-raw",action='store_true',help="If specified, does not attempt to organize IFO network sensibly, uses them AS PROVIDED IN ORDER.")
 integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
+integration_params.add_option("--auto-logarithm-offset",action='store_true',help="Use the 'guess_snr' field returned in the precompute stage to change --manual-logarithm-offset for each event.")
 integration_params.add_option("--internal-use-lnL",action='store_true',help="likelihood returns lnL, and integrator integrates lnL")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
@@ -307,6 +308,7 @@ if opts.gpu and xpy_default is numpy:
         opts.gpu=True
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
+manual_avoid_overflow_logarithm_default =  manual_avoid_overflow_logarithm
 
 deltaT = None
 fSample= opts.srate # change sampling rate
@@ -1020,11 +1022,24 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
     # Precompute
     t_window = 0.15
-    rholms_intp, cross_terms, cross_terms_V,  rholms, rest=factored_likelihood.PrecomputeLikelihoodTerms(
+    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest=factored_likelihood.PrecomputeLikelihoodTerms(
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
             False, inv_spec_trunc_Q, T_spec,
             NR_group=NR_template_group,NR_param=NR_template_param,
             use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized)
+
+    if opts.auto_logarithm_offset and guess_snr:
+      # important: this only impacts *this* analysis
+      # important: if we have a very loud signal, it is important to change this dynamically to avoid *underflow*, which sometimes happens otherwise if we fix the scale early on.
+      print("    : naive overflow protection: updating lnL overflow based on SNR guess of {} ".format(guess_snr))
+      print("    : reminder, diagnostics for lnLmax below are offset by this amount! ")
+      # Note by changing the offset, we change how adapt-weight-exponent is being applied (because we've offset the range before squashing it!).  Use with care: pipeline auto-sets the weight exponent
+      manual_avoid_overflow_logarithm = guess_snr**2/2 - 300  # more conservative than helper, if I were to auto-set it from --hint-snr.  So the integral peak is more likely positive
+      # Don't scale so much that peak guess likelihood is negative:  we do fine for low-ampltiude sources
+      if manual_avoid_overflow_logarithm < 0:
+        manual_avoid_overflow_logarithm = 0
+    elif opts.auto_logarithm_offset:
+      print(" PROBLEM: guess_snr not being returned, but auto-tuning requested ")
 
     if opts.vectorized:
         lookupNKDict = {}
