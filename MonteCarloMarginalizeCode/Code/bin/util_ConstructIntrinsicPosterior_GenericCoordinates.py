@@ -2300,6 +2300,15 @@ if opts.internal_temper_log:
     extra_args.update({'temper_log':True})
 res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
+
+n_ESS = -1
+if True:
+    # Compute n_ESS.  Should be done by integrator!
+    weights_scaled = sampler._rvs["integrand"]*sampler._rvs["joint_prior"]/sampler._rvs["joint_s_prior"]
+    weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
+    n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
+    print(" n_eff n_ESS ", neff, n_ESS)
+
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
     if neff < opts.fail_unless_n_eff   and not(opts.not_worker):     # if we need the output to continue:
@@ -2364,6 +2373,15 @@ with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
     file_out.write("# " + annotation_header + "\n")
     file_out.write(' '.join( str_out + eos_extra + ["\n"]))
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
+# since not EOS, can just use np.savetxt
+np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[np.log(res), np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
+# with open(opts.fname_output_integral+"+annotation_ESS.dat", 'w') as file_out:
+#     annotation_header = "lnL sigmaL neff n_ESS "
+#     str_out =list( map(str,[np.log(res), np.sqrt(var)/res, neff, n_ESS]))
+#     file_out.write("# " + annotation_header + "\n")
+#     file_out.write(' '.join( str_out +  ["\n"]))
+#np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
+
 
 if neff < len(low_level_coord_names):
     print(" PLOTS WILL FAIL ")
