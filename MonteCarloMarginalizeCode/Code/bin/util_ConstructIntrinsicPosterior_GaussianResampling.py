@@ -809,14 +809,34 @@ def fit_quadratic_stored(fname_h5,loc,L_offset=200):
     return mean, cov
 
 
-def fit_quadratic_alt(x,y,y_err=None,x0=None,symmetry_list=None,verbose=False,hard_regularize_negative=True):
-    gamma_x = None
+def fit_quadratic_alt(x,y,y_err=None,gamma_x=None,x0=None,symmetry_list=None,verbose=False,hard_regularize_negative=True):
+#    gamma_x = None
     if not (y_err is None):
         gamma_x =np.diag(1./np.power(y_err,2))
     the_quadratic_results = BayesianLeastSquares.fit_quadratic( x, y,gamma_x=gamma_x,verbose=verbose,hard_regularize_negative=hard_regularize_negative)#x0=None)#x0_val_here)
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
 
-    cov = np.linalg.inv(my_fisher_est)
+    # ESTIMATED cov, what should be true if condition number reasonable
+    cov = np.linalg.pinv( my_fisher_est)
+    if np.linalg.cond(my_fisher_est) > 1e3:
+        print("  : WARNING: Ill-conditioned quadratic form ")
+        print(np.linalg.eig(my_fisher_est))
+        # Try to undo the impact of the most extreme scale, usually the chirp mass, before taking the inverse:
+        #    Gamma_new == S Gamma S    # undo scale factor,
+        #        Gamma = S^{-1} Gamma_{new}  S^{-1}
+        #    Sigma = Gamma^{-1}  = S  Gamma_{new}^{-1} S
+        diag_fish = np.diagonal(my_fisher_est)
+        scale_fac = np.max(diag_fish)
+        scale_indx = list(diag_fish).index(scale_fac)
+        rescale = np.diag(np.ones(len(my_fisher_est)))
+        rescale[scale_indx,scale_indx] = np.sqrt(scale_fac)
+        i_rescale = np.diag( 1./np.diagonal(rescale))
+        print(" Rescale ",i_rescale)
+        my_fisher_est_alt = np.einsum('ij,jk,kl',i_rescale,my_fisher_est,i_rescale)
+        print(my_fisher_est, my_fisher_est_alt)
+        print("  Rescaled condition ", np.linalg.cond(my_fisher_est_alt))
+        cov = np.linalg.pinv( my_fisher_est_alt)
+        cov = np.einsum('ij,jk,kl',i_rescale,cov,i_rescale)  # re-apply the scale factor
 
     return best_val_est, cov
 
@@ -1036,7 +1056,14 @@ elif opts.fit_method == "quadratic":
         Y=Y[indx]
         X=X[indx]
         Y_err=Y_err[indx]
-    my_mean, my_cov = fit_quadratic_alt(X,Y,y_err=Y_err,symmetry_list=symmetry_list,verbose=opts.verbose)
+
+    # construct prior map
+    diag_prior = np.ones(len(coord_names))
+    for indx in np.arange(len(coord_names)):
+        rng = prior_range_map[coord_names[indx]]
+        diag_prior[indx] = 1./(rng[1]-rng[0])**2  # prior range
+
+    my_mean, my_cov = fit_quadratic_alt(X,Y,y_err=Y_err,gamma_x=np.diag(diag_prior),symmetry_list=symmetry_list,verbose=opts.verbose)
 elif opts.fit_method == "quadratic_nonneg":
     print(" FIT METHOD ", opts.fit_method, " IS QUADRATIC nonnegative")
     X=X[indx_ok]
