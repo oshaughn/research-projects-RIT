@@ -813,11 +813,21 @@ def fit_quadratic_alt(x,y,y_err=None,gamma_x=None,x0=None,symmetry_list=None,ver
 #    gamma_x = None
     if not (y_err is None):
         gamma_x =np.diag(1./np.power(y_err,2))
+    # n_dim  = len(x[0])
+    # mu_x = np.mean(x,axis=0)
+    # sigma_x = np.zeros(n_dim)
+    # x_new = np.zeros(x.shape)
+    # for indx in np.arange(n_dim):
+    #     sigma_x[indx] = np.std(x[:,indx])
+    #     x_new[:,indx] = (x[:,indx] - mu_x[indx])/np.std(x[:,indx])
+    # print(sigma_x, mu_x)
+
     the_quadratic_results = BayesianLeastSquares.fit_quadratic( x, y,gamma_x=gamma_x,verbose=verbose,hard_regularize_negative=hard_regularize_negative)#x0=None)#x0_val_here)
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
 
     # ESTIMATED cov, what should be true if condition number reasonable
     cov = np.linalg.pinv( my_fisher_est)
+    print(np.linalg.eig(my_fisher_est))
     if np.linalg.cond(my_fisher_est) > 1e3:
         print("  : WARNING: Ill-conditioned quadratic form ")
         print(np.linalg.eig(my_fisher_est))
