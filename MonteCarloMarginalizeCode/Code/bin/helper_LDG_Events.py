@@ -182,6 +182,7 @@ parser.add_argument("--psd-file", action="append", help="instrument=psd-file, e.
 parser.add_argument("--assume-fiducial-psd-files", action="store_true", help="Will populate the arguments --psd-file IFO=IFO-psd.xml.gz for all IFOs being used, based on data availability.   Intended for user to specify PSD files later, or for DAG to build BW PSDs. ")
 parser.add_argument("--use-online-psd",action='store_true',help='Use PSD from gracedb, if available')
 parser.add_argument("--assume-matter",action='store_true',help="If present, the code will add options necessary to manage tidal arguments. The proposed fit strategy and initial grid will allow for matter")
+parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--assume-eccentric",action='store_true',help="If present, the code will add options necessary to manage eccentric arguments. The proposed fit strategy and initial grid will allow for eccentricity")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
@@ -224,6 +225,8 @@ parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI 
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
+if opts.assume_matter_but_primary_bh:
+    opts.assume_matter=True
 
 #internal_dmax = None
 internal_dmax = opts.internal_distance_max # default is None
@@ -1044,11 +1047,15 @@ elif opts.propose_initial_grid:
             else:
                 return 3000*((2.2-m)/(1.2))**4
         lambda_grid_min=50
-        P.lambda1 = lambda_m_estimate(P.m1/lal.MSUN_SI)
+        if not(opts.assume_matter_but_primary_bh):
+            P.lambda1 = lambda_m_estimate(P.m1/lal.MSUN_SI)
+            lambda1_min = np.min([50,P.lambda1*0.2])
+            lambda1_max = np.min([1500,P.lambda1*2])
+        else:
+            lambda1_min = 0
+            lambda1_max=0
         P.lambda2 = lambda_m_estimate(P.m2/lal.MSUN_SI)
-        lambda1_min = np.min([50,P.lambda1*0.2])
-        lambda1_max = np.min([1500,P.lambda1*2])
-        lambda2_min = np.min([50,P.lambda1*0.2])
+        lambda2_min = np.min([50,P.lambda2*0.2])
         lambda2_max = np.min([1500,P.lambda2*2])
         cmd += " --random-parameter lambda1 --random-parameter-range [{},{}] --random-parameter lambda2 --random-parameter-range [{},{}] ".format(lambda1_min,lambda1_max,lambda2_min,lambda2_max)
         grid_size *=2   # denser grid
@@ -1327,10 +1334,14 @@ if opts.propose_fit_strategy:
 
     if opts.assume_matter:
         helper_puff_args += " --parameter LambdaTilde  --downselect-parameter s1z --downselect-parameter-range [-0.9,0.9] --downselect-parameter s2z --downselect-parameter-range [-0.9,0.9]  "  # Probably should also aggressively force sampling of low-lambda region
-        helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
+        helper_cip_args += " --input-tides --parameter-implied LambdaTilde  --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
+        if not(opts.assume_matter_but_primary_bh):
+            helper_cip_args+= " --parameter-nofit lambda1 "
         # Add LambdaTilde on top of the aligned spin runs
         for indx in np.arange(len(helper_cip_arg_list)):
-            helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " 
+            helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde  --parameter-nofit lambda2 " 
+            if not(opts.assume_matter_but_primary_bh):
+                helper_cip_arg_list[indx] += " --parameter-nofit lambda1 "
         # add --prior-lambda-linear to first iteration, to sample better at low lambda
         helper_cip_arg_list[0] += " --prior-lambda-linear "
         # Remove LambdaTilde from *first* batch of iterations .. too painful ? NO, otherwise we wander off into wilderness
