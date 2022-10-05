@@ -14,6 +14,8 @@ Rapid inference via Iterative FiTting: this algorithm provides a framework for e
    using-pipeline
    examples-ini
    examples-noini
+   plotting
+   getting-data
    troubleshooting
 
 

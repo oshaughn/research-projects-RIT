@@ -149,22 +149,29 @@ optional arguments:
   --manual-ifo-list MANUAL_IFO_LIST
                         Overrides IFO list normally retrieve by event ID. Use with care (e.g., glitch studies) or for events specified with --event-time.
   --online
+  
   --extra-args-helper EXTRA_ARGS_HELPER
                         Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data
                         type)!
   --manual-postfix MANUAL_POSTFIX
+
   --gracedb-id GRACEDB_ID
+  
   --gracedb-exe GRACEDB_EXE
+  
   --use-legacy-gracedb
+
   --internal-use-gracedb-bayestar
                         Retrieve BS skymap from gracedb (bayestar.fits), and use it internally in integration with --use-skymap bayestar.fits.
   --event-time EVENT_TIME
                         Event time. Intended to override use of GracedbID. MUST provide --manual-initial-grid
   --calibration CALIBRATION
+
   --playground-data     Passed through to helper_LDG_events, and changes name prefix
   --approx APPROX       Approximant. REQUIRED
   --use-gwsurrogate     Attempt to use gwsurrogate instead of lalsuite.
   --l-max L_MAX
+
   --no-matter           Force analysis without matter. Really only matters for BNS
   --assume-nospin       Force analysis with zero spin
   --assume-precessing   Force analysis *with* transverse spins
@@ -187,7 +194,7 @@ optional arguments:
   --internal-correlate-default
                         Force joint sampling in mc,delta_mc, s1z and possibly s2z
   --internal-force-iterations INTERNAL_FORCE_ITERATIONS
-                        If inteeger provided, overrides internal guidance on number of iterations, attempts to force prolonged run. By default puts convergence
+                        If integer provided, overrides internal guidance on number of iterations, attempts to force prolonged run. By default puts convergence
                         tests on
   --internal-flat-strategy
                         Use the same CIP options for every iteration, with convergence tests on. Passes --test-convergence,
@@ -205,26 +212,35 @@ optional arguments:
   --internal-propose-converge-last-stage
                         Pass through to helper
   --add-extrinsic
+  
   --batch-extrinsic
+
   --fmin FMIN           Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency
   --fmin-template FMIN_TEMPLATE
                         Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax
   --data-LI-seglen DATA_LI_SEGLEN
                         If specified, passed to the helper. Uses data selection appropriate to LI. Must specify the specific LI seglen used.
   --choose-data-LI-seglen
+
   --fix-bns-sky
+
   --ile-sampler-method ILE_SAMPLER_METHOD
   --ile-n-eff ILE_N_EFF
                         ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous
   --cip-sampler-method CIP_SAMPLER_METHOD
+
   --cip-fit-method CIP_FIT_METHOD
+
   --cip-internal-use-eta-in-sampler
                         Use 'eta' as a sampling parameter. Designed to make GMM sampling behave particularly nicely for objects which could be equal mass
   --ile-jobs-per-worker ILE_JOBS_PER_WORKER
                         Default will be 20 per worker usually for moderate-speed approximants, and more for very fast configurations
   --ile-no-gpu
+
   --ile-force-gpu
+
   --fake-data-cache FAKE_DATA_CACHE
+
   --spin-magnitude-prior SPIN_MAGNITUDE_PRIOR
                         options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned
   --force-chi-max FORCE_CHI_MAX
