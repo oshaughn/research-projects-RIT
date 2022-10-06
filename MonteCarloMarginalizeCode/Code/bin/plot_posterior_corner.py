@@ -463,6 +463,7 @@ if opts.composite_file:
  for fname in opts.composite_file[:1]:  # Only load the first one!
     print(" Loading ... ", fname)
     samples = np.loadtxt(fname,dtype=composite_dtype)  # Names are not always available
+    samples = samples[ ~np.isnan(samples["lnL"])] # remove nan likelihoods -- they can creep in with poor settings/overflows
     if opts.sigma_cut >0:
         npts = len(samples["m1"])
         # strip NAN
