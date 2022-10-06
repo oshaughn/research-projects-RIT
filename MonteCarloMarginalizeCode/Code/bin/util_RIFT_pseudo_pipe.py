@@ -172,6 +172,8 @@ parser.add_argument("--ile-no-gpu",action='store_true')
 parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [uniform mag for precessing, zprior for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
+parser.add_argument("--force-lambda-max",default=None,type=float,help="Provde this value to override the value of lambda-max provided") 
+parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provde this value to override the value of lambda-small-max provided") 
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
@@ -810,6 +812,13 @@ for indx in np.arange(len(instructions_cip)):
         line=line.replace("--eta-range "+my_opts.eta_range,"--eta-range "+str(eta_range_revised))
         # Ideally, load in initial grid, and remove points outside the targeted range
         # IMPLEMENT THIS
+        
+        # Lambda range
+        if opts.force_lambda_max:
+            line += " --lambda-max  {} ".format(opts.force_lambda_max)
+        if opts.force_lambda_small_max:
+            line += " --lambda-small-max  {} ".format(opts.force_lambda_small_max)
+
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     if opts.assume_eccentric:
