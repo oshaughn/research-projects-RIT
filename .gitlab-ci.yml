@@ -71,7 +71,7 @@ documentation:
     - git fetch origin master
     - git status
     - git branch
-    - sphinx-multiversion docs/ docs/_build/
+    - sphinx-build docs/ docs/_build/
 
   artifacts:
     paths:
