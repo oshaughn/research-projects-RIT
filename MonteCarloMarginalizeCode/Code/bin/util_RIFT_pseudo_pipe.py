@@ -173,6 +173,7 @@ parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [uniform mag for precessing, zprior for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
+parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
 parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
@@ -796,6 +797,9 @@ for indx in np.arange(len(instructions_cip)):
         q_min = lalsimutils.waveform_approx_limit_dict[opts.approx]["q-min"]
         eta_min = q_min/(1+q_min)**2
         line += " --chi-max {}  ".format(chi_max)
+        # Secondary body can also have spin, allow us to force its range
+        if opts.force_chi_small_max:
+            line += " --chi-small-max {} ".format(chi_small_max)
         # Parse arguments, impose limit based on the approximant used, as described above
 #        import StringIO
         my_parser = argparse.ArgumentParser()
