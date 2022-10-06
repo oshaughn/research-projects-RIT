@@ -52,3 +52,28 @@ build:test:
     - suffix=$(echo $CI_COMMIT_BRANCH | cut -d "-" -f 2)
     - docker build --rm --no-cache -t $RIFT_IMAGE:$suffix --file Dockerfile .
     - docker push $RIFT_IMAGE:$suffix
+
+documentation:
+  stage: docs
+  image: debian:latest
+  script:
+    - apt-get -y install graphviz
+    # Sphinx-multiversion needs to be run on the git repo itself
+#    - cd ../
+#    # problem of repo name : changing!
+#    - rm research-projects-RIT/ -rf
+#    - git clone https://github.com/oshaughn/research-projects-RIT.git
+#    - cd research-projects-RIT/
+    # Install deps for docs
+    - cd docs
+    - pip install -r requirements.txt
+    - make clean
+     # Sphinx-multiversion needs to be run from the top-level
+    - git fetch origin master
+    - git status
+    - git branch
+    - sphinx-mulitversion docs/ docs/build/
+
+  artifacts:
+    paths:
+      - docs/build/
