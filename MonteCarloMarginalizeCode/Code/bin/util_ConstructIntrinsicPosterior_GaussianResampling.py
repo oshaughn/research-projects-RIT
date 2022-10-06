@@ -215,6 +215,7 @@ def add_field(a, descr):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
+parser.add_argument("--internal-no-scale",action='store_true',help="If true, does NOT attempt to rescale coordinates to have mean zero, variance 1 in each dimension. Makes debugging output more human-accessible")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
 parser.add_argument("--input-distance",action='store_true',help="Use input format with distance fields (but not tidal fields?) enabled.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
@@ -813,14 +814,6 @@ def fit_quadratic_alt(x,y,y_err=None,gamma_x=None,x0=None,symmetry_list=None,ver
 #    gamma_x = None
     if not (y_err is None):
         gamma_x =np.diag(1./np.power(y_err,2))
-    # n_dim  = len(x[0])
-    # mu_x = np.mean(x,axis=0)
-    # sigma_x = np.zeros(n_dim)
-    # x_new = np.zeros(x.shape)
-    # for indx in np.arange(n_dim):
-    #     sigma_x[indx] = np.std(x[:,indx])
-    #     x_new[:,indx] = (x[:,indx] - mu_x[indx])/np.std(x[:,indx])
-    # print(sigma_x, mu_x)
 
     the_quadratic_results = BayesianLeastSquares.fit_quadratic( x, y,gamma_x=gamma_x,verbose=verbose,hard_regularize_negative=hard_regularize_negative)#x0=None)#x0_val_here)
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
@@ -1006,9 +999,22 @@ for p in ['mc', 'm1', 'm2', 'mtot']:
 X =dat_out[:,0:len(coord_names)]
 Y = dat_out[:,-2]
 Y_err = dat_out[:,-1]
+
 # Save copies for later (plots)
 X_orig = X.copy()
 Y_orig = Y.copy()
+
+
+# rescale X coordinatres
+if not(opts.internal_no_scale):
+    X_raw_mean = np.mean(X,axis=0)
+    X_raw_scale =   np.std(X, axis=0)
+    print(" Transforming variables ")
+    print( " : Mean {} ".format(X_raw_mean))
+    print( " : sigma {} ".format(X_raw_scale))
+    X = (X - X_raw_mean)/X_raw_scale  # hope broadcasting works here
+
+
 
 # Plot cumulative distribution in lnL, for all points.  Useful sanity check for convergence.  Start with RAW
 if not opts.no_plots:
@@ -1094,9 +1100,9 @@ else:
 print(" Gaussian ", my_mean, my_cov)
 
 # Sort for later convenience (scatterplots, etc)
-indx = Y.argsort()#[::-1]
-X=X[indx]
-Y=Y[indx]
+#indx = Y.argsort()#[::-1]
+#X=X[indx]
+#Y=Y[indx]
 
 
 ###
@@ -1142,6 +1148,11 @@ for p in coord_names:
 
 # Draw 1e6 samples
 dat_samples = np.random.multivariate_normal(my_mean, my_cov,size=int(1e6))
+
+if not(opts.internal_no_scale):
+    # Undeo transformation
+    dat_samples = X_raw_mean + X_raw_scale*dat_samples
+
 
 # Reject based on limits
 for indx in np.arange(len(coord_names)):
