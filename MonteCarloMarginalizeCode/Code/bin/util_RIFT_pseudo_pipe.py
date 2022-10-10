@@ -202,6 +202,7 @@ parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use te
 parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-freezeadapt",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-adapt-log",action='store_true',help="Passthrough to ILE ")
+parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
@@ -618,7 +619,8 @@ if opts.internal_ile_freezeadapt:
     cmd += " --internal-propose-ile-convergence-freezeadapt "  # old-style O3: adaptation frozen after first point, no distance adapt (!)
 if opts.internal_ile_adapt_log:
     cmd += " --internal-propose-ile-adapt-log "  # old-style O3: adaptation frozen after first point, no distance adapt (!)
-
+if opts.internal_ile_auto_logarithm_offset:
+    cmd += " --internal-ile-auto-logarithm-offset "
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
 if opts.use_ini:
 #    config = ConfigParser.ConfigParser()
