@@ -19,7 +19,10 @@ Since last release
      vectorized tranform test to cover standard use cases and put into CI; pp_RIFT updates; start sphinx documentation (rc2)
    - CIP running on OSG as option (--use-cip-osg); lalsimutils.convert_waveform_coordinates fix non-production transform
      and update tests; minor bugfixes (formatting ligolw_add arguments; dmarg+sky rotation wasn't coded). **Change default fit to rf**.  cosmo prior
-     gpu-ized and exposed for use. Rosenbrock test cleanup for paper.
+     gpu-ized and exposed for use. Rosenbrock test cleanup for paper. More sphinx documentation. --auto-logarithm-offset
+     in ILE (and access via --internal-ile-auto-logarithm-offset).  Tweaks to better automate interpretation of asymmetric binaries like
+     BHNS (pipeline  can set lambda1,lambda2 prior upper bounds, --force-chi-small-max, and allow tides only on one
+     object).  CIP_gaussian updates.
 
 
 0.0.15.6
