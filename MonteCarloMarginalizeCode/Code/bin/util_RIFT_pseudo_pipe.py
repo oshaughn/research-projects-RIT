@@ -896,6 +896,15 @@ if opts.assume_highq:
     puff_max_it +=3
 with open("args_puff.txt",'w') as f:
         puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
+        if opts.assume_matter:
+            lambda_max = 5000
+            lambda_small_max=5000
+            if opts.force_lambda_max:
+                lambda_max = opts.force_lambda_max
+            if opts.force_lambda_small_max:
+                lambda_small_max = opts.force_lambda_small_max
+            # Prevent negative lambda accidentally from puff
+            puff_args += " --downselect-parameter lambda1 --downselect-parameter-range [0,{}] --downselect-parameter lambda2 --downselect-parameter-range [0,{}] ".format(lambda_max, lambda_small_max)
         if False: #opts.cip_fit_method == 'rf':
             # RF can majorly overfit and create 'voids' early on, eliminate the force-away
             # Should only do this in the INITIAL puff, not all, to avoid known problems later
