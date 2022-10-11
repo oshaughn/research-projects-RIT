@@ -659,6 +659,9 @@ for pIndex in np.arange(len(posterior_list)):
                 param_to_extract  = remap_LI_to_ILE[param]
             if param in eos_param_names:
                 continue
+            if param == 'time':
+                truths_here[indx] = P_ref.tref
+                continue
             truths_here[indx] = P_ref.extract_param(param_to_extract)
             if param in [ 'mc', 'm1', 'm2', 'mtotal']:
                 truths_here[indx] = truths_here[indx]/lal.MSUN_SI
