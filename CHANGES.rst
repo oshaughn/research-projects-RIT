@@ -23,6 +23,8 @@ Since last release
      in ILE (and access via --internal-ile-auto-logarithm-offset).  Tweaks to better automate interpretation of asymmetric binaries like
      BHNS (pipeline  can set lambda1,lambda2 prior upper bounds, --force-chi-small-max, and allow tides only on one
      object).  CIP_gaussian updates. (rc3)
+   - helper missing argument for --internal-ile-auto-logarithm-offset; fix --auto-logarithm-offset implementation SNR
+     scale; ILE request_disk
 
 
 0.0.15.6
