@@ -214,6 +214,7 @@ parser.add_argument("--use-cov-early",action='store_true',help="If provided, use
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-cip",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restructuring for ILE on OSG. The code will NOT use CVMFS, and instead will try to transfer the frame files.")
+parser.add_argument("--internal-truncate-files-for-osg-file-transfer",action='store_true',help="If use-osg-file-transfer, will use FrCopy plus the start/end time to build the frame directory.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
 parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="NOW STANDARD, auto-set if you pass use-osg   Causes flock_local for 'internal' jobs")
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
@@ -1049,7 +1050,7 @@ if opts.use_osg:
         cmd += " --use-osg-cip "
     if not(opts.use_osg_file_transfer):
         cmd += " --use-cvmfs-frames "
-    else:  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
+    elif not(opts.internal_truncate_files_for_osg_file_transfer):  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
         os.system("util_ForOSG_MakeLocalFramesDir.sh local.cache")
 #        os.system("echo ../frames_dir >> helper_transfer_files.txt")
         cmd += " --frames-dir `pwd`/frames_dir "
@@ -1066,7 +1067,9 @@ if opts.archive_pesummary_label:
 print(cmd)
 os.system(cmd)
 
-
+if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
+    # build truncated frames.  Note this parses ILE arguments, so must be done last
+    os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
 
 ## RUNMON
 try:
