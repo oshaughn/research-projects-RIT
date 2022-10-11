@@ -202,7 +202,7 @@ parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt fil
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
 parser.add_argument("--general-retries",default=0,type=int,help="Number of retry attempts for internal jobs (convert, CIP, ...). (These can fail, albeit more rarely, usually due to filesystem problems)")
-parser.add_argument("--general-request-disk",default="4M",type=str,help="Request disk passed to condor. Must be done for all jobs now")
+parser.add_argument("--general-request-disk",default="10M",type=str,help="Request disk passed to condor. Must be done for all jobs now")
 parser.add_argument("--ile-n-events-to-analyze",default=1,type=int,help="If >1, you are using ILE_batchmode.  Structures the DAG correctly to account for batch cadence")
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
