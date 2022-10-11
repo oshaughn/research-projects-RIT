@@ -1,0 +1,27 @@
+#! /bin/bash
+#
+#  util_ForOSG_MakeTruncatedLocalFramesDir.sh <rundir>
+#  ASSUMES cache is called 'local.cache'
+#   
+
+
+OUT=frames_dir
+
+cd $1
+mkdir ${OUT}
+cat local.cache | awk '{print $NF}'  | tr -d '\r' > my_temp_files
+switcheroo file://localhost ' ' my_temp_files
+grep arguments ILE.sub | sed s/--/\\n/g | grep time > my_time_args
+TSTART=`grep data-start-time my_time_args | awk '{print $NF}' | xargs printf '%.*f\n' 0 `
+TEND=`grep data-end-time my_time_args | awk '{print $NF}' | xargs printf '%.*f\n' 0 `
+TEND=`echo  ${TEND} + 1 | bc `
+SEGLEN=`echo ${TEND} - ${TSTART} | bc`
+echo ${TSTART} ${TEND} ${SEGLEN}
+
+for i in `cat my_temp_files`; do basename $i; done | tr '-' ' ' | awk '{print $1}' | sort | uniq  > my_ifo_list
+
+# Loop over interferometers.  Join together all frames from that interferometer
+for i in `cat my_ifo_list`
+do
+  FrCopy -f ${TSTART} -l ${TEND}  -i `grep ${i} my_temp_files`  -o  ${OUT}/${i}-${TSTART}-${SEGLEN}.gwf
+done
