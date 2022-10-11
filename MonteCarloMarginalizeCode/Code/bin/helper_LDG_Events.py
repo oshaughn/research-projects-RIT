@@ -193,7 +193,7 @@ parser.add_argument("--assume-well-placed",action='store_true',help="If present,
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
 parser.add_argument("--internal-propose-ile-convergence-freezeadapt",action='store_true',help="If present, uses the --no-adapt-after-first --no-adapt-distance options (at one point default)")
 parser.add_argument("--internal-propose-ile-adapt-log",action='store_true',help="If present, uses the --adapt-log argument. Useful for very loud signals. Note only lnL information is used for adapting, not prior, so samples will be *uniform* in prior range if lnL is low")
-parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
+parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
 parser.add_argument("--online", action='store_true', help="Use online settings")
