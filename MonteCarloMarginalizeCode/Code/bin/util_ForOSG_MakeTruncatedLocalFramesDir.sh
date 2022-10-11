@@ -19,9 +19,11 @@ SEGLEN=`echo ${TEND} - ${TSTART} | bc`
 echo ${TSTART} ${TEND} ${SEGLEN}
 
 for i in `cat my_temp_files`; do basename $i; done | tr '-' ' ' | awk '{print $1}' | sort | uniq  > my_ifo_list
+for i in `cat my_temp_files`; do basename $i | tr '-' ' ' ; done | awk '{print $1,$2}' | sort | uniq > my_channel_pairs
 
 # Loop over interferometers.  Join together all frames from that interferometer
 for i in `cat my_ifo_list`
 do
-  FrCopy -f ${TSTART} -l ${TEND}  -i `grep ${i} my_temp_files`  -o  ${OUT}/${i}-${TSTART}-${SEGLEN}.gwf
+  CHANNEL=`grep $i my_channel_pairs | awk '{print $NF}' `
+  FrCopy -f ${TSTART} -l ${TEND}  -i `grep ${i} my_temp_files`  -o  ${OUT}/${i}-${CHANNEL}-${TSTART}-${SEGLEN}.gwf
 done
