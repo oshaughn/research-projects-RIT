@@ -424,15 +424,17 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     guess_snr=None
     if True: 
       # estimate peak snr based on rholms.  
-      #   - Note U's are scaled to fiducial distance, only rho estimate data response
+      #   - Note U, Q are scaled to fiducial distance.  Likelihood eqution (Pankow et al) :  -0.25 x^2 U + x Q = L where x=1/d
+      #   - complete square, maximize in x gives us estimate.  
+      #   - don't do precisely correctly, since we're not using sky location, emission direction, or detector response factors, nor coherence between modes. Add in quadrature
       rho_max = 0
       
       for ifo in rholms:
         rho_max_ifo = 0
         for mode in rholms[ifo]:
           rho_max_ifo= np.max([rho_max,np.max(np.abs(rholms[ifo][mode].data.data))])
-        rho_max+= rho_max_ifo**2  # add peak SNR from each in quadrature
-      rho_max = np.sqrt(rho_max)/30  # factor of 30 is guesstimate, keep in mind there are sky location terms, coherence, etc
+        rho_max+= rho_max_ifo**2/np.real(crossTerms[ifo][(mode,mode)])  # add peak SNR from each in quadrature
+      rho_max = np.sqrt(rho_max)  # guesstimate, keep in mind there are sky location terms, coherence, etc
       print("SNR guess (internal, from det response) ", rho_max)
       guess_snr= rho_max
 
