@@ -141,6 +141,7 @@ parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="F
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--ile-distance-prior",default=None,help="If present, passed through to the distance prior option.   If provided, BLOCKS distance marginalization")
+parser.add_argument("--internal-ile-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
 parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
@@ -154,6 +155,7 @@ parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_tr
 parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
 parser.add_argument("--internal-propose-converge-last-stage",action='store_true',help="Pass through to helper")
+parser.add_argument("--internal-ile-request-disk",type=str,help="Passthrough to CEPP --general-request-disk, if provided.  Note you SHOULD MAKE LARGER IF TRANSFERRING FAKE FRAMES that are transferred ")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="adds the time resampling option.  Only deployed for vectorized calculations (which should be all that end-users can access)")
 parser.add_argument("--batch-extrinsic",action='store_true')
@@ -1030,6 +1032,8 @@ if opts.add_extrinsic:
         cmd+= " --last-iteration-extrinsic-time-resampling "
 if opts.batch_extrinsic:
     cmd += " --last-iteration-extrinsic-batched-convert "
+if opts.internal_ile_request_disk:
+    cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
    if opts.cip_fit_method and not(opts.cip_fit_method == 'gp'):
