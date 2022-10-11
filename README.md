@@ -15,8 +15,9 @@ Also, make sure you cite the relevant rapid_pe/RIFT papers
  1.  Pankow et al 2015
  2.  Lange et al 2018 (RIFT)
  3.  Wysocki et al 2019 (RIFT-GPU)
+ 4.  Wofforde et al 2022 (RIFT-Update)
 
-If you are working with this development repository, please try to add your name/project to the wiki, so we collaborate most effectively. When preparing your work, please cite 
+When preparing your work, please cite 
 
  1. the relevant rapid_pe/RIFT papers
      1.  Pankow et al 2015
@@ -38,11 +39,12 @@ If you are working with this development repository, please try to add your name
      a.  GMM integrator: Elizabeth Champion; see [original repo](https://git.ligo.org/benjamin.champion/Monte-Carlo-Integrator), implemented via MonteCarloEnsemble and mcsamplerEnsemble; please cite Ristic et al https://arxiv.org/abs/2105.07013
      b.  GPU MC integrator:  Wysocki, O'Shaughnessy; cite Wofford et al https://dcc.ligo.org/P2200059
 
-  6. If you are using a distance-marginalized likeliihood, please acknowledge the authors; papers will be prepared soon
-     a. Distance marginalization : Soichiro Morisaki, Dan Wysocki
+  6. If you are using a distance-marginalized likeliihood, please acknowledge 
+     a. Distance marginalization : Soichiro Morisaki, Dan Wysocki, see  Wofford et al https://dcc.ligo.org/P2200059
 
-  7. If you are using a special coordinate sy
+  7. If you are using a special coordinate system
      a. Rotated inspiral-phase : cite the original Lee, Morisaki, Tanaka paper (https://dcc.ligo.org/LIGO-P2200037); also cite Wofford et al in prep https://dcc.ligo.org/P2200059
+     b. Pseudo-cylindrical coordinates: see Wofford et al https://dcc.ligo.org/P2200059
 
 ## Authorlists: Opt-in model
 Several aspects of this code are very actively developed.  We encourage  close collaboration with the lead developers (O'Shaughnessy and Lange) to produce the best possible results, particularly given comparatively rapid changes to the interface and pipeline in the past and planned for the future as the user- and developer-base expands.
@@ -65,8 +67,8 @@ Chris Pankow has also been maintaining a [port of the original rapid_pe as part 
 
 ## Version numbers
 
-Short term: roughly major.minor.feature_upgrade.internal_rc_candidates.   So the 4th number are upgraded every few major bugfixes or moves; the 3rd number will upgrade if we add a feature; and we will eventually get to 0.1 for a production O3 analysis (O3b).
+Short term: roughly major.minor.feature_upgrade.internal_rc_candidates.   So the 4th number are upgraded every few major bugfixes or moves; the 3rd number will upgrade if we add a feature.  We hope to eventually reach version 0.1 for production automated unsupervised analysis during O4
 
 Medium-term: Amajor API change or two we are thinking about for how the users specify workflows should be 0.2
 
-Long-term: Version 1 will reduce dependency on hardcoded parameter names. More flexibility in how inference is done. May be a different repo.
+Long-term: Version 1 will reduce dependency on hardcoded parameter names. More flexibility in how inference is done. 

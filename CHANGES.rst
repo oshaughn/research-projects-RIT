@@ -22,7 +22,7 @@ Since last release
      gpu-ized and exposed for use. Rosenbrock test cleanup for paper. More sphinx documentation. --auto-logarithm-offset
      in ILE (and access via --internal-ile-auto-logarithm-offset).  Tweaks to better automate interpretation of asymmetric binaries like
      BHNS (pipeline  can set lambda1,lambda2 prior upper bounds, --force-chi-small-max, and allow tides only on one
-     object).  CIP_gaussian updates.
+     object).  CIP_gaussian updates. (rc3)
 
 
 0.0.15.6
