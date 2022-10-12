@@ -24,7 +24,9 @@ Since last release
      BHNS (pipeline  can set lambda1,lambda2 prior upper bounds, --force-chi-small-max, and allow tides only on one
      object).  CIP_gaussian updates. (rc3)
    - helper missing argument for --internal-ile-auto-logarithm-offset; fix --auto-logarithm-offset implementation SNR
-     scale; ILE request_disk
+     scale (and debugs thereof); ILE request_disk; expose --internal-rotate-phase; add
+     --internal-loud-signal-mitigation-suite; add util_ForOSG_MakeTruncatedLocalFramesDir.sh and assocated .py script to
+     trim frames for a remote-machine run 
 
 
 0.0.15.6
