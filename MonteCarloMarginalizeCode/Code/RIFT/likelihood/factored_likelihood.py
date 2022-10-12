@@ -432,10 +432,11 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
       for ifo in rholms:
         rho_max_ifo = 0
         for mode in rholms[ifo]:
-          rho_max_ifo= np.max([rho_max,np.max(np.abs(rholms[ifo][mode].data.data))])
+          rho_max_ifo= np.max([rho_max_ifo,np.max(np.abs(rholms[ifo][mode].data.data))])
+          print("  ... ", ifo, rho_max_ifo,np.real(crossTerms[ifo][(mode,mode)]))
         rho_max+= rho_max_ifo**2/np.real(crossTerms[ifo][(mode,mode)])  # add peak SNR from each in quadrature
-      rho_max = np.sqrt(rho_max)  # guesstimate, keep in mind there are sky location terms, coherence, etc
-      print("SNR guess (internal, from det response) ", rho_max)
+      rho_max = np.sqrt(rho_max)/6  # guesstimate, keep in mind there are sky location terms, coherence, etc
+      print("SNR guess (internal, from det response) ", rho_max,rho_max**2/2)
       guess_snr= rho_max
 
     if not ROM_use_basis:
