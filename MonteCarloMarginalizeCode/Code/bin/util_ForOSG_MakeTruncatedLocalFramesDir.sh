@@ -25,5 +25,7 @@ for i in `cat my_temp_files`; do basename $i | tr '-' ' ' ; done | awk '{print $
 for i in `cat my_ifo_list`
 do
   CHANNEL=`grep $i my_channel_pairs | awk '{print $NF}' `
-  FrCopy -f ${TSTART} -l ${TEND}  -i `grep ${i} my_temp_files`  -o  ${OUT}/${i}-${CHANNEL}-${TSTART}-${SEGLEN}.gwf
+  util_TruncateMergeFrames.py  --start ${TSTART} --end ${TEND} --output ${OUT}/${i}-${CHANNEL}-${TSTART}-${SEGLEN}.gwf --channel ${i}:${CHANNEL}  `grep ${i}
+ my_temp_files`
+#  FrCopy -f ${TSTART} -l ${TEND}  -i `grep ${i} my_temp_files`  -o  ${OUT}/${i}-${CHANNEL}-${TSTART}-${SEGLEN}.gwf
 done
