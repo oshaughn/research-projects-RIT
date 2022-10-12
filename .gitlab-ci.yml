@@ -105,8 +105,8 @@ documentation:
     before_script:
      - pip install twine setuptools_scm
      - python setup.py sdist
-   script:
+    script:
       - twine upload dist/*
-   only:
+    only:
       - tags
 
