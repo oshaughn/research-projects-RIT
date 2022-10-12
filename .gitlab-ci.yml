@@ -66,10 +66,11 @@ documentation:
     - cd docs
     - pip install -r requirements.txt
     - make clean
+#    - git fetch origin master
+#    - git status
+#    - git branch
     # Sphinx-multiversion needs to be run from the top-level
-    - git fetch origin master
-    - git status
-    - git branch
+     - cd ..
     - sphinx-build docs/ docs/_build/
 
   artifacts:
