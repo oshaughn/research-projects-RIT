@@ -87,9 +87,9 @@ documentation:
       #- mv htmlcov_$PRIMARY_VERSION/ public/
       - mv docs/_build/* public/
     artifacts:
-     paths:
-       - public
-      expire_in: 30 days
+       paths:
+         - public
+       expire_in: 30 days
     only:
      - master
 
