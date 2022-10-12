@@ -842,14 +842,17 @@ if not (opts.fmax is None):
     helper_ile_args += " --fmax " + str(opts.fmax)  # pass actual fmax
 else:
     helper_ile_args += " --fmax " + str(fmax)
+rescaled_base_ile = False
 if "SNR" in event_dict.keys():
     snr_here = event_dict["SNR"]
     if snr_here > 25:
         lnL_expected = snr_here**2 /2. - 10  # 10 is rule of thumb, depends on distance prior
         helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
         helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
+        rescaled_base_ile = True
 if opts.internal_ile_auto_logarithm_offset:
     helper_ile_args += " --auto-logarithm-offset "
+    rescaled_base_ile = True
 
 if not opts.use_osg:
     if '/' in opts.cache:
@@ -1149,7 +1152,11 @@ if opts.propose_ile_convergence_options:
         helper_ile_args += " --adapt-log "
     else:
         if snr_fac > 1.5:  # this is a pretty loud signal, so we need to tune the adaptive exponent too!
-            helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
+            if not(rescaled_base_ile):
+                helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
+            else:
+                # if we are adjusting the logarithm scale based on signal strength, we don't want to smash it too much, so only use the default prefactor
+                helper_ile_args += " --adapt-weight-exponent " + str(prefactor)
         else:
             helper_ile_args += " --adapt-weight-exponent  {} ".format(prefactor)  
 
