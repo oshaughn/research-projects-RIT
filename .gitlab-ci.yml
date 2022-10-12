@@ -13,6 +13,7 @@ stages:
   - unit tests # TODO: write some
   - docs
   - docker image
+  - deploy
 
 before_script:
   # setup
@@ -62,11 +63,9 @@ documentation:
   script:
     - apt-get -y install graphviz
     # Sphinx-multiversion needs to be run on the git repo itself
-#    - cd ../
-#    # problem of repo name : changing!
-#    - rm research-projects-RIT/ -rf
-#    - git clone https://github.com/oshaughn/research-projects-RIT.git
-#    - cd research-projects-RIT/
+    - cd docs
+    - pip install -r requirements.txt
+    - make clean
     # Sphinx-multiversion needs to be run from the top-level
     - git fetch origin master
     - git status
@@ -76,3 +75,38 @@ documentation:
   artifacts:
     paths:
       - docs/_build/
+      
+      
+      
+  # deploy: from bilby_pipe CI: https://git.ligo.org/lscsoft/bilby_pipe/-/blob/master/.gitlab-ci.yml 
+  pages:
+    stage: deploy
+    #needs: ["unit-tests", "docs"]
+    script:
+      - mkdir public/
+      #- mv htmlcov_$PRIMARY_VERSION/ public/
+      - mv docs/_build/* public/
+    artifacts:
+     paths:
+       - public
+      expire_in: 30 days
+    only:
+     - master
+
+
+  
+  deploy_release:
+    stage: deploy
+    image: $PRIMARY_IMAGE
+    # needs: ["lookup-tables"]
+    variables:
+      TWINE_USERNAME: $PYPI_USERNAME
+      TWINE_PASSWORD: $PYPI_PASSWORD
+    before_script:
+     - pip install twine setuptools_scm
+     - python setup.py sdist
+   script:
+      - twine upload dist/*
+   only:
+      - tags
+
