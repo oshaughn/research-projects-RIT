@@ -24,8 +24,8 @@ for i in `cat my_temp_files`; do basename $i | tr '-' ' ' ; done | awk '{print $
 # Loop over interferometers.  Join together all frames from that interferometer
 for i in `cat my_ifo_list`
 do
+ echo ${i}  `grep ${i} my_temp_files`
   CHANNEL=`grep $i my_channel_pairs | awk '{print $NF}' `
-  util_TruncateMergeFrames.py  --start ${TSTART} --end ${TEND} --output ${OUT}/${i}-${CHANNEL}-${TSTART}-${SEGLEN}.gwf --channel ${i}:${CHANNEL}  `grep ${i}
- my_temp_files`
+  util_TruncateMergeFrames.py  --start ${TSTART} --end ${TEND} --output ${OUT}/${i}-${CHANNEL}-${TSTART}-${SEGLEN}.gwf --channel ${i}:${CHANNEL}  `grep ${i} my_temp_files`
 #  FrCopy -f ${TSTART} -l ${TEND}  -i `grep ${i} my_temp_files`  -o  ${OUT}/${i}-${CHANNEL}-${TSTART}-${SEGLEN}.gwf
 done
