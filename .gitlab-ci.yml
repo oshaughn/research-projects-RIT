@@ -79,7 +79,7 @@ documentation:
       
       
   # deploy: from bilby_pipe CI: https://git.ligo.org/lscsoft/bilby_pipe/-/blob/master/.gitlab-ci.yml 
-  pages:
+pages:
     stage: deploy
     #needs: ["unit-tests", "docs"]
     script:
@@ -95,7 +95,7 @@ documentation:
 
 
   
-  deploy_release:
+deploy_release:
     stage: deploy
     image: $PRIMARY_IMAGE
     # needs: ["lookup-tables"]
