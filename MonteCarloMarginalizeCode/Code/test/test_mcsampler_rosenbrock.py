@@ -1,6 +1,7 @@
-# Test script for comparing GMM integrator to existing mcsampler integrator in
-# RIFT. A simple n-dimensional integrand consisting of a highly-correlated
-# Gaussian is used.
+# Test for evaluating rosenbrock 2d likelihood, where the 1d marginal and evidence can be computed.
+#
+# Suggested:
+#   python test_mcsampler_rosenbrock.py;  plot_posterior_corner.py --posterior-file fairdraw_rosenbrock_1.dat --posterior-file fairdraw_rosenbrock_1b.dat --posterior-file fairdraw_rosenbrock_2.dat --parameter x1 --parameter x2  --quantiles None --ci-list [0.9]
 
 from __future__ import print_function
 import numpy as np
@@ -18,8 +19,8 @@ parser.add_option("--n-max",type=int,default=1000000)
 parser.add_option("--save-plot",action='store_true')
 #parser.add_option("--as-test",action='store_true')
 #parser.add_option("--no-adapt",action='store_true')
-parser.add_option("--floor-level",default=0.0,type=float)
-parser.add_option("--adapt-weight-exponent",default=0.05,type=float)
+parser.add_option("--floor-level",default=0.05,type=float)
+parser.add_option("--adapt-weight-exponent",default=0.1,type=float)
 parser.add_option("--n-chunk",default=10000,type=int)
 parser.add_option("--verbose",action='store_true')
 opts, args = parser.parse_args()
@@ -44,7 +45,7 @@ Z_rosenbrock = -5.804
 def f(x1, x2):
     minus_lnL = np.array(np.power((1.-x1), 2) + 100.* np.power((x2-x1**2),2),dtype=float)
     return np.exp( - (minus_lnL))
-def ln_f(x1, x2, x3): 
+def ln_f(x1, x2): 
     minus_lnL = np.array(np.power((1.-x1), 2) + 100.* np.power((x2-x1**2),2),dtype=float)
     return - minus_lnL
 
@@ -87,8 +88,8 @@ integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(f, *params,
 print(np.log(integral_1b), Z_rosenbrock)
 print(" --- finished AC --")
 print(" NEED TO ADD OPTION TO TEST CORRELATED SAMPLING ")
-use_lnL = False
-return_lnI=False
+use_lnL = True
+return_lnI=True
 if use_lnL:
     infunc = ln_f
 else:
@@ -125,9 +126,9 @@ if True:
     p = sampler._rvs["joint_prior"]
     ps = sampler._rvs["joint_s_prior"]
     ### compute weights of samples
-    weights_1 = (L * p / ps)[np.argsort(arr_1[:,i])]
+    weights_1 = (L * p / ps)
     n_ess_1 = np.sum(weights_1)**2/np.sum(weights_1**2)
-    print("default {} n_eff, n_ess ".format(i), eff_samp_1,n_ess_1)
+    print("default  n_eff, n_ess ", eff_samp_1,n_ess_1)
 
     L = samplerEnsemble._rvs["integrand"]
     if return_lnI:
@@ -135,18 +136,18 @@ if True:
     p = samplerEnsemble._rvs["joint_prior"]
     ps = samplerEnsemble._rvs["joint_s_prior"]
     ### compute weights of samples
-    weights_2 = (L * p / ps)[np.argsort(arr_2[:,i])]
+    weights_2 = (L * p / ps)
     n_ess_2 = np.sum(weights_2)**2/np.sum(weights_2**2)
-    print("AC {} n_eff, n_ess ".format(i), eff_samp_2,n_ess_2)
+    print("AC  n_eff, n_ess ", eff_samp_2,n_ess_2)
 
 
     L = samplerAC._rvs["integrand"]
     p = samplerAC._rvs["joint_prior"]
     ps = samplerAC._rvs["joint_s_prior"]
     ### compute weights of samples
-    weights_1b = (L * p / ps)[np.argsort(arr_1b[:,i])]
+    weights_1b = (L * p / ps)
     n_ess_1b = np.sum(weights_1b)**2/np.sum(weights_1b**2)
-    print("GMM {} n_eff, n_ess ".format(i), eff_samp_1b,n_ess_1b)
+    print("GMM  n_eff, n_ess ", eff_samp_1b,n_ess_1b)
 
 if save_fairdraws:
     npts_out_1 = int(n_ess_1)
@@ -169,12 +170,28 @@ if save_fairdraws:
 ## HOW TO MAKE JS TEST
 # for param in x1 x2 ; do ls fairdraw_*.dat | ../scripts/tool_pairs.py --prefix="convergence_test_samples.py --method JS --parameter ${param}" > tmpfile;./tmpfile > jsvals_${param}.dat; done
 
+## HOW TO MAKE A PLOT
+# plot_posterior_corner.py --posterior-file fairdraw_rosenbrock_1.dat --posterior-file fairdraw_rosenbrock_1b.dat --posterior-file fairdraw_rosenbrock_2.dat --parameter x1 --parameter x2  --quantiles None --ci-list [0.9]
 
+
+# Make copies, so they have the same orders relative to the sample values
+weights_1_orig = np.array(weights_1)
+weights_1b_orig = np.array(weights_1b)
+weights_2_orig = np.array(weights_2)
+# Note: the fairdraw export is better
 for i in range(ndim):
     ### get sorted samples (for the current dimension)
-    x_1 = arr_1[:,i][np.argsort(arr_1[:,i])]
-    x_1b = arr_1b[:,i][np.argsort(arr_1b[:,i])]
-    x_2 = arr_2[:,i][np.argsort(arr_2[:,i])]
+    indx_sort = np.argsort(arr_1[:,i])
+    x_1 = arr_1[:,i][indx_sort]
+    weights_1 = weights_1_orig[indx_sort]
+
+    indx_sort = np.argsort(arr_1b[:,i])
+    x_1b = arr_1b[:,i][indx_sort]
+    weights_1b = weights_1b_orig[indx_sort]
+
+    indx_sort = np.argsort(arr_2[:,i])
+    x_2 = arr_2[:,i][indx_sort]
+    weights_2 = weights_2_orig[indx_sort]
 
 
     y_1 = np.cumsum(weights_1)
