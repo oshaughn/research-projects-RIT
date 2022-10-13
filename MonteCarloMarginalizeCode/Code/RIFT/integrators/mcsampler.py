@@ -687,7 +687,7 @@ class MCSampler(object):
 
                 # Mix with uniform distribution
                 self._hist[p] = (1-floor_integrated_probability)*self._hist[p] + numpy.ones(len(self._hist[p]))*floor_integrated_probability/len(self._hist[p])
-                if rosDebugMessages:
+                if rosDebugMessages and bShowEvaluationLog:
                     print("         Weight entropy (after histogram) ", numpy.sum(-1*self._hist[p]*numpy.log(self._hist[p])), p)
 
                 edges = [ (e0+e1)/2.0 for e0, e1 in zip(edges[:-1], edges[1:]) ]
