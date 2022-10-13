@@ -12,10 +12,23 @@ from scipy.special import erf
 
 from RIFT.integrators import mcsampler, mcsamplerEnsemble, mcsamplerGPU
 
-tempering_exp =0.01
+import optparse
+parser = optparse.OptionParser()
+parser.add_option("--n-max",type=int,default=1000000)
+parser.add_option("--save-plot",action='store_true')
+#parser.add_option("--as-test",action='store_true')
+#parser.add_option("--no-adapt",action='store_true')
+parser.add_option("--floor-level",default=0.0,type=float)
+parser.add_option("--adapt-weight-exponent",default=0.05,type=float)
+parser.add_option("--n-chunk",default=10000,type=int)
+parser.add_option("--verbose",action='store_true')
+opts, args = parser.parse_args()
+
+
+tempering_exp =opts.adapt_weight_exponent
 # max number of samples for mcsampler
-nmax = 1000000  
-n_block=10000
+nmax = opts.n_max
+n_block=opts.n_chunk
 n_iters = nmax/n_block
 
 save_fairdraws=True
@@ -61,13 +74,16 @@ for p in params:
 # number of Gaussian components to use in GMM
 n_comp = 1
 
+extra_args = {"n": opts.n_chunk,"n_adapt":100, "floor_level":opts.floor_level,"tempering_exp" :tempering_exp}
+
+
 ### integrate
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
-        no_protect_names=True, nmax=nmax, save_intg=True,verbose=False)
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=False,**extra_args)
 print(np.log(integral_1), Z_rosenbrock)
 print(" --- finished default --")
 integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(f, *params, 
-        no_protect_names=True, nmax=nmax, save_intg=True,verbose=False)
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=False,**extra_args)
 print(np.log(integral_1b), Z_rosenbrock)
 print(" --- finished AC --")
 print(" NEED TO ADD OPTION TO TEST CORRELATED SAMPLING ")
@@ -78,9 +94,10 @@ if use_lnL:
 else:
     infunc = f
 integral_2, var_2, eff_samp_2, _ = samplerEnsemble.integrate(infunc, *params, 
-        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=False,verbose=False,tempering_exp=tempering_exp,use_lnL=use_lnL,return_lnI=return_lnI)
+        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=False,verbose=False,use_lnL=use_lnL,return_lnI=return_lnI,**extra_args)
 if return_lnI and use_lnL:
     integral_2 = np.exp(integral_2)
+print(np.log(integral_2), Z_rosenbrock)
 print(" --- finished GMM --")
 print(integral_1,integral_1b,integral_2,np.exp(Z_rosenbrock))
 print(np.array([integral_1,integral_1b,integral_2])/np.exp(Z_rosenbrock))
