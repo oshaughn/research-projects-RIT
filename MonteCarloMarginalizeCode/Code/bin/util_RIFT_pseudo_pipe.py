@@ -1059,7 +1059,7 @@ if opts.use_osg:
     if not(opts.use_osg_file_transfer):
         cmd += " --use-cvmfs-frames "
     elif not(opts.internal_truncate_files_for_osg_file_transfer):  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
-        os.system("util_ForOSG_MakeLocalFramesDir.sh local.cache")
+        os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
 #        os.system("echo ../frames_dir >> helper_transfer_files.txt")
         cmd += " --frames-dir `pwd`/frames_dir "
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
