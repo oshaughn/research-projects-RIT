@@ -640,7 +640,8 @@ class MCSampler(object):
             #
             # FIXME: We need a better stopping condition here
             if self.ntotal > n_adapt:
-               print(" ... skipping adaptation in late iterations .. ")
+               if bShowEvaluationLog:
+                  print(" ... skipping adaptation in late iterations .. ")
                continue
 
             if force_no_adapt:
