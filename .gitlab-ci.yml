@@ -51,7 +51,7 @@ build:test:
   image: docker:latest
   stage: docker image
   script:  
-   -  docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
+    -  docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
     - suffix=$(echo $CI_COMMIT_BRANCH | cut -d "-" -f 2)
     - docker build --rm --no-cache -t $RIFT_IMAGE:$suffix --file Dockerfile .
     - docker push $RIFT_IMAGE:$suffix
@@ -62,15 +62,10 @@ documentation:
   image: debian:latest
   script:
     - apt-get -y install graphviz
-    # Sphinx-multiversion needs to be run on the git repo itself
     - cd docs
     - pip install -r requirements.txt
     - make clean
-#    - git fetch origin master
-#    - git status
-#    - git branch
-    # Sphinx-multiversion needs to be run from the top-level
-     - cd ..
+    - cd ..
     - sphinx-build docs/ docs/_build/
 
   artifacts:
@@ -79,14 +74,13 @@ documentation:
       
       
       
-  # deploy: from bilby_pipe CI: https://git.ligo.org/lscsoft/bilby_pipe/-/blob/master/.gitlab-ci.yml 
+# deploy: from bilby_pipe CI: https://git.ligo.org/lscsoft/bilby_pipe/-/blob/master/.gitlab-ci.yml 
 pages:
     stage: deploy
     #needs: ["unit-tests", "docs"]
     script:
-      - mkdir public/
-      #- mv htmlcov_$PRIMARY_VERSION/ public/
-      - mv docs/_build/* public/
+     - mkdir public/
+     - mv docs/_build/* public/
     artifacts:
        paths:
          - public
