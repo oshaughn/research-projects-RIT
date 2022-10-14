@@ -13,6 +13,7 @@ cat local.cache | awk '{print $NF}'  | tr -d '\r' > my_temp_files
 switcheroo file://localhost ' ' my_temp_files
 grep arguments ILE.sub | sed s/--/\\n/g | grep time > my_time_args
 TSTART=`grep data-start-time my_time_args | awk '{print $NF}' | xargs printf '%.*f\n' 0 `
+TSTART=`echo ${TSTART} - 1 | bc `
 TEND=`grep data-end-time my_time_args | awk '{print $NF}' | xargs printf '%.*f\n' 0 `
 TEND=`echo  ${TEND} + 1 | bc `
 SEGLEN=`echo ${TEND} - ${TSTART} | bc`
