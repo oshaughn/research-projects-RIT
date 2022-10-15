@@ -26,7 +26,8 @@ Since last release
    - helper missing argument for --internal-ile-auto-logarithm-offset; fix --auto-logarithm-offset implementation SNR
      scale (and debugs thereof); ILE request_disk; expose --internal-rotate-phase; add
      --internal-loud-signal-mitigation-suite; add util_ForOSG_MakeTruncatedLocalFramesDir.sh and assocated .py script to
-     trim frames for a remote-machine run 
+     trim frames for a remote-machine run; pp plot minor typing issues; fix accidental mangling of rosenbrock test
+     commit; docs.  (rc4)
 
 
 0.0.15.6
