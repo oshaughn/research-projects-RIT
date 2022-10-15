@@ -1,6 +1,7 @@
 import numpy
+import scipy.special
 
-__author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>"
+__author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 #
 # Stat utilities
@@ -110,3 +111,53 @@ def finalize(existingAggregate):
          return float('nan')
      else:
          return (mean,  sampleVariance)
+
+	
+def init_log(newLogValues,special=scipy.special,xpy=numpy):
+    logsumexp = special.logsumexp
+  
+    lnL_max = xpy.max(newLogValues)
+    ratio = newLogValues - lnL_max
+    dat = xpy.exp(ratio)
+    
+    return (len(dat),xpy.log(xpy.mean(dat)), xpy.log(xpy.var(dat))+xpy.log(len(dat)), lnL_max)
+def update_log(existingLogAggregate, newLogValues,special=scipy.special,xpy=numpy):
+    """
+    logsumexp : warning it is implemented but has a different function name, need to wrap it carefully and detect which is used
+    """
+    logsumexp = special.logsumexp
+    if isinstance(newLogValues, (int, float, complex)):
+        # Handle single digits.
+        newLogValues = [newLogValues]
+    # https://docs.cupy.dev/en/latest/reference/generated/cupyx.scipy.special.logsumexp.html
+    (nA, log_xAmean, log_M2A,log_refA) = existingLogAggregate
+
+
+    # Evaluate reference scale, B for mean
+    nB = len(newLogValues)
+    log_refB = xpy.max(newLogValues)
+    log_xBmean = logsumexp(newLogValues - log_refB) - xpy.log(nB)
+    # compute M2AB after removing scale factor from all the terms
+    log_M2B = logsumexp( 2*xpy.log(xpy.abs(xpy.exp(newLogValues-log_refB) - xpy.exp(log_xBmean) )))
+
+    # Find new common scale factor, and apply it
+    logRef = xpy.max([log_refA,log_refB])
+    log_xAmean += -(logRef - log_refA)
+    log_xBmean += -(logRef - log_refB)
+    log_M2A += -2*(logRef-log_refA)  # scale is quadratic
+    log_M2B += -2*(logRef-log_refB)
+
+    # Update mean and second moment
+    log_xNewMean = logsumexp([log_xAmean + xpy.log(nA),log_xBmean + xpy.log(nB)]) - xpy.log(nA+nB)
+    log_delta = xpy.log(xpy.abs(xpy.exp(log_xAmean)- xpy.exp(log_xBmean))) # sign irrelevant
+    log_M2New = logsumexp([log_M2A,log_M2B,2*log_delta + xpy.log(nA)+ xpy.log(nB) - xpy.log(nA+nB)])
+
+    # return new aggregate
+    return (nA+nB, log_xNewMean, log_M2New, logRef)
+def finalize_log(existingAggregate):
+     (count, log_mean, log_M2, log_ref) = existingAggregate
+     (log_mean,  log_sampleVariance) = (log_mean+log_ref, log_M2 + 2*log_ref - xpy.log((count - 1))) 
+     if count < 2:
+         return float('nan')
+     else:
+         return (log_mean,  log_sampleVariance)
