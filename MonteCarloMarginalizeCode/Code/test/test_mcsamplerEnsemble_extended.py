@@ -162,9 +162,14 @@ for i in range(ndim):
     ### compute weights of samples
     weights_2 = (L * p / ps)[np.argsort(arr_2[:,i])]
 
-    L = samplerAC._rvs["integrand"]
-    p = samplerAC._rvs["joint_prior"]
-    ps = samplerAC._rvs["joint_s_prior"]
+    if "integrand" in samplerAC._rvs:
+        L = samplerAC._rvs["integrand"]
+        p = samplerAC._rvs["joint_prior"]
+        ps = samplerAC._rvs["joint_s_prior"]
+    else:
+        L = np.exp(samplerAC._rvs["log_integrand"])
+        p = np.exp(samplerAC._rvs["log_joint_prior"])
+        ps = np.exp(samplerAC._rvs["log_joint_s_prior"])
     ### compute weights of samples
     weights_1b = (L * p / ps)[np.argsort(arr_1b[:,i])]
 
