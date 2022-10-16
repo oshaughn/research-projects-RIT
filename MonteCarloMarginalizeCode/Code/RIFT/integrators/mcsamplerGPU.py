@@ -696,7 +696,7 @@ class MCSampler(object):
                 raise NanOrInf("Effective samples = nan")
 
             if bShowEvaluationLog:
-                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*outvals[0]), outvals[0]-maxlnL, np.exp(outvals[1]))
+                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*outvals[0]), outvals[0]-maxlnL, np.exp(outvals[1]/2  - outvals[0]  ))
 
             if (not convergence_tests) and self.ntotal >= nmax and neff != float("inf"):
                 print("WARNING: User requested maximum number of samples reached... bailing.", file=sys.stderr)
