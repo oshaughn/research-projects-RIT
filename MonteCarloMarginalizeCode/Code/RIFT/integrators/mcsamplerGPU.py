@@ -640,8 +640,8 @@ class MCSampler(object):
             unpacked = unpacked0 = rv #numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
             unpacked = dict(list(zip(params, unpacked)))
 
-            # Evaluate function
-            value_array = lnF(*unpacked0)  # do not protect order
+            # Evaluate function, protecting argument order
+            value_array = lnF(**unpacked)  # protect order using dictionary
             lnL=value_array
             # take log if we are NOT using lnL
             if cupy_ok:
