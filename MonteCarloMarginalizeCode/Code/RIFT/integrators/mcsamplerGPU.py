@@ -11,7 +11,7 @@ from collections import defaultdict
 
 import numpy
 np=numpy #import numpy as np
-from scipy import integrate, interpolate
+from scipy import integrate, interpolate, special
 import itertools
 import functools
 
@@ -19,7 +19,9 @@ import os
 
 try:
   import cupy
+  import cupyx   # needed for logsumexp
   xpy_default=cupy
+  xpy_special_default = cupyx.scipy.special
   identity_convert = cupy.asnumpy
   identity_convert_togpu = cupy.asarray
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
@@ -45,6 +47,7 @@ except:
   print(' no cupy (mcsamplerGPU)')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
+  xpy_special_default = special
   identity_convert = lambda x: x  # trivial return itself
   identity_convert_togpu = lambda x: x
   cupy_ok = False
@@ -68,7 +71,7 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  except:
     print(" - No healpy - ")
 
-from ..integrators.statutils import  cumvar, update,finalize
+from ..integrators.statutils import  update,finalize, init_log,update_log,finalize_log
 
 #from multiprocessing import Pool
 
@@ -491,340 +494,304 @@ class MCSampler(object):
             return dict(list(zip(args, res)))
         return list(zip(*res))
 
-#     @profile
-#     def integrate_log(self, lnF, *args, **kwargs):
-#         """
-#         Integrate exp(lnF) returning lnI, by using n sample points. 
-#         Does NOT allow for tuples of arguments, an unused feature in mcsampler
+    @profile
+    def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
+        """
+        Integrate exp(lnF) returning lnI, by using n sample points, assuming integrand is lnF
+        Does NOT allow for tuples of arguments, an unused feature in mcsampler
 
-#         tempering is done with lnF, suitably modified.
+        tempering is done with lnF, suitably modified.
 
-#         kwargs:
-#         nmax -- total allowed number of sample points, will throw a warning if this number is reached before neff.
-#         neff -- Effective samples to collect before terminating. If not given, assume infinity
-#         n -- Number of samples to integrate in a 'chunk' -- default is 1000
-#         save_integrand -- Save the evaluated value of the integrand at the sample points with the sample point
-#         history_mult -- Number of chunks (of size n) to use in the adaptive histogramming: only useful if there are parameters with adaptation enabled
-#         tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
-#         temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
-#         tempering_adapt -- Gradually evolve the tempering_exp based on previous history.
-#         floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
-#         n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
-#         convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
-#         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
-#         """
-#         use_lnL = kwargs["use_lnL"] if "use_lnL" in kwargs else False;
+        kwargs:
+        nmax -- total allowed number of sample points, will throw a warning if this number is reached before neff.
+        neff -- Effective samples to collect before terminating. If not given, assume infinity
+        n -- Number of samples to integrate in a 'chunk' -- default is 1000
+        save_integrand -- Save the evaluated value of the integrand at the sample points with the sample point
+        history_mult -- Number of chunks (of size n) to use in the adaptive histogramming: only useful if there are parameters with adaptation enabled
+        tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
+        temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
+        tempering_adapt -- Gradually evolve the tempering_exp based on previous history.
+        floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
+        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
+        convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
+        Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
+        """
 
-#         # Setup histogram data
-#         n_bins = 100
-#         for p in self.params_ordered:
-#             self.setup_hist_single_param(self.llim[p], self.rlim[p], n_bins, p)
+        # Setup histogram data
+        n_bins = 100
+        for p in self.params_ordered:
+            self.setup_hist_single_param(self.llim[p], self.rlim[p], n_bins, p)
 
-#         xpy_here = self.xpy
+        xpy_here = self.xpy
 
-#         #
-#         # Pin values
-#         #
-#         tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
-#         temppdfnormdict = defaultdict(lambda: 1.0)
-#         for p, val in list(kwargs.items()):
-#             if p in self.params_ordered:
-#                 # Store the previous pdf/cdf in case it's already defined
-#                 tempcdfdict[p] = self.cdf_inv[p]
-#                 temppdfdict[p] = self.pdf[p]
-#                 temppdfnormdict[p] = self._pdf_norm[p]
-#                 temppriordict[p] = self.prior_pdf[p]
-#                 # Set a new one to always return the same value
-#                 self.pdf[p] = functools.partial(delta_func_pdf_vector, val)
-#                 self._pdf_norm[p] = 1.0
-#                 self.prior_pdf[p] = functools.partial(delta_func_pdf_vector, val)
-#                 self.cdf_inv[p] = functools.partial(delta_func_samp_vector, val)
+        #
+        # Pin values
+        #
+        tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
+        temppdfnormdict = defaultdict(lambda: 1.0)
+        for p, val in list(kwargs.items()):
+            if p in self.params_ordered:
+                # Store the previous pdf/cdf in case it's already defined
+                tempcdfdict[p] = self.cdf_inv[p]
+                temppdfdict[p] = self.pdf[p]
+                temppdfnormdict[p] = self._pdf_norm[p]
+                temppriordict[p] = self.prior_pdf[p]
+                # Set a new one to always return the same value
+                self.pdf[p] = functools.partial(delta_func_pdf_vector, val)
+                self._pdf_norm[p] = 1.0
+                self.prior_pdf[p] = functools.partial(delta_func_pdf_vector, val)
+                self.cdf_inv[p] = functools.partial(delta_func_samp_vector, val)
 
         
-#         #
-#         # Determine stopping conditions
-#         #
-#         nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
-#         neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
-#         n = int(kwargs["n"] if "n" in kwargs else min(1000, nmax))
-#         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
-#         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
+        #
+        # Determine stopping conditions
+        #
+        nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
+        neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
+        n = int(kwargs["n"] if "n" in kwargs else min(1000, nmax))
+        convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
+        save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
 
 
-#         #
-#         # Adaptive sampling parameters
-#         #
-#         n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else None
-#         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
-#         n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000  # default to adapt to 1000 chunks, then freeze
-#         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
-#         temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
-#         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
+        #
+        # Adaptive sampling parameters
+        #
+        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else 2*n
+        if n_history<=0:
+            print("  Note: cannot adapt, no history ")
+
+        tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
+        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000  # default to adapt to 1000 chunks, then freeze
+        floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
+        temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
+        tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
             
 
-#         save_intg = kwargs["save_intg"] if "save_intg" in kwargs else False
-#         # FIXME: The adaptive step relies on the _rvs cache, so this has to be
-#         # on in order to work
-#         if n_adapt > 0 and tempering_exp > 0.0:
-#             save_intg = True
+        save_intg = kwargs["save_intg"] if "save_intg" in kwargs else False
+        # FIXME: The adaptive step relies on the _rvs cache, so this has to be
+        # on in order to work
+        if n_adapt > 0 and tempering_exp > 0.0:
+            save_intg = True
 
-#         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
-#         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
-#         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
-#         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
+        deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
+        deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
+        bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
-# #        bUseMultiprocessing = kwargs['use_multiprocessing'] if 'use_multiprocessing' in kwargs else False
-#         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
-#         bShowEveryEvaluation = kwargs['extremely_verbose'] if 'extremely_verbose' in kwargs else False
+#        bUseMultiprocessing = kwargs['use_multiprocessing'] if 'use_multiprocessing' in kwargs else False
+        bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
+        bShowEveryEvaluation = kwargs['extremely_verbose'] if 'extremely_verbose' in kwargs else False
 
-#         if bShowEvaluationLog:
-#             print(" .... mcsampler : providing verbose output ..... ")
+        if bShowEvaluationLog:
+            print(" .... mcsampler : providing verbose output ..... ")
 
-#         int_val1 = numpy.float128(0)
-#         self.ntotal = 0
-#         maxval = -float("Inf")
-#         maxlnL = -float("Inf")
-#         eff_samp = 0
-#         mean, var = None, numpy.float128(0)    # to prevent infinite variance due to overflow
-#         if cupy_ok:
-#           var = xpy_default.float64(0)   # cupy doesn't have float128
+        current_log_aggregate = None
+        eff_samp = 0  # ratio of max weight to sum of weights
+        maxlnL = -np.inf  # max lnL
+        maxval=0   # max weight
+        if bShowEvaluationLog:
+            print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
-#         if bShowEvaluationLog:
-#             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
+        if convergence_tests:
+            bConvergenceTests = False   # start out not converged, if tests are on
+            last_convergence_test = defaultdict(lambda: False)   # initialize record of tests
+        else:
+            bConvergenceTests = False    # if tests are not available, assume not converged. The other criteria will stop it
+            last_convergence_test = defaultdict(lambda: False)   # need record of tests to be returned always
+        n_zero_prior =0
+        while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
 
-#         if convergence_tests:
-#             bConvergenceTests = False   # start out not converged, if tests are on
-#             last_convergence_test = defaultdict(lambda: False)   # initialize record of tests
-#         else:
-#             bConvergenceTests = False    # if tests are not available, assume not converged. The other criteria will stop it
-#             last_convergence_test = defaultdict(lambda: False)   # need record of tests to be returned always
-#         n_zero_prior =0
-#         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
+            # Draw our sample points
+            # Non-log draw
+            joint_p_s, joint_p_prior, rv = self.draw_simplified(
+                n, *self.params_ordered
+            )
 
-#             # Draw our sample points
-#             joint_p_s, joint_p_prior, rv = self.draw_simplified(
-#                 n, *self.params_ordered
-#             )
+            #
+            # Prevent zeroes in the sampling prior
+            #
+            # FIXME: If we get too many of these, we should bail
+            if not(cupy_ok):  # don't do this if using cupy! 
+              if any(joint_p_s <= 0):
+                for p in self.params_ordered:
+                    self._rvs[p] = identity_convert_togpu(numpy.resize(identity_convert(self._rvs[p]), len(self._rvs[p])-n))
+                    self.cdf_inv = self.cdf_inv_initial
+                    self.pdf = self.pdf_initial
+                print("Zero prior value detected, skipping.", file=sys.stderr)
+                print("Resetting sampling priors to initial values.", file=sys.stderr)
+                n_zero_prior +=1
+                if n_zero_prior > 5:
+                  raise Exception('Zero prior failure', 'fail')
+                continue
 
-#             #
-#             # Prevent zeroes in the sampling prior
-#             #
-#             # FIXME: If we get too many of these, we should bail
-#             if not(cupy_ok):  # don't do this if using cupy! 
-#               if any(joint_p_s <= 0):
-#                 for p in self.params_ordered:
-#                     self._rvs[p] = identity_convert_togpu(numpy.resize(identity_convert(self._rvs[p]), len(self._rvs[p])-n))
-#                     self.cdf_inv = self.cdf_inv_initial
-#                     self.pdf = self.pdf_initial
-#                 print("Zero prior value detected, skipping.", file=sys.stderr)
-#                 print("Resetting sampling priors to initial values.", file=sys.stderr)
-#                 n_zero_prior +=1
-#                 if n_zero_prior > 5:
-#                   raise Exception('Zero prior failure', 'fail')
-#                 continue
+            #
+            # Unpack rvs and evaluate integrand
+            #
+            if len(rv[0].shape) != 1:
+                rv = rv[0]
 
-#             #
-#             # Unpack rvs and evaluate integrand
-#             #
-#             if len(rv[0].shape) != 1:
-#                 rv = rv[0]
+            params = []
+            for item in self.params_ordered:  # USE IN ORDER
+                if isinstance(item, tuple):
+                    params.extend(item)
+                else:
+                    params.append(item)
+            unpacked = unpacked0 = rv #numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
+            unpacked = dict(list(zip(params, unpacked)))
 
-#             params = []
-#             for item in self.params_ordered:  # USE IN ORDER
-#                 if isinstance(item, tuple):
-#                     params.extend(item)
-#                 else:
-#                     params.append(item)
-#             unpacked = unpacked0 = rv #numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
-#             unpacked = dict(list(zip(params, unpacked)))
+            # Evaluate function
+            value_array = lnF(*unpacked0)  # do not protect order
+            lnL=value_array
+            # take log if we are NOT using lnL
+            if cupy_ok:
+              if not(isinstance(fval,cupy.ndarray)):
+                lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
 
-#             # Evaluate function
-#             value_array = lnF(*unpacked0)  # do not protect order
-#             lnL=value_array
-#             # take log if we are NOT using lnL
-#             if not(use_lnL):
-#               lnL = self.xpy.log(value_array)  # note we can in principle get negative infinity here
-#             if cupy_ok:
-#               if not(isinstance(fval,cupy.ndarray)):
-#                 lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
+            log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
+            log_weights = tempering_exp*lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
+            
+            # append to cumulative values (assume all can be added)
 
-#             log_weights = tempering_exp*lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
+            if save_intg:
+                # FIXME: See warning at beginning of function. The prior values
+                # need to be moved out of this, as they are not part of MC
+                # integration
+                if "log_integrand" in self._rvs:
+                    self._rvs["log_integrand"] = xpy_here.hstack( (self._rvs["log_integrand"], lnL) )
+                    self._rvs["log_joint_prior"] = xpy_here.hstack( (self._rvs["log_joint_prior"], self.xpy.log(joint_p_prior)) )
+                    self._rvs["log_joint_s_prior"] = xpy_here.hstack( (self._rvs["log_joint_s_prior"], self.xpy.log(joint_p_s)))
+                    self._rvs["log_weights"] = xpy_here.hstack( (self._rvs["log_weights"], log_weights ))
+                else:
+                    self._rvs["log_integrand"] = lnL
+                    self._rvs["log_joint_prior"] = self.xpy.log(joint_p_prior)
+                    self._rvs["log_joint_s_prior"] = self.xpy.log(joint_p_s)
+                    self._rvs["log_weights"] = log_weights
+            # maxlnL
+            maxlnL_now = identity_convert(xpy.max(lnL))
+            if xpy.isinf(maxlnL ):
+              maxlnL = maxlnL_now
+            else:
+              maxlnL = np.max([maxlnL, maxlnL_now,-100])
 
-#             # append to cumulative values (assume all can be added)
 
-#             if save_intg:
-#                 # FIXME: See warning at beginning of function. The prior values
-#                 # need to be moved out of this, as they are not part of MC
-#                 # integration
-#                 if "integrand" in self._rvs:
-#                     self._rvs["log_integrand"] = xpy_here.hstack( (self._rvs["_logintegrand"], lnL) )
-#                     self._rvs["log_joint_prior"] = xpy_here.hstack( (self._rvs["joint_prior"], self.xpy.log(joint_p_prior)) )
-#                     self._rvs["log_joint_s_prior"] = xpy_here.hstack( (self._rvs["joint_s_prior"], self.xpy.log(joint_p_s)))
-#                     self._rvs["log_weights"] = xpy_here.hstack( (self._rvs["joint_s_prior"], log_weights ))
-#                 else:
-#                     self._rvs["log_integrand"] = lnL
-#                     self._rvs["log_joint_prior"] = self.xpy.log(joint_p_prior)
-#                     self._rvs["log_joint_s_prior"] = self.xpy.log(joint_p_s)
-#                     self._rvs["log_weights"] = log_weights
+            # n, Mean, error tracked by statutils structure
+            if current_log_aggregate is None:
+              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
+            else:
+              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=xpy_special_default)
+            outvals = finalize_log(current_log_aggregate,xpy=xpy)
+            self.ntotal = current_log_aggregate[0]
+            # effective samples
+            maxval = max(maxval, identity_convert(outvals[0])) 
 
-#             # Calculate the integral over this chunk
-#             # this is just log_weights exponentiated
+            eff_samp = xpy.exp(  outvals[0] - maxval)   # integral value minus floating point, which is maximum
 
-#             # Calculate max L (a useful convergence feature) for debug 
-#             # reporting.  Not used for integration
-#             # Try to avoid nan's
-#             if not(np.isinf(maxlnL)):
-#               maxlnL = numpy.max( [maxlnL, lnL, -100])
-#             else:
-#               maxlnL = numpy.amax(maxlnL)
 
-#             # Calculate the effective samples via max over the current 
-#             # evaluations
-#             if not(np.isinf(maxval)):
-#               maxval = numpy.max([log_weights,maxval])
-#             else:
-#               maxval = numpy.amax(maxval)
+            # Throw exception if we get infinity or nan
+            if math.isnan(eff_samp):
+                raise NanOrInf("Effective samples = nan")
 
-#             if var is None:
-#               var=0
-#             if mean is None:
-#               mean=identity_convert_togpu(0.0)
-#             current_aggregate = [int(self.ntotal),mean, (self.ntotal-1)*var]
-#             current_aggregate = update(current_aggregate, int_val,xpy=xpy_default)
-#             outvals = finalize(current_aggregate)
-# #            print(var, outvals[-1])
-#             var = outvals[-1]
+            if bShowEvaluationLog:
+                var_print = identity_convert(var)
+                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*outvals[1]), outvals[1]-maxlnL, np.exp(outvals[2]-outvals[1]))
 
-#             #### AT THIS POINT IN CODE EDIT
+            if (not convergence_tests) and self.ntotal >= nmax and neff != float("inf"):
+                print("WARNING: User requested maximum number of samples reached... bailing.", file=sys.stderr)
 
-#             # running integral
-#             int_val1 += identity_convert(int_val.sum())
-#             # running number of evaluations
-#             self.ntotal += n
-#             # FIXME: Likely redundant with int_val1
-#             mean = identity_convert_togpu(xpy_default.float64(int_val1/self.ntotal))
+            # Convergence tests:
+            if convergence_tests:
+                bConvergedThisIteration = True  # start out optimistic
+                for key in list(convergence_tests.keys()):
+                    last_convergence_test[key] =  convergence_tests[key](self._rvs, self.params_ordered)
+                    bConvergedThisIteration = bConvergedThisIteration  and                      last_convergence_test[key]
+                bConvergenceTests = bConvergedThisIteration
 
-#             eff_samp = int_val1/maxval
+            if convergence_tests  and bShowEvaluationLog:  # Print status of each test
+                for key in convergence_tests:
+                    print("   -- Convergence test status : ", key, last_convergence_test[key])
 
-#             # Throw exception if we get infinity or nan
-#             if math.isnan(eff_samp):
-#                 raise NanOrInf("Effective samples = nan")
-#             if maxlnL is float("Inf"):
-#                 raise NanOrInf("maxlnL = inf")
+            #
+            # The total number of adaptive steps is reached
+            #
+            # FIXME: We need a better stopping condition here
+            if self.ntotal > n_adapt*n:
+                print(n_adapt,self.n_total)
+                continue
 
-#             if bShowEvaluationLog:
-#                 var_print = identity_convert(var)
-#                 print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/self.ntotal)), numpy.log(int_val1/self.ntotal)-maxlnL, numpy.sqrt(var_print*self.ntotal)/int_val1)
+            #
+            # Iterate through each of the parameters, updating the sampling
+            # prior PDF according to the 1-D marginalization
+            #
+            def function_wrapper(f, p):
+                def inner(arg):
+                    return f(arg, p)
+                return inner
 
-#             if (not convergence_tests) and self.ntotal >= nmax and neff != float("inf"):
-#                 print("WARNING: User requested maximum number of samples reached... bailing.", file=sys.stderr)
+            weights_alt = self._rvs["log_integrand"][-n_history:]+np.max([maxlnL, 200])  # try to make sure we have some dynamic range here
+            weights_alt = self.xpy.maximum(weights_alt, 1e-5)  # prevent negative weights. NOTE THIS IS IMPORTANT: if you are integrating a function with lnL<0, use an offset!
+            weights_alt = weights_alt/(weights_alt.sum())
+            if weights_alt.dtype == numpy.float128:
+              weights_alt = weights_alt.astype(numpy.float64,copy=False)
 
-#             # Convergence tests:
-#             if convergence_tests:
-#                 bConvergedThisIteration = True  # start out optimistic
-#                 for key in list(convergence_tests.keys()):
-#                     last_convergence_test[key] =  convergence_tests[key](self._rvs, self.params_ordered)
-#                     bConvergedThisIteration = bConvergedThisIteration  and                      last_convergence_test[key]
-#                 bConvergenceTests = bConvergedThisIteration
+            for itr, p in enumerate(self.params_ordered):
+                # # FIXME: The second part of this condition should be made more
+                # # specific to pinned parameters
+                if p not in self.adaptive or p in list(kwargs.keys()):
+                    continue
 
-#             if convergence_tests  and bShowEvaluationLog:  # Print status of each test
-#                 for key in convergence_tests:
-#                     print("   -- Convergence test status : ", key, last_convergence_test[key])
+                points = self._rvs[p][-n_history:]
+                self.compute_hist(points, p,weights=weights_alt,floor_level=floor_integrated_probability)
+                self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
+                self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
 
-#             #
-#             # The total number of adaptive steps is reached
-#             #
-#             # FIXME: We need a better stopping condition here
-#             if self.ntotal > n_adapt*n:
-#                 print(n_adapt,self.n_total)
-#                 continue
+        # If we were pinning any values, undo the changes we did before
+        self.cdf_inv.update(tempcdfdict)
+        self.pdf.update(temppdfdict)
+        self._pdf_norm.update(temppdfnormdict)
+        self.prior_pdf.update(temppriordict)
 
-#             #
-#             # Iterate through each of the parameters, updating the sampling
-#             # prior PDF according to the 1-D marginalization
-#             #
-#             def function_wrapper(f, p):
-#                 def inner(arg):
-#                     return f(arg, p)
-#                 return inner
+        # Clean out the _rvs arrays for 'irrelevant' points
+        #   - find and remove samples with  lnL less than maxlnL - deltalnL (latter user-specified)
+        #   - create the cumulative weights
+        #   - find and remove samples which contribute too little to the cumulative weights
+        if (not save_no_samples) and ( "integrand" in self._rvs):
+            self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
+            # Step 1: Cut out any sample with lnL belw threshold
+            indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
+            # FIXME: This is an unncessary initial copy, the second step (cum i
+            # prob) can be accomplished with indexing first then only pare at
+            # the end
+            for key in list(self._rvs.keys()):
+                if isinstance(key, tuple):
+                    self._rvs[key] = self._rvs[key][:,indx_list]
+                else:
+                    self._rvs[key] = self._rvs[key][indx_list]
+            # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
+            wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
+            idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
+            indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again. NOTE NOT INTEGER TYPE ANY MORE
+            cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
+            cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
+            indx_list = [int(indx_list[k, 0]) for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability. RECAST TO INTEGER
+            # FIXME: See previous FIXME
+            for key in list(self._rvs.keys()):
+                if isinstance(key, tuple):
+                    self._rvs[key] = self._rvs[key][:,indx_list]
+                else:
+                    self._rvs[key] = self._rvs[key][indx_list]
 
-#             if not(save_intg):
-#                 print("Direct access ")
-#                 weights_alt = int_vals**tempering_exp
-#             else:
-#                 if temper_log:
-#                   weights_alt =self.xpy.log(self._rvs["integrand"][-n_history:])
-#                   weights_alt = self.xpy.maximum(weights_alt, 1e-5)  # prevent negative weights
-#                 else:
-#                   weights_alt =((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp )
-#                   weights_alt = self.xpy.maximum(weights_alt,10)   # preventing too little dynamic range
-#             weights_alt = weights_alt/(weights_alt.sum())
-#             if weights_alt.dtype == numpy.float128:
-#               weights_alt = weights_alt.astype(numpy.float64,copy=False)
+        # Create extra dictionary to return things
+        dict_return ={}
+        if convergence_tests is not None:
+            dict_return["convergence_test_results"] = last_convergence_test
 
-#             for itr, p in enumerate(self.params_ordered):
-#                 # # FIXME: The second part of this condition should be made more
-#                 # # specific to pinned parameters
-#                 if p not in self.adaptive or p in list(kwargs.keys()):
-#                     continue
+        # perform type conversion of all stored variables
+        if cupy_ok:
+          for name in self._rvs:
+            if isinstance(self._rvs[name],xpy_default.ndarray):
+              self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
-#                 points = self._rvs[p][-n_history:]
-#                 self.compute_hist(points, p,weights=weights_alt,floor_level=floor_integrated_probability)
-#             #    if p == 'declination':
-#             #          vals = identity_convert(self.histogram_values[p])
-#             #          print(vals)
-#             #          print(np.mean(vals),np.std(vals))
-#                 self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
-#                 self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
-
-#         # If we were pinning any values, undo the changes we did before
-#         self.cdf_inv.update(tempcdfdict)
-#         self.pdf.update(temppdfdict)
-#         self._pdf_norm.update(temppdfnormdict)
-#         self.prior_pdf.update(temppriordict)
-
-#         # Clean out the _rvs arrays for 'irrelevant' points
-#         #   - find and remove samples with  lnL less than maxlnL - deltalnL (latter user-specified)
-#         #   - create the cumulative weights
-#         #   - find and remove samples which contribute too little to the cumulative weights
-#         if (not save_no_samples) and ( "integrand" in self._rvs):
-#             self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
-#             # Step 1: Cut out any sample with lnL belw threshold
-#             indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
-#             # FIXME: This is an unncessary initial copy, the second step (cum i
-#             # prob) can be accomplished with indexing first then only pare at
-#             # the end
-#             for key in list(self._rvs.keys()):
-#                 if isinstance(key, tuple):
-#                     self._rvs[key] = self._rvs[key][:,indx_list]
-#                 else:
-#                     self._rvs[key] = self._rvs[key][indx_list]
-#             # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
-#             wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
-#             idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
-#             indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again. NOTE NOT INTEGER TYPE ANY MORE
-#             cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
-#             cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
-#             indx_list = [int(indx_list[k, 0]) for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability. RECAST TO INTEGER
-#             # FIXME: See previous FIXME
-#             for key in list(self._rvs.keys()):
-#                 if isinstance(key, tuple):
-#                     self._rvs[key] = self._rvs[key][:,indx_list]
-#                 else:
-#                     self._rvs[key] = self._rvs[key][indx_list]
-
-#         # Create extra dictionary to return things
-#         dict_return ={}
-#         if convergence_tests is not None:
-#             dict_return["convergence_test_results"] = last_convergence_test
-
-#         # perform type conversion of all stored variables
-#         if cupy_ok:
-#           for name in self._rvs:
-#             if isinstance(self._rvs[name],xpy_default.ndarray):
-#               self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
-
-#         return int_val1/self.ntotal, identity_convert(var)/self.ntotal, eff_samp, dict_return
+        return outvals[0], outvals[1], eff_samp, dict_return
 
 
 
