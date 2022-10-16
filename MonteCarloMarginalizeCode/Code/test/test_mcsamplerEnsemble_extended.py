@@ -13,6 +13,7 @@ from RIFT.integrators import mcsampler, mcsamplerEnsemble, mcsamplerGPU
 import optparse
 parser = optparse.OptionParser()
 parser.add_option("--n-max",type=int,default=40000)
+parser.add_option("--use-lnL",action='store_true')
 parser.add_option("--save-plot",action='store_true')
 parser.add_option("--as-test",action='store_true')
 parser.add_option("--no-adapt",action='store_true')
@@ -90,15 +91,17 @@ extra_args = {"n": opts.n_chunk,"n_adapt":100, "floor_level":opts.floor_level,"t
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
         no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose,**extra_args)
 print(" --- finished default --")
-integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(f, *params, 
-        no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose,**extra_args)
-print(" --- finished AC --")
-use_lnL = False
-return_lnI=False
+use_lnL = opts.use_lnL
+return_lnI=opts.use_lnL
 if use_lnL:
     infunc = ln_f
 else:
     infunc = f
+integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(infunc, *params, 
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose,use_lnL=use_lnL,**extra_args)
+if use_lnL:
+    integral_1b = np.exp(integral_1b)
+print(" --- finished AC --")
 integral_2, var_2, eff_samp_2, _ = samplerEnsemble.integrate(infunc, *params, 
         min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=verbose,verbose=verbose,use_lnL=use_lnL,return_lnI=return_lnI,**extra_args)
 if return_lnI and use_lnL:
