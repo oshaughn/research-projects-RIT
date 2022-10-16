@@ -641,8 +641,10 @@ class MCSampler(object):
             unpacked = dict(list(zip(params, unpacked)))
 
             # Evaluate function, protecting argument order
-            value_array = lnF(**unpacked)  # protect order using dictionary
-            lnL=value_array
+            if 'no_protect_names' in kwargs:
+                lnL = lnF(*unpacked0)  # do not protect order
+            else:
+                lnL= lnF(**unpacked)  # protect order using dictionary
             # take log if we are NOT using lnL
             if cupy_ok:
               if not(isinstance(fval,cupy.ndarray)):
