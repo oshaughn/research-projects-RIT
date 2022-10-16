@@ -235,7 +235,7 @@ integration_params.add_option("--internal-sky-network-coordinates-raw",action='s
 integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
 integration_params.add_option("--auto-logarithm-offset",action='store_true',help="Use the 'guess_snr' field returned in the precompute stage to change --manual-logarithm-offset for each event.")
 integration_params.add_option("--internal-use-lnL",action='store_true',help="likelihood returns lnL, and integrator integrates lnL")
-integration_params.add_option("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
+integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
 optp.add_option_group(integration_params)
 
@@ -931,6 +931,9 @@ return_lnL=False
 if opts.sampler_method=="GMM" and opts.internal_use_lnL:
   return_lnL=True
   pinned_params.update({"use_lnL":True,"return_lnI":True})
+if opts.sampler_method =="adaptive_cartesian_gpu" and opts.internal_use_lnL:
+  return_lnL=True
+  pinned_params.update({"use_lnL":True})
 if opts.sampler_method == "GMM":
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
