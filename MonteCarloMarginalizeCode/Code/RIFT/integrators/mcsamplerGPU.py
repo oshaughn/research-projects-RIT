@@ -319,6 +319,7 @@ class MCSampler(object):
         y = (x - self.x_min[param]) / self.x_max_minus_min[param]
         # Compute the indices of the histogram bins that `x` falls into.
         indices = self.xpy.trunc(y / self.dx[param], out=y).astype(np.int32)
+        indices = self.xpy.minimum(indices,self.n_bins[param])  # prevent being out of range due to rounding !
         # Return the value of the histogram.
         return self.histogram_values[param][indices]
 
@@ -684,7 +685,7 @@ class MCSampler(object):
             # effective samples
             maxval = max(maxval, identity_convert(outvals[0])) 
 
-            eff_samp = xpy.exp(  outvals[0] - maxval)   # integral value minus floating point, which is maximum
+            eff_samp = xpy.exp(  outvals[0]+np.log(self.ntotal) - maxval)   # integral value minus floating point, which is maximum
 
 
             # Throw exception if we get infinity or nan
@@ -692,8 +693,7 @@ class MCSampler(object):
                 raise NanOrInf("Effective samples = nan")
 
             if bShowEvaluationLog:
-                var_print = identity_convert(var)
-                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*outvals[1]), outvals[1]-maxlnL, np.exp(outvals[2]-outvals[1]))
+                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*outvals[0]), outvals[0]-maxlnL, np.exp(outvals[1]))
 
             if (not convergence_tests) and self.ntotal >= nmax and neff != float("inf"):
                 print("WARNING: User requested maximum number of samples reached... bailing.", file=sys.stderr)
@@ -822,7 +822,7 @@ class MCSampler(object):
         """
         if "use_lnL" in kwargs:
           if kwargs["use_lnL"]:
-            self.integrate_log(func, **kwargs)  # pass it on, easier than mixed coding
+            return self.integrate_log(func, **kwargs)  # pass it on, easier than mixed coding
 
         # Setup histogram data
         n_bins = 100
