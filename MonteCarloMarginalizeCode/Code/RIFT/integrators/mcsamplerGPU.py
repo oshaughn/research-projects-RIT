@@ -685,8 +685,9 @@ class MCSampler(object):
             outvals = finalize_log(current_log_aggregate,xpy=xpy)
             self.ntotal = current_log_aggregate[0]
             # effective samples
-            maxval = max(maxval, identity_convert(outvals[0])) 
+            maxval = max(maxval, identity_convert(self.xpy.max(log_integrand) ))
 
+            # sum of weights is the integral * the number of points
             eff_samp = xpy.exp(  outvals[0]+np.log(self.ntotal) - maxval)   # integral value minus floating point, which is maximum
 
 
