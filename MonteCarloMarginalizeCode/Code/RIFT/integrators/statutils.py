@@ -154,7 +154,7 @@ def update_log(existingLogAggregate, newLogValues,special=scipy.special,xpy=nump
 
     # return new aggregate
     return (nA+nB, log_xNewMean, log_M2New, logRef)
-def finalize_log(existingAggregate):
+def finalize_log(existingAggregate,xpy=numpy):
      (count, log_mean, log_M2, log_ref) = existingAggregate
      (log_mean,  log_sampleVariance) = (log_mean+log_ref, log_M2 + 2*log_ref - xpy.log((count - 1))) 
      if count < 2:
