@@ -100,10 +100,11 @@ else:
     infunc = f
 integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(infunc, *params, 
         no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose,use_lnL=use_lnL,**extra_args)
-rel_error = np.sqrt(var_1b)/integral_1b
 if use_lnL:
-    integral_1b = np.exp(integral_1b)
     rel_error = np.exp(var_1b/2 - integral_1b) # I think ...
+    integral_1b = np.exp(integral_1b)
+else:
+    rel_error = np.sqrt(var_1b)/integral_1b
 print(" AC {} {} {} ".format(integral_1b, rel_error, eff_samp_1b))
 print(" --- finished AC --")
 integral_2, var_2, eff_samp_2, _ = samplerEnsemble.integrate(infunc, *params, 
