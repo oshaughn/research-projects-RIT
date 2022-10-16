@@ -1185,6 +1185,7 @@ for it in np.arange(it_start,opts.n_iterations):
         cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)
         cmd += " --n-samples-per-job {} ".format(opts.n_samples_per_job) 
         cmd += " --neff-threshold {} ".format(opts.neff_threshold)
+        cmd += " --general-request-disk {} --ile-request-disk {} ".format(opts.general_request_disk,opts.ile_request_disk)
         if opts.cip_explode_jobs:
             cmd += " --cip-explode-jobs {} ".format(opts.cip_explode_jobs)
         if opts.cip_explode_jobs_dag:   # should be deafult
