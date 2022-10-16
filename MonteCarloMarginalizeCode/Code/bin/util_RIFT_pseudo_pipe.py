@@ -197,6 +197,7 @@ parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number of jobs to use in last stage.  Hopefully in future auto-set")
 parser.add_argument("--cip-quadratic-first",action='store_true')
+parser.add_argument("--cip-sigma-cut",default=None,type=float,help="sigma-cut is an error threshold for CIP.  Passthrough")
 parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the final iteration")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
@@ -803,6 +804,9 @@ for indx in np.arange(len(instructions_cip)):
             if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
                 addme = addme.replace(',s1z' ',chi1,cos_theta1')
         line += addme
+
+    if opts.cip_sigma_cut:
+        line += " --sigma-cut {} ".format(opts.cip_sigma_cut)
 
     # on last iteration, usually don't want to use correlated sampling if precessing, need to change coordinates
     if opts.approx in lalsimutils.waveform_approx_limit_dict:
