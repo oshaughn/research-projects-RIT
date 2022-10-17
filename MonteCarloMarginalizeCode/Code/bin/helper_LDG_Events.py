@@ -151,7 +151,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
 parser.add_argument("--internal-use-gracedb-bayestar",action='store_true',help="Retrieve BS skymap from gracedb (bayestar.fits), and use it internally in integration with --use-skymap bayestar.fits.")
 parser.add_argument("--force-data-lookup",action='store_true',help='Use this flag if you want to use real data.')
-parser.add_argument("--force-mc-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region. Passed directly to MOG and CIP.")
+parser.add_argument("--force-mc-range",default=None,type=str,help="For PP plots, or other analyses requiring a specific mc range (eg ini file). Enforces initial grid placement inside this region. Passed directly to MOG and CIP.")
+parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--force-eta-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region")
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
@@ -799,6 +800,11 @@ chieff_max = np.min([chieff_center +0.4/snr_fac,1])  # bias high, given natural 
 if chieff_min >0 and use_gracedb_event:
     chieff_min = -0.1   # make sure to cover spin zero, most BBH have zero spin and missing zero is usually an accident of the search recovered params
 
+if opts.scale_mc_range:
+    mc_center = (mc_min + mc_max)/2
+    mc_width = (mc_max - mc_min)
+    mc_min = mc_center -0.5*opts.scale_mc_range*mc_width
+    mc_max = mc_center +0.5*opts.scale_mc_range*mc_width
 
 if use_ini:
     engine_dict = dict(config['engine'])
