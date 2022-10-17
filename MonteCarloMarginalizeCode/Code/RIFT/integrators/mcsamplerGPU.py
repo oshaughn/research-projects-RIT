@@ -579,7 +579,6 @@ class MCSampler(object):
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
-#        bUseMultiprocessing = kwargs['use_multiprocessing'] if 'use_multiprocessing' in kwargs else False
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
         bShowEveryEvaluation = kwargs['extremely_verbose'] if 'extremely_verbose' in kwargs else False
 
@@ -696,7 +695,7 @@ class MCSampler(object):
                 raise NanOrInf("Effective samples = nan")
 
             if bShowEvaluationLog:
-                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*outvals[0]), outvals[0]-maxlnL, np.exp(outvals[1]/2  - outvals[0]  ))
+                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*outvals[0]), outvals[0]-maxlnL, np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 ))
 
             if (not convergence_tests) and self.ntotal >= nmax and neff != float("inf"):
                 print("WARNING: User requested maximum number of samples reached... bailing.", file=sys.stderr)
@@ -794,7 +793,7 @@ class MCSampler(object):
             if isinstance(self._rvs[name],xpy_default.ndarray):
               self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
-        return outvals[0], outvals[1], eff_samp, dict_return
+        return outvals[0], outvals[1] - np.log(self.ntotal), eff_samp, dict_return
 
 
 
@@ -909,17 +908,11 @@ class MCSampler(object):
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
-#        bUseMultiprocessing = kwargs['use_multiprocessing'] if 'use_multiprocessing' in kwargs else False
-        nProcesses = kwargs['nprocesses'] if 'nprocesses' in kwargs else 2
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
         bShowEveryEvaluation = kwargs['extremely_verbose'] if 'extremely_verbose' in kwargs else False
 
         if bShowEvaluationLog:
             print(" .... mcsampler : providing verbose output ..... ")
-        # if bUseMultiprocessing:
-        #     if rosDebugMessages:
-        #         print(" Initiating multiprocessor pool : ", nProcesses)
-        #     p = Pool(nProcesses)
 
         int_val1 = numpy.float128(0)
         self.ntotal = 0

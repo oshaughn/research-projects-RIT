@@ -123,9 +123,11 @@ def init_log(newLogValues,special=scipy.special,xpy=numpy):
     log_mean = xpy.log(xpy.mean(dat))
 #    log_M2 = xpy.log(xpy.sum( (dat-xpy.exp(log_mean))**2))
     log_M2 = logsumexp( 2*xpy.log(xpy.abs(dat - xpy.exp(log_mean) )))
+#    dat_raw = xpy.exp(newLogValues)
+#    print(log_M2 + lnL_max*2, xpy.log( xpy.var(xpy.exp(newLogValues))*(n-1)) , xpy.sqrt(xpy.var(dat_raw))/xpy.mean(dat_raw)  )
 #    log_M2 = xpy.log(xpy.var(dat))+xpy.log(n-1)
 
-    return (n,log_mean, log_M2 , lnL_max)
+    return (n, log_mean, log_M2 , lnL_max)
 def update_log(existingLogAggregate, newLogValues,special=scipy.special,xpy=numpy):
     """
     logsumexp : warning it is implemented but has a different function name, need to wrap it carefully and detect which is used
