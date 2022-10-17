@@ -179,6 +179,7 @@ parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this 
 parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
 parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
+parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-eta-range",default=None,type=str,help="Pass this argumen through to the helper to set the eta range")
 parser.add_argument("--force-hint-snr",default=None,type=str,help="Pass this argumen through to the helper to control source amplitude effects")
@@ -561,6 +562,8 @@ if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
 if not(opts.force_mc_range is None):
     cmd+= " --force-mc-range {} ".format(opts.force_mc_range)
+elif opts.scale_mc_range:
+    cmd += " --scale-mc-range {} ".format(opts.scale_mc_range)
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range {} ".format(opts.force_eta_range)
 if not(opts.gracedb_id is None) and (opts.use_ini is None):
