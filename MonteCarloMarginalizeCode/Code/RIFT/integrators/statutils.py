@@ -116,11 +116,16 @@ def finalize(existingAggregate):
 def init_log(newLogValues,special=scipy.special,xpy=numpy):
     logsumexp = special.logsumexp
   
+    n = len(newLogValues)
     lnL_max = xpy.max(newLogValues)
     ratio = newLogValues - lnL_max
     dat = xpy.exp(ratio)
-    
-    return (len(dat),xpy.log(xpy.mean(dat)), xpy.log(xpy.var(dat))+xpy.log(len(dat)), lnL_max)
+    log_mean = xpy.log(xpy.mean(dat))
+#    log_M2 = xpy.log(xpy.sum( (dat-xpy.exp(log_mean))**2))
+    log_M2 = logsumexp( 2*xpy.log(xpy.abs(dat - xpy.exp(log_mean) )))
+#    log_M2 = xpy.log(xpy.var(dat))+xpy.log(n-1)
+
+    return (n,log_mean, log_M2 , lnL_max)
 def update_log(existingLogAggregate, newLogValues,special=scipy.special,xpy=numpy):
     """
     logsumexp : warning it is implemented but has a different function name, need to wrap it carefully and detect which is used
@@ -138,6 +143,7 @@ def update_log(existingLogAggregate, newLogValues,special=scipy.special,xpy=nump
     log_refB = xpy.max(newLogValues)
     log_xBmean = logsumexp(newLogValues - log_refB) - xpy.log(nB)
     # compute M2AB after removing scale factor from all the terms
+#    log_M2B = xpy.log(xpy.var(newLogValues - log_refB)) + xpy.log(nB-1)
     log_M2B = logsumexp( 2*xpy.log(xpy.abs(xpy.exp(newLogValues-log_refB) - xpy.exp(log_xBmean) )))
 
     # Find new common scale factor, and apply it
@@ -155,8 +161,9 @@ def update_log(existingLogAggregate, newLogValues,special=scipy.special,xpy=nump
     # return new aggregate
     return (nA+nB, log_xNewMean, log_M2New, logRef)
 def finalize_log(existingAggregate,xpy=numpy):
-     (count, log_mean, log_M2, log_ref) = existingAggregate
-     (log_mean,  log_sampleVariance) = (log_mean+log_ref, log_M2 + 2*log_ref - xpy.log((count - 1))) 
+     (count, log_mean_orig, log_M2, log_ref) = existingAggregate
+     (log_mean,  log_sampleVariance) = (log_mean_orig+log_ref, log_M2 + 2*log_ref - xpy.log((count - 1))) 
+#     print( log_mean, log_sampleVariance)
      if count < 2:
          return float('nan')
      else:
