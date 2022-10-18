@@ -408,7 +408,10 @@ if not (opts.psd_file is None):
     for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
             psd_names[inst] = psdf
             ifo_list.append(inst)
-    event_dict["IFOs"] = ifo_list
+    if not(opts.manual_ifo_list):
+        event_dict["IFOs"] = ifo_list
+    else:
+        event_dict["IFOs"] = opts.manual_ifo_list.replace('[','').replace(']','').split(',')
 if not ("IFOs" in event_dict.keys()):  
     if not(opts.manual_ifo_list is None):
 #        import ast
