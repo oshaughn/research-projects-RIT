@@ -855,7 +855,7 @@ rescaled_base_ile = False
 if "SNR" in event_dict.keys():
     snr_here = event_dict["SNR"]
     if snr_here > 25:
-        lnL_expected = snr_here**2 /2. - np.log(10)*100  # remember, 10^308 is typical overflow scale, giving range of 10^100 above
+        lnL_expected = snr_here**2 /2. - np.log(10)*50  # remember, 10^308 is typical overflow scale, giving range of 10^100 above
         if not(opts.auto_logarithm_offset) and not opts.internal_ile_use_lnL:
             helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
         helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
@@ -1166,11 +1166,11 @@ if opts.propose_ile_convergence_options:
         helper_ile_args += " --adapt-log "
     else:
         if snr_fac > 1.5:  # this is a pretty loud signal, so we need to tune the adaptive exponent too!
-            if not(rescaled_base_ile):
-                helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
-            else:
-                # if we are adjusting the logarithm scale based on signal strength, we don't want to smash it too much, so only use the default prefactor
-                helper_ile_args += " --adapt-weight-exponent " + str(prefactor)
+#            if not(rescaled_base_ile):
+            helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
+#            else:
+#                # if we are adjusting the logarithm scale based on signal strength, we don't want to smash it too much, so only use the default prefactor
+#                helper_ile_args += " --adapt-weight-exponent " + str(prefactor)
         else:
             helper_ile_args += " --adapt-weight-exponent  {} ".format(prefactor)  
 
