@@ -1037,7 +1037,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       print("    : naive overflow protection: updating lnL overflow based on SNR guess of {} ".format(guess_snr))
       print("    : reminder, diagnostics for lnLmax below are offset by this amount! ")
       # Note by changing the offset, we change how adapt-weight-exponent is being applied (because we've offset the range before squashing it!).  Use with care: pipeline auto-sets the weight exponent
-      manual_avoid_overflow_logarithm = guess_snr**2/2 - 300  # more conservative than helper, if I were to auto-set it from --hint-snr.  So the integral peak is more likely positive
+      manual_avoid_overflow_logarithm = guess_snr**2/2 - 100  # more conservative than helper, if I were to auto-set it from --hint-snr.  So the integral peak is more likely positive
       # Don't scale so much that peak guess likelihood is negative:  we do fine for low-ampltiude sources
       if manual_avoid_overflow_logarithm < 0:
         manual_avoid_overflow_logarithm = 0
