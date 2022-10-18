@@ -196,6 +196,8 @@ parser.add_argument("--internal-propose-ile-convergence-freezeadapt",action='sto
 parser.add_argument("--internal-propose-ile-adapt-log",action='store_true',help="If present, uses the --adapt-log argument. Useful for very loud signals. Note only lnL information is used for adapting, not prior, so samples will be *uniform* in prior range if lnL is low")
 parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
+parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset")
+parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
@@ -853,13 +855,18 @@ rescaled_base_ile = False
 if "SNR" in event_dict.keys():
     snr_here = event_dict["SNR"]
     if snr_here > 25:
-        lnL_expected = snr_here**2 /2. - 10  # 10 is rule of thumb, depends on distance prior
-        helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
+        lnL_expected = snr_here**2 /2. - np.log(10)*100  # remember, 10^308 is typical overflow scale, giving range of 10^100 above
+        if not(opts.auto_logarithm_offset) and not opts.internal_ile_use_lnL:
+            helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
         helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
         rescaled_base_ile = True
-if opts.internal_ile_auto_logarithm_offset:
+if opts.internal_ile_auto_logarithm_offset and not opts.internal_ile_use_lnL:
     helper_ile_args += " --auto-logarithm-offset "
     rescaled_base_ile = True
+if opts.internal_ile_use_lnL:
+    helper_ile_args += ' --internal-use-lnL '
+if opts.internal_cip_use_lnL:
+    helper_cip_args += " --internal-use-lnL "
 
 if not opts.use_osg:
     if '/' in opts.cache:
