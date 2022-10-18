@@ -28,8 +28,8 @@ Since last release
      --internal-loud-signal-mitigation-suite; add util_ForOSG_MakeTruncatedLocalFramesDir.sh and assocated .py script to
      trim frames for a remote-machine run; pp plot minor typing issues; fix accidental mangling of rosenbrock test
      commit; docs.  (rc4)
-   - mcsamplerGPU use-lnL mode, via statutils; pipeline  -cip-sigma-cu,  --scale-mc-range; intermediate posterior*dat files have tides &
-     eccentricity auto-produced;
+   - mcsamplerGPU use-lnL mode, via statutils; pipeline  --cip-sigma-cut,  --scale-mc-range, --internal-ile/cip-use-lnL; intermediate posterior*dat files have tides &
+     eccentricity auto-produced (rc5)
 
 
 0.0.15.6
