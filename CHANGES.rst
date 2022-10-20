@@ -32,6 +32,7 @@ Since last release
      eccentricity auto-produced (rc5)
    - var name bugfix in helper; uniform lambda prior in iteration 0 option added (rc6)
 
+ Release is rc6, to facilitate early igwn-testing/igwn use. 
 
 0.0.15.6
 -----------
