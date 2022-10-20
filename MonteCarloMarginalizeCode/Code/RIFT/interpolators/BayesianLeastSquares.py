@@ -125,7 +125,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
     if verbose:
         print(" Fisher: Matrix inversion/manipulation error test 2", np.linalg.norm(np.dot(my_fisher_est,my_fisher_est_inv) - np.eye(len(my_fisher_est))))
     peak_val_est = float(constant_term_est) +np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2
-    best_val_est = x0_val -  np.dot(my_fisher_est_inv,linear_term_est)   # estimated peak location, including correction for reference point
+    best_val_est = x0_val +  np.dot(my_fisher_est_inv,linear_term_est)   # estimated peak location, including correction for reference point
     if verbose:
         print(" Fisher : Sanity check: peak value estimate = ", peak_val_est, " which arises as a delicate balance between ",  constant_term_est, " and ",  np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2)
         print(" Fisher : Best coordinate estimate = ", best_val_est)
