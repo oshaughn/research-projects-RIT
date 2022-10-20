@@ -30,6 +30,7 @@ Since last release
      commit; docs.  (rc4)
    - mcsamplerGPU use-lnL mode, via statutils; pipeline  --cip-sigma-cut,  --scale-mc-range, --internal-ile/cip-use-lnL; intermediate posterior*dat files have tides &
      eccentricity auto-produced (rc5)
+   - var name bugfix in helper; uniform lambda prior in iteration 0 option added (rc6)
 
 
 0.0.15.6
