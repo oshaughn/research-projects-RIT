@@ -1007,10 +1007,12 @@ Y_orig = Y.copy()
 
 # rescale X coordinatres
 if not(opts.internal_no_scale):
-    X_raw_mean = np.mean(X,axis=0)
+    X_raw_mean = X[np.argmax(Y)]    # use peak value, instead of mean of input
+#    X_raw_mean = np.mean(X,axis=0)
     X_raw_scale =   np.std(X, axis=0)
+#    X_raw_scale = np.ones(len(X[0]))
     print(" Transforming variables ")
-    print( " : Mean {} ".format(X_raw_mean))
+    print( " : Reference point {} ".format(X_raw_mean))
     print( " : sigma {} ".format(X_raw_scale))
     X = (X - X_raw_mean)/X_raw_scale  # hope broadcasting works here
 
