@@ -108,18 +108,24 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
     for pair in indx_lookup:
         k = pair[0]; q=pair[1];
         indx_here = indx_lookup[pair]
-        my_fisher_est[k,q] += -lambdaHat[indx_here]
-        my_fisher_est[q,k] += -lambdaHat[indx_here]  # this will produce a factor of 2 if the two terms are identical
+        # 'fisher' return value is intended as  coefficients of - 0.5* x_k x_q fisher_{kq}
+        # Note lambdaHat only has ONE per UNIQUE pair of indices k,q.
+        # Don't double-count.  Write code very clearly for long-term maintenance.
+        if k<q:   # we are representing -2*lambdaHat x_k x_q with two terms in the matrix of equal mag
+            my_fisher_est[k,q] = -lambdaHat[indx_here]
+            my_fisher_est[q,k] = -lambdaHat[indx_here]
+        if k==q:
+            my_fisher_est[q,k] += -2*lambdaHat[indx_here]   # this is the easier one to understand
     if not(prior_x_gamma is None) and (prior_x_gamma.shape == my_fisher_est.shape):
         my_fisher_est += prior_x_gamma
     if verbose:
         print("  Fisher: ", my_fisher_est)
-        print("  Fisher: Sanity check (-0.5)*Fisher matrix vs components (diagonal only) : ", -0.5*my_fisher_est, "versus",  lambdaHat)
+        print("  Fisher: Sanity check (-0.5)*Fisher matrix vs components (diagonal only) : ", -0.5*my_fisher_est, "versus",  lambdaHat[(dim+1):])
     my_fisher_est_inv = linalg.inv(my_fisher_est)   # SEE INVERSE DISCUSSION
     if verbose:
         print(" Fisher: Matrix inversion/manipulation error test 2", np.linalg.norm(np.dot(my_fisher_est,my_fisher_est_inv) - np.eye(len(my_fisher_est))))
     peak_val_est = float(constant_term_est) +np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2
-    best_val_est = x0_val +  np.dot(my_fisher_est_inv,linear_term_est)   # estimated peak location, including correction for reference point
+    best_val_est = x0_val -  np.dot(my_fisher_est_inv,linear_term_est)   # estimated peak location, including correction for reference point
     if verbose:
         print(" Fisher : Sanity check: peak value estimate = ", peak_val_est, " which arises as a delicate balance between ",  constant_term_est, " and ",  np.dot(linear_term_est, np.dot(my_fisher_est_inv,linear_term_est))/2)
         print(" Fisher : Best coordinate estimate = ", best_val_est)
