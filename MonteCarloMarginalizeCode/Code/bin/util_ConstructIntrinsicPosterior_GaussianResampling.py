@@ -126,92 +126,6 @@ def render_coordinates(coord_names):
     return list(map(render_coord, coord_names))
 
 
-def extract_combination_from_LI(samples_LI, p):
-    """
-    extract_combination_from_LI
-      - reads in known columns from posterior samples
-      - for selected known combinations not always available, it will compute them from standard quantities
-    """
-    if p in samples_LI.dtype.names:  # e.g., we have precomputed it
-        return samples_LI[p]
-    if p in remap_ILE_2_LI.keys():
-       if remap_ILE_2_LI[p] in samples_LI.dtype.names:
-         return samples_LI[ remap_ILE_2_LI[p] ]
-    # Return cartesian components of spin1, spin2.  NOTE: I may already populate these quantities in 'Add important quantities'
-    if p == 'chiz_plus':
-        print(" Transforming ")
-        if 'a1z' in samples_LI.dtype.names:
-            return (samples_LI['a1z']+ samples_LI['a2z'])/2.
-        if 'theta1' in samples_LI.dtype.names:
-            return (samples_LI['a1']*np.cos(samples_LI['theta1']) + samples_LI['a2']*np.cos(samples_LI['theta2']) )/2.
-#        return (samples_LI['a1']+ samples_LI['a2'])/2.
-    if p == 'chiz_minus':
-        print(" Transforming ")
-        if 'a1z' in samples_LI.dtype.names:
-            return (samples_LI['a1z']- samples_LI['a2z'])/2.
-        if 'theta1' in samples_LI.dtype.names:
-            return (samples_LI['a1']*np.cos(samples_LI['theta1']) - samples_LI['a2']*np.cos(samples_LI['theta2']) )/2.
-#        return (samples_LI['a1']- samples_LI['a2'])/2.
-    if  'theta1' in samples_LI.dtype.names:
-        if p == 's1x':
-            return samples_LI["a1"]*np.sin(samples_LI[ 'theta1']) * np.cos( samples_LI['phi1'])
-        if p == 's1y' :
-            return samples_LI["a1"]*np.sin(samples_LI[ 'theta1']) * np.sin( samples_LI['phi1'])
-        if p == 's2x':
-            return samples_LI["a2"]*np.sin(samples_LI[ 'theta2']) * np.cos( samples_LI['phi2'])
-        if p == 's2y':
-            return samples_LI["a2"]*np.sin(samples_LI[ 'theta2']) * np.sin( samples_LI['phi2'])
-        if p == 'chi1_perp' :
-            return samples_LI["a1"]*np.sin(samples_LI[ 'theta1']) 
-        if p == 'chi2_perp':
-            return samples_LI["a2"]*np.sin(samples_LI[ 'theta2']) 
-    if 'lambdat' in samples_LI.dtype.names:  # LI does sampling in these tidal coordinates
-        lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(samples_LI["m1"], samples_LI["m2"], samples_LI["lambdat"], samples_LI["dlambdat"])
-        if p == "lambda1":
-            return lambda1
-        if p == "lambda2":
-            return lambda2
-    if p == 'delta' or p=='delta_mc':
-        return (samples_LI['m1']  - samples_LI['m2'])/((samples_LI['m1']  + samples_LI['m2']))
-    # Return cartesian components of Lhat
-    if p == 'product(sin_beta,sin_phiJL)':
-        return np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.sin(  samples_LI['phi_jl'])
-    if p == 'product(sin_beta,cos_phiJL)':
-        return np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.cos(  samples_LI['phi_jl'])
-
-    print(" No access for parameter ", p)
-    return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
-
-def add_field(a, descr):
-    """Return a new array that is like "a", but has additional fields.
-
-    Arguments:
-      a     -- a structured numpy array
-      descr -- a numpy type description of the new fields
-
-    The contents of "a" are copied over to the appropriate fields in
-    the new array, whereas the new fields are uninitialized.  The
-    arguments are not modified.
-
-    >>> sa = numpy.array([(1, 'Foo'), (2, 'Bar')], \
-                         dtype=[('id', int), ('name', 'S3')])
-    >>> sa.dtype.descr == numpy.dtype([('id', int), ('name', 'S3')])
-    True
-    >>> sb = add_field(sa, [('score', float)])
-    >>> sb.dtype.descr == numpy.dtype([('id', int), ('name', 'S3'), \
-                                       ('score', float)])
-    True
-    >>> numpy.all(sa['id'] == sb['id'])
-    True
-    >>> numpy.all(sa['name'] == sb['name'])
-    True
-    """
-    if a.dtype.fields is None:
-        raise ValueError("`A' must be a structured numpy array")
-    b = numpy.empty(a.shape, dtype=a.dtype.descr + descr)
-    for name in a.dtype.names:
-        b[name] = a[name]
-    return b
 
 
 parser = argparse.ArgumentParser()
@@ -220,7 +134,6 @@ parser.add_argument("--internal-no-scale",action='store_true',help="If true, doe
 parser.add_argument("--internal-no-priors",action='store_true',help="Return only draws from the likelihood, without any prior reweighting.  Makes debugging easier.")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
 parser.add_argument("--input-distance",action='store_true',help="Use input format with distance fields (but not tidal fields?) enabled.")
-parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
 parser.add_argument("--fname-output-integral",default="integral_result",help="output filename for integral result. Postfixes appended")
 parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
@@ -417,67 +330,6 @@ remap_ILE_2_LI = {
   "LambdaTilde":"lambdat",
   "DeltaLambdaTilde": "dlambdat"}
 
-if opts.fname_lalinference:
-    print(" Loading lalinference samples for direct comparison ", opts.fname_lalinference)
-    samples_LI = np.genfromtxt(opts.fname_lalinference,names=True)
-
-    print(" Checking consistency between fref in samples and fref assumed here ")
-    try:
-        print(set(samples_LI['f_ref']), opts.fref)
-    except:
-        print(" No fref")
-
-    print(" Checking LI samples have desired parameters ")
-    try:
-      for p in opts.parameter:
-        if p in remap_ILE_2_LI:
-            print(p , " -> ", remap_ILE_2_LI[p])
-        else:
-            print(p, " NOT LISTED IN KEYS")
-    except:
-        print("remap check failed")
-
-    ###
-    ### Add important quantities easily derived from the samples but not usually provided
-    ###
-
-    delta_dat = (samples_LI["m1"] - samples_LI["m2"])/(samples_LI["m1"]+samples_LI["m2"])
-    samples_LI = add_field(samples_LI, [('delta', float)]); samples_LI['delta'] = delta_dat
-    if "a1z" in samples_LI.dtype.names:
-        chi_minus = (samples_LI["a1z"]*samples_LI["m1"] - samples_LI["a2z"]*samples_LI["m2"])/(samples_LI["m1"]+samples_LI["m2"])
-        samples_LI = add_field(samples_LI, [('chi_minus', float)]); samples_LI['chi_minus'] = chi_minus
-
-    if "tilt1" in samples_LI.dtype.names:
-        a1x_dat = samples_LI["a1"]*np.sin(samples_LI["theta1"])*np.cos(samples_LI["phi1"])
-        a1y_dat = samples_LI["a1"]*np.sin(samples_LI["theta1"])*np.sin(samples_LI["phi1"])
-        chi1_perp = samples_LI["a1"]*np.sin(samples_LI["theta1"])
-
-        a2x_dat = samples_LI["a2"]*np.sin(samples_LI["theta2"])*np.cos(samples_LI["phi2"])
-        a2y_dat = samples_LI["a2"]*np.sin(samples_LI["theta2"])*np.sin(samples_LI["phi2"])
-        chi2_perp = samples_LI["a2"]*np.sin(samples_LI["theta2"])
-
-                                      
-        samples_LI = add_field(samples_LI, [('a1x', float)]);  samples_LI['a1x'] = a1x_dat
-        samples_LI = add_field(samples_LI, [('a1y', float)]); samples_LI['a1y'] = a1y_dat
-        samples_LI = add_field(samples_LI, [('a2x', float)]);  samples_LI['a2x'] = a2x_dat
-        samples_LI = add_field(samples_LI, [('a2y', float)]);  samples_LI['a2y'] = a2y_dat
-        samples_LI = add_field(samples_LI, [('chi1_perp', float)]); samples_LI['chi1_perp'] = chi1_perp
-        samples_LI = add_field(samples_LI, [('chi2_perp', float)]); samples_LI['chi2_perp'] = chi2_perp
-
-        samples_LI = add_field(samples_LI, [('cos_phiJL',float)]); samples_LI['cos_phiJL'] = np.cos(samples_LI['phi_jl'])
-        samples_LI = add_field(samples_LI, [('sin_phiJL',float)]); samples_LI['sin_phiJL'] = np.sin(samples_LI['phi_jl'])
-        
-        samples_LI = add_field(samples_LI, [('product(sin_beta,sin_phiJL)', float)])
-        samples_LI['product(sin_beta,sin_phiJL)'] =np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.sin(  samples_LI['phi_jl'])
-
-
-        samples_LI = add_field(samples_LI, [('product(sin_beta,cos_phiJL)', float)])
-        samples_LI['product(sin_beta,cos_phiJL)'] =np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.cos(  samples_LI['phi_jl'])
-
-    # Add all keys in samples_LI to the remapper
-    for key in samples_LI.dtype.names:
-        if not (key in remap_ILE_2_LI.keys()):
-            remap_ILE_2_LI[key] = key  # trivial remapping
 
 downselect_dict = {}
 dlist = []
@@ -822,7 +674,7 @@ def fit_quadratic_alt(x,y,y_err=None,gamma_x=None,x0=None,symmetry_list=None,ver
 
     # ESTIMATED cov, what should be true if condition number reasonable
     cov = linalg.pinv( my_fisher_est)
-    print(np.linalg.eig(my_fisher_est))
+    print(np.linalg.eig(my_fisher_est)[0])
     if np.linalg.cond(my_fisher_est) > 1e3:
         print("  : WARNING: Ill-conditioned quadratic form ")
         print(np.linalg.eig(my_fisher_est))
@@ -1015,20 +867,10 @@ if not(opts.internal_no_scale):
 #    X_raw_scale = np.ones(len(X[0]))
     print(" Transforming variables ")
     print( " : Reference point {} ".format(X_raw_mean))
-    print( " : sigma {} ".format(X_raw_scale))
+    print( " : Variable scales {} ".format(X_raw_scale))
     X = (X - X_raw_mean)/X_raw_scale  # hope broadcasting works here
 
 
-
-# Plot cumulative distribution in lnL, for all points.  Useful sanity check for convergence.  Start with RAW
-if not opts.no_plots:
-    Yvals_copy = Y_orig.copy()
-    Yvals_copy = Yvals_copy[Yvals_copy.argsort()[::-1]]
-    pvals = np.arange(len(Yvals_copy))*1.0/len(Yvals_copy)
-    plt.plot(Yvals_copy, pvals)
-    plt.xlabel(r"$\ln{\cal L}$")
-    plt.ylabel(r"evaluation fraction $(<\ln{\cal L})$")
-    plt.savefig("lnL_cumulative_distribution_of_input_points.png"); plt.clf()
 
 
 # Eliminate values with Y too small
@@ -1103,6 +945,10 @@ else:
     sys.exit(55)
 
 print(" Gaussian ", my_mean, my_cov)
+if not(opts.internal_no_scale):
+    my_mean_true = X_raw_mean+X_raw_scale*my_mean 
+    my_cov_true = X_raw_scale*my_cov*X_raw_scale.T
+    print(" Convert to physical coordinates ", my_mean_true, my_cov_true)
 
 # Sort for later convenience (scatterplots, etc)
 #indx = Y.argsort()#[::-1]
@@ -1152,7 +998,8 @@ for p in coord_names:
 ###
 
 # Draw 1e6 samples
-dat_samples = np.random.multivariate_normal(my_mean, my_cov,size=int(1e6))
+#my_mean = np.zeros(my_mean.shape)   # why is thsis wrong/offset?
+dat_samples = np.random.multivariate_normal(my_mean, my_cov,size=int(3e7))
 
 if not(opts.internal_no_scale):
     # Undeo transformation
@@ -1175,7 +1022,7 @@ if not(opts.internal_no_priors):
 prior_weights*= 1./np.sum(prior_weights)    
 
 # Fairdraw remainder of samples
-npts_out = np.min([int(1e-2 * len(dat_samples)), opts.n_output_samples*2 ])
+npts_out = np.min([int(1e-2 * len(dat_samples)), opts.n_output_samples*10000 ])
 indx_choose = np.random.choice(len(prior_weights), size=npts_out,p=prior_weights)
 dat_samples = dat_samples[indx_choose]
 print(" Fairdraw sample size ", npts_out)
@@ -1239,6 +1086,10 @@ for indx in np.arange(len(pnames)):
         print(" Downselecting : {} {}".format(param, len(X_new)))
 print(" Second cut reduction net : {} ".format(len(X_new)))
 
+# Now resize to final target size
+if len(X_new) > opts.n_output_samples:
+    print(" Final resize ")
+    X_new  = X_new[:opts.n_output_samples]
 
 # Now assemble the final list of exported quantities.  Any leftover cuts not already applied can be performed here.
 P_out_list = []
