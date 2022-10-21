@@ -21,6 +21,7 @@ import sys
 import numpy as np
 import numpy.lib.recfunctions
 import scipy
+import scipy.linalg as linalg
 import scipy.stats
 import scipy.special
 import RIFT.lalsimutils as lalsimutils
@@ -216,6 +217,7 @@ def add_field(a, descr):
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--internal-no-scale",action='store_true',help="If true, does NOT attempt to rescale coordinates to have mean zero, variance 1 in each dimension. Makes debugging output more human-accessible")
+parser.add_argument("--internal-no-priors",action='store_true',help="Return only draws from the likelihood, without any prior reweighting.  Makes debugging easier.")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
 parser.add_argument("--input-distance",action='store_true',help="Use input format with distance fields (but not tidal fields?) enabled.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
@@ -819,7 +821,7 @@ def fit_quadratic_alt(x,y,y_err=None,gamma_x=None,x0=None,symmetry_list=None,ver
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fn_estimate = the_quadratic_results
 
     # ESTIMATED cov, what should be true if condition number reasonable
-    cov = np.linalg.pinv( my_fisher_est)
+    cov = linalg.pinv( my_fisher_est)
     print(np.linalg.eig(my_fisher_est))
     if np.linalg.cond(my_fisher_est) > 1e3:
         print("  : WARNING: Ill-conditioned quadratic form ")
@@ -1080,8 +1082,9 @@ elif opts.fit_method == "quadratic":
     for indx in np.arange(len(coord_names)):
         rng = prior_range_map[coord_names[indx]]
         diag_prior[indx] = 1./(rng[1]-rng[0])**2  # prior range
+    diag_prior= np.diag(diag_prior)
 
-    my_mean, my_cov = fit_quadratic_alt(X,Y,y_err=Y_err,gamma_x=np.diag(diag_prior),symmetry_list=symmetry_list,verbose=opts.verbose)
+    my_mean, my_cov = fit_quadratic_alt(X,Y,y_err=Y_err,gamma_x=None,symmetry_list=symmetry_list,verbose=opts.verbose)
 elif opts.fit_method == "quadratic_nonneg":
     print(" FIT METHOD ", opts.fit_method, " IS QUADRATIC nonnegative")
     X=X[indx_ok]
@@ -1165,13 +1168,14 @@ for indx in np.arange(len(coord_names)):
 # Construct weights based on priors
 prior_weights = np.ones(len(dat_samples))
 print(" Retaining {} samples ".format(len(prior_weights)))
-for indx in np.arange(len(coord_names)):
-    param = coord_names[indx]
-    prior_weights*= sampler.prior_pdf[param](dat_samples[:,indx])
+if not(opts.internal_no_priors):
+    for indx in np.arange(len(coord_names)):
+        param = coord_names[indx]
+        prior_weights*= sampler.prior_pdf[param](dat_samples[:,indx])
 prior_weights*= 1./np.sum(prior_weights)    
 
 # Fairdraw remainder of samples
-npts_out = np.min([int(1e-2 * len(dat_samples)), 5000 ])
+npts_out = np.min([int(1e-2 * len(dat_samples)), opts.n_output_samples*2 ])
 indx_choose = np.random.choice(len(prior_weights), size=npts_out,p=prior_weights)
 dat_samples = dat_samples[indx_choose]
 print(" Fairdraw sample size ", npts_out)
