@@ -589,6 +589,7 @@ class MCSampler(object):
         eff_samp = 0  # ratio of max weight to sum of weights
         maxlnL = -np.inf  # max lnL
         maxval=0   # max weight
+        outvals=None  # define in top level scope
         if bShowEvaluationLog:
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
