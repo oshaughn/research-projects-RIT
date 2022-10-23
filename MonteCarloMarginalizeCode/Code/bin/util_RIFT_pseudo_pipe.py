@@ -559,7 +559,10 @@ if not(opts.cip_fit_method is None):
     elif opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial' or opts.use_quadratic_early or opts.use_cov_early:
         npts_it*=2 # more iteration points if we use some initial quadratic iterations ... they also benefit from more samples overall. Default description is for GP
 
-
+if opts.internal_ile_use_lnL:
+    cmd+= " --internal-ile-use-lnL "
+if opts.internal_cip_use_lnL:
+    cmd += " --internal-cip-use-lnL "
 
 if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
