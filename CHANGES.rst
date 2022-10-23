@@ -1,3 +1,8 @@
+0.0.15.8
+-----------
+Since last release
+   - bugfix pseudo_pipe so --internal-*-use-lnL passed correctly to helper (rc1)
+
 0.0.15.7
 -----------
 Since last release
