@@ -647,7 +647,7 @@ class MCSampler(object):
                 lnL= lnF(**unpacked)  # protect order using dictionary
             # take log if we are NOT using lnL
             if cupy_ok:
-              if not(isinstance(fval,cupy.ndarray)):
+              if not(isinstance(lnL,cupy.ndarray)):
                 lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
 
             log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
