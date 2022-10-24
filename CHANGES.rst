@@ -2,7 +2,8 @@
 -----------
 Since last release
    - bugfix pseudo_pipe so --internal-*-use-lnL passed correctly to helper. CIP_gauss and CQL working correctly (rc1)
-   - bugfix wrong var name mcsamplerGPU in type check  
+   - bugfixes mcsamplerGPU (wrong var name mcsamplerGPU in type check; self.ntotal init at start of loop).
+     mcsamplerGPU/statutils protect against cupyx.scipy.special not being present (rc2)
 
 0.0.15.7
 -----------
