@@ -113,60 +113,81 @@ def finalize(existingAggregate):
          return (mean,  sampleVariance)
 
 	
-def init_log(newLogValues,special=scipy.special,xpy=numpy):
+def init_log(newLogValues_orig,special=scipy.special,xpy=numpy):
+    """
+
+    fallback mode: if special is fallback, then the aggregate is internally done with the normal numpy calculation!
+    """
     logsumexp = special.logsumexp
+    xpy_here=xpy
+    newLogValues = newLogValues_orig
+    if special==scipy.special and xpy != numpy:
+        newLogValues = xpy.copy(newLogValues_orig) # copy, so we don't just edit the pointer contents
+        newLogValues = xpy.asnumpy(newLogValues)
+        xpy_here=numpy
   
     n = len(newLogValues)
-    lnL_max = xpy.max(newLogValues)
+    lnL_max = xpy_here.max(newLogValues)
     ratio = newLogValues - lnL_max
-    dat = xpy.exp(ratio)
-    log_mean = xpy.log(xpy.mean(dat))
-#    log_M2 = xpy.log(xpy.sum( (dat-xpy.exp(log_mean))**2))
-    log_M2 = logsumexp( 2*xpy.log(xpy.abs(dat - xpy.exp(log_mean) )))
-#    dat_raw = xpy.exp(newLogValues)
-#    print(log_M2 + lnL_max*2, xpy.log( xpy.var(xpy.exp(newLogValues))*(n-1)) , xpy.sqrt(xpy.var(dat_raw))/xpy.mean(dat_raw)  )
-#    log_M2 = xpy.log(xpy.var(dat))+xpy.log(n-1)
+    dat = xpy_here.exp(ratio)
+    log_mean = xpy_here.log(xpy_here.mean(dat))
+#    log_M2 = xpy_here.log(xpy_here.sum( (dat-xpy_here.exp(log_mean))**2))
+    log_M2 = logsumexp( 2*xpy_here.log(xpy_here.abs(dat - xpy_here.exp(log_mean) )))
+#    dat_raw = xpy_here.exp(newLogValues)
+#    print(log_M2 + lnL_max*2, xpy_here.log( xpy_here.var(xpy_here.exp(newLogValues))*(n-1)) , xpy_here.sqrt(xpy_here.var(dat_raw))/xpy_here.mean(dat_raw)  )
+#    log_M2 = xpy_here.log(xpy_here.var(dat))+xpy_here.log(n-1)
 
     return (n, log_mean, log_M2 , lnL_max)
-def update_log(existingLogAggregate, newLogValues,special=scipy.special,xpy=numpy):
+def update_log(existingLogAggregate, newLogValues_orig,special=scipy.special,xpy=numpy):
     """
     logsumexp : warning it is implemented but has a different function name, need to wrap it carefully and detect which is used
     """
     logsumexp = special.logsumexp
-    if isinstance(newLogValues, (int, float, complex)):
+    if isinstance(newLogValues_orig, (int, float, complex)):
         # Handle single digits.
-        newLogValues = [newLogValues]
+        newLogValues_orig = [newLogValues_orig]
+    xpy_here=xpy
+    newLogValues = newLogValues_orig
+    if special==scipy.special and xpy != numpy:
+        newLogValues = xpy.copy(newLogValues_orig) # copy, so we don't just edit the pointer contents
+        newLogValues = xpy.asnumpy(newLogValues)
+        xpy_here=numpy
+
     # https://docs.cupy.dev/en/latest/reference/generated/cupyx.scipy.special.logsumexp.html
     (nA, log_xAmean, log_M2A,log_refA) = existingLogAggregate
 
-
     # Evaluate reference scale, B for mean
     nB = len(newLogValues)
-    log_refB = xpy.max(newLogValues)
-    log_xBmean = logsumexp(newLogValues - log_refB) - xpy.log(nB)
+    log_refB = xpy_here.max(newLogValues)
+    log_xBmean = logsumexp(newLogValues - log_refB) - xpy_here.log(nB)
     # compute M2AB after removing scale factor from all the terms
-#    log_M2B = xpy.log(xpy.var(newLogValues - log_refB)) + xpy.log(nB-1)
-    log_M2B = logsumexp( 2*xpy.log(xpy.abs(xpy.exp(newLogValues-log_refB) - xpy.exp(log_xBmean) )))
+#    log_M2B = xpy_here.log(xpy_here.var(newLogValues - log_refB)) + xpy_here.log(nB-1)
+    log_M2B = logsumexp( 2*xpy_here.log(xpy_here.abs(xpy_here.exp(newLogValues-log_refB) - xpy_here.exp(log_xBmean) )))
 
     # Find new common scale factor, and apply it
-    logRef = xpy.max([log_refA,log_refB])
+    logRef = xpy_here.max([log_refA,log_refB])
     log_xAmean += -(logRef - log_refA)
     log_xBmean += -(logRef - log_refB)
     log_M2A += -2*(logRef-log_refA)  # scale is quadratic
     log_M2B += -2*(logRef-log_refB)
 
     # Update mean and second moment
-    log_xNewMean = logsumexp([log_xAmean + xpy.log(nA),log_xBmean + xpy.log(nB)]) - xpy.log(nA+nB)
-    log_delta = xpy.log(xpy.abs(xpy.exp(log_xAmean)- xpy.exp(log_xBmean))) # sign irrelevant
-    log_M2New = logsumexp([log_M2A,log_M2B,2*log_delta + xpy.log(nA)+ xpy.log(nB) - xpy.log(nA+nB)])
+    log_xNewMean = logsumexp([log_xAmean + xpy_here.log(nA),log_xBmean + xpy_here.log(nB)]) - xpy_here.log(nA+nB)
+    log_delta = xpy_here.log(xpy_here.abs(xpy_here.exp(log_xAmean)- xpy_here.exp(log_xBmean))) # sign irrelevant
+    log_M2New = logsumexp([log_M2A,log_M2B,2*log_delta + xpy_here.log(nA)+ xpy_here.log(nB) - xpy_here.log(nA+nB)])
 
     # return new aggregate
     return (nA+nB, log_xNewMean, log_M2New, logRef)
 def finalize_log(existingAggregate,xpy=numpy):
-     (count, log_mean_orig, log_M2, log_ref) = existingAggregate
-     (log_mean,  log_sampleVariance) = (log_mean_orig+log_ref, log_M2 + 2*log_ref - xpy.log((count - 1))) 
+    """
+
+    fallback mode: if special is fallback, then the aggregate is internally done with the normal numpy calculation!
+    """
+    
+    (count, log_mean_orig, log_M2, log_ref) = existingAggregate
+    (log_mean,  log_sampleVariance) = (log_mean_orig+log_ref, log_M2 + 2*log_ref - xpy.log((count - 1))) 
 #     print( log_mean, log_sampleVariance)
-     if count < 2:
+    if count < 2:
          return float('nan')
-     else:
+    else:
          return (log_mean,  log_sampleVariance)
