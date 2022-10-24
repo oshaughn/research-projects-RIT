@@ -57,8 +57,48 @@ The standard RIFT pipeline only works within an HTCondor scheduling environment.
 
     $ condor_submit_dag marginalize_intrinsic_parameters_BasicIterationWorkflow.dag 
 
+Before you submit a workflow, however, we recommend you first confirm you've set it up correctly, by running one of the worker jobs interactively from the command line.  (This is a great way to catch common configuration errors.)  You'll see a lot of output about reading in data, defining parameters, et cetera.  Wait until you start seeing large arrays of numbers interspersed with the words ``Weight entropy (after histogram)``.
+
+.. code-block:: console
+
+    ./command-single.sh
+
+This command will run anywhere; however, it will only test the GPU configuration if you run it on a machine with a GPU, like pcdev13 or pcdev11 at CIT.
+
+The workflow loosely consists of two parts: worker ILE jobs, which evaluate the marginalized likelihood; and fitting/posterior jobs, which fit the marginalized likelihood and estimate the posterior distribution.  Other nodes help group the output of individual jobs and iterations together.
+
+In this directory, you'll see
+
+
+- ``overlap-grid-0.xml.gz``: The initial grid used in the iterative analysis. For simplicity, in the Makefile we've set up a cartesian grid in chirp mass and (m1-m2)/M. You're free to use any grid you want (e.g., the output of some previous analysis).  (The workflow can also do the initial grid creation.)
+
+- ``ILE.sub``: The submit file for the individual worker ILE jobs.
+
+- ``CIP.sub``: The submit file for the individual fitting jobs.
+
+- ``iteration_*``: Directories holding the output of each iteration, including log files.
+As the workflow progresses, you'll see the following additional files
+
+- ``consolidated_*``: These files (particularly those ending in .composite) are the output of each iteration's ILE jobs. Each file is a list of intrinsic parameters, and the value of the marginalized likelihood at those parameters.  (The remaining files provide provenance for  how the .composite file was produced.)
+
+- ``output-grid-?.xml.gz``: These files are inferred intrinsic, detector-frame posterior distributions from that iteration, expressed as an XML file.
+
+- ``posterior-samples-*.dat``: These files are reformatted versions of the corresponding XML file, using the command convert_output_format_ile2inference.  This data format should be compatible with LALInference and related postprocessing tools.
+
 The ini file format corresponds to the `lalinference ini format <https://github.com/lscsoft/lalsuite-archive/blob/master/lalapps/src/inspiral/posterior/lalinference_pipe_example.ini>`__.
 with a single named section of options, corresponding to arguments of the pipeline.
+
+Understanding ILE and CIP
+-------------------------
+
+ILE.sub
+^^^^^^^^^^^
+The ``ILE.sub`` file contains the call to and arguments for `integrate_likelihood_extrinsic_batchmode <https://git.ligo.org/rapidpe-rift/rift/-/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/bin/integrate_likelihood_extrinsic_batchmode>`__.
+
+
+CIP.sub
+^^^^^^^^^^^
+The file called ``CIP.sub`` contains the call to and arguments for `util_ConstructIntrinsicPosterior_GenericCoordinates.py <https://git.ligo.org/rapidpe-rift/rift/-/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py>`__
 
 Initialization: PSDs and grids
 ---------------

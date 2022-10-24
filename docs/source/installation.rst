@@ -2,8 +2,13 @@
 Installation
 ============
 
+This documentation describes how to perform parameter estimation of CBC triggers using RIFT. It is designed to be used by LVK members who have access to the LIGO DataGrid, which provides computing clusters and detector data to analyze. You can find more information on the `LDG wiki page <https://wiki.ligo.org/Computing/LDG/WebHome>`_.
+
+Before you begin, login to your cluster of choice (`options here <https://wiki.ligo.org/Computing/LDG/ClusterLogin>`_) as usual using your :code:`albert.einstein` username.
+
+
 Installing RIFT from release
-----------------------------------
+----------------------------
 .. tabs::
 
    .. tab:: conda
@@ -32,7 +37,7 @@ Installing RIFT from release
       conda installation method.
 
 Install RIFT for development
-----------------------------------
+----------------------------
 
 :code:`RIFT` is developed and tested for Python 3.6, and 3.7. In the
 following, we demonstrate how to install a development version of
@@ -79,12 +84,12 @@ Python installation
 
       For detailed help on creating and managing environments see `these help pages
       <https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html>`_.
-      Here is an example of creating and activating an environment named  bilby
+      Here is an example of creating and activating an environment named RIFT
 
       .. code-block:: console
 
-         $ conda create -n bilby python=3.7
-         $ conda activate bilby
+         $ conda create -n RIFT python=3.7
+         $ conda activate RIFT
 
    .. tab:: virtualenv
 
@@ -108,7 +113,7 @@ Python installation
      Documentation for this conda setup can be found here: https://computing.docs.ligo.org/conda/
 
 Installing RIFT
-=====================
+===============
 
 Once you have a working version of :code:`python`, you can install
 :code:`RIFT` with the command
@@ -123,13 +128,28 @@ Or, alternatively, if you already have a git version
 
    $ pip install -e .
 
-We recommend the second method, as it ensures the code you edit will be used
+We recommend the second method, as it ensures the code you edit will be used.
 
+Environment Variables
+=====================
+
+Once you are logged in, you will need to set environment variables. We recommend you put these into a script you run before commencing an analysis.
+
+.. code-block:: console
+
+    cat > setup_RIFT.sh
+    export LIGO_USER_NAME=albert.einstein
+    export LIGO_ACCOUNTING=ligo.sim.o3.cbc.pe.lalinferencerapid
+    export PATH=${PATH}: # your path to RIFT here
+    export CUDA_DIR=/usr/local/cuda  # only needed for GPU code
+    export PATH=${PATH}:${CUDA_DIR}/bin  # only needed for GPU code
 
 
 Dependencies
 ------------
 
-:code:`RIFT` handles data from the interferometers directly using  lal library.
+:code:`RIFT` handles data from the interferometers directly using  :code:`lal` library.
 
-:code:`RIFT` uses several libraries to provide waveforms, including lalsimulation.
+:code:`RIFT` uses several libraries to provide waveforms, including :code:`lalsimulation`.
+
+Additional environment variables are needed if you want to use waveforms through a non-lalsimulation interface. Such waveforms include the python implementation of surrogate waveforms, NR waveforms, or the C++ implementation of TEOBResumS. 
