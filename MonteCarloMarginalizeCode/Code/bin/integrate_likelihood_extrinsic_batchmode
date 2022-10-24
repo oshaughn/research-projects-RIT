@@ -1377,6 +1377,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     print( " --------> Arguments ", args)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
+    if not(res): # no resut
+      raise ValueError(" No integral result returned")
 
     # Report results
     if opts.output_file:
@@ -1570,7 +1572,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 lnL_sofar = -np.inf
 no_adapt_sky = False
 for indx in numpy.arange(len(P_list)):
- if True: #try:
+ try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.no_adapt_after_first and (not no_adapt_sky):
@@ -1582,7 +1584,7 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
- else: #except Exception as exception_failure:
+ except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
   if opts.internal_make_empty_file_on_error:
