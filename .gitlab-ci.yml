@@ -11,6 +11,7 @@ default:
 stages:
   - system tests
   - unit tests # TODO: write some
+  - docs
   - docker image
 
 before_script:
@@ -47,11 +48,14 @@ test_run:
 build:test:
   image: docker:latest
   stage: docker image
+  before_script:
+  - apk add --update git py3-pip 
+  - ln -s /usr/bin/python3 /usr/bin/python
   script:  
    -  docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
-    - suffix=$(echo $CI_COMMIT_BRANCH | cut -d "-" -f 2)
-    - docker build --rm --no-cache -t $RIFT_IMAGE:$suffix --file Dockerfile .
-    - docker push $RIFT_IMAGE:$suffix
+   - suffix=$(echo $CI_COMMIT_BRANCH | cut -d "-" -f 2)
+   - docker build --rm --no-cache -t $RIFT_IMAGE:$suffix --file Dockerfile .
+   - docker push $RIFT_IMAGE:$suffix
 
 documentation:
   stage: docs
@@ -69,10 +73,11 @@ documentation:
     - pip install -r requirements.txt
     - make clean
      # Sphinx-multiversion needs to be run from the top-level
+    - cd ..
     - git fetch origin master
     - git status
     - git branch
-    - sphinx-mulitversion docs/ docs/build/
+    - sphinx-build docs/source/ docs/build/
 
   artifacts:
     paths:
