@@ -594,6 +594,7 @@ class MCSampler(object):
         maxlnL = -np.inf  # max lnL
         maxval=0   # max weight
         outvals=None  # define in top level scope
+        self.ntotal = 0
         if bShowEvaluationLog:
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
