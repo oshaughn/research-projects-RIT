@@ -34,13 +34,13 @@ my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/RIFT/likelihood/cud
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.15.7rc1", # do not build on OSX machine, side effects
+    version="0.0.15.8rc2", # do not build on OSX machine, side effects
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_python3_restructure_package (which will become master shortly)!",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://git.ligo.org/richard-oshaughnessy/research-projects-RIT",
+    url="https://git.ligo.org/rapidpe-rift/rift",
     package_dir = {'':'MonteCarloMarginalizeCode/Code'},
 #    py_modules =set(my_library_prefixes),
     packages=setuptools.find_packages('MonteCarloMarginalizeCode/Code'),

@@ -13,6 +13,7 @@ stages:
   - unit tests # TODO: write some
   - docs
   - docker image
+  - deploy
 
 before_script:
   # setup
@@ -41,6 +42,7 @@ import_check:
 test_run:
   stage: system tests
   script:
+    - . .travis/test-coord.sh
     - . .travis/test-integrate.sh
     - . .travis/test-posterior.sh
     - . .travis/test-run.sh
@@ -52,31 +54,20 @@ build:test:
   - apk add --update git py3-pip 
   - ln -s /usr/bin/python3 /usr/bin/python
   script:  
-   -  docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
-   - suffix=$(echo $CI_COMMIT_BRANCH | cut -d "-" -f 2)
-   - docker build --rm --no-cache -t $RIFT_IMAGE:$suffix --file Dockerfile .
-   - docker push $RIFT_IMAGE:$suffix
+    - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
+    - suffix=$(echo $CI_COMMIT_BRANCH | cut -d "-" -f 2)
+    - docker build --rm --no-cache -t $RIFT_IMAGE:$suffix --file Dockerfile .
+    - docker push $RIFT_IMAGE:$suffix
 
 documentation:
   stage: docs
   image: debian:latest
   script:
     - apt-get -y install graphviz
-    # Sphinx-multiversion needs to be run on the git repo itself
-#    - cd ../
-#    # problem of repo name : changing!
-#    - rm research-projects-RIT/ -rf
-#    - git clone https://github.com/oshaughn/research-projects-RIT.git
-#    - cd research-projects-RIT/
-    # Install deps for docs
     - cd docs
     - pip install -r requirements.txt
     - make clean
-     # Sphinx-multiversion needs to be run from the top-level
     - cd ..
-    - git fetch origin master
-    - git status
-    - git branch
     - sphinx-build docs/source/ docs/build/
 
   artifacts:

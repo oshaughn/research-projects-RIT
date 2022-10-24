@@ -13,6 +13,7 @@ from RIFT.integrators import mcsampler, mcsamplerEnsemble, mcsamplerGPU
 import optparse
 parser = optparse.OptionParser()
 parser.add_option("--n-max",type=int,default=40000)
+parser.add_option("--use-lnL",action='store_true')
 parser.add_option("--save-plot",action='store_true')
 parser.add_option("--as-test",action='store_true')
 parser.add_option("--no-adapt",action='store_true')
@@ -89,16 +90,23 @@ n_comp = 1
 extra_args = {"n": opts.n_chunk,"n_adapt":100, "floor_level":opts.floor_level,"tempering_exp" :tempering_exp}
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
         no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose,**extra_args)
+print(" default {} {} {} ".format(integral_1, np.sqrt(var_1)/integral_1, eff_samp_1))
 print(" --- finished default --")
-integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(f, *params, 
-        no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose,**extra_args)
-print(" --- finished AC --")
-use_lnL = False
-return_lnI=False
+use_lnL = opts.use_lnL
+return_lnI=opts.use_lnL
 if use_lnL:
     infunc = ln_f
 else:
     infunc = f
+integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(infunc, *params, 
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose,use_lnL=use_lnL,**extra_args)
+if use_lnL:
+    rel_error = np.exp(var_1b/2 - integral_1b) # I think ...
+    integral_1b = np.exp(integral_1b)
+else:
+    rel_error = np.sqrt(var_1b)/integral_1b
+print(" AC {} {} {} ".format(integral_1b, rel_error, eff_samp_1b))
+print(" --- finished AC --")
 integral_2, var_2, eff_samp_2, _ = samplerEnsemble.integrate(infunc, *params, 
         min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=verbose,verbose=verbose,use_lnL=use_lnL,return_lnI=return_lnI,**extra_args)
 if return_lnI and use_lnL:
@@ -159,9 +167,14 @@ for i in range(ndim):
     ### compute weights of samples
     weights_2 = (L * p / ps)[np.argsort(arr_2[:,i])]
 
-    L = samplerAC._rvs["integrand"]
-    p = samplerAC._rvs["joint_prior"]
-    ps = samplerAC._rvs["joint_s_prior"]
+    if "integrand" in samplerAC._rvs:
+        L = samplerAC._rvs["integrand"]
+        p = samplerAC._rvs["joint_prior"]
+        ps = samplerAC._rvs["joint_s_prior"]
+    else:
+        L = np.exp(samplerAC._rvs["log_integrand"])
+        p = np.exp(samplerAC._rvs["log_joint_prior"])
+        ps = np.exp(samplerAC._rvs["log_joint_s_prior"])
     ### compute weights of samples
     weights_1b = (L * p / ps)[np.argsort(arr_1b[:,i])]
 

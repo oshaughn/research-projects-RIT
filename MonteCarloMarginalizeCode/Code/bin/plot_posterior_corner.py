@@ -64,7 +64,7 @@ rc_params = {'backend': 'ps',
              'font.family': 'Times New Roman'}#,
              #'font.sans-serif': ['Bitstream Vera Sans']}#,
 plt.rcParams.update(rc_params)
-
+plt.rc('axes',unicode_minus=False)
 
 print(" WARNINGS : BoundedKDE class can oversmooth.  Need to edit options for using this class! ")
 
@@ -463,6 +463,7 @@ if opts.composite_file:
  for fname in opts.composite_file[:1]:  # Only load the first one!
     print(" Loading ... ", fname)
     samples = np.loadtxt(fname,dtype=composite_dtype)  # Names are not always available
+    samples = samples[ ~np.isnan(samples["lnL"])] # remove nan likelihoods -- they can creep in with poor settings/overflows
     if opts.sigma_cut >0:
         npts = len(samples["m1"])
         # strip NAN
@@ -657,6 +658,9 @@ for pIndex in np.arange(len(posterior_list)):
             if param in remap_LI_to_ILE.keys():
                 param_to_extract  = remap_LI_to_ILE[param]
             if param in eos_param_names:
+                continue
+            if param == 'time':
+                truths_here[indx] = P_ref.tref
                 continue
             truths_here[indx] = P_ref.extract_param(param_to_extract)
             if param in [ 'mc', 'm1', 'm2', 'mtotal']:

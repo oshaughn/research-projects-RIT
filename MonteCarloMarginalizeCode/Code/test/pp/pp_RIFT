@@ -26,7 +26,7 @@ import lalsimulation as lalsim
 from RIFT.misc.dag_utils import which
 lalapps_path2cache = which('lal_path2cache')
 if lalapps_path2cache == None:
-    lalapps_path2cache = = which('lalapps_path2cache')
+    lalapps_path2cache =  which('lalapps_path2cache')
 
 
 def unsafe_config_get(config,args,verbose=False):
@@ -47,10 +47,36 @@ def add_frames(channel,input_frame, noise_frame,combined_frame):
         os.system(cmd)
 
 
+# def dmax_seglen_ladder(mc):
+#     """
+#     dmax, seglen ladder motivated by G2201558 but with nonoverlapping mass bins.  Not sure how we are suppose do seglen < 4, so I am making that the shortest length
+#     De facto enables a conditional distance prior, based on the chirp mass.
+#     Not clear that a single PP run with this weird conditional distance prior is what is intended.
+#     """
+#     if mc>50 and mc<100:
+#         return [3500,4]
+#     elif mc>20 and mc<=50:
+#         return [2500,4]
+#     elif mc>12.3 and mc<=20:
+#         return [1500,4]
+#     elif mc>7.9 and mc <=12.3:
+#         return [1000,8]
+#     elif mc > 5.2 and mc<=7.9:
+#         return [800,16]
+#     elif mc > 3.4 and mc<=5.2:
+#         return [400,32]
+#     elif mc > 2.2 and mc<=3.4:
+#         return [400,64]
+#     elif mc>1.4 and mc<=2.2:
+#         return [300,128]
+#     elif mc < 1.4:
+#         return [150,256]
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
+#parser.add_argument("--internal-distance-ladder",action='store_true',help="Modify injection distance ladder as in G2201558 ")
 parser.add_argument("--use-osg",action='store_true',help="Attempt OSG operation. Command-line level option, not at ini level to make portable results")
+parser.add_argument("--add-extrinsic",action='store_true',help="Add extrinsic posterior.  Corresponds to --add-extrinsic --add-extrinsic-time-resampling --batch-extrinsic for pipeline")
 parser.add_argument("--test",default=False,action='store_true',help="Used to test the pipeline : prints out commands, generates workflows as much as possible without high-cost steps")
 opts =  parser.parse_args()
 
@@ -177,6 +203,12 @@ else:
     if eta_val < eta_range[0] or eta_val > eta_range[1]:
         continue
 
+    # rescale distance of injection based on mc
+    # if opts.internal_distance_ladder:
+    #     dmax_scale, seglen_scale = dmax_seglen_ladder(mc_val)
+    #     P.dist *=  dmax_scale/d_max   # direct scale
+    #     P.deltaF = 1./seglen_scale  
+
 
     P_list.append(P)
     indx+=1
@@ -282,11 +314,11 @@ psd_dict = unsafe_config_get(config,["make_psd",'fiducial_psds'])
 
 cip_fit_method = config.get('make_workflow','cip_fit_method')
 cip_sampler_method = config.get('make_workflow','cip_sampler_method')
-add_extrinsic=False
+add_extrinsic=opts.add_extrinsic
 use_osg=opts.use_osg #False
-if not(use_osg) and 'helper-args' in config:
-  if ('use_osg' in config['helper-args']):
-    use_osg = unsafe_config_get('helper-args','use_osg')
+if not(use_osg) and 'helper_args' in config:
+  if ('use_osg' in config['helper_args']):
+    use_osg = unsafe_config_get(config,['helper_args','use_osg'])  # this should almost always evaluate to true
 cip_explode_jobs=False
 if 'cip_explode_jobs' in config['make_workflow']:
     cip_explode_jobs = config.get('make_workflow','cip_explode_jobs')
@@ -308,14 +340,15 @@ for indx in np.arange(n_events):
     here = os.getcwd()
     mc_min_utils, mc_max_utils = lalsimutils.guess_mc_range_mdc(P_list[indx],force_mc_range=None) # this chooses the right mc-prior
     cmd = "helper_LDG_Events.py --sim-xml {}/mdc.xml.gz --event {} --event-time {}  --cache {}/local.cache --working-directory {}  ".format(working_dir_full,indx,P_list[indx].tref,here,dir_target)
+
     cmd += " --ile-n-eff {} ".format(ile_n_eff)
     cmd += " --fmin {} ".format(fmin_template)  # used for placement, we will be undoing some of these effects later with a 'replace'
     cmd += " --fmax {} ".format(fmax)
     # Pull out arbitrary arguments to be determined later, lieke --internal-marginalize-distance, --internal-use-aligned-phase-coordinates, etc
-    if 'helper-args' in config:
-        for arg in config["helper-args"]:
+    if 'helper_args' in config:
+        for arg in config["helper_args"]:
             arg_renamed =  arg.replace('_','-')
-            val = config.get("helper-args",arg)
+            val = config.get("helper_args",arg)
             if val == False or val=="False":
                 continue;
             elif val == None or val=='True':
@@ -337,6 +370,8 @@ for indx in np.arange(n_events):
         if not( '/' in psd_name):
             if use_osg:
                 psd_name = psd_name
+                # copy/link PSD files so they are correctly transferred by the downstream tools; yes it is a little silly
+                os.system(" cp {}/{} {} ".format(base_dir, psd_name, working_dir_full) )
             else:
                 psd_name = base_dir +"/"+psd_name
         cmd += " --psd-file {}={} ".format(psd,psd_name)
@@ -372,12 +407,21 @@ for indx in np.arange(n_events):
         for ifo in ifos:
             line =line.replace("--fmin-ifo {}={} ".format(ifo, fmin_template),"--fmin-ifo {}={} ".format(ifo, flow_dict[ifo]))
         line += " --l-max " + str(l_max) 
+#        if not opts.internal_distance_ladder:
         line += " --d-max " + str(d_max)
-        line += " --d-min " + str(d_min)
         t_start_analysis = fiducial_event_time - (seglen_analysis-2)
+#        else:
+#            dmax_scale, seglen_scale = dmax_seglen_ladder(P_list[indx].extract_param('mc')/lal.MSUN_SI)
+#            line += " --d-max " + str(dmax_scale)    
+#            t_start_analysis = fiducial_event_time - (seglen_scale-2)
         t_end_analysis = fiducial_event_time +2
+        line += " --d-min " + str(d_min)
         line += " --inv-spec-trunc-time 0 --data-start-time {} --data-end-time {} --window-shape {}".format(t_start_analysis, t_end_analysis, 0.4/seglen_analysis)
     
+        if 'ile_sampler_method' in config['make_workflow']:
+            ile_sampler = config.get('make_workflow','ile_sampler_method')
+            line += " --sampler-method {} ".format(ile_sampler)
+
         if not 'NR' in approx_recover_str:
             line += " --approx " + approx_recover_str
         elif "NRHybSur3dq8Tidal" in approx_recover_str:       # added NRHybSur3dq8Tidal to the list
@@ -393,7 +437,13 @@ for indx in np.arange(n_events):
             sys.exit(1)
         if use_distance_marginalization:
             # only implemented for a very specific code path
-            line += " --force-xpy --gpu --distance-marginalization --distance-marginalization-lookup-table {}/{} ".format(working_dir_full,"distance_marginalization_lookup.npz")
+            line += " --force-xpy --gpu --distance-marginalization --distance-marginalization-lookup-table "
+            if not use_osg:
+                line += " {}/{} ".format(working_dir_full,"distance_marginalization_lookup.npz")
+            else: 
+                line += " ./distance_marginalization_lookup.npz "
+                # add to transfer file list
+                os.system('echo  {}/distance_marginalization_lookup.npz >> helper_transfer_files.txt '.format(working_dir_full))
         with open('args_ile.txt','w') as f:
             f.write(line)
 
@@ -407,7 +457,10 @@ for indx in np.arange(n_events):
         n_iterations =0
         lines  = []
         for indx_instr in np.arange(len(instructions_cip)):
-            n_iterations += int(instructions_cip[indx_instr][0])
+            if instructions_cip[indx_instr][0] == 'Z':
+                n_iterations += 1
+            else:
+                n_iterations += int(instructions_cip[indx_instr][0])
             line = ' ' .join(instructions_cip[indx_instr])
             # Add CIP range
             line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(np.maximum(mc_min,mc_min_utils),np.minimum(mc_max,mc_max_utils),eta_min,eta_max,chi_max)
@@ -454,16 +507,16 @@ for indx in np.arange(n_events):
 
 
     # Build workflow
-    cmd = "create_event_parameter_pipeline_BasicIteration --input-grid proposed-grid.xml.gz --ile-n-events-to-analyze {} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`  --ile-args args_ile.txt --request-memory-ILE 4096 ".format(n_events_per_worker)
-    cmd+= "--cip-args-list args_cip_list.txt  --test-args args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd` --n-iterations {} --n-copies {} ".format(n_iterations, n_copies)
-    cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-max-it 10 --puff-cadence {} --puff-args args_puff.txt".format(puff_cadence)
+    cmd = "create_event_parameter_pipeline_BasicIteration --input-grid proposed-grid.xml.gz --ile-n-events-to-analyze {} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`  --ile-args {}/args_ile.txt --request-memory-ILE 4096 ".format(n_events_per_worker,dir_target)
+    cmd+= "--cip-args-list {}/args_cip_list.txt  --test-args {}/args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd` --n-iterations {} --n-copies {} ".format(dir_target,dir_target,n_iterations, n_copies)
+    cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-max-it 10 --puff-cadence {} --puff-args {}/args_puff.txt".format(puff_cadence,dir_target)
 
     # Use GPUs if we are not
     if use_gpu:
       cmd += " --request-gpu-ILE "
 
     if add_extrinsic:
-          cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 "
+          cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples 8000 --last-iteration-extrinsic-batched-convert --last-iteration-extrinsic-time-resampling "
     if cip_explode_jobs:
         cmd+= " --cip-explode-jobs  " + str(cip_explode_jobs) + " --cip-explode-jobs-dag "
         if cip_fit_method and not(cip_fit_method == 'gp'):

@@ -5,6 +5,7 @@
 #  Allow code to specify a guess based on fitting a gaussian to it, for speed
 import numpy as np
 import numpy.linalg as la
+import scipy.linalg as linalg
 
 try:
     from gwalk.utils.multivariate_normal import mu_of_params,cov_of_params, params_of_mu_cov
@@ -32,6 +33,15 @@ def quad_residuals(x,yvals,lnL_offset,mu,icov):
     yvals_expected = np.zeros(len(yvals))
     for indx in np.arange(len(yvals)):
         yvals_expected[indx] = lnL_offset - 0.5* np.dot((x[indx]-mu), np.dot(icov,x[indx]-mu))
+    return np.sum((yvals - yvals_expected)**2)  # least square residual, quadratic fit
+
+# From https://stackoverflow.com/questions/14758283/is-there-a-numpy-scipy-dot-product-calculating-only-the-diagonal-entries-of-the
+def quad_residuals_vector(x,yvals,lnL_offset,mu,icov):
+    yvals_expected = np.zeros(len(yvals)) + lnL_offset
+    dx = x - mu[:,np.newaxis].T
+    # now only take the diagonal elements of this matrix: I only want to correlate an x_k with itself, not with off-
+    tmp = np.einsum('ij,jk,ki->i',dx,icov,dx.T)
+    yvals_expected += -0.5* tmp
     return np.sum((yvals - yvals_expected)**2)  # least square residual, quadratic fit
 
 
@@ -77,8 +87,8 @@ def fit_grid(
         lnL_max = X[0]
         mu =  mu_of_params(X[1:])[0]
         cov = cov_of_params(X[1:])[0]
-        icov = np.linalg.inv(cov)
-        return quad_residuals(sample, values, lnL_max, mu, icov)
+        icov = linalg.inv(cov)
+        return quad_residuals_vector(sample, values, lnL_max, mu, icov)
 
     res = scipy.optimize.minimize(my_objective, X_alt)
 #    print(res)
