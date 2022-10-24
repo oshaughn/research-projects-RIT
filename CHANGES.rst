@@ -1,7 +1,8 @@
 0.0.15.8
 -----------
 Since last release
-   - bugfix pseudo_pipe so --internal-*-use-lnL passed correctly to helper (rc1)
+   - bugfix pseudo_pipe so --internal-*-use-lnL passed correctly to helper. CIP_gauss and CQL working correctly (rc1)
+   - bugfix wrong var name mcsamplerGPU in type check  
 
 0.0.15.7
 -----------
