@@ -21,7 +21,11 @@ try:
   import cupy
   import cupyx   # needed for logsumexp
   xpy_default=cupy
-  xpy_special_default = cupyx.scipy.special
+  try:
+    xpy_special_default = cupyx.scipy.special
+  except:
+    print(" mcsamplerGPU: no cupyx.special, fallback mode ...")
+    xpy_special_default= special
   identity_convert = cupy.asnumpy
   identity_convert_togpu = cupy.asarray
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
@@ -671,7 +675,8 @@ class MCSampler(object):
                     self._rvs["log_weights"] = log_weights
             # maxlnL
             maxlnL_now = identity_convert(xpy.max(lnL))
-            if xpy.isinf(maxlnL ):
+            maxlnL = identity_convert(maxlnL)
+            if np.isinf(maxlnL ):
               maxlnL = maxlnL_now
             else:
               maxlnL = np.max([maxlnL, maxlnL_now,-100])
@@ -794,7 +799,10 @@ class MCSampler(object):
             if isinstance(self._rvs[name],xpy_default.ndarray):
               self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
-        return outvals[0], outvals[1] - np.log(self.ntotal), eff_samp, dict_return
+        if outvals:
+          return outvals[0], outvals[1] - np.log(self.ntotal), eff_samp, dict_return
+        else: # very strange case where we terminate early
+          return None, None, None, None
 
 
 
