@@ -23,8 +23,11 @@ try:
   xpy_default=cupy
   try:
     xpy_special_default = cupyx.scipy.special
+    if not(hasattr(xpy_special_default,'logsumexp')):
+          print(" mcsamplerGPU: no cupyx.scipy.special.logsumexp, fallback mode ...")
+          xpy_special_default= special
   except:
-    print(" mcsamplerGPU: no cupyx.special, fallback mode ...")
+    print(" mcsamplerGPU: no cupyx.scipy.special, fallback mode ...")
     xpy_special_default= special
   identity_convert = cupy.asnumpy
   identity_convert_togpu = cupy.asarray
