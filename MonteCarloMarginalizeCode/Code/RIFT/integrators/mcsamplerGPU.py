@@ -807,8 +807,16 @@ class MCSampler(object):
             if isinstance(self._rvs[name],xpy_default.ndarray):
               self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
+        # Return.  Take care of typing
         if outvals:
-          return outvals[0], outvals[1] - np.log(self.ntotal), eff_samp, dict_return
+          out0 = outvals[0]; out1 = outvals[1]
+          if not(isinstance(outvals[0], np.float64)):
+            # type convert everything as needed
+            out0 = identity_convert(out0)
+          if not(isinstance(outvals[1], np.float64)):
+            out1 = identity_convert(out1)
+            eff_samp = identity_convert(eff_samp)
+          return out0, out1 - np.log(self.ntotal), eff_samp, dict_return
         else: # very strange case where we terminate early
           return None, None, None, None
 
