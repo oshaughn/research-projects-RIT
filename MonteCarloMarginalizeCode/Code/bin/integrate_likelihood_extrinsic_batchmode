@@ -1478,7 +1478,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
     if opts.maximize_only and opts.output_file:
       # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
-      indx_guess = numpy.argmax(sampler._rvs["integrand"])   # start search near maximum-likelihood point. (WARNING: can be very close by)
+      if "integrand" in sampler._rvs:
+        indx_guess = numpy.argmax(sampler._rvs["integrand"])   # start search near maximum-likelihood point. (WARNING: can be very close by)
+      else:
+        indx_guess = numpy.argmax(sampler._rvs["log_integrand"])
       P.radec=True
       P.phi = sampler._rvs["right_ascension"][indx_guess]
       P.theta = sampler._rvs["declination"][indx_guess]
