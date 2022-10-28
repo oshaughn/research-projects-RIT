@@ -1380,6 +1380,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     if not(res): # no resut
       raise ValueError(" No integral result returned")
 
+    if not(opts.internal_use_lnL):
+      log_res = numpy.log(res)
+      sqrt_var_over_res =  numpy.sqrt(var)/res
+    else:
+      log_res = res
+      sqrt_var_over_res =  numpy.exp(var/2 - log_res)
+
     # Report results
     if opts.output_file:
         fname_output_txt = opts.output_file +"_"+str(indx_event)+"_" + ".dat"
@@ -1393,16 +1400,16 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             event_id = -1
         if opts.save_eccentricity:
             # output format when eccentricity is being used
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         elif not (P.lambda1>0 or P.lambda2>0):
           # output format when lambda is NOT used
           if not opts.pin_distance_to_sim:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
           else:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["distance"], numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["distance"], log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         else:
             # Alternative output format if lambda is active
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
 
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
@@ -1435,7 +1442,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       else:
             samples["latitude"] = samples["declination"]
             samples["longitude"] = samples["right_ascension"]
-      samples["loglikelihood"] = numpy.log(samples["integrand"]) + manual_avoid_overflow_logarithm  # export with consistent offset
+      if "log_integrand" in samples:
+        samples["loglikelihood"] = samples["log_integrand"] +  manual_avoid_overflow_logarithm
+      else:
+        samples["loglikelihood"] = numpy.log(samples["integrand"]) + manual_avoid_overflow_logarithm  # export with consistent offset
       if not opts.rom_integrate_intrinsic:
             # ILE mode: insert fixed model parameters
             samples["mass1"] = numpy.ones(samples["psi"].shape)*m1 # opts.mass1
@@ -1453,13 +1463,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
-      dict_out={"mass1": m1, "mass2": m2, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": numpy.sqrt(var)/res, "ttotal": sampler.ntotal}
+      dict_out={"mass1": m1, "mass2": m2, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
       if 'distance' in pinned_params:
             dict_out['distance'] = pinned_params["distance"]
       converged_result = False
       if "convergence_test_results" in dict_return:
         converged_result = dict_return["convergence_test_results"]["normal_integral"]
-      xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=converged_result, **dict_out)
+      xmlutils.append_likelihood_result_to_xmldoc(xmldoc, log_res+manual_avoid_overflow_logarithm, neff=neff, converged=converged_result, **dict_out)
       fname_output_xml = opts.output_file +"_"+str(indx_event)+"_" + ".xml.gz"
       utils.write_filename(xmldoc, fname_output_xml, compress="gz")
 
