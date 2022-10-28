@@ -766,10 +766,10 @@ class MCSampler(object):
         #   - find and remove samples with  lnL less than maxlnL - deltalnL (latter user-specified)
         #   - create the cumulative weights
         #   - find and remove samples which contribute too little to the cumulative weights
-        if (not save_no_samples) and ( "integrand" in self._rvs):
-            self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
+        if (not save_no_samples) and ( "log_integrand" in self._rvs):
+            self._rvs["sample_n"] = numpy.arange(len(self._rvs["log_integrand"]))  # create 'iteration number'        
             # Step 1: Cut out any sample with lnL belw threshold
-            indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
+            indx_list = [k for k, value in enumerate( (self._rvs["log_integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
             # FIXME: This is an unncessary initial copy, the second step (cum i
             # prob) can be accomplished with indexing first then only pare at
             # the end
@@ -779,9 +779,13 @@ class MCSampler(object):
                 else:
                     self._rvs[key] = self._rvs[key][indx_list]
             # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
-            wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
+            ln_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]
+            # Convert to CPU as needed
+            ln_wt = identity_convert(ln_wt)
+            ln_wt += - np.max(ln_wt)  # remove maximum value, irrelevant
+            wt = np.exp(ln_wt) # exponentiate.  Danger underflow
             idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
-            indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again. NOTE NOT INTEGER TYPE ANY MORE
+            indx_list = numpy.array( [[k, ln_wt[k]] for k in idx_sorted_index])     # pair up with the weights again. NOTE NOT INTEGER TYPE ANY MORE
             cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
             cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
             indx_list = [int(indx_list[k, 0]) for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability. RECAST TO INTEGER
