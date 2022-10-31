@@ -15,6 +15,13 @@ stages:
   - docker image
   - deploy
 
+.install_docker_dependencies:
+  before_script:
+     - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
+     - apk add --update git py3-pip 
+     - ln -s /usr/bin/python3 /usr/bin/python
+
+
 before_script:
   # setup
   - apt-get update --assume-yes && apt-get upgrade --assume-yes && apt-get install --assume-yes git python3-pip
@@ -50,14 +57,11 @@ test_run:
 build:test:
   image: docker:latest
   stage: docker image
-  before_script:
-  - apk add --update git py3-pip 
-  - ln -s /usr/bin/python3 /usr/bin/python
+  extends: .install_docker_dependencies
   script:  
-    - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
     - suffix=$(echo $CI_COMMIT_BRANCH | cut -d "-" -f 2)
-    - docker build --rm --no-cache -t $RIFT_IMAGE:$suffix --file Dockerfile .
-    - docker push $RIFT_IMAGE:$suffix
+    - docker build --rm --no-cache -t $RIFT_IMAGE:test --file Dockerfile .
+    - docker push $RIFT_IMAGE:test
 
 documentation:
   stage: docs
