@@ -53,7 +53,7 @@ RUN mkdir -p /ceph /cvmfs /hdfs /hadoop /etc/condor /test
 #RUN ln -sf /usr/bin/python3.6 /usr/bin/python
 
 # Environment setup
-COPY entrypoint/bashrc /root/.bashrc
-COPY entrypoint/docker-entrypoint.sh /docker-entrypoint.sh
-ENTRYPOINT ["/docker-entrypoint.sh"]
+#COPY entrypoint/bashrc /root/.bashrc
+#COPY entrypoint/docker-entrypoint.sh /docker-entrypoint.sh
+#ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["/bin/bash"]
