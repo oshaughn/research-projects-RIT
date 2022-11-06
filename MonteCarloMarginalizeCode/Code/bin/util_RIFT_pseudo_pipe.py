@@ -198,6 +198,7 @@ parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If n
 parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this argument to CIP. GP plot for each iteration will be saved. Useful for followup investigations or reweighting. Warning: lots of disk space (1G or so per iteration)")
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number of jobs to use in last stage.  Hopefully in future auto-set")
+parser.add_argument("--cip-explode-jobs-auto",action='store_true',help="Auto-select --cip-explode-jobs based on SNR. Changes both cip-explode-jobs and cip-explode-jobs-last")
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--cip-sigma-cut",default=None,type=float,help="sigma-cut is an error threshold for CIP.  Passthrough")
 parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the final iteration")
@@ -741,6 +742,17 @@ with open ("helper_test_args.txt",'r') as f:
 with open("helper_cip_arg_list.txt",'r') as f:
         raw_lines = f.readlines()
 
+# MODIFY EXPLODE REQUEST
+if opts.cip_explode_jobs_auto and opts.event_dict["SNR"]:
+    snr = event_dict["SNR"]
+    q = P.m2/P.m1
+    n_max_jobs=200
+    n_jobs_normal_guess =  2+int( (1./q)*np.max([(snr/15),1]) )  # increase number of workers linearly with SNR and with mass ratio
+    n_jobs_normal_actual = np.min([n_jobs_normal_guess,n_max_jobs])
+    n_jobs_final_actual = np.min([2*n_jobs_normal_guess,n_max_jobs])
+    print("  AUTO-EXPLODE GUESS {} {} {} ", n_jobs_normal_guess, n_jobs_normal_actual,n_jobs_final_actual)
+    opts.cip_explode_jobs = n_jobs_normal_actual
+    opts.cip_explode_jobs_last = n_jobs_final_actual
 
 # Add arguments to the file we will use
 instructions_cip = list(map(lambda x: x.rstrip().split(' '), raw_lines))#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
