@@ -215,6 +215,7 @@ parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
+parser.add_argument("--use-gauss-early",action='store_true',help="If provided, use gaussian resampling in early iterations ('G'). Note this is a different CIP instance than using a quadratic likelihood!")
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
 parser.add_argument("--use-cov-early",action='store_true',help="If provided, use cov fit in the early iterations'")
@@ -594,7 +595,9 @@ if opts.assume_well_placed:
 #        npts_it = 1000
 if opts.internal_flat_strategy:
     cmd +=  " --test-convergence --propose-flat-strategy "
-if opts.use_quadratic_early:
+if opts.use_gauss_early:
+    cmd += " --use-gauss-early "
+elif opts.use_quadratic_early:
     cmd += " --use-quadratic-early "
 elif opts.use_gp_early:
     cmd += " --use-gp-early "
@@ -759,8 +762,12 @@ instructions_cip = list(map(lambda x: x.rstrip().split(' '), raw_lines))#np.load
 n_iterations =0
 lines  = []
 for indx in np.arange(len(instructions_cip)):
+    print(instructions_cip[indx])
     if instructions_cip[indx][0] == 'Z':
         n_iterations += 1
+    elif instructions_cip[indx][0][0] == 'G':
+        n_G = int(instructions_cip[indx][0][1:])
+        n_iterations += n_G
     else:
         n_iterations += int(instructions_cip[indx][0])
     line = ' ' .join(instructions_cip[indx])
@@ -999,6 +1006,8 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
+if opts.use_gauss_early:
+    cmd += " --cip-exe-G `which util_ConstructIntrinsicPosterior_GaussianResampling.py ` "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
     cmd += " --cip-exe `which util_AMRGrid.py ` "
