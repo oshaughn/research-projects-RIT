@@ -802,8 +802,9 @@ for indx in np.arange(len(instructions_cip)):
     elif opts.internal_correlate_default and ('s1z' in line):
         addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
         if 's1z_bar' in line:
-            addme = addme.replace('s1z,', 's1z_bar')
-            addme = addme.replace('s2z,', 's2z_bar')
+            # FIRST attempt to replace with commas, note previous line
+            addme = addme.replace('s1z,', 's1z_bar,')
+            addme = addme.replace('s2z', 's2z_bar')
         if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
             addme = addme.replace(',s1z,s2z', ',chi1,cos_theta1')
         # For high-q triggers, don't waste time correlating s2z
