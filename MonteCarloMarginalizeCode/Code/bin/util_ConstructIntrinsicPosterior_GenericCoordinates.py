@@ -276,6 +276,7 @@ parser.add_argument("--lambda-small-max", default=None,type=float,help="Maximum 
 parser.add_argument("--lambda-plus-max", default=None,type=float,help="Maximum range of 'Lambda_plus' allowed.  Used for sampling. Pick small values to accelerate sampling! Otherwise, use lambda-max.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
 parser.add_argument("--use-precessing",action='store_true')
+parser.add_argument("--lnL-downscale-factor",type=float,default=None,help="Multiply log likelihood by this number.  Intended for early stages of iterative analyses. Broadens the posterior. Assumes lnL is usual scale. Applied by MULTIPLYING INPUT DATA BY THIS FACTOR, before anything else applied.  Note also applied BEFORE MANUAL OFFSETS")
 parser.add_argument("--lnL-shift-prevent-overflow",default=None,type=float,help="Define this quantity to be a large positive number to avoid overflows. Note that we do *not* define this dynamically based on sample values, to insure reproducibility and comparable integral results. BEWARE: If you shift the result to be below zero, because the GP relaxes to 0, you will get crazy answers.")
 parser.add_argument("--lnL-protect-overflow",action='store_true',help="Before fitting, subtract lnLmax - 100.  Add this quantity back at the end.")
 parser.add_argument("--lnL-offset",type=float,default=np.inf,help="lnL offset. ONLY POINTS within lnLmax - lnLoffset are used in the calculation!  VERY IMPORTANT - default value chosen to include all points, not viable for production with some fit techniques like gp")
@@ -1442,6 +1443,11 @@ if opts.input_distance:
 dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
 print(" Original data size = ", len(dat), dat.shape)
+
+# Rescale lnL data, if requested.  Note requires user have sensible understanding of zero points of likelihood, etc  Appl
+if opts.lnL_downscale_factor:
+    dat[:,col_lnL] *= opts.lnL_downscale_factor
+    dat_orig[:,col_lnL] *= opts.lnL_downscale_factor
 
  ###
  ### Convert data.  Use lalsimutils for flexibility
