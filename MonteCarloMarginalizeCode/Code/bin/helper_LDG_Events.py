@@ -222,6 +222,7 @@ parser.add_argument("--internal-distance-max",type=float,default=None,help='If p
 parser.add_argument("--internal-use-amr",action='store_true',help='If present,the code will set up to use AMR.  Currently not much implemented here, and most of the heavy lifting is elsewhere')
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
+parser.add_argument("--use-gauss-early",action='store_true',help="If provided, use gaussian resampling in early iterations ('G'). Note this is a different CIP instance than using a quadratic likelihood!")
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
 parser.add_argument("--use-cov-early",action='store_true',help="If provided, use cov fit in the early iterations'")
@@ -1355,8 +1356,12 @@ if opts.propose_fit_strategy:
             except:
                 print("No mass information, can't add extra stages")
 
+            # G case: rewrite first case
+            if opts.use_gauss_early:
+                helper_cip_arg_list[0] = 'G2 --fit-method quadratic --parameter mc --parameter eta --parameter xi --n-output-samples 5000 --sigma-cut 0.9 --lnL-cut {} '.format(np.max([0.2*lnLmax_true,15]))
 
-    if ('quadratic' in fit_method) or ('polynomial' in fit_method):
+
+    if not(opts.use_gauss_early) and (('quadratic' in fit_method) or ('polynomial' in fit_method)):
         helper_cip_arg_list[0] += " --lnL-offset " + str(lnL_start)
         helper_cip_arg_list += helper_cip_arg_list[-1]  # add another set of iterations : these are super fast, and we want to get narrow
         n_levels = len(helper_cip_arg_list)
@@ -1426,11 +1431,15 @@ with open("helper_cip_arg_list.txt",'w+') as f:
 # Impose test in last phase only
 #   - for convenience, transform last Z 
 #   - note Z will override iteration thresholding anyways
-if opts.propose_converge_last_stage:
-    for indx in np.arange(len(helper_cip_arg_list)):
+#if opts.propose_converge_last_stage:
+for indx in np.arange(len(helper_cip_arg_list)):
         firstword = helper_cip_arg_list[indx].split(' ')[0]
+        print(helper_cip_arg_list[indx],firstword)
         if firstword == 'Z':
             helper_cip_arg_list[indx]  = '1 ' +  ' '.join(helper_cip_arg_list[indx].split(' ')[1:])
+        if 'G' == firstword[0]:
+            print(helper_cip_arg_list[indx][1:])
+            helper_cip_arg_list[indx] = helper_cip_arg_list[indx][1:]
 n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
 n_its_to_not_test = np.sum(n_its) - n_its[-1]
 helper_test_args += " --iteration-threshold {} ".format(int(n_its_to_not_test))
