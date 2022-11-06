@@ -743,7 +743,7 @@ with open("helper_cip_arg_list.txt",'r') as f:
         raw_lines = f.readlines()
 
 # MODIFY EXPLODE REQUEST
-if opts.cip_explode_jobs_auto and opts.event_dict["SNR"]:
+if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     snr = event_dict["SNR"]
     q = P.m2/P.m1
     n_max_jobs=200
