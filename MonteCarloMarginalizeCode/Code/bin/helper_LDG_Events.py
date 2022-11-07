@@ -222,6 +222,7 @@ parser.add_argument("--internal-distance-max",type=float,default=None,help='If p
 parser.add_argument("--internal-use-amr",action='store_true',help='If present,the code will set up to use AMR.  Currently not much implemented here, and most of the heavy lifting is elsewhere')
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
+parser.add_argument("--use-downscale-early",action='store_true', help="If provided, the first block of iterations are performed with lnL-downscale-factor passed to CIP, such that rho*2/2 * lnL-downscale-factor ~ (15)**2/2, if rho_hint > 15 ")
 parser.add_argument("--use-gauss-early",action='store_true',help="If provided, use gaussian resampling in early iterations ('G'). Note this is a different CIP instance than using a quadratic likelihood!")
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
@@ -1221,7 +1222,12 @@ if opts.propose_fit_strategy:
         n_it_early = 2
         n_it_mid =2
     helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "{} ".format(n_it_mid) +  helper_cip_arg_list_common ]
-    
+
+    # downscale factor, if requested
+    if opts.use_downscale_early and event_dict["SNR"]>15:
+        scale_fac = (15/event_dict["SNR"])**2
+        helper_cip_arg_list[0] += " --lnL-downscale-factor {} ".format(scale_fac)
+            
     # Impose a cutoff on the range of parameter used, IF the fit is a gp fit
     if 'gp' in fit_method:
         helper_cip_arg_list[0] += " --lnL-offset " + str(lnLoffset_all) 
@@ -1276,6 +1282,12 @@ if opts.propose_fit_strategy:
             # REMOVE intermediate stage where we used to do chiMinus ... it is NOT the dominant issue for precession, by far
             # so only 3 stages (0,1,2).  0 is aligned; 1 has chi_p; 2 has standard uniform spin prior (or volumetric)
             helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "2 " +  helper_cip_arg_list_common,"3 " +  helper_cip_arg_list_common  ]
+            # downscale factor, if requested
+            if opts.use_downscale_early and event_dict["SNR"]>15:
+                scale_fac = (15/event_dict["SNR"])**2
+                helper_cip_arg_list[0] += " --lnL-downscale-factor {} ".format(scale_fac)
+                helper_cip_arg_list[1] += " --lnL-downscale-factor {} ".format(scale_fac)
+
             if not opts.assume_highq:
                 # First three batches use cartersian coordinates
                 helper_cip_arg_list[0] += "  --parameter-nofit s1z --parameter-nofit s2z "
