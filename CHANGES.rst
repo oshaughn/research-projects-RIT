@@ -4,6 +4,9 @@ Since last release
    - bugfix pseudo_pipe so --internal-*-use-lnL passed correctly to helper. CIP_gauss and CQL working correctly (rc1)
    - bugfixes mcsamplerGPU (wrong var name mcsamplerGPU in type check; self.ntotal init at start of loop).
      mcsamplerGPU/statutils protect against cupyx.scipy.special not being present (rc2)
+   - documentation; mcsampler GPU/ILE_batchmode exports for use-lnL; dockerfile builds; pipeline --cip-explode-jobs-auto
+     to auto-select appropriate CIP worker count; CIP --lnL-downscale-factor to help sample loud signals; pipeline
+     --use-downscale-early to auto-select that factor; pipeline can use CIP_gauss in iterations, and can request via --use-gauss-early
 
 0.0.15.7
 -----------
