@@ -242,7 +242,7 @@ for indx in np.arange(n_events):
         if 'NRHybSur' in approx_str:
             cmd = "util_ROMWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
         else:
-            cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {}  --stop {}  --instrument {} --approx {}".format(indx, t_start,t_stop,ifo, approx_str)
+            cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {}  --stop {}  --instrument {} --seglen {} --approx {}".format(indx, t_start,t_stop,ifo, seglen_analysis, approx_str)
         print(cmd)
         if not opts.test:
             os.system(cmd)
