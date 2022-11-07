@@ -845,6 +845,8 @@ helper_test_args="X "
 helper_cip_args = "X "
 helper_cip_arg_list = []
 
+chieff_str = '' # Scoping issue fix
+
 helper_test_args += "  --method lame  --parameter mc --parameter eta  --iteration $(macroiteration) "
 if not opts.assume_nospin:
     helper_test_args += " --parameter xi "  # require chi_eff distribution to be stable
