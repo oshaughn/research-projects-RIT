@@ -305,6 +305,7 @@ valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp
 tex_dictionary  = {
  "mtot": '$M$',
  "mc": '${\cal M}_c$',
+ "mc_ecc": '${\cal M}_{\rm c,ecc}$',
  "m1": '$m_1$',
  "m2": '$m_2$',
  "m1_source": r'$m_{1,source}$',
@@ -495,8 +496,8 @@ class ChooseWaveformParams:
             eta = symRatio(self.m1,self.m2)
             self.m1,self.m2 = m1m2(10**val,eta)
             return self
-        if p == 'mc':
-            # change implemented at fixed chi1, chi2, eta
+        if p == 'mc' or p=='mc_ecc':
+            # change implemented at fixed chi1, chi2, eta (and ecc)
             eta = symRatio(self.m1,self.m2)
             self.m1,self.m2 = m1m2(val,eta)
             return self
