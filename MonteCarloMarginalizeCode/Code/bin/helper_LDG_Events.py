@@ -152,6 +152,7 @@ parser.add_argument("--gracedb-id",default=None,type=str)
 parser.add_argument("--internal-use-gracedb-bayestar",action='store_true',help="Retrieve BS skymap from gracedb (bayestar.fits), and use it internally in integration with --use-skymap bayestar.fits.")
 parser.add_argument("--force-data-lookup",action='store_true',help='Use this flag if you want to use real data.')
 parser.add_argument("--force-mc-range",default=None,type=str,help="For PP plots, or other analyses requiring a specific mc range (eg ini file). Enforces initial grid placement inside this region. Passed directly to MOG and CIP.")
+parser.add_argument("--limit-mc-range",default=None,type=str,help="For PP plots, or other analyses requiring a specific mc range (eg ini file), bounding the limit *above*.  Allows the code to auto-select its mc range as usual, then takes the intersection with this limit")
 parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--force-eta-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region")
 parser.add_argument("--use-legacy-gracedb",action='store_true')
@@ -831,6 +832,11 @@ if not(opts.manual_mc_max is None):
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 if not(opts.force_mc_range is None):
     mc_range_str_cip = " --mc-range " + opts.force_mc_range
+elif not(opts.limit_mc_range is None):
+    mc_min_lim,mc_max_lim = eval(opts.limit_mc_range)
+    mc_min = np.max([mc_min,mc_min_lim])
+    mc_max = np.min([mc_max,mc_max_lim])
+    mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 eta_range_str = "  ["+str(eta_min_tight) +","+str(eta_max_tight)+"]"  # default will include  1, as we work with BBHs
 eta_range_str_cip = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
 if not (opts.force_eta_range is None):
