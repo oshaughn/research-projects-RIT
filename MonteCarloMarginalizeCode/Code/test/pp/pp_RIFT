@@ -153,6 +153,10 @@ volumetric_spin =unsafe_config_get(config,['priors','volumetric_spin'])
 if volumetric_spin:
     print("  (volumetric spin prior)  ")
 
+lowlatency = unsafe_config_get(config,['make_workflow','lowlatency'])
+if lowlatency:
+    print(" ====> Low-latency mode: using Gaussian fits for CIP <==== ")
+
 fix_sky_location=unsafe_config_get(config,['priors','fix_sky_location'])
 fiducial_ra=float(config.get('priors','fiducial_ra'))
 fiducial_dec=float(config.get('priors','fiducial_dec'))
@@ -229,7 +233,9 @@ t_start = int(fiducial_event_time)-150
 t_stop = int(fiducial_event_time)+150
 
 zero_snr=[]
-lnL_cut_list=[]
+lnLcut_list=[]
+lnLoffset_all_list=[]
+
 mkdir('signal_frames')
 for indx in np.arange(n_events):
     os.chdir(working_dir_full)
@@ -272,9 +278,13 @@ for indx in np.arange(n_events):
     y = json.loads(x)
     snr = y["Network"]
     zero_snr.append(snr)
-    lnL_max=(snr**2)/2.    # approximately
-    lnL_cut=np.max([0.3*lnL_max,15.])  # just a guess for now  
-    lnL_cut_list.append(lnL_cut) 
+    lnLmax=(snr**2)/2.    # approximately
+    lnLcut=np.max([0.3*lnLmax,15.])  # just a guess for now  
+    lnLcut_list.append(lnLcut)
+    if lowlatency is True: 
+        lnLoffset_all = 2*lnLmax # very large : should be enough to keep all points # helper_LDG-L558
+        #lnLoffset_early = 0.8*lnLmax  # default value early on : should be good enough
+        lnLoffset_all_list.append(lnLoffset_all)  
     indx+=1
 
 #print(zero_snr)
@@ -330,9 +340,6 @@ except:
 use_mu_coord = unsafe_config_get(config,['make_workflow','use_mu_coord'])
 if use_mu_coord:
     print(" ====> Using SM's phase-based coordinates <====")
-lowlatency = unsafe_config_get(config,['make_workflow','lowlatency'])
-if lowlatency:
-    print(" ====> Low-latency mode: using Gaussian fits for CIP <==== ")
 
 n_events_per_worker = int(config.get('make_workflow','n_events_per_worker'))
 n_copies = int(config.get('make_workflow','n_copies'))
@@ -516,7 +523,8 @@ for indx in np.arange(n_events):
                 line = line.replace('--fit-method gp', '--fit-method ' + cip_fit_method)
             if lowlatency is True:
                 line = line.replace('--fit-method gp', '--fit-method quadratic')
-                line = line.replace('--parameter delta_mc', '--parameter eta') 
+                line = line.replace('--parameter delta_mc', '--parameter eta')
+                line = line.replace("--lnL-offset {} ".format(lnLoffset_all_list[indx]), "--lnL-cut {} ".format(lnLcut_list[indx])) 
             if (cip_sampler_method=="GMM"):
                 line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
             elif (cip_sampler_method!="GMM"):
