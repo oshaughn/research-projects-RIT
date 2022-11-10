@@ -889,7 +889,7 @@ else:
         cip_args_truncate=''
         # If we are a 'G' iteration, flag to use other executable
         cip_exe_here = cip_exe
-        cip_exe_here_master = cip_exe
+        cip_exe_here_master = "{}".format(cip_exe) # force clpy, so NOT BY REFERENCE
         if indx in creating_G_list:
             cip_exe_here = opts.cip_exe_G
         if opts.cip_explode_jobs:
