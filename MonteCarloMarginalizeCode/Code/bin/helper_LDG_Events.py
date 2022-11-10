@@ -1195,7 +1195,7 @@ if not opts.lowlatency_propose_approximant:
 
 puff_max_it=0
 helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
-if opts.assume_eccentricity:
+if opts.assume_eccentric:
     helper_puff_args += " --parameter eccentricity "
 
 if event_dict["MChirp"] >25:
