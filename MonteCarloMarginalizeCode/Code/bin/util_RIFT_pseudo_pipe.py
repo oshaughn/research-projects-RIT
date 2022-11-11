@@ -824,6 +824,9 @@ for indx in np.arange(len(instructions_cip)):
         line += " --prior-gaussian-mass-ratio --prior-gaussian-spin1-magnitude "   # should require precessing analysis
     elif opts.assume_highq and ('s1z' in line):
         line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+        if 's1z_bar' in line:
+            # FIRST attempt to replace with commas, note previous line
+            line = line.replace("mc,s1z'", "mc,s1z_bar'")
     elif opts.internal_correlate_default and ('s1z' in line):
         addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
         if 's1z_bar' in line:
@@ -837,7 +840,7 @@ for indx in np.arange(len(instructions_cip)):
             if event_dict['m2']/event_dict['m1']< 0.4:
                 addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
                 if 's1z_bar' in line:
-                    addme = addme.replace('s1z,', 's1z_bar')
+                    addme = addme.replace("mc,s1z'", "mc,s1z_bar'")
             if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
                 addme = addme.replace(',s1z' ',chi1,cos_theta1')
         line += addme
