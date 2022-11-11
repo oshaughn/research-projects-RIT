@@ -570,8 +570,8 @@ if opts.internal_cip_use_lnL:
 
 if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
-if not(opts.limit_mc_range is None):
-    cmd+= " --limit-mc-range {} ".format(opts.force_mc_range)
+if opts.limit_mc_range:
+    cmd+= " --limit-mc-range {} ".format(opts.limit_mc_range)
 if not(opts.force_mc_range is None):
     cmd+= " --force-mc-range {} ".format(opts.force_mc_range)
 elif opts.scale_mc_range:

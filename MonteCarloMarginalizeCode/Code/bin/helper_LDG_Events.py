@@ -832,8 +832,9 @@ if not(opts.manual_mc_max is None):
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 if not(opts.force_mc_range is None):
     mc_range_str_cip = " --mc-range " + opts.force_mc_range
-elif not(opts.limit_mc_range is None):
-    mc_min_lim,mc_max_lim = eval(opts.limit_mc_range)
+elif opts.limit_mc_range:
+    line_here = list(map(float,opts.limit_mc_range.replace('[','').replace(']','').split(',') ))
+    mc_min_lim,mc_max_lim = line_here
     mc_min = np.max([mc_min,mc_min_lim])
     mc_max = np.min([mc_max,mc_max_lim])
     mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
