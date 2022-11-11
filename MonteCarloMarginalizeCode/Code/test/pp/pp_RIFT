@@ -235,6 +235,7 @@ t_stop = int(fiducial_event_time)+150
 zero_snr=[]
 lnLcut_list=[]
 lnLoffset_all_list=[]
+lnLoffset_lowlat_list=[]
 
 mkdir('signal_frames')
 for indx in np.arange(n_events):
@@ -278,13 +279,15 @@ for indx in np.arange(n_events):
     y = json.loads(x)
     snr = y["Network"]
     zero_snr.append(snr)
-    lnLmax=(snr**2)/2.    # approximately
-    lnLcut=np.max([0.3*lnLmax,15.])  # just a guess for now  
-    lnLcut_list.append(lnLcut)
+    lnLmax=(snr**2)/2.    # approximately    
+#    lnLcut=np.max([0.3*lnLmax,15.])  # just a guess for now  
+#    lnLcut_list.append(lnLcut)
     if lowlatency is True: 
-        lnLoffset_all = 2*lnLmax # very large : should be enough to keep all points # helper_LDG-L558
+        lnLoffset_all = 2.*lnLmax # very large : should be enough to keep all points # helper_LDG-L558
         #lnLoffset_early = 0.8*lnLmax  # default value early on : should be good enough
-        lnLoffset_all_list.append(lnLoffset_all)  
+        lnLoffset_all_list.append(lnLoffset_all)
+        lnLoffset_lowlat = np.max([0.3*lnLmax,15.])  # just a guess for now 
+        lnLoffset_lowlat_list.append(lnLoffset_lowlat)  
     indx+=1
 
 #print(zero_snr)
@@ -524,7 +527,7 @@ for indx in np.arange(n_events):
             if lowlatency is True:
                 line = line.replace('--fit-method gp', '--fit-method quadratic')
                 line = line.replace('--parameter delta_mc', '--parameter eta')
-                line = line.replace("--lnL-offset {} ".format(lnLoffset_all_list[indx]), "--lnL-cut {} ".format(lnLcut_list[indx])) 
+                line = line.replace("--lnL-offset {} ".format(lnLoffset_all_list[indx]), "--lnL-offset {} ".format(lnLoffset_lowlat_list[indx])) 
             if (cip_sampler_method=="GMM"):
                 line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
             elif (cip_sampler_method!="GMM"):
@@ -588,6 +591,8 @@ for indx in np.arange(n_events):
     if not opts.test:
         os.system(cmd)
 
+print("lnLoffset-default-list =", lnLoffset_all_list)
+print("lnLoffset-lowlat-list =", lnLoffset_lowlat_list)
 
 print(" === Building master workflow === ")
 
