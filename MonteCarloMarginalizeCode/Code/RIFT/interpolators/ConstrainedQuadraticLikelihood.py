@@ -5,6 +5,7 @@
 #  Allow code to specify a guess based on fitting a gaussian to it, for speed
 import numpy as np
 import numpy.linalg as la
+import scipy.linalg as linalg
 
 try:
     from gwalk.utils.multivariate_normal import mu_of_params,cov_of_params, params_of_mu_cov
@@ -39,7 +40,7 @@ def quad_residuals_vector(x,yvals,lnL_offset,mu,icov):
     yvals_expected = np.zeros(len(yvals)) + lnL_offset
     dx = x - mu[:,np.newaxis].T
     # now only take the diagonal elements of this matrix: I only want to correlate an x_k with itself, not with off-
-    tmp = np.einsum('ij,jk,ji->i',dx,icov,dx.T)
+    tmp = np.einsum('ij,jk,ki->i',dx,icov,dx.T)
     yvals_expected += -0.5* tmp
     return np.sum((yvals - yvals_expected)**2)  # least square residual, quadratic fit
 
@@ -86,7 +87,7 @@ def fit_grid(
         lnL_max = X[0]
         mu =  mu_of_params(X[1:])[0]
         cov = cov_of_params(X[1:])[0]
-        icov = np.linalg.inv(cov)
+        icov = linalg.inv(cov)
         return quad_residuals_vector(sample, values, lnL_max, mu, icov)
 
     res = scipy.optimize.minimize(my_objective, X_alt)

@@ -11,7 +11,16 @@ default:
 stages:
   - system tests
   - unit tests # TODO: write some
+  - docs
   - docker image
+  - deploy
+
+.install_docker_dependencies:
+  before_script:
+     - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
+     - apk add --update git py3-pip 
+     - ln -s /usr/bin/python3 /usr/bin/python
+
 
 before_script:
   # setup
@@ -40,6 +49,7 @@ import_check:
 test_run:
   stage: system tests
   script:
+    - . .travis/test-coord.sh
     - . .travis/test-integrate.sh
     - . .travis/test-posterior.sh
     - . .travis/test-run.sh
@@ -47,8 +57,23 @@ test_run:
 build:test:
   image: docker:latest
   stage: docker image
+  extends: .install_docker_dependencies
   script:  
-   -  docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
     - suffix=$(echo $CI_COMMIT_BRANCH | cut -d "-" -f 2)
-    - docker build --rm --no-cache -t $RIFT_IMAGE:$suffix --file Dockerfile .
-    - docker push $RIFT_IMAGE:$suffix
+    - docker build --rm --no-cache -t $RIFT_IMAGE:test --file Dockerfile .
+    - docker push $RIFT_IMAGE:test
+
+documentation:
+  stage: docs
+  image: debian:latest
+  script:
+    - apt-get -y install graphviz
+    - cd docs
+    - pip install -r requirements.txt
+    - make clean
+    - cd ..
+    - sphinx-build docs/source/ docs/build/
+
+  artifacts:
+    paths:
+      - docs/build/

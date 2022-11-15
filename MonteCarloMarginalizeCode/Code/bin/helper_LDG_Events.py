@@ -151,7 +151,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--gracedb-id",default=None,type=str)
 parser.add_argument("--internal-use-gracedb-bayestar",action='store_true',help="Retrieve BS skymap from gracedb (bayestar.fits), and use it internally in integration with --use-skymap bayestar.fits.")
 parser.add_argument("--force-data-lookup",action='store_true',help='Use this flag if you want to use real data.')
-parser.add_argument("--force-mc-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region. Passed directly to MOG and CIP.")
+parser.add_argument("--force-mc-range",default=None,type=str,help="For PP plots, or other analyses requiring a specific mc range (eg ini file). Enforces initial grid placement inside this region. Passed directly to MOG and CIP.")
+parser.add_argument("--limit-mc-range",default=None,type=str,help="For PP plots, or other analyses requiring a specific mc range (eg ini file), bounding the limit *above*.  Allows the code to auto-select its mc range as usual, then takes the intersection with this limit")
+parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--force-eta-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region")
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
@@ -182,6 +184,8 @@ parser.add_argument("--psd-file", action="append", help="instrument=psd-file, e.
 parser.add_argument("--assume-fiducial-psd-files", action="store_true", help="Will populate the arguments --psd-file IFO=IFO-psd.xml.gz for all IFOs being used, based on data availability.   Intended for user to specify PSD files later, or for DAG to build BW PSDs. ")
 parser.add_argument("--use-online-psd",action='store_true',help='Use PSD from gracedb, if available')
 parser.add_argument("--assume-matter",action='store_true',help="If present, the code will add options necessary to manage tidal arguments. The proposed fit strategy and initial grid will allow for matter")
+parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
+parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!. NOT YET IMPLEMENTED (initial grids, etc)")
 parser.add_argument("--assume-eccentric",action='store_true',help="If present, the code will add options necessary to manage eccentric arguments. The proposed fit strategy and initial grid will allow for eccentricity")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
@@ -191,6 +195,10 @@ parser.add_argument("--assume-well-placed",action='store_true',help="If present,
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
 parser.add_argument("--internal-propose-ile-convergence-freezeadapt",action='store_true',help="If present, uses the --no-adapt-after-first --no-adapt-distance options (at one point default)")
 parser.add_argument("--internal-propose-ile-adapt-log",action='store_true',help="If present, uses the --adapt-log argument. Useful for very loud signals. Note only lnL information is used for adapting, not prior, so samples will be *uniform* in prior range if lnL is low")
+parser.add_argument("--internal-ile-rotate-phase", action='store_true')
+parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
+parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset")
+parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
@@ -214,6 +222,9 @@ parser.add_argument("--internal-marginalize-distance-file",help="Filename for ma
 parser.add_argument("--internal-distance-max",type=float,default=None,help='If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances')
 parser.add_argument("--internal-use-amr",action='store_true',help='If present,the code will set up to use AMR.  Currently not much implemented here, and most of the heavy lifting is elsewhere')
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
+parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
+parser.add_argument("--use-downscale-early",action='store_true', help="If provided, the first block of iterations are performed with lnL-downscale-factor passed to CIP, such that rho*2/2 * lnL-downscale-factor ~ (15)**2/2, if rho_hint > 15 ")
+parser.add_argument("--use-gauss-early",action='store_true',help="If provided, use gaussian resampling in early iterations ('G'). Note this is a different CIP instance than using a quadratic likelihood!")
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
 parser.add_argument("--use-cov-early",action='store_true',help="If provided, use cov fit in the early iterations'")
@@ -223,6 +234,8 @@ parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI 
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
+if opts.assume_matter_but_primary_bh:
+    opts.assume_matter=True
 
 #internal_dmax = None
 internal_dmax = opts.internal_distance_max # default is None
@@ -398,7 +411,10 @@ if not (opts.psd_file is None):
     for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
             psd_names[inst] = psdf
             ifo_list.append(inst)
-    event_dict["IFOs"] = ifo_list
+    if not(opts.manual_ifo_list):
+        event_dict["IFOs"] = ifo_list
+    else:
+        event_dict["IFOs"] = opts.manual_ifo_list.replace('[','').replace(']','').split(',')
 if not ("IFOs" in event_dict.keys()):  
     if not(opts.manual_ifo_list is None):
 #        import ast
@@ -792,6 +808,11 @@ chieff_max = np.min([chieff_center +0.4/snr_fac,1])  # bias high, given natural 
 if chieff_min >0 and use_gracedb_event:
     chieff_min = -0.1   # make sure to cover spin zero, most BBH have zero spin and missing zero is usually an accident of the search recovered params
 
+if opts.scale_mc_range:
+    mc_center = (mc_min + mc_max)/2
+    mc_width = (mc_max - mc_min)
+    mc_min = mc_center -0.5*opts.scale_mc_range*mc_width
+    mc_max = mc_center +0.5*opts.scale_mc_range*mc_width
 
 if use_ini:
     engine_dict = dict(config['engine'])
@@ -811,6 +832,12 @@ if not(opts.manual_mc_max is None):
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 if not(opts.force_mc_range is None):
     mc_range_str_cip = " --mc-range " + opts.force_mc_range
+elif opts.limit_mc_range:
+    line_here = list(map(float,opts.limit_mc_range.replace('[','').replace(']','').split(',') ))
+    mc_min_lim,mc_max_lim = line_here
+    mc_min = np.max([mc_min,mc_min_lim])
+    mc_max = np.min([mc_max,mc_max_lim])
+    mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 eta_range_str = "  ["+str(eta_min_tight) +","+str(eta_max_tight)+"]"  # default will include  1, as we work with BBHs
 eta_range_str_cip = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
 if not (opts.force_eta_range is None):
@@ -825,6 +852,8 @@ helper_test_args="X "
 helper_cip_args = "X "
 helper_cip_arg_list = []
 
+chieff_str = '' # Scoping issue fix
+
 helper_test_args += "  --method lame  --parameter mc --parameter eta  --iteration $(macroiteration) "
 if not opts.assume_nospin:
     helper_test_args += " --parameter xi "  # require chi_eff distribution to be stable
@@ -836,12 +865,22 @@ if not (opts.fmax is None):
     helper_ile_args += " --fmax " + str(opts.fmax)  # pass actual fmax
 else:
     helper_ile_args += " --fmax " + str(fmax)
+rescaled_base_ile = False
 if "SNR" in event_dict.keys():
     snr_here = event_dict["SNR"]
     if snr_here > 25:
-        lnL_expected = snr_here**2 /2. - 10  # 10 is rule of thumb, depends on distance prior
-        helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
+        lnL_expected = snr_here**2 /2. - np.log(10)*50  # remember, 10^308 is typical overflow scale, giving range of 10^100 above
+        if not(opts.internal_ile_auto_logarithm_offset) and not opts.internal_ile_use_lnL:
+            helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
         helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
+        rescaled_base_ile = True
+if opts.internal_ile_auto_logarithm_offset and not opts.internal_ile_use_lnL:
+    helper_ile_args += " --auto-logarithm-offset "
+    rescaled_base_ile = True
+if opts.internal_ile_use_lnL:
+    helper_ile_args += ' --internal-use-lnL '
+if opts.internal_cip_use_lnL:
+    helper_cip_args += " --internal-use-lnL "
 
 if not opts.use_osg:
     if '/' in opts.cache:
@@ -1043,11 +1082,15 @@ elif opts.propose_initial_grid:
             else:
                 return 3000*((2.2-m)/(1.2))**4
         lambda_grid_min=50
-        P.lambda1 = lambda_m_estimate(P.m1/lal.MSUN_SI)
+        if not(opts.assume_matter_but_primary_bh):
+            P.lambda1 = lambda_m_estimate(P.m1/lal.MSUN_SI)
+            lambda1_min = np.min([50,P.lambda1*0.2])
+            lambda1_max = np.min([1500,P.lambda1*2])
+        else:
+            lambda1_min = 0
+            lambda1_max=0
         P.lambda2 = lambda_m_estimate(P.m2/lal.MSUN_SI)
-        lambda1_min = np.min([50,P.lambda1*0.2])
-        lambda1_max = np.min([1500,P.lambda1*2])
-        lambda2_min = np.min([50,P.lambda1*0.2])
+        lambda2_min = np.min([50,P.lambda2*0.2])
         lambda2_max = np.min([1500,P.lambda2*2])
         cmd += " --random-parameter lambda1 --random-parameter-range [{},{}] --random-parameter lambda2 --random-parameter-range [{},{}] ".format(lambda1_min,lambda1_max,lambda2_min,lambda2_max)
         grid_size *=2   # denser grid
@@ -1088,9 +1131,10 @@ elif opts.propose_initial_grid:
         delta_grid_max = (1-qref)/(1+qref)
 
         mass_string_init_new = " --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_grid_min) +"," + str(delta_grid_max) + "]'  "
-        cmd = cmd.replace(mass_string_init, mass_string_init_new)
-        chieff_str_new = " --random-parameter chieff_aligned  --random-parameter-range '[-0.5,0.5]' "
-        cmd.replace(chieff_str, chieff_str_new)
+        if not(opts.assume_nospin):
+            cmd = cmd.replace(mass_string_init, mass_string_init_new)
+            chieff_str_new = " --random-parameter chieff_aligned  --random-parameter-range '[-0.5,0.5]' "
+            cmd.replace(chieff_str, chieff_str_new)
 
         cmd = cmd.replace("fname proposed-grid",  "fname proposed-grid-extra")
         print(" Executing supplementary grid command for high q ", cmd)
@@ -1137,12 +1181,19 @@ if opts.propose_ile_convergence_options:
         helper_ile_args += " --adapt-log "
     else:
         if snr_fac > 1.5:  # this is a pretty loud signal, so we need to tune the adaptive exponent too!
+#            if not(rescaled_base_ile):
             helper_ile_args += " --adapt-weight-exponent " + str(prefactor/np.power(snr_fac/1.5,2))
+#            else:
+#                # if we are adjusting the logarithm scale based on signal strength, we don't want to smash it too much, so only use the default prefactor
+#                helper_ile_args += " --adapt-weight-exponent " + str(prefactor)
         else:
             helper_ile_args += " --adapt-weight-exponent  {} ".format(prefactor)  
 
 if opts.internal_use_gracedb_bayestar:
     helper_ile_args += " --skymap-file {}/bayestar.fits ".format(opts.working_directory)
+
+if opts.internal_ile_rotate_phase:
+    helper_ile_args += " --internal-rotate-phase "
 
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
@@ -1151,6 +1202,9 @@ if not opts.lowlatency_propose_approximant:
 
 puff_max_it=0
 helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
+if opts.assume_eccentric:
+    helper_puff_args += " --parameter eccentricity "
+
 if event_dict["MChirp"] >25:
     # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there
     helper_puff_args = " --parameter mc --parameter delta_mc "  
@@ -1181,7 +1235,12 @@ if opts.propose_fit_strategy:
         n_it_early = 2
         n_it_mid =2
     helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "{} ".format(n_it_mid) +  helper_cip_arg_list_common ]
-    
+
+    # downscale factor, if requested
+    if opts.use_downscale_early and event_dict["SNR"]>15:
+        scale_fac = (15/event_dict["SNR"])**2
+        helper_cip_arg_list[0] += " --lnL-downscale-factor {} ".format(scale_fac)
+            
     # Impose a cutoff on the range of parameter used, IF the fit is a gp fit
     if 'gp' in fit_method:
         helper_cip_arg_list[0] += " --lnL-offset " + str(lnLoffset_all) 
@@ -1236,6 +1295,12 @@ if opts.propose_fit_strategy:
             # REMOVE intermediate stage where we used to do chiMinus ... it is NOT the dominant issue for precession, by far
             # so only 3 stages (0,1,2).  0 is aligned; 1 has chi_p; 2 has standard uniform spin prior (or volumetric)
             helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "2 " +  helper_cip_arg_list_common,"3 " +  helper_cip_arg_list_common  ]
+            # downscale factor, if requested
+            if opts.use_downscale_early and event_dict["SNR"]>15:
+                scale_fac = (15/event_dict["SNR"])**2
+                helper_cip_arg_list[0] += " --lnL-downscale-factor {} ".format(scale_fac)
+                helper_cip_arg_list[1] += " --lnL-downscale-factor {} ".format(scale_fac)
+
             if not opts.assume_highq:
                 # First three batches use cartersian coordinates
                 helper_cip_arg_list[0] += "  --parameter-nofit s1z --parameter-nofit s2z "
@@ -1244,20 +1309,25 @@ if opts.propose_fit_strategy:
                 if not(opts.internal_use_aligned_phase_coordinates):
                     helper_cip_arg_list[0] +=  '  --parameter-implied xi   ' 
                     helper_cip_arg_list[1] +=  '  --parameter-implied xi   ' 
-                helper_cip_arg_list[0] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior taper-down '
-            
-                # helper_cip_arg_list[1] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z ' 
-                # helper_cip_arg_list[1] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior alignedspin-zprior '
-                
-                helper_cip_arg_list[1] +=   ' --parameter-implied chi_p --use-precessing  --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y   --transverse-prior taper-down '
-
+                if not(opts.internal_use_rescaled_transverse_spin_coordinates):
+                    helper_cip_arg_list[0] +=   ' --use-precessing --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y  --no-adapt-parameter s1x --no-adapt-parameter s1y --no-adapt-parameter s2x --no-adapt-parameter s2y --transverse-prior taper-down '
+                    helper_cip_arg_list[1] +=   ' --parameter-implied chi_p --use-precessing  --parameter-nofit s1x --parameter-nofit s1y --parameter-nofit s2x  --parameter-nofit s2y   --transverse-prior taper-down '
+                else:
+                    helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('--parameter-nofit s1z --parameter-nofit s2z','')
+                    helper_cip_arg_list[1] = helper_cip_arg_list[1].replace('--parameter-nofit s1z --parameter-nofit s2z','')
+                    helper_cip_arg_list[0] +=  " --use-precessing  --parameter-nofit s1z_bar --parameter-nofit s2z_bar --parameter-nofit chi1_perp_u --parameter-nofit chi2_perp_u --parameter-nofit phi1 --parameter-nofit phi2 --no-adapt-parameter phi1 --no-adapt-parameter phi2 --no-adapt-parameter chi1_perp_u --no-adapt-parameter chi2_perp_u "
+                    helper_cip_arg_list[1] +=  "  --use-precessing  --parameter-nofit s1z_bar --parameter-nofit s2z_bar --parameter-nofit chi1_perp_u --parameter-nofit chi2_perp_u --parameter-nofit phi1 --parameter-nofit phi2 --no-adapt-parameter phi1 --no-adapt-parameter phi2 --no-adapt-parameter chi1_perp_u --no-adapt-parameter chi2_perp_u "
+                    helper_cip_arg_list[1] +=   ' --parameter-implied chi_p  '
                 
                 if not(opts.internal_use_aligned_phase_coordinates):
                     helper_cip_arg_list[2] += ' --parameter-implied xi  --parameter-implied chiMinus  ' 
                 else:
                     helper_cip_arg_list[2] += '   --parameter-implied chiMinus  ' 
-                if not(opts.assume_volumetric_spin):
+                if not(opts.assume_volumetric_spin) and not(opts.internal_use_rescaled_transverse_spin_coordinates):
                     helper_cip_arg_list[2] +=  '  --use-precessing  --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit cos_theta1 --parameter-nofit cos_theta2 --parameter-nofit phi1 --parameter-nofit phi2   --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
+                elif opts.internal_use_rescaled_transverse_spin_coordinates:
+                    helper_cip_arg_list[2] +=  '  --use-precessing    --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y '
+                    helper_cip_arg_list[2] +=  "   --prior-in-integrand-correction  'uniform_over_rbar_singular' --parameter-nofit s1z_bar --parameter-nofit s2z_bar --parameter-nofit chi1_perp_u --parameter-nofit chi2_perp_u --parameter-nofit phi1 --parameter-nofit  phi2 "
                 else:
                     # if we are doing a FLAT structure, we are volumeric or not
                     helper_cip_args += '  --parameter-nofit s1z --parameter-nofit s2z  '
@@ -1311,20 +1381,28 @@ if opts.propose_fit_strategy:
             except:
                 print("No mass information, can't add extra stages")
 
+            # G case: rewrite first case
+            if opts.use_gauss_early:
+                helper_cip_arg_list[0] = 'G2 --fit-method quadratic --parameter mc --parameter eta --parameter xi --n-output-samples 5000 --sigma-cut 0.9 --lnL-cut {} '.format(np.max([0.2*lnLmax_true,15]))
 
-    if ('quadratic' in fit_method) or ('polynomial' in fit_method):
+
+    if not(opts.use_gauss_early) and (('quadratic' in fit_method) or ('polynomial' in fit_method)):
         helper_cip_arg_list[0] += " --lnL-offset " + str(lnL_start)
         helper_cip_arg_list += helper_cip_arg_list[-1]  # add another set of iterations : these are super fast, and we want to get narrow
         n_levels = len(helper_cip_arg_list)
         for indx in np.arange(1,n_levels):  # do NOT constrain the first CIP, as it has so few points!
             helper_cip_arg_list[indx] += " --lnL-offset " + str( lnL_start*(1.- 1.*indx/(n_levels-1.))  + lnL_end*indx/(n_levels-1.) )
 
-    if opts.assume_matter:
+    if opts.assume_matter and not(opts.internal_tabular_eos_file):
         helper_puff_args += " --parameter LambdaTilde  --downselect-parameter s1z --downselect-parameter-range [-0.9,0.9] --downselect-parameter s2z --downselect-parameter-range [-0.9,0.9]  "  # Probably should also aggressively force sampling of low-lambda region
-        helper_cip_args += " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
+        helper_cip_args += " --input-tides --parameter-implied LambdaTilde  --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
+        if not(opts.assume_matter_but_primary_bh):
+            helper_cip_args+= " --parameter-nofit lambda1 "
         # Add LambdaTilde on top of the aligned spin runs
         for indx in np.arange(len(helper_cip_arg_list)):
-            helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde --parameter-nofit lambda1 --parameter-nofit lambda2 " 
+            helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde  --parameter-nofit lambda2 " 
+            if not(opts.assume_matter_but_primary_bh):
+                helper_cip_arg_list[indx] += " --parameter-nofit lambda1 "
         # add --prior-lambda-linear to first iteration, to sample better at low lambda
         helper_cip_arg_list[0] += " --prior-lambda-linear "
         # Remove LambdaTilde from *first* batch of iterations .. too painful ? NO, otherwise we wander off into wilderness
@@ -1335,7 +1413,8 @@ if opts.propose_fit_strategy:
 
         n_its = map(lambda x: float(x.split()[0]), helper_cip_arg_list)
         puff_max_it= np.sum(n_its) # puff all the way to the end
-
+    elif opts.internal_tabular_eos_file:
+        helper_cip_args = " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
 # lnL-offset was already enforced
 #    if opts.internal_fit_strategy_enforces_cut:
 #        for indx in np.arange(len(helper_cip_arg_list))[1:]:
@@ -1377,11 +1456,15 @@ with open("helper_cip_arg_list.txt",'w+') as f:
 # Impose test in last phase only
 #   - for convenience, transform last Z 
 #   - note Z will override iteration thresholding anyways
-if opts.propose_converge_last_stage:
-    for indx in np.arange(len(helper_cip_arg_list)):
+#if opts.propose_converge_last_stage:
+for indx in np.arange(len(helper_cip_arg_list)):
         firstword = helper_cip_arg_list[indx].split(' ')[0]
+        print(helper_cip_arg_list[indx],firstword)
         if firstword == 'Z':
             helper_cip_arg_list[indx]  = '1 ' +  ' '.join(helper_cip_arg_list[indx].split(' ')[1:])
+        if 'G' == firstword[0]:
+            print(helper_cip_arg_list[indx][1:])
+            helper_cip_arg_list[indx] = helper_cip_arg_list[indx][1:]
 n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
 n_its_to_not_test = np.sum(n_its) - n_its[-1]
 helper_test_args += " --iteration-threshold {} ".format(int(n_its_to_not_test))

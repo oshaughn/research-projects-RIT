@@ -1,3 +1,13 @@
+0.0.15.8
+-----------
+Since last release
+   - bugfix pseudo_pipe so --internal-*-use-lnL passed correctly to helper. CIP_gauss and CQL working correctly (rc1)
+   - bugfixes mcsamplerGPU (wrong var name mcsamplerGPU in type check; self.ntotal init at start of loop).
+     mcsamplerGPU/statutils protect against cupyx.scipy.special not being present (rc2)
+   - documentation; mcsampler GPU/ILE_batchmode exports for use-lnL; dockerfile builds; pipeline --cip-explode-jobs-auto
+     to auto-select appropriate CIP worker count; CIP --lnL-downscale-factor to help sample loud signals; pipeline
+     --use-downscale-early to auto-select that factor; pipeline can use CIP_gauss in iterations, and can request via --use-gauss-early
+
 0.0.15.7
 -----------
 Since last release
@@ -10,9 +20,32 @@ Since last release
      CIP/EOSManager methods for quick inference with tabulated sequence of EOSs (EOSSequenceLandry; etc);
      mcsampler avoid infinite loop for 'no contribution to integral,skipping'; CIP_gauss defined (gaussian fit +
      resampling based on gaussian); scitokens-ready ILE  (rc1)
+   - dockerfile prototype in this repo; CQL vectorized; OSG updates (local.cache duplication); fix cupy memory warning;
+     add CUDA memory limit to avoid landing on overstrained GPU hosts; convergence_test_samples has JS test used elsewhere;
+     bugfix mcsamplerGPU adaptive (intermittent array size error); mcsampler default/gpu standardize n_history;
+     integrator test update; lalapps_path2cache->lal_path2cache change; TEOBResumS integration as external package;
+     new pseudo-cylindrical coordinates; new CIP option to put change-of-coordinates prior reweighting inside adaptive
+     integrand, so it is done live instread of at-end reweighting;  fix some fallthroughs in lalsimutils to 'slow' non-vectorized code; update
+     vectorized tranform test to cover standard use cases and put into CI; pp_RIFT updates; start sphinx documentation (rc2)
+   - CIP running on OSG as option (--use-cip-osg); lalsimutils.convert_waveform_coordinates fix non-production transform
+     and update tests; minor bugfixes (formatting ligolw_add arguments; dmarg+sky rotation wasn't coded). **Change default fit to rf**.  cosmo prior
+     gpu-ized and exposed for use. Rosenbrock test cleanup for paper. More sphinx documentation. --auto-logarithm-offset
+     in ILE (and access via --internal-ile-auto-logarithm-offset).  Tweaks to better automate interpretation of asymmetric binaries like
+     BHNS (pipeline  can set lambda1,lambda2 prior upper bounds, --force-chi-small-max, and allow tides only on one
+     object).  CIP_gaussian updates. (rc3)
+   - helper missing argument for --internal-ile-auto-logarithm-offset; fix --auto-logarithm-offset implementation SNR
+     scale (and debugs thereof); ILE request_disk; expose --internal-rotate-phase; add
+     --internal-loud-signal-mitigation-suite; add util_ForOSG_MakeTruncatedLocalFramesDir.sh and assocated .py script to
+     trim frames for a remote-machine run; pp plot minor typing issues; fix accidental mangling of rosenbrock test
+     commit; docs.  (rc4)
+   - mcsamplerGPU use-lnL mode, via statutils; pipeline  --cip-sigma-cut,  --scale-mc-range, --internal-ile/cip-use-lnL; intermediate posterior*dat files have tides &
+     eccentricity auto-produced (rc5)
+   - var name bugfix in helper; uniform lambda prior in iteration 0 option added (rc6)
+
+ Release is rc6, to facilitate early igwn-testing/igwn use. 
 
 0.0.15.6
------------x
+-----------
 Since last release
    - pseudo and helper (--use-legacy-gracedb at top level); lalsimutils overlaps using psi4 input; pseudo (gwsurrogate
      logic/reference location fixes)  (rc1)

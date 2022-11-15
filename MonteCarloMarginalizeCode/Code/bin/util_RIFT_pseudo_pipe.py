@@ -134,10 +134,14 @@ parser.add_argument("--assume-nospin",action='store_true', help="Force analysis 
 parser.add_argument("--assume-precessing",action='store_true', help="Force analysis *with* transverse spins")
 parser.add_argument("--assume-nonprecessing",action='store_true', help="Force analysis *without* transverse spins")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
+parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
+parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
+parser.add_argument("--ile-distance-prior",default=None,help="If present, passed through to the distance prior option.   If provided, BLOCKS distance marginalization")
+parser.add_argument("--internal-ile-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
 parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
@@ -148,6 +152,7 @@ parser.add_argument("--internal-use-amr",action='store_true',help="Changes refin
 parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank used for template")
 parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
+parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
 parser.add_argument("--internal-propose-converge-last-stage",action='store_true',help="Pass through to helper")
 parser.add_argument("--add-extrinsic",action='store_true')
@@ -167,10 +172,16 @@ parser.add_argument("--ile-jobs-per-worker",type=int,default=None,help="Default 
 parser.add_argument("--ile-no-gpu",action='store_true')
 parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--fake-data-cache",type=str)
-parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [volumetric for precessing,uniform for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
+parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [uniform mag for precessing, zprior for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
+parser.add_argument("--force-lambda-max",default=None,type=float,help="Provde this value to override the value of lambda-max provided") 
+parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provde this value to override the value of lambda-small-max provided") 
+parser.add_argument("--force-lambda-no-linear-init",action='store_true',help="Disables use of priors focused towards small lambda for initial iterations. Designed for PP plot tests with wide/uniform priors.")
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
+parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
 parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
+parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
+parser.add_argument("--limit-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-eta-range",default=None,type=str,help="Pass this argumen through to the helper to set the eta range")
 parser.add_argument("--force-hint-snr",default=None,type=str,help="Pass this argumen through to the helper to control source amplitude effects")
@@ -188,21 +199,32 @@ parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If n
 parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this argument to CIP. GP plot for each iteration will be saved. Useful for followup investigations or reweighting. Warning: lots of disk space (1G or so per iteration)")
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number of jobs to use in last stage.  Hopefully in future auto-set")
+parser.add_argument("--cip-explode-jobs-auto",action='store_true',help="Auto-select --cip-explode-jobs based on SNR. Changes both cip-explode-jobs and cip-explode-jobs-last")
 parser.add_argument("--cip-quadratic-first",action='store_true')
+parser.add_argument("--cip-sigma-cut",default=None,type=float,help="sigma-cut is an error threshold for CIP.  Passthrough")
 parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the final iteration")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
 parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true',help="Passthrough to ILE ")
+parser.add_argument("--internal-ile-rotate-phase", action='store_true')
+parser.add_argument("--internal-loud-signal-mitigation-suite",action='store_true',help="Enable more aggressive adaptation - make sure we adapt in distance, sky location, etc rather than use uniform sampling, because we are constraining normally subdominant parameters")
 parser.add_argument("--internal-ile-freezeadapt",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-adapt-log",action='store_true',help="Passthrough to ILE ")
+parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
+parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE via helper.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset for ILE")
+parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--verbose",action='store_true')
+parser.add_argument("--use-downscale-early",action='store_true', help="If provided, the first block of iterations are performed with lnL-downscale-factor passed to CIP, such that rho*2/2 * lnL-downscale-factor ~ (15)**2/2, if rho_hint > 15 ")
+parser.add_argument("--use-gauss-early",action='store_true',help="If provided, use gaussian resampling in early iterations ('G'). Note this is a different CIP instance than using a quadratic likelihood!")
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
 parser.add_argument("--use-cov-early",action='store_true',help="If provided, use cov fit in the early iterations'")
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
+parser.add_argument("--use-osg-cip",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restructuring for ILE on OSG. The code will NOT use CVMFS, and instead will try to transfer the frame files.")
+parser.add_argument("--internal-truncate-files-for-osg-file-transfer",action='store_true',help="If use-osg-file-transfer, will use FrCopy plus the start/end time to build the frame directory.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
 parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="NOW STANDARD, auto-set if you pass use-osg   Causes flock_local for 'internal' jobs")
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
@@ -211,8 +233,6 @@ parser.add_argument("--archive-pesummary-event-label",default="this_event",help=
 opts=  parser.parse_args()
 
 
-if opts.use_osg:
-    opts.condor_nogrid_nonworker = True
 
 if (opts.use_ini):
     # Attempt to lazy-parse all command line arguments from ini file
@@ -244,6 +264,20 @@ if (opts.use_ini):
                 else:
                     config_dict[item_renamed] = True
         print(config_dict)
+
+if opts.internal_loud_signal_mitigation_suite:
+    opts.internal_ile_freezeadapt=False  # make sure to adapt every iteration, and adapt in distance if present
+    opts.internal_ile_sky_network_coordinates=True # skymap is better
+    opts.internal_ile_rotate_phase = True  # phase coordinates can be sharper
+
+# Default prior for aligned analysis should be z prior !
+if opts.assume_nonprecessing or opts.approx == "IMRPhenomD":
+    prior_args_lookup["default"] = prior_args_lookup["zprior_aligned"]
+
+if opts.use_osg:
+    opts.condor_nogrid_nonworker = True  # note we ALSO have to check this if we set use_osg in the ini file! Moved statement so flagged
+
+
 
 if not(opts.ile_jobs_per_worker):
     opts.ile_jobs_per_worker=20
@@ -496,6 +530,8 @@ if opts.internal_use_amr:
     cmd += " --internal-use-amr " # minimal support performed in this routine, mainly for puff
 if opts.internal_use_aligned_phase_coordinates:
     cmd += " --internal-use-aligned-phase-coordinates "
+if opts.internal_use_rescaled_transverse_spin_coordinates:
+    cmd += " --internal-use-rescaled-transverse-spin-coordinates "
 if not(opts.internal_use_amr) and not(opts.manual_initial_grid):
     cmd+= " --propose-initial-grid "
 if opts.force_initial_grid_size:
@@ -503,6 +539,10 @@ if opts.force_initial_grid_size:
 if opts.assume_matter:
         cmd += " --assume-matter "
         npts_it = 1000
+        if opts.assume_matter_but_primary_bh:
+            cmd+= " --assume-matter-but-primary-bh "
+        if opts.internal_tabular_eos_file:
+            cmd += " --internal-tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
 if  opts.assume_nospin:
     cmd += " --assume-nospin "
 else:  
@@ -523,12 +563,19 @@ if not(opts.cip_fit_method is None):
     elif opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial' or opts.use_quadratic_early or opts.use_cov_early:
         npts_it*=2 # more iteration points if we use some initial quadratic iterations ... they also benefit from more samples overall. Default description is for GP
 
-
+if opts.internal_ile_use_lnL:
+    cmd+= " --internal-ile-use-lnL "
+if opts.internal_cip_use_lnL:
+    cmd += " --internal-cip-use-lnL "
 
 if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
+if opts.limit_mc_range:
+    cmd+= " --limit-mc-range {} ".format(opts.limit_mc_range)
 if not(opts.force_mc_range is None):
     cmd+= " --force-mc-range {} ".format(opts.force_mc_range)
+elif opts.scale_mc_range:
+    cmd += " --scale-mc-range {} ".format(opts.scale_mc_range)
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range {} ".format(opts.force_eta_range)
 if not(opts.gracedb_id is None) and (opts.use_ini is None):
@@ -552,7 +599,11 @@ if opts.assume_well_placed:
 #        npts_it = 1000
 if opts.internal_flat_strategy:
     cmd +=  " --test-convergence --propose-flat-strategy "
-if opts.use_quadratic_early:
+if opts.use_downscale_early:
+    cmd += " --use-downscale-early "
+if opts.use_gauss_early:
+    cmd += " --use-gauss-early "
+elif opts.use_quadratic_early:
     cmd += " --use-quadratic-early "
 elif opts.use_gp_early:
     cmd += " --use-gp-early "
@@ -585,7 +636,7 @@ if not(opts.force_hint_snr is None):
     cmd += " --hint-snr {} ".format(opts.force_hint_snr)
 if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
     cmd += " --manual-ifo-list {} ".format(opts.manual_ifo_list)
-if (opts.internal_marginalize_distance):
+if (opts.internal_marginalize_distance) and not opts.ile_distance_prior:
     cmd += " --internal-marginalize-distance "
 if (opts.internal_marginalize_distance_file ):
     cmd += " --internal-marginalize-distance-file {} ".format(opts.internal_marginalize_distance_file)
@@ -597,7 +648,10 @@ if opts.internal_ile_freezeadapt:
     cmd += " --internal-propose-ile-convergence-freezeadapt "  # old-style O3: adaptation frozen after first point, no distance adapt (!)
 if opts.internal_ile_adapt_log:
     cmd += " --internal-propose-ile-adapt-log "  # old-style O3: adaptation frozen after first point, no distance adapt (!)
-
+if opts.internal_ile_auto_logarithm_offset:
+    cmd += " --internal-ile-auto-logarithm-offset "
+if opts.internal_ile_rotate_phase:
+    cmd += " --internal-ile-rotate-phase "
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
 if opts.use_ini:
 #    config = ConfigParser.ConfigParser()
@@ -650,6 +704,8 @@ line = ' '.join(instructions_ile)
 line += " --l-max " + str(opts.l_max) 
 if (opts.use_ini is None) and not('--d-max' in line):
     line += " --d-max " + str(dmax_guess)
+if opts.ile_distance_prior:
+    line += " --d-prior {} ".format(opts.ile_distance_prior)
 if opts.ile_force_gpu:
     line +=" --force-gpu-only "
 sur_location_prefix = "my_surrogates/nr_surrogates/"
@@ -665,7 +721,7 @@ elif opts.use_gwsurrogate and "NRSur7dq2" in opts.approx:
         line += " --rom-group {} --rom-param NRSur7dq2.h5 --approx {}  ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq4" in opts.approx:
         line += " --rom-group {} --rom-param NRSur7dq4.h5  --approx {}".format(sur_location_prefix,opts.approx)
-elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in opts.approx): 
+elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in opts.approx) or ("NRTidal" in opts.approx): 
         line += " --approx " + opts.approx
 else:
         print( " Unknown approx ", opts.approx)
@@ -695,14 +751,29 @@ with open ("helper_test_args.txt",'r') as f:
 with open("helper_cip_arg_list.txt",'r') as f:
         raw_lines = f.readlines()
 
+# MODIFY EXPLODE REQUEST
+if opts.cip_explode_jobs_auto and event_dict["SNR"]:
+    snr = event_dict["SNR"]
+    q = P.m2/P.m1
+    n_max_jobs=200
+    n_jobs_normal_guess =  2+int( (1./q)*np.max([(snr/15),1]) )  # increase number of workers linearly with SNR and with mass ratio
+    n_jobs_normal_actual = np.min([n_jobs_normal_guess,n_max_jobs])
+    n_jobs_final_actual = np.min([2*n_jobs_normal_guess,n_max_jobs])
+    print("  AUTO-EXPLODE GUESS {} {} {} ", n_jobs_normal_guess, n_jobs_normal_actual,n_jobs_final_actual)
+    opts.cip_explode_jobs = n_jobs_normal_actual
+    opts.cip_explode_jobs_last = n_jobs_final_actual
 
 # Add arguments to the file we will use
 instructions_cip = list(map(lambda x: x.rstrip().split(' '), raw_lines))#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
 n_iterations =0
 lines  = []
 for indx in np.arange(len(instructions_cip)):
+    print(instructions_cip[indx])
     if instructions_cip[indx][0] == 'Z':
         n_iterations += 1
+    elif instructions_cip[indx][0][0] == 'G':
+        n_G = int(instructions_cip[indx][0][1:])
+        n_iterations += n_G
     else:
         n_iterations += int(instructions_cip[indx][0])
     line = ' ' .join(instructions_cip[indx])
@@ -739,6 +810,8 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc')     # quadratic fit needs eta coordinate. Should be done by helper ideally
     if opts.use_quadratic_early or opts.use_cov_early and indx < 1:
         line = line.replace('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc')     # quadratic or cov fit needs eta coordinate
+    if opts.force_lambda_no_linear_init:
+        line = line.replace("--prior-lambda-linear", "")  # remove this line, usually used in iteration0
     if opts.hierarchical_merger_prior_1g:
         # Must use mtotal, q coordinates!  Change defaults
         line = line.replace('parameter mc', 'parameter mtot')
@@ -751,17 +824,29 @@ for indx in np.arange(len(instructions_cip)):
         line += " --prior-gaussian-mass-ratio --prior-gaussian-spin1-magnitude "   # should require precessing analysis
     elif opts.assume_highq and ('s1z' in line):
         line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+        if 's1z_bar' in line:
+            # FIRST attempt to replace with commas, note previous line
+            line = line.replace("mc,s1z'", "mc,s1z_bar'")
     elif opts.internal_correlate_default and ('s1z' in line):
         addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
+        if 's1z_bar' in line:
+            # FIRST attempt to replace with commas, note previous line
+            addme = addme.replace('s1z,', 's1z_bar,')
+            addme = addme.replace('s2z', 's2z_bar')
         if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
             addme = addme.replace(',s1z,s2z', ',chi1,cos_theta1')
         # For high-q triggers, don't waste time correlating s2z
         if 'm2' in event_dict:
             if event_dict['m2']/event_dict['m1']< 0.4:
                 addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+                if 's1z_bar' in line:
+                    addme = addme.replace("mc,s1z'", "mc,s1z_bar'")
             if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
                 addme = addme.replace(',s1z' ',chi1,cos_theta1')
         line += addme
+
+    if opts.cip_sigma_cut:
+        line += " --sigma-cut {} ".format(opts.cip_sigma_cut)
 
     # on last iteration, usually don't want to use correlated sampling if precessing, need to change coordinates
     if opts.approx in lalsimutils.waveform_approx_limit_dict:
@@ -771,6 +856,9 @@ for indx in np.arange(len(instructions_cip)):
         q_min = lalsimutils.waveform_approx_limit_dict[opts.approx]["q-min"]
         eta_min = q_min/(1+q_min)**2
         line += " --chi-max {}  ".format(chi_max)
+        # Secondary body can also have spin, allow us to force its range
+        if opts.force_chi_small_max:
+            line += " --chi-small-max {} ".format(chi_small_max)
         # Parse arguments, impose limit based on the approximant used, as described above
 #        import StringIO
         my_parser = argparse.ArgumentParser()
@@ -781,6 +869,13 @@ for indx in np.arange(len(instructions_cip)):
         line=line.replace("--eta-range "+my_opts.eta_range,"--eta-range "+str(eta_range_revised))
         # Ideally, load in initial grid, and remove points outside the targeted range
         # IMPLEMENT THIS
+        
+        # Lambda range
+        if opts.force_lambda_max:
+            line += " --lambda-max  {} ".format(opts.force_lambda_max)
+        if opts.force_lambda_small_max:
+            line += " --lambda-small-max  {} ".format(opts.force_lambda_small_max)
+
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     if opts.assume_eccentric:
@@ -856,6 +951,15 @@ if opts.assume_highq:
     puff_max_it +=3
 with open("args_puff.txt",'w') as f:
         puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
+        if opts.assume_matter:
+            lambda_max = 5000
+            lambda_small_max=5000
+            if opts.force_lambda_max:
+                lambda_max = opts.force_lambda_max
+            if opts.force_lambda_small_max:
+                lambda_small_max = opts.force_lambda_small_max
+            # Prevent negative lambda accidentally from puff
+            puff_args += " --downselect-parameter lambda1 --downselect-parameter-range [0,{}] --downselect-parameter lambda2 --downselect-parameter-range [0,{}] ".format(lambda_max, lambda_small_max)
         if False: #opts.cip_fit_method == 'rf':
             # RF can majorly overfit and create 'voids' early on, eliminate the force-away
             # Should only do this in the INITIAL puff, not all, to avoid known problems later
@@ -903,12 +1007,16 @@ cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
 cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+if opts.assume_matter or opts.assume_eccentric:
+    cmd +=  " --convert-args `pwd`/helper_convert_args.txt "
 if not(opts.ile_runtime_max_minutes is None):
     cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
+if opts.use_gauss_early:
+    cmd += " --cip-exe-G `which util_ConstructIntrinsicPosterior_GaussianResampling.py ` "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
     cmd += " --cip-exe `which util_AMRGrid.py ` "
@@ -981,6 +1089,8 @@ if opts.add_extrinsic:
         cmd+= " --last-iteration-extrinsic-time-resampling "
 if opts.batch_extrinsic:
     cmd += " --last-iteration-extrinsic-batched-convert "
+if opts.internal_ile_request_disk:
+    cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
    if opts.cip_fit_method and not(opts.cip_fit_method == 'gp'):
@@ -992,10 +1102,12 @@ if opts.make_bw_psds:
     cmd+= " --use-bw-psd --bw-exe `which BayesWave` --bw-post-exe `which BayesWavePost` "
 if opts.use_osg:
     cmd += " --use-osg --use-singularity  --cache-file local.cache  "   # run on the OSG, make sure to get frames (rather than try to transfer them).  Note with CVMFS frames we need to provide the cache, but that SHOULD be added to the arg list by the helper already.  However, the argument is needed to avoid failure.
+    if opts.use_osg_cip:
+        cmd += " --use-osg-cip "
     if not(opts.use_osg_file_transfer):
         cmd += " --use-cvmfs-frames "
-    else:  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
-        os.system("util_ForOSG_MakeLocalFramesDir.sh local.cache")
+    elif not(opts.internal_truncate_files_for_osg_file_transfer):  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
+        os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
 #        os.system("echo ../frames_dir >> helper_transfer_files.txt")
         cmd += " --frames-dir `pwd`/frames_dir "
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
@@ -1011,7 +1123,9 @@ if opts.archive_pesummary_label:
 print(cmd)
 os.system(cmd)
 
-
+if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
+    # build truncated frames.  Note this parses ILE arguments, so must be done last
+    os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
 
 ## RUNMON
 try:

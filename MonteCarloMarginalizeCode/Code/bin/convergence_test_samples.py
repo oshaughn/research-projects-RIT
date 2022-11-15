@@ -132,14 +132,28 @@ def test_js_additive(dat1,dat2):
 
 samples1 = np.genfromtxt(opts.samples[0], names=True)
 samples2 = np.genfromtxt(opts.samples[1], names=True)
-
-# Add missing fields needed for some tests
-if not('xi' in samples1.dtype.names):
+  
+# sanity check: is this a result for PE?
+if 'm1' in samples1.dtype.names:
+    # Add missing fields needed for some tests
+    if  not('xi' in samples1.dtype.names):
+        if not 'chi_eff' in samples1.dtype.names:
             samples1 = add_field(samples1, [('chi_eff',float)]); samples1['chi_eff'] = (samples1["m1"]*samples1["a1z"]+samples1["m2"]*samples1["a2z"])/(samples1["m1"]+samples1["m2"])
-            samples1 = add_field(samples1, [('xi',float)]); samples1['xi'] = (samples1["m1"]*samples1["a1z"]+samples1["m2"]*samples1["a2z"])/(samples1["m1"]+samples1["m2"])
-if not('xi' in samples2.dtype.names):
+        samples1 = add_field(samples1, [('xi',float)]); samples1['xi'] = (samples1["m1"]*samples1["a1z"]+samples1["m2"]*samples1["a2z"])/(samples1["m1"]+samples1["m2"])
+    if not('xi' in samples2.dtype.names):
+        if not 'chi_eff' in samples2.dtype.names:
             samples2 = add_field(samples2, [('chi_eff',float)]); samples2['chi_eff'] = (samples2["m1"]*samples2["a1z"]+samples2["m2"]*samples2["a2z"])/(samples2["m1"]+samples2["m2"])
-            samples2 = add_field(samples2, [('xi',float)]); samples2['xi'] = (samples2["m1"]*samples2["a1z"]+samples2["m2"]*samples2["a2z"])/(samples2["m1"]+samples2["m2"])
+        samples2 = add_field(samples2, [('xi',float)]); samples2['xi'] = (samples2["m1"]*samples2["a1z"]+samples2["m2"]*samples2["a2z"])/(samples2["m1"]+samples2["m2"])
+
+    if not 'chi1' in samples1.dtype.names:
+        if 'a1x' in samples1.dtype.names: # RIFT internal output
+            samples1 = add_field(samples1, [('chi1',float),('chi2',float)]); 
+            samples1['chi1'] = np.sqrt(samples1['a1x']**2+samples1['a1y']**2 + samples1['a1z']**2)
+            samples1['chi2'] = np.sqrt(samples1['a2x']**2+samples1['a2y']**2 + samples1['a2z']**2)
+        if 'a1x' in samples2.dtype.names: # RIFT internal output
+            samples2 = add_field(samples2, [('chi1',float),('chi2',float)]); 
+            samples2['chi1'] = np.sqrt(samples2['a1x']**2+samples2['a1y']**2 + samples2['a1z']**2)
+            samples2['chi2'] = np.sqrt(samples2['a2x']**2+samples2['a2y']**2 + samples2['a2z']**2)
 
 
 param_names1 = samples1.dtype.names; param_names2 = samples2.dtype.names

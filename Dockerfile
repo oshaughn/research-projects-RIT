@@ -1,61 +1,59 @@
-FROM nvidia/cuda:10.0-runtime-centos7
+FROM nvidia/cuda:11.7.0-runtime-rockylinux8
 
 LABEL name="RIFT (CentOs) - benchmarking utility" \
   maintainer="James Alexander Clark <james.clark@ligo.org>" \
-  date="20190926" \
+  date="20220907" \
   support="nvidia/cuda image"
  
-## RHEL/CentOS 7 64-Bit ##
-RUN curl -O http://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm && \
-      rpm -ivh epel-release-latest-7.noarch.rpm && \
-      rm epel-release-latest-7.noarch.rpm && \
-      yum upgrade -y
 
-RUN yum install -y \
+## Rocky Linux 8  ##
+
+RUN dnf install --nodocs -y dnf-plugins-core && \
+      dnf config-manager --set-enabled powertools && \
+      dnf install --nodocs -y epel-release && \
+      dnf update -y && \
+      dnf install --nodocs -y \
       gcc-c++ \
       git \
       gsl-devel \
       make \
       pandoc \
-      python3-devel \
-      python3-pip \
-      tkinter \
+      python39 \
+      python39-devel \
+      python39-pip \ 
+      python39-tkinter \
       suitesparse \
       suitesparse-devel \
       wget \
-      which
-
-RUN yum clean all && \
-      rm -rf /var/cache/yum
+      which && \
+      dnf clean all && \
+      rm -rf /var/cache/dnf
 
 # Pip dependencies
-RUN pip3 --no-cache-dir install -U pip setuptools
-
-# Special dependencies
-RUN pip3 --no-cache-dir install \
-      cupy-cuda100 \
+RUN python3.9 -m pip --no-cache-dir install -U pip setuptools  && \
+      CFLAGS='-std=c99' python3.9 -m pip --no-cache-dir install -U gwsurrogate && \
+      python3.9 -m pip --no-cache-dir install -U \
+      cupy-cuda117 \
       vegas \
       healpy \
       cython \
-      numpy \
-      pypandoc
+      pypandoc \
+      NRSur7dq2 \
+      RIFT==0.0.15.7rc1 && \
+      python3.9 -c "import gwsurrogate; gwsurrogate.catalog.pull('NRHybSur3dq8'); gwsurrogate.catalog.pull('NRSur7dq4')"
 
 # Needs numpy to finish first:
-RUN CFLAGS='-std=c99' pip3 --no-cache-dir install -U gwsurrogate
 ENV GW_SURROGATE=/usr/local/lib64/python3.6/site-packages/gwsurrogate
 ENV CUPY_CACHE_IN_MEMORY=1
-
-# RIFT
-#RUN pip3 --no-cache-dir install git+https://github.com/oshaughn/research-projects-RIT.git@d14110cdb41fef1adb461932600c3c11a82e4db6
-RUN pip3 --no-cache-dir install RIFT==0.0.15.7rc1
 
 # Directories we may want to bind
 RUN mkdir -p /ceph /cvmfs /hdfs /hadoop /etc/condor /test
                                                 
-# Download surrogate data
-RUN pip3 --no-cache-dir install NRSur7dq2
-RUN python3 -c "import gwsurrogate; gwsurrogate.catalog.pull('NRHybSur3dq8')"
-RUN python3 -c "import gwsurrogate; gwsurrogate.catalog.pull('NRSur7dq4')"
-
 # Assume python3 is used, don't force specific version
 #RUN ln -sf /usr/bin/python3.6 /usr/bin/python
+
+# Environment setup
+#COPY entrypoint/bashrc /root/.bashrc
+#COPY entrypoint/docker-entrypoint.sh /docker-entrypoint.sh
+#ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["/bin/bash"]

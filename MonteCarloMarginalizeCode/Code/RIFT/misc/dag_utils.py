@@ -373,7 +373,7 @@ def write_1dpos_plot_sub(tag='1d_post_plot', exe=None, log_dir=None, output_dir=
 
 
 
-def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,arg_vals=None, no_grid=False,**kwargs):
+def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,arg_vals=None, no_grid=False,request_disk=False, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,max_runtime_minutes=None,condor_commands=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -382,7 +382,24 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         - An instance of the CondorDAGJob that was generated for ILE
     """
 
+    if use_singularity and (singularity_image == None)  :
+        print(" FAIL : Need to specify singularity_image to use singularity ")
+        sys.exit(0)
+    if use_singularity and (transfer_files == None)  :
+        print(" FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file ")
+        sys.exit(0)
+
+
     exe = exe or which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
+    if use_singularity:
+        path_split = exe.split("/")
+        print((" Executable: name breakdown ", path_split, " from ", exe))
+        singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
+        if 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
+            singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
+        exe=singularity_base_exe_path + path_split[-1]
+        if path_split[-1] == 'true':  # special universal path for /bin/true, don't override it!
+            exe = "/usr/bin/true"
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
@@ -461,12 +478,45 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         else:
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
-    ile_job.add_condor_cmd('getenv', 'True')
+    if not use_osg:
+        ile_job.add_condor_cmd('getenv', 'True')
     ile_job.add_condor_cmd('request_memory', str(request_memory)) 
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk)) 
     # To change interactively:
     #   condor_qedit
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    requirements = []
+    if use_singularity:
+        # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+        ile_job.add_condor_cmd('request_CPUs', str(1))
+        ile_job.add_condor_cmd('transfer_executable', 'False')
+        ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
+        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        requirements.append("HAS_SINGULARITY=?=TRUE")
+
+    if use_osg:
+           # avoid black-holing jobs to specific machines that consistently fail. Uses history attribute for ad
+           ile_job.add_condor_cmd('periodic_release','(HoldReasonCode == 45) && (HoldReasonSubCode == 0)')
+           ile_job.add_condor_cmd('job_machine_attrs','Machine')
+           ile_job.add_condor_cmd('job_machine_attrs_history_length','4')
+#           for indx in [1,2,3,4]:
+#               requirements.append("TARGET.GLIDEIN_ResourceName=!=MY.MachineAttrGLIDEIN_ResourceName{}".format(indx))
+           if "OSG_DESIRED_SITES" in os.environ:
+               ile_job.add_condor_cmd('+DESIRED_SITES',os.environ["OSG_DESIRED_SITES"])
+           if "OSG_UNDESIRED_SITES" in os.environ:
+               ile_job.add_condor_cmd('+UNDESIRED_SITES',os.environ["OSG_UNDESIRED_SITES"])
+           # Some options to automate restarts, acts on top of RETRY in dag
+    if use_singularity or use_osg:
+            # Set up file transfer options
+           ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
+
+           # Stream log info
+           if not ('RIFT_NOSTREAM_LOG' in os.environ):
+               ile_job.add_condor_cmd("stream_error",'True')
+               ile_job.add_condor_cmd("stream_output",'True')
 
 
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
@@ -483,12 +533,30 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
         
     
+    if not transfer_files is None:
+        if not isinstance(transfer_files, list):
+            fname_str=transfer_files
+        else:
+            fname_str = ','.join(transfer_files)
+        fname_str=fname_str.strip()
+        ile_job.add_condor_cmd('transfer_input_files', fname_str)
+        ile_job.add_condor_cmd('should_transfer_files','YES')
+
+    # Periodic remove: kill jobs running longer than max runtime
+    # https://stackoverflow.com/questions/5900400/maximum-run-time-in-condor
+    if not(max_runtime_minutes is None):
+        remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
+        ile_job.add_condor_cmd('periodic_remove', remove_str)
+
 
     ###
     ### SUGGESTION FROM STUART (for later)
     # request_memory = ifthenelse( (LastHoldReasonCode=!=34 && LastHoldReasonCode=!=26), InitialRequestMemory, int(1.5 * NumJobStarts * MemoryUsage) )
     # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
     # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
+    if condor_commands is not None:
+        for cmd, value in condor_commands.iteritems():
+            ile_job.add_condor_cmd(cmd, value)
 
 
     return ile_job, ile_sub_name

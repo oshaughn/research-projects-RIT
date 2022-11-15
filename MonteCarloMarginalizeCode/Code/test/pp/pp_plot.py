@@ -55,13 +55,13 @@ if False:
 if len(sys.argv) > 3:
     param_labels=eval(sys.argv[3])#sys.argv[3].split()  # assume a string is passed, with whitespace
 else:
-    param_labels = np.arange(sys.argv[2])
+    param_labels = np.arange(int(sys.argv[2]))
 
 nParams = len(dat[0])-2
 for indx in np.arange(nParams):
     pvals = np.sort(dat[:,indx])
     pvals_emp = np.arange(len(dat))*1.0/len(dat) 
-    plt.scatter(pvals,pvals_emp,label='$'+param_labels[indx]+'$')
+    plt.scatter(pvals,pvals_emp,label='$'+str(param_labels[indx])+'$')
     # KS test, single instance
     print(" KS {} ".format(param_labels[indx]), scipy.stats.kstest(pvals,'uniform'))
     

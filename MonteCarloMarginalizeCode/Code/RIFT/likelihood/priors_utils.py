@@ -15,7 +15,7 @@ import scipy.integrate
 
 # https://git.ligo.org/RatesAndPopulations/lalinfsamplereweighting/blob/reviewed-post-O2/approxprior.py
 will_cosmo_const = np.array( [ 1.012306, 1.136740, 0.262462, 0.016732, 0.000387 ])
-def dist_prior_pseudo_cosmo(dL,nm=1):
+def dist_prior_pseudo_cosmo(dL,nm=1,xpy=np):
     """
     dist_prior_pseudo_cosmo.  dL needs to be in Gpc for the polynomial.
     By default, our code works with distances in Mpc.  So we divide by 1e3
@@ -24,7 +24,7 @@ def dist_prior_pseudo_cosmo(dL,nm=1):
      note it is not normalized, and the normalization depends on the d_max of interest 
     
     """
-    return nm*4* np.pi * dL**2 / np.polyval( will_cosmo_const[::-1],dL/1e3)
+    return nm*4* np.pi * dL**2 / xp.polyval( will_cosmo_const[::-1],dL/1e3)
 
 
 def dist_prior_pseudo_cosmo_eval_norm(dLmin,dLmax):

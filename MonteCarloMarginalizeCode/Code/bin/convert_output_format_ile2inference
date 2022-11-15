@@ -118,7 +118,8 @@ if opts.convention == 'LI':
         P.s2y = pt.spin2y
         P.s2z = pt.spin2z
         P.fmin=opts.fref
-        P.eos_table_index = pt.alpha
+        if hasattr(pt, 'alpha'):
+            P.eos_table_index = pt.alpha
         try:
             P.fmin = pt.f_lower  # should use this first
         except:

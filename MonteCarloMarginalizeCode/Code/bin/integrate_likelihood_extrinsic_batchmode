@@ -229,11 +229,13 @@ integration_params.add_option("--d-max", default=10000,type=float,help="Maximum 
 integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
+integration_params.add_option("--internal-rotate-phase", action='store_true',help="If specified, the integration sampler uses phase_p ==phi+psi and phase_m == phi-psi as sampling coordinates, both ranging from 0 to 4 pi.  The prior is twice as large.")
 integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
 integration_params.add_option("--internal-sky-network-coordinates-raw",action='store_true',help="If specified, does not attempt to organize IFO network sensibly, uses them AS PROVIDED IN ORDER.")
 integration_params.add_option("--manual-logarithm-offset",type=float,default=0,help="Target value of logarithm lnL. Integrand is reduced by exp(-manual_logarithm_offset).  Important for high-SNR sources!   Should be set dynamically")
+integration_params.add_option("--auto-logarithm-offset",action='store_true',help="Use the 'guess_snr' field returned in the precompute stage to change --manual-logarithm-offset for each event.")
 integration_params.add_option("--internal-use-lnL",action='store_true',help="likelihood returns lnL, and integrator integrates lnL")
-integration_params.add_option("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
+integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
 optp.add_option_group(integration_params)
 
@@ -306,6 +308,7 @@ if opts.gpu and xpy_default is numpy:
         opts.gpu=True
 
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
+manual_avoid_overflow_logarithm_default =  manual_avoid_overflow_logarithm
 
 deltaT = None
 fSample= opts.srate # change sampling rate
@@ -618,6 +621,9 @@ param_limits = { "psi": (0, 2*numpy.pi),
     "t_ref": (-t_ref_wind, t_ref_wind),
     "inclination": (0, numpy.pi)
 }
+if opts.internal_rotate_phase:
+  param_limits['psi'] = (0, 4*numpy.pi)
+  param_limits['phi_orb'] = (0, 4*numpy.pi)
 
 #
 # Parameter integral sampling strategy
@@ -658,7 +664,8 @@ sampler.add_parameter("psi",
     cdf_inv = psi_sampler_cdf_inv, 
     left_limit = param_limits["psi"][0], 
     right_limit = param_limits["psi"][1],
-    prior_pdf = mcsampler.uniform_samp_psi)
+    prior_pdf = mcsampler.uniform_samp_psi,
+    adaptive_sampling=opts.internal_rotate_phase)
 
 #
 # Phi - orbital phase
@@ -673,7 +680,9 @@ sampler.add_parameter("phi_orb",
     cdf_inv = phi_sampler_cdf_inv,
     left_limit = param_limits["phi_orb"][0], 
     right_limit = param_limits["phi_orb"][1],
-    prior_pdf = mcsampler.uniform_samp_phase)
+    prior_pdf = mcsampler.uniform_samp_phase,
+    adaptive_sampling=opts.internal_rotate_phase)
+
 
 #
 # inclination - angle of system angular momentum with line of sight
@@ -715,7 +724,7 @@ if not opts.distance_marginalization:
   dist_prior_pdf =   lambda x: x**2/(param_limits["distance"][1]**3/3.                   - param_limits["distance"][0]**3/3.) 
   if opts.d_prior == 'pseudo_cosmo':
     nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(param_limits["distance"][0],param_limits["distance"][1])
-    dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm=nm)
+    dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm=nm,xpy_default=cupy)
   #dist_sampler_cdf_inv=None
   sampler.add_parameter("distance", 
                         pdf = dist_sampler, 
@@ -922,6 +931,9 @@ return_lnL=False
 if opts.sampler_method=="GMM" and opts.internal_use_lnL:
   return_lnL=True
   pinned_params.update({"use_lnL":True,"return_lnI":True})
+if opts.sampler_method =="adaptive_cartesian_gpu" and opts.internal_use_lnL:
+  return_lnL=True
+  pinned_params.update({"use_lnL":True})
 if opts.sampler_method == "GMM":
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
@@ -1013,11 +1025,29 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
     # Precompute
     t_window = 0.15
-    rholms_intp, cross_terms, cross_terms_V,  rholms, rest=factored_likelihood.PrecomputeLikelihoodTerms(
+    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest=factored_likelihood.PrecomputeLikelihoodTerms(
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
             False, inv_spec_trunc_Q, T_spec,
             NR_group=NR_template_group,NR_param=NR_template_param,
             use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized)
+
+    if opts.auto_logarithm_offset and guess_snr:
+      # important: this only impacts *this* analysis
+      # important: if we have a very loud signal, it is important to change this dynamically to avoid *underflow*, which sometimes happens otherwise if we fix the scale early on.
+      print("    : naive overflow protection: updating lnL overflow based on SNR guess of {} ".format(guess_snr))
+      print("    : reminder, diagnostics for lnLmax below are offset by this amount! ")
+      # Note by changing the offset, we change how adapt-weight-exponent is being applied (because we've offset the range before squashing it!).  Use with care: pipeline auto-sets the weight exponent
+      manual_avoid_overflow_logarithm = guess_snr**2/2 - 100  # more conservative than helper, if I were to auto-set it from --hint-snr.  So the integral peak is more likely positive
+      # Don't scale so much that peak guess likelihood is negative:  we do fine for low-ampltiude sources
+      if manual_avoid_overflow_logarithm < 0:
+        manual_avoid_overflow_logarithm = 0
+    elif opts.auto_logarithm_offset:
+      print(" PROBLEM: guess_snr not being returned, but auto-tuning requested ")
+      # reset to default.  Should not be needed, but weird python scoping error
+      manual_avoid_overflow_logarithm = manual_avoid_overflow_logarithm_default 
+    else:
+      # reset to default.  Should not be needed, but weird python scoping error
+      manual_avoid_overflow_logarithm = manual_avoid_overflow_logarithm_default 
 
     if opts.vectorized:
         lookupNKDict = {}
@@ -1139,6 +1169,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   P.theta = np.pi/2 - P.theta
                   P.phi = xpy_default.mod(P.phi, 2*np.pi)
 
+            # rotate phase if needed
+            # make copies of arrays
+            #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
+            if opts.internal_rotate_phase:
+              phi_orb_true = (P.phiref + P.psi)/2.
+              psi_true = (P.phiref - P.psi)/2.
+              P.psi= psi_true
+              P.phi = phi_orb_true
+
             lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
@@ -1171,6 +1210,16 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
                   P.theta = np.pi/2 - P.theta
                   P.phi = xpy_default.mod(P.phi, 2*np.pi)
+
+                # rotate phase if needed
+                # make copies of arrays
+                #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
+                if opts.internal_rotate_phase:
+                  phi_orb_true = (P.phiref + P.psi)/2.
+                  psi_true = (P.phiref - P.psi)/2.
+                  P.psi= psi_true
+                  P.phi = phi_orb_true
+
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
@@ -1249,6 +1298,21 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 P.psi = xpy_default.asarray(psi, dtype=np.float64)
                 P.dist = xpy_default.asarray(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
 
+                # rotate sky if needed
+                if opts.internal_sky_network_coordinates:
+                  P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
+                  P.theta = np.pi/2 - P.theta
+                  P.phi = xpy_default.mod(P.phi, 2*np.pi)
+
+                # rotate phase if needed
+                # make copies of arrays
+                #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
+                if opts.internal_rotate_phase:
+                  phi_orb_true = (P.phiref + P.psi)/2.
+                  psi_true = (P.phiref - P.psi)/2.
+                  P.psi= psi_true
+                  P.phi = phi_orb_true
+
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
 #                nEvals +=len(right_ascension)
@@ -1313,6 +1377,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     print( " --------> Arguments ", args)
     res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
 
+    if not(res): # no resut
+      raise ValueError(" No integral result returned")
+
+    if not(opts.internal_use_lnL):
+      log_res = numpy.log(res)
+      sqrt_var_over_res =  numpy.sqrt(var)/res
+    else:
+      log_res = res
+      sqrt_var_over_res =  numpy.exp(var/2 - log_res)
 
     # Report results
     if opts.output_file:
@@ -1327,16 +1400,16 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             event_id = -1
         if opts.save_eccentricity:
             # output format when eccentricity is being used
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         elif not (P.lambda1>0 or P.lambda2>0):
           # output format when lambda is NOT used
           if not opts.pin_distance_to_sim:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
           else:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["distance"], numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["distance"], log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         else:
             # Alternative output format if lambda is active
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, numpy.log(res)+manual_avoid_overflow_logarithm, numpy.sqrt(var)/res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
 
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
@@ -1369,7 +1442,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       else:
             samples["latitude"] = samples["declination"]
             samples["longitude"] = samples["right_ascension"]
-      samples["loglikelihood"] = numpy.log(samples["integrand"]) + manual_avoid_overflow_logarithm  # export with consistent offset
+      if "log_integrand" in samples:
+        samples["loglikelihood"] = samples["log_integrand"] +  manual_avoid_overflow_logarithm
+      else:
+        samples["loglikelihood"] = numpy.log(samples["integrand"]) + manual_avoid_overflow_logarithm  # export with consistent offset
       if not opts.rom_integrate_intrinsic:
             # ILE mode: insert fixed model parameters
             samples["mass1"] = numpy.ones(samples["psi"].shape)*m1 # opts.mass1
@@ -1387,13 +1463,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
-      dict_out={"mass1": m1, "mass2": m2, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": numpy.sqrt(var)/res, "ttotal": sampler.ntotal}
+      dict_out={"mass1": m1, "mass2": m2, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
       if 'distance' in pinned_params:
             dict_out['distance'] = pinned_params["distance"]
       converged_result = False
       if "convergence_test_results" in dict_return:
         converged_result = dict_return["convergence_test_results"]["normal_integral"]
-      xmlutils.append_likelihood_result_to_xmldoc(xmldoc, numpy.log(res)+manual_avoid_overflow_logarithm, neff=neff, converged=converged_result, **dict_out)
+      xmlutils.append_likelihood_result_to_xmldoc(xmldoc, log_res+manual_avoid_overflow_logarithm, neff=neff, converged=converged_result, **dict_out)
       fname_output_xml = opts.output_file +"_"+str(indx_event)+"_" + ".xml.gz"
       utils.write_filename(xmldoc, fname_output_xml, compress="gz")
 
@@ -1402,7 +1478,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
     if opts.maximize_only and opts.output_file:
       # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
-      indx_guess = numpy.argmax(sampler._rvs["integrand"])   # start search near maximum-likelihood point. (WARNING: can be very close by)
+      if "integrand" in sampler._rvs:
+        indx_guess = numpy.argmax(sampler._rvs["integrand"])   # start search near maximum-likelihood point. (WARNING: can be very close by)
+      else:
+        indx_guess = numpy.argmax(sampler._rvs["log_integrand"])
       P.radec=True
       P.phi = sampler._rvs["right_ascension"][indx_guess]
       P.theta = sampler._rvs["declination"][indx_guess]
@@ -1506,7 +1585,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 lnL_sofar = -np.inf
 no_adapt_sky = False
 for indx in numpy.arange(len(P_list)):
- if True: #try:
+ try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.no_adapt_after_first and (not no_adapt_sky):
@@ -1518,7 +1597,7 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
- else: #except Exception as exception_failure:
+ except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
   if opts.internal_make_empty_file_on_error:
