@@ -80,7 +80,7 @@ def append_samples_to_xmldoc(xmldoc, sampdict):
     # here
     for vrow in numpy.array(list(zip(*[vrow_sub.T for vrow_sub in values])), dtype=numpy.object):
         #si_table.append(samples_to_siminsp_row(si_table, **dict(zip(keys, vrow.flatten()))))
-        vrow = reduce(list.__add__, [list(i) if isinstance(i, collections.Iterable) else [i] for i in vrow])
+        vrow = reduce(list.__add__, [list(i) if isinstance(i, collections.abc.Iterable) else [i] for i in vrow])
         si_table.append(samples_to_siminsp_row(si_table, **dict(list(zip(keys, vrow)))))
         si_table[-1].process_id = procid
 
