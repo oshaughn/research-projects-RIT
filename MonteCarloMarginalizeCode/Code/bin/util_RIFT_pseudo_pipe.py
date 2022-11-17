@@ -1110,6 +1110,8 @@ if opts.use_osg:
         os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
 #        os.system("echo ../frames_dir >> helper_transfer_files.txt")
         cmd += " --frames-dir `pwd`/frames_dir "
+    elif opts.use_osg_file_transfer:
+        cmd += " --frames-dir `pwd`/frames_dir "  # assume this will be built by the end user for us, for now
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
 if opts.condor_local_nonworker:
     cmd += " --condor-local-nonworker "
