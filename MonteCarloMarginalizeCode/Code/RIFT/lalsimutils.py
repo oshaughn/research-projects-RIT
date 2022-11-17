@@ -2716,18 +2716,94 @@ def hoft(P, Fp=None, Fc=None):
     if P.approx == lalsim.EOBNRv2HM and P.m1 == P.m2:
 #        print " Using ridiculous tweak for equal-mass line EOB"
         P.m2 = P.m1*(1-1e-6)
-
     extra_params = P.to_lal_dict()
-#Compatible with master
-    hp, hc = lalsim.SimInspiralTD( \
-            P.m1, P.m2, \
-            P.s1x, P.s1y, P.s1z, \
-            P.s2x, P.s2y, P.s2z, \
-            P.dist, P.incl, P.phiref,  \
-            P.psi, P.eccentricity, P.meanPerAno, \
-            P.deltaT, P.fmin, P.fref, \
-            extra_params, P.approx)
+    if P.approx==lalsim.TEOBResumS:
+        Lmax=8
+        modes_used = []
+        distance_s = P.dist/lal.C_SI
+        m_total_s = MsunInSec*(P.m1+P.m2)/lal.MSUN_SI
+        for l in np.arange(2,Lmax+1,1):
+            for m in np.arange(0,l+1,1):
+                if m !=0:
+                    modes_used.append((l,m))
+        k = modes_to_k(modes_used)
+        M1=P.m1/lal.MSUN_SI
+        M2=P.m2/lal.MSUN_SI
+        nu=M1*M2/((M1+M2)**2)
+        if (P.eccentricity == 0.0):
+            print("Using ResumS master; not eccentric")
+            pars = {
+                'M'                  : M1+M2,
+                'q'                  : M1/M2,
+                'LambdaAl2'            : P.lambda1,
+                'LambdaBl2'            : P.lambda2,
+                'chi1x'              : P.s1x,
+                'chi1y'              : P.s1y,
+                'chi1z'              : P.s1z,
+                'chi2x'              : P.s2x,
+                'chi2y'              : P.s2y,
+                'chi2z'              : P.s2z,
+                'domain'             : 0,
+                'arg_out'            : "yes",
+                'use_mode_lm'        : k,
+                'srate_interp'       : 1./P.deltaT,
+                'use_geometric_units': "no",
+                'initial_frequency'  : P.fmin,
+                'interp_uniform_grid': "yes",
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'inclination'        : P.incl,
+                'output_hpc'         : "no"
+            }
+        else:
+            print("Using eccentric call")
+            pars = {
+                'M'                  : M1+M2,
+                'q'                  : M1/M2,
+                'Lambda2'            : P.lambda1,
+                'Lambda2'            : P.lambda2,
+                'chi1'              : P.s1z,
+                'chi2'              : P.s2z,
+                'domain'             : 0,
+                'arg_out'            : 1,
+                'use_mode_lm'        : k,
+                'output_lm'          : k,
+                'srate_interp'       : 1./P.deltaT,
+                'use_geometric_units': 0,
+                'initial_frequency'  : P.fmin,
+                'df'                 : P.deltaF,
+                'interp_uniform_grid': 1,
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'inclination'        : P.incl,
+                'output_hpc'         : 0,
+                'ecc'                : P.eccentricity,
+                'ecc_freq'           : 1 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
+            }
+            print("Starting EOBRun_module")
+            t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
+            print("EOBRun_module done")
+            hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            hplen = len(hptmp)
+            hp = {}
+            hc = {}
+            hp = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
+                                           P.deltaT, lsu_DimensionlessUnit, hplen)
+            hc = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
+                                           P.deltaT, lsu_DimensionlessUnit, hplen)
+            hp.data.data = hptmp
+            hc.data.data = hctmp
 
+
+
+    else:
+        hp, hc = lalsim.SimInspiralTD( \
+                                       P.m1, P.m2, \
+                                       P.s1x, P.s1y, P.s1z, \
+                                       P.s2x, P.s2y, P.s2z, \
+                                       P.dist, P.incl, P.phiref,  \
+                                       P.psi, P.eccentricity, P.meanPerAno, \
+                                       P.deltaT, P.fmin, P.fref, \
+                                       extra_params, P.approx)
+        
 # O2 branch
 #    hp, hc = lalsim.SimInspiralTD( \
 #            P.m1, P.m2, \
@@ -3156,8 +3232,76 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         hlmlen = len(hptmp)
         hlm = {}
         hlmtmp2 = {}
-        for count,mode in enumerate(modes_used):
-            hlmtmp2[mode]=np.array(hlmtmp[str(count)])
+        if True:
+            modes_used_new = []
+            for k in hlmtmp.keys():
+                if k=="0":
+                    modes_used_new.append((2,1))
+                    hlmtmp2[(2,1)]=np.array(hlmtmp[k])
+                if k=="-0":
+                    modes_used_new.append((2,-1))
+                    hlmtmp2[(2,-1)]=np.array(hlmtmp[k])
+                if k=="20":
+                    modes_used_new.append((2,0))
+                    hlmtmp2[(2,0)]=np.array(hlmtmp[k])
+                if k=="1":
+                    modes_used_new.append((2,2))
+                    hlmtmp2[(2,2)]=np.array(hlmtmp[k])
+                if k=="-1":
+                    modes_used_new.append((2,-2))
+                    hlmtmp2[(2,-2)]=np.array(hlmtmp[k])
+                if k=="2":
+                    modes_used_new.append((3,1))
+                    hlmtmp2[(3,1)]=np.array(hlmtmp[k])
+                if k=="-2":
+                    modes_used_new.append((3,-1))
+                    hlmtmp2[(3,-1)]=np.array(hlmtmp[k])
+                if k=="3":
+                    modes_used_new.append((3,2))
+                    hlmtmp2[(3,2)]=np.array(hlmtmp[k])
+                if k=="-3":
+                    modes_used_new.append((3,-2))
+                    hlmtmp2[(3,-2)]=np.array(hlmtmp[k])
+                if k=="4":
+                    modes_used_new.append((3,3))
+                    hlmtmp2[(3,3)]=np.array(hlmtmp[k])
+                if k=="-4":
+                    modes_used_new.append((3,-3))
+                    hlmtmp2[(3,-3)]=np.array(hlmtmp[k])
+                if k=="30":
+                    modes_used_new.append((3,0))
+                    hlmtmp2[(3,0)]=np.array(hlmtmp[k])
+                if k=="5":
+                    modes_used_new.append((4,1))
+                    hlmtmp2[(4,1)]=np.array(hlmtmp[k])
+                if k=="-5":
+                    modes_used_new.append((4,-1))
+                    hlmtmp2[(4,-1)]=np.array(hlmtmp[k])
+                if k=="6":
+                    modes_used_new.append((4,2))
+                    hlmtmp2[(4,2)]=np.array(hlmtmp[k])
+                if k=="-6":
+                    modes_used_new.append((4,-2))
+                    hlmtmp2[(4,-2)]=np.array(hlmtmp[k])
+                if k=="7":
+                    modes_used_new.append((4,3))
+                    hlmtmp2[(4,3)]=np.array(hlmtmp[k])
+                if k=="-7":
+                    modes_used_new.append((4,-3))
+                    hlmtmp2[(4,-3)]=np.array(hlmtmp[k])
+                if k=="8":
+                    modes_used_new.append((4,4))
+                    hlmtmp2[(4,4)]=np.array(hlmtmp[k])
+                if k=="-8":
+                    modes_used_new.append((4,-4))
+                    hlmtmp2[(4,-4)]=np.array(hlmtmp[k])
+                if k=="40":
+                    modes_used_new.append((4,0))
+                    hlmtmp2[(4,0)]=np.array(hlmtmp[k])
+            modes_used=modes_used_new
+            print(modes_used,hlmtmp,hlmtmp2)
+#        for count,mode in enumerate(modes_used):
+#            hlmtmp2[mode]=np.array(hlmtmp[str(count)])
         for mode in modes_used:
             hlmtmp2[mode][0]*=(m_total_s/distance_s)*nu
             hlm[mode] = lal.CreateCOMPLEX16TimeSeries("Complex hlm(t)", hpepoch, 0,
@@ -3172,13 +3316,15 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
                 elif TDlen >= hlm[mode].data.length:
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
-            mode_conj = (mode[0],-mode[1])
-            if not mode_conj in hlm:
-                hC = hlm[mode]
-                hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0,
-                                                    hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
-                hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
-                hlm[mode_conj] = hC2
+            if P.s1x == 0.0 and P.s2x == 0.0 and P.s1y == 0.0 and P.s2y == 0.0:
+                print("conjuring modes")
+                mode_conj = (mode[0],-mode[1])
+                if not mode_conj in hlm:
+                    hC = hlm[mode]
+                    hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0,
+                                                        hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
+                    hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
+                    hlm[mode_conj] = hC2
         return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
         extra_params = P.to_lal_dict()
