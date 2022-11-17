@@ -3317,7 +3317,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                 elif TDlen >= hlm[mode].data.length:
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
             if P.s1x == 0.0 and P.s2x == 0.0 and P.s1y == 0.0 and P.s2y == 0.0:
-                print("conjuring modes")
+#                print("conjuring modes")
                 mode_conj = (mode[0],-mode[1])
                 if not mode_conj in hlm:
                     hC = hlm[mode]
