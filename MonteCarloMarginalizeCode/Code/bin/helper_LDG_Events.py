@@ -872,7 +872,8 @@ if "SNR" in event_dict.keys():
         lnL_expected = snr_here**2 /2. - np.log(10)*50  # remember, 10^308 is typical overflow scale, giving range of 10^100 above
         if not(opts.internal_ile_auto_logarithm_offset) and not opts.internal_ile_use_lnL:
             helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
-        helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
+        if not(opts.use_downscale_early):
+            helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
         rescaled_base_ile = True
 if opts.internal_ile_auto_logarithm_offset and not opts.internal_ile_use_lnL:
     helper_ile_args += " --auto-logarithm-offset "
