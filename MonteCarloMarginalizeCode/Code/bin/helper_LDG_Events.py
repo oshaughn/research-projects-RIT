@@ -866,13 +866,18 @@ if not (opts.fmax is None):
 else:
     helper_ile_args += " --fmax " + str(fmax)
 rescaled_base_ile = False
+helper_cip_args_extra=''
 if "SNR" in event_dict.keys():
     snr_here = event_dict["SNR"]
     if snr_here > 25:
         lnL_expected = snr_here**2 /2. - np.log(10)*50  # remember, 10^308 is typical overflow scale, giving range of 10^100 above
         if not(opts.internal_ile_auto_logarithm_offset) and not opts.internal_ile_use_lnL:
             helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
-        helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
+        if not(opts.use_downscale_early):
+            # Blocks in ALL iterations, which is not recommended
+            helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
+        else:
+            helper_cip_args_extra += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
         rescaled_base_ile = True
 if opts.internal_ile_auto_logarithm_offset and not opts.internal_ile_use_lnL:
     helper_ile_args += " --auto-logarithm-offset "
@@ -1234,7 +1239,7 @@ if opts.propose_fit_strategy:
     if opts.internal_use_aligned_phase_coordinates:
         n_it_early = 2
         n_it_mid =2
-    helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "{} ".format(n_it_mid) +  helper_cip_arg_list_common ]
+    helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "{} ".format(n_it_mid) +  helper_cip_arg_list_common +helper_cip_args_extra ]
 
     # downscale factor, if requested
     if opts.use_downscale_early and event_dict["SNR"]>15:
@@ -1294,7 +1299,7 @@ if opts.propose_fit_strategy:
                 helper_cip_args += ' --parameter-implied xi  ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
             # REMOVE intermediate stage where we used to do chiMinus ... it is NOT the dominant issue for precession, by far
             # so only 3 stages (0,1,2).  0 is aligned; 1 has chi_p; 2 has standard uniform spin prior (or volumetric)
-            helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "2 " +  helper_cip_arg_list_common,"3 " +  helper_cip_arg_list_common  ]
+            helper_cip_arg_list = [str(n_it_early) + " " + helper_cip_arg_list_common, "2 " +  helper_cip_arg_list_common,"3 " +  helper_cip_arg_list_common + helper_cip_args_extra  ]
             # downscale factor, if requested
             if opts.use_downscale_early and event_dict["SNR"]>15:
                 scale_fac = (15/event_dict["SNR"])**2
