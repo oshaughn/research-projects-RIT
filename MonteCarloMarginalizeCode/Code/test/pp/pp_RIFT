@@ -262,31 +262,35 @@ for indx in np.arange(n_events):
         cmd = "/bin/find .  -name '*.gwf' | {} > signals.cache".format(lalapps_path2cache)
         os.system(cmd)
 
-    # Evaluate zero-noise SNR
+# Evaluate zero-noise SNR
     print(" --> Evaluating zero-noise SNR, to use as hint in place of search <-- ")
+
 # Edit following chunk to not be hard-coded to PSD file names
 #    for psd in psd_dict:
 #        psd_name = psd_dict[psd]
 #        psd_name = base_dir +"/"+psd_name 
 #        cmd = "util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file {}={} ".format(psd,psd_name)
 #        os.system(cmd)
-    cmd = " util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file H1=" + base_dir+"/H1-psd.xml.gz --psd-file L1=" + base_dir+"/L1-psd.xml.gz --psd-file V1=" + base_dir+"/V1-psd.xml.gz "  
+    cmd = " util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file H1="+base_dir+"/H1-psd.xml.gz --psd-file L1="+base_dir+"/L1-psd.xml.gz --psd-file V1="+base_dir+"/V1-psd.xml.gz "
     os.system(cmd)
 
-    # Reading in zero-noise SNR
+
+for indx in np.arange(n_events):
+    #os.chdir(working_dir_full)
+    target_subdir = 'signal_frames/event_{}'.format(indx)
+    os.chdir(working_dir_full+"/"+target_subdir)
+# Reading in zero-noise SNR
     f = open("snr-report.txt","r")
     x = str(f.read())
     y = json.loads(x)
     snr = y["Network"]
     zero_snr.append(snr)
     lnLmax=(snr**2)/2.    # approximately    
-#    lnLcut=np.max([0.3*lnLmax,15.])  # just a guess for now  
-#    lnLcut_list.append(lnLcut)
     if lowlatency is True: 
         lnLoffset_all = 2.*lnLmax # very large : should be enough to keep all points # helper_LDG-L558
         #lnLoffset_early = 0.8*lnLmax  # default value early on : should be good enough
         lnLoffset_all_list.append(lnLoffset_all)
-        lnLoffset_lowlat = np.max([0.3*lnLmax,15.])  # just a guess for now 
+        lnLoffset_lowlat = np.max([0.2*lnLmax,15.])  # just a guess for now 
         lnLoffset_lowlat_list.append(lnLoffset_lowlat)  
     indx+=1
 
@@ -506,7 +510,8 @@ for indx in np.arange(n_events):
             if lowlatency is True:
                 line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(mc_min,mc_max,eta_min,eta_max,chi_max)
                 line = line.replace('--fit-method gp', '--fit-method quadratic')
-                line = line.replace('--parameter delta_mc', '--parameter eta') 
+                line = line.replace('--parameter delta_mc', '--parameter eta')
+                line = line.replace("--parameter-implied xi", "--parameter-implied chieff_aligned --aligned-prior 'alignedspin-zprior'") 
             else: 
                 line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(np.maximum(mc_min,mc_min_utils),np.minimum(mc_max,mc_max_utils),eta_min,eta_max,chi_max)
             if use_matter:
@@ -558,7 +563,7 @@ for indx in np.arange(n_events):
 #     Build workflow
     cmd = "create_event_parameter_pipeline_BasicIteration --input-grid proposed-grid.xml.gz --ile-n-events-to-analyze {} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`  --ile-args {}/args_ile.txt --request-memory-ILE 4096 ".format(n_events_per_worker,dir_target)
     if lowlatency:
-        cmd+= "--cip-exe `which util_ConstructIntrinsicPosterior_GaussianResampling.py` --cip-args-list args_cip_list.txt --n-iterations 2"
+        cmd+= "--cip-exe `which util_ConstructIntrinsicPosterior_GaussianResampling.py` --cip-args-list args_cip_list.txt --n-iterations 3"
     else:
         cmd+= "--cip-exe `which util_ConstructIntrinsicPosterior_GenericCoordinates.py` --cip-args-list args_cip_list.txt --puff-max-it 10 --n-iterations 10 --puff-exe `which util_ParameterPuffball.py` --puff-cadence {} --puff-args {}/args_puff.txt".format(puff_cadence,dir_target)
     cmd+= " --test-args {}/args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd`".format(dir_target,dir_target)
@@ -591,8 +596,8 @@ for indx in np.arange(n_events):
     if not opts.test:
         os.system(cmd)
 
-print("lnLoffset-default-list =", lnLoffset_all_list)
-print("lnLoffset-lowlat-list =", lnLoffset_lowlat_list)
+#print("lnLoffset-default-list =", lnLoffset_all_list)
+#print("lnLoffset-lowlat-list =", lnLoffset_lowlat_list)
 
 print(" === Building master workflow === ")
 
