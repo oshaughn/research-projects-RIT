@@ -875,9 +875,11 @@ if "SNR" in event_dict.keys():
             helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
         if not(opts.use_downscale_early):
             # Blocks in ALL iterations, which is not recommended
-            helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
+            helper_cip_args +=   " --lnL-protect-overflow " #" --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
+        elif snr_here <35:
+            helper_cip_args_extra +=  " --lnL-protect-overflow " # " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
         else:
-            helper_cip_args_extra += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
+            helper_cip_args_extra = " --internal-use-lnL "   # always use lnL scaling for loud signals at late times, overflow issue for most integrators
         rescaled_base_ile = True
 if opts.internal_ile_auto_logarithm_offset and not opts.internal_ile_use_lnL:
     helper_ile_args += " --auto-logarithm-offset "
