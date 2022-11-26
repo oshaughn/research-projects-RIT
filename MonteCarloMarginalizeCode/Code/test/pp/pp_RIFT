@@ -232,11 +232,6 @@ print(" === Writing signal files === ")
 t_start = int(fiducial_event_time)-150
 t_stop = int(fiducial_event_time)+150
 
-zero_snr=[]
-lnLcut_list=[]
-lnLoffset_all_list=[]
-lnLoffset_lowlat_list=[]
-
 mkdir('signal_frames')
 for indx in np.arange(n_events):
     os.chdir(working_dir_full)
@@ -274,6 +269,10 @@ for indx in np.arange(n_events):
     cmd = " util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file H1="+base_dir+"/H1-psd.xml.gz --psd-file L1="+base_dir+"/L1-psd.xml.gz --psd-file V1="+base_dir+"/V1-psd.xml.gz "
     os.system(cmd)
 
+zero_snr=[]
+lnLoffset_all_list=[]
+lnLoffset_lowlat_list=[]
+lnLexpected_list=[]
 
 for indx in np.arange(n_events):
     #os.chdir(working_dir_full)
@@ -291,7 +290,9 @@ for indx in np.arange(n_events):
         #lnLoffset_early = 0.8*lnLmax  # default value early on : should be good enough
         lnLoffset_all_list.append(lnLoffset_all)
         lnLoffset_lowlat = np.max([0.2*lnLmax,15.])  # just a guess for now 
-        lnLoffset_lowlat_list.append(lnLoffset_lowlat)  
+        lnLoffset_lowlat_list.append(lnLoffset_lowlat)
+        lnL_expected = snr**2 /2. - np.log(10)*50  # remember, 10^308 is typical overflow scale, giving range of 10^100 above  
+        lnLexpected_list.append(lnL_expected)
     indx+=1
 
 #print(zero_snr)
@@ -488,6 +489,8 @@ for indx in np.arange(n_events):
                 line += " ./distance_marginalization_lookup.npz "
                 # add to transfer file list
                 os.system('echo  {}/distance_marginalization_lookup.npz >> helper_transfer_files.txt '.format(working_dir_full))
+        if lowlatency is True:
+            line = line.replace('--manual-logarithm-offset {}'.format(lnLexpected_list[indx]), ' ') 
         with open('args_ile.txt','w') as f:
             f.write(line)
 
@@ -511,7 +514,8 @@ for indx in np.arange(n_events):
                 line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(mc_min,mc_max,eta_min,eta_max,chi_max)
                 line = line.replace('--fit-method gp', '--fit-method quadratic')
                 line = line.replace('--parameter delta_mc', '--parameter eta')
-                line = line.replace("--parameter-implied xi", "--parameter-implied chieff_aligned --aligned-prior 'alignedspin-zprior'") 
+                line = line.replace("--parameter-implied xi", "--parameter xi --aligned-prior 'alignedspin-zprior'")
+                line = line.replace("--parameter-nofit s1z --parameter-nofit s2z", " ") 
             else: 
                 line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(np.maximum(mc_min,mc_min_utils),np.minimum(mc_max,mc_max_utils),eta_min,eta_max,chi_max)
             if use_matter:
@@ -530,9 +534,8 @@ for indx in np.arange(n_events):
             if not(cip_fit_method=="None"):
                 line = line.replace('--fit-method gp', '--fit-method ' + cip_fit_method)
             if lowlatency is True:
-                line = line.replace('--fit-method gp', '--fit-method quadratic')
-                line = line.replace('--parameter delta_mc', '--parameter eta')
-                line = line.replace("--lnL-offset {} ".format(lnLoffset_all_list[indx]), "--lnL-offset {} ".format(lnLoffset_lowlat_list[indx])) 
+                line = line.replace("--lnL-offset {} ".format(lnLoffset_all_list[indx]), "--lnL-offset {} ".format(lnLoffset_lowlat_list[indx]))
+                line = line.replace("--lnL-shift-prevent-overflow {}".format(lnLexpected_list[indx]), "--internal-use-lnL --lnL-protect-overflow") #testing-AY 
             if (cip_sampler_method=="GMM"):
                 line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
             elif (cip_sampler_method!="GMM"):
@@ -596,8 +599,6 @@ for indx in np.arange(n_events):
     if not opts.test:
         os.system(cmd)
 
-#print("lnLoffset-default-list =", lnLoffset_all_list)
-#print("lnLoffset-lowlat-list =", lnLoffset_lowlat_list)
 
 print(" === Building master workflow === ")
 
