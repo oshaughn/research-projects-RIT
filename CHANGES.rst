@@ -6,7 +6,8 @@ Since last release
      mcsamplerGPU/statutils protect against cupyx.scipy.special not being present (rc2)
    - documentation; mcsampler GPU/ILE_batchmode exports for use-lnL; dockerfile builds; pipeline --cip-explode-jobs-auto
      to auto-select appropriate CIP worker count; CIP --lnL-downscale-factor to help sample loud signals; pipeline
-     --use-downscale-early to auto-select that factor; pipeline can use CIP_gauss in iterations, and can request via --use-gauss-early
+     --use-downscale-early to auto-select that factor; pipeline can use CIP_gauss in iterations, and can request via     --use-gauss-early,
+    merge last TEOBResumS; collections.abc.Iterable for py3.10 support; helper minor misc (rc3) 
 
 0.0.15.7
 -----------
