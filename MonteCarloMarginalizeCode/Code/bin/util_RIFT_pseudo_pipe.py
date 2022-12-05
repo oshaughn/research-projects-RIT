@@ -805,7 +805,7 @@ for indx in np.arange(len(instructions_cip)):
     if opts.internal_cip_temper_log:
         line += " --internal-temper-log "
     if opts.internal_cip_tripwire:
-        line += " --internal-tripwire-fraction {} ".float(opts.internal_cip_tripwire)
+        line += " --internal-tripwire-fraction {} ".format(opts.internal_cip_tripwire)
     line += prior_args_lookup[opts.spin_magnitude_prior]
     if opts.cip_internal_use_eta_in_sampler:
         line = line.replace('parameter delta_mc','parameter eta')
