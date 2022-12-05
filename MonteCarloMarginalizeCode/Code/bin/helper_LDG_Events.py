@@ -158,6 +158,7 @@ parser.add_argument("--force-eta-range",default=None,type=str,help="For PP plots
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
+parser.add_argument("--use-coinc",default=None)
 parser.add_argument("--event",type=int,default=None)
 parser.add_argument("--check-ifo-availability",action='store_true',help="if true, attempt to use frame availability or DQ information to choose ")
 parser.add_argument("--manual-ifo-list",default=None,type=str,help="Overrides IFO list normally retrieve by event ID.  Use with care (e.g., glitch studies) or for events specified with --event-time.")
@@ -404,6 +405,39 @@ elif opts.sim_xml:  # right now, configured to do synthetic data only...should b
     event_dict["s2z"] = P.s2z
     event_dict["P"] = P
     event_dict["epoch"]  = 0 # no estimate for now
+elif opts.use_coinc: # If using a coinc through injections and not a GraceDB event.
+    # Same code as used before for gracedb
+    coinc_file = opts.use_coinc
+    samples = lsctables.SnglInspiralTable.get_table(utils.load_filename(coinc_file,contenthandler=lalsimutils.cthdler))
+    event_duration=4  # default
+    ifo_list = []
+    snr_list = []
+    tref_list = []
+    for row in samples:
+        m1 = row.mass1
+        m2 = row.mass2
+        ifo_list.append(row.ifo)
+        snr_list.append(row.snr)
+        tref_list.append(row.end_time + 1e-9*row.end_time_ns)
+        try:
+            event_duration = row.event_duration # may not exist
+        except:
+            print(" event_duration field not in XML ")
+            event_duration=4 # fallback
+    event_dict["m1"] = row.mass1
+    event_dict["m2"] = row.mass2
+    event_dict["s1z"] = row.spin1z
+    event_dict["s2z"] = row.spin2z
+    event_dict["IFOs"] = list(set(ifo_list))
+    max_snr_idx = snr_list.index(max(snr_list))
+    event_dict['SNR'] = snr_list[max_snr_idx]
+    event_dict['tref'] = tref_list[max_snr_idx]
+    P=lalsimutils.ChooseWaveformParams()
+    P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
+    P.fmin = opts.fmin_template  #  fmin we will use internally
+    P.tref = event_dict["tref"]
+    event_dict["P"] = P
+    event_dict["epoch"]  = event_duration
 
 # PSDs must be provided by hand, IF this is done by this code!
 ifo_list=[]
@@ -514,7 +548,7 @@ if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
 
 print(" Event analysis ", event_dict)
-if (opts.event_time is None) or opts.sim_xml:
+if (opts.event_time is None) or opts.sim_xml or "P" in event_dict:
     print( " == candidate event parameters (as passed to helper) == ")
     event_dict["P"].print_params()
     if not(opts.event_time is None):
