@@ -14,6 +14,7 @@ import argparse
 import os
 import sys
 import shutil
+import json
 
 import configparser
 
@@ -152,6 +153,10 @@ volumetric_spin =unsafe_config_get(config,['priors','volumetric_spin'])
 if volumetric_spin:
     print("  (volumetric spin prior)  ")
 
+lowlatency = unsafe_config_get(config,['make_workflow','lowlatency'])
+if lowlatency:
+    print(" ====> Low-latency mode: using Gaussian fits for CIP <==== ")
+
 fix_sky_location=unsafe_config_get(config,['priors','fix_sky_location'])
 fiducial_ra=float(config.get('priors','fiducial_ra'))
 fiducial_dec=float(config.get('priors','fiducial_dec'))
@@ -159,6 +164,7 @@ fiducial_event_time=float(config.get('priors','fiducial_event_time'))
 
 
 ifos = unsafe_config_get(config,['data','ifos'])
+psd_dict = unsafe_config_get(config,["make_psd",'fiducial_psds'])
 
 if os.path.exists(working_dir_full+"/mdc.xml.gz"):
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(working_dir_full+"/mdc.xml.gz")
@@ -242,7 +248,7 @@ for indx in np.arange(n_events):
         if 'NRHybSur' in approx_str:
             cmd = "util_ROMWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
         else:
-            cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {}  --stop {}  --instrument {} --seglen {} --approx {}".format(indx, t_start,t_stop,ifo, seglen_analysis, approx_str)
+            cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {}  --stop {}  --instrument {} --seglen {} --approx {}".format(indx, t_start,t_stop,ifo, seglen_analysis,approx_str)
         print(cmd)
         if not opts.test:
             os.system(cmd)
@@ -251,8 +257,46 @@ for indx in np.arange(n_events):
         cmd = "/bin/find .  -name '*.gwf' | {} > signals.cache".format(lalapps_path2cache)
         os.system(cmd)
 
-    # Evaluate zero-noise SNR
-    print(" --> FIXME: evaluate zero-noise SNR, to use as hint in place of search <-- ")
+# Evaluate zero-noise SNR
+    print(" --> Evaluating zero-noise SNR, to use as hint in place of search <-- ")
+
+# Edit following chunk to not be hard-coded to PSD file names
+#    for psd in psd_dict:
+#        psd_name = psd_dict[psd]
+#        psd_name = base_dir +"/"+psd_name 
+#        cmd = "util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file {}={} ".format(psd,psd_name)
+#        os.system(cmd)
+    cmd = " util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file H1="+base_dir+"/H1-psd.xml.gz --psd-file L1="+base_dir+"/L1-psd.xml.gz --psd-file V1="+base_dir+"/V1-psd.xml.gz "
+    os.system(cmd)
+
+zero_snr=[]
+lnLoffset_all_list=[]
+lnLoffset_lowlat_list=[]
+lnLexpected_list=[]
+
+for indx in np.arange(n_events):
+    #os.chdir(working_dir_full)
+    target_subdir = 'signal_frames/event_{}'.format(indx)
+    os.chdir(working_dir_full+"/"+target_subdir)
+# Reading in zero-noise SNR
+    f = open("snr-report.txt","r")
+    x = str(f.read())
+    y = json.loads(x)
+    snr = y["Network"]
+    zero_snr.append(snr)
+    lnLmax=(snr**2)/2.    # approximately    
+    if lowlatency is True: 
+        lnLoffset_all = 2.*lnLmax # very large : should be enough to keep all points # helper_LDG-L558
+        #lnLoffset_early = 0.8*lnLmax  # default value early on : should be good enough
+        lnLoffset_all_list.append(lnLoffset_all)
+        lnLoffset_lowlat = np.max([0.2*lnLmax,15.])  # just a guess for now 
+        lnLoffset_lowlat_list.append(lnLoffset_lowlat)
+        lnL_expected = snr**2 /2. - np.log(10)*50  # remember, 10^308 is typical overflow scale, giving range of 10^100 above  
+        lnLexpected_list.append(lnL_expected)
+    indx+=1
+
+#print(zero_snr)
+#print(lnL_cut_list)
 
 print(" === Using fiducial noise frames === ")
 
@@ -309,11 +353,9 @@ n_events_per_worker = int(config.get('make_workflow','n_events_per_worker'))
 n_copies = int(config.get('make_workflow','n_copies'))
 n_iterations = int(config.get('make_workflow','n_iterations'))
 puff_cadence = int(config.get('make_workflow','puff_cadence'))
+#puff_max_it = config.get('make_workflow','puff_max_it')
 
-psd_dict = unsafe_config_get(config,["make_psd",'fiducial_psds'])
 
-ile_sampler_method = config.get('make_workflow','ile_sampler_method')
-internal_ile_sky_network_coordinates = unsafe_config_get(config,['make_workflow','internal_ile_sky_network_coordinates'])
 cip_fit_method = config.get('make_workflow','cip_fit_method')
 cip_sampler_method = config.get('make_workflow','cip_sampler_method')
 add_extrinsic=opts.add_extrinsic
@@ -336,7 +378,7 @@ for indx in np.arange(n_events):
     os.chdir(dir_target)
     os.system("ln -sf ../combined_frames/event_{} .".format(indx))
     if not opts.test:
-        cmd = "/bin/find -L . -name '*.gwf' | lalapps_path2cache > local.cache"
+        cmd = "/bin/find -L . -name '*.gwf' | lal_path2cache > local.cache"
         print(cmd)
         os.system(cmd)
     here = os.getcwd()
@@ -373,7 +415,8 @@ for indx in np.arange(n_events):
             if use_osg:
                 psd_name = psd_name
                 # copy/link PSD files so they are correctly transferred by the downstream tools; yes it is a little silly
-                os.system(" cp {}/{} {} ".format(base_dir, psd_name, working_dir_full) )
+#                os.system(" cp {}/{} {} ".format(base_dir, psd_name, working_dir_full) )
+                os.system(" ln -s {}/{} {} ".format(base_dir, psd_name, dir_target) )
             else:
                 psd_name = base_dir +"/"+psd_name
         cmd += " --psd-file {}={} ".format(psd,psd_name)
@@ -386,7 +429,8 @@ for indx in np.arange(n_events):
     if volumetric_spin:
         cmd += " --assume-volumetric-spin "
     if use_matter:
-        cmd += " --assume-matter " 
+        cmd += " --assume-matter "
+    cmd += " --hint-snr {}".format(zero_snr[indx]) 
 
     print(cmd)
     if not opts.test:
@@ -400,8 +444,10 @@ for indx in np.arange(n_events):
         if not (use_gpu):
             line+= " --vectorized "  # make sure to use vectorized code
             line = line.replace("--gpu","")  # make SURE this option is not set
-        if (use_gpu):
-            line+= " --vectorized --force-gpu-only "
+        if (use_gpu) and (use_osg):
+            line+= " --vectorized "
+#        else:
+#            line+= " --vectorized --force-gpu-only "
             line = line.replace("--gpu","")  # make SURE this option is not set
         if fix_sky_location:
             line = line.replace("--declination-cosine-sampler", "")   # fix, so known sky location is interpreted correctly
@@ -437,19 +483,18 @@ for indx in np.arange(n_events):
         else:
             print(" Unknown approx ", approx_recover_str)
             sys.exit(1)
-        if not(ile_sampler_method is None):
-            line += " --sampler-method {} ".format(ile_sampler_method)
-        if internal_ile_sky_network_coordinates:
-            line += " --internal-sky-network-coordinates "
         if use_distance_marginalization:
             # only implemented for a very specific code path
-            line += " --force-xpy --gpu --distance-marginalization --distance-marginalization-lookup-table "
+            #line += " --force-xpy --gpu --distance-marginalization --distance-marginalization-lookup-table "
+            line += " --gpu --distance-marginalization --distance-marginalization-lookup-table "
             if not use_osg:
                 line += " {}/{} ".format(working_dir_full,"distance_marginalization_lookup.npz")
             else: 
-                line += " ./distance_marginalization_lookup.npz "
+                line += " distance_marginalization_lookup.npz "
                 # add to transfer file list
                 os.system('echo  {}/distance_marginalization_lookup.npz >> helper_transfer_files.txt '.format(working_dir_full))
+        if lowlatency is True:
+            line = line.replace('--manual-logarithm-offset {}'.format(lnLexpected_list[indx]), '--internal-use-lnL') 
         with open('args_ile.txt','w') as f:
             f.write(line)
 
@@ -469,7 +514,14 @@ for indx in np.arange(n_events):
                 n_iterations += int(instructions_cip[indx_instr][0])
             line = ' ' .join(instructions_cip[indx_instr])
             # Add CIP range
-            line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(np.maximum(mc_min,mc_min_utils),np.minimum(mc_max,mc_max_utils),eta_min,eta_max,chi_max)
+            if lowlatency is True:
+                line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(mc_min,mc_max,eta_min,eta_max,chi_max)
+                line = line.replace('--fit-method gp', '--fit-method quadratic')
+                line = line.replace('--parameter delta_mc', '--parameter eta')
+                line = line.replace("--parameter-implied xi", "--parameter xi --aligned-prior 'alignedspin-zprior'")
+                line = line.replace("--parameter-nofit s1z --parameter-nofit s2z", " ") 
+            else: 
+                line += " --mc-range [{},{}] --eta-range [{},{}] --chi-max {} ".format(np.maximum(mc_min,mc_min_utils),np.minimum(mc_max,mc_max_utils),eta_min,eta_max,chi_max)
             if use_matter:
                 line += " --lambda-max {} ".format(lambda_max)
             if not(cip_explode_jobs is False):
@@ -483,8 +535,11 @@ for indx in np.arange(n_events):
                 n_eff_cip_here = np.min([internal_cip_cap_neff, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
             #n_sample_min_per_worker = int(n_eff_cip_here/100)+2   # for fail-unless-n-eff option
             line +=" --n-output-samples {} --n-eff {} --n-max 10000000   --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), n_eff_cip_here) 
-            if not(cip_fit_method is None):
+            if not(cip_fit_method=="None"):
                 line = line.replace('--fit-method gp', '--fit-method ' + cip_fit_method)
+            if lowlatency is True:
+                line = line.replace("--lnL-offset {} ".format(lnLoffset_all_list[indx]), "--lnL-offset {} ".format(lnLoffset_lowlat_list[indx]))
+                line = line.replace("--lnL-shift-prevent-overflow {}".format(lnLexpected_list[indx]), "--internal-use-lnL --lnL-protect-overflow") #testing-AY 
             if (cip_sampler_method=="GMM"):
                 line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
             elif (cip_sampler_method!="GMM"):
@@ -512,10 +567,13 @@ for indx in np.arange(n_events):
             f.write("X " + puff_args)
 
 
-    # Build workflow
+#     Build workflow
     cmd = "create_event_parameter_pipeline_BasicIteration --input-grid proposed-grid.xml.gz --ile-n-events-to-analyze {} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`  --ile-args {}/args_ile.txt --request-memory-ILE 4096 ".format(n_events_per_worker,dir_target)
-    cmd+= "--cip-args-list {}/args_cip_list.txt  --test-args {}/args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd` --n-iterations {} --n-copies {} ".format(dir_target,dir_target,n_iterations, n_copies)
-    cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-max-it 10 --puff-cadence {} --puff-args {}/args_puff.txt".format(puff_cadence,dir_target)
+    if lowlatency:
+        cmd+= "--cip-exe `which util_ConstructIntrinsicPosterior_GaussianResampling.py` --cip-args-list args_cip_list.txt --n-iterations 3"
+    else:
+        cmd+= "--cip-exe `which util_ConstructIntrinsicPosterior_GenericCoordinates.py` --cip-args-list args_cip_list.txt --puff-max-it 10 --n-iterations 10 --puff-exe `which util_ParameterPuffball.py` --puff-cadence {} --puff-args {}/args_puff.txt".format(puff_cadence,dir_target)
+    cmd+= " --test-args {}/args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd`".format(dir_target,dir_target)
 
     # Use GPUs if we are not
     if use_gpu:
