@@ -16,3 +16,4 @@ python-ligo-lw
 six
 precession
 ligo.skymap
+gwpy

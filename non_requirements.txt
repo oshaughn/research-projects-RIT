@@ -1,0 +1,5 @@
+gwsurrogate==0.9.3
+   # catalog.pull('NRHybSur3dq8')
+cupy
+gwalk
+teobresums

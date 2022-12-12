@@ -300,11 +300,12 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index']
 
 tex_dictionary  = {
  "mtot": '$M$',
  "mc": '${\cal M}_c$',
+ "mc_ecc": '${\cal M}_{\rm c,ecc}$',
  "m1": '$m_1$',
  "m2": '$m_2$',
  "m1_source": r'$m_{1,source}$',
@@ -365,6 +366,8 @@ tex_dictionary  = {
   'mu2':r'$\mu_2$',
 }
 
+# Exponent used to define the u coordinate scaling
+p_R = 0.25
 
 class ChooseWaveformParams:
     """
@@ -421,6 +424,7 @@ class ChooseWaveformParams:
         self.fmax=fmax
         self.taper = taper
         self.snr = None  # Only used for compatibility with AMR grid rapid_pe, should not usually be setting or using this
+        self.eos_table_index = None  # only used for compatibility with tabular EOS formalisms, note user MUST always provide lambda1, lambda2 correctly for waveform generators!  
 
         # force this waveform's PN order to be 3 to avoid crashes
         if self.approx == lalsim.EccentricTD:
@@ -492,8 +496,8 @@ class ChooseWaveformParams:
             eta = symRatio(self.m1,self.m2)
             self.m1,self.m2 = m1m2(10**val,eta)
             return self
-        if p == 'mc':
-            # change implemented at fixed chi1, chi2, eta
+        if p == 'mc' or p=='mc_ecc':
+            # change implemented at fixed chi1, chi2, eta (and ecc)
             eta = symRatio(self.m1,self.m2)
             self.m1,self.m2 = m1m2(val,eta)
             return self
@@ -528,6 +532,42 @@ class ChooseWaveformParams:
             czp = (self.s1z+self.s2z)/2.
             self.s1z = (czp+czm)
             self.s2z = (czp-czm)
+            return self
+        if p == 's1z_bar':
+            self.s1z = val
+            return self
+        if p == 's2z_bar':
+            self.s2z = val
+            return self
+        if p == 'chi1_perp_bar':
+#            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
+            phi1 = np.arctan2(self.s1y, self.s1x)
+            chi1_perp_new = val*np.sqrt(1-self.s1z**2)  # R=Rbar*(1-z^2)^0.5 
+            self.s1x = chi1_perp_new*np.cos(phi1)
+            self.s1y = chi1_perp_new*np.sin(phi1)
+            return self
+        if p == 'chi1_perp_u':
+#            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
+            Rb = np.power(val, 1./p_R)
+            phi1 = np.arctan2(self.s1y, self.s1x)
+            chi1_perp_new = Rb*np.sqrt(1-self.s1z**2)  # R=Rbar*(1-z^2)^0.5 
+            self.s1x = chi1_perp_new*np.cos(phi1)
+            self.s1y = chi1_perp_new*np.sin(phi1)
+            return self
+        if p == 'chi2_perp_bar':
+#            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
+            phi2 = np.arctan2(self.s2y, self.s2x)
+            chi2_perp_new = val*np.sqrt(1-self.s2z**2)  # R=Rbar*(1-z^2)^0.5 
+            self.s2x = chi2_perp_new*np.cos(phi2)
+            self.s2y = chi2_perp_new*np.sin(phi2)
+            return self
+        if p == 'chi2_perp_u':
+#            chi1_perp = np.sqrt(self.s1x**2+self.s2y**2)
+            phi2 = np.arctan2(self.s2y, self.s2x)
+            Rb = np.power(val, 1./p_R)
+            chi2_perp_new = Rb*np.sqrt(1-self.s2z**2)  # R=Rbar*(1-z^2)^0.5 
+            self.s2x = chi2_perp_new*np.cos(phi2)
+            self.s2y = chi2_perp_new*np.sin(phi2)
             return self
         if p == 'lambda_plus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
@@ -794,6 +834,9 @@ class ChooseWaveformParams:
             return (self.m1-self.m2)/(self.m1+self.m2)
         if p == 'mc':
             return mchirp(self.m1,self.m2)
+        if p == 'mc_ecc':
+            # defined Favata et al 2108.05861  see Eq. 1.1
+            return mchirp(self.m1,self.m2)/np.power( 1 - 157*self.eccentricity**2/24., 3./5.)
         if p == 'log_mc':
             return np.log10(mchirp(self.m1,self.m2))
         if p == 'eta':
@@ -811,6 +854,14 @@ class ChooseWaveformParams:
             else:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             return np.sqrt( np.dot(chi1Vec,chi1Vec) -  np.dot(Lhat, chi1Vec)**2 )  # L frame !
+        if p == 'chi1_perp_bar':
+            # not supporting old L convention
+            chi1_perp = np.sqrt( self.s1x**2 + self.s1y**2)
+            return  chi1_perp/np.sqrt(1-self.s1z**2)   # R = Rbar*sqrt(1-z**2)
+        if p == 'chi1_perp_u':
+            # not supporting old L convention
+            chi1_perp = np.sqrt( self.s1x**2 + self.s1y**2)
+            return  np.power(chi1_perp/np.sqrt(1-self.s1z**2), p_R)
         if p == 'chi2_perp':
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             if spin_convention == "L":
@@ -818,6 +869,18 @@ class ChooseWaveformParams:
             else:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             return np.sqrt( np.dot(chi2Vec,chi2Vec) -  np.dot(Lhat, chi2Vec)**2 )  # L frame !
+        if p == 'chi2_perp_bar':
+            # not supporting old non-L convention
+            chi2_perp = np.sqrt( self.s2x**2 + self.s2y**2)
+            return  chi2_perp/np.sqrt(1-self.s2z**2)
+        if p == 'chi2_perp_u':
+            # not supporting old non-L convention
+            chi2_perp = np.sqrt( self.s2x**2 + self.s2y**2)
+            return  np.power(chi2_perp/np.sqrt(1-self.s2z**2), p_R)
+        if p == 's1z_bar':
+            return self.s1z
+        if p == 's2z_bar':
+            return self.s2z
 
         if p == 'xi' or p == 'chieff_aligned':
             chi1Vec = np.array([self.s1x,self.s1y,self.s1z])
@@ -1582,6 +1645,11 @@ class ChooseWaveformParams:
         self.lambda2 = row.alpha6
         self.eccentricity=row.alpha4
         self.snr = row.alpha3   # lnL info
+        # WARNING: alpha1, alpha2 used by ILE for weights!
+        self.eos_table_index = row.alpha
+        if not(row.alpha):
+            self.eos_table_index = None
+    
 
     def create_sim_inspiral(self):
         """
@@ -1627,6 +1695,8 @@ class ChooseWaveformParams:
         row.alpha5 = self.lambda1
         row.alpha6 = self.lambda2
         row.alpha4 = self.eccentricity
+        if self.eos_table_index:
+            row.alpha = self.eos_table_index
         if self.snr:
             row.alpha3 = self.snr
         # Debug: 
@@ -2646,18 +2716,94 @@ def hoft(P, Fp=None, Fc=None):
     if P.approx == lalsim.EOBNRv2HM and P.m1 == P.m2:
 #        print " Using ridiculous tweak for equal-mass line EOB"
         P.m2 = P.m1*(1-1e-6)
-
     extra_params = P.to_lal_dict()
-#Compatible with master
-    hp, hc = lalsim.SimInspiralTD( \
-            P.m1, P.m2, \
-            P.s1x, P.s1y, P.s1z, \
-            P.s2x, P.s2y, P.s2z, \
-            P.dist, P.incl, P.phiref,  \
-            P.psi, P.eccentricity, P.meanPerAno, \
-            P.deltaT, P.fmin, P.fref, \
-            extra_params, P.approx)
+    if P.approx==lalsim.TEOBResumS:
+        Lmax=8
+        modes_used = []
+        distance_s = P.dist/lal.C_SI
+        m_total_s = MsunInSec*(P.m1+P.m2)/lal.MSUN_SI
+        for l in np.arange(2,Lmax+1,1):
+            for m in np.arange(0,l+1,1):
+                if m !=0:
+                    modes_used.append((l,m))
+        k = modes_to_k(modes_used)
+        M1=P.m1/lal.MSUN_SI
+        M2=P.m2/lal.MSUN_SI
+        nu=M1*M2/((M1+M2)**2)
+        if (P.eccentricity == 0.0):
+            print("Using ResumS master; not eccentric")
+            pars = {
+                'M'                  : M1+M2,
+                'q'                  : M1/M2,
+                'LambdaAl2'            : P.lambda1,
+                'LambdaBl2'            : P.lambda2,
+                'chi1x'              : P.s1x,
+                'chi1y'              : P.s1y,
+                'chi1z'              : P.s1z,
+                'chi2x'              : P.s2x,
+                'chi2y'              : P.s2y,
+                'chi2z'              : P.s2z,
+                'domain'             : 0,
+                'arg_out'            : "yes",
+                'use_mode_lm'        : k,
+                'srate_interp'       : 1./P.deltaT,
+                'use_geometric_units': "no",
+                'initial_frequency'  : P.fmin,
+                'interp_uniform_grid': "yes",
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'inclination'        : P.incl,
+                'output_hpc'         : "no"
+            }
+        else:
+            print("Using eccentric call")
+            pars = {
+                'M'                  : M1+M2,
+                'q'                  : M1/M2,
+                'Lambda2'            : P.lambda1,
+                'Lambda2'            : P.lambda2,
+                'chi1'              : P.s1z,
+                'chi2'              : P.s2z,
+                'domain'             : 0,
+                'arg_out'            : 1,
+                'use_mode_lm'        : k,
+                'output_lm'          : k,
+                'srate_interp'       : 1./P.deltaT,
+                'use_geometric_units': 0,
+                'initial_frequency'  : P.fmin,
+                'df'                 : P.deltaF,
+                'interp_uniform_grid': 1,
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'inclination'        : P.incl,
+                'output_hpc'         : 0,
+                'ecc'                : P.eccentricity,
+                'ecc_freq'           : 1 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
+            }
+            print("Starting EOBRun_module")
+            t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
+            print("EOBRun_module done")
+            hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            hplen = len(hptmp)
+            hp = {}
+            hc = {}
+            hp = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
+                                           P.deltaT, lsu_DimensionlessUnit, hplen)
+            hc = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
+                                           P.deltaT, lsu_DimensionlessUnit, hplen)
+            hp.data.data = hptmp
+            hc.data.data = hctmp
 
+
+
+    else:
+        hp, hc = lalsim.SimInspiralTD( \
+                                       P.m1, P.m2, \
+                                       P.s1x, P.s1y, P.s1z, \
+                                       P.s2x, P.s2y, P.s2z, \
+                                       P.dist, P.incl, P.phiref,  \
+                                       P.psi, P.eccentricity, P.meanPerAno, \
+                                       P.deltaT, P.fmin, P.fref, \
+                                       extra_params, P.approx)
+        
 # O2 branch
 #    hp, hc = lalsim.SimInspiralTD( \
 #            P.m1, P.m2, \
@@ -3057,8 +3203,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
-                'Lambda1'            : P.lambda1,
-                'Lambda2'            : P.lambda2,
+                'LambdaAl2'            : P.lambda1,
+                'LambdaBl2'            : P.lambda2,
                 'chi1'               : P.s1z,
                 'chi2'               : P.s2z,
                 'domain'             : 0,
@@ -3079,15 +3225,83 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         # Run the WF generator
         print("Starting EOBRun_module")
         print(pars)
-        t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
+        t, hptmp, hctmp, hlmtmp = EOBRun_module.EOBRunPy(pars)
         print("EOBRun_module done")
         k_list_orig = hlmtmp.keys()
         hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
         hlmlen = len(hptmp)
         hlm = {}
         hlmtmp2 = {}
-        for count,mode in enumerate(modes_used):
-            hlmtmp2[mode]=np.array(hlmtmp[str(count)])
+        if True:
+            modes_used_new = []
+            for k in hlmtmp.keys():
+                if k=="0":
+                    modes_used_new.append((2,1))
+                    hlmtmp2[(2,1)]=np.array(hlmtmp[k])
+                if k=="-0":
+                    modes_used_new.append((2,-1))
+                    hlmtmp2[(2,-1)]=np.array(hlmtmp[k])
+                if k=="20":
+                    modes_used_new.append((2,0))
+                    hlmtmp2[(2,0)]=np.array(hlmtmp[k])
+                if k=="1":
+                    modes_used_new.append((2,2))
+                    hlmtmp2[(2,2)]=np.array(hlmtmp[k])
+                if k=="-1":
+                    modes_used_new.append((2,-2))
+                    hlmtmp2[(2,-2)]=np.array(hlmtmp[k])
+                if k=="2":
+                    modes_used_new.append((3,1))
+                    hlmtmp2[(3,1)]=np.array(hlmtmp[k])
+                if k=="-2":
+                    modes_used_new.append((3,-1))
+                    hlmtmp2[(3,-1)]=np.array(hlmtmp[k])
+                if k=="3":
+                    modes_used_new.append((3,2))
+                    hlmtmp2[(3,2)]=np.array(hlmtmp[k])
+                if k=="-3":
+                    modes_used_new.append((3,-2))
+                    hlmtmp2[(3,-2)]=np.array(hlmtmp[k])
+                if k=="4":
+                    modes_used_new.append((3,3))
+                    hlmtmp2[(3,3)]=np.array(hlmtmp[k])
+                if k=="-4":
+                    modes_used_new.append((3,-3))
+                    hlmtmp2[(3,-3)]=np.array(hlmtmp[k])
+                if k=="30":
+                    modes_used_new.append((3,0))
+                    hlmtmp2[(3,0)]=np.array(hlmtmp[k])
+                if k=="5":
+                    modes_used_new.append((4,1))
+                    hlmtmp2[(4,1)]=np.array(hlmtmp[k])
+                if k=="-5":
+                    modes_used_new.append((4,-1))
+                    hlmtmp2[(4,-1)]=np.array(hlmtmp[k])
+                if k=="6":
+                    modes_used_new.append((4,2))
+                    hlmtmp2[(4,2)]=np.array(hlmtmp[k])
+                if k=="-6":
+                    modes_used_new.append((4,-2))
+                    hlmtmp2[(4,-2)]=np.array(hlmtmp[k])
+                if k=="7":
+                    modes_used_new.append((4,3))
+                    hlmtmp2[(4,3)]=np.array(hlmtmp[k])
+                if k=="-7":
+                    modes_used_new.append((4,-3))
+                    hlmtmp2[(4,-3)]=np.array(hlmtmp[k])
+                if k=="8":
+                    modes_used_new.append((4,4))
+                    hlmtmp2[(4,4)]=np.array(hlmtmp[k])
+                if k=="-8":
+                    modes_used_new.append((4,-4))
+                    hlmtmp2[(4,-4)]=np.array(hlmtmp[k])
+                if k=="40":
+                    modes_used_new.append((4,0))
+                    hlmtmp2[(4,0)]=np.array(hlmtmp[k])
+            modes_used=modes_used_new
+            print(modes_used,hlmtmp,hlmtmp2)
+#        for count,mode in enumerate(modes_used):
+#            hlmtmp2[mode]=np.array(hlmtmp[str(count)])
         for mode in modes_used:
             hlmtmp2[mode][0]*=(m_total_s/distance_s)*nu
             hlm[mode] = lal.CreateCOMPLEX16TimeSeries("Complex hlm(t)", hpepoch, 0,
@@ -3102,13 +3316,15 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
                 elif TDlen >= hlm[mode].data.length:
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
-            mode_conj = (mode[0],-mode[1])
-            if not mode_conj in hlm:
-                hC = hlm[mode]
-                hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0,
-                                                    hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
-                hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
-                hlm[mode_conj] = hC2
+            if P.s1x == 0.0 and P.s2x == 0.0 and P.s1y == 0.0 and P.s2y == 0.0:
+#                print("conjuring modes")
+                mode_conj = (mode[0],-mode[1])
+                if not mode_conj in hlm:
+                    hC = hlm[mode]
+                    hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0,
+                                                        hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
+                    hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
+                    hlm[mode_conj] = hC2
         return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
         extra_params = P.to_lal_dict()
@@ -3468,6 +3684,48 @@ def std_and_conj_hlmoff(P, Lmax=2):
             hlms_conj_F[mode] = DataFourier(hlms[mode])
     return hlmsF, hlms_conj_F
 
+def hoft_from_hlm(hlmsT,P):
+    """
+    hoft_from_hlm(hlm,P,Lmax):  return hoft like output given hlmoft input.
+    Important if hoft is not accessible (e.g., not provided by lalsuite)
+    """
+    h22 = hlms[(2,2)]
+
+    # Create complex strain object
+    hT = lal.CreateCOMPLEX16TimeSeries("hT", h22.epoch, h22.f0,
+            h22.deltaT, h22.sampleUnits, h22.data.length)
+    hT.data.data*=0  # fill with zeros
+
+    # create for loop over elements of the series to add it
+    for mode in hlms:
+        hlm = hlms[mode]
+        hT.data.data += hlm.data.data * lal.SpinWeightedSphericalHarmonic(P.incl,P.phiref,-2,mode[0],mode[1])
+
+    # now create real valued output based on detectors   
+    if P.radec==False:
+        fp = Fplus(P.theta, P.phi, P.psi)
+        fc = Fcross(P.theta, P.phi, P.psi)
+        fp = Fplus(P.theta, P.phi, P.psi)
+        fc = Fcross(P.theta, P.phi, P.psi)
+
+        h_real = lal.CreateREAL8TimeSeries("hT", h22.epoch, h22.f0,
+                                           h22.deltaT, h22.sampleUnits, h22.data.length)
+        h_real.data.data =  np.real(hT.data.data)*fp + np.imag(hT.data.data)*fc
+    else:
+        hp = lal.CreateREAL8TimeSeries("hT", h22.epoch, h22.f0,
+            h22.deltaT, h22.sampleUnits, h22.data.length)
+        hc = lal.CreateREAL8TimeSeries("hT", h22.epoch, h22.f0,
+            h22.deltaT, h22.sampleUnits, h22.data.length)
+        hp.data.data = np.real(hT.data.data)
+        hc.data.data = np.imag(hT.data.data)
+        hp.epoch = hp.epoch + P.tref
+        hc.epoch = hc.epoch + P.tref
+        h_real = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
+                P.phi, P.theta, P.psi, 
+                lalsim.DetectorPrefixToLALDetector(str(P.detector)))
+
+
+    return h_real
 
 def SphHarmTimeSeries_to_dict(hlms, Lmax):
     """
@@ -4526,6 +4784,12 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             coord_names_reduced.remove(p)
             x_out[:,indx_p_out] = x_in[:,indx_p_in]
 
+    if 'delta_mc' in coord_names_reduced and 'eta' in low_level_coord_names:
+        indx_p_out = coord_names.index('delta_mc')
+        indx_eta = low_level_coord_names.index('eta')
+        x_out[:,indx_p_out] = np.sqrt(1-4*x_in[:,indx_eta])
+        coord_names_reduced.remove('delta_mc')
+
     # Check for common coordinates we need to transform: xi, chiMinus as the most common, from cartesian
     if ('xi' in coord_names_reduced) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names) and ('mc' in low_level_coord_names):
         indx_p_out = coord_names.index('xi')
@@ -4539,15 +4803,13 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         if ('delta_mc' in low_level_coord_names):
             indx_delta = low_level_coord_names.index('delta_mc')
             eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
-            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
-            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
-            coord_names_reduced.remove(p)
         elif ('eta' in low_level_coord_names):
             indx_eta = low_level_coord_names.index('eta')
             eta_vals = x_in[:,indx_eta]
             m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
-            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
-            coord_names_reduced.remove(p)
+        m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+        x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+        coord_names_reduced.remove('xi')
     if ('chiMinus' in coord_names_reduced) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names) and ('mc' in low_level_coord_names):
         indx_p_out = coord_names.index('chiMinus')
         p = 'chiMinus'
@@ -4560,16 +4822,14 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         if ('delta_mc' in low_level_coord_names):
             indx_delta = low_level_coord_names.index('delta_mc')
             eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
-            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
-            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
-            coord_names_reduced.remove(p)
         elif ('eta' in low_level_coord_names):
             indx_eta = low_level_coord_names.index('eta')
-            eta_vals = 0.25*(1- x_in[:,indx_eta]**2)
-            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
-            x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
-            coord_names_reduced.remove(p)
+            eta_vals = x_in[:,indx_eta]
+        m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+        x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] - m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
+        coord_names_reduced.remove(p)
 
+    # mu1,mu2 if cartesian
     if ('mu1' in coord_names_reduced) and ('mu2' in coord_names_reduced) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names) and ('s1z' in low_level_coord_names) and ('s2z' in low_level_coord_names):
         indx_pout_mu1 = coord_names.index('mu1')
         indx_pout_mu2 = coord_names.index('mu2')
@@ -4584,15 +4844,50 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         indx_s1z = low_level_coord_names.index('s1z')
         indx_s2z = low_level_coord_names.index('s2z')
         # delta == (m1-m2)/(m1+m2) == (1-q)/(1+q), so q ==(1-delta)/(1+delta)
-        mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(x_in[:,indx_mc], qvals, x_in[:,indx_s1z], x_in[:,indx_s2z])
+        fac =1
+        if x_in[:,indx_mc][0]>1e10:
+            fac = lal.MSUN_SI
+        mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(x_in[:,indx_mc]/fac, qvals, x_in[:,indx_s1z], x_in[:,indx_s2z])
         x_out[:,indx_pout_mu1] = mu1
         x_out[:,indx_pout_mu2] = mu2
         coord_names_reduced.remove('mu1')
         coord_names_reduced.remove('mu2')
 
+        # overwrite q, if present
+        if 'q' in coord_names_reduced:
+            indx_pout_q = coord_names.index('q')
+            print(qvals)
+            x_out[:,indx_pout_q] = qvals
+            coord_names_reduced.remove('q')
+
+        
+
+    # mc,eta,xi -> m1,m2,s1z,s2z
+    #   Note this requires ASSUMPTIONS about s2z.  Default will be s2z=s1z HERE, since degenerate
+    if ('mc' in low_level_coord_names) and  ('eta' in low_level_coord_names) and ('xi' in low_level_coord_names or 'chieff_aligned' in low_level_coord_names) and ('m1' in coord_names_reduced) and ('s1z' in coord_names_reduced):
+        indx_pout_m1 = coord_names.index('m1')
+        indx_pout_m2 = coord_names.index('m2')
+        indx_pout_s1z = coord_names.index('s1z')
+        indx_pout_s2z = coord_names.index('s2z')
+        indx_mc = low_level_coord_names.index('mc')
+        indx_eta = low_level_coord_names.index('eta')
+        if 'xi' in low_level_coord_names:
+           indx_xi = low_level_coord_names.index('xi')
+        else:
+           indx_xi = low_level_coord_names.index('chieff_aligned')
+        m1_vals, m2_vals = m1m2(x_in[:,indx_mc], x_in[:,indx_eta])
+        # ASSUME s1z=s2z, so s1z==s2z==xi
+        x_out[:,indx_pout_m1] = m1_vals
+        x_out[:,indx_pout_m2] = m2_vals
+        x_out[:,indx_pout_s1z] = x_in[:,indx_xi]
+        x_out[:,indx_pout_s2z] = x_in[:,indx_xi]
+        coord_names_reduced.remove('m1')
+        coord_names_reduced.remove('m2')
+        coord_names_reduced.remove('s1z')
+        coord_names_reduced.remove('s2z')
+
     # Spin spherical coordinate names
-    if ('xi' in coord_names_reduced) and ('chi1' in low_level_coord_names) and ('cos_theta1' in low_level_coord_names) and ('phi1' in low_level_coord_names) and ('chi2' in low_level_coord_names) and ('cos_theta2' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
-        indx_pout_xi = coord_names.index('xi')
+    if ('chi1' in low_level_coord_names) and ('cos_theta1' in low_level_coord_names) and ('phi1' in low_level_coord_names) and ('chi2' in low_level_coord_names) and ('cos_theta2' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
         indx_mc = low_level_coord_names.index('mc')
         indx_delta = low_level_coord_names.index('delta_mc')
         indx_chi1 = low_level_coord_names.index('chi1')
@@ -4608,8 +4903,10 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         eta_vals = np.zeros(len(x_in))  
         eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
         m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
-        x_out[:,indx_pout_xi] = (m1_vals*s1z + m2_vals*s2z)/(m1_vals+m2_vals)
-        coord_names_reduced.remove('xi')
+        if ('xi' in coord_names_reduced):
+            indx_pout_xi = coord_names.index('xi')
+            x_out[:,indx_pout_xi] = (m1_vals*s1z + m2_vals*s2z)/(m1_vals+m2_vals)
+            coord_names_reduced.remove('xi')
 
         # also build mu1, mu2, ... if present!
         if ('mu1' in coord_names_reduced) and ('mu2' in coord_names_reduced) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
@@ -4629,6 +4926,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         if 'chiMinus' in coord_names_reduced:
             indx_pout_chiminus = coord_names.index('chiMinus')
             x_out[:,indx_pout_chiminus] = (m1_vals*s1z - m2_vals*s2z)/(m1_vals+m2_vals)
+            coord_names_reduced.remove('chiMinus')
         if ('s1x' in coord_names_reduced) and ('s1y' in coord_names_reduced):
             indx_pout_s1x = coord_names.index('s1x')
             indx_pout_s1y = coord_names.index('s1y')
@@ -4656,6 +4954,142 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             coord_names_reduced.remove('s2x')
             coord_names_reduced.remove('s2y')
             
+    # Spin pseudo-cylindrical coordinate names, standard framing
+    if  ('s1z_bar' in low_level_coord_names) and ('phi1' in low_level_coord_names)  and ('s2z_bar' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
+        indx_mc = low_level_coord_names.index('mc')
+        indx_delta = low_level_coord_names.index('delta_mc')
+        indx_s1z = low_level_coord_names.index('s1z_bar')
+        indx_s2z = low_level_coord_names.index('s2z_bar')
+
+        s1z= x_in[:,indx_s1z]
+        s2z= x_in[:,indx_s2z]
+
+        m1_vals =np.zeros(len(x_in))  
+        m2_vals =np.zeros(len(x_in))  
+        eta_vals = np.zeros(len(x_in))  
+        eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+        m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+        if 'xi' in coord_names_reduced:
+            indx_pout_xi = coord_names.index('xi')
+            x_out[:,indx_pout_xi] = (m1_vals*s1z + m2_vals*s2z)/(m1_vals+m2_vals)
+            coord_names_reduced.remove('xi')
+
+        # also build mu1, mu2, ... if present!
+        if ('mu1' in coord_names_reduced) and ('mu2' in coord_names_reduced) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
+            indx_pout_mu1 = coord_names.index('mu1')
+            indx_pout_mu2 = coord_names.index('mu2')
+
+            qvals = m2_vals/m1_vals
+            mu1,mu2,mu3 = tools.Mcqchi1chi2Tomu1mu2mu3(x_in[:,indx_mc], qvals, s1z, s2z)
+            x_out[:,indx_pout_mu1] = mu1
+            x_out[:,indx_pout_mu2] = mu2
+            coord_names_reduced.remove('mu1')
+            coord_names_reduced.remove('mu2')
+
+
+        # also build chiMinus, s1x,s1y, ... , if present : usual use case of doing all of these for likelihood fit
+        if 'chiMinus' in coord_names_reduced:
+            indx_pout_chiminus = coord_names.index('chiMinus')
+            x_out[:,indx_pout_chiminus] = (m1_vals*s1z - m2_vals*s2z)/(m1_vals+m2_vals)
+            coord_names_reduced.remove('chiMinus')
+
+        if 'chi1' in coord_names_reduced:
+            indx_pout_chi1 = coord_names.index('chi1')
+        
+            if ('chi1_perp_bar' in low_level_coord_names):
+                indx_chi1_perp_bar = low_level_coord_names.index('chi1_perp_bar')
+                chi1_perp_bar = x_in[:,indx_chi1_perp_bar]
+            elif 'chi1_perp_u' in low_level_coord_names:
+                indx_chi1_perp_u = low_level_coord_names.index('chi1_perp_u')
+                chi1_perp_bar = np.power(x_in[:,indx_chi1_perp_u], 4.)
+
+            chi1_vals = np.sqrt(chi1_perp_bar**2 * (1-s1z**2) + s1z**2)
+            x_out[:,indx_pout_chi1]=chi1_vals
+            coord_names_reduced.remove('chi1')
+
+        if 'chi2' in coord_names_reduced:
+            indx_pout_chi2 = coord_names.index('chi2')
+        
+            if ('chi2_perp_bar' in low_level_coord_names):
+                indx_chi2_perp_bar = low_level_coord_names.index('chi2_perp_bar')
+                chi2_perp_bar = x_in[:,indx_chi2_perp_bar]
+            elif 'chi2_perp_u' in low_level_coord_names:
+                indx_chi2_perp_u = low_level_coord_names.index('chi2_perp_u')
+                chi2_perp_bar = np.power(x_in[:,indx_chi2_perp_u], 4.)
+
+            chi2_vals = np.sqrt(chi2_perp_bar**2 * (1-s2z**2) + s2z**2)
+            x_out[:,indx_pout_chi2]=chi2_vals
+            coord_names_reduced.remove('chi2')
+
+        if ('s1x' in coord_names_reduced) and ('s1y' in coord_names_reduced):
+            indx_pout_s1x = coord_names.index('s1x')
+            indx_pout_s1y = coord_names.index('s1y')
+
+            indx_phi1=low_level_coord_names.index('phi1')
+            cosphi1 = np.cos(x_in[:,indx_phi1])
+            sinphi1 = np.sin(x_in[:,indx_phi1])
+
+            if ('chi1_perp_bar' in low_level_coord_names):
+                indx_chi1_perp_bar = low_level_coord_names.index('chi1_perp_bar')
+                chi1_perp_bar = x_in[:,indx_chi1_perp_bar]
+            elif 'chi1_perp_u' in low_level_coord_names:
+                indx_chi1_perp_u = low_level_coord_names.index('chi1_perp_u')
+                chi1_perp_bar = np.power(x_in[:,indx_chi1_perp_u], 4.)
+            chi1_perp = chi1_perp_bar * np.sqrt(1.-s1z**2)  # R = Rbar * sqrt(1-z^2)
+            x_out[:,indx_pout_s1x] = chi1_perp*cosphi1
+            x_out[:,indx_pout_s1y] = chi1_perp*sinphi1
+            coord_names_reduced.remove('s1x')
+            coord_names_reduced.remove('s1y')
+
+        if ('s2x' in coord_names_reduced) and ('s2y' in coord_names_reduced):
+            indx_pout_s2x = coord_names.index('s2x')
+            indx_pout_s2y = coord_names.index('s2y')
+
+            indx_phi2=low_level_coord_names.index('phi2')
+            cosphi2 = np.cos(x_in[:,indx_phi2])
+            sinphi2 = np.sin(x_in[:,indx_phi2])
+
+            if ('chi2_perp_bar' in low_level_coord_names):
+                indx_chi2_perp_bar = low_level_coord_names.index('chi2_perp_bar')
+                chi2_perp_bar = x_in[:,indx_chi2_perp_bar]
+            elif 'chi2_perp_u' in low_level_coord_names:
+                indx_chi2_perp_u = low_level_coord_names.index('chi2_perp_u')
+                chi2_perp_bar = np.power(x_in[:,indx_chi2_perp_u], 4.)
+            chi2_perp = chi2_perp_bar * np.sqrt(1.-s2z**2)
+#            sintheta2 = chi2_perp/np.sqrt(s2z**2+chi2_perp**2)
+
+            x_out[:,indx_pout_s2x] = chi2_perp*cosphi2
+            x_out[:,indx_pout_s2y] = chi2_perp*sinphi2
+            coord_names_reduced.remove('s2x')
+            coord_names_reduced.remove('s2y')
+        if 'chi_p' in coord_names_reduced:
+            indx_pout_chip = coord_names.index('chi_p')
+            q_vals =   m2_vals/m1_vals
+            A1 = (2+3.*q_vals/2)
+            A2 = (2+3./(2*q_vals))
+
+            if ('chi1_perp_bar' in low_level_coord_names):
+                indx_chi1_perp_bar = low_level_coord_names.index('chi1_perp_bar')
+                chi1_perp_bar = x_in[:,indx_chi1_perp_bar]
+            elif 'chi1_perp_u' in low_level_coord_names:
+                indx_chi1_perp_u = low_level_coord_names.index('chi1_perp_u')
+                chi1_perp_bar = np.power(x_in[:,indx_chi1_perp_u], 4.)
+
+            if ('chi2_perp_bar' in low_level_coord_names):
+                indx_chi2_perp_bar = low_level_coord_names.index('chi2_perp_bar')
+                chi2_perp_bar = x_in[:,indx_chi2_perp_bar]
+            elif 'chi2_perp_u' in low_level_coord_names:
+                indx_chi2_perp_u = low_level_coord_names.index('chi2_perp_u')
+                chi2_perp_bar = np.power(x_in[:,indx_chi2_perp_u], 4.)
+
+
+            A1S1p_scalar = A1*(m1_vals**2) *chi1_perp_bar*np.sqrt(1-s1z**2)
+            A2S2p_scalar = A2*(m2_vals**2)*chi2_perp_bar*np.sqrt(1-s2z**2)
+            Sp = np.maximum(A1S1p_scalar, A2S2p_scalar)
+            x_out[:,indx_pout_chip] = Sp/(A1*m1_vals**2)
+            coord_names_reduced.remove('chi_p')
+
+
 
     if ('chi_p' in coord_names_reduced) and ('s1x' in low_level_coord_names  and 's1y' in low_level_coord_names) and ('mc' in low_level_coord_names):
         indx_pout_chip = coord_names.index('chi_p')
@@ -4676,9 +5110,13 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         elif ('eta' in low_level_coord_names):
             indx_eta = low_level_coord_names.index('eta')
             eta_vals = x_in[:,indx_eta]
+            if 'delta_mc' in coord_names_reduced:
+                indx_pout_delta = coord_names.index('delta_mc')
+                delta_vals = np.sqrt(1.-4*eta_vals)
+                x_out[:,indx_pout_delta] = delta_vals
+                coord_names_reduced.remove('delta_mc')
         m1_vals =np.zeros(len(x_in))  
         m2_vals =np.zeros(len(x_in))  
-        eta_vals = np.zeros(len(x_in))  
         m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
 
         q_vals =   m2_vals/m1_vals
@@ -4688,23 +5126,14 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         A2S2p =  np.c_[A2*m2_vals**2 *s2x,  A2*m2_vals**2 *s2y]
         Sp =np.maximum(np.linalg.norm( A1S1p,axis=-1), np.linalg.norm(A2S2p,axis=-1))
         x_out[:,indx_pout_chip] = Sp/(A1*m1_vals**2)
-            # mtot = self.extract_param('mtot')
-            # m1 = self.extract_param('m1')
-            # m2 = self.extract_param('m2')
-            # chi1 = np.array([self.s1x, self.s1y, self.s1z])
-            # chi2 = np.array([self.s2x, self.s2y, self.s2z])
-            # q = m2/m1  # note convention
-            # A1 = (2+ 3.*q/2); A2 = (2+3./(2*q))
-            # S1p = (m1**2 * chi1)[:2]
-            # S2p = (m2**2 * chi2)[:2]
-            # Sp = np.max([np.linalg.norm( A1*S1p), np.linalg.norm(A2*S2p)])
-            # return Sp/(A1*m1**2)  # divide by term for *larger* BH
+        coord_names_reduced.remove('chi_p')
         
 
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
     if len(coord_names_reduced)<1:
         return x_out
 
+    print(" Fallthrough to non-vector-coords for ", coord_names_reduced,low_level_coord_names)
     
     P = ChooseWaveformParams()
     # note NO MASS CONVERSION here, because the fit is in solar mass units!

@@ -182,6 +182,7 @@ parser.add_argument("--parameter", action='append')
 parser.add_argument("--parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used")
 parser.add_argument("--random-parameter", action='append',help="These parameters are specified at random over the entire range, uncorrelated with the grid used for other parameters.  Use for variables which correlate weakly with others; helps with random exploration")
 parser.add_argument("--random-parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used.  ")
+parser.add_argument("--random-parameter-exponent",action='append',type=float,help='If provided, assume the CDF for x is   P(<x) = [(x-xmax)/(xmax-xmin)]^p, so random draws are  u^(1/p)*(xmax-xmin)+xmin ')
 parser.add_argument("--latin-hypercube-sampling", action='store_true', help="use latin hypercube sampling from smt on all parameters called 'parameter'")
 parser.add_argument("--amplitude-order",default=-1,type=int,help="Set ampO for grid. Used in PN")
 parser.add_argument("--phase-order",default=7,type=int,help="Set phaseO for grid. Used in PN")
@@ -749,7 +750,13 @@ if not (opts.random_parameter is None) and not(opts.parameter is None):
         range_here = np.array(param_ranges[ indx_base+indx])
         if param_names[indx_base+indx] in ['mc','mtot','m1','m2']:
             range_here *= lal.MSUN_SI
-        grid_extra[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))
+        print(opts.random_parameter_exponent)
+        if opts.random_parameter_exponent is None:
+            grid_extra[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))
+        else:
+            p_here = opts.random_parameter_exponent[indx]
+            print("  :   {}:  Nonuniform randomizing, assuming CDF powerlaw with exponent {} ".format(opts.random_parameter[indx],opts.random_parameter_exponent[indx]))
+            grid_extra[:,indx] = range_here[0] + (range_here[1]-range_here[0])*np.power(np.random.uniform(size=len(grid)), 1./p_here)
 
     grid = np.hstack((grid,grid_extra))
 

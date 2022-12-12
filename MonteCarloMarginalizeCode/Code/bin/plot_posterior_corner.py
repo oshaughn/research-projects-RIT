@@ -7,7 +7,9 @@
 #
 # EXAMPLE
 #    python plot_posterior_corner.py --posterior-file downloads/TidalP4.dat --parameter lambda1 --parameter lambda2 --parameter mc
-#   python plot_posterior_corner.py --parameter mc --parameter eta --posterior-file G298048/production_C00_cleaned_TaylorT4/posterior-samples.dat  --parameter lambdat
+#    python plot_posterior_corner.py --parameter mc --parameter eta --posterior-file G298048/production_C00_cleaned_TaylorT4/posterior-samples.dat  --parameter lambdat
+#    plot_posterior_corner.py --posterior-file ejecta.dat --parameter mej_dyn --parameter mej_wind --parameter-log-scale mej_dyn --parameter-log-scale mej_wind --change-parameter-label "mej_dyn=m_{\rm ej,d}"  --change-parameter-label "mej_wind=m_{\rm ej,w}"
+
 #
 # USAGE
 #    - hardcoded list of colors, used in order, for multiple plots
@@ -62,7 +64,7 @@ rc_params = {'backend': 'ps',
              'font.family': 'Times New Roman'}#,
              #'font.sans-serif': ['Bitstream Vera Sans']}#,
 plt.rcParams.update(rc_params)
-
+plt.rc('axes',unicode_minus=False)
 
 print(" WARNINGS : BoundedKDE class can oversmooth.  Need to edit options for using this class! ")
 
@@ -85,9 +87,12 @@ def render_coord(x,logscale=False):
         my_label = ' '.join(exprs)
         return '$'+my_label+'$'
     else:
+        if logscale:
+            return "log10 "+str(x)
         return x
 
 def render_coordinates(coord_names,logparams=[]):
+    print("log params ",logparams)
     return list(map(lambda x: render_coord(x,logscale=(x in logparams)), coord_names))
 
 
@@ -216,6 +221,7 @@ parser.add_argument("--truth-event",type=int, default=0,help="file containing th
 parser.add_argument("--composite-file",action='append',help="filename of *.dat file [standard ILE intermediate]")
 parser.add_argument("--use-all-composite-but-grayscale",action='store_true',help="Composite")
 parser.add_argument("--flag-tides-in-composite",action='store_true',help='Required, if you want to parse files with tidal parameters')
+parser.add_argument("--flag-eos-index-in-composite",action='store_true',help='Required, if you want to parse files with EOS index in composite (and tides)')
 parser.add_argument("--posterior-label",action='append',help="label for posterior file")
 parser.add_argument("--posterior-color",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
 parser.add_argument("--posterior-linestyle",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
@@ -258,6 +264,9 @@ if opts.change_parameter_label:
   for name, new_str in map( lambda c: c.split("="),opts.change_parameter_label):
       if name in lalsimutils.tex_dictionary:
           lalsimutils.tex_dictionary[name] = "$"+new_str+"$"
+      else:
+          print(" Assigning new variable string",name,new_str)
+          lalsimutils.tex_dictionary[name] = "$"+new_str+"$"  # should be able to ASSIGN NEW NAMES, not restrict
 
 special_param_ranges = {
   'q':[0,1],
@@ -269,7 +278,8 @@ special_param_ranges = {
   'lambda2':[0,4000],
   'chi_pavg':[0,2],
   'chi_p':[0,1],
-  'lambdat':[0,4000]
+  'lambdat':[0,4000],
+  'eccentricity':[0,1]
 }
 
 #mc_range deprecated by generic bind_param
@@ -436,8 +446,12 @@ composite_list = []
 composite_full_list = []
 field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lnL", "sigmaOverL", "ntot", "neff")
 if opts.flag_tides_in_composite:
-    print(" Reading composite file, assuming tide-based format ")
-    field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
+    if opts.flag_eos_index_in_composite:
+        print(" Reading composite file, assumingtide/eos-index-based format ")
+        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "eos_table_index","lnL", "sigmaOverL", "ntot", "neff")
+    else:
+        print(" Reading composite file, assuming tide-based format ")
+        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
 if opts.eccentricity:
     print(" Reading composite file, assuming eccentricity-based format ")
     field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","eccentricity", "lnL", "sigmaOverL", "ntot", "neff")
@@ -449,6 +463,7 @@ if opts.composite_file:
  for fname in opts.composite_file[:1]:  # Only load the first one!
     print(" Loading ... ", fname)
     samples = np.loadtxt(fname,dtype=composite_dtype)  # Names are not always available
+    samples = samples[ ~np.isnan(samples["lnL"])] # remove nan likelihoods -- they can creep in with poor settings/overflows
     if opts.sigma_cut >0:
         npts = len(samples["m1"])
         # strip NAN
@@ -643,6 +658,9 @@ for pIndex in np.arange(len(posterior_list)):
             if param in remap_LI_to_ILE.keys():
                 param_to_extract  = remap_LI_to_ILE[param]
             if param in eos_param_names:
+                continue
+            if param == 'time':
+                truths_here[indx] = P_ref.tref
                 continue
             truths_here[indx] = P_ref.extract_param(param_to_extract)
             if param in [ 'mc', 'm1', 'm2', 'mtotal']:

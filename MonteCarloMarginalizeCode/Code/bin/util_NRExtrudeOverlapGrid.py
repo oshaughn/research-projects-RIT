@@ -39,10 +39,11 @@ except:
     print(" - No multiprocessing - ")
 
 try:
-	import NRWaveformCatalogManager3 as nrwf
-	hasNR =True
+    import NRWaveformCatalogManager3 as nrwf
+    hasNR =True
 except:
-	hasNR=False
+    hasNR=False
+
 try:
     hasEOB=True
     import EOBTidalExternal as eobwf
@@ -363,7 +364,7 @@ for group in glist:
 #                wfP.P.print_params()
 #                print nrwf.internal_WaveformMetadata[group][param]
      except:
-	print(" Failed to add ", group, param)
+        print(" Failed to add ", group, param)
         
   else: # target case if a single group and parameter sequence are specified
         print("Looping over list ", opts.param)

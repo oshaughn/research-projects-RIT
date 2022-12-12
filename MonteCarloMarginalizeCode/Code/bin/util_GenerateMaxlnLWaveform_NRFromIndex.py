@@ -175,7 +175,7 @@ with open(str(opts.run_dir)+"/command-single.sh",'r') as runfile:
         cmd = cmd+ " --no-memory "
     
     if opts.save_plots:
-	cmd+=" --save-plots --verbose"
+        cmd+=" --save-plots --verbose"
 
 os.chdir(opts.run_dir)
 print(cmd)

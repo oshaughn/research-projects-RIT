@@ -1,60 +1,59 @@
-FROM nvidia/cuda:10.1-runtime-centos7
+FROM nvidia/cuda:11.7.0-runtime-rockylinux8
 
-LABEL name="RIFT (CentOs)" \
-      maintainer="James Alexander Clark <james.clark@ligo.org>" \
-      date="20190415" \
-      support="nvidia/cuda image"
+LABEL name="RIFT (CentOs) - benchmarking utility" \
+  maintainer="James Alexander Clark <james.clark@ligo.org>" \
+  date="20220907" \
+  support="nvidia/cuda image"
+ 
 
-## RHEL/CentOS 7 64-Bit ##
-RUN curl -O http://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm && \
-      rpm -ivh epel-release-latest-7.noarch.rpm
+## Rocky Linux 8  ##
 
-#
-# Yum-installable dependencies
-#
-RUN yum update -y && \
-      yum install -y vim \
-      git \
-      python-devel \
-      gsl-devel \
+RUN dnf install --nodocs -y dnf-plugins-core && \
+      dnf config-manager --set-enabled powertools && \
+      dnf install --nodocs -y epel-release && \
+      dnf update -y && \
+      dnf install --nodocs -y \
       gcc-c++ \
+      git \
+      gsl-devel \
       make \
-      cuda-libraries-dev-10-1 \
-      cuda-cublas-dev-10-1 \
-      cuda-runtime-10-1 \
-      cuda-nvcc-10-1 
+      pandoc \
+      python39 \
+      python39-devel \
+      python39-pip \ 
+      python39-tkinter \
+      suitesparse \
+      suitesparse-devel \
+      wget \
+      which && \
+      dnf clean all && \
+      rm -rf /var/cache/dnf
 
-# RIFT LSCSoft and python dependencies
-RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
-    python get-pip.py && \
-    rm get-pip.py
-RUN pip --no-cache-dir install --ignore-installed -U setuptools \
-           pip \
-           cupy  \
-           h5py \
-           numba \
-           vegas \
-           corner \
-           scikit-learn \
-           healpy \
-           matplotlib \
-           lalsuite \
-           gwdatafind \
-           ligo-segments \
-           python-ligo-lw 
-#           ligo.skymap
-RUN CFLAGS='-std=c99' pip --no-cache-dir install -U gwsurrogate 
+# Pip dependencies
+RUN python3.9 -m pip --no-cache-dir install -U pip setuptools  && \
+      CFLAGS='-std=c99' python3.9 -m pip --no-cache-dir install -U gwsurrogate && \
+      python3.9 -m pip --no-cache-dir install -U \
+      cupy-cuda117 \
+      vegas \
+      healpy \
+      cython \
+      pypandoc \
+      NRSur7dq2 \
+      RIFT==0.0.15.7rc1 && \
+      python3.9 -c "import gwsurrogate; gwsurrogate.catalog.pull('NRHybSur3dq8'); gwsurrogate.catalog.pull('NRSur7dq4')"
 
-# RIFT
-# Modules and scripts run directly from repository
-ENV INSTALL_DIR /opt/lscsoft/rift
-ENV ILE_DIR ${INSTALL_DIR}/MonteCarloMarginalizeCode/Code
-ENV PATH ${PATH}:${ILE_DIR}
-ENV PYTHONPATH ${PYTHONPATH}:${ILE_DIR}
-ENV GW_SURROGATE gwsurrogate
-RUN git clone https://git.ligo.org/richard-oshaughnessy/research-projects-RIT.git ${INSTALL_DIR} \
-      && cd ${INSTALL_DIR} \
-      && git checkout temp-RIT-Tides-port_master-GPUIntegration 
+# Needs numpy to finish first:
+ENV GW_SURROGATE=/usr/local/lib64/python3.6/site-packages/gwsurrogate
+ENV CUPY_CACHE_IN_MEMORY=1
 
-# Setup directories for singulary bindings
-RUN mkdir -p /cvmfs /hdfs /hadoop /etc/condor
+# Directories we may want to bind
+RUN mkdir -p /ceph /cvmfs /hdfs /hadoop /etc/condor /test
+                                                
+# Assume python3 is used, don't force specific version
+#RUN ln -sf /usr/bin/python3.6 /usr/bin/python
+
+# Environment setup
+#COPY entrypoint/bashrc /root/.bashrc
+#COPY entrypoint/docker-entrypoint.sh /docker-entrypoint.sh
+#ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["/bin/bash"]

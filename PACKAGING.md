@@ -52,7 +52,7 @@ python setup.py install
 pip install cupy   # must run on GPU-enabled machine
 ```
 
-## Containers (for OSG)
+## Using Containers (for OSG)
 
 **Temporary notes**: 
 
@@ -77,3 +77,19 @@ export GW_SURROGATE=''
 cd ${ILE_DIR}
 python test_like_and_samp.py --LikelihoodType_MargTdisc_array  # should run
 ```
+
+
+# Making containers
+
+James Clark previously maintained our OSG containers through a fork of this repo, at https://git.ligo.org/james-clark/research-projects-RIT/-/tree/containers-production.
+
+We are trying to import this here now
+
+
+## Adding containers to IGWN 
+Explicit details here: https://computing.docs.ligo.org/guide/dhtc/containers/#publishing
+	
+Publication takes place after a successful PR here: https://github.com/opensciencegrid/cvmfs-singularity-sync
+
+n particular, once you have images in the new namespace in containers.ligo.org (and those images are publicly visible), you'll want to add (or replace) lines like: https://github.com/opensciencegrid/cvmfs-singularity-sync/blob/master/docker_images.txt#L367
+

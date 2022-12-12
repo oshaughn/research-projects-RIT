@@ -370,6 +370,9 @@ class MCSampler(object):
         #
         # Pin values
         #
+        n_horrible = 0
+        n_horrible_max = 10
+
         tempcdfdict, temppdfdict, temppriordict, temppdfnormdict = {}, {}, {}, {}
         temppdfnormdict = defaultdict(lambda: 1.0)
         for p, val in list(kwargs.items()):
@@ -413,7 +416,7 @@ class MCSampler(object):
         #
         # Adaptive sampling parameters
         #
-        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else None
+        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else n
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
         n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 0
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
@@ -477,6 +480,11 @@ class MCSampler(object):
             if (self.ntotal > nmax*tripwire_fraction) and (eff_samp < 1+tripwire_epsilon):
                 print(" Tripwire: n_eff too low ")
                 raise Exception("Tripwire on n_eff")
+
+            if n_horrible >= n_horrible_max:
+                raise Exception("mcsampler: Too many iterations with no "
+                                "contribution to integral, hard fail")
+
             # Draw our sample points
             args_draw ={}
             if force_no_adapt or save_no_samples:  # don't save permanent sample history if not needed
@@ -503,6 +511,7 @@ class MCSampler(object):
                 for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
                 print("Zero prior value detected, skipping.", file=sys.stderr)
+                n_horrible += 1
                 continue
 
             #
@@ -527,12 +536,13 @@ class MCSampler(object):
             #
             # Check if there is any practical contribution to the integral
             #
-            # FIXME: While not technically a fatal error, this will kill the 
+            # FIXME: While not technically a fatal error, this will kill the
             # adaptive sampling
             if fval.sum() == 0:
                 for p in self.params_ordered:
                     self._rvs[p] = numpy.resize(self._rvs[p], len(self._rvs[p])-n)
                 print("No contribution to integral, skipping.", file=sys.stderr)
+                n_horrible += 1
                 continue
 
             if save_intg and not force_no_adapt:
@@ -630,10 +640,12 @@ class MCSampler(object):
             #
             # FIXME: We need a better stopping condition here
             if self.ntotal > n_adapt:
-                continue
+               if bShowEvaluationLog:
+                  print(" ... skipping adaptation in late iterations .. ")
+               continue
 
             if force_no_adapt:
-                continue
+               continue
 
             # FIXME: Hardcoding
             #mixing_floor = 10**(-numpy.sqrt(ntotal))
@@ -675,7 +687,7 @@ class MCSampler(object):
 
                 # Mix with uniform distribution
                 self._hist[p] = (1-floor_integrated_probability)*self._hist[p] + numpy.ones(len(self._hist[p]))*floor_integrated_probability/len(self._hist[p])
-                if rosDebugMessages:
+                if rosDebugMessages and bShowEvaluationLog:
                     print("         Weight entropy (after histogram) ", numpy.sum(-1*self._hist[p]*numpy.log(self._hist[p])), p)
 
                 edges = [ (e0+e1)/2.0 for e0, e1 in zip(edges[:-1], edges[1:]) ]

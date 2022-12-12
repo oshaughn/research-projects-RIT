@@ -1,6 +1,7 @@
-# Test script for comparing GMM integrator to existing mcsampler integrator in
-# RIFT. A simple n-dimensional integrand consisting of a highly-correlated
-# Gaussian is used.
+# Test for evaluating rosenbrock 2d likelihood, where the 1d marginal and evidence can be computed.
+#
+# Suggested:
+#   python test_mcsampler_rosenbrock.py;  plot_posterior_corner.py --posterior-file fairdraw_rosenbrock_1.dat --posterior-file fairdraw_rosenbrock_1b.dat --posterior-file fairdraw_rosenbrock_2.dat --parameter x1 --parameter x2  --quantiles None --ci-list [0.9]
 
 from __future__ import print_function
 import numpy as np
@@ -12,11 +13,27 @@ from scipy.special import erf
 
 from RIFT.integrators import mcsampler, mcsamplerEnsemble, mcsamplerGPU
 
-tempering_exp =0.01
-# max number of samples for mcsampler
-nmax = 1000000  
-n_iters = nmax/1000
+import optparse
+parser = optparse.OptionParser()
+parser.add_option("--n-max",type=int,default=1000000)
+parser.add_option("--save-plot",action='store_true')
+#parser.add_option("--as-test",action='store_true')
+#parser.add_option("--no-adapt",action='store_true')
+parser.add_option("--floor-level",default=0.05,type=float)
+parser.add_option("--adapt-weight-exponent",default=0.1,type=float)
+parser.add_option("--n-chunk",default=10000,type=int)
+parser.add_option("--verbose",action='store_true')
+opts, args = parser.parse_args()
 
+
+tempering_exp =opts.adapt_weight_exponent
+# max number of samples for mcsampler
+nmax = opts.n_max
+n_block=opts.n_chunk
+n_iters = nmax/n_block
+
+save_fairdraws=True
+save_fairdraw_prefix="fairdraw_rosenbrock"
 #
 
 Z_rosenbrock = -5.804
@@ -28,7 +45,7 @@ Z_rosenbrock = -5.804
 def f(x1, x2):
     minus_lnL = np.array(np.power((1.-x1), 2) + 100.* np.power((x2-x1**2),2),dtype=float)
     return np.exp( - (minus_lnL))
-def ln_f(x1, x2, x3): 
+def ln_f(x1, x2): 
     minus_lnL = np.array(np.power((1.-x1), 2) + 100.* np.power((x2-x1**2),2),dtype=float)
     return - minus_lnL
 
@@ -58,26 +75,30 @@ for p in params:
 # number of Gaussian components to use in GMM
 n_comp = 1
 
+extra_args = {"n": opts.n_chunk,"n_adapt":100, "floor_level":opts.floor_level,"tempering_exp" :tempering_exp}
+
+
 ### integrate
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
-        no_protect_names=True, nmax=nmax, save_intg=True,verbose=False)
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=False,**extra_args)
 print(np.log(integral_1), Z_rosenbrock)
 print(" --- finished default --")
 integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(f, *params, 
-        no_protect_names=True, nmax=nmax, save_intg=True,verbose=False)
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=False,**extra_args)
 print(np.log(integral_1b), Z_rosenbrock)
 print(" --- finished AC --")
 print(" NEED TO ADD OPTION TO TEST CORRELATED SAMPLING ")
-use_lnL = False
-return_lnI=False
+use_lnL = True
+return_lnI=True
 if use_lnL:
     infunc = ln_f
 else:
     infunc = f
 integral_2, var_2, eff_samp_2, _ = samplerEnsemble.integrate(infunc, *params, 
-        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=False,verbose=False,tempering_exp=tempering_exp,use_lnL=use_lnL,return_lnI=return_lnI)
+        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=False,verbose=False,use_lnL=use_lnL,return_lnI=return_lnI,**extra_args)
 if return_lnI and use_lnL:
     integral_2 = np.exp(integral_2)
+print(np.log(integral_2), Z_rosenbrock)
 print(" --- finished GMM --")
 print(integral_1,integral_1b,integral_2,np.exp(Z_rosenbrock))
 print(np.array([integral_1,integral_1b,integral_2])/np.exp(Z_rosenbrock))
@@ -99,30 +120,79 @@ colors = ["black", "red", "blue", "green", "orange"]
 
 plt.figure(figsize=(10, 8))
 
-for i in range(ndim):
-    ### get sorted samples (for the current dimension)
-    x_1 = arr_1[:,i][np.argsort(arr_1[:,i])]
-    x_1b = arr_1b[:,i][np.argsort(arr_1b[:,i])]
-    x_2 = arr_2[:,i][np.argsort(arr_2[:,i])]
+if True:
     # NOTE: old mcsampler stores L, mcsamplerEnsemble stores lnL
     L = sampler._rvs["integrand"]
     p = sampler._rvs["joint_prior"]
     ps = sampler._rvs["joint_s_prior"]
     ### compute weights of samples
-    weights_1 = (L * p / ps)[np.argsort(arr_1[:,i])]
+    weights_1 = (L * p / ps)
+    n_ess_1 = np.sum(weights_1)**2/np.sum(weights_1**2)
+    print("default  n_eff, n_ess ", eff_samp_1,n_ess_1)
+
     L = samplerEnsemble._rvs["integrand"]
     if return_lnI:
         L = np.exp(L - np.max(L))
     p = samplerEnsemble._rvs["joint_prior"]
     ps = samplerEnsemble._rvs["joint_s_prior"]
     ### compute weights of samples
-    weights_2 = (L * p / ps)[np.argsort(arr_2[:,i])]
+    weights_2 = (L * p / ps)
+    n_ess_2 = np.sum(weights_2)**2/np.sum(weights_2**2)
+    print("AC  n_eff, n_ess ", eff_samp_2,n_ess_2)
+
 
     L = samplerAC._rvs["integrand"]
     p = samplerAC._rvs["joint_prior"]
     ps = samplerAC._rvs["joint_s_prior"]
     ### compute weights of samples
-    weights_1b = (L * p / ps)[np.argsort(arr_1b[:,i])]
+    weights_1b = (L * p / ps)
+    n_ess_1b = np.sum(weights_1b)**2/np.sum(weights_1b**2)
+    print("GMM  n_eff, n_ess ", eff_samp_1b,n_ess_1b)
+
+if save_fairdraws:
+    npts_out_1 = int(n_ess_1)
+    p = np.array(weights_1/np.sum(weights_1),dtype=np.float64)
+    indx_save_1 = np.random.choice(np.arange(len(p)), size=npts_out_1, p=p)
+    np.savetxt(save_fairdraw_prefix+"_1.dat", arr_1[indx_save_1],header=" x1 x2")
+
+    npts_out_2 = int(n_ess_2)
+    p = np.array(weights_2/np.sum(weights_2),dtype=np.float64)
+    indx_save_2 = np.random.choice(np.arange(len(p)), size=npts_out_2, p=p)
+    np.savetxt(save_fairdraw_prefix+"_2.dat", arr_2[indx_save_2],header=" x1 x2")
+
+    npts_out_1b = int(n_ess_1b)
+    p = np.array(weights_1b/np.sum(weights_1b),dtype=np.float64)
+    indx_save_1b = np.random.choice(np.arange(len(p)), size=npts_out_1b, p=p)
+    np.savetxt(save_fairdraw_prefix+"_1b.dat", arr_1b[indx_save_1b],header=" x1 x2")
+
+
+##
+## HOW TO MAKE JS TEST
+# for param in x1 x2 ; do ls fairdraw_*.dat | ../scripts/tool_pairs.py --prefix="convergence_test_samples.py --method JS --parameter ${param}" > tmpfile;./tmpfile > jsvals_${param}.dat; done
+
+## HOW TO MAKE A PLOT
+# plot_posterior_corner.py --posterior-file fairdraw_rosenbrock_1.dat --posterior-file fairdraw_rosenbrock_1b.dat --posterior-file fairdraw_rosenbrock_2.dat --parameter x1 --parameter x2  --quantiles None --ci-list [0.9]
+
+
+# Make copies, so they have the same orders relative to the sample values
+weights_1_orig = np.array(weights_1)
+weights_1b_orig = np.array(weights_1b)
+weights_2_orig = np.array(weights_2)
+# Note: the fairdraw export is better
+for i in range(ndim):
+    ### get sorted samples (for the current dimension)
+    indx_sort = np.argsort(arr_1[:,i])
+    x_1 = arr_1[:,i][indx_sort]
+    weights_1 = weights_1_orig[indx_sort]
+
+    indx_sort = np.argsort(arr_1b[:,i])
+    x_1b = arr_1b[:,i][indx_sort]
+    weights_1b = weights_1b_orig[indx_sort]
+
+    indx_sort = np.argsort(arr_2[:,i])
+    x_2 = arr_2[:,i][indx_sort]
+    weights_2 = weights_2_orig[indx_sort]
+
 
     y_1 = np.cumsum(weights_1)
     y_1 /= y_1[-1] # normalize
@@ -156,7 +226,7 @@ plt.plot(x_i,cdf,label="true")
 
 plt.legend()
 
-fname = "cdf.pdf"
+fname = "cdf_rosenbrock.png"
 
 print("Saving CDF figure as " + fname + "...")
 

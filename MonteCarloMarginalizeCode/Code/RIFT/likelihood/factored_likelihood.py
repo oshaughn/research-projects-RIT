@@ -421,10 +421,30 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         else:
           rholms_intp[det] = None
 
+    guess_snr=None
+    if True: 
+      # estimate peak snr based on rholms.  
+      #   - Note U, Q are scaled to fiducial distance.  Likelihood eqution (Pankow et al) :  -0.25 x^2 U + x Q = L where x=1/d
+      #   - complete square, maximize in x gives us estimate.  
+      #   - don't do precisely correctly, since we're not using sky location, emission direction, or detector response factors, nor coherence between modes. Add in quadrature
+      rho_max = 0
+      
+      for ifo in rholms:
+        rho_max_ifo = 0
+        for mode in rholms[ifo]:
+          rho_max_ifo= np.max(np.abs(rholms[ifo][mode].data.data))
+          delta_here= rho_max_ifo**2/np.real(crossTerms[ifo][(mode,mode)])
+          if verbose:
+            print("  ... ", ifo, mode,rho_max_ifo,np.real(crossTerms[ifo][(mode,mode)]), delta_here)
+          rho_max+= delta_here
+      rho_max = np.sqrt(rho_max)/2.3  # guesstimate, keep in mind there are sky location terms, coherence, etc
+      print("SNR guess (internal, from det response) ", rho_max,rho_max**2/2)
+      guess_snr= rho_max
+
     if not ROM_use_basis:
-            return rholms_intp, crossTerms, crossTermsV,  rholms, None
+            return rholms_intp, crossTerms, crossTermsV,  rholms, guess_snr, None
     else:
-            return rholms_intp, crossTerms, crossTermsV,  rholms, acatHere   # labels are misleading for use_rom_basis
+            return rholms_intp, crossTerms, crossTermsV,  rholms, guess_snr,  acatHere    # labels are misleading for use_rom_basis
 
 def ReconstructPrecomputedLikelihoodTermsROM(P,acat_rom,rho_intp_rom,crossTerms_rom, crossTermsV_rom, rho_rom,verbose=True):
         """

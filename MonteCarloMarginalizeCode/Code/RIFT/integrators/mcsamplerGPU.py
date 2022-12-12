@@ -11,7 +11,7 @@ from collections import defaultdict
 
 import numpy
 np=numpy #import numpy as np
-from scipy import integrate, interpolate
+from scipy import integrate, interpolate, special
 import itertools
 import functools
 
@@ -19,7 +19,16 @@ import os
 
 try:
   import cupy
+  import cupyx   # needed for logsumexp
   xpy_default=cupy
+  try:
+    xpy_special_default = cupyx.scipy.special
+    if not(hasattr(xpy_special_default,'logsumexp')):
+          print(" mcsamplerGPU: no cupyx.scipy.special.logsumexp, fallback mode ...")
+          xpy_special_default= special
+  except:
+    print(" mcsamplerGPU: no cupyx.scipy.special, fallback mode ...")
+    xpy_special_default= special
   identity_convert = cupy.asnumpy
   identity_convert_togpu = cupy.asarray
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
@@ -45,6 +54,7 @@ except:
   print(' no cupy (mcsamplerGPU)')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
+  xpy_special_default = special
   identity_convert = lambda x: x  # trivial return itself
   identity_convert_togpu = lambda x: x
   cupy_ok = False
@@ -68,7 +78,7 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  except:
     print(" - No healpy - ")
 
-from ..integrators.statutils import  cumvar, update,finalize
+from ..integrators.statutils import  update,finalize, init_log,update_log,finalize_log
 
 #from multiprocessing import Pool
 
@@ -279,12 +289,12 @@ class MCSampler(object):
 
         # Evaluate the CDF by taking a cumulative sum of the histogram.
         n_bins = len(self.histogram_cdf[param]) 
-        self.xpy.cumsum(histogram_values, out=self.histogram_cdf[param][1:])
+        self.xpy.cumsum(histogram_values[:n_bins], out=self.histogram_cdf[param][1:])  # redundant cast, since length also enforced at a lower level to be correct
         self.histogram_cdf[param][0] = 0.0
         #print(param, 'cdf', self.histogram_cdf[param])
 
-        # Renormalize histogram.
-        histogram_values /= self.x_max_minus_min[param]
+        # Renormalize histogram (count per unit delta x, assumed constant)
+        histogram_values /= self.x_max_minus_min[param] /self.n_bins[param]
 
         # Store histogram values.
         self.histogram_values[param] = histogram_values
@@ -316,6 +326,7 @@ class MCSampler(object):
         y = (x - self.x_min[param]) / self.x_max_minus_min[param]
         # Compute the indices of the histogram bins that `x` falls into.
         indices = self.xpy.trunc(y / self.dx[param], out=y).astype(np.int32)
+        indices = self.xpy.minimum(indices,self.n_bins[param])  # prevent being out of range due to rounding !
         # Return the value of the histogram.
         return self.histogram_values[param][indices]
 
@@ -492,9 +503,9 @@ class MCSampler(object):
         return list(zip(*res))
 
     @profile
-    def integrate_log(self, lnF, *args, **kwargs):
+    def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
         """
-        Integrate exp(lnF) returning lnI, by using n sample points. 
+        Integrate exp(lnF) returning lnI, by using n sample points, assuming integrand is lnF
         Does NOT allow for tuples of arguments, an unused feature in mcsampler
 
         tempering is done with lnF, suitably modified.
@@ -513,7 +524,6 @@ class MCSampler(object):
         convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """
-        use_lnL = kwargs["use_lnL"] if "use_lnL" in kwargs else False;
 
         # Setup histogram data
         n_bins = 100
@@ -554,9 +564,12 @@ class MCSampler(object):
         #
         # Adaptive sampling parameters
         #
-        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else None
+        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else 2*n
+        if n_history<=0:
+            print("  Note: cannot adapt, no history ")
+
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
-        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 0
+        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000  # default to adapt to 1000 chunks, then freeze
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
         temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
@@ -573,22 +586,18 @@ class MCSampler(object):
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
-#        bUseMultiprocessing = kwargs['use_multiprocessing'] if 'use_multiprocessing' in kwargs else False
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
         bShowEveryEvaluation = kwargs['extremely_verbose'] if 'extremely_verbose' in kwargs else False
 
         if bShowEvaluationLog:
             print(" .... mcsampler : providing verbose output ..... ")
 
-        int_val1 = numpy.float128(0)
+        current_log_aggregate = None
+        eff_samp = 0  # ratio of max weight to sum of weights
+        maxlnL = -np.inf  # max lnL
+        maxval=0   # max weight
+        outvals=None  # define in top level scope
         self.ntotal = 0
-        maxval = -float("Inf")
-        maxlnL = -float("Inf")
-        eff_samp = 0
-        mean, var = None, numpy.float128(0)    # to prevent infinite variance due to overflow
-        if cupy_ok:
-          var = xpy_default.float64(0)   # cupy doesn't have float128
-
         if bShowEvaluationLog:
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
@@ -602,6 +611,7 @@ class MCSampler(object):
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
 
             # Draw our sample points
+            # Non-log draw
             joint_p_s, joint_p_prior, rv = self.draw_simplified(
                 n, *self.params_ordered
             )
@@ -638,83 +648,64 @@ class MCSampler(object):
             unpacked = unpacked0 = rv #numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
             unpacked = dict(list(zip(params, unpacked)))
 
-            # Evaluate function
-            value_array = lnF(*unpacked0)  # do not protect order
-            lnL=value_array
+            # Evaluate function, protecting argument order
+            if 'no_protect_names' in kwargs:
+                lnL = lnF(*unpacked0)  # do not protect order
+            else:
+                lnL= lnF(**unpacked)  # protect order using dictionary
             # take log if we are NOT using lnL
-            if not(use_lnL):
-              lnL = self.xpy.log(value_array)  # note we can in principle get negative infinity here
             if cupy_ok:
-              if not(isinstance(fval,cupy.ndarray)):
+              if not(isinstance(lnL,cupy.ndarray)):
                 lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
 
-            log_weights = tempering_exp*lnL + self.xpy.log(joint_p_prior) - np.log(joint_p_s)
-
+            log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
+            log_weights = tempering_exp*lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
+            
             # append to cumulative values (assume all can be added)
 
             if save_intg:
                 # FIXME: See warning at beginning of function. The prior values
                 # need to be moved out of this, as they are not part of MC
                 # integration
-                if "integrand" in self._rvs:
-                    self._rvs["log_integrand"] = xpy_here.hstack( (self._rvs["_logintegrand"], lnL) )
-                    self._rvs["log_joint_prior"] = xpy_here.hstack( (self._rvs["joint_prior"], self.xpy.log(joint_p_prior)) )
-                    self._rvs["log_joint_s_prior"] = xpy_here.hstack( (self._rvs["joint_s_prior"], self.xpy.log(joint_p_s)))
-                    self._rvs["log_weights"] = xpy_here.hstack( (self._rvs["joint_s_prior"], log_weights ))
+                if "log_integrand" in self._rvs:
+                    self._rvs["log_integrand"] = xpy_here.hstack( (self._rvs["log_integrand"], lnL) )
+                    self._rvs["log_joint_prior"] = xpy_here.hstack( (self._rvs["log_joint_prior"], self.xpy.log(joint_p_prior)) )
+                    self._rvs["log_joint_s_prior"] = xpy_here.hstack( (self._rvs["log_joint_s_prior"], self.xpy.log(joint_p_s)))
+                    self._rvs["log_weights"] = xpy_here.hstack( (self._rvs["log_weights"], log_weights ))
                 else:
                     self._rvs["log_integrand"] = lnL
                     self._rvs["log_joint_prior"] = self.xpy.log(joint_p_prior)
                     self._rvs["log_joint_s_prior"] = self.xpy.log(joint_p_s)
                     self._rvs["log_weights"] = log_weights
-
-            # Calculate the integral over this chunk
-            # this is just log_weights exponentiated
-
-            # Calculate max L (a useful convergence feature) for debug 
-            # reporting.  Not used for integration
-            # Try to avoid nan's
-            if not(np.isinf(maxlnL)):
-              maxlnL = numpy.max( [maxlnL, lnL, -100])
+            # maxlnL
+            maxlnL_now = identity_convert(xpy.max(lnL))
+            maxlnL = identity_convert(maxlnL)
+            if np.isinf(maxlnL ):
+              maxlnL = maxlnL_now
             else:
-              maxlnL = numpy.amax(maxlnL)
+              maxlnL = np.max([maxlnL, maxlnL_now,-100])
 
-            # Calculate the effective samples via max over the current 
-            # evaluations
-            if not(np.isinf(maxval)):
-              maxval = numpy.max([log_weights,maxval])
+
+            # n, Mean, error tracked by statutils structure
+            if current_log_aggregate is None:
+              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
             else:
-              maxval = numpy.amax(maxval)
+              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=xpy_special_default)
+            outvals = finalize_log(current_log_aggregate,xpy=xpy)
+            self.ntotal = current_log_aggregate[0]
+            # effective samples
+            maxval = max(maxval, identity_convert(self.xpy.max(log_integrand) ))
 
-            if var is None:
-              var=0
-            if mean is None:
-              mean=identity_convert_togpu(0.0)
-            current_aggregate = [int(self.ntotal),mean, (self.ntotal-1)*var]
-            current_aggregate = update(current_aggregate, int_val,xpy=xpy_default)
-            outvals = finalize(current_aggregate)
-#            print(var, outvals[-1])
-            var = outvals[-1]
+            # sum of weights is the integral * the number of points
+            eff_samp = xpy.exp(  outvals[0]+np.log(self.ntotal) - maxval)   # integral value minus floating point, which is maximum
 
-            #### AT THIS POINT IN CODE EDIT
-
-            # running integral
-            int_val1 += identity_convert(int_val.sum())
-            # running number of evaluations
-            self.ntotal += n
-            # FIXME: Likely redundant with int_val1
-            mean = identity_convert_togpu(xpy_default.float64(int_val1/self.ntotal))
-
-            eff_samp = int_val1/maxval
 
             # Throw exception if we get infinity or nan
             if math.isnan(eff_samp):
                 raise NanOrInf("Effective samples = nan")
-            if maxlnL is float("Inf"):
-                raise NanOrInf("maxlnL = inf")
 
             if bShowEvaluationLog:
-                var_print = identity_convert(var)
-                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*numpy.log(int_val1/self.ntotal)), numpy.log(int_val1/self.ntotal)-maxlnL, numpy.sqrt(var_print*self.ntotal)/int_val1)
+                print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*outvals[0]), outvals[0]-maxlnL, np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 ))
 
             if (not convergence_tests) and self.ntotal >= nmax and neff != float("inf"):
                 print("WARNING: User requested maximum number of samples reached... bailing.", file=sys.stderr)
@@ -735,7 +726,8 @@ class MCSampler(object):
             # The total number of adaptive steps is reached
             #
             # FIXME: We need a better stopping condition here
-            if self.ntotal > n_adapt:
+            if self.ntotal > n_adapt*n:
+                print(n_adapt,self.n_total)
                 continue
 
             #
@@ -747,16 +739,8 @@ class MCSampler(object):
                     return f(arg, p)
                 return inner
 
-            if not(save_intg):
-                print("Direct access ")
-                weights_alt = int_vals**tempering_exp
-            else:
-                if temper_log:
-                  weights_alt =self.xpy.log(self._rvs["integrand"][-n_history:])
-                  weights_alt = self.xpy.maximum(weights_alt, 1e-5)  # prevent negative weights
-                else:
-                  weights_alt =((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp )
-                  weights_alt = self.xpy.maximum(weights_alt,10)   # preventing too little dynamic range
+            weights_alt = self._rvs["log_integrand"][-n_history:]+np.max([maxlnL, 200])  # try to make sure we have some dynamic range here
+            weights_alt = self.xpy.maximum(weights_alt, 1e-5)  # prevent negative weights. NOTE THIS IS IMPORTANT: if you are integrating a function with lnL<0, use an offset!
             weights_alt = weights_alt/(weights_alt.sum())
             if weights_alt.dtype == numpy.float128:
               weights_alt = weights_alt.astype(numpy.float64,copy=False)
@@ -769,10 +753,6 @@ class MCSampler(object):
 
                 points = self._rvs[p][-n_history:]
                 self.compute_hist(points, p,weights=weights_alt,floor_level=floor_integrated_probability)
-            #    if p == 'declination':
-            #          vals = identity_convert(self.histogram_values[p])
-            #          print(vals)
-            #          print(np.mean(vals),np.std(vals))
                 self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
                 self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
 
@@ -786,10 +766,10 @@ class MCSampler(object):
         #   - find and remove samples with  lnL less than maxlnL - deltalnL (latter user-specified)
         #   - create the cumulative weights
         #   - find and remove samples which contribute too little to the cumulative weights
-        if (not save_no_samples) and ( "integrand" in self._rvs):
-            self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
+        if (not save_no_samples) and ( "log_integrand" in self._rvs):
+            self._rvs["sample_n"] = numpy.arange(len(self._rvs["log_integrand"]))  # create 'iteration number'        
             # Step 1: Cut out any sample with lnL belw threshold
-            indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
+            indx_list = [k for k, value in enumerate( (self._rvs["log_integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
             # FIXME: This is an unncessary initial copy, the second step (cum i
             # prob) can be accomplished with indexing first then only pare at
             # the end
@@ -799,9 +779,13 @@ class MCSampler(object):
                 else:
                     self._rvs[key] = self._rvs[key][indx_list]
             # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
-            wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
+            ln_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]
+            # Convert to CPU as needed
+            ln_wt = identity_convert(ln_wt)
+            ln_wt += - np.max(ln_wt)  # remove maximum value, irrelevant
+            wt = np.exp(ln_wt) # exponentiate.  Danger underflow
             idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
-            indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again. NOTE NOT INTEGER TYPE ANY MORE
+            indx_list = numpy.array( [[k, ln_wt[k]] for k in idx_sorted_index])     # pair up with the weights again. NOTE NOT INTEGER TYPE ANY MORE
             cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
             cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
             indx_list = [int(indx_list[k, 0]) for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability. RECAST TO INTEGER
@@ -823,7 +807,18 @@ class MCSampler(object):
             if isinstance(self._rvs[name],xpy_default.ndarray):
               self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
-        return int_val1/self.ntotal, identity_convert(var)/self.ntotal, eff_samp, dict_return
+        # Return.  Take care of typing
+        if outvals:
+          out0 = outvals[0]; out1 = outvals[1]
+          if not(isinstance(outvals[0], np.float64)):
+            # type convert everything as needed
+            out0 = identity_convert(out0)
+          if not(isinstance(outvals[1], np.float64)):
+            out1 = identity_convert(out1)
+            eff_samp = identity_convert(eff_samp)
+          return out0, out1 - np.log(self.ntotal), eff_samp, dict_return
+        else: # very strange case where we terminate early
+          return None, None, None, None
 
 
 
@@ -854,7 +849,7 @@ class MCSampler(object):
         """
         if "use_lnL" in kwargs:
           if kwargs["use_lnL"]:
-            self.integrate_log(func, **kwargs)  # pass it on, easier than mixed coding
+            return self.integrate_log(func, **kwargs)  # pass it on, easier than mixed coding
 
         # Setup histogram data
         n_bins = 100
@@ -910,9 +905,12 @@ class MCSampler(object):
         #
         # Adaptive sampling parameters
         #
-        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else None
+        n_history = int(kwargs["history_mult"]*n) if "history_mult" in kwargs else 2*n
+        if n_history<=0:
+            print("  Note: cannot adapt, no history ")
+
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
-        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 0
+        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000*n
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
         temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
@@ -935,17 +933,11 @@ class MCSampler(object):
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
-#        bUseMultiprocessing = kwargs['use_multiprocessing'] if 'use_multiprocessing' in kwargs else False
-        nProcesses = kwargs['nprocesses'] if 'nprocesses' in kwargs else 2
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
         bShowEveryEvaluation = kwargs['extremely_verbose'] if 'extremely_verbose' in kwargs else False
 
         if bShowEvaluationLog:
             print(" .... mcsampler : providing verbose output ..... ")
-        # if bUseMultiprocessing:
-        #     if rosDebugMessages:
-        #         print(" Initiating multiprocessor pool : ", nProcesses)
-        #     p = Pool(nProcesses)
 
         int_val1 = numpy.float128(0)
         self.ntotal = 0
@@ -1117,6 +1109,8 @@ class MCSampler(object):
             #
             # FIXME: We need a better stopping condition here
             if self.ntotal > n_adapt:
+#                print(self.ntotal, n_adapt)
+                print(" ... skipping adaptation in late iterations .. ")
                 continue
 
             #
@@ -1131,6 +1125,8 @@ class MCSampler(object):
             if not(save_intg):
                 print("Direct access ")
                 weights_alt = int_vals**tempering_exp
+            elif not(tempering_exp):  # zero value, should not happen but just in case, fall back to using integrand for adaptation
+                weights_alt = self._rvs["integrand"][-n_history:]
             else:
                 #print(fval, self._rvs["integrand"][-n_history:])
                 if temper_log:
@@ -1141,6 +1137,7 @@ class MCSampler(object):
                 else:
                   weights_alt =((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp )
                   weights_alt = self.xpy.maximum(weights_alt,10)   # preventing too little dynamic range
+
             weights_alt = weights_alt/(weights_alt.sum())
             # Type convert as needed: if weights are float128, convert to float64; otherwise we hit a typing error later with bincount
             if weights_alt.dtype == numpy.float128:
