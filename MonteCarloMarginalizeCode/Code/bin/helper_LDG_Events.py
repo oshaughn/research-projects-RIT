@@ -169,6 +169,10 @@ parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER 
 parser.add_argument("--fmin",default=None,type=float,help="Minimum frequency for integration. Used to estimate signal duration")
 parser.add_argument("--manual-mc-min",default=None,type=float,help="Manually input minimum in chirp mass")
 parser.add_argument("--manual-mc-max",default=None,type=float,help="Manually input maximum in chrip mass")
+parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
+parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided")
+parser.add_argument("--force-lambda-max",default=None,type=float,help="Provde this value to override the value of lambda-max provided")
+parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provde this value to override the value of lambda-small-max provided")
 parser.add_argument("--fmin-template",default=20,type=float,help="Minimum frequency for template. Used to estimate signal duration. If fmin not specified, also the minimum frequency for integration")
 parser.add_argument("--fmax",default=None,type=float,help="fmax. Use this ONLY if you want to override the default settings, which are set based on the PSD used")
 parser.add_argument("--data-start-time",default=None)
@@ -1263,6 +1267,14 @@ if opts.propose_fit_strategy:
         helper_cip_args += " --cap-points 12000 "
     if not opts.no_propose_limits:
         helper_cip_args += mc_range_str_cip + eta_range_str_cip
+    if opts.force_chi_max:
+        helper_cip_args += " --chi-max {} ".format(opts.force_chi_max)
+    if opts.force_chi_small_max:
+        helper_cip_args += " --chi-small-max {} ".format(opts.force_chi_small_max)
+    if opts.force_lambda_max:
+        helper_cip_args += " --lambda-max {} ".format(opts.force_lambda_max)
+    if opts.force_lambda_small_max:
+        helper_cip_args += " --lambda-small-max {} ".format(opts.force_lambda_small_max)
 
     helper_cip_arg_list_common = str(helper_cip_args)[1:] # drop X
     n_it_early =3

@@ -579,6 +579,14 @@ elif opts.scale_mc_range:
     cmd += " --scale-mc-range {} ".format(opts.scale_mc_range)
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range {} ".format(opts.force_eta_range)
+if opts.force_chi_max:
+    cmd+= " --force-chi-max {} ".format(opts.force_chi_max)
+if opts.force_chi_small_max:
+    cmd+= " --force-chi-small-max {} ".format(opts.force_chi_small_max)
+if opts.force_lambda_max:
+    cmd+= " --force-lambda-max {} ".format(opts.force_lambda_max)
+if opts.force_lambda_small_max:
+    cmd+= " --force-lambda-small-max {} ".format(opts.force_lambda_small_max)    
 if not(opts.gracedb_id is None) and (opts.use_ini is None):
     cmd +="  --gracedb-id " + gwid 
     if  opts.use_legacy_gracedb:
@@ -861,7 +869,7 @@ for indx in np.arange(len(instructions_cip)):
         line += " --chi-max {}  ".format(chi_max)
         # Secondary body can also have spin, allow us to force its range
         if opts.force_chi_small_max:
-            line += " --chi-small-max {} ".format(chi_small_max)
+            line += " --chi-small-max {} ".format(opts.force_chi_small_max)
         # Parse arguments, impose limit based on the approximant used, as described above
 #        import StringIO
         my_parser = argparse.ArgumentParser()
@@ -953,8 +961,13 @@ if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3
 with open("args_puff.txt",'w') as f:
-        puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
-        if opts.assume_matter:
+        if opts.force_chi_max and not(opts.force_chi_small_max):
+            puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(opts.force_chi_max, opts.force_chi_max)
+        elif opts.force_chi_max and opts.force_chi_small_max:
+            puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(opts.force_chi_max, opts.force_chi_small_max)
+        elif not(opts.force_chi_max) and not(opts.force_chi_small_max):
+            puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
+        if opts.assume_matter  and not(opts.assume_matter_but_primary_bh):
             lambda_max = 5000
             lambda_small_max=5000
             if opts.force_lambda_max:
@@ -963,6 +976,15 @@ with open("args_puff.txt",'w') as f:
                 lambda_small_max = opts.force_lambda_small_max
             # Prevent negative lambda accidentally from puff
             puff_args += " --downselect-parameter lambda1 --downselect-parameter-range [0,{}] --downselect-parameter lambda2 --downselect-parameter-range [0,{}] ".format(lambda_max, lambda_small_max)
+        if opts.assume_matter  and opts.assume_matter_but_primary_bh:
+#            lambda_max = 0
+            lambda_small_max=5000
+#            if opts.force_lambda_max:
+#                lambda_max = opts.force_lambda_max
+            if opts.force_lambda_small_max:
+                lambda_small_max = opts.force_lambda_small_max
+            # Prevent negative lambda accidentally from puff
+            puff_args += " --downselect-parameter lambda2 --downselect-parameter-range [0,{}] ".format(lambda_small_max)
         if False: #opts.cip_fit_method == 'rf':
             # RF can majorly overfit and create 'voids' early on, eliminate the force-away
             # Should only do this in the INITIAL puff, not all, to avoid known problems later
