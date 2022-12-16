@@ -797,7 +797,7 @@ for indx in np.arange(len(instructions_cip)):
         n_workers = opts.cip_explode_jobs
     n_eff_cip_here = int(n_sample_target/n_workers)
     if indx < len(instructions_cip)-1: # on all but 
-        n_eff_cip_here = np.min([opts.internal_cip_cap_neff, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
+        n_eff_cip_here = np.amin([opts.internal_cip_cap_neff/n_workers + 1, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
     n_sample_min_per_worker = int(n_eff_cip_here/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
 
     # Analyze the iteration report
