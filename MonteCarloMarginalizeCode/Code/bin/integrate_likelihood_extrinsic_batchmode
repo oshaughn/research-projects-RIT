@@ -277,6 +277,13 @@ optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
 
+#
+# Failure modes
+#
+if opts.internal_use_lnL and not(opts.sampler_method  in ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu']):
+  print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method)
+  sys.exit(99)
+
 if opts.resample_time_marginalization:
   import scipy.special
 if opts.resample_time_marginalization and not(opts.fairdraw_extrinsic_output):
