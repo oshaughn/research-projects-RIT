@@ -51,20 +51,6 @@ try:
 except:
     print(" -No 1d kdes- ")
 
-dpi_base=200
-legend_font_base=16
-rc_params = {'backend': 'ps',
-             'axes.labelsize': 11,
-             'axes.titlesize': 10,
-             'font.size': 11,
-             'legend.fontsize': legend_font_base,
-             'xtick.labelsize': 11,
-             'ytick.labelsize': 11,
-             #'text.usetex': True,
-             'font.family': 'Times New Roman'}#,
-             #'font.sans-serif': ['Bitstream Vera Sans']}#,
-plt.rcParams.update(rc_params)
-plt.rc('axes',unicode_minus=False)
 
 print(" WARNINGS : BoundedKDE class can oversmooth.  Need to edit options for using this class! ")
 
@@ -244,7 +230,25 @@ parser.add_argument("--lambda-plot-max",default=2000,type=float)
 parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
 parser.add_argument("--eccentricity", action="store_true", help="Read sample files in format including eccentricity")
+parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
 opts=  parser.parse_args()
+
+plt.rc('axes',unicode_minus=False)
+if not(opts.matplotlib_block_defaults):
+    dpi_base=200
+    legend_font_base=16
+    rc_params = {'backend': 'ps',
+             'axes.labelsize': 11,
+             'axes.titlesize': 10,
+             'font.size': 11,
+             'legend.fontsize': legend_font_base,
+             'xtick.labelsize': 11,
+             'ytick.labelsize': 11,
+             #'text.usetex': True,
+             'font.family': 'Times New Roman'}#,
+             #'font.sans-serif': ['Bitstream Vera Sans']}#,
+    plt.rcParams.update(rc_params)
+
 if opts.posterior_file is None:
     print(" No input files ")
     import sys
@@ -814,5 +818,6 @@ if opts.use_title:
 
 param_postfix = "_".join(opts.parameter)
 res_base = len(opts.parameter)*dpi_base
-matplotlib.rcParams.update({'font.size': 11+int(len(opts.parameter)), 'legend.fontsize': legend_font_base+int(1.3*len(opts.parameter))})   # increase font size if I have more panels, to keep similar aspect
+if not(opts.matplotlib_block_defaults):
+    matplotlib.rcParams.update({'font.size': 11+int(len(opts.parameter)), 'legend.fontsize': legend_font_base+int(1.3*len(opts.parameter))})   # increase font size if I have more panels, to keep similar aspect
 plt.savefig("corner_"+param_postfix+fig_extension,dpi=res_base)        # use more resolution, to make sure each image remains of consistent quality
