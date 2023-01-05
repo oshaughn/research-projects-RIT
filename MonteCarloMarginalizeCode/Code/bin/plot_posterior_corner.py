@@ -231,11 +231,12 @@ parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
 parser.add_argument("--eccentricity", action="store_true", help="Read sample files in format including eccentricity")
 parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
+parser.add_argument("--verbose",action='store_true',help='print matplotlibrc data')
 opts=  parser.parse_args()
 
 plt.rc('axes',unicode_minus=False)
+dpi_base=200
 if not(opts.matplotlib_block_defaults):
-    dpi_base=200
     legend_font_base=16
     rc_params = {'backend': 'ps',
              'axes.labelsize': 11,
@@ -248,6 +249,8 @@ if not(opts.matplotlib_block_defaults):
              'font.family': 'Times New Roman'}#,
              #'font.sans-serif': ['Bitstream Vera Sans']}#,
     plt.rcParams.update(rc_params)
+if opts.verbose:
+    print(plt.rcParams)
 
 if opts.posterior_file is None:
     print(" No input files ")
