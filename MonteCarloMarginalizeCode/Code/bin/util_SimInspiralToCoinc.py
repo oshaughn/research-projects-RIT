@@ -17,6 +17,7 @@ import lal
 parser = argparse.ArgumentParser()
 parser.add_argument("--sim-xml",help="input file")
 parser.add_argument("--event",type=int,default=0,help="input file")
+parser.add_argument("--injected-snr",type=float,default=None,help="input file")
 parser.add_argument("--ifo", action='append',help="input file")
 parser.add_argument("--output",default=None,type=str)
 opts= parser.parse_args()
@@ -98,6 +99,9 @@ for indx in range(len(opts.ifo)):
     sngl.spin1z = P.s1z
     sngl.spin2z = P.s2z
     sngl.eff_distance = P.dist/(1e6*lal.PC_SI)
+if opts.injected_snr:
+    sngl.snr = 15.
+else:
     sngl.snr = 20.  # made up, needed for some algorithms to work
 
     # add to table

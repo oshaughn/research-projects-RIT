@@ -129,6 +129,8 @@ parser.add_argument("--playground-data",action='store_true', help="Passed throug
 parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED")
 parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
 parser.add_argument("--l-max",default=2,type=int)
+parser.add_argument("--declination",default=0.1,type=float)
+parser.add_argument("--right-ascension",default=0.57,type=float)
 parser.add_argument("--no-matter",action='store_true', help="Force analysis without matter. Really only matters for BNS")
 parser.add_argument("--assume-nospin",action='store_true', help="Force analysis with zero spin")
 parser.add_argument("--assume-precessing",action='store_true', help="Force analysis *with* transverse spins")
@@ -165,6 +167,7 @@ parser.add_argument("--choose-data-LI-seglen",action='store_true')
 parser.add_argument("--fix-bns-sky",action='store_true')
 parser.add_argument("--ile-sampler-method",type=str,default=None)
 parser.add_argument("--ile-n-eff",type=int,default=None,help="ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous ")
+parser.add_argument("--ile-n-max",type=int,default=None,help="ILE n_max passed to helper/downstream. Default internally is 3e8; high enough so n-eff can converge ")
 parser.add_argument("--cip-sampler-method",type=str,default=None)
 parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--cip-internal-use-eta-in-sampler",action='store_true', help="Use 'eta' as a sampling parameter. Designed to make GMM sampling behave particularly nicely for objects which could be equal mass")
@@ -194,6 +197,7 @@ parser.add_argument("--make-bw-psds",action='store_true',help='If present, adds 
 parser.add_argument("--link-bw-psds",action='store_true',help='If present, uses the script retrieve_bw_psd_for_event.sh  to find a precomputed BW psd, and convert it to our format')
 parser.add_argument("--use-online-psd",action='store_true', help="If present, will use the online PSD estimates")
 parser.add_argument("--ile-retries",default=3,type=int)
+parser.add_argument("--n-ile-copies",default=2,type=int)
 parser.add_argument("--general-retries",default=3,type=int)
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this argument to CIP. GP plot for each iteration will be saved. Useful for followup investigations or reweighting. Warning: lots of disk space (1G or so per iteration)")
@@ -202,7 +206,8 @@ parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number
 parser.add_argument("--cip-explode-jobs-auto",action='store_true',help="Auto-select --cip-explode-jobs based on SNR. Changes both cip-explode-jobs and cip-explode-jobs-last")
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--cip-sigma-cut",default=None,type=float,help="sigma-cut is an error threshold for CIP.  Passthrough")
-parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the final iteration")
+parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the non-final iterations")
+parser.add_argument("--n-output-samples-last",type=int,default=20000,help="Number of output samples generated in the final iteration")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
 parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true',help="Passthrough to ILE ")
@@ -629,7 +634,8 @@ if opts.use_online_psd_file:
     ifo_list = eval(config.get('analysis','ifos'))
     # Create command line arguments for those IFOs, so helper can correctly pass then downward
     for ifo in ifo_list:
-        cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
+        psd_dir=os.getcwd()
+        cmd+= " --psd-file {}=".format(ifo) + psd_dir + "/../{}-{}".format(ifo,opts.use_online_psd_file)
 if "SNR" in event_dict:
     cmd += " --hint-snr {} ".format(event_dict["SNR"])
 if not(opts.force_hint_snr is None):
@@ -706,6 +712,10 @@ if (opts.use_ini is None) and not('--d-max' in line):
     line += " --d-max " + str(dmax_guess)
 if opts.ile_distance_prior:
     line += " --d-prior {} ".format(opts.ile_distance_prior)
+if opts.fix_bns_sky:
+    line +=" --declination " + str(opts.declination) + " --right-ascension " + str(opts.right_ascension)
+if opts.ile_n_max:
+    line +=" --n-max " + str(opts.ile_n_max)
 if opts.ile_force_gpu:
     line +=" --force-gpu-only "
 sur_location_prefix = "my_surrogates/nr_surrogates/"
@@ -1006,7 +1016,7 @@ if opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # m
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies 1" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies " + str(opts.n_ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if opts.assume_matter or opts.assume_eccentric:
     cmd +=  " --convert-args `pwd`/helper_convert_args.txt "
 if not(opts.ile_runtime_max_minutes is None):
@@ -1084,7 +1094,7 @@ if opts.external_fetch_native_from:
 if not(opts.ile_no_gpu):
     cmd +=" --request-gpu-ILE "
 if opts.add_extrinsic:
-    cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples)
+    cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples_last)
     if opts.add_extrinsic_time_resampling:
         cmd+= " --last-iteration-extrinsic-time-resampling "
 if opts.batch_extrinsic:

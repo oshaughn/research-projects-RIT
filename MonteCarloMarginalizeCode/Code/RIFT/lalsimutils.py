@@ -3225,7 +3225,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
         # Run the WF generator
         print("Starting EOBRun_module")
         print(pars)
-        t, hptmp, hctmp, hlmtmp = EOBRun_module.EOBRunPy(pars)
+        t, hptmp, hctmp, hlmtmp, dym = EOBRun_module.EOBRunPy(pars)
         print("EOBRun_module done")
         k_list_orig = hlmtmp.keys()
         hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
@@ -3316,7 +3316,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
                 elif TDlen >= hlm[mode].data.length:
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
-            if P.s1x == 0.0 and P.s2x == 0.0 and P.s1y == 0.0 and P.s2y == 0.0:
+            if P.s1x <= 10**-3 and P.s2x <= 10**-3 and P.s1y <= 10**-3 and P.s2y <= 10**-3:
 #                print("conjuring modes")
                 mode_conj = (mode[0],-mode[1])
                 if not mode_conj in hlm:
