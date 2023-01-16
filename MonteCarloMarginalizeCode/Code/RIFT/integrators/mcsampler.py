@@ -393,7 +393,10 @@ class MCSampler(object):
         # This is a semi-hack to ensure that the integrand is called with
         # the arguments in the right order
         # FIXME: How dangerous is this?
-        if hasattr(func,'__code__'):
+        no_protect_names = False
+        if 'no_protect_names' in kwargs:
+           no_protect_names = kwargs['no_protect_names']
+        if hasattr(func,'__code__') and not(no_protect_names):
             args = func.__code__.co_varnames[:func.__code__.co_argcount]
         else:
             args=list(args[:len(args)])
