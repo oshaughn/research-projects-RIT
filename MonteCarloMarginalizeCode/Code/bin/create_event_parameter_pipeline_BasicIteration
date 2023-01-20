@@ -1249,7 +1249,7 @@ for it in np.arange(it_start,opts.n_iterations):
             f.write(test_args_optin)
         cmd+= " --test-args {}/iteration_{}_cip/args_test.txt ".format(opts.working_directory,it)
         cmd += " --working-directory {}/iteration_{}_cip/ ".format(opts.working_directory,it)
-        cmd += " --n-iterations 10 " # default will be 10 iterations
+        cmd += " --n-iterations {} ".format(opts.n_iterations_subdag_max) # default will be 10 iterations, but argument controls
         # 
         print(" SUBDAG COMMAND : ", cmd)
         os.system(cmd)
