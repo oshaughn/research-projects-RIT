@@ -17,7 +17,7 @@ import lal
 parser = argparse.ArgumentParser()
 parser.add_argument("--sim-xml",help="input file")
 parser.add_argument("--event",type=int,default=0,help="input file")
-parser.add_argument("--injected-snr",type=float,default=None,help="input file")
+parser.add_argument("--injected-snr",type=float,default=20,help="If snr is known (i.e. fake injection, passes it to coinc file")
 parser.add_argument("--ifo", action='append',help="input file")
 parser.add_argument("--output",default=None,type=str)
 opts= parser.parse_args()
@@ -80,7 +80,7 @@ outdoc.appendChild(ligolw.LIGO_LW())
 outdoc.childNodes[0].appendChild(sngl_table)
 
 if not(opts.ifo):
-    opts.ifo = ["H1","L1"]  # default
+    opts.ifo = ["H1","L1","V1"]  # default
 
 # Create one row
 for indx in range(len(opts.ifo)):
@@ -100,13 +100,12 @@ for indx in range(len(opts.ifo)):
     sngl.spin2z = P.s2z
     sngl.eff_distance = P.dist/(1e6*lal.PC_SI)
 if opts.injected_snr:
-    sngl.snr = 15.
+    sngl.snr = opts.injected_snr  # made up, needed for some algorithms to work
 else:
     sngl.snr = 20.  # made up, needed for some algorithms to work
-
-    # add to table
-    sngl_table.append(sngl)
-
+# add to table
+sngl_table.append(sngl)
+    
 # write the output XML file
 output_file='coinc.xml'
 if opts.output:
