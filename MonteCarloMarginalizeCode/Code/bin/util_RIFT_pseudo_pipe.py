@@ -156,6 +156,7 @@ parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
 parser.add_argument("--internal-propose-converge-last-stage",action='store_true',help="Pass through to helper")
 parser.add_argument("--internal-n-iterations-subdag-max",default=10,type=int,help="Subdag convergence proposal max iterations option")
+parser.add_argument("--internal-n-evaluations-per-iteration",default=None,type=int,help="Number of ILE evaluation points per iteration, if not set then pipeline selects experience-based default.  Each ILE worker will do a fraction of this total workload.")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="adds the time resampling option.  Only deployed for vectorized calculations (which should be all that end-users can access)")
 parser.add_argument("--batch-extrinsic",action='store_true')
@@ -1021,6 +1022,10 @@ if opts.internal_force_iterations:
 # Overwrite grid if needed
 if not (opts.manual_initial_grid is None):
     shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
+
+# override npts_it if needed
+if opts.internal_n_evaluations_per_iteration:
+    npts_it = opts.internal_n_evaluations_per_iteration
 
 # Build DAG
 cip_mem  = 30000
