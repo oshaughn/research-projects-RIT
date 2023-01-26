@@ -148,10 +148,15 @@ if opts.convention == 'LI':
             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = P.extract_system_frame()
             print( thetaJN, phiJL, theta1, theta2, np.cos(theta1), np.cos(theta2), phi12, chi1, chi2, psiJ,end=' ')
         if opts.export_tides:
-            P.lambda1 = pt.alpha5
-            P.lambda2 = pt.alpha6
+            P.lambda1 = 0
+            P.lambda2 = 0
+            # Don't promise that nonzero tides are in the XML file ! Might be asymmetric binary, or binary with no tide info
+            if hasattr(pt, 'alpha5'):
+                P.lambda1 = pt.alpha5
+            if hasattr(pt, 'alpha6'):
+                P.lambda2 = pt.alpha6
             lam_tilde = P.extract_param("LambdaTilde")
-            print( pt.alpha5, pt.alpha6, lam_tilde,end=' ')
+            print( P.lambda1, P.lambda2, lam_tilde,end=' ')
         if opts.export_eos:
             eos_indx = P.eos_table_index
             print(eos_indx, end=' ')
