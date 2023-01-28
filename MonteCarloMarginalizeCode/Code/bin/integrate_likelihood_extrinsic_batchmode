@@ -1464,6 +1464,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["spin2y"] =numpy.ones(samples["psi"].shape)*P.s2y
             samples["spin2z"] =numpy.ones(samples["psi"].shape)*P.s2z
             samples["alpha4"] =numpy.ones(samples["psi"].shape)*P.eccentricity
+            samples["alpha5"] =numpy.ones(samples["psi"].shape)*P.lambda1
+            samples["alpha6"] =numpy.ones(samples["psi"].shape)*P.lambda2
 
       if opts.resample_time_marginalization:
         samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict)
