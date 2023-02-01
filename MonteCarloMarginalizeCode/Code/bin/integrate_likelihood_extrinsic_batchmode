@@ -280,8 +280,9 @@ opts, args = optp.parse_args()
 #
 # Failure modes
 #
-if opts.internal_use_lnL and not(opts.sampler_method  in ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu']):
-  print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method)
+ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu']
+if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
+  print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
   sys.exit(99)
 
 if opts.resample_time_marginalization:
