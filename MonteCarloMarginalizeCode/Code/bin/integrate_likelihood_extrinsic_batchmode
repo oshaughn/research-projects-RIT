@@ -656,7 +656,7 @@ elif opts.sampler_method == "GMM":
     print(" ILE: {}".format(opts.sampler_method))
     sampler = mcsamplerEnsemble.MCSampler()
 else:
-    print(" ILE: default sampler")
+    print(" ILE: original sampler")
     print(" ILE: {}".format(opts.sampler_method))
 
 #
