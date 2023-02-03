@@ -892,7 +892,10 @@ for indx in np.arange(len(instructions_cip)):
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     if opts.assume_eccentric:
-        line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+        if not(opts.internal_use_aligned_phase_coordinates):
+            line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+        else:
+            line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity')
         if not(opts.force_ecc_max is None):
             ecc_max = opts.force_ecc_max
             line += " --ecc-max {}  ".format(ecc_max)
