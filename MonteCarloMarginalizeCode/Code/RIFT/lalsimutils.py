@@ -3684,7 +3684,7 @@ def std_and_conj_hlmoff(P, Lmax=2):
             hlms_conj_F[mode] = DataFourier(hlms[mode])
     return hlmsF, hlms_conj_F
 
-def hoft_from_hlm(hlmsT,P):
+def hoft_from_hlm(hlms,P):
     """
     hoft_from_hlm(hlm,P,Lmax):  return hoft like output given hlmoft input.
     Important if hoft is not accessible (e.g., not provided by lalsuite)
