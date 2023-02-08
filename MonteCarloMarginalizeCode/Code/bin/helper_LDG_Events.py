@@ -206,6 +206,7 @@ parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrou
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
+parser.add_argument("--internal-test-convergence-threshold",float,default=0.02,help="The value of the threshold. 0.02 has been default ")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
 parser.add_argument("--online", action='store_true', help="Use online settings")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
@@ -1521,7 +1522,7 @@ for indx in np.arange(len(helper_cip_arg_list)):
 n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
 n_its_to_not_test = np.sum(n_its) - n_its[-1]
 helper_test_args += " --iteration-threshold {} ".format(int(n_its_to_not_test))
-helper_test_args += " --threshold 0.02 "
+helper_test_args += " --threshold {} ".format(opts.internal_test_convergence_threshold)
 
 with open("helper_test_args.txt",'w+') as f:
     f.write(helper_test_args)
