@@ -720,7 +720,7 @@ if opts.ile_force_gpu:
     line +=" --force-gpu-only "
 sur_location_prefix = "my_surrogates/nr_surrogates/"
 if 'GW_SURROGATE' in os.environ:
-    sur_location_prefix=''
+    sur_location_prefix='surrogate_downloads/'
 if opts.use_osg:
     sur_location_prefix = "/"
 if not 'NR' in opts.approx:
