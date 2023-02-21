@@ -770,7 +770,7 @@ if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     snr = event_dict["SNR"]
     q = P.m2/P.m1
     n_max_jobs=200
-    n_jobs_normal_guess =  2+int( (1./q)*np.max([(snr/15),1]) )  # increase number of workers linearly with SNR and with mass ratio
+    n_jobs_normal_guess =  2+2*int( (1./q)*np.power(np.max([(snr/15),1]), 1.3) )  # increase number of workers linearly with SNR**1.3 and with mass ratio
     n_jobs_normal_actual = np.min([n_jobs_normal_guess,n_max_jobs])
     n_jobs_final_actual = np.min([2*n_jobs_normal_guess,n_max_jobs])
     if opts.assume_matter:   # more workers for matter physics jobs
