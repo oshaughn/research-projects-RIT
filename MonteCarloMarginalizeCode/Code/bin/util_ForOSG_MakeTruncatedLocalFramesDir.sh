@@ -23,7 +23,7 @@ TEND=`echo  ${TEND} + 1 | bc `
 SEGLEN=`echo ${TEND} - ${TSTART} | bc`
 echo ${TSTART} ${TEND} ${SEGLEN}
 
-awk '{print $1}' > my_ifo_list
+cat my_channel_pairs | awk '{print $1}' > my_ifo_list
 #for i in `cat my_temp_files`; do basename $i; done | tr '-' ' ' | awk '{print $1}' | sort | uniq  > my_ifo_list
 #for i in `cat my_temp_files`; do basename $i | tr '-' ' ' ; done | awk '{print $1,$2}' | sort | uniq > my_channel_pairs
 
