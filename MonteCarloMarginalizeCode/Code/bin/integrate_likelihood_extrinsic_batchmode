@@ -237,6 +237,8 @@ integration_params.add_option("--auto-logarithm-offset",action='store_true',help
 integration_params.add_option("--internal-use-lnL",action='store_true',help="likelihood returns lnL, and integrator integrates lnL")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
+integration_params.add_option("--supplementary-likeihood-factor-code", default=None,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., EM observations). EXPERTS-ONLY")
+integration_params.add_option("--supplementary-likeihood-factor-function", default=None,help="With above option, specifies the specific function used as an external prior. EXPERTS ONLY")
 optp.add_option_group(integration_params)
 
 #
@@ -297,6 +299,13 @@ if opts.fairdraw_extrinsic_output:
   if opts.sampler_method == 'GMM':
     raise Exception(" Fairdraw not available  for this sampler")
 
+
+supplemental_ln_likelihood= None
+# Supplemental likelihood factor. Must have identical call sequence to 'likelihood_function'. Called with identical raw inputs (including cosines/etc)
+if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_factor_function:
+  __import__(opts.supplementary_likelihood_factor_code)
+  external_likelihood_module = sys.modules[opts.supplementary_likelihood_factor_code]
+  supplemental_ln_likelihood = getattr(opts.supplementary_likelihood_factor_code,opts.supplementary_likelihood_factor_function)
 
 if opts.distance_marginalization:
   lookup_table = np.load(opts.distance_marginalization_lookup_table)
@@ -1108,7 +1117,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
                 i+=1
             if return_lnL:
-              return lnL - manual_avoid_overflow_logarithm
+              return lnL - manual_avoid_overflow_logarithm 
             return numpy.exp(lnL - manual_avoid_overflow_logarithm)
 
     else: # Sum over time for every point in other extrinsic params
@@ -1142,8 +1151,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, rholms_intp, rholms, cross_terms, cross_terms_V,                   
                         opts.l_max,interpolate=opts.interpolate_time)
                 i+=1
+            if supplemental_ln_likelihood:
+              lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance)
             if return_lnL:
-              return lnL -manual_avoid_overflow_logarithm
+              return lnL -manual_avoid_overflow_logarithm +
             return numpy.exp(lnL -manual_avoid_overflow_logarithm)
 
      elif opts.vectorized: # use array-based multiplications, fewer for loops
@@ -1189,6 +1200,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
+            if supplemental_ln_likelihood:
+              lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance)
             if return_lnL:
               return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL-manual_avoid_overflow_logarithm)
@@ -1232,6 +1245,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
 #                nEvals +=len(right_ascension)
+                if supplemental_ln_likelihood:
+                  lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance,xpy=xpy_default)
                 if return_lnL:
                   return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
@@ -1324,6 +1339,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
 #                nEvals +=len(right_ascension)
+                if supplemental_ln_likelihood:
+                  lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, 0) # same API
                 if return_lnL:
                   return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
