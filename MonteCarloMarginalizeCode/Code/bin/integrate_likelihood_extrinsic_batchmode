@@ -301,12 +301,16 @@ if opts.fairdraw_extrinsic_output:
 
 
 supplemental_ln_likelihood= None
+supplemental_ln_likelhood_prep=None
 # Supplemental likelihood factor. Must have identical call sequence to 'likelihood_function'. Called with identical raw inputs (including cosines/etc)
 if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_factor_function:
   print(" EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR : {}.{} ".format(opts.supplementary_likelihood_factor_code,opts.supplementary_likelihood_factor_function))
   __import__(opts.supplementary_likelihood_factor_code)
   external_likelihood_module = sys.modules[opts.supplementary_likelihood_factor_code]
   supplemental_ln_likelihood = getattr(external_likelihood_module,opts.supplementary_likelihood_factor_function)
+  name_prep = "prepare_"+opts.supplementary_likelihood_factor_function
+  if hasattr(external_likelihood_module,name_prep):
+    supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
 
 if opts.distance_marginalization:
   lookup_table = np.load(opts.distance_marginalization_lookup_table)
@@ -1040,6 +1044,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # if pin-distance-to-sim, change the distance prior accordingly
     if opts.pin_distance_to_sim:
       pinned_params['distance']=P.dist/(1.e6 * lal.PC_SI)
+
+    # Call external likleihood preparation if any
+    if supplemental_ln_likelhood_prep:
+      supplemental_ln_likelhood_prep(P=P)
 
     # Precompute
     t_window = 0.15
