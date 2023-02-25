@@ -1478,8 +1478,20 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["t_ref"] += float(fiducial_epoch)
         else:
             samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(samples["psi"]))
+      # rotate sky to recover physical coordinates
+      if opts.internal_sky_network_coordinates:
+        tmp_th, tmp_ph = my_rotation(np.pi/2 - samples['declination'],samples['right_ascension'])
+        samples['declination'] = np.pi/2 - tmp_th
+        samples['right_ascension'] = np.mod(tmp_ph, 2*np.pi)
+
+      # recover true phase, polarization samples
+      if opts.internal_rotate_phase:
+        phi_orb_true = np.mod((samples['phi_orb'] + samples['psi'])/2., 2*np.pi)
+        psi_true = np.mod((samples['phi_orb'] - samples['psi'])/2., 2*np.pi)   # keep as 2 pi range, to be consistent with past work
+        samples['psi']= psi_true
+        samples['phi_orb'] = phi_orb_true
       samples["polarization"] = samples["psi"]
-      samples["coa_phase"] = samples["phi_orb"]
+      samples["coa_phase"] = samples["phi_orb"]        
       if ("declination", "right_ascension") in sampler.params:
             samples["latitude"], samples["longitude"] = samples[("declination", "right_ascension")]
       else:
