@@ -81,9 +81,12 @@ class EOSConcrete:
     def estimate_baryon_mass_from_mg(self,m):
         """
         Estimate m_b = m_g + m_g^2/(R_{1.4}/km) based on https://arxiv.org/pdf/1905.03784.pdf Eq. (6)
+        Note baryon mass can be computed exactly with a TOV solution integral (e.g., Eq. 6.21 of Haensel's book)
+             N_b = 4\pi (1+z_{surf}) \int_0^R e^{Phi} (rho + P/c^2)/m_b sqrt(1-2 G m(r)/r c^2)
+        but lalsuite doesn't provide access to this low-level info
         """
         r1p4 =lalsim.SimNeutronStarRadius(1.4*lal.MSUN_SI, self.eos_fam)/1e3
-        return m + (1./r1p4)*m*(m/lal.MSUN_SI)
+        return m + (1./r1p4)*m**2 #(m/lal.MSUN_SI)
 
     def pressure_density_on_grid_alternate(self,logrho_grid,enforce_causal=False):
         """ 
@@ -878,3 +881,34 @@ class EOSSequenceLandry:
             raise Exception(" Did not generate ordering statistic ")
         
         return np.argmin( np.abs(order_val - self.oned_order_values))
+
+
+####
+#### General lalsimulation interfacing
+####
+
+class QueryLS_EOS:
+    """
+    ExtractorFromEOS
+      Class to repeatedly query a single lalsuite EOS object, using a common interface (e.g., to extract array outputs by name, unit conversions, etc)
+    """
+    def __init__(self,eos):
+        self.eos = eos
+        # Primitive extractors.  Assume I need to vectorize these, and that it isn't available
+        extraction_dict_lalsim_raw = {
+            'pseudo_enthalpy': lambda x: x,
+            'rest_mass_density': lambda x: lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*.001,  # g cm^-3
+            'baryon_density': lambda x: (lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*.001)/(lal.AMU_SI*1e3),  #  cm^-3
+           'pressure': lambda x: lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(x, eos)*10,    # dyn cm^-2 ~ g cm^-1 s^-2
+           'energy_density': lambda x: lalsim.SimNeutronStarEOSEnergyDensityOfPseudoEnthalpy(x,eos)*10/(lal.C_SI*100)**2 , # J m^-3 *10/c^2 = g cm^-3
+           'sound_speed_over_c':lambda x: lalsim.SimNeutronStarEOSSpeedOfSound(x,eos)/lal.C_SI  
+          }
+        self.extraction_dict_lalsim = {}
+        for name in         extraction_dict_lalsim_raw:
+            self.extraction_dict_lalsim[name] = np.vectorize(extraction_dict_lalsim_raw[name])
+
+        # IN PROGRESS
+        #   - adiabatic index
+
+    def extract_param(self, p, pseudo_enthalpy):
+        return self.extraction_dict_lalsim[p](pseudo_enthalpy)

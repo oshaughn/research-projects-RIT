@@ -237,6 +237,9 @@ integration_params.add_option("--auto-logarithm-offset",action='store_true',help
 integration_params.add_option("--internal-use-lnL",action='store_true',help="likelihood returns lnL, and integrator integrates lnL")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
+integration_params.add_option("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., EM observations). EXPERTS-ONLY")
+integration_params.add_option("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external prior. EXPERTS ONLY")
+integration_params.add_option("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
 optp.add_option_group(integration_params)
 
 #
@@ -277,6 +280,14 @@ optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
 
+#
+# Failure modes
+#
+ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu']
+if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
+  print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
+  sys.exit(99)
+
 if opts.resample_time_marginalization:
   import scipy.special
 if opts.resample_time_marginalization and not(opts.fairdraw_extrinsic_output):
@@ -289,6 +300,26 @@ if opts.fairdraw_extrinsic_output:
   if opts.sampler_method == 'GMM':
     raise Exception(" Fairdraw not available  for this sampler")
 
+
+supplemental_ln_likelihood= None
+supplemental_ln_likelhood_prep=None
+supplemental_ln_likelhood_parsed_ini=None
+# Supplemental likelihood factor. Must have identical call sequence to 'likelihood_function'. Called with identical raw inputs (including cosines/etc)
+if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_factor_function:
+  print(" EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR : {}.{} ".format(opts.supplementary_likelihood_factor_code,opts.supplementary_likelihood_factor_function))
+  __import__(opts.supplementary_likelihood_factor_code)
+  external_likelihood_module = sys.modules[opts.supplementary_likelihood_factor_code]
+  supplemental_ln_likelihood = getattr(external_likelihood_module,opts.supplementary_likelihood_factor_function)
+  name_prep = "prepare_"+opts.supplementary_likelihood_factor_function
+  if hasattr(external_likelihood_module,name_prep):
+    supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
+    # Check for and load in ini file associated with external library
+    if opts.opts.supplementary_likelihood_factor_ini:
+      import configparser as ConfigParser
+      config = ConfigParser.ConfigParser()
+      config.optionxform=str # force preserve case! 
+      config.read(opts.opts.supplementary_likelihood_factor_ini)
+      supplemental_ln_likelhood_parsed_ini=config
 
 if opts.distance_marginalization:
   lookup_table = np.load(opts.distance_marginalization_lookup_table)
@@ -648,7 +679,7 @@ elif opts.sampler_method == "GMM":
     print(" ILE: {}".format(opts.sampler_method))
     sampler = mcsamplerEnsemble.MCSampler()
 else:
-    print(" ILE: default sampler")
+    print(" ILE: original sampler")
     print(" ILE: {}".format(opts.sampler_method))
 
 #
@@ -943,7 +974,7 @@ if opts.sampler_method == "GMM":
     #    (psi) (orb_phase)   # only do 1d adaptivity there, 
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,(0,1):None} 
 #    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,(0,1):4} 
-    default_phipsi = mcsamplerEnsemble.create_wide_single_component_prior( [ [0,2*np.pi], [0,2*np.pi]])
+    default_phipsi = mcsamplerEnsemble.create_wide_single_component_prior( [ param_limits['psi'], param_limits['phi_orb']])
     gmm_dict = {(2,3):None,(4,5):None,(0,1):default_phipsi} 
     gmm_adapt = {(2,3): True, (4,5): True, (0,1): False}
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,tuple([0]):None,tuple([1]):None} 
@@ -1023,6 +1054,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     if opts.pin_distance_to_sim:
       pinned_params['distance']=P.dist/(1.e6 * lal.PC_SI)
 
+    # Call external likleihood preparation if any
+    if supplemental_ln_likelhood_prep:
+      supplemental_ln_likelhood_prep(P=P,config=supplemental_ln_likelhood_parsed_ini)
+
     # Precompute
     t_window = 0.15
     rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest=factored_likelihood.PrecomputeLikelihoodTerms(
@@ -1100,7 +1135,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, rholms_intp, cross_terms, cross_terms_V, opts.l_max)
                 i+=1
             if return_lnL:
-              return lnL - manual_avoid_overflow_logarithm
+              return lnL - manual_avoid_overflow_logarithm 
             return numpy.exp(lnL - manual_avoid_overflow_logarithm)
 
     else: # Sum over time for every point in other extrinsic params
@@ -1134,8 +1169,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, rholms_intp, rholms, cross_terms, cross_terms_V,                   
                         opts.l_max,interpolate=opts.interpolate_time)
                 i+=1
+            if supplemental_ln_likelihood:
+              lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance)
             if return_lnL:
-              return lnL -manual_avoid_overflow_logarithm
+              return lnL -manual_avoid_overflow_logarithm 
             return numpy.exp(lnL -manual_avoid_overflow_logarithm)
 
      elif opts.vectorized: # use array-based multiplications, fewer for loops
@@ -1176,11 +1213,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
               phi_orb_true = (P.phiref + P.psi)/2.
               psi_true = (P.phiref - P.psi)/2.
               P.psi= psi_true
-              P.phi = phi_orb_true
+              P.phiref = phi_orb_true
 
             lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
+            if supplemental_ln_likelihood:
+              lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance)
             if return_lnL:
               return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL-manual_avoid_overflow_logarithm)
@@ -1218,12 +1257,14 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   phi_orb_true = (P.phiref + P.psi)/2.
                   psi_true = (P.phiref - P.psi)/2.
                   P.psi= psi_true
-                  P.phi = phi_orb_true
+                  P.phiref = phi_orb_true
 
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
 #                nEvals +=len(right_ascension)
+                if supplemental_ln_likelihood:
+                  lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance,xpy=xpy_default)
                 if return_lnL:
                   return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
@@ -1311,11 +1352,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   phi_orb_true = (P.phiref + P.psi)/2.
                   psi_true = (P.phiref - P.psi)/2.
                   P.psi= psi_true
-                  P.phi = phi_orb_true
+                  P.phiref = phi_orb_true
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
 #                nEvals +=len(right_ascension)
+                if supplemental_ln_likelihood:
+                  lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, 0) # same API
                 if return_lnL:
                   return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
@@ -1435,8 +1478,20 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["t_ref"] += float(fiducial_epoch)
         else:
             samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(samples["psi"]))
+      # rotate sky to recover physical coordinates
+      if opts.internal_sky_network_coordinates:
+        tmp_th, tmp_ph = my_rotation(np.pi/2 - samples['declination'],samples['right_ascension'])
+        samples['declination'] = np.pi/2 - tmp_th
+        samples['right_ascension'] = np.mod(tmp_ph, 2*np.pi)
+
+      # recover true phase, polarization samples
+      if opts.internal_rotate_phase:
+        phi_orb_true = np.mod((samples['phi_orb'] + samples['psi'])/2., 2*np.pi)
+        psi_true = np.mod((samples['phi_orb'] - samples['psi'])/2., 2*np.pi)   # keep as 2 pi range, to be consistent with past work
+        samples['psi']= psi_true
+        samples['phi_orb'] = phi_orb_true
       samples["polarization"] = samples["psi"]
-      samples["coa_phase"] = samples["phi_orb"]
+      samples["coa_phase"] = samples["phi_orb"]        
       if ("declination", "right_ascension") in sampler.params:
             samples["latitude"], samples["longitude"] = samples[("declination", "right_ascension")]
       else:
@@ -1457,6 +1512,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["spin2y"] =numpy.ones(samples["psi"].shape)*P.s2y
             samples["spin2z"] =numpy.ones(samples["psi"].shape)*P.s2z
             samples["alpha4"] =numpy.ones(samples["psi"].shape)*P.eccentricity
+            samples["alpha5"] =numpy.ones(samples["psi"].shape)*P.lambda1
+            samples["alpha6"] =numpy.ones(samples["psi"].shape)*P.lambda2
 
       if opts.resample_time_marginalization:
         samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict)

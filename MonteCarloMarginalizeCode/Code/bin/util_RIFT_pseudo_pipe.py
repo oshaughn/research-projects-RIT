@@ -149,6 +149,7 @@ parser.add_argument("--internal-marginalize-distance-file",help="Filename for ma
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
 parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
 parser.add_argument("--internal-force-iterations",type=int,default=None,help="If inteeger provided, overrides internal guidance on number of iterations, attempts to force prolonged run. By default puts convergence tests on")
+parser.add_argument("--internal-test-convergence-threshold",type=float,default=None,help="The value of the threshold. 0.02 has been default. If not specified, left out of helper command line (where default is maintained) ")
 parser.add_argument("--internal-flat-strategy",action='store_true',help="Use the same CIP options for every iteration, with convergence tests on.  Passes --test-convergence, ")
 parser.add_argument("--internal-use-amr",action='store_true',help="Changes refinement strategy (and initial grid) to use. PRESENTLY WE CAN'T MIX AND MATCH AMR, CIP ITERATIONS, so this is fixed for the whole run right now; use continuation and 'fetch' to augment")
 parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank used for template")
@@ -157,6 +158,8 @@ parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_tr
 parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
 parser.add_argument("--internal-propose-converge-last-stage",action='store_true',help="Pass through to helper")
+parser.add_argument("--internal-n-iterations-subdag-max",default=10,type=int,help="Subdag convergence proposal max iterations option")
+parser.add_argument("--internal-n-evaluations-per-iteration",default=None,type=int,help="Number of ILE evaluation points per iteration, if not set then pipeline selects experience-based default.  Each ILE worker will do a fraction of this total workload.")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="adds the time resampling option.  Only deployed for vectorized calculations (which should be all that end-users can access)")
 parser.add_argument("--batch-extrinsic",action='store_true')
@@ -209,6 +212,7 @@ parser.add_argument("--cip-sigma-cut",default=None,type=float,help="sigma-cut is
 parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the non-final iterations")
 parser.add_argument("--n-output-samples-last",type=int,default=20000,help="Number of output samples generated in the final iteration")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
+parser.add_argument('--internal-cip-tripwire',type=float,help="Passed to CIP")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
 parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-rotate-phase", action='store_true')
@@ -561,6 +565,8 @@ if opts.assume_highq:
     npts_it =1000
 if opts.internal_propose_converge_last_stage:
     cmd += " --propose-converge-last-stage "
+if opts.internal_test_convergence_threshold: # pass argument if provided
+    cmd += " --internal-test-convergence-threshold {}  ".format(opts.internal_test_convergence_threshold)
 if not(opts.cip_fit_method is None):
     cmd += " --force-fit-method {} ".format(opts.cip_fit_method)
     if opts.cip_fit_method == 'rf':
@@ -583,6 +589,14 @@ elif opts.scale_mc_range:
     cmd += " --scale-mc-range {} ".format(opts.scale_mc_range)
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range {} ".format(opts.force_eta_range)
+if opts.force_chi_max:
+    cmd+= " --force-chi-max {} ".format(opts.force_chi_max)
+if opts.force_chi_small_max:
+    cmd+= " --force-chi-small-max {} ".format(opts.force_chi_small_max)
+if opts.force_lambda_max:
+    cmd+= " --force-lambda-max {} ".format(opts.force_lambda_max)
+if opts.force_lambda_small_max:
+    cmd+= " --force-lambda-small-max {} ".format(opts.force_lambda_small_max)    
 if not(opts.gracedb_id is None) and (opts.use_ini is None):
     cmd +="  --gracedb-id " + gwid 
     if  opts.use_legacy_gracedb:
@@ -766,9 +780,12 @@ if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     snr = event_dict["SNR"]
     q = P.m2/P.m1
     n_max_jobs=200
-    n_jobs_normal_guess =  2+int( (1./q)*np.max([(snr/15),1]) )  # increase number of workers linearly with SNR and with mass ratio
+    n_jobs_normal_guess =  2+2*int( (1./q)*np.power(np.max([(snr/15),1]), 1.3) )  # increase number of workers linearly with SNR**1.3 and with mass ratio
     n_jobs_normal_actual = np.min([n_jobs_normal_guess,n_max_jobs])
     n_jobs_final_actual = np.min([2*n_jobs_normal_guess,n_max_jobs])
+    if opts.assume_matter:   # more workers for matter physics jobs
+        n_jobs_normal_actual *=2
+        n_jobs_final_actual *=2
     print("  AUTO-EXPLODE GUESS {} {} {} ", n_jobs_normal_guess, n_jobs_normal_actual,n_jobs_final_actual)
     opts.cip_explode_jobs = n_jobs_normal_actual
     opts.cip_explode_jobs_last = n_jobs_final_actual
@@ -798,7 +815,7 @@ for indx in np.arange(len(instructions_cip)):
         n_workers = opts.cip_explode_jobs
     n_eff_cip_here = int(n_sample_target/n_workers)
     if indx < len(instructions_cip)-1: # on all but 
-        n_eff_cip_here = np.min([opts.internal_cip_cap_neff, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
+        n_eff_cip_here = np.amin([opts.internal_cip_cap_neff/n_workers + 1, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
     n_sample_min_per_worker = int(n_eff_cip_here/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
 
     # Analyze the iteration report
@@ -813,6 +830,8 @@ for indx in np.arange(len(instructions_cip)):
         line += " --sampler-method "+opts.cip_sampler_method
     if opts.internal_cip_temper_log:
         line += " --internal-temper-log "
+    if opts.internal_cip_tripwire:
+        line += " --tripwire-fraction {} ".format(opts.internal_cip_tripwire)
     line += prior_args_lookup[opts.spin_magnitude_prior]
     if opts.cip_internal_use_eta_in_sampler:
         line = line.replace('parameter delta_mc','parameter eta')
@@ -868,7 +887,7 @@ for indx in np.arange(len(instructions_cip)):
         line += " --chi-max {}  ".format(chi_max)
         # Secondary body can also have spin, allow us to force its range
         if opts.force_chi_small_max:
-            line += " --chi-small-max {} ".format(chi_small_max)
+            line += " --chi-small-max {} ".format(opts.force_chi_small_max)
         # Parse arguments, impose limit based on the approximant used, as described above
 #        import StringIO
         my_parser = argparse.ArgumentParser()
@@ -889,7 +908,10 @@ for indx in np.arange(len(instructions_cip)):
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     if opts.assume_eccentric:
-        line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+        if not(opts.internal_use_aligned_phase_coordinates):
+            line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+        else:
+            line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity')
         if not(opts.force_ecc_max is None):
             ecc_max = opts.force_ecc_max
             line += " --ecc-max {}  ".format(ecc_max)
@@ -960,8 +982,13 @@ if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3
 with open("args_puff.txt",'w') as f:
-        puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
-        if opts.assume_matter:
+        if opts.force_chi_max and not(opts.force_chi_small_max):
+            puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(opts.force_chi_max, opts.force_chi_max)
+        elif opts.force_chi_max and opts.force_chi_small_max:
+            puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(opts.force_chi_max, opts.force_chi_small_max)
+        elif not(opts.force_chi_max) and not(opts.force_chi_small_max):
+            puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
+        if opts.assume_matter  and not(opts.assume_matter_but_primary_bh):
             lambda_max = 5000
             lambda_small_max=5000
             if opts.force_lambda_max:
@@ -970,6 +997,15 @@ with open("args_puff.txt",'w') as f:
                 lambda_small_max = opts.force_lambda_small_max
             # Prevent negative lambda accidentally from puff
             puff_args += " --downselect-parameter lambda1 --downselect-parameter-range [0,{}] --downselect-parameter lambda2 --downselect-parameter-range [0,{}] ".format(lambda_max, lambda_small_max)
+        if opts.assume_matter  and opts.assume_matter_but_primary_bh:
+#            lambda_max = 0
+            lambda_small_max=5000
+#            if opts.force_lambda_max:
+#                lambda_max = opts.force_lambda_max
+            if opts.force_lambda_small_max:
+                lambda_small_max = opts.force_lambda_small_max
+            # Prevent negative lambda accidentally from puff
+            puff_args += " --downselect-parameter lambda2 --downselect-parameter-range [0,{}] ".format(lambda_small_max)
         if False: #opts.cip_fit_method == 'rf':
             # RF can majorly overfit and create 'voids' early on, eliminate the force-away
             # Should only do this in the INITIAL puff, not all, to avoid known problems later
@@ -1006,6 +1042,10 @@ if opts.internal_force_iterations:
 if not (opts.manual_initial_grid is None):
     shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
 
+# override npts_it if needed
+if opts.internal_n_evaluations_per_iteration:
+    npts_it = opts.internal_n_evaluations_per_iteration
+
 # Build DAG
 cip_mem  = 30000
 n_jobs_per_worker=opts.ile_jobs_per_worker
@@ -1016,7 +1056,7 @@ if opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # m
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-copies " + str(opts.n_ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies 1" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if opts.assume_matter or opts.assume_eccentric:
     cmd +=  " --convert-args `pwd`/helper_convert_args.txt "
 if not(opts.ile_runtime_max_minutes is None):

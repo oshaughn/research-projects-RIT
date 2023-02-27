@@ -30,21 +30,21 @@ When preparing your work, please cite
      4.  Wysocki, O'Shaughnessy,  Fong, Lange [paper](https://arxiv.org/abs/1902.04934)
 
  4. If you are using a non-lalsuite waveform interface, please acknowledge
-     a.  gwsurrogate interface: (a) O'Shaughnessy, Blackman, Field 2017 [paper](http://adsabs.harvard.edu/abs/2017CQGra..34n4002O); (b) F. Shaik et al (in prep)
-     b.  TEOBResumS interface (original):  Lange et al 2018 RIFT paper
-     c.  NR interface (parts inside ILE): Lange et al 2017 PRD 96, 404 [NR comparison methods paper](http://adsabs.harvard.edu/abs/2017PhRvD..96j4041L)
-     d.  NRSur7dq2 interface: Lange et al 2018 (RIFT) [paper](https://arxiv.org/abs/1805.10457), and ...
+     1.  gwsurrogate interface: (a) O'Shaughnessy, Blackman, Field 2017 [paper](http://adsabs.harvard.edu/abs/2017CQGra..34n4002O); (b) F. Shaik et al (in prep)
+     2.  TEOBResumS interface (original):  Lange et al 2018 RIFT paper
+     3.  NR interface (parts inside ILE): Lange et al 2017 PRD 96, 404 [NR comparison methods paper](http://adsabs.harvard.edu/abs/2017PhRvD..96j4041L)
+     4.  NRSur7dq2 interface: Lange et al 2018 (RIFT) [paper](https://arxiv.org/abs/1805.10457), and ...
 
   5. If you are using an updated Monte Carlo integration package, please acknowledge the authors; papers will be prepared soon
-     a.  GMM integrator: Elizabeth Champion; see [original repo](https://git.ligo.org/benjamin.champion/Monte-Carlo-Integrator), implemented via MonteCarloEnsemble and mcsamplerEnsemble; please cite Ristic et al https://arxiv.org/abs/2105.07013
-     b.  GPU MC integrator:  Wysocki, O'Shaughnessy; cite Wofford et al https://dcc.ligo.org/P2200059
+     1.  GMM integrator: Elizabeth Champion; see [original repo](https://git.ligo.org/benjamin.champion/Monte-Carlo-Integrator), implemented via MonteCarloEnsemble and mcsamplerEnsemble; please cite Ristic et al https://arxiv.org/abs/2105.07013
+     2.  GPU MC integrator:  Wysocki, O'Shaughnessy; cite Wofford et al https://dcc.ligo.org/P2200059
 
   6. If you are using a distance-marginalized likeliihood, please acknowledge 
-     a. Distance marginalization : Soichiro Morisaki, Dan Wysocki, see  Wofford et al https://dcc.ligo.org/P2200059
+     1. Distance marginalization : Soichiro Morisaki, Dan Wysocki, see  Wofford et al https://dcc.ligo.org/P2200059
 
   7. If you are using a special coordinate system
-     a. Rotated inspiral-phase : cite the original Lee, Morisaki, Tanaka paper (https://dcc.ligo.org/LIGO-P2200037); also cite Wofford et al in prep https://dcc.ligo.org/P2200059
-     b. Pseudo-cylindrical coordinates: see Wofford et al https://dcc.ligo.org/P2200059
+     1. Rotated inspiral-phase : cite the original Lee, Morisaki, Tanaka paper ([journal](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.107.024040) [dcc](https://dcc.ligo.org/LIGO-P2200037)); also cite Wofford et al  [journal](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.107.024040) [dcc](https://dcc.ligo.org/P2200059)
+     1. Pseudo-cylindrical coordinates: see Wofford et al   [journal](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.107.024040) [dcc](https://dcc.ligo.org/P2200059)
 
 ## Authorlists: Opt-in model
 Several aspects of this code are very actively developed.  We encourage  close collaboration with the lead developers (O'Shaughnessy and Lange) to produce the best possible results, particularly given comparatively rapid changes to the interface and pipeline in the past and planned for the future as the user- and developer-base expands.

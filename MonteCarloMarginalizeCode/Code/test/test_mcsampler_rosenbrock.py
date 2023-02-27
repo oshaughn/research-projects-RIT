@@ -17,9 +17,12 @@ import optparse
 parser = optparse.OptionParser()
 parser.add_option("--n-max",type=int,default=1000000)
 parser.add_option("--save-plot",action='store_true')
+parser.add_option("--production",action='store_true')
+parser.add_option("--use-lnL",action='store_true')
+parser.add_option("--lnL-shift",default=100,type=float,help="Our integrators assume lnL >0 when designing adaptation, so this shift helps us adapt, and is more consistent with our real problems.  Choose adapt-weight-exponent consistent with this value to be most realistic")
 #parser.add_option("--as-test",action='store_true')
 #parser.add_option("--no-adapt",action='store_true')
-parser.add_option("--floor-level",default=0.05,type=float)
+parser.add_option("--floor-level",default=0.4,type=float)  # for this problem, a higher floor level helps
 parser.add_option("--adapt-weight-exponent",default=0.1,type=float)
 parser.add_option("--n-chunk",default=10000,type=int)
 parser.add_option("--verbose",action='store_true')
@@ -42,12 +45,13 @@ Z_rosenbrock = -5.804
 
 ### define integrand 
 ### some typecasting needed
+lnL_offset = opts.lnL_shift    # lnL > 1 used in adaptation
 def f(x1, x2):
     minus_lnL = np.array(np.power((1.-x1), 2) + 100.* np.power((x2-x1**2),2),dtype=float)
-    return np.exp( - (minus_lnL))
+    return np.exp( lnL_offset - (minus_lnL))
 def ln_f(x1, x2): 
     minus_lnL = np.array(np.power((1.-x1), 2) + 100.* np.power((x2-x1**2),2),dtype=float)
-    return - minus_lnL
+    return lnL_offset - minus_lnL
 
 ### initialize samplers
 sampler = mcsampler.MCSampler()
@@ -73,34 +77,34 @@ for p in params:
             left_limit=llim, right_limit=rlim,adaptive_sampling=True)
 
 # number of Gaussian components to use in GMM
-n_comp = 1
+n_comp = 2
 
 extra_args = {"n": opts.n_chunk,"n_adapt":100, "floor_level":opts.floor_level,"tempering_exp" :tempering_exp}
 
 
 ### integrate
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
-        no_protect_names=True, nmax=nmax, save_intg=True,verbose=False,**extra_args)
-print(np.log(integral_1), Z_rosenbrock)
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=opts.verbose,**extra_args)
+print(np.log(integral_1) - lnL_offset, Z_rosenbrock)
 print(" --- finished default --")
 integral_1b, var_1b, eff_samp_1b, _ = samplerAC.integrate(f, *params, 
-        no_protect_names=True, nmax=nmax, save_intg=True,verbose=False,**extra_args)
-print(np.log(integral_1b), Z_rosenbrock)
+        no_protect_names=True, nmax=nmax, save_intg=True,verbose=opts.verbose,**extra_args)
+print(np.log(integral_1b) - lnL_offset, Z_rosenbrock)
 print(" --- finished AC --")
 print(" NEED TO ADD OPTION TO TEST CORRELATED SAMPLING ")
-use_lnL = True
-return_lnI=True
+use_lnL = opts.use_lnL
+return_lnI=opts.use_lnL
 if use_lnL:
     infunc = ln_f
 else:
     infunc = f
 integral_2, var_2, eff_samp_2, _ = samplerEnsemble.integrate(infunc, *params, 
-        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=False,verbose=False,use_lnL=use_lnL,return_lnI=return_lnI,**extra_args)
+        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=False,verbose=opts.verbose,use_lnL=use_lnL,return_lnI=return_lnI,**extra_args)
 if return_lnI and use_lnL:
     integral_2 = np.exp(integral_2)
-print(np.log(integral_2), Z_rosenbrock)
+print(np.log(integral_2) - lnL_offset, Z_rosenbrock)
 print(" --- finished GMM --")
-print(integral_1,integral_1b,integral_2,np.exp(Z_rosenbrock))
+print(integral_1/np.exp(lnL_offset),integral_1b/np.exp(lnL_offset),integral_2/np.exp(lnL_offset),np.exp(Z_rosenbrock))
 print(np.array([integral_1,integral_1b,integral_2])/np.exp(Z_rosenbrock))
 print(" AC/default ", integral_1b/integral_1, np.sqrt(var_1)/integral_1)  # off by width**3
 print(" GMM/default ",integral_2/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_2)/integral_2)
@@ -224,10 +228,14 @@ plt.plot(x_i,cdf,label="true")
 
 
 
-plt.legend()
+if not(opts.production):
+    plt.legend()
 
 fname = "cdf_rosenbrock.png"
 
 print("Saving CDF figure as " + fname + "...")
+if opts.production:
+    plt.xlabel(r'$x$')
+    plt.ylabel(r'$P(<x)$')
 
 plt.savefig(fname)

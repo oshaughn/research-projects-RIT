@@ -197,7 +197,8 @@ for i in range(ndim):
 fname = "cdf.pdf"
 
 print("Saving CDF figure as " + fname + "...")
-
+plt.xlabel(r'$x$')
+plt.ylabel(r'$P(<x)$')
 plt.savefig(fname)
 
 

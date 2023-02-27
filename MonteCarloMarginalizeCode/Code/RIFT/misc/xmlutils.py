@@ -34,10 +34,14 @@ CMAP = { "right_ascension": "longitude",
     "alpha2":"alpha2",
     "alpha3":"alpha3",
     "alpha4":"alpha4",
+    "alpha5":"alpha5",
+    "alpha6":"alpha6",
     "loglikelihood": "alpha1",
     "joint_prior": "alpha2",
     "joint_s_prior": "alpha3",
     "eccentricity":"alpha4",
+    "lambda1":"alpha5",
+    "lambda2":"alpha6",
     "spin1x":"spin1x",
     "spin1y":"spin1y",
     "spin1z":"spin1z",
@@ -48,7 +52,7 @@ CMAP = { "right_ascension": "longitude",
 
 # FIXME: Find way to intersect given cols with valid cols when making table.
 # Otherwise, we'll have to add them manually and ensure they all exist
-sim_valid_cols = ["simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha1", "alpha2", "alpha3", "alpha4", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"]
+sim_valid_cols = ["simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha1", "alpha2", "alpha3", "alpha4", "alpha5", "alpha6", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"]
 sngl_valid_cols = [ "event_id", "snr", "tau0", "tau3"]
 multi_valid_cols = ["process_id", "event_id", "snr"]
 
@@ -80,7 +84,7 @@ def append_samples_to_xmldoc(xmldoc, sampdict):
     # here
     for vrow in numpy.array(list(zip(*[vrow_sub.T for vrow_sub in values])), dtype=numpy.object):
         #si_table.append(samples_to_siminsp_row(si_table, **dict(zip(keys, vrow.flatten()))))
-        vrow = reduce(list.__add__, [list(i) if isinstance(i, collections.Iterable) else [i] for i in vrow])
+        vrow = reduce(list.__add__, [list(i) if isinstance(i, collections.abc.Iterable) else [i] for i in vrow])
         si_table.append(samples_to_siminsp_row(si_table, **dict(list(zip(keys, vrow)))))
         si_table[-1].process_id = procid
 

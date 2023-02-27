@@ -158,6 +158,7 @@ parser.add_argument("--force-eta-range",default=None,type=str,help="For PP plots
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
+parser.add_argument("--use-coinc",default=None)
 parser.add_argument("--event",type=int,default=None)
 parser.add_argument("--check-ifo-availability",action='store_true',help="if true, attempt to use frame availability or DQ information to choose ")
 parser.add_argument("--manual-ifo-list",default=None,type=str,help="Overrides IFO list normally retrieve by event ID.  Use with care (e.g., glitch studies) or for events specified with --event-time.")
@@ -168,6 +169,10 @@ parser.add_argument("--datafind-server",default=None,help="LIGO_DATAFIND_SERVER 
 parser.add_argument("--fmin",default=None,type=float,help="Minimum frequency for integration. Used to estimate signal duration")
 parser.add_argument("--manual-mc-min",default=None,type=float,help="Manually input minimum in chirp mass")
 parser.add_argument("--manual-mc-max",default=None,type=float,help="Manually input maximum in chrip mass")
+parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
+parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided")
+parser.add_argument("--force-lambda-max",default=None,type=float,help="Provde this value to override the value of lambda-max provided")
+parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provde this value to override the value of lambda-small-max provided")
 parser.add_argument("--fmin-template",default=20,type=float,help="Minimum frequency for template. Used to estimate signal duration. If fmin not specified, also the minimum frequency for integration")
 parser.add_argument("--fmax",default=None,type=float,help="fmax. Use this ONLY if you want to override the default settings, which are set based on the PSD used")
 parser.add_argument("--data-start-time",default=None)
@@ -201,6 +206,7 @@ parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrou
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
+parser.add_argument("--internal-test-convergence-threshold",type=float,default=0.02,help="The value of the threshold. 0.02 has been default ")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
 parser.add_argument("--online", action='store_true', help="Use online settings")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
@@ -404,6 +410,39 @@ elif opts.sim_xml:  # right now, configured to do synthetic data only...should b
     event_dict["s2z"] = P.s2z
     event_dict["P"] = P
     event_dict["epoch"]  = 0 # no estimate for now
+elif opts.use_coinc: # If using a coinc through injections and not a GraceDB event.
+    # Same code as used before for gracedb
+    coinc_file = opts.use_coinc
+    samples = lsctables.SnglInspiralTable.get_table(utils.load_filename(coinc_file,contenthandler=lalsimutils.cthdler))
+    event_duration=4  # default
+    ifo_list = []
+    snr_list = []
+    tref_list = []
+    for row in samples:
+        m1 = row.mass1
+        m2 = row.mass2
+        ifo_list.append(row.ifo)
+        snr_list.append(row.snr)
+        tref_list.append(row.end_time + 1e-9*row.end_time_ns)
+        try:
+            event_duration = row.event_duration # may not exist
+        except:
+            print(" event_duration field not in XML ")
+            event_duration=4 # fallback
+    event_dict["m1"] = row.mass1
+    event_dict["m2"] = row.mass2
+    event_dict["s1z"] = row.spin1z
+    event_dict["s2z"] = row.spin2z
+    event_dict["IFOs"] = list(set(ifo_list))
+    max_snr_idx = snr_list.index(max(snr_list))
+    event_dict['SNR'] = snr_list[max_snr_idx]
+    event_dict['tref'] = tref_list[max_snr_idx]
+    P=lalsimutils.ChooseWaveformParams()
+    P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
+    P.fmin = opts.fmin_template  #  fmin we will use internally
+    P.tref = event_dict["tref"]
+    event_dict["P"] = P
+    event_dict["epoch"]  = event_duration
 
 # PSDs must be provided by hand, IF this is done by this code!
 ifo_list=[]
@@ -514,7 +553,7 @@ if not (opts.hint_snr is None) and not ("SNR" in event_dict.keys()):
     event_dict["SNR"] = np.max([opts.hint_snr,6])  # hinting a low SNR isn't helpful
 
 print(" Event analysis ", event_dict)
-if (opts.event_time is None) or opts.sim_xml:
+if (opts.event_time is None) or opts.sim_xml or "P" in event_dict:
     print( " == candidate event parameters (as passed to helper) == ")
     event_dict["P"].print_params()
     if not(opts.event_time is None):
@@ -875,9 +914,11 @@ if "SNR" in event_dict.keys():
             helper_ile_args += " --manual-logarithm-offset " + str(lnL_expected)
         if not(opts.use_downscale_early):
             # Blocks in ALL iterations, which is not recommended
-            helper_cip_args += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
+            helper_cip_args +=   " --lnL-protect-overflow " #" --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
+        elif snr_here <35:
+            helper_cip_args_extra +=  " --lnL-protect-overflow " # " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
         else:
-            helper_cip_args_extra += " --lnL-shift-prevent-overflow " + str(lnL_expected)   # warning: this can have side effects if the shift makes lnL negative, as the default value of the fit is 0 !
+            helper_cip_args_extra = " --internal-use-lnL "   # always use lnL scaling for loud signals at late times, overflow issue for most integrators
         rescaled_base_ile = True
 if opts.internal_ile_auto_logarithm_offset and not opts.internal_ile_use_lnL:
     helper_ile_args += " --auto-logarithm-offset "
@@ -1010,7 +1051,7 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
         cmd += " --enforce-duration-bound " + str(opts.data_LI_seglen)
     cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
     if opts.assume_nospin:
-        grid_size = 500
+        grid_size = 1000   # 500 was too small with noise
     else:
         chieff_range = str([chieff_min,chieff_max]).replace(' ', '')   # assumes all chieff are possible
         if opts.propose_fit_strategy:
@@ -1023,7 +1064,8 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
 
         cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
         grid_size =2500
-
+    if "SNR" in event_dict:
+        grid_size *= np.max([1,event_dict["SNR"]/15])  # more grid points at higher amplitude. Yes, even though we also contract the paramete range
     if not (opts.force_initial_grid_size is None):
         grid_size = opts.force_initial_grid_size
     cmd += " --grid-cartesian-npts  " + str(int(grid_size))
@@ -1052,7 +1094,7 @@ elif opts.propose_initial_grid:
     if tune_grid:
         cmd += " --reset-grid-via-match --match-value 0.85 --use-fisher  --use-fisher-resampling --approx  " + approx_str # ow, but useful
     if opts.assume_nospin:
-        grid_size = 500
+        grid_size = 1000   # 500 was too small with zero noise
     else:
         chieff_range = str([chieff_min,chieff_max]).replace(' ', '')   # assumes all chieff are possible
         if opts.propose_fit_strategy:
@@ -1106,6 +1148,9 @@ elif opts.propose_initial_grid:
 
     if  not ( opts.internal_use_aligned_phase_coordinates )  and (('quadratic' in fit_method) or ('polynomial' in fit_method) or 'rf' in fit_method) :
         grid_size *= 1.5  # denser initial grid for these methods, since they need more training to stabilize at times. But not for new coordinates
+
+    if "SNR" in event_dict:
+        grid_size *= np.max([1,event_dict["SNR"]/15])  # more grid points at higher amplitude. Yes, even though we also contract the paramete range
 
     if not (opts.force_initial_grid_size is None):
         grid_size = opts.force_initial_grid_size
@@ -1227,6 +1272,14 @@ if opts.propose_fit_strategy:
         helper_cip_args += " --cap-points 12000 "
     if not opts.no_propose_limits:
         helper_cip_args += mc_range_str_cip + eta_range_str_cip
+    if opts.force_chi_max:
+        helper_cip_args += " --chi-max {} ".format(opts.force_chi_max)
+    if opts.force_chi_small_max:
+        helper_cip_args += " --chi-small-max {} ".format(opts.force_chi_small_max)
+    if opts.force_lambda_max:
+        helper_cip_args += " --lambda-max {} ".format(opts.force_lambda_max)
+    if opts.force_lambda_small_max:
+        helper_cip_args += " --lambda-small-max {} ".format(opts.force_lambda_small_max)
 
     helper_cip_arg_list_common = str(helper_cip_args)[1:] # drop X
     n_it_early =3
@@ -1473,7 +1526,7 @@ for indx in np.arange(len(helper_cip_arg_list)):
 n_its = list(map(lambda x: float(x.split()[0]), helper_cip_arg_list))
 n_its_to_not_test = np.sum(n_its) - n_its[-1]
 helper_test_args += " --iteration-threshold {} ".format(int(n_its_to_not_test))
-helper_test_args += " --threshold 0.02 "
+helper_test_args += " --threshold {} ".format(opts.internal_test_convergence_threshold)
 
 with open("helper_test_args.txt",'w+') as f:
     f.write(helper_test_args)
@@ -1502,6 +1555,8 @@ if opts.propose_fit_strategy:
     force_away_val=0.05
     if mc_center < 3:
         force_away_val = 0.01
+    if opts.assume_nospin:
+        force_away_val=0.01  # lower dimension, need to avoid ripples on boundary
     if not(opts.internal_use_amr):
         helper_puff_args += " --force-away " + str(force_away_val)  # prevent duplicate points. Don't do this for AMR, since they are already quite sparse
     with open("helper_puff_args.txt",'w') as f:
