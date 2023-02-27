@@ -1051,7 +1051,7 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
         cmd += " --enforce-duration-bound " + str(opts.data_LI_seglen)
     cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
     if opts.assume_nospin:
-        grid_size = 500
+        grid_size = 1000   # 500 was too small with noise
     else:
         chieff_range = str([chieff_min,chieff_max]).replace(' ', '')   # assumes all chieff are possible
         if opts.propose_fit_strategy:
@@ -1064,7 +1064,8 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
 
         cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
         grid_size =2500
-
+    if "SNR" in event_dict:
+        grid_size *= np.max([1,event_dict["SNR"]/15])  # more grid points at higher amplitude. Yes, even though we also contract the paramete range
     if not (opts.force_initial_grid_size is None):
         grid_size = opts.force_initial_grid_size
     cmd += " --grid-cartesian-npts  " + str(int(grid_size))
@@ -1093,7 +1094,7 @@ elif opts.propose_initial_grid:
     if tune_grid:
         cmd += " --reset-grid-via-match --match-value 0.85 --use-fisher  --use-fisher-resampling --approx  " + approx_str # ow, but useful
     if opts.assume_nospin:
-        grid_size = 500
+        grid_size = 1000   # 500 was too small with zero noise
     else:
         chieff_range = str([chieff_min,chieff_max]).replace(' ', '')   # assumes all chieff are possible
         if opts.propose_fit_strategy:
@@ -1147,6 +1148,9 @@ elif opts.propose_initial_grid:
 
     if  not ( opts.internal_use_aligned_phase_coordinates )  and (('quadratic' in fit_method) or ('polynomial' in fit_method) or 'rf' in fit_method) :
         grid_size *= 1.5  # denser initial grid for these methods, since they need more training to stabilize at times. But not for new coordinates
+
+    if "SNR" in event_dict:
+        grid_size *= np.max([1,event_dict["SNR"]/15])  # more grid points at higher amplitude. Yes, even though we also contract the paramete range
 
     if not (opts.force_initial_grid_size is None):
         grid_size = opts.force_initial_grid_size
@@ -1551,6 +1555,8 @@ if opts.propose_fit_strategy:
     force_away_val=0.05
     if mc_center < 3:
         force_away_val = 0.01
+    if opts.assume_nospin:
+        force_away_val=0.01  # lower dimension, need to avoid ripples on boundary
     if not(opts.internal_use_amr):
         helper_puff_args += " --force-away " + str(force_away_val)  # prevent duplicate points. Don't do this for AMR, since they are already quite sparse
     with open("helper_puff_args.txt",'w') as f:
