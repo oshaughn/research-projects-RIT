@@ -11,11 +11,12 @@
 
 import lal
 import lalsimulation as lalsim
+import RIFT.lalsimutils as lalsimutils
 
 has_gws= False
 try:
     # Warning: prints stupid messages to stdout
-    import gwsignal as gw
+    import gwsignal as gws
     from gwsignal.core import utils as ut
     from gwsignal.core import waveform as wfm
     import astropy.units as u
@@ -23,6 +24,24 @@ try:
 except:
     has_gws=False
 
+
+
+def std_and_conj_hlmoff(P, Lmax=2,approx_string=None,**kwargs):
+    hlms = hlmoft(P, Lmax)
+    hlmsF = {}
+    hlms_conj_F = {}
+    for mode in hlms:
+        hlmsF[mode] = lalsimutils.DataFourier(hlms[mode])
+        hlms[mode].data.data = np.conj(hlms[mode].data.data)
+        hlms_conj_F[mode] = lalsimutils.DataFourier(hlms[mode])
+    return hlmsF, hlms_conj_F
+
+def hlmoff(P, Lmax=2,approx_string=None,**kwargs):
+    hlms = hlmoft(P, Lmax)
+    hlmsF = {}
+    for mode in hlms:
+        hlmsF[mode] = lalsimutils.DataFourier(hlms[mode])
+    return hlmsF
 
 
 def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
@@ -57,7 +76,7 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
               'condition' : taper}
 
     # if needed
-    lal_dict = gw.core.utils.to_lal_dict(python_dict_nrsur)
+    lal_dict = gws.core.utils.to_lal_dict(python_dict_nrsur)
 
     approx_string_here = approx_string
     if not(approx_string):
