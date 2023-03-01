@@ -12,18 +12,24 @@
 import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
+import numpy as np
 
 has_gws= False
 try:
     # Warning: prints stupid messages to stdout
-    import gwsignal as gws
-    from gwsignal.core import utils as ut
-    from gwsignal.core import waveform as wfm
+    if hasattr(lalsim, 'gwsignal'):
+        import lalsimulation.gwsignal as gws
+        from lalsimulation.gwsignal.core import utils as ut
+        from lalsimulation.gwsignal.core import waveform as wfm
+    else:
+        import gwsignal as gws
+        from gwsignal.core import utils as ut
+        from gwsignal.core import waveform as wfm
     import astropy.units as u
     has_gws=True
 except:
     has_gws=False
-
+    print("GWsignal import failed")
 
 
 def std_and_conj_hlmoff(P, Lmax=2,approx_string=None,**kwargs):
@@ -69,14 +75,14 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
               'f22_ref': P.fref*u.Hz,
               'phi_ref' : P.phiref*u.rad,
               'distance' : P.dist/(1e6*lal.PC_SI)*u.Mpc,
-              'inclination' : P.incl*u.dimensionless_unscaled,
+              'inclination' : P.incl*u.rad,
               'eccentricity' : P.eccentricity*u.dimensionless_unscaled,
-              'longAscNodes' : P.psi*u.dimensionless_unscaled,
-              'meanPerAno' : P.meanPerAno*u.dimensionless_unscaled,
+              'longAscNodes' : P.psi*u.rad,
+              'meanPerAno' : P.meanPerAno*u.rad,
               'condition' : taper}
 
     # if needed
-    lal_dict = gws.core.utils.to_lal_dict(python_dict_nrsur)
+#    lal_dict = gws.core.utils.to_lal_dict(python_dict)
 
     approx_string_here = approx_string
     if not(approx_string):
@@ -86,12 +92,12 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
     if "NRSur7dq4_gwsurr" == approx_string_here:
         gen =gws.NRSur7dq4_gwsurr()
     else:
-        gen = wf.LALCompactBinaryCoalescenceGenerator(approx_string_here)
+        gen = wfm.LALCompactBinaryCoalescenceGenerator(approx_string_here)
 
     hlm = wfm.GenerateTDModes(python_dict,gen)
     tvals = hlm[(2,2)].times
     npts = len(tvals)
-    epoch = tvals[0]
+    epoch = float(tvals[0]/u.second)
 
     # Repack in conventional structure (typing)
     hlmT = {}
