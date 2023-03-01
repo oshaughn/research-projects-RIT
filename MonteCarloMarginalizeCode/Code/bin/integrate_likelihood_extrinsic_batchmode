@@ -783,6 +783,7 @@ if opts.internal_sky_network_coordinates:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
     frm = identity_convert_togpu(sky_rotations.frm)
     my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default) 
+    my_rotation_cpu = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=np) 
 
 #
 # Intrinsic parameters
@@ -1478,9 +1479,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["t_ref"] += float(fiducial_epoch)
         else:
             samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(samples["psi"]))
-      # rotate sky to recover physical coordinates
+      # rotate sky to recover physical coordinates.  Note on CPU
       if opts.internal_sky_network_coordinates:
-        tmp_th, tmp_ph = my_rotation(np.pi/2 - samples['declination'],samples['right_ascension'])
+        tmp_th, tmp_ph = my_rotation_cpu(np.pi/2 - samples['declination'],samples['right_ascension'])
         samples['declination'] = np.pi/2 - tmp_th
         samples['right_ascension'] = np.mod(tmp_ph, 2*np.pi)
 
