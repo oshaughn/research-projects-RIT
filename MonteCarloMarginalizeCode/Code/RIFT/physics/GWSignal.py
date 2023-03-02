@@ -91,6 +91,8 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
     # Fork on calling different generators
     if "NRSur7dq4_gwsurr" == approx_string_here:
         gen =gws.NRSur7dq4_gwsurr()
+    elif approx_string_here == 'SEOBNRv5PHM':  # only available
+        gen = gws.models.pyseobnr.SEOBNRv5PHM()
     else:
         gen = wfm.LALCompactBinaryCoalescenceGenerator(approx_string_here)
 
