@@ -781,9 +781,10 @@ if opts.internal_sky_network_coordinates:
     opts.internal_sky_network_coordinates = False # stop using this code
   else:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
+    frm_cpu = np.array(frm)  # make CPU-only copy for final operations
     frm = identity_convert_togpu(sky_rotations.frm)
     my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default) 
-    my_rotation_cpu = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=np) 
+    my_rotation_cpu = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm_cpu,xpy=np) 
 
 #
 # Intrinsic parameters
