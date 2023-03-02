@@ -116,6 +116,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
         use_gwsignal=False,
+        use_gwsignal_approx=None,
        use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
@@ -189,6 +190,11 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                         continue
 
 
+    elif use_gwsignal and (has_GWS):  # this MUST be called first, so the P.approx is never tested
+        if not quiet:
+            print( "  FACTORED LIKELIHOOD WITH hlmoff (GWsignal) " )            
+        hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax,approx_string=use_gwsignal_approx)
+
     elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx ==lsu.lalSEOBNRv4HM or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4 ):
         # note: alternative to this branch is to call hlmoff, which will actually *work* if ChooseTDModes is propertly implemented for that model
         #   or P.approx == lsu.lalSEOBNRv4PHM or P.approx == lsu.lalSEOBNRv4P  
@@ -240,11 +246,6 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # else:
         #         hlms_conj = hlms_conj_list
         hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax)
-    elif use_gwsignal and (has_GWS):
-        if not quiet:
-            print( "  FACTORED LIKELIHOOD WITH hlmoff (GWsignal) " )            
-        hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax)
-
     elif (nr_lookup or NR_group) and useNR:
 	    # look up simulation
 	    # use nrwf to get hlmf
