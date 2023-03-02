@@ -43,7 +43,7 @@ When preparing your work, please cite
      1. Distance marginalization : Soichiro Morisaki, Dan Wysocki, see  Wofford et al https://dcc.ligo.org/P2200059
 
   7. If you are using a special coordinate system
-     1. Rotated inspiral-phase : cite the original Lee, Morisaki, Tanaka paper ([journal](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.107.024040) [dcc](https://dcc.ligo.org/LIGO-P2200037)); also cite Wofford et al  [journal](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.107.024040) [dcc](https://dcc.ligo.org/P2200059)
+     1. Rotated inspiral-phase : cite the original Lee, Morisaki, Tagoshi paper ([journal](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.105.124057) [dcc](https://dcc.ligo.org/LIGO-P2200037)); also cite Wofford et al  [journal](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.107.024040) [dcc](https://dcc.ligo.org/P2200059)
      1. Pseudo-cylindrical coordinates: see Wofford et al   [journal](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.107.024040) [dcc](https://dcc.ligo.org/P2200059)
 
 ## Authorlists: Opt-in model
