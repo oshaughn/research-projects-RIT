@@ -13,19 +13,19 @@ import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
 import numpy as np
+import astropy.units as u
 
 has_gws= False
 try:
     # Warning: prints stupid messages to stdout
-    if hasattr(lalsim, 'gwsignal'):
+    try: # if hasattr(lalsim, 'gwsignal'):
         import lalsimulation.gwsignal as gws
         from lalsimulation.gwsignal.core import utils as ut
         from lalsimulation.gwsignal.core import waveform as wfm
-    else:
+    except: # else:
         import gwsignal as gws
         from gwsignal.core import utils as ut
         from gwsignal.core import waveform as wfm
-    import astropy.units as u
     has_gws=True
 except:
     has_gws=False
@@ -33,7 +33,7 @@ except:
 
 
 def std_and_conj_hlmoff(P, Lmax=2,approx_string=None,**kwargs):
-    hlms = hlmoft(P, Lmax)
+    hlms = hlmoft(P, Lmax,approx_string=approx_string)
     hlmsF = {}
     hlms_conj_F = {}
     for mode in hlms:
@@ -43,7 +43,7 @@ def std_and_conj_hlmoff(P, Lmax=2,approx_string=None,**kwargs):
     return hlmsF, hlms_conj_F
 
 def hlmoff(P, Lmax=2,approx_string=None,**kwargs):
-    hlms = hlmoft(P, Lmax)
+    hlms = hlmoft(P, Lmax,approx_string=approx_string)
     hlmsF = {}
     for mode in hlms:
         hlmsF[mode] = lalsimutils.DataFourier(hlms[mode])
@@ -89,12 +89,13 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
         approx_string_here = lalsim.GetStringFromApproximant(P.approx)
 
     # Fork on calling different generators
-    if "NRSur7dq4_gwsurr" == approx_string_here:
-        gen =gws.NRSur7dq4_gwsurr()
-    elif approx_string_here == 'SEOBNRv5PHM':  # only available
-        gen = gws.models.pyseobnr.SEOBNRv5PHM()
-    else:
-        gen = wfm.LALCompactBinaryCoalescenceGenerator(approx_string_here)
+    gen = gws.models.gwsignal_get_waveform_generator(approx_string_here)
+    # if "NRSur7dq4_gwsurr" == approx_string_here:
+    #     gen =gws.NRSur7dq4_gwsurr()
+    # elif approx_string_here == 'SEOBNRv5PHM':  # only available
+    #     gen = gws.models.pyseobnr.SEOBNRv5PHM()
+    # else:
+    #     gen = wfm.LALCompactBinaryCoalescenceGenerator(approx_string_here)
 
     hlm = wfm.GenerateTDModes(python_dict,gen)
     tvals = hlm[(2,2)].times
@@ -104,6 +105,9 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
     # Repack in conventional structure (typing)
     hlmT = {}
     for mode in hlm:
+        if isinstance(mode, str):  # skip 'time_array'
+            continue
+        # 
         h = lal.CreateCOMPLEX16TimeSeries("hlm",
                 lal.LIGOTimeGPS(0.), 0., P.deltaT, lal.DimensionlessUnit,
                 npts)
@@ -112,8 +116,10 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
         # Resize if needed
         if P.deltaF:
             TDlen = int(1./P.deltaF * 1./P.deltaT)
-            if TDlen < h.data.length:
+            if TDlen < h.data.length:   # Truncate the series to the desired length, removing data at the *start* (left)
                 h = lal.ResizeCOMPLEX16TimeSeries(h,h.data.length-TDlen,TDlen)
+            elif TDlen > h.data.length:   # Zero pad, extend at end
+                h = lal.ResizeCOMPLEX16TimeSeries(h,0,TDlen)
         # Add to structure
         hlmT[mode] = h
 
