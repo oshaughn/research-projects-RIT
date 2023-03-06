@@ -46,6 +46,12 @@ sci_ver = list(map(safe_int, scipy.version.version.split('.')))  # scipy version
 from ligo.lw import lsctables, utils, ligolw #, table, ,ilwd # check all are needed
 from glue.lal import Cache
 
+lalmetaio_old_style=True
+import lalmetaio
+if not(hasattr(lalmetaio.SimInspiralTable, 'geocent_end_time_ns')):
+#    print(" NEW style lalmetaio ")
+    lalmetaio_old_style=False  # no geocent_end_time_ns
+
 import lal
 import lalsimulation as lalsim
 #import lalinspiral
@@ -1638,7 +1644,9 @@ class ChooseWaveformParams:
         self.phi = row.longitude # Right ascension
         self.radec = True # Flag to interpret (theta,phi) as (DEC,RA)
         self.psi = row.polarization
-        self.tref = row.geocent_end_time + 1e-9*row.geocent_end_time_ns
+        self.tref = row.geocent_end_time
+        if lalmetaio_old_style:
+            self.tref += 1e-9*row.geocent_end_time_ns
         self.taper = lalsim.GetTaperFromString(str(row.taper))
         # FAKED COLUMNS (nonstandard)
         self.lambda1 = row.alpha5
@@ -1659,7 +1667,9 @@ class ChooseWaveformParams:
         if rosDebugMessagesContainer[0]:
             print( " --- Creating XML row for the following ---- ")
             self.print_params()
-        sim_valid_cols = [ "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"] # ,  "alpha1", "alpha2", "alpha3"
+        sim_valid_cols = [ "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time",  "coa_phase", "distance", "mass1", "mass2", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"] # ,  "alpha1", "alpha2", "alpha3"
+        if lalmetaio_old_style:
+            sim_valid_cols += [ "geocent_end_time_ns"]
         si_table = lsctables.New(lsctables.SimInspiralTable, sim_valid_cols)
         row = si_table.RowType()
         row.simulation_id = si_table.get_next_id()
@@ -1681,8 +1691,11 @@ class ChooseWaveformParams:
         row.polarization = self.psi
         row.coa_phase = self.phiref
         # http://stackoverflow.com/questions/6032781/pythonnumpy-why-does-numpy-log-throw-an-attribute-error-if-its-operand-is-too
-        row.geocent_end_time = np.floor( float(self.tref))
-        row.geocent_end_time_ns = np.floor( float(1e9*(self.tref - row.geocent_end_time)))
+        if lalmetaio_old_style:
+            row.geocent_end_time = np.floor( float(self.tref))
+            row.geocent_end_time_ns = np.floor( float(1e9*(self.tref - row.geocent_end_time)))
+        else:
+            row.geocent_end_time = float(self.tref)
         row.distance = self.dist/(1e6*lsu_PC)
         row.amp_order = self.ampO
         # PROBLEM: This line is NOT ROBUST, because of type conversions
@@ -1725,12 +1738,23 @@ class ChooseWaveformParams:
         swigrow = lalmetaio.SimInspiralTable()
         for simattr in lsctables.SimInspiralTable.validcolumns.keys():
             if simattr in ['process_id','simulation_id','process::process_id','process:process_id']:
-                setattr(swigrow, simattr,0)
+                try:
+                    setattr(swigrow, simattr,0)
+                except:
+                    True  # we don't really care if this doesn't happen
             elif simattr in ["waveform", "source", "numrel_data", "taper","process_id"]:
                 # unicode -> char* doesn't work
                 setattr( swigrow, simattr, str(getattr(row, simattr)) )
+            elif not(lalmetaio_old_style) and ('end_time_ns' in simattr ):
+                basename = simattr.replace('_ns', '')
+                val = float(getattr(swigrow, basename))
+                dt = float(getattr(row, simattr))
+                setattr( swigrow, basename, (val+dt))
             else:
-                setattr( swigrow, simattr, getattr(row, simattr) )
+                try:
+                    setattr( swigrow, simattr, getattr(row, simattr) )
+                except:
+                    raise Exception(" Failed to set  attribute {}".format(simattr))
         # Call the function to read lalmetaio.SimInspiral format
         self.copy_sim_inspiral(swigrow)
 
