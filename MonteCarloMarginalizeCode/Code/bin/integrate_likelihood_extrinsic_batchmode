@@ -1018,7 +1018,7 @@ def resample_samples(my_samples,
   
   tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
   P.phi =  identity_convert_togpu(my_samples['right_ascension'])  # cast to float
-  P.theta =   identity_convert_togpu(numpy.pi/2 -my_samples['declination'])
+  P.theta =   identity_convert_togpu(my_samples['declination'])
   P.tref = float(fiducial_epoch)
   P.phiref = identity_convert_togpu(my_samples['coa_phase'])
   P.incl = identity_convert_togpu(my_samples['inclination'])
