@@ -52,8 +52,8 @@ test_run:
     - . .travis/test-coord.sh
     - . .travis/test-integrate.sh
     - . .travis/test-posterior.sh
-    - . .travis/test-run.sh
-    - . .travis/test-run-alts.sh
+    -  bash  .travis/test-run.sh
+    -  bash .travis/test-run-alts.sh
 
 build:test:
   image: docker:latest
