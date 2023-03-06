@@ -128,6 +128,7 @@ parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
 parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED")
 parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
+parser.add_argument("--use-gwsignal",action='store_true',help="Attempt to use gwsignal interface.")
 parser.add_argument("--l-max",default=2,type=int)
 parser.add_argument("--no-matter",action='store_true', help="Force analysis without matter. Really only matters for BNS")
 parser.add_argument("--assume-nospin",action='store_true', help="Force analysis with zero spin")
@@ -727,7 +728,9 @@ if 'GW_SURROGATE' in os.environ:
     sur_location_prefix=''
 if opts.use_osg:
     sur_location_prefix = "/"
-if not 'NR' in opts.approx:
+if opts.use_gwsignal:
+    line += " --use-gwsignal  --approx " + opts.approx
+elif not 'NR' in opts.approx:
         line += " --approx " + opts.approx
 elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
         line += " --rom-group {} --rom-param NRHybSur3dq8.h5 --approx {} ".format(sur_location_prefix,opts.approx)
