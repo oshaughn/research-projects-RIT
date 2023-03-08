@@ -748,10 +748,14 @@ else:
         sys.exit(1)
 if not(opts.manual_extra_ile_args is None):
     line += opts.manual_extra_ile_args
+    if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
+        line = line.replace('--declination-cosine-sampler', '')  
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:
     line += " --internal-sky-network-coordinates "
+if opts.ile_no_gpu:  # make sure we are using the standard code path if not using GPUs
+    line += " --force-xpy " 
 with open('args_ile.txt','w') as f:
         f.write(line)
 
