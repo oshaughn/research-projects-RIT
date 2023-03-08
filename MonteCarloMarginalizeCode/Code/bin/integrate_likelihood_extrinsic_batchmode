@@ -1223,7 +1223,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
             if supplemental_ln_likelihood:
-              lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance)
+              lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist) # use these variables so they are already float-type
             if return_lnL:
               return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL-manual_avoid_overflow_logarithm)
@@ -1268,7 +1268,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
 #                nEvals +=len(right_ascension)
                 if supplemental_ln_likelihood:
-                  lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance,xpy=xpy_default)
+                  lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
                 if return_lnL:
                   return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
@@ -1362,7 +1362,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
 #                nEvals +=len(right_ascension)
                 if supplemental_ln_likelihood:
-                  lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, 0) # same API
+                  lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
                 if return_lnL:
                   return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
