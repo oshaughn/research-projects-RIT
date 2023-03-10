@@ -19,7 +19,7 @@ stages:
   before_script:
      - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
      - apk add --update git py3-pip 
-#     - ln -s /usr/bin/python3 /usr/bin/python
+     - ln -s /usr/bin/python3 /usr/bin/python
 
 
 before_script:
