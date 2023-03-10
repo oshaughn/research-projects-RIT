@@ -9,7 +9,7 @@ pandas
 corner 
 scikit-learn 
 matplotlib 
-lalsuite 
+lalsuite<=7.11
 gwdatafind 
 ligo-segments 
 python-ligo-lw 

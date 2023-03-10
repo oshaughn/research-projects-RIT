@@ -315,11 +315,11 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
   if hasattr(external_likelihood_module,name_prep):
     supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
     # Check for and load in ini file associated with external library
-    if opts.opts.supplementary_likelihood_factor_ini:
+    if opts.supplementary_likelihood_factor_ini:
       import configparser as ConfigParser
       config = ConfigParser.ConfigParser()
       config.optionxform=str # force preserve case! 
-      config.read(opts.opts.supplementary_likelihood_factor_ini)
+      config.read(opts.supplementary_likelihood_factor_ini)
       supplemental_ln_likelhood_parsed_ini=config
 
 if opts.distance_marginalization:
@@ -1018,7 +1018,7 @@ def resample_samples(my_samples,
   
   tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
   P.phi =  identity_convert_togpu(my_samples['right_ascension'])  # cast to float
-  P.theta =   identity_convert_togpu(numpy.pi/2 -my_samples['declination'])
+  P.theta =   identity_convert_togpu(my_samples['declination'])
   P.tref = float(fiducial_epoch)
   P.phiref = identity_convert_togpu(my_samples['coa_phase'])
   P.incl = identity_convert_togpu(my_samples['inclination'])
@@ -1223,7 +1223,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
             if supplemental_ln_likelihood:
-              lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance)
+              lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist) # use these variables so they are already float-type
             if return_lnL:
               return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL-manual_avoid_overflow_logarithm)
@@ -1268,7 +1268,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
 #                nEvals +=len(right_ascension)
                 if supplemental_ln_likelihood:
-                  lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance,xpy=xpy_default)
+                  lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
                 if return_lnL:
                   return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
@@ -1362,7 +1362,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
 #                nEvals +=len(right_ascension)
                 if supplemental_ln_likelihood:
-                  lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, 0) # same API
+                  lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
                 if return_lnL:
                   return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
@@ -1525,8 +1525,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
       dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
-      if 'distance' in pinned_params:
-            dict_out['distance'] = pinned_params["distance"]
+#      if 'distance' in pinned_params:
+#            dict_out['distance'] = pinned_params["distance"]
       converged_result = False
       if "convergence_test_results" in dict_return:
         converged_result = dict_return["convergence_test_results"]["normal_integral"]

@@ -1446,7 +1446,7 @@ if opts.propose_fit_strategy:
 
     if not(opts.use_gauss_early) and (('quadratic' in fit_method) or ('polynomial' in fit_method)):
         helper_cip_arg_list[0] += " --lnL-offset " + str(lnL_start)
-        if not(opts.assume_nospin) and not( opts.internal_propose_converge_last_stage):  # don't add more iterations in the zero-spin test cases, or if we are iterating to convergence
+        if not(opts.assume_nospin) and not( opts.propose_converge_last_stage):  # don't add more iterations in the zero-spin test cases, or if we are iterating to convergence
             helper_cip_arg_list += helper_cip_arg_list[-1]  # add another set of iterations : these are super fast, and we want to get narrow
         n_levels = len(helper_cip_arg_list)
         for indx in np.arange(1,n_levels):  # do NOT constrain the first CIP, as it has so few points!
