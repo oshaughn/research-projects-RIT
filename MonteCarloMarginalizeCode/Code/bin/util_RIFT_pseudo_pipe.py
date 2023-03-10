@@ -982,12 +982,17 @@ if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3
 with open("args_puff.txt",'w') as f:
+        puff_args =''  # note used below
         if opts.force_chi_max and not(opts.force_chi_small_max):
-            puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(opts.force_chi_max, opts.force_chi_max)
+            puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}]  ".format(opts.force_chi_max)
+        elif not(opts.force_chi_max) and (opts.force_chi_small_max):
+            puff_args = puff_params + " --downselect-parameter chi2 --downselect-parameter-range [0,{}]  ".format(opts.force_chi_small_max)
         elif opts.force_chi_max and opts.force_chi_small_max:
             puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(opts.force_chi_max, opts.force_chi_small_max)
-        elif not(opts.force_chi_max) and not(opts.force_chi_small_max):
+        elif not(opts.force_chi_max) and not(opts.force_chi_small_max):  # nothing set, default, forcce downselect on both spins
             puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
+        else:
+            puff_args = puff_params # passthrough case, should not happen ...
         if opts.assume_matter  and not(opts.assume_matter_but_primary_bh):
             lambda_max = 5000
             lambda_small_max=5000
