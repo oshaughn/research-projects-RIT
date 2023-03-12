@@ -14,7 +14,7 @@ Since last release
      for binaries with tides; minor misc bugfixes to obscure code paths; bugfix sky rotation and phase rotation; add
      GWSignal interface; tweak zero-spin run settings; ILE add 'supplementary-likelihood-factor' interface to enable
      call to external runtime-specified code; increase worker count for high SNR jobs with cip-explode-jobs-auto; ditto
-     more for matter jobs; bugfix tidal export to XML; EOSManager updates
+     more for matter jobs; bugfix tidal export to XML; EOSManager updates.  Note incompatible with lalsuite 7.13 still (rc4)
 
 0.0.15.7
 -----------
