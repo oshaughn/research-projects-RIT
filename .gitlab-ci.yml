@@ -26,7 +26,7 @@ before_script:
   # setup
   - apt-get update --assume-yes && apt-get upgrade --assume-yes && apt-get install --assume-yes git python3-pip
   # Create alias for /usr/bin/python3 -> /usr/bin/python
-#  - ln -s /usr/bin/python3 /usr/bin/python
+  - ln -s /usr/bin/python3 /usr/bin/python
   # upgrade pip
   - python -m pip install --quiet --upgrade pip
   # install requirements
