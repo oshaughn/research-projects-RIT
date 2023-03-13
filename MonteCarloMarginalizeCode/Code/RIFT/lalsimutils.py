@@ -266,7 +266,7 @@ for name in pending_FD_approx:
         pending_approx_code[name] = pending_default_code
         pending_default_code += -1  # same convention as above
 def check_FD_pending(code):
-    return code in  pending_approx_code.values():
+    return code in  pending_approx_code.values()
 
 try:
    my_junk = lalsim.SimInspiralChooseFDModes
