@@ -747,7 +747,7 @@ else:
         print( " Unknown approx ", opts.approx)
         sys.exit(1)
 if not(opts.manual_extra_ile_args is None):
-    line += opts.manual_extra_ile_args
+    line += " {} ".format(opts.manual_extra_ile_args)  # embed with space on each side, avoid collisions
     if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
         line = line.replace('--declination-cosine-sampler', '')  
 if not(opts.ile_sampler_method is None):
