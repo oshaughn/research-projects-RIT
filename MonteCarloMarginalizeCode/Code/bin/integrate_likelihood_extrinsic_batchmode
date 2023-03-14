@@ -172,6 +172,7 @@ optp.add_option("--nr-perturbative-extraction-full",default=False,action='store_
 optp.add_option("--nr-use-provided-strain",default=False,action='store_true')
 optp.add_option("--no-memory",default=False,action='store_true', help="At present, turns off m=0 modes. Use with EXTREME caution only if requested by model developer")
 optp.add_option("--restricted-mode-list-file",default=None,help="A list of ALL modes to use in likelihood. Incredibly dangerous. Only use when comparing with models which provide restricted mode sets, or otherwise to isolate the effect of subsets of modes on the whole")
+optp.add_option("--use-gwsignal",default=False,action='store_true',help='Use gwsignal. In this case the approx name is passed as a string to the lalsimulation.gwsignal interface')
 optp.add_option("--use-external-EOB",default=False,action='store_true')
 optp.add_option("--maximize-only",default=False, action='store_true',help="After integrating, attempts to find the single best fitting point")
 optp.add_option("--dump-lnL-time-series",default=False, action='store_true',help="(requires --sim-xml) Dump lnL(t) at the injected parameters")
@@ -217,6 +218,7 @@ integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=1000
 integration_params.add_option("--convergence-tests-on",default=False,action='store_true')
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
 integration_params.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
+integration_params.add_option("--force-adapt-all", action="store_true", help="Force adaptive sampling for all parameters.")
 integration_params.add_option("--no-adapt-distance", action="store_true", help="Turn off adaptive sampling, just for distance. Adaptive sampling is on by default.")
 integration_params.add_option("--no-adapt-after-first",action='store_true',help="Disables adaptation after first iteration with significant lnL")
 integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
@@ -314,11 +316,11 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
   if hasattr(external_likelihood_module,name_prep):
     supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
     # Check for and load in ini file associated with external library
-    if opts.opts.supplementary_likelihood_factor_ini:
+    if opts.supplementary_likelihood_factor_ini:
       import configparser as ConfigParser
       config = ConfigParser.ConfigParser()
       config.optionxform=str # force preserve case! 
-      config.read(opts.opts.supplementary_likelihood_factor_ini)
+      config.read(opts.supplementary_likelihood_factor_ini)
       supplemental_ln_likelhood_parsed_ini=config
 
 if opts.distance_marginalization:
@@ -696,7 +698,7 @@ sampler.add_parameter("psi",
     left_limit = param_limits["psi"][0], 
     right_limit = param_limits["psi"][1],
     prior_pdf = mcsampler.uniform_samp_psi,
-    adaptive_sampling=opts.internal_rotate_phase)
+    adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 #
 # Phi - orbital phase
@@ -712,7 +714,7 @@ sampler.add_parameter("phi_orb",
     left_limit = param_limits["phi_orb"][0], 
     right_limit = param_limits["phi_orb"][1],
     prior_pdf = mcsampler.uniform_samp_phase,
-    adaptive_sampling=opts.internal_rotate_phase)
+    adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 
 #
@@ -721,7 +723,7 @@ sampler.add_parameter("phi_orb",
 #
 
 adapt_extra_extrinsic=False
-if opts.sampler_method == "adaptive_cartesian_gpu":  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
+if opts.sampler_method == "adaptive_cartesian_gpu" or opts.force_adapt_all:  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
   adapt_extra_extrinsic=True
 
 if not opts.inclination_cosine_sampler:
@@ -763,7 +765,7 @@ if not opts.distance_marginalization:
                         left_limit = param_limits["distance"][0], 
                         right_limit = param_limits["distance"][1],
                         prior_pdf = dist_prior_pdf,
-                        adaptive_sampling = adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance))
+                        adaptive_sampling = (adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance)) or opts.force_adapt_all)
 
 # 
 # Rotate sky coordinates
@@ -783,6 +785,7 @@ if opts.internal_sky_network_coordinates:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
     frm = identity_convert_togpu(sky_rotations.frm)
     my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default) 
+    my_rotation_cpu = functools.partial(lalsimutils.polar_angles_in_frame_alt,sky_rotations.frm,xpy=np) 
 
 #
 # Intrinsic parameters
@@ -845,7 +848,7 @@ else:
         left_limit = param_limits["right_ascension"][0],
         right_limit =  param_limits["right_ascension"][1],
         prior_pdf = mcsampler.uniform_samp_phase,
-        adaptive_sampling = (not opts.no_adapt) and (not opts.internal_sky_network_coordinates))  # TOO DANGEROUS to double-adapt in sky, ends up overconverging too easily. Just leave the whole sky ring in place if we want to do this, it's usually there and we don't lose that much.  If we have full localization, we should just remove the sky network coordinates argument!
+        adaptive_sampling = opts.force_adapt_all or ((not opts.no_adapt) and (not opts.internal_sky_network_coordinates)))  # TOO DANGEROUS to double-adapt in sky, ends up overconverging too easily. Just leave the whole sky ring in place if we want to do this, it's usually there and we don't lose that much.  If we have full localization, we should just remove the sky network coordinates argument!
 
     #
     # declination - angle in radians from the north pole piercing the celestial
@@ -860,7 +863,7 @@ else:
         left_limit = param_limits["declination"][0], 
         right_limit = param_limits["declination"][1],
         prior_pdf = mcsampler.uniform_samp_dec,
-        adaptive_sampling = not opts.no_adapt)
+        adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
     else:
      # Sample uniformly in cos(polar_theta), =1 for north pole, -1 for south pole.
      # Propagate carefully in conversions: time of flight libraries use RA,DEC
@@ -872,7 +875,7 @@ else:
         left_limit = -1, 
         right_limit = 1,
         prior_pdf = dec_sampler,
-        adaptive_sampling = not opts.no_adapt)
+        adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
 
 if not opts.time_marginalization:
     #
@@ -1016,7 +1019,7 @@ def resample_samples(my_samples,
   
   tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
   P.phi =  identity_convert_togpu(my_samples['right_ascension'])  # cast to float
-  P.theta =   identity_convert_togpu(numpy.pi/2 -my_samples['declination'])
+  P.theta =   identity_convert_togpu(my_samples['declination'])
   P.tref = float(fiducial_epoch)
   P.phiref = identity_convert_togpu(my_samples['coa_phase'])
   P.incl = identity_convert_togpu(my_samples['inclination'])
@@ -1041,7 +1044,7 @@ def resample_samples(my_samples,
 #    print(' Resampled time offset {} '.format(t_out[indx])) #, lnLt[indx]-lnLt_norm[indx])
     
   my_samples['t_ref'] = fiducial_epoch+t_out # add sample time jitter from reweighting to samples
-  
+  my_samples["lnL_raw"] = lnLt   # export likelihoods (equivalent to SNR). Note needs downstream code filters to catch this and put it somewhere.
   
   return my_samples
 
@@ -1064,6 +1067,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
             False, inv_spec_trunc_Q, T_spec,
             NR_group=NR_template_group,NR_param=NR_template_param,
+            use_gwsignal=opts.use_gwsignal,
+            use_gwsignal_approx=opts.approximant,
             use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized)
 
     if opts.auto_logarithm_offset and guess_snr:
@@ -1219,7 +1224,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
             if supplemental_ln_likelihood:
-              lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance)
+              lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist) # use these variables so they are already float-type
             if return_lnL:
               return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL-manual_avoid_overflow_logarithm)
@@ -1264,7 +1269,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
 #                nEvals +=len(right_ascension)
                 if supplemental_ln_likelihood:
-                  lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance,xpy=xpy_default)
+                  lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
                 if return_lnL:
                   return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
@@ -1358,7 +1363,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
 #                nEvals +=len(right_ascension)
                 if supplemental_ln_likelihood:
-                  lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, 0) # same API
+                  lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
                 if return_lnL:
                   return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
@@ -1478,9 +1483,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["t_ref"] += float(fiducial_epoch)
         else:
             samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(samples["psi"]))
-      # rotate sky to recover physical coordinates
+      # rotate sky to recover physical coordinates.  Note on CPU
       if opts.internal_sky_network_coordinates:
-        tmp_th, tmp_ph = my_rotation(np.pi/2 - samples['declination'],samples['right_ascension'])
+        tmp_th, tmp_ph = my_rotation_cpu(np.pi/2 - samples['declination'],samples['right_ascension'])
         samples['declination'] = np.pi/2 - tmp_th
         samples['right_ascension'] = np.mod(tmp_ph, 2*np.pi)
 
@@ -1517,12 +1522,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
       if opts.resample_time_marginalization:
         samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict)
+        samples["loglikelihood" ] = samples["lnL_raw"]  # export the non-time-marginalized likelihood, if we are in the final stages
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
-      dict_out={"mass1": m1, "mass2": m2, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
-      if 'distance' in pinned_params:
-            dict_out['distance'] = pinned_params["distance"]
+      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
+#      if 'distance' in pinned_params:
+#            dict_out['distance'] = pinned_params["distance"]
       converged_result = False
       if "convergence_test_results" in dict_return:
         converged_result = dict_return["convergence_test_results"]["normal_integral"]
@@ -1665,7 +1671,7 @@ for indx in numpy.arange(len(P_list)):
 #  if len(exception_failure) >0:
 #    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
 #      sys.exit(1) 
-  if "CUDA" in str(exception_failure): # Hard fail if a cuda error with a catchable error code
+  if ("CUDA" in str(exception_failure)) or ('CUBLAS' in str(exception_failure)): # Hard fail if a cuda error with a catchable error code
     sys.exit(62)
   str_err = " {} ".format(exception_failure)
   if 'Zero prior failure' in str_err:

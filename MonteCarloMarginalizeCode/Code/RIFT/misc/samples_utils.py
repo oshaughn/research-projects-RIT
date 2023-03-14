@@ -111,15 +111,15 @@ def extract_combination_from_LI(samples_LI, p):
         return chip
 
     # Backup : access lambdat if not present
-    if (p == 'lambdat' or p=='dlambdat') and 'lambda1' in samples.dtype.names:
-        Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
+    if (p == 'lambdat' or p=='dlambdat') and 'lambda1' in samples_LI.dtype.names:
+        Lt,dLt = lalsimutils.tidal_lambda_tilde(samples_LI['m1'], samples_LI['m2'],  samples_LI['lambda1'], samples_LI['lambda2'])
         if p=='lambdat':
             return Lt
         if p=='dlambdat':
             return dLt
 
-    if p == "q"  and 'm1' in samples.dtype.names:
-        return samples["m2"]/samples["m1"]
+    if p == "q"  and 'm1' in samples_LI.dtype.names:
+        return samples_LI["m2"]/samples_LI["m1"]
 
 
     print(" No access for parameter ", p)

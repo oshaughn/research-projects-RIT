@@ -11,7 +11,10 @@ Since last release
    - user control of n-iterations-subdag-max, and puff in all subdag iterations; CIP/fail-unless/n-eff all floating point; plot_posterior_corner.py can use matplotlibrc;
      pipeline correctly reduces goal of labor per worker in many-worker limit; helper edit (tanmay) to help using coinc
      as input; pipeline internal-cip-tripwire and --internal-n-evaluations-per-iteration options; fix extrinsic output
-     for binaries with tides
+     for binaries with tides; minor misc bugfixes to obscure code paths; bugfix sky rotation and phase rotation; add
+     GWSignal interface; tweak zero-spin run settings; ILE add 'supplementary-likelihood-factor' interface to enable
+     call to external runtime-specified code; increase worker count for high SNR jobs with cip-explode-jobs-auto; ditto
+     more for matter jobs; bugfix tidal export to XML; EOSManager updates.  Note incompatible with lalsuite 7.13 still (rc4)
 
 0.0.15.7
 -----------
