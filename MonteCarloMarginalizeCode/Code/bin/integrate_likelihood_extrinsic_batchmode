@@ -218,6 +218,7 @@ integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=1000
 integration_params.add_option("--convergence-tests-on",default=False,action='store_true')
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
 integration_params.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
+integration_params.add_option("--force-adapt-all", action="store_true", help="Force adaptive sampling for all parameters.")
 integration_params.add_option("--no-adapt-distance", action="store_true", help="Turn off adaptive sampling, just for distance. Adaptive sampling is on by default.")
 integration_params.add_option("--no-adapt-after-first",action='store_true',help="Disables adaptation after first iteration with significant lnL")
 integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
@@ -697,7 +698,7 @@ sampler.add_parameter("psi",
     left_limit = param_limits["psi"][0], 
     right_limit = param_limits["psi"][1],
     prior_pdf = mcsampler.uniform_samp_psi,
-    adaptive_sampling=opts.internal_rotate_phase)
+    adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 #
 # Phi - orbital phase
@@ -713,7 +714,7 @@ sampler.add_parameter("phi_orb",
     left_limit = param_limits["phi_orb"][0], 
     right_limit = param_limits["phi_orb"][1],
     prior_pdf = mcsampler.uniform_samp_phase,
-    adaptive_sampling=opts.internal_rotate_phase)
+    adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 
 #
@@ -722,7 +723,7 @@ sampler.add_parameter("phi_orb",
 #
 
 adapt_extra_extrinsic=False
-if opts.sampler_method == "adaptive_cartesian_gpu":  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
+if opts.sampler_method == "adaptive_cartesian_gpu" or opts.force_adapt_all:  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
   adapt_extra_extrinsic=True
 
 if not opts.inclination_cosine_sampler:
@@ -764,7 +765,7 @@ if not opts.distance_marginalization:
                         left_limit = param_limits["distance"][0], 
                         right_limit = param_limits["distance"][1],
                         prior_pdf = dist_prior_pdf,
-                        adaptive_sampling = adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance))
+                        adaptive_sampling = (adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance)) or opts.force_adapt_all)
 
 # 
 # Rotate sky coordinates
@@ -847,7 +848,7 @@ else:
         left_limit = param_limits["right_ascension"][0],
         right_limit =  param_limits["right_ascension"][1],
         prior_pdf = mcsampler.uniform_samp_phase,
-        adaptive_sampling = (not opts.no_adapt) and (not opts.internal_sky_network_coordinates))  # TOO DANGEROUS to double-adapt in sky, ends up overconverging too easily. Just leave the whole sky ring in place if we want to do this, it's usually there and we don't lose that much.  If we have full localization, we should just remove the sky network coordinates argument!
+        adaptive_sampling = opts.force_adapt_all or ((not opts.no_adapt) and (not opts.internal_sky_network_coordinates)))  # TOO DANGEROUS to double-adapt in sky, ends up overconverging too easily. Just leave the whole sky ring in place if we want to do this, it's usually there and we don't lose that much.  If we have full localization, we should just remove the sky network coordinates argument!
 
     #
     # declination - angle in radians from the north pole piercing the celestial
@@ -862,7 +863,7 @@ else:
         left_limit = param_limits["declination"][0], 
         right_limit = param_limits["declination"][1],
         prior_pdf = mcsampler.uniform_samp_dec,
-        adaptive_sampling = not opts.no_adapt)
+        adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
     else:
      # Sample uniformly in cos(polar_theta), =1 for north pole, -1 for south pole.
      # Propagate carefully in conversions: time of flight libraries use RA,DEC
@@ -874,7 +875,7 @@ else:
         left_limit = -1, 
         right_limit = 1,
         prior_pdf = dec_sampler,
-        adaptive_sampling = not opts.no_adapt)
+        adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
 
 if not opts.time_marginalization:
     #
