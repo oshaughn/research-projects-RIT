@@ -221,6 +221,7 @@ parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrou
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
+parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenue to adjoin extra PUFF arguments.  ")
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-downscale-early",action='store_true', help="If provided, the first block of iterations are performed with lnL-downscale-factor passed to CIP, such that rho*2/2 * lnL-downscale-factor ~ (15)**2/2, if rho_hint > 15 ")
 parser.add_argument("--use-gauss-early",action='store_true',help="If provided, use gaussian resampling in early iterations ('G'). Note this is a different CIP instance than using a quadratic likelihood!")
@@ -1017,6 +1018,8 @@ with open("args_puff.txt",'w') as f:
             puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away'),'')
         if opts.data_LI_seglen:
                 puff_args+= " --enforce-duration-bound " +str(opts.data_LI_seglen)
+        if not(opts.manual_extra_puff_args is None):
+            puff_args += " {} ".format(opts.manual_extra_puff_args)  # embed with space on each side, avoid collisions
         f.write("X " + puff_args)
 
 # Create archive dag.  Based on Udall's experience/code
