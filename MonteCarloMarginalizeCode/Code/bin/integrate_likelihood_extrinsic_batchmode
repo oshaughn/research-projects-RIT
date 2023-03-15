@@ -704,17 +704,18 @@ sampler.add_parameter("psi",
 # Phi - orbital phase
 # sampler: uniform in [0, 2*pi)
 #
-phi_sampler = mcsampler.ret_uniform_samp_vector_alt( 
-    param_limits["phi_orb"][0], param_limits["phi_orb"][1])
-phi_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
-    param_limits["phi_orb"][0], param_limits["phi_orb"][1])
-sampler.add_parameter("phi_orb",
-    pdf = phi_sampler,
-    cdf_inv = phi_sampler_cdf_inv,
-    left_limit = param_limits["phi_orb"][0], 
-    right_limit = param_limits["phi_orb"][1],
-    prior_pdf = mcsampler.uniform_samp_phase,
-    adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
+if not (opts.distance_marginalization and lookup_table["phase_marginalization"]):
+    phi_sampler = mcsampler.ret_uniform_samp_vector_alt( 
+        param_limits["phi_orb"][0], param_limits["phi_orb"][1])
+    phi_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
+        param_limits["phi_orb"][0], param_limits["phi_orb"][1])
+    sampler.add_parameter("phi_orb",
+        pdf = phi_sampler,
+        cdf_inv = phi_sampler_cdf_inv,
+        left_limit = param_limits["phi_orb"][0], 
+        right_limit = param_limits["phi_orb"][1],
+        prior_pdf = mcsampler.uniform_samp_phase,
+        adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 
 #
@@ -988,8 +989,13 @@ if opts.sampler_method == "GMM":
     comp_dict = {(2,3):n_sky,(4,5):2,(0,1):4} 
     extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict, 'gmm_adapt':gmm_adapt}  # made up for now, should adjust
     if opts.distance_marginalization:
-      gmm_dict = {(2,3):None,tuple([4]):None,(0,1):None} 
-      comp_dict = {(2,3):n_sky,tuple([4]):1,(0,1):4} 
+      if lookup_table["phase_marginalization"]:
+        gmm_dict = {(1,2):None,(3,4):None,(0,):None}
+        gmm_adapt = {(1,2): True, (3,4): True, (0,): True}
+        comp_dict = {(1,2):n_sky,tuple([4]):1,(0,):2}
+      else:
+        gmm_dict = {(2,3):None,tuple([4]):None,(0,1):None}
+        comp_dict = {(2,3):n_sky,tuple([4]):1,(0,1):4}
       extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict}  # made up for now, should adjust
 
     pinned_params.update(extra_args)
@@ -1002,6 +1008,8 @@ if opts.sampler_method == "GMM":
       unpinned_params =['right_ascension','declination', 'phi_orb','inclination','psi','distance']
     if opts.distance_marginalization:
       unpinned_params.remove('distance')
+      if lookup_table["phase_marginalization"]:
+        unpinned_params.remove('phi_orb')
 
 def resample_samples(my_samples,
                      lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None): # uses LOTS of global variables, don't pass them all
@@ -1288,7 +1296,6 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
               lnI_array = xpy_default.asarray(lookup_table["lnI_array"])
 
               intp = EvenBivariateLinearInterpolator(s_array[0], s_array[1] - s_array[0], t_array[0], t_array[1] - t_array[0], lnI_array)
-              lnLmarg_const = xpy_default.log(3. / (xmin**(-3.) - xmax**(-3.)))
 
               def exponent_max(x0, b):
                 x0_expmax = xpy_default.clip(x0, a_min=xmin, a_max=xmax)
@@ -1315,7 +1322,6 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 A -= B
                 return A
 
-
               def distmarg_loglikelihood(kappa_sq, rho_sq):
                 x0 = kappa_sq / rho_sq
 #                lnI = np.ones(shape=x0.shape) * -np.inf
@@ -1325,48 +1331,101 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #                in_bounds = (s > smin) * (s < smax) * (t < tmax)
                 in_bounds = (s > smin) & (s < smax) & (t < tmax)
                 lnI[in_bounds] = intp(s[in_bounds], t[in_bounds])
-                return exponent_max(x0, rho_sq) + lnI + lnLmarg_const
+                return exponent_max(x0, rho_sq) + lnI
 
-              def likelihood_function(right_ascension, declination, phi_orb, inclination, psi):
-#                global nEvals
-                tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-                P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
-                if opts.declination_cosine_sampler:
+              if lookup_table["phase_marginalization"]:
+
+                print( " Using direct phase marginalization  ")
+                for det in lookupNKDict:
+                  if set((lm[0], lm[1]) for lm in lookupNKDict[det]) != {(2, 2), (2, -2)}:
+                    raise Exception(
+                        " Phase marginalization is implemented only for 2-2 modes, "
+                        f"while the modes consired here are {lookupNKDict[det]}."
+                    )
+
+                def likelihood_function(right_ascension, declination, inclination, psi):
+#                  global nEvals
+                  tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                  P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+                  if opts.declination_cosine_sampler:
                     P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
-                else:
+                  else:
                     P.theta = xpy_default.asarray(declination,dtype=np.float64)
-                P.tref = float(fiducial_epoch)
-                P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
-                if opts.inclination_cosine_sampler:
+                  P.tref = float(fiducial_epoch)
+                  P.phiref = xpy_default.full_like(inclination, 0., dtype=np.float64)
+                  if opts.inclination_cosine_sampler:
                     P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
-                else:
-                     P.incl = xpy_default.asarray(inclination, dtype=np.float64)
-                P.psi = xpy_default.asarray(psi, dtype=np.float64)
-                P.dist = xpy_default.asarray(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+                  else:
+                    P.incl = xpy_default.asarray(inclination, dtype=np.float64)
+                  P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                  P.dist = xpy_default.asarray(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
 
-                # rotate sky if needed
-                if opts.internal_sky_network_coordinates:
-                  P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
-                  P.theta = np.pi/2 - P.theta
-                  P.phi = xpy_default.mod(P.phi, 2*np.pi)
+                  # rotate sky if needed
+                  if opts.internal_sky_network_coordinates:
+                    P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
+                    P.theta = np.pi/2 - P.theta
+                    P.phi = xpy_default.mod(P.phi, 2*np.pi)
 
-                # rotate phase if needed
-                # make copies of arrays
-                #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
-                if opts.internal_rotate_phase:
-                  phi_orb_true = (P.phiref + P.psi)/2.
-                  psi_true = (P.phiref - P.psi)/2.
-                  P.psi= psi_true
-                  P.phiref = phi_orb_true
+                  # rotate phase if needed
+                  # make copies of arrays
+                  #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
+                  if opts.internal_rotate_phase:
+                    phi_orb_true = (P.phiref + P.psi)/2.
+                    psi_true = (P.phiref - P.psi)/2.
+                    P.psi= psi_true
+                    P.phiref = phi_orb_true
 
-                lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                  lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood, phase_marginalization=True)
+#                  nEvals +=len(right_ascension)
+                  if supplemental_ln_likelihood:
+                    lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
+                  if return_lnL:
+                    return lnL -manual_avoid_overflow_logarithm
+                  return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+
+              else:
+
+                def likelihood_function(right_ascension, declination, phi_orb, inclination, psi):
+#                  global nEvals
+                  tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                  P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+                  if opts.declination_cosine_sampler:
+                    P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
+                  else:
+                    P.theta = xpy_default.asarray(declination,dtype=np.float64)
+                  P.tref = float(fiducial_epoch)
+                  P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
+                  if opts.inclination_cosine_sampler:
+                    P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
+                  else:
+                    P.incl = xpy_default.asarray(inclination, dtype=np.float64)
+                  P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                  P.dist = xpy_default.asarray(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+
+                  # rotate sky if needed
+                  if opts.internal_sky_network_coordinates:
+                    P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
+                    P.theta = np.pi/2 - P.theta
+                    P.phi = xpy_default.mod(P.phi, 2*np.pi)
+
+                  # rotate phase if needed
+                  # make copies of arrays
+                  #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
+                  if opts.internal_rotate_phase:
+                    phi_orb_true = (P.phiref + P.psi)/2.
+                    psi_true = (P.phiref - P.psi)/2.
+                    P.psi= psi_true
+                    P.phi = phi_orb_true
+
+                  lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
-#                nEvals +=len(right_ascension)
-                if supplemental_ln_likelihood:
-                  lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
-                if return_lnL:
-                  return lnL -manual_avoid_overflow_logarithm
-                return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+#                  nEvals +=len(right_ascension)
+                  if supplemental_ln_likelihood:
+                    lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
+                  if return_lnL:
+                    return lnL -manual_avoid_overflow_logarithm
+                  return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
      else: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
         def likelihood_function(right_ascension, declination, phi_orb, inclination,
@@ -1471,6 +1530,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           samples["psi"],
           factored_likelihood.distMpcRef,  #*1e6*lal.PC_SI,
           )
+      # Insert reference phase if it was marginalized over
+      if "phi_orb" not in samples:
+        samples["phi_orb"] = np.full_like(samples["psi"], 0.)
       if opts.inclination_cosine_sampler:
         samples["inclination"] = numpy.arccos(samples["inclination"].astype(numpy.float64))
       if opts.declination_cosine_sampler:
