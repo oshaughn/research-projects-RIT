@@ -154,6 +154,7 @@ parser.add_argument("--internal-flat-strategy",action='store_true',help="Use the
 parser.add_argument("--internal-use-amr",action='store_true',help="Changes refinement strategy (and initial grid) to use. PRESENTLY WE CAN'T MIX AND MATCH AMR, CIP ITERATIONS, so this is fixed for the whole run right now; use continuation and 'fetch' to augment")
 parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank used for template")
 parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
+parser.add_argument("--internal-use-force-away",type=float,default=None,help="Specific force-away value")
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
@@ -1018,6 +1019,8 @@ with open("args_puff.txt",'w') as f:
             puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away'),'')
         if opts.data_LI_seglen:
                 puff_args+= " --enforce-duration-bound " +str(opts.data_LI_seglen)
+        if opts.internal_use_force_away:
+            puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away')," --force-away {} ".format(str(opts.internal_use_force_away)))
         if not(opts.manual_extra_puff_args is None):
             puff_args += " {} ".format(opts.manual_extra_puff_args)  # embed with space on each side, avoid collisions
         f.write("X " + puff_args)
