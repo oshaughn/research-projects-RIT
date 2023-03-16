@@ -218,6 +218,7 @@ integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=1000
 integration_params.add_option("--convergence-tests-on",default=False,action='store_true')
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
 integration_params.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
+integration_params.add_option("--force-adapt-all", action="store_true", help="Force adaptive sampling for all parameters.")
 integration_params.add_option("--no-adapt-distance", action="store_true", help="Turn off adaptive sampling, just for distance. Adaptive sampling is on by default.")
 integration_params.add_option("--no-adapt-after-first",action='store_true',help="Disables adaptation after first iteration with significant lnL")
 integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
@@ -315,11 +316,11 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
   if hasattr(external_likelihood_module,name_prep):
     supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
     # Check for and load in ini file associated with external library
-    if opts.opts.supplementary_likelihood_factor_ini:
+    if opts.supplementary_likelihood_factor_ini:
       import configparser as ConfigParser
       config = ConfigParser.ConfigParser()
       config.optionxform=str # force preserve case! 
-      config.read(opts.opts.supplementary_likelihood_factor_ini)
+      config.read(opts.supplementary_likelihood_factor_ini)
       supplemental_ln_likelhood_parsed_ini=config
 
 if opts.distance_marginalization:
@@ -697,23 +698,24 @@ sampler.add_parameter("psi",
     left_limit = param_limits["psi"][0], 
     right_limit = param_limits["psi"][1],
     prior_pdf = mcsampler.uniform_samp_psi,
-    adaptive_sampling=opts.internal_rotate_phase)
+    adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 #
 # Phi - orbital phase
 # sampler: uniform in [0, 2*pi)
 #
-phi_sampler = mcsampler.ret_uniform_samp_vector_alt( 
-    param_limits["phi_orb"][0], param_limits["phi_orb"][1])
-phi_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
-    param_limits["phi_orb"][0], param_limits["phi_orb"][1])
-sampler.add_parameter("phi_orb",
-    pdf = phi_sampler,
-    cdf_inv = phi_sampler_cdf_inv,
-    left_limit = param_limits["phi_orb"][0], 
-    right_limit = param_limits["phi_orb"][1],
-    prior_pdf = mcsampler.uniform_samp_phase,
-    adaptive_sampling=opts.internal_rotate_phase)
+if not (opts.distance_marginalization and lookup_table["phase_marginalization"]):
+    phi_sampler = mcsampler.ret_uniform_samp_vector_alt( 
+        param_limits["phi_orb"][0], param_limits["phi_orb"][1])
+    phi_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector, 
+        param_limits["phi_orb"][0], param_limits["phi_orb"][1])
+    sampler.add_parameter("phi_orb",
+        pdf = phi_sampler,
+        cdf_inv = phi_sampler_cdf_inv,
+        left_limit = param_limits["phi_orb"][0], 
+        right_limit = param_limits["phi_orb"][1],
+        prior_pdf = mcsampler.uniform_samp_phase,
+        adaptive_sampling=opts.internal_rotate_phase or opts.force_adapt_all)
 
 
 #
@@ -722,7 +724,7 @@ sampler.add_parameter("phi_orb",
 #
 
 adapt_extra_extrinsic=False
-if opts.sampler_method == "adaptive_cartesian_gpu":  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
+if opts.sampler_method == "adaptive_cartesian_gpu" or opts.force_adapt_all:  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
   adapt_extra_extrinsic=True
 
 if not opts.inclination_cosine_sampler:
@@ -764,7 +766,7 @@ if not opts.distance_marginalization:
                         left_limit = param_limits["distance"][0], 
                         right_limit = param_limits["distance"][1],
                         prior_pdf = dist_prior_pdf,
-                        adaptive_sampling = adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance))
+                        adaptive_sampling = (adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance)) or opts.force_adapt_all)
 
 # 
 # Rotate sky coordinates
@@ -847,7 +849,7 @@ else:
         left_limit = param_limits["right_ascension"][0],
         right_limit =  param_limits["right_ascension"][1],
         prior_pdf = mcsampler.uniform_samp_phase,
-        adaptive_sampling = (not opts.no_adapt) and (not opts.internal_sky_network_coordinates))  # TOO DANGEROUS to double-adapt in sky, ends up overconverging too easily. Just leave the whole sky ring in place if we want to do this, it's usually there and we don't lose that much.  If we have full localization, we should just remove the sky network coordinates argument!
+        adaptive_sampling = opts.force_adapt_all or ((not opts.no_adapt) and (not opts.internal_sky_network_coordinates)))  # TOO DANGEROUS to double-adapt in sky, ends up overconverging too easily. Just leave the whole sky ring in place if we want to do this, it's usually there and we don't lose that much.  If we have full localization, we should just remove the sky network coordinates argument!
 
     #
     # declination - angle in radians from the north pole piercing the celestial
@@ -862,7 +864,7 @@ else:
         left_limit = param_limits["declination"][0], 
         right_limit = param_limits["declination"][1],
         prior_pdf = mcsampler.uniform_samp_dec,
-        adaptive_sampling = not opts.no_adapt)
+        adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
     else:
      # Sample uniformly in cos(polar_theta), =1 for north pole, -1 for south pole.
      # Propagate carefully in conversions: time of flight libraries use RA,DEC
@@ -874,7 +876,7 @@ else:
         left_limit = -1, 
         right_limit = 1,
         prior_pdf = dec_sampler,
-        adaptive_sampling = not opts.no_adapt)
+        adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
 
 if not opts.time_marginalization:
     #
@@ -987,8 +989,13 @@ if opts.sampler_method == "GMM":
     comp_dict = {(2,3):n_sky,(4,5):2,(0,1):4} 
     extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict, 'gmm_adapt':gmm_adapt}  # made up for now, should adjust
     if opts.distance_marginalization:
-      gmm_dict = {(2,3):None,tuple([4]):None,(0,1):None} 
-      comp_dict = {(2,3):n_sky,tuple([4]):1,(0,1):4} 
+      if lookup_table["phase_marginalization"]:
+        gmm_dict = {(1,2):None,(3,4):None,(0,):None}
+        gmm_adapt = {(1,2): True, (3,4): True, (0,): True}
+        comp_dict = {(1,2):n_sky,tuple([4]):1,(0,):2}
+      else:
+        gmm_dict = {(2,3):None,tuple([4]):None,(0,1):None}
+        comp_dict = {(2,3):n_sky,tuple([4]):1,(0,1):4}
       extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict}  # made up for now, should adjust
 
     pinned_params.update(extra_args)
@@ -1001,6 +1008,8 @@ if opts.sampler_method == "GMM":
       unpinned_params =['right_ascension','declination', 'phi_orb','inclination','psi','distance']
     if opts.distance_marginalization:
       unpinned_params.remove('distance')
+      if lookup_table["phase_marginalization"]:
+        unpinned_params.remove('phi_orb')
 
 def resample_samples(my_samples,
                      lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None): # uses LOTS of global variables, don't pass them all
@@ -1018,7 +1027,7 @@ def resample_samples(my_samples,
   
   tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
   P.phi =  identity_convert_togpu(my_samples['right_ascension'])  # cast to float
-  P.theta =   identity_convert_togpu(numpy.pi/2 -my_samples['declination'])
+  P.theta =   identity_convert_togpu(my_samples['declination'])
   P.tref = float(fiducial_epoch)
   P.phiref = identity_convert_togpu(my_samples['coa_phase'])
   P.incl = identity_convert_togpu(my_samples['inclination'])
@@ -1043,7 +1052,7 @@ def resample_samples(my_samples,
 #    print(' Resampled time offset {} '.format(t_out[indx])) #, lnLt[indx]-lnLt_norm[indx])
     
   my_samples['t_ref'] = fiducial_epoch+t_out # add sample time jitter from reweighting to samples
-  
+  my_samples["lnL_raw"] = lnLt   # export likelihoods (equivalent to SNR). Note needs downstream code filters to catch this and put it somewhere.
   
   return my_samples
 
@@ -1223,7 +1232,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
             if supplemental_ln_likelihood:
-              lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance)
+              lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist) # use these variables so they are already float-type
             if return_lnL:
               return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL-manual_avoid_overflow_logarithm)
@@ -1268,7 +1277,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
 #                nEvals +=len(right_ascension)
                 if supplemental_ln_likelihood:
-                  lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance,xpy=xpy_default)
+                  lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
                 if return_lnL:
                   return lnL -manual_avoid_overflow_logarithm
                 return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
@@ -1287,7 +1296,6 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
               lnI_array = xpy_default.asarray(lookup_table["lnI_array"])
 
               intp = EvenBivariateLinearInterpolator(s_array[0], s_array[1] - s_array[0], t_array[0], t_array[1] - t_array[0], lnI_array)
-              lnLmarg_const = xpy_default.log(3. / (xmin**(-3.) - xmax**(-3.)))
 
               def exponent_max(x0, b):
                 x0_expmax = xpy_default.clip(x0, a_min=xmin, a_max=xmax)
@@ -1314,7 +1322,6 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 A -= B
                 return A
 
-
               def distmarg_loglikelihood(kappa_sq, rho_sq):
                 x0 = kappa_sq / rho_sq
 #                lnI = np.ones(shape=x0.shape) * -np.inf
@@ -1324,48 +1331,101 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #                in_bounds = (s > smin) * (s < smax) * (t < tmax)
                 in_bounds = (s > smin) & (s < smax) & (t < tmax)
                 lnI[in_bounds] = intp(s[in_bounds], t[in_bounds])
-                return exponent_max(x0, rho_sq) + lnI + lnLmarg_const
+                return exponent_max(x0, rho_sq) + lnI
 
-              def likelihood_function(right_ascension, declination, phi_orb, inclination, psi):
-#                global nEvals
-                tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-                P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
-                if opts.declination_cosine_sampler:
+              if lookup_table["phase_marginalization"]:
+
+                print( " Using direct phase marginalization  ")
+                for det in lookupNKDict:
+                  if set((lm[0], lm[1]) for lm in lookupNKDict[det]) != {(2, 2), (2, -2)}:
+                    raise Exception(
+                        " Phase marginalization is implemented only for 2-2 modes, "
+                        f"while the modes consired here are {lookupNKDict[det]}."
+                    )
+
+                def likelihood_function(right_ascension, declination, inclination, psi):
+#                  global nEvals
+                  tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                  P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+                  if opts.declination_cosine_sampler:
                     P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
-                else:
+                  else:
                     P.theta = xpy_default.asarray(declination,dtype=np.float64)
-                P.tref = float(fiducial_epoch)
-                P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
-                if opts.inclination_cosine_sampler:
+                  P.tref = float(fiducial_epoch)
+                  P.phiref = xpy_default.full_like(inclination, 0., dtype=np.float64)
+                  if opts.inclination_cosine_sampler:
                     P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
-                else:
-                     P.incl = xpy_default.asarray(inclination, dtype=np.float64)
-                P.psi = xpy_default.asarray(psi, dtype=np.float64)
-                P.dist = xpy_default.asarray(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+                  else:
+                    P.incl = xpy_default.asarray(inclination, dtype=np.float64)
+                  P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                  P.dist = xpy_default.asarray(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
 
-                # rotate sky if needed
-                if opts.internal_sky_network_coordinates:
-                  P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
-                  P.theta = np.pi/2 - P.theta
-                  P.phi = xpy_default.mod(P.phi, 2*np.pi)
+                  # rotate sky if needed
+                  if opts.internal_sky_network_coordinates:
+                    P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
+                    P.theta = np.pi/2 - P.theta
+                    P.phi = xpy_default.mod(P.phi, 2*np.pi)
 
-                # rotate phase if needed
-                # make copies of arrays
-                #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
-                if opts.internal_rotate_phase:
-                  phi_orb_true = (P.phiref + P.psi)/2.
-                  psi_true = (P.phiref - P.psi)/2.
-                  P.psi= psi_true
-                  P.phiref = phi_orb_true
+                  # rotate phase if needed
+                  # make copies of arrays
+                  #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
+                  if opts.internal_rotate_phase:
+                    phi_orb_true = (P.phiref + P.psi)/2.
+                    psi_true = (P.phiref - P.psi)/2.
+                    P.psi= psi_true
+                    P.phiref = phi_orb_true
 
-                lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                  lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood, phase_marginalization=True)
+#                  nEvals +=len(right_ascension)
+                  if supplemental_ln_likelihood:
+                    lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
+                  if return_lnL:
+                    return lnL -manual_avoid_overflow_logarithm
+                  return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+
+              else:
+
+                def likelihood_function(right_ascension, declination, phi_orb, inclination, psi):
+#                  global nEvals
+                  tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
+                  P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)  # cast to float
+                  if opts.declination_cosine_sampler:
+                    P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination,dtype=np.float64))
+                  else:
+                    P.theta = xpy_default.asarray(declination,dtype=np.float64)
+                  P.tref = float(fiducial_epoch)
+                  P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
+                  if opts.inclination_cosine_sampler:
+                    P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
+                  else:
+                    P.incl = xpy_default.asarray(inclination, dtype=np.float64)
+                  P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                  P.dist = xpy_default.asarray(factored_likelihood.distMpcRef * 1.e6 * lalsimutils.lsu_PC,dtype=np.float64) # luminosity distance
+
+                  # rotate sky if needed
+                  if opts.internal_sky_network_coordinates:
+                    P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
+                    P.theta = np.pi/2 - P.theta
+                    P.phi = xpy_default.mod(P.phi, 2*np.pi)
+
+                  # rotate phase if needed
+                  # make copies of arrays
+                  #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
+                  if opts.internal_rotate_phase:
+                    phi_orb_true = (P.phiref + P.psi)/2.
+                    psi_true = (P.phiref - P.psi)/2.
+                    P.psi= psi_true
+                    P.phi = phi_orb_true
+
+                  lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
-#                nEvals +=len(right_ascension)
-                if supplemental_ln_likelihood:
-                  lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, 0) # same API
-                if return_lnL:
-                  return lnL -manual_avoid_overflow_logarithm
-                return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+#                  nEvals +=len(right_ascension)
+                  if supplemental_ln_likelihood:
+                    lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
+                  if return_lnL:
+                    return lnL -manual_avoid_overflow_logarithm
+                  return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
      else: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
         def likelihood_function(right_ascension, declination, phi_orb, inclination,
@@ -1470,6 +1530,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           samples["psi"],
           factored_likelihood.distMpcRef,  #*1e6*lal.PC_SI,
           )
+      # Insert reference phase if it was marginalized over
+      if "phi_orb" not in samples:
+        samples["phi_orb"] = np.full_like(samples["psi"], 0.)
       if opts.inclination_cosine_sampler:
         samples["inclination"] = numpy.arccos(samples["inclination"].astype(numpy.float64))
       if opts.declination_cosine_sampler:
@@ -1521,12 +1584,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
       if opts.resample_time_marginalization:
         samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict)
+        samples["loglikelihood" ] = samples["lnL_raw"]  # export the non-time-marginalized likelihood, if we are in the final stages
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
-      dict_out={"mass1": m1, "mass2": m2, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
-      if 'distance' in pinned_params:
-            dict_out['distance'] = pinned_params["distance"]
+      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
+#      if 'distance' in pinned_params:
+#            dict_out['distance'] = pinned_params["distance"]
       converged_result = False
       if "convergence_test_results" in dict_return:
         converged_result = dict_return["convergence_test_results"]["normal_integral"]

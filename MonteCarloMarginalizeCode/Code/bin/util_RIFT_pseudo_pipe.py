@@ -143,6 +143,7 @@ parser.add_argument("--assume-highq",action='store_true', help="Force analysis w
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--ile-distance-prior",default=None,help="If present, passed through to the distance prior option.   If provided, BLOCKS distance marginalization")
 parser.add_argument("--internal-ile-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
+parser.add_argument("--internal-ile-n-max",default=None,type=int,help="Set maximum number of evaluations each ILE worker uses. EXPERTS ONLY")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
 parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
@@ -153,6 +154,7 @@ parser.add_argument("--internal-flat-strategy",action='store_true',help="Use the
 parser.add_argument("--internal-use-amr",action='store_true',help="Changes refinement strategy (and initial grid) to use. PRESENTLY WE CAN'T MIX AND MATCH AMR, CIP ITERATIONS, so this is fixed for the whole run right now; use continuation and 'fetch' to augment")
 parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank used for template")
 parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
+parser.add_argument("--internal-use-force-away",type=float,default=None,help="Specific force-away value")
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
@@ -220,6 +222,7 @@ parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrou
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
+parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenue to adjoin extra PUFF arguments.  ")
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-downscale-early",action='store_true', help="If provided, the first block of iterations are performed with lnL-downscale-factor passed to CIP, such that rho*2/2 * lnL-downscale-factor ~ (15)**2/2, if rho_hint > 15 ")
 parser.add_argument("--use-gauss-early",action='store_true',help="If provided, use gaussian resampling in early iterations ('G'). Note this is a different CIP instance than using a quadratic likelihood!")
@@ -716,6 +719,8 @@ except:
 # Last stage of commands done by other tools: too annoying to copy stuff over and run the next generation of the pipeline
 instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
 line = ' '.join(instructions_ile)
+if opts.internal_ile_n_max:
+    line = line.replace('--n-max 4000000 ', str(opts.internal_ile_n_max)+" ")
 line += " --l-max " + str(opts.l_max) 
 if (opts.use_ini is None) and not('--d-max' in line):
     line += " --d-max " + str(dmax_guess)
@@ -744,11 +749,15 @@ else:
         print( " Unknown approx ", opts.approx)
         sys.exit(1)
 if not(opts.manual_extra_ile_args is None):
-    line += opts.manual_extra_ile_args
+    line += " {} ".format(opts.manual_extra_ile_args)  # embed with space on each side, avoid collisions
+    if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
+        line = line.replace('--declination-cosine-sampler', '')  
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:
     line += " --internal-sky-network-coordinates "
+if opts.ile_no_gpu:  # make sure we are using the standard code path if not using GPUs
+    line += " --force-xpy " 
 with open('args_ile.txt','w') as f:
         f.write(line)
 
@@ -975,12 +984,17 @@ if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3
 with open("args_puff.txt",'w') as f:
+        puff_args =''  # note used below
         if opts.force_chi_max and not(opts.force_chi_small_max):
-            puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(opts.force_chi_max, opts.force_chi_max)
+            puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}]  ".format(opts.force_chi_max)
+        elif not(opts.force_chi_max) and (opts.force_chi_small_max):
+            puff_args = puff_params + " --downselect-parameter chi2 --downselect-parameter-range [0,{}]  ".format(opts.force_chi_small_max)
         elif opts.force_chi_max and opts.force_chi_small_max:
             puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(opts.force_chi_max, opts.force_chi_small_max)
-        elif not(opts.force_chi_max) and not(opts.force_chi_small_max):
+        elif not(opts.force_chi_max) and not(opts.force_chi_small_max):  # nothing set, default, forcce downselect on both spins
             puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
+        else:
+            puff_args = puff_params # passthrough case, should not happen ...
         if opts.assume_matter  and not(opts.assume_matter_but_primary_bh):
             lambda_max = 5000
             lambda_small_max=5000
@@ -1005,6 +1019,10 @@ with open("args_puff.txt",'w') as f:
             puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away'),'')
         if opts.data_LI_seglen:
                 puff_args+= " --enforce-duration-bound " +str(opts.data_LI_seglen)
+        if opts.internal_use_force_away:
+            puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away')," --force-away {} ".format(str(opts.internal_use_force_away)))
+        if not(opts.manual_extra_puff_args is None):
+            puff_args += " {} ".format(opts.manual_extra_puff_args)  # embed with space on each side, avoid collisions
         f.write("X " + puff_args)
 
 # Create archive dag.  Based on Udall's experience/code
