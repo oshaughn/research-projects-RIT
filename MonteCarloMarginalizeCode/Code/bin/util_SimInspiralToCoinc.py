@@ -6,10 +6,10 @@ import argparse
 import json
 
 from glue.ligolw import ilwd
-from glue.ligolw import ligolw
-from glue.ligolw import lsctables
-from glue.ligolw import table
-from glue.ligolw import utils
+from ligo.lw import ligolw   # old style deprecated
+from ligo.lw import lsctables
+from ligo.lw import table
+from ligo.lw import utils
 
 import RIFT.lalsimutils as lalsimutils
 import lal
