@@ -232,7 +232,10 @@ class EOSLALSimulation(EOSConcrete):
 ###
 
 # Example directory: EOS_Tables
-#dirEOSTablesBase = os.environ["EOS_TABLES"]
+try:
+    dirEOSTablesBase = os.environ["EOS_TABLES"]
+except:
+    dirEOSTablesBase = ''
 try:
     dirLALSimulationBase = os.environ["LALSIMULATION_DATADIR"]  # LAL table data
 except:
