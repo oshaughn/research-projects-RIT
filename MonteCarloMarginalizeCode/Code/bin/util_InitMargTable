@@ -20,6 +20,7 @@ parser.add_argument("--hermgauss-degree", default=50, type=int, help="Degree of 
 parser.add_argument("--laggauss-degree", default=50, type=int, help="Degree of Gauss-Laguerre quadrature used for high SNR.")
 parser.add_argument("--out", default="distance_marginalization_lookup.npz", help="Output file (format should be .npz)")
 parser.add_argument("--phase-marginalization", default=False, action="store_true", help="Analytical phase marginalization is used if True. Applicable only for 2-2-mode model.")
+parser.add_argument("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean) and 'pseudo-cosmo'  .")
 opts=  parser.parse_args()
 
 dmin = opts.d_min
@@ -43,6 +44,15 @@ delta_t = 0.1
 def prior(d):
     """Distance prior. Currently, only distance-squared prior is supported."""
     return 3 * d**2 / (dmax**3 - dmin**3)
+
+if opts.d_prior =='pseudo_cosmo':
+    # exactly as in ILE itself
+    import RIFT.likelihood.priors_utils as priors_utils
+    nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(param_limits["distance"][0],param_limits["distance"][1])
+    dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm=nm,xpy_default=cupy)
+
+    # assign
+    prior = dist_prior_pdf
 
 
 def effective_prior(x, a):
