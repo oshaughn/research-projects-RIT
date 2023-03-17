@@ -655,7 +655,9 @@ if not(opts.force_hint_snr is None):
     cmd += " --hint-snr {} ".format(opts.force_hint_snr)
 if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
     cmd += " --manual-ifo-list {} ".format(opts.manual_ifo_list)
-if (opts.internal_marginalize_distance) and not opts.ile_distance_prior:
+if opts.ile_distance_prior:
+    cmd += " --ile-distance-prior {} ".format(opts.ile_distance_prior)
+if (opts.internal_marginalize_distance): #  and not opts.ile_distance_prior:
     cmd += " --internal-marginalize-distance "
 if (opts.internal_marginalize_distance_file ):
     cmd += " --internal-marginalize-distance-file {} ".format(opts.internal_marginalize_distance_file)
