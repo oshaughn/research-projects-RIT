@@ -1633,42 +1633,49 @@ class ChooseWaveformParams:
         self.s2x = row.spin2x
         self.s2y = row.spin2y
         self.s2z = row.spin2z
-        self.fmin = row.f_lower
+        if hasattr(row, 'f_lower'):
+            self.fmin = row.f_lower
         self.dist = row.distance * lsu_PC * 1.e6
         self.incl = row.inclination
-        self.ampO = row.amp_order
-        if not (str(row.waveform).find("Taylor") == -1 ) or ("Eccentric" in row.waveform):  # Not meaningful to have an order for EOB, etc
-            self.phaseO = lalsim.GetOrderFromString(str(row.waveform))
-        else:
-            self.phaseO = -1
-        self.approx = lalsim.GetApproximantFromString(str(row.waveform))  # this is buggy for SEOB waveforms, adding irrelevant PN terms
-        if row.waveform == 'SEOBNRv3': 
-            self.approx = lalsim.SEOBNRv3
-        if row.waveform == 'SEOBNRv2':
-            self.approx = lalsim.SEOBNRv2
-        if row.waveform ==  'SEOBNRv4T':
-            self.approx = lalTEOBv4
-        if row.waveform == 'SEOBNRv4HM'   and lalSEOBNRv4HM > 0 :
-            self.approx = lalSEOBNRv4HM
-        if rosDebugMessagesContainer[0]:
-            print( " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform)
+        if hasattr(row, 'amp_order'):
+            self.ampO = row.amp_order
+        if hasattr(row, 'waveform'):
+            if not (str(row.waveform).find("Taylor") == -1 ) or ("Eccentric" in row.waveform):  # Not meaningful to have an order for EOB, etc
+                self.phaseO = lalsim.GetOrderFromString(str(row.waveform))
+            else:
+                self.phaseO = -1
+            self.approx = lalsim.GetApproximantFromString(str(row.waveform))  # this is buggy for SEOB waveforms, adding irrelevant PN terms
+            if row.waveform == 'SEOBNRv3': 
+                self.approx = lalsim.SEOBNRv3
+            if row.waveform == 'SEOBNRv2':
+                self.approx = lalsim.SEOBNRv2
+            if row.waveform ==  'SEOBNRv4T':
+                self.approx = lalTEOBv4
+            if row.waveform == 'SEOBNRv4HM'   and lalSEOBNRv4HM > 0 :
+                self.approx = lalSEOBNRv4HM
+            if rosDebugMessagesContainer[0]:
+                print( " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform)
         self.theta = row.latitude # Declination
         self.phi = row.longitude # Right ascension
         self.radec = True # Flag to interpret (theta,phi) as (DEC,RA)
         self.psi = row.polarization
         self.tref = row.geocent_end_time
-        if lalmetaio_old_style:
+        if lalmetaio_old_style or hasattr(row, 'geocent_end_time_ns'):
             self.tref += 1e-9*row.geocent_end_time_ns
-        self.taper = lalsim.GetTaperFromString(str(row.taper))
+        if hasattr(row, 'taper'):
+            self.taper = lalsim.GetTaperFromString(str(row.taper))
         # FAKED COLUMNS (nonstandard)
         self.lambda1 = row.alpha5
         self.lambda2 = row.alpha6
         self.eccentricity=row.alpha4
         self.snr = row.alpha3   # lnL info
         # WARNING: alpha1, alpha2 used by ILE for weights!
-        self.eos_table_index = row.alpha
-        if not(row.alpha):
-            self.eos_table_index = None
+        if hasattr(row, 'alpha'):
+            self.eos_table_index = row.alpha
+            if not(row.alpha):
+                self.eos_table_index = None
+        else:
+            self.eos_table_index=None
     
 
     def create_sim_inspiral(self):
