@@ -789,7 +789,8 @@ echo Starting ...
     if request_gpu:
         nGPUs=1
         ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
-        requirements.append("CUDAGlobalMemoryMb >= 2048")
+# Claim we don't need to make this request anymore to avoid out-of-memory errors. Also, no longer in 'requirements'
+#        requirements.append("CUDAGlobalMemoryMb >= 2048")  
     if use_singularity:
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
