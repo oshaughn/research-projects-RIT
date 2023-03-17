@@ -387,6 +387,22 @@ if opts.using_eos!=None:
 #        np.savetxt("lalsim_eos/"+eos_name+"_spec_param_geom.dat", np.c_[lalsim_spec_param[:,1], lalsim_spec_param[:,0]])
 #        my_eos=lalsim.SimNeutronStarEOSFromFile(path+"/lalsim_eos/"+eos_name+"_spec_param_geom.dat")
         my_eos=eos_base
+    elif opts.eos_param == 'cs_spectral':
+        # Will not work yet -- need to modify to parse command-line arguments
+        spec_param_packed=eval(opts.eos_param_values) # two lists: first are 'fixed' and second are specific
+        fixed_param_array=spec_param_packed[0]
+        spec_param_array=spec_param_packed[1]
+        spec_params ={}
+        spec_params['gamma1']=spec_param_array[0]
+        spec_params['gamma2']=spec_param_array[1]
+        spec_params['p0']=fixed_param_array[0]   
+        spec_params['epsilon0']=fixed_param_array[1]
+        spec_params['xmax']=fixed_param_array[2]
+        spec_params['gamma3']=spec_params['gamma4']=0
+        spec_params['gamma3']=spec_param_array[2]
+        spec_params['gamma4']=spec_param_array[3]
+        eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
+        my_eos = eos_base
     elif 'lal_' in eos_name:
         eos_name = eos_name.replace('lal_','')
         my_eos = EOSManager.EOSLALSimulation(name=eos_name)
