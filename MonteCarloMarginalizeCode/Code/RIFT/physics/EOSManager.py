@@ -31,8 +31,11 @@ except:
 from . import MonotonicSpline as ms
 
 
-C_CGS=2.997925*10**10 # Argh, Monica!
-DENSITY_CGS_IN_MSQUARED=7.42591549e-25  # g/cm^3 m^2 //GRUnits. Multiply by this to convert from CGS -> 1/m^2 units (_geom)
+C_CGS=lal.C_SI*100
+DENSITY_CGS_IN_MSQUARED=1000*lal.G_SI/lal.C_SI**2  # g/cm^3 -> 1/m^2 //GRUnits. Multiply by this to convert from CGS -> 1/m^2 units (_geom). lal.G_SI/lal.C_SI**2 takes kg/m^3 -> 1/m^2  ||  https://lscsoft.docs.ligo.org/lalsuite/lalsimulation/_l_a_l_sim_neutron_star_8h_source.html
+PRESSURE_CGS_IN_MSQUARED = DENSITY_CGS_IN_MSQUARED/(lal.C_SI*100)**2
+#C_CGS=2.997925*10**10 # Argh, Monica!
+#DENSITY_CGS_IN_MSQUARED=7.42591549e-25  # g/cm^3 m^2 //GRUnits. Multiply by this to convert from CGS -> 1/m^2 units (_geom)
 
 
 def make_compactness_from_lambda_approximate(lambda_vals):
@@ -520,6 +523,97 @@ class EOSLindblomSpectral(EOSConcrete):
     
         new_eos_vals = check_monotonicity(new_eos_vals)
         new_eos_vals = np.vstack((np.array([0.,0.]), new_eos_vals))
+        return new_eos_vals
+
+
+######################################################################
+###################### CAUSAL Spectral Lindblom ######################
+######################################################################
+
+class EOSLindblomSpectralSoundSpeedVersusPressure(EOSConcrete):
+    """
+    Based on https://journals.aps.org/prd/abstract/10.1103/PhysRevD.105.063031  <-> https://arxiv.org/pdf/2202.12285.pdf
+    
+    EOS spectral representation of sound speed versus pressure, as expansion of Upsilon(p): see Eq. (11).
+    Uses function call to lalsuite to implement low-level interface
+    
+    """
+    def __init__(self,name=None,spec_params=None,verbose=False,use_lal_spec_eos=True):
+        if name is None:
+            self.name = 'spectral'
+        else:
+            self.name=name
+        self.eos = None
+        self.eos_fam = None
+
+        self.spec_params = spec_params
+#        print spec_params
+
+        if use_lal_spec_eos:
+            self.eos = lalsim.SimNeutronStarEOS4ParamCausalSpectralDecomposition(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'])
+        else:
+            # Create data file
+            self.make_spec_param_eos(500,save_dat=True,ligo_units=True,verbose=verbose)
+            # Use data file
+            #print " Trying to load ",name+"_geom.dat"
+            import os; #print os.listdir('.')
+            cwd = os.getcwd()
+            self.eos=eos = lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
+        self.eos_fam = fam=lalsim.CreateSimNeutronStarFamily(self.eos)
+        mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
+        self.mMaxMsun = mmass
+
+        return None
+    
+    def make_spec_param_eos(self, xvar='energy_density', yvar='pressure',npts=500, plot=False, verbose=False, save_dat=False,ligo_units=False,interpolate=False,eosname_lalsuite="SLY4"):
+        """
+        Load values from table of spectral parameterization values
+        from separate calculations.
+        Comments:
+            - eos_vals is recorded as *pressure,density* pairs, because the spectral representation is for energy density vs pressure
+            - units swap between geometric and CGS
+            - eosname_lalsuite is used for the low-density EOS
+        """
+        spec_params = self.spec_params
+        if not 'gamma3' in spec_params:
+            spec_params['gamma3']=spec_params['gamma4']=0
+        
+        try :
+            eos = lalsim.SimNeutronStarEOS4ParamCausalSpectralDecomposition(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'])
+        except:
+            raise Exception(" Did not load LALSimulation with Causal Spectral parameterization.")
+        
+        
+        maxenthalpy = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
+        #minenthalpy = lalsim.SimNeutronStarEOSMinAcausalPseudoEnthalpy(eos)
+        enthalpy_index = 0.005
+        enthalpy, rho, epsilon, press, speed = [], [], [], [], []
+        
+        Den_SI_to_CGS = 0.001 # kg m^-3 -> g cm^-3
+        Energy_SI_to_CGS = 10/(lal.C_SI*100)**2 # J m^-3 *10 -> erg/cm^3 /c^2 -> g cm^-3
+        Press_SI_to_CGS = 10 # Pa -> Ba ~ g cm^-1 s^-2
+        
+        while enthalpy_index < maxenthalpy:
+            rho.append(lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(enthalpy_index, eos)*Den_SI_to_CGS)
+            epsilon.append(lalsim.SimNeutronStarEOSEnergyDensityOfPseudoEnthalpy(enthalpy_index, eos)*Energy_SI_to_CGS) 
+            press.append(lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(enthalpy_index, eos)*Press_SI_to_CGS)
+            speed.append(lalsim.SimNeutronStarEOSSpeedOfSound(enthalpy_index,eos)*100)    # meters -> cm
+            enthalpy.append(enthalpy_index)
+            enthalpy_index = enthalpy_index*1.01
+        
+        enthalpy, rho, epsilon, press, speed  = np.array(enthalpy), np.array(rho), np.array(epsilon), np.array(press), np.array(speed)
+        
+        extraction_dict_lalsim_raw = {
+            'pseudo_enthalpy': enthalpy,
+            'rest_mass_density': rho,                     # g cm^-3
+            'baryon_density': rho/(lal.AMU_SI*1e3),       # cm^-3
+            'pressure': press,                            # dyn cm^-2 ~ g cm^-1 s^-2
+            'energy_density': epsilon,                    # g cm^-3
+            'sound_speed_over_c': speed/(lal.C_SI*100)    # [c]
+            }
+        
+        new_eos_vals = np.column_stack((extraction_dict_lalsim_raw[xvar], extraction_dict_lalsim_raw[yvar])) # CGS units
+        
         return new_eos_vals
 
 
