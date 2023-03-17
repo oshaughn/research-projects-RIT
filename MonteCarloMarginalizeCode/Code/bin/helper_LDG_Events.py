@@ -223,6 +223,7 @@ parser.add_argument("--force-fit-method",type=str,default=None,help="Force speci
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
+parser.add_argument("--ile-distance-prior",default=None,help="If present, passed through to the distance prior option.  If dmarg active, passed to dmarg so the correct prior used when building the marginalization table. ")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help='Create options to marginalize over distance in the pipeline. Also create any necessary marginalization files at runtime, based on the maximum distance assumed')
 parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,default=None,help='If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances')
@@ -1002,9 +1003,13 @@ if opts.lowlatency_propose_approximant:
 
 if not(internal_dmax is None):
     helper_ile_args +=  " --d-max " + str(int(internal_dmax))
+    if opts.ile_distance_prior:
+        helper_ile_args += " --d-prior {} ".format(opts.ile_distance_prior)   # moving here from pseudo_pipe
     if opts.internal_marginalize_distance and not(opts.internal_marginalize_distance_file):
         # Generate marginalization file (should probably be in DAG? But we may also want to override it with internal file)
         cmd_here = " util_InitMargTable --d-max {} ".format(internal_dmax)
+        if opts.ile_distance_prior:
+            cmd_here += " --d-prior {} ".format(opts.ile_distance_prior)
         os.system(cmd_here)
         prefix_file = "{}/".format(opts.working_directory)
         if opts.use_osg:

@@ -223,6 +223,7 @@ parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenue to adjoin extra PUFF arguments.  ")
+parser.add_argument("--manual-extra-test-args",default=None,type=str,help="Avenue to adjoin extra TEST arguments.  ")
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-downscale-early",action='store_true', help="If provided, the first block of iterations are performed with lnL-downscale-factor passed to CIP, such that rho*2/2 * lnL-downscale-factor ~ (15)**2/2, if rho_hint > 15 ")
 parser.add_argument("--use-gauss-early",action='store_true',help="If provided, use gaussian resampling in early iterations ('G'). Note this is a different CIP instance than using a quadratic likelihood!")
@@ -654,7 +655,9 @@ if not(opts.force_hint_snr is None):
     cmd += " --hint-snr {} ".format(opts.force_hint_snr)
 if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
     cmd += " --manual-ifo-list {} ".format(opts.manual_ifo_list)
-if (opts.internal_marginalize_distance) and not opts.ile_distance_prior:
+if opts.ile_distance_prior:
+    cmd += " --ile-distance-prior {} ".format(opts.ile_distance_prior)
+if (opts.internal_marginalize_distance): #  and not opts.ile_distance_prior:
     cmd += " --internal-marginalize-distance "
 if (opts.internal_marginalize_distance_file ):
     cmd += " --internal-marginalize-distance-file {} ".format(opts.internal_marginalize_distance_file)
@@ -768,6 +771,8 @@ with open ("helper_test_args.txt",'r') as f:
     if opts.add_extrinsic: 
         # We NEVER want to terminate if we're doing extrinsic at the end.  Block termination, so extrinsic occurs on schedule
         line += " --always-succeed "
+    if opts.manual_extra_test_args:
+        line += " {} ".format(opts.manual_extra_test_args)  # avenue to add extra tests or change test settings
     with open("args_test.txt",'w') as g:
         g.write(line)
 
